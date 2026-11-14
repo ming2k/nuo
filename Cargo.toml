@@ -1,3 +1,26 @@
+# Repository test host. This is intentionally **not** a production crate: it
+# owns the root `tests/` entry points so integration and E2E suites compile as
+# one binary each instead of one linker invocation per test file (ADR-0178).
+# Production code remains in the multi-crate `crates/*`, `tools/*`, and
+# `providers/*` tiers.
+[package]
+name = "nuo-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+autobenches = false
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+
 [workspace]
 members = [
     "crates/*",
@@ -130,6 +153,10 @@ nuo-provider-codebuddy-cn = { version = "0.0.86", path = "providers/nuo-provider
 nuo-provider-codebuddy-intl = { version = "0.0.86", path = "providers/nuo-provider-codebuddy-intl" }
 nuo-mcp = { version = "0.0.86", path = "crates/nuo-mcp" }
 nuo-inference-wire = { version = "0.0.86", path = "crates/nuo-inference-wire", default-features = false }
+# Dev-only: hermetic E2E harness (sandboxed NUO_HOME, mock provider, CLI
+# runner). Never a shipped dependency; `crates/nuo/tests/test_architecture.rs`
+# enforces that it stays under `[dev-dependencies]`.
+nuo-test-support = { version = "0.0.86", path = "crates/nuo-test-support" }
 
 # Terminal Substrate (Nuotc)
 nuotc = { git = "https://github.com/ming2k/nuotc.git", tag = "v0.0.6" }
@@ -149,6 +176,50 @@ nuo-tool-fs = { version = "0.0.86", path = "tools/nuo-tool-fs" }
 nuo-tool-exec = { version = "0.0.86", path = "tools/nuo-tool-exec" }
 nuo-tool-web = { version = "0.0.86", path = "tools/nuo-tool-web" }
 nuo-tool-ast = { version = "0.0.86", path = "tools/nuo-tool-ast" }
+
+# The root test host links every crate whose public surface the integration
+# and E2E suites exercise. All edges are dev-only; `nuo-tests` is not shipped.
+[dev-dependencies]
+nuo = { workspace = true }
+nuo-acp = { workspace = true }
+nuo-engine = { workspace = true }
+nuo-host = { workspace = true }
+nuo-inference-wire = { workspace = true }
+nuo-mcp = { workspace = true }
+nuo-model-routing = { workspace = true }
+nuo-persistence = { workspace = true, features = ["test-path-override"] }
+nuo-protocol = { workspace = true }
+nuo-provider = { workspace = true }
+nuo-provider-anthropic = { workspace = true }
+nuo-provider-catalog = { workspace = true }
+nuo-provider-google-antigravity = { workspace = true }
+nuo-provider-openai = { workspace = true }
+nuo-provider-qoder = { workspace = true }
+nuo-server = { workspace = true }
+nuo-test-support = { workspace = true }
+nuo-tool = { workspace = true }
+nuo-tool-exec = { workspace = true }
+nuo-tool-fs = { workspace = true }
+nuo-view = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+futures = { workspace = true }
+libc = { workspace = true }
+mockito = { workspace = true }
+proc-macro2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+syn = { workspace = true, features = ["visit"] }
+tempfile = { workspace = true }
+toml = { workspace = true }
+tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
+tokio-util = { workspace = true }
+tokio-tungstenite = { workspace = true }
+uuid = { workspace = true }
+walkdir = { workspace = true }
+
+[lints]
+workspace = true
 
 [workspace.lints.rust]
 unsafe_code = "allow"

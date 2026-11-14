@@ -36,7 +36,7 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_provider::InstructionBundle>,
+    pub instructions: Option<&'a nuo_provider::InstructionText>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
     /// Converted to Anthropic's `{name, description, input_schema}` shape.
     pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
@@ -103,12 +103,12 @@ pub fn body_with_capabilities(
     });
 
     // Resolve instruction pipeline into static and ephemeral tiers (ADR-0052, [INV-INST-01] & [INV-INST-03]).
-    // Structured InstructionBundle is the authoritative SSOT. Leading Role::System messages
+    // Structured InstructionText is the authoritative SSOT. Leading Role::System messages
     // in the conversation vector are grandfathered for backward compatibility but merged into the static block.
     let (mut static_system_text, ephemeral_system_text) = if let Some(bundle) = instructions {
         (
-            bundle.render_system_instructions(),
-            bundle.render_ephemeral(),
+            bundle.render_fixed().to_owned(),
+            bundle.render_transient().to_owned(),
         )
     } else {
         (String::new(), String::new())

@@ -133,8 +133,8 @@ When a new release of `nuotc` is published upstream:
 2. Run full workspace compilation and UI snapshot tests:
    ```bash
    cargo check --workspace
-   cargo test -p nuo-view
-   cargo test -p nuo --test focus_plane_invariants
+   cargo nextest run -p nuo-view --profile unit
+   cargo nextest run -p nuo-tests --profile integration -E 'test(governance::focus_plane_invariants)'
    ```
 3. Commit the dependency update:
    ```bash
@@ -148,13 +148,14 @@ When releasing a new milestone of the Nuo product and workspace:
 1. **Run Full Verification**:
    ```bash
    cargo check --workspace
-   cargo test --workspace
-   cargo test -p nuo --test architecture_firewall
+   cargo nextest run --workspace --profile unit
+   cargo nextest run --workspace --profile integration
+   cargo nextest run -p nuo-tests --profile e2e
    ```
 2. **Bump Workspace Version**:
    - Update `version = "X.Y.Z"` under `[workspace.package]` in root `Cargo.toml`.
    - Update all in-house entries in `[workspace.dependencies]` to `"X.Y.Z"`.
-   - Re-bless wire census if protocol numbers moved: `cargo test -p nuo --test architecture_firewall -- --ignored bless_wire_census`.
+   - Re-bless wire census if protocol numbers moved: `cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::bless_wire_census)' --run-ignored ignored-only`.
    - Update `CHANGELOG.md` with release highlights and migration notes.
 3. **Commit & Tag**:
    ```bash
@@ -179,7 +180,7 @@ When releasing a new milestone of the Nuo product and workspace:
   - `crates/*` — Layers 1–4 core platform crates, including the host binary `crates/nuo`.
   - `providers/nuo-provider-*` — Provider channel adapters.
   - `tools/nuo-tool-*` — Tool plugins.
-- Zero crates reside directly at the workspace root. Enforced mechanically by `cargo test -p nuo --test architecture_firewall`.
+- No production crate resides directly at the workspace root. The sole root package is the dev-only `nuo-tests` test host; the three production tiers remain `crates/*`, `providers/*`, and `tools/*`. Enforced mechanically by the nextest `governance::architecture_firewall` suite.
 
 ### 3. Unified Lockstep Invariant (`[INV-VER-01]`)
 - Host suite crates (`nuo`, `nuo-server`, `nuo-engine`, `nuo-guardrails`, `nuo-protocol`, `nuo-ui-primitives`, `nuo-view`, etc.) must **never** declare independent version numbers; they inherit `version.workspace = true` to prevent diamond dependency resolution failures and version drift.
@@ -191,8 +192,8 @@ When releasing a new milestone of the Nuo product and workspace:
 Before submitting a version bump PR or pushing a release tag, verify:
 
 - [ ] `cargo check --workspace` compiles cleanly without warnings.
-- [ ] `cargo test --workspace` passes all unit and integration tests.
-- [ ] All architectural firewall tests pass: `cargo test -p nuo --test architecture_firewall`.
+- [ ] All tiers pass: `cargo nextest run --workspace --profile unit`, `cargo nextest run --workspace --profile integration`, and `cargo nextest run -p nuo-tests --profile e2e` (see [Testing](testing.md)).
+- [ ] All architectural firewall tests pass: `cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::)'`.
 - [ ] Every internal crate in `[workspace.dependencies]` declares matching `version` and `path`.
-- [ ] Wire surface census matches protocol version (`cargo test -p nuo --test architecture_firewall -- test_inv_wire_census_matches_protocol_version`).
+- [ ] Wire surface census matches protocol version (`cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_wire_census_matches_protocol_version)'`).
 - [ ] Changelog has been updated with user-facing and breaking API notes.

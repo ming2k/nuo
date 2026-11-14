@@ -72,9 +72,9 @@ impl nuo_protocol::Provider for TitleProvider {
 }
 
 #[allow(dead_code)]
-struct AutoCleanArcSession(Arc<SessionStore>, tempfile::TempDir);
+struct AutoCleanArcSession(Arc<ThreadSession>, tempfile::TempDir);
 impl std::ops::Deref for AutoCleanArcSession {
-    type Target = Arc<SessionStore>;
+    type Target = Arc<ThreadSession>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -82,11 +82,11 @@ impl std::ops::Deref for AutoCleanArcSession {
 
 async fn fresh_title_session() -> AutoCleanArcSession {
     let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
+    let store = Arc::new(ThreadSession::for_path(dir.path().join("session.json")));
     AutoCleanArcSession(store, dir)
 }
 
-async fn await_title(session: &SessionStore) -> (Option<String>, bool) {
+async fn await_title(session: &ThreadSession) -> (Option<String>, bool) {
     for _ in 0..200 {
         let (title, manual) = session.title().await;
         if title.is_some() {

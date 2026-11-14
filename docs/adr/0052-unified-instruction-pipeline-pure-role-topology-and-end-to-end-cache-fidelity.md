@@ -1,10 +1,10 @@
 ---
 id: ADR-0052
 title: "Unified Instruction Pipeline, Pure Role Topology, and End-to-End Cache Fidelity"
-status: accepted
+status: superseded
 date: 2026-10-26
 scope: protocol/wire, model-codec/instructions, harness/system_prompt, providers/cache
-superseded_by: null
+superseded_by: ADR-0172
 negative_knowledge: true
 ---
 

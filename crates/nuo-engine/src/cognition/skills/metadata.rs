@@ -97,7 +97,7 @@ pub struct Skill {
     pub version: Option<String>,
     /// Whether the skill is currently enabled. Disabled skills are ignored by
     /// the catalog and implicit invocation but can still be requested by name
-    /// through `use_skill` so the model can explain why nothing happened.
+    /// by name so the model can explain why nothing happened.
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// Whether the skill is in quarantine (e.g. workspace skills domain is untrusted).

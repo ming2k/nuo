@@ -44,7 +44,7 @@ use crate::cognition::context_projection::ContextProjectionGate;
 use crate::orchestration::{
     ContextProjectionSettings, compact_round_history_with_mode, prune_and_commit,
 };
-use nuo_persistence::session::SessionStore;
+use nuo_persistence::thread::ThreadSession;
 
 /// Supplies the settings for the live model on demand.
 ///
@@ -54,14 +54,14 @@ pub type SettingsForWindow = Arc<dyn Fn() -> ContextProjectionSettings + Send + 
 
 /// Applies the configured projection policy to a live window between turns.
 pub struct PruningProjectionGate {
-    session: Arc<SessionStore>,
+    session: Arc<ThreadSession>,
     settings: SettingsForWindow,
     weights: Arc<nuo_protocol::MessageTokenWeights>,
 }
 
 impl PruningProjectionGate {
     pub fn new(
-        session: Arc<SessionStore>,
+        session: Arc<ThreadSession>,
         settings: SettingsForWindow,
         weights: Arc<nuo_protocol::MessageTokenWeights>,
     ) -> Self {

@@ -36,7 +36,7 @@ use crate::{Agent, RequestTokenEstimate, RoundBegin, RoundLifecycle};
 use nuo_persistence::{
     CommitTurn,
     config::Config,
-    session::{CommitBasis, ContextProjectionCheckpoint, ContextProjectionResult, SessionStore},
+    thread::{CommitBasis, ContextProjectionCheckpoint, ContextProjectionResult, ThreadSession},
 };
 use nuo_protocol::{
     AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
@@ -140,7 +140,7 @@ pub struct RoundContext {
     pub agent: Arc<Agent>,
     pub tx: mpsc::UnboundedSender<AgentResponse>,
     pub token: CancellationToken,
-    pub session: Arc<SessionStore>,
+    pub session: Arc<ThreadSession>,
     /// Session id this round belongs to. Tags every emitted
     /// [`RoundEvent`].
     pub session_id: String,

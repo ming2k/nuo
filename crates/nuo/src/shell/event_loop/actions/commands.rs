@@ -239,7 +239,7 @@ pub(super) async fn handle_send_chat(
 pub(crate) async fn handle_send_slash(
     app: &mut App,
     runtime: &UiRuntime,
-    _session: &crate::shell::SessionSource,
+    _session: &crate::shell::HookStartSource,
     cmd: String,
 ) -> ActionFlow {
     app.suggestion_index = None;

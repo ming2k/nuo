@@ -336,7 +336,7 @@ impl ThreadRegistry {
         let map = self.sessions.lock().await;
         for hosted in map.values() {
             let status = hosted.tracker.lock().await.row().status;
-            if status != nuo_protocol::SessionStatus::Idle {
+            if status != nuo_protocol::ThreadActivity::Idle {
                 return true;
             }
         }
@@ -357,7 +357,7 @@ impl ThreadRegistry {
             let map = self.sessions.lock().await;
             for hosted in map.values() {
                 let row = hosted.tracker.lock().await.row();
-                if action.include_idle || row.status != ThreadStatus::Idle {
+                if action.include_idle || row.status != ThreadActivity::Idle {
                     sessions.push(row);
                 }
             }
@@ -565,7 +565,7 @@ impl ThreadRegistry {
         }
 
         for record in records {
-            let is_subagent = record.fork_kind == "subagent";
+            let is_subagent = record.origin == "subagent";
             if self.is_hosted(&record.id).await {
                 match self.kill_session_and_wait(&record.id).await {
                     Ok(()) => {}
@@ -590,7 +590,7 @@ impl ThreadRegistry {
                 }
             }
 
-            match nuo_persistence::session::delete_thread(
+            match nuo_persistence::thread::delete_thread(
                 &record.id,
                 record.workspace_root.as_deref().map(std::path::Path::new),
             )
@@ -667,7 +667,7 @@ impl ThreadRegistry {
                         .map(|rows| {
                             rows.into_iter()
                                 .filter(|record| {
-                                    record.fork_kind == "subagent"
+                                    record.origin == "subagent"
                                         && record
                                             .parent_id
                                             .as_ref()
@@ -787,10 +787,10 @@ fn dormant_row(record: nuo_persistence::db::ThreadRecord) -> MonitoredThread {
         })
         .map(|text| truncate_overview(&text, 64))
         .unwrap_or_else(|| "(empty thread)".to_string());
-    let fork_kind = match record.fork_kind.as_str() {
-        "fork" => nuo_protocol::ThreadForkKind::Fork,
-        "subagent" => nuo_protocol::ThreadForkKind::Subagent,
-        _ => nuo_protocol::ThreadForkKind::Trunk,
+    let origin = match record.origin.as_str() {
+        "fork" => nuo_protocol::ThreadOrigin::Trunk,
+        "subagent" => nuo_protocol::ThreadOrigin::Subagent,
+        _ => nuo_protocol::ThreadOrigin::Trunk,
     };
     let digest = record
         .digest
@@ -804,7 +804,7 @@ fn dormant_row(record: nuo_persistence::db::ThreadRecord) -> MonitoredThread {
         updated_at: record.updated_at_s.max(0) as u64,
         message_count: record.msg_count.max(0) as usize,
         hosting: ThreadHosting::Dormant,
-        status: ThreadStatus::Idle,
+        status: ThreadActivity::Idle,
         round: record.round_counter,
         turn: None,
         output_tokens: 0,
@@ -822,8 +822,7 @@ fn dormant_row(record: nuo_persistence::db::ThreadRecord) -> MonitoredThread {
             .filter(|role| !role.is_empty())
             .unwrap_or_else(|| "developer".to_string()),
         parent_id: record.parent_id,
-        fork_kind,
-        fork_point: record.fork_point,
+        origin,
         digest,
     }
 }
@@ -841,7 +840,7 @@ pub(super) fn base_row(
         updated_at: overview.updated_at,
         message_count: overview.message_count,
         hosting: ThreadHosting::Hosted,
-        status: ThreadStatus::Idle,
+        status: ThreadActivity::Idle,
         round: 0,
         turn: None,
         output_tokens: 0,
@@ -856,8 +855,7 @@ pub(super) fn base_row(
         role: role.to_string(),
         // Lineage rides from the overview (fork surfacing).
         parent_id: overview.parent_id,
-        fork_kind: overview.fork_kind,
-        fork_point: overview.fork_point,
+        origin: overview.origin,
         digest: overview.digest,
     }
 }

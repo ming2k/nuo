@@ -23,8 +23,7 @@ mod execute_command;
 mod fallback;
 mod mcp;
 mod meta;
-mod read_image;
-mod read_text;
+mod read;
 mod search;
 /// Pure derivation of a command step's output rows, exit status, and fold
 /// window (ADR-0115).
@@ -122,8 +121,12 @@ impl ToolStatus {
 /// which one applies, so the per-tool dispatch lives in one place (the registry).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ResultKind {
-    /// Line-numbered code block (default / unknown tools, `read_text`).
+    /// Line-numbered code block (default / unknown tools, `read` text).
     Code,
+    /// Dispatch on the structured [`nuo_protocol::ToolOutput`] variant. Used by
+    /// capabilities whose one tool can return more than one shape (`read`:
+    /// code, listing, or an image placeholder).
+    Auto,
     /// Directory or file-search listing.
     Listing,
     /// `path:line:match` search-result rendering.
@@ -189,7 +192,7 @@ impl ToolView<'_> {
 
     /// Fetch a non-negative integer argument, or `None` when absent /
     /// non-numeric. Used by presenters that surface numeric params such as
-    /// `read_text`'s `offset` / `limit` in their collapsed header.
+    /// `read`'s `offset` / `limit` in their collapsed header.
     pub fn u64(&self, key: &str) -> Option<u64> {
         self.args.get(key).and_then(Value::as_u64)
     }
@@ -361,21 +364,9 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
     },
     ToolComponent {
         id: "read",
-        label: "File Content Previews",
-        description: "Expand file content views and source inspections by default",
-        members: &[
-            ("read_text", &read_text::ReadPresenter),
-            ("read_file", &read_text::ReadPresenter),
-            ("read", &read_text::ReadPresenter),
-        ],
-        expanded_by_default: false,
-        has_inline_body: true,
-    },
-    ToolComponent {
-        id: "read_image",
-        label: "Image Reads",
-        description: "Expand image read confirmations and their delivery notices by default",
-        members: &[("read_image", &read_image::ReadImagePresenter)],
+        label: "File & Directory Previews",
+        description: "Expand unified read results — source text, directory listings, and image confirmations",
+        members: &[("read", &read::ReadPresenter)],
         expanded_by_default: false,
         has_inline_body: true,
     },
@@ -429,14 +420,6 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         ],
         expanded_by_default: false,
         has_inline_body: false,
-    },
-    ToolComponent {
-        id: "skill",
-        label: "Skill Activations",
-        description: "Expand skill activations and their loaded guidance by default",
-        members: &[("use_skill", &meta::UseSkillPresenter)],
-        expanded_by_default: false,
-        has_inline_body: true,
     },
     ToolComponent {
         id: "ask_user",
@@ -675,7 +658,7 @@ mod tests {
     #[test]
     fn dispatches_known_tools_to_named_summaries() {
         assert_eq!(
-            summary("read_text", serde_json::json!({"path": "src/main.rs"})),
+            summary("read", serde_json::json!({"path": "src/main.rs"})),
             "Read src/main.rs"
         );
         assert_eq!(
@@ -730,7 +713,7 @@ mod tests {
 
     #[test]
     fn empty_arguments_fallback_to_named_presenter_defaults() {
-        assert_eq!(summary_for("read_text", "", None), "Read file");
+        assert_eq!(summary_for("read", "", None), "Read file");
         assert_eq!(summary_for("edit_text", "", None), "Edit text");
         assert_eq!(summary_for("write_file", "", None), "Write file");
         assert_eq!(summary_for("execute_command", "", None), "Run command");
@@ -740,7 +723,7 @@ mod tests {
     fn namespaced_tool_names_resolve_to_canonical_presenters() {
         assert_eq!(
             summary(
-                "default_api:read_text",
+                "default_api:read",
                 serde_json::json!({"path": "src/main.rs"})
             ),
             "Read src/main.rs"
@@ -760,7 +743,7 @@ mod tests {
 
     #[test]
     fn whitespace_and_invalid_arguments_never_produce_empty_summary() {
-        assert_eq!(summary_for("read_text", "   ", None), "Read file");
+        assert_eq!(summary_for("read", "   ", None), "Read file");
         assert_eq!(summary_for("execute_command", "   ", None), "Run command");
         assert_eq!(summary_for("unknown_custom", "   ", None), "unknown_custom");
         assert_eq!(summary_for("", "   ", None), "Tool");

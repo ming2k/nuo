@@ -441,6 +441,21 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 if migration.version == 33 {
                     apply_workspace_effect_detach_schema(&tx)?;
                 }
+                if migration.version == 34 {
+                    apply_thread_branch_and_runtime_schema(&tx)?;
+                }
+                if migration.version == 35 {
+                    apply_thread_commands_leases_and_blobs_schema(&tx)?;
+                }
+                if migration.version == 36 {
+                    apply_thread_facts_schema(&tx)?;
+                }
+                if migration.version == 37 {
+                    apply_thread_working_state_schema(&tx)?;
+                }
+                if migration.version == 38 {
+                    apply_thread_nomenclature_cleanup_schema(&tx)?;
+                }
             }
         }
 

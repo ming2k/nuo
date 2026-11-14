@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn default_spacing_compacts_only_same_turn_tool_batches() {
         let thinking = TranscriptMessage::reasoning("reasoning").with_turn(4);
-        let mut tool = TranscriptMessage::tool_step("call", "read_text", "{}").with_turn(4);
+        let mut tool = TranscriptMessage::tool_step("call", "read", "{}").with_turn(4);
         tool.set_tool_step_expanded(true);
         let next_tool = TranscriptMessage::tool_step("next", "search_text", "{}").with_turn(4);
         let text = TranscriptMessage::new(Role::Assistant, "answer").with_turn(4);
@@ -815,7 +815,7 @@ mod tests {
     /// A notice still terminates the group: only steer inserts are transparent.
     #[test]
     fn notice_still_terminates_a_turn_group() {
-        let tool = TranscriptMessage::tool_step("call", "read_text", "{}").with_turn(4);
+        let tool = TranscriptMessage::tool_step("call", "read", "{}").with_turn(4);
         let notice = TranscriptMessage::notice(
             crate::model::document::NoticeSeverity::Info,
             "stopped by the user",
@@ -831,7 +831,7 @@ mod tests {
     /// band it now sits *after*.
     #[test]
     fn any_user_message_terminates_the_band_including_a_steer() {
-        let tool = TranscriptMessage::tool_step("call", "read_text", "{}").with_turn(4);
+        let tool = TranscriptMessage::tool_step("call", "read", "{}").with_turn(4);
         let steer = TranscriptMessage::new(Role::User, "pivot")
             .with_origin(UserMessageOrigin::Steer)
             .with_round(1)

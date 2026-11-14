@@ -45,7 +45,7 @@ pub use self::url::{max_thinking_budget, stream_url, url};
 /// shape, if any.
 pub struct BodyInput<'a> {
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_provider::InstructionBundle>,
+    pub instructions: Option<&'a nuo_provider::InstructionText>,
     pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
     /// Stamp `generationConfig.thinkingConfig.includeThoughts`. The Google API
     /// only returns reasoning *text* when the request asks for it, and rejects
@@ -99,11 +99,11 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
         && !instructions.is_empty()
     {
         // Emit stable static prefix (Base, Session, Task) followed by ephemeral nudges (ADR-0052, [INV-INST-03])
-        let static_text = instructions.render_system_instructions();
+        let static_text = instructions.render_fixed().to_owned();
         if !static_text.is_empty() {
             system.push(static_text);
         }
-        let ephemeral_text = instructions.render_ephemeral();
+        let ephemeral_text = instructions.render_transient().to_owned();
         if !ephemeral_text.is_empty() {
             system.push(ephemeral_text);
         }
@@ -120,7 +120,7 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
     for message in messages {
         if message.role == Role::System {
             // Role::System in conversation is grandfathered for backward compatibility (ADR-0052, [INV-INST-01])
-            system.push(message.content);
+            system.push(message.content.clone());
             continue;
         }
 

@@ -311,6 +311,71 @@ async fn run_control(
                 ),
             }
         }
+        ControlRequest::ForkBranch {
+            thread_id,
+            name,
+            from_fact_id,
+        } => {
+            let Some(hosted) = registry.get(&thread_id).await else {
+                return Err("thread is not live".to_string());
+            };
+            let from = from_fact_id.map(nuo_protocol::FactId::from_raw);
+            match hosted.session.fork_branch(name, from).await {
+                Ok(branch) => (
+                    true,
+                    Some(thread_id),
+                    None,
+                    Some(serde_json::json!({ "branch_id": branch.0 }).to_string()),
+                ),
+                Err(error) => (false, Some(thread_id), Some(error), None),
+            }
+        }
+        ControlRequest::ListBranches { thread_id } => {
+            let Some(hosted) = registry.get(&thread_id).await else {
+                return Err("thread is not live".to_string());
+            };
+            match hosted.session.branches().await {
+                Ok(branches) => (
+                    true,
+                    Some(thread_id),
+                    None,
+                    Some(serde_json::to_string(&branches).unwrap_or_else(|_| "[]".to_string())),
+                ),
+                Err(error) => (false, Some(thread_id), Some(error), None),
+            }
+        }
+        ControlRequest::SwitchBranch {
+            thread_id,
+            branch_id,
+        } => {
+            let Some(hosted) = registry.get(&thread_id).await else {
+                return Err("thread is not live".to_string());
+            };
+            match hosted
+                .session
+                .switch_branch(nuo_protocol::BranchId::new(branch_id))
+                .await
+            {
+                Ok(()) => (true, Some(thread_id), None, None),
+                Err(error) => (false, Some(thread_id), Some(error), None),
+            }
+        }
+        ControlRequest::DeleteBranch {
+            thread_id,
+            branch_id,
+        } => {
+            let Some(hosted) = registry.get(&thread_id).await else {
+                return Err("thread is not live".to_string());
+            };
+            match hosted
+                .session
+                .delete_branch(nuo_protocol::BranchId::new(branch_id))
+                .await
+            {
+                Ok(()) => (true, Some(thread_id), None, None),
+                Err(error) => (false, Some(thread_id), Some(error), None),
+            }
+        }
         ControlRequest::PurgeThreads { filter, ids } => {
             let report = registry.purge_threads(filter.as_ref(), ids).await;
             match serde_json::to_string(&report) {

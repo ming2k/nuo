@@ -11,8 +11,8 @@ use tokio::sync::mpsc;
 use super::{
     ActivateEnv, PendingOAuthAuthorization, ProviderEnv, activate, build_live_picker_state,
 };
-use crate::session_view::provider_key_status;
-use nuo_persistence::session::ProviderSelection;
+use crate::thread_view::provider_key_status;
+use nuo_persistence::thread::ProviderSelection;
 
 pub(crate) struct AddConnectionParams {
     pub name: String,

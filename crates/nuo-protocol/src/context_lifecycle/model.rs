@@ -2,9 +2,9 @@
 //!
 //! These are the *target* shapes, introduced in Phase A. They are pure values
 //! (no I/O); the persistence schema, the planner, and the compiler that consume
-//! them arrive in later phases. `SessionIR` remains the aggregate
-//! view over these objects; the fact, task, and artifact records are not
-//! competing sources of truth.
+//! them arrive in later phases. `Thread` is the durable aggregate over the
+//! conversation; these records remain supporting context-lifecycle values, not
+//! competing conversation sources of truth.
 use crate::context_lifecycle::axes::{
     Capture, Deletion, Representation, Retention, Sensitivity, SourceAuthority, Validity,
 };

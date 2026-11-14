@@ -8,7 +8,7 @@ use super::*;
 #[test]
 fn dashboard_head_renders_the_shared_three_tier_band() {
     let theme = Theme::default();
-    let rows = vec![row("a-1", 100, "/work/app", ThreadStatus::Running)];
+    let rows = vec![row("a-1", 100, "/work/app", ThreadActivity::Running)];
     let mut terminal = nuotc::TestTerminal::new(100, 24);
     let mut list_scroll = 0usize;
     let mut detail_scroll = 0usize;
@@ -76,7 +76,7 @@ fn dashboard_head_renders_the_shared_three_tier_band() {
     );
 }
 
-fn row(id: &str, created_at: u64, project_root: &str, status: ThreadStatus) -> MonitoredThread {
+fn row(id: &str, created_at: u64, project_root: &str, status: ThreadActivity) -> MonitoredThread {
     MonitoredThread {
         id: id.into(),
         title: None,
@@ -97,8 +97,7 @@ fn row(id: &str, created_at: u64, project_root: &str, status: ThreadStatus) -> M
         project_root: project_root.into(),
         role: "developer".into(),
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }
 }
@@ -108,9 +107,9 @@ fn sequence_numbers_follow_creation_order_not_snapshot_order() {
     // Snapshot is newest-first by updated_at; the dock must re-sort by
     // creation so #1 is the oldest session no matter how rows arrive.
     let rows = vec![
-        row("c-newest", 300, "/work/app", ThreadStatus::Running),
-        row("a-oldest", 100, "/work/lib", ThreadStatus::Idle),
-        row("b-middle", 200, "/work/web", ThreadStatus::Idle),
+        row("c-newest", 300, "/work/app", ThreadActivity::Running),
+        row("a-oldest", 100, "/work/lib", ThreadActivity::Idle),
+        row("b-middle", 200, "/work/web", ThreadActivity::Idle),
     ];
     let entries = dock_entries(&rows);
     // dock_entries preserves input order as its slots but stamps seq by
@@ -127,8 +126,8 @@ fn sequence_numbers_follow_creation_order_not_snapshot_order() {
 #[test]
 fn creation_order_is_stable_for_equal_timestamps() {
     let rows = vec![
-        row("b", 100, "/p/b", ThreadStatus::Idle),
-        row("a", 100, "/p/a", ThreadStatus::Idle),
+        row("b", 100, "/p/b", ThreadActivity::Idle),
+        row("a", 100, "/p/a", ThreadActivity::Idle),
     ];
     assert_eq!(creation_order(&rows), vec![1, 0]);
     // Repeated calls give the same answer (total order via id tiebreak).
@@ -138,8 +137,8 @@ fn creation_order_is_stable_for_equal_timestamps() {
 #[test]
 fn workspace_names_use_basename_until_they_collide() {
     let rows = vec![
-        row("one", 1, "/home/ming/projects/nuo", ThreadStatus::Idle),
-        row("two", 2, "/home/ming/projects/app", ThreadStatus::Idle),
+        row("one", 1, "/home/ming/projects/nuo", ThreadActivity::Idle),
+        row("two", 2, "/home/ming/projects/app", ThreadActivity::Idle),
     ];
     let entries = dock_entries(&rows);
     assert_eq!(entries[0].workspace, "nuo");
@@ -148,8 +147,8 @@ fn workspace_names_use_basename_until_they_collide() {
     // Same basename in two different parents → both fall back to full
     // paths (a bare "src" would be ambiguous AND meaningless).
     let rows = vec![
-        row("one", 1, "/home/ming/projects/nuo", ThreadStatus::Idle),
-        row("two", 2, "/tmp/worktree/nuo", ThreadStatus::Idle),
+        row("one", 1, "/home/ming/projects/nuo", ThreadActivity::Idle),
+        row("two", 2, "/tmp/worktree/nuo", ThreadActivity::Idle),
     ];
     let entries = dock_entries(&rows);
     assert_eq!(entries[0].workspace, "/home/ming/projects/nuo");
@@ -181,7 +180,7 @@ fn dock_card_shows_seq_workspace_uptime_and_status() {
         "x",
         now - (2 * 3600 + 14 * 60),
         "/work/nuo",
-        ThreadStatus::Running,
+        ThreadActivity::Running,
     );
     let entries = dock_entries(std::slice::from_ref(&r));
     let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
@@ -212,8 +211,8 @@ fn dock_card_states_lineage_as_a_back_reference() {
     let theme = Theme::default();
     let now = 1_000u64;
 
-    let mut trunk = row("t", 1, "/work/main", ThreadStatus::Running);
-    trunk.fork_kind = nuo_protocol::ThreadForkKind::Trunk;
+    let mut trunk = row("t", 1, "/work/main", ThreadActivity::Running);
+    trunk.origin = nuo_protocol::ThreadOrigin::Trunk;
     let entries = dock_entries(std::slice::from_ref(&trunk));
     let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -222,33 +221,31 @@ fn dock_card_states_lineage_as_a_back_reference() {
         "a trunk carries no lineage badge: {text}"
     );
 
-    // An explicit fork with a recorded address, parent present in the dock.
-    let trunk_row = row("t", 1, "/work/main", ThreadStatus::Running);
-    let mut fork = row("a", 2, "/work/main", ThreadStatus::Running);
+    // A subagent thread with its parent present in the dock.
+    let trunk_row = row("t", 1, "/work/main", ThreadActivity::Running);
+    let mut fork = row("a", 2, "/work/main", ThreadActivity::Running);
     fork.parent_id = Some("t".into());
-    fork.fork_kind = nuo_protocol::ThreadForkKind::Fork;
-    fork.fork_point = Some(nuo_protocol::ForkPoint::at_turn(2, 1));
+    fork.origin = nuo_protocol::ThreadOrigin::Subagent;
     let rows = vec![trunk_row, fork];
     let entries = dock_entries(&rows);
     let fork_entry = entries.iter().find(|e| e.row.id == "a").expect("fork card");
     let line = dock_card_line(fork_entry, 60, false, false, now, &theme);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(
-        text.contains("\u{21b2}r2.1#1"),
-        "a branch names its fork address and origin card: {text}"
+        text.contains("\u{21b2}#1"),
+        "a child thread names its origin card: {text}"
     );
 
-    // A branch whose parent is not in the dock still states the address.
-    let mut orphan = row("f", 3, "/work/main", ThreadStatus::Idle);
+    // A child whose parent is not in the dock still states the lineage.
+    let mut orphan = row("f", 3, "/work/main", ThreadActivity::Idle);
     orphan.parent_id = Some("absent".into());
-    orphan.fork_kind = nuo_protocol::ThreadForkKind::Fork;
-    orphan.fork_point = Some(nuo_protocol::ForkPoint::at_round(4));
+    orphan.origin = nuo_protocol::ThreadOrigin::Subagent;
     let entries = dock_entries(std::slice::from_ref(&orphan));
     let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(
-        text.contains("\u{21b2}r4"),
-        "an anchorless branch still states where it diverged: {text}"
+        text.contains("\u{21b2}"),
+        "an anchorless child still states its lineage: {text}"
     );
     assert!(
         !text.contains("#0"),
@@ -267,9 +264,9 @@ fn dock_card_truncates_long_workspace_names() {
             "a",
             1,
             "/very/long/path/to/a/deeply/nested/project",
-            ThreadStatus::Idle,
+            ThreadActivity::Idle,
         ),
-        row("b", 2, "/other/worktree/project", ThreadStatus::Idle),
+        row("b", 2, "/other/worktree/project", ThreadActivity::Idle),
     ];
     let entries = dock_entries(&rows);
     let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
@@ -289,7 +286,7 @@ fn dock_card_truncates_long_workspace_names() {
 fn dock_card_at_minimum_width_keeps_fixed_fields() {
     let theme = Theme::default();
     let now = 1_000u64;
-    let r = row("x", now, "/work/nuo", ThreadStatus::Running);
+    let r = row("x", now, "/work/nuo", ThreadActivity::Running);
     let entries = dock_entries(std::slice::from_ref(&r));
     // A degenerate 30-cell cell (below the 36 target): seq, uptime and
     // status all survive; the name field just gets cramped.
@@ -309,14 +306,14 @@ fn uptime_format_scales() {
 
 #[test]
 fn dock_status_vocabulary() {
-    assert_eq!(dock_status_label(ThreadStatus::Running), "running");
-    assert_eq!(dock_status_label(ThreadStatus::Idle), "done");
+    assert_eq!(dock_status_label(ThreadActivity::Running), "running");
+    assert_eq!(dock_status_label(ThreadActivity::Idle), "done");
     assert_eq!(
-        dock_status_label(ThreadStatus::NeedsApproval),
+        dock_status_label(ThreadActivity::NeedsApproval),
         "needs approval"
     );
-    assert_eq!(dock_status_label(ThreadStatus::NeedsInput), "needs input");
-    assert_eq!(dock_status_label(ThreadStatus::Failed), "failed");
+    assert_eq!(dock_status_label(ThreadActivity::NeedsInput), "needs input");
+    assert_eq!(dock_status_label(ThreadActivity::Failed), "failed");
 }
 
 // console grammar
@@ -480,7 +477,7 @@ fn empty_input_is_never_a_dispatch() {
 #[test]
 fn session_detail_lines_renders_cognitive_digest_intent_and_milestones() {
     let theme = Theme::default();
-    let mut r = row("s-123", 1000, "/work/nuo", ThreadStatus::Running);
+    let mut r = row("s-123", 1000, "/work/nuo", ThreadActivity::Running);
     r.digest = Some(nuo_protocol::ThreadDigest {
         title: "Refactor Auth Middleware".to_string(),
         intent: "Rewrite token validator to support ECDSA signatures.".to_string(),
@@ -528,7 +525,7 @@ fn session_detail_lines_renders_cognitive_digest_intent_and_milestones() {
 #[test]
 fn session_detail_lines_falls_back_to_overview_when_no_digest() {
     let theme = Theme::default();
-    let mut r = row("s-456", 1000, "/work/nuo", ThreadStatus::Idle);
+    let mut r = row("s-456", 1000, "/work/nuo", ThreadActivity::Idle);
     r.overview = "Plain user prompt without digest".to_string();
     r.digest = None;
 
@@ -585,7 +582,7 @@ fn responsive_layout_tier_adapts_to_elevation_archetype() {
 
 #[test]
 fn thread_display_title_prioritizes_authentic_title_over_digest_and_overview() {
-    let mut r = row("t-1", 100, "/work/test", ThreadStatus::Running);
+    let mut r = row("t-1", 100, "/work/test", ThreadActivity::Running);
     r.overview.clear();
     assert_eq!(thread_display_title(&r), "untitled thread");
 
@@ -615,24 +612,24 @@ fn fmt_tokens_compact_formats_correctly() {
 #[test]
 fn status_chip_provides_distinct_visual_vocabulary() {
     let theme = Theme::default();
-    let (label_run, _) = status_chip(ThreadStatus::Running, &theme);
+    let (label_run, _) = status_chip(ThreadActivity::Running, &theme);
     assert!(label_run.contains("RUNNING"));
-    let (label_app, _) = status_chip(ThreadStatus::NeedsApproval, &theme);
+    let (label_app, _) = status_chip(ThreadActivity::NeedsApproval, &theme);
     assert!(label_app.contains("APPROVAL"));
-    let (label_inp, _) = status_chip(ThreadStatus::NeedsInput, &theme);
+    let (label_inp, _) = status_chip(ThreadActivity::NeedsInput, &theme);
     assert!(label_inp.contains("INPUT"));
-    let (label_fail, _) = status_chip(ThreadStatus::Failed, &theme);
+    let (label_fail, _) = status_chip(ThreadActivity::Failed, &theme);
     assert!(label_fail.contains("FAILED"));
-    let (label_stop, _) = status_chip(ThreadStatus::Interrupted, &theme);
+    let (label_stop, _) = status_chip(ThreadActivity::Interrupted, &theme);
     assert!(label_stop.contains("STOPPED"));
-    let (label_idle, _) = status_chip(ThreadStatus::Idle, &theme);
+    let (label_idle, _) = status_chip(ThreadActivity::Idle, &theme);
     assert!(label_idle.contains("IDLE"));
 }
 
 #[test]
 fn draw_fleet_table_renders_structured_headers_and_thread_titles() {
     let theme = Theme::default();
-    let mut r1 = row("a-1", 100, "/work/repo", ThreadStatus::Running);
+    let mut r1 = row("a-1", 100, "/work/repo", ThreadActivity::Running);
     r1.title = Some("Refactor Database Pool".to_string());
     r1.current_tool = Some("bash".to_string());
     r1.output_tokens = 14_200;

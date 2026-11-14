@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn record_provider_ack_appends_durable_ack_to_command_ledger() {
     let tmp = tempfile::tempdir().unwrap();
-    let session = SessionStore::for_path(tmp.path().join("session.json"));
+    let session = ThreadSession::for_path(tmp.path().join("session.json"));
     record_provider_ack(
         &session,
         "111xianyu",
@@ -86,7 +86,7 @@ async fn add_provider_oauth_auth_mismatch_never_writes_connection_or_token() {
     let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
     let (resp_tx, mut resp_rx) = tokio::sync::mpsc::unbounded_channel();
-    let session = SessionStore::for_path(dir.path().join("session.json"));
+    let session = ThreadSession::for_path(dir.path().join("session.json"));
     let mut config = Config::default();
     let mut usage = ConnectionUsage::default();
     let agent = nuo_harness::Agent::builder(
@@ -362,7 +362,7 @@ async fn add_provider_snapshots_rules_without_materializing_model_ids() {
     let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
 
     let mut config = Config::default();
-    let session = SessionStore::for_path(dir.path().join("session.json"));
+    let session = ThreadSession::for_path(dir.path().join("session.json"));
     let agent = nuo_harness::Agent::builder(
         Arc::new(nuo_harness::NoProvider),
         Vec::new(),
@@ -424,7 +424,7 @@ async fn add_connection_persists_commandcode_and_opencode() {
     crate::provider_registry::init();
 
     let mut config = Config::default();
-    let session = SessionStore::for_path(dir.path().join("session.json"));
+    let session = ThreadSession::for_path(dir.path().join("session.json"));
     let agent = nuo_harness::Agent::builder(
         Arc::new(nuo_harness::NoProvider),
         Vec::new(),
@@ -530,7 +530,7 @@ async fn edit_model_persists_effort_on_google_routes() {
     )
     .build();
     let provider_for_task = Arc::new(RwLock::new(agent.provider.clone()));
-    let session = SessionStore::for_path(dir.path().join("session.json"));
+    let session = ThreadSession::for_path(dir.path().join("session.json"));
 
     edit_model(
         ProviderEnv {
@@ -627,7 +627,7 @@ async fn add_connection_never_hijacks_an_active_session_model() {
         default_model: Some("existing-model".to_string()),
         ..Default::default()
     };
-    let session = SessionStore::for_path(dir.path().join("session.json"));
+    let session = ThreadSession::for_path(dir.path().join("session.json"));
     session
         .set_provider_selection(Some(ProviderSelection {
             connection: "existing-conn".to_string(),

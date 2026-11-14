@@ -196,7 +196,7 @@ pub(crate) fn normalize_code_content(
     let mut header_start_line: Option<usize> = None;
     let mut detected_path: Option<String> = arg_path;
 
-    // 1. Strip leading tool-result envelope marker (e.g. `[read_text result]:`) if present
+    // 1. Strip leading tool-result envelope marker (e.g. `[read result]:`) if present
     if let Some(first_idx) = lines.iter().position(|l| !l.trim().is_empty()) {
         let first = lines[first_idx].trim();
         if first.starts_with('[') && first.ends_with("result]:") {

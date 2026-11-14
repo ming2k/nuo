@@ -78,14 +78,15 @@ fn shared_content_is_live_for_both_owners() {
     seed_thread(&conn, THREAD);
     // A transcript entry references the same hash as the pre-image.
     conn.execute(
-        "INSERT INTO blob_refs (session_id, hash) VALUES (?1, 'shared')",
+        "INSERT INTO thread_blob_refs (thread_id, fact_id, hash, size, mime, preview, trust)
+         VALUES (?1, 'fact-shared', 'shared', 1, 'text/plain', NULL, 'trusted')",
         params![THREAD],
     )
     .unwrap();
     completed_row(&conn, "shared", "after", 1_000);
 
     // Removing the transcript's ledger row must not make the pre-image dead.
-    conn.execute("DELETE FROM blob_refs WHERE hash = 'shared'", [])
+    conn.execute("DELETE FROM thread_blob_refs WHERE hash = 'shared'", [])
         .unwrap();
     let live = garbage_collection::live_blob_hashes(&conn).unwrap();
     assert!(

@@ -1,11 +1,13 @@
-//! Turn-aware split compaction on Session IR CausalNodes.
+//! Turn-aware split compaction on durable thread facts.
 //!
 //! Features:
-//! - Turn-aware atomic cut point selection that never cuts on a Tool Result.
-//! - Conservative token estimation per CausalNode.
+//! - Turn-aware atomic cut point selection that never cuts on an observation.
+//! - Conservative token estimation per `ThreadFact`.
 //! - LLM structured summarization into dense context checkpoints.
 use super::file_tracker::FileOperations;
-use nuo_protocol::{CausalNode, Message, ModelRequest, NodePayload, Provider, Role};
+use nuo_protocol::{
+    FactId, FactPayload, Message, ModelRequest, ObservationLifecycle, Provider, Role, ThreadFact,
+};
 use std::sync::Arc;
 use tokio::time::Duration;
 
@@ -41,20 +43,22 @@ Preserve exact identifiers, function names, file paths, and technical details.";
 /// Result of finding a valid cut point for compaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CutPointResult {
-    /// Index in nodes slice of the first node to KEEP in active context.
+    /// Index in facts slice of the first fact to KEEP in active context.
     pub first_kept_index: usize,
-    /// ID of the first node kept.
-    pub first_kept_entry_id: String,
+    /// Identity of the first fact kept.
+    pub first_kept_fact_id: FactId,
     /// Whether the cut splits an in-flight multi-step turn.
     pub is_split_turn: bool,
-    /// Estimated tokens in the messages before the cut point.
+    /// Estimated tokens in the facts before the cut point.
     pub tokens_before: usize,
+    /// Sequence of the last folded fact.
+    pub folded_through_seq: u64,
 }
 
-/// Conservative token estimation for a CausalNode (chars / 4 heuristic).
-pub fn estimate_causal_node_tokens(node: &CausalNode) -> usize {
-    match &node.payload {
-        NodePayload::Message { message } => {
+/// Conservative token estimation for a `ThreadFact` (chars / 4 heuristic).
+pub fn estimate_fact_tokens(fact: &ThreadFact) -> usize {
+    match &fact.payload {
+        FactPayload::Message { message } => {
             let mut chars = message.content.len();
             if let Some(ref calls) = message.tool_calls {
                 for c in calls {
@@ -63,57 +67,59 @@ pub fn estimate_causal_node_tokens(node: &CausalNode) -> usize {
             }
             chars.div_ceil(4)
         }
-        NodePayload::Compaction { summary, .. } => summary.len().div_ceil(4),
-        NodePayload::Observation { lifecycle, .. } => match lifecycle {
-            nuo_protocol::ObservationLifecycle::Raw { content } => content.len().div_ceil(4),
-            nuo_protocol::ObservationLifecycle::ActiveTruncated {
+        FactPayload::Compaction { summary, .. } => summary.len().div_ceil(4),
+        FactPayload::Observation { lifecycle, .. } => match lifecycle {
+            ObservationLifecycle::Raw { content } => content.len().div_ceil(4),
+            ObservationLifecycle::ActiveTruncated {
                 head_preview,
                 tail_preview,
                 ..
             } => (head_preview.len() + tail_preview.len() + 100).div_ceil(4),
-            nuo_protocol::ObservationLifecycle::Retired { .. } => 32,
+            ObservationLifecycle::Retired { .. } => 32,
         },
-        NodePayload::Termination { partial_output, .. } => partial_output
+        FactPayload::Termination { partial_output, .. } => partial_output
             .as_ref()
             .map(|s| s.len().div_ceil(4))
             .unwrap_or(32),
-        NodePayload::SystemNotice { content, .. } => content.len().div_ceil(4),
+        FactPayload::SystemNotice { content, .. } => content.len().div_ceil(4),
     }
 }
 
-/// Find a turn-aware cut point on CausalNodes that keeps **at most**
-/// `keep_recent_tokens` of newest context.
-///
-/// The old rule kept *at least* the budget (it walked until the accumulated
-/// total crossed the target). That makes the post-fold window unbounded: the
-/// tail is always at or above the target before the checkpoint is added, so a
-/// verbose summary or a single huge node can leave the session above the
-/// compaction gate on the very next send. Keeping at most the budget is what
-/// makes the post-condition meaningful; the one exception is tool atomicity
-/// (a tool call and its result are folded together, which can overshoot by one
-/// exchange — the caller reports that).
-pub fn find_cut_point_nodes(
-    nodes: &[&CausalNode],
+fn is_user_prompt(fact: &ThreadFact) -> bool {
+    matches!(
+        &fact.payload,
+        FactPayload::Message { message } if message.role == Role::User
+    )
+}
+
+fn is_tool_result(fact: &ThreadFact) -> bool {
+    matches!(fact.payload, FactPayload::Observation { .. })
+        || matches!(
+            &fact.payload,
+            FactPayload::Message { message } if message.role == Role::Tool
+        )
+}
+
+/// Find a turn-aware cut point that keeps **at most** `keep_recent_tokens` of
+/// newest context.
+pub fn find_cut_point_facts(
+    facts: &[&ThreadFact],
     keep_recent_tokens: usize,
 ) -> Option<CutPointResult> {
-    if nodes.is_empty() {
+    if facts.is_empty() {
         return None;
     }
 
-    let token_counts: Vec<usize> = nodes
-        .iter()
-        .map(|n| estimate_causal_node_tokens(n))
-        .collect();
+    let token_counts: Vec<usize> = facts.iter().map(|f| estimate_fact_tokens(f)).collect();
     let total_tokens: usize = token_counts.iter().sum();
 
     if total_tokens <= keep_recent_tokens {
-        return None; // No compaction needed yet
+        return None;
     }
 
-    // Largest suffix whose token sum fits the budget.
     let mut accumulated_tokens = 0usize;
-    let mut cut_index = nodes.len();
-    for i in (0..nodes.len()).rev() {
+    let mut cut_index = facts.len();
+    for i in (0..facts.len()).rev() {
         let next = accumulated_tokens.saturating_add(token_counts[i]);
         if next > keep_recent_tokens {
             break;
@@ -121,71 +127,52 @@ pub fn find_cut_point_nodes(
         accumulated_tokens = next;
         cut_index = i;
     }
-    // Even the newest node exceeds the budget: keep that node and fold the
-    // rest. The post-condition reports that the fold cannot satisfy the gate.
-    if cut_index == nodes.len() {
-        cut_index = nodes.len() - 1;
+    if cut_index == facts.len() {
+        cut_index = facts.len() - 1;
     }
 
-    // Adjust cut_index so we never cut in the middle of a ToolResult
-    // If the node at cut_index is a ToolResult, walk backward to find the Assistant call that triggered it
-    while cut_index > 0 {
-        if let NodePayload::Message { ref message } = nodes[cut_index].payload
-            && message.role == Role::Tool
-        {
-            cut_index -= 1;
-            continue;
-        }
-        break;
+    // Never cut between an assistant tool call and its observation.
+    while cut_index > 0 && is_tool_result(facts[cut_index]) {
+        cut_index -= 1;
     }
 
-    if cut_index == 0 || cut_index >= nodes.len() {
+    if cut_index == 0 || cut_index >= facts.len() {
         return None;
     }
 
-    let first_kept_entry_id = nodes[cut_index].id.clone();
-    let is_split_turn = if let NodePayload::Message { ref message } = nodes[cut_index].payload {
-        message.role == Role::Assistant
-    } else {
-        false
-    };
+    let first_kept = facts[cut_index];
+    let is_split_turn = matches!(
+        &first_kept.payload,
+        FactPayload::Message { message } if message.role == Role::Assistant
+    );
 
     let tokens_before: usize = token_counts[..cut_index].iter().sum();
+    let folded_through_seq = facts[cut_index - 1].seq;
 
     Some(CutPointResult {
         first_kept_index: cut_index,
-        first_kept_entry_id,
+        first_kept_fact_id: first_kept.id.clone(),
         is_split_turn,
         tokens_before,
+        folded_through_seq,
     })
 }
 
-/// Find a cut point on CausalNodes preserving the last `preserve_rounds` user rounds.
-/// Folds rounds [0..N-preserve_rounds] and preserves the volatile tail verbatim.
-/// Returns None if there are fewer than `preserve_rounds + 1` complete rounds (meaning no past rounds to fold).
+/// Find a cut point preserving the last `preserve_rounds` user rounds.
 pub fn find_tail_preserving_cut_point(
-    nodes: &[&CausalNode],
+    facts: &[&ThreadFact],
     preserve_rounds: usize,
 ) -> Option<CutPointResult> {
-    if nodes.is_empty() || preserve_rounds == 0 {
+    if facts.is_empty() || preserve_rounds == 0 {
         return None;
     }
 
-    let token_counts: Vec<usize> = nodes
-        .iter()
-        .map(|n| estimate_causal_node_tokens(n))
-        .collect();
+    let token_counts: Vec<usize> = facts.iter().map(|f| estimate_fact_tokens(f)).collect();
 
     let mut user_rounds_seen = 0;
     let mut cut_index = None;
-
-    // Scan backwards from newest entry to find the start of the preserved tail
-    for (i, node) in nodes.iter().enumerate().rev() {
-        let is_user_prompt = match &node.payload {
-            NodePayload::Message { message } => message.role == Role::User,
-            _ => false,
-        };
-        if is_user_prompt {
+    for (i, fact) in facts.iter().enumerate().rev() {
+        if is_user_prompt(fact) {
             user_rounds_seen += 1;
             if user_rounds_seen == preserve_rounds {
                 cut_index = Some(i);
@@ -196,48 +183,40 @@ pub fn find_tail_preserving_cut_point(
 
     let mut cut_index = cut_index?;
     if cut_index == 0 {
-        // All dialogue is within the preserved tail; no earlier rounds to fold.
         return None;
     }
 
-    // Adjust cut_index so we never cut in the middle of a ToolResult chain
-    while cut_index > 0 {
-        if let NodePayload::Message { ref message } = nodes[cut_index].payload
-            && message.role == Role::Tool
-        {
-            cut_index -= 1;
-            continue;
-        }
-        break;
+    while cut_index > 0 && is_tool_result(facts[cut_index]) {
+        cut_index -= 1;
     }
 
-    if cut_index == 0 || cut_index >= nodes.len() {
+    if cut_index == 0 || cut_index >= facts.len() {
         return None;
     }
 
-    let first_kept_entry_id = nodes[cut_index].id.clone();
-    let is_split_turn = if let NodePayload::Message { ref message } = nodes[cut_index].payload {
-        message.role == Role::Assistant
-    } else {
-        false
-    };
-
+    let first_kept = facts[cut_index];
+    let is_split_turn = matches!(
+        &first_kept.payload,
+        FactPayload::Message { message } if message.role == Role::Assistant
+    );
     let tokens_before: usize = token_counts[..cut_index].iter().sum();
+    let folded_through_seq = facts[cut_index - 1].seq;
 
     Some(CutPointResult {
         first_kept_index: cut_index,
-        first_kept_entry_id,
+        first_kept_fact_id: first_kept.id.clone(),
         is_split_turn,
         tokens_before,
+        folded_through_seq,
     })
 }
 
-/// Serialize CausalNodes to clean text representation for LLM summarization.
-pub fn serialize_nodes_for_summary(nodes: &[&CausalNode]) -> String {
+/// Serialize facts to clean text for LLM summarization.
+pub fn serialize_facts_for_summary(facts: &[&ThreadFact]) -> String {
     let mut out = String::new();
-    for node in nodes {
-        match &node.payload {
-            NodePayload::Message { message } => {
+    for fact in facts {
+        match &fact.payload {
+            FactPayload::Message { message } => {
                 let role_label = match message.role {
                     Role::User => "User",
                     Role::Assistant => "Assistant",
@@ -246,10 +225,10 @@ pub fn serialize_nodes_for_summary(nodes: &[&CausalNode]) -> String {
                 };
                 out.push_str(&format!("[{}]\n{}\n\n", role_label, message.content));
             }
-            NodePayload::Compaction { summary, .. } => {
+            FactPayload::Compaction { summary, .. } => {
                 out.push_str(&format!("[Previous Summary Checkpoint]\n{}\n\n", summary));
             }
-            NodePayload::Termination {
+            FactPayload::Termination {
                 reason,
                 partial_output,
                 ..
@@ -266,12 +245,12 @@ pub fn serialize_nodes_for_summary(nodes: &[&CausalNode]) -> String {
                     reason_str, output
                 ));
             }
-            NodePayload::SystemNotice {
+            FactPayload::SystemNotice {
                 source, content, ..
             } => {
                 out.push_str(&format!("[System Notice from {}]\n{}\n\n", source, content));
             }
-            NodePayload::Observation {
+            FactPayload::Observation {
                 call_id,
                 tool_name,
                 lifecycle,
@@ -285,25 +264,25 @@ pub fn serialize_nodes_for_summary(nodes: &[&CausalNode]) -> String {
     out
 }
 
-/// Execute turn-aware split compaction on CausalNode lineage.
-pub async fn compact_causal_nodes(
+/// Execute turn-aware split compaction over a fact lineage.
+pub async fn compact_facts(
     provider: Arc<dyn Provider>,
-    nodes: &[&CausalNode],
+    facts: &[&ThreadFact],
     cut_point: &CutPointResult,
     previous_summary: Option<&str>,
     extra_context: &[String],
-) -> Result<NodePayload, String> {
-    let nodes_to_compact = &nodes[..cut_point.first_kept_index];
-    if nodes_to_compact.is_empty() {
-        return Err("No nodes to compact".to_string());
+) -> Result<FactPayload, String> {
+    let facts_to_compact = &facts[..cut_point.first_kept_index];
+    if facts_to_compact.is_empty() {
+        return Err("No facts to compact".to_string());
     }
 
     let mut file_tracker = FileOperations::new();
-    for node in nodes_to_compact {
-        file_tracker.extract_from_node(node);
+    for fact in facts_to_compact {
+        file_tracker.extract_from_fact(fact);
     }
 
-    let conversation_text = serialize_nodes_for_summary(nodes_to_compact);
+    let conversation_text = serialize_facts_for_summary(facts_to_compact);
     let mut prompt_body = format!(
         "<conversation_to_compact>\n{}\n</conversation_to_compact>\n\n",
         conversation_text
@@ -322,11 +301,7 @@ pub async fn compact_causal_nodes(
     }
     prompt_body.push_str(COMPACTION_USER_INSTRUCTIONS);
 
-    let instructions = nuo_protocol::InstructionBundle::from_single(
-        "compaction.split",
-        nuo_protocol::InstructionTier::Task,
-        COMPACTION_SYSTEM_PROMPT,
-    );
+    let instructions = nuo_protocol::InstructionText::fixed(COMPACTION_SYSTEM_PROMPT);
     let messages = vec![Message::new(Role::User, prompt_body)];
     let request = ModelRequest::ephemeral(messages).with_instructions(instructions);
 
@@ -343,146 +318,83 @@ pub async fn compact_causal_nodes(
     let read_files: Vec<String> = file_tracker.read.into_iter().collect();
     let modified_files: Vec<String> = file_tracker.modified.into_iter().collect();
 
-    Ok(NodePayload::Compaction {
+    Ok(FactPayload::Compaction {
         summary,
-        first_kept_node_id: cut_point.first_kept_entry_id.clone(),
+        first_kept_fact_id: cut_point.first_kept_fact_id.clone(),
         tokens_before: cut_point.tokens_before,
         read_files,
         modified_files,
-        belief_state: None,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nuo_protocol::{FactContext, ThreadFact};
+
+    fn fact(id: u64, role: Role, content: &str) -> ThreadFact {
+        ThreadFact::new(
+            FactId::from_raw(id.to_string()),
+            (id > 1).then(|| FactId::from_raw((id - 1).to_string())),
+            id,
+            100 + id,
+            FactPayload::Message {
+                message: Message::new(role, content),
+            },
+            FactContext::default(),
+        )
+    }
 
     #[test]
-    fn find_cut_point_nodes_never_cuts_on_tool_result() {
-        let n1 = CausalNode {
-            id: "1".into(),
-            parent_id: None,
-            seq: 1,
-            timestamp_ms: 100,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::User, "run test"),
+    fn find_cut_point_never_cuts_on_observation() {
+        let n1 = fact(1, Role::User, "run test");
+        let n2 = fact(2, Role::Assistant, "calling bash");
+        let n3 = ThreadFact::new(
+            FactId::from_raw("3"),
+            Some(FactId::from_raw("2")),
+            3,
+            103,
+            FactPayload::Observation {
+                call_id: "call-1".into(),
+                tool_name: "bash".into(),
+                output_ref: nuo_protocol::BlobRef::new("h", 1, "text/plain"),
+                metrics: Default::default(),
+                lifecycle: ObservationLifecycle::Raw {
+                    content: "output of bash".into(),
+                },
             },
-        };
-        let n2 = CausalNode {
-            id: "2".into(),
-            parent_id: Some("1".into()),
-            seq: 2,
-            timestamp_ms: 101,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::Assistant, "calling bash"),
-            },
-        };
-        let n3 = CausalNode {
-            id: "3".into(),
-            parent_id: Some("2".into()),
-            seq: 3,
-            timestamp_ms: 102,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::Tool, "output of bash"),
-            },
-        };
-        let n4 = CausalNode {
-            id: "4".into(),
-            parent_id: Some("3".into()),
-            seq: 4,
-            timestamp_ms: 103,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::Assistant, "all done"),
-            },
-        };
-        let nodes = vec![&n1, &n2, &n3, &n4];
-
-        let cut = find_cut_point_nodes(&nodes, 5).unwrap();
+            FactContext::default(),
+        );
+        let n4 = fact(4, Role::Assistant, "all done");
+        let facts = vec![&n1, &n2, &n3, &n4];
+        let cut = find_cut_point_facts(&facts, 5).unwrap();
         assert_ne!(cut.first_kept_index, 2);
     }
 
     #[test]
     fn find_tail_preserving_cut_point_folds_prior_rounds_and_preserves_tail() {
-        // Round 1: user1 -> assistant1
-        let n1 = CausalNode {
-            id: "1".into(),
-            parent_id: None,
-            seq: 1,
-            timestamp_ms: 100,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::User, "round 1 question"),
-            },
-        };
-        let n2 = CausalNode {
-            id: "2".into(),
-            parent_id: Some("1".into()),
-            seq: 2,
-            timestamp_ms: 101,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::Assistant, "round 1 answer"),
-            },
-        };
-        // Round 2: user2 -> assistant2 (current tail)
-        let n3 = CausalNode {
-            id: "3".into(),
-            parent_id: Some("2".into()),
-            seq: 3,
-            timestamp_ms: 102,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::User, "round 2 question"),
-            },
-        };
-        let n4 = CausalNode {
-            id: "4".into(),
-            parent_id: Some("3".into()),
-            seq: 4,
-            timestamp_ms: 103,
-            kind: nuo_protocol::NodeKind::Dialogue,
-            payload: NodePayload::Message {
-                message: Message::new(Role::Assistant, "round 2 answer"),
-            },
-        };
+        let n1 = fact(1, Role::User, "round 1 question");
+        let n2 = fact(2, Role::Assistant, "round 1 answer");
+        let n3 = fact(3, Role::User, "round 2 question");
+        let n4 = fact(4, Role::Assistant, "round 2 answer");
 
-        // When only 1 round exists, cannot fold because no prior completed rounds exist
         let one_round = vec![&n1, &n2];
         assert!(find_tail_preserving_cut_point(&one_round, 1).is_none());
 
-        // When 2 rounds exist, preserving 1 round cuts at round 2 start (n3)
         let two_rounds = vec![&n1, &n2, &n3, &n4];
         let cut = find_tail_preserving_cut_point(&two_rounds, 1).unwrap();
         assert_eq!(cut.first_kept_index, 2);
-        assert_eq!(cut.first_kept_entry_id, "3");
+        assert_eq!(cut.first_kept_fact_id, FactId::from_raw("3"));
+        assert_eq!(cut.folded_through_seq, 2);
     }
 
-    /// The tail must be bounded by the budget, not merely *at least* it.
-    ///
-    /// The old walk stopped as soon as the accumulated tail crossed the target,
-    /// which made the post-fold window unbounded. Keeping the largest suffix that
-    /// fits is what lets the caller promise the gate.
     #[test]
-    fn find_cut_point_nodes_keeps_at_most_the_budget() {
-        let nodes: Vec<CausalNode> = (0..10u64)
-            .map(|i| CausalNode {
-                id: i.to_string(),
-                parent_id: (i > 0).then(|| (i - 1).to_string()),
-                seq: i,
-                timestamp_ms: 100 + i,
-                kind: nuo_protocol::NodeKind::Dialogue,
-                payload: NodePayload::Message {
-                    // ~100 tokens each (plus framing).
-                    message: Message::new(Role::User, "word ".repeat(100)),
-                },
-            })
+    fn find_cut_point_keeps_at_most_the_budget() {
+        let nodes: Vec<ThreadFact> = (1..=10u64)
+            .map(|i| fact(i, Role::User, &"word ".repeat(100)))
             .collect();
-        let refs: Vec<&CausalNode> = nodes.iter().collect();
-        let cut = find_cut_point_nodes(&refs, 250).expect("a tenth-node budget must cut");
+        let refs: Vec<&ThreadFact> = nodes.iter().collect();
+        let cut = find_cut_point_facts(&refs, 250).expect("a tenth-node budget must cut");
         let kept = refs.len() - cut.first_kept_index;
         assert!(kept <= 2, "the kept tail exceeded the budget: {kept} nodes");
     }

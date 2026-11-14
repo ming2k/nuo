@@ -177,7 +177,7 @@ pub async fn execute_round(
     // tools and then crashed rewinds the transcript to the previous round,
     // leaving it out of sync with the filesystem. The closure clones the
     // session `Arc` and the message slice (the `BoxFuture` is `'static`), then
-    // delegates to `SessionStore::append_turn`, which writes only the delta.
+    // delegates to `ThreadSession::append_turn`, which writes only the delta.
     {
         let session_for_round = Arc::clone(&session);
         let agent_for_round = Arc::clone(&agent);

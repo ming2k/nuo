@@ -407,7 +407,7 @@ pub(crate) fn format_tool_result_message(
         // ADR-0093 [INV-TRUNC-01]: Objective metadata envelope; zero imperative pseudo-guidance
         let message_content = format!("{formatted}\n\n- Spool File: \"{spool_path_str}\"");
         Message::tool_result(call, message_content)
-    } else if call.name == "read_text"
+    } else if call.name == "read"
         && (call.arguments.contains("/tmp/nuo/vfs")
             || call.arguments.contains("/tmp/nuo/spool")
             || call.arguments.contains("/dev/shm/nuo/spool")

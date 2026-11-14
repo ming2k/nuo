@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn command_step_fold_ignores_non_command_and_error_steps() {
-        assert!(command_step_fold("read_text", Some(&numbered(50)), None).is_none());
+        assert!(command_step_fold("read", Some(&numbered(50)), None).is_none());
         let err = ToolOutput::Error {
             message: numbered(50),
             detail: None,

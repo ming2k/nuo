@@ -17,7 +17,7 @@
 //! # Architecture today
 //!
 //! The assembly factory has landed as [`bootstrap::assemble`]: it builds one
-//! frontend-neutral session harness ([`session_driver::SessionDriver`] plus
+//! frontend-neutral session harness ([`thread_driver::ThreadDriver`] plus
 //! its channels) per call, and the application binary (`nuo`) goes through it.
 //! The multi-session host and the unified session server have landed on top of
 //! it — the "one session per process" posture is gone:
@@ -73,14 +73,13 @@ pub mod archivist_service;
 pub mod background_jobs;
 pub mod bootstrap;
 pub mod credentials_host;
-pub mod durability_sink;
 pub mod export;
 pub mod handlers_chat;
 pub mod handlers_history;
 pub mod handlers_permission;
 pub mod handlers_provider;
-pub mod handlers_session;
 pub mod handlers_slash;
+pub mod handlers_thread;
 pub mod handlers_websearch;
 pub mod health_http;
 pub mod hooks;
@@ -101,14 +100,14 @@ pub mod registry;
 pub mod search_lexical;
 pub mod serve;
 pub mod serve_discovery;
-pub mod session_driver;
-pub mod session_view;
 pub mod shutdown;
 pub mod skills_host;
 pub mod slash_handler;
 pub mod startup;
 pub mod task_fault_tolerance;
 pub mod task_ledger;
+pub mod thread_driver;
+pub mod thread_view;
 pub mod ui_bridge;
 pub mod usage_cache;
 pub mod wire_channel;
@@ -117,13 +116,12 @@ pub mod workspace_journal;
 pub use archivist::{archivist_address, build_archivist};
 pub use background_jobs::{BackgroundJobEvent, BackgroundJobManager, SessionJobService};
 pub use credentials_host::{host as credential_host, store as credential_store};
-pub use durability_sink::StoreSink;
 pub use hypervisor::Hypervisor;
 pub use kernel_host::kernel_host;
 pub use mcp::{McpCatalog, McpRuntime};
 pub use registry::{HostedThread, ThreadRegistry};
-pub use session_driver::SessionDriver;
 pub use skills_host::DurableWorkspaceTrust;
+pub use thread_driver::ThreadDriver;
 pub use ui_bridge::{CopyOutcome, UiBridge};
 
 /// Authoritative runtime configuration shared across all hosted sessions.

@@ -314,10 +314,10 @@ mod tests {
     #[test]
     fn parse_text_tool_call_ignores_trailing_special_tokens() {
         let call = parse_text_tool_call(
-            "{\"tool\":\"read_text\",\"arguments\":{\"path\":\"x\"}}<|tool_calls_section_end|>",
+            "{\"tool\":\"read\",\"arguments\":{\"path\":\"x\"}}<|tool_calls_section_end|>",
         )
         .expect("trailing special token must not break parsing");
-        assert_eq!(call.name, "read_text");
+        assert_eq!(call.name, "read");
         assert_eq!(call.arguments, "{\"path\":\"x\"}");
     }
 
@@ -390,9 +390,9 @@ mod tests {
 
     #[test]
     fn parse_called_tool_fallback_parses_unquoted_and_quoted_tool_calls() {
-        let text1 = r#"[Called tool read_text with arguments: {"limit": 90, "offset": 100, "path": "/path/to/sync.rs"}]"#;
+        let text1 = r#"[Called tool read with arguments: {"limit": 90, "offset": 100, "path": "/path/to/sync.rs"}]"#;
         let call1 = parse_text_tool_call(text1).expect("should parse unquoted called tool");
-        assert_eq!(call1.name, "read_text");
+        assert_eq!(call1.name, "read");
         assert_eq!(
             call1.arguments,
             r#"{"limit": 90, "offset": 100, "path": "/path/to/sync.rs"}"#
@@ -403,20 +403,22 @@ mod tests {
         assert_eq!(call2.name, "todo");
         assert_eq!(call2.arguments, r#"{"items": []}"#);
 
-        let text3 = r#"[Called tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
+        let text3 =
+            r#"[Called tool "read" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
         let call3 =
             parse_text_tool_call(text3).expect("should parse called tool with double quotes");
-        assert_eq!(call3.name, "read_text");
+        assert_eq!(call3.name, "read");
         assert_eq!(
             call3.arguments,
             r#"{"limit": 120, "path": "docs/adr/0046.md"}"#
         );
 
         // Executed tool calls emitted by models mimicking conversational history must be parsed
-        let text4 = r#"[Executed tool "read_text" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
+        let text4 =
+            r#"[Executed tool "read" with arguments: {"limit": 120, "path": "docs/adr/0046.md"}]"#;
         let call4 =
             parse_text_tool_call(text4).expect("executed tool should be parsed as live tool call");
-        assert_eq!(call4.name, "read_text");
+        assert_eq!(call4.name, "read");
         assert_eq!(
             call4.arguments,
             r#"{"limit": 120, "path": "docs/adr/0046.md"}"#
@@ -437,7 +439,7 @@ mod tests {
         assert!(gemini_call.arguments.contains("tessera-desktop"));
 
         // Incomplete / truncated arguments must NOT parse as a fallback tool call
-        let text6 = r#"[Executed tool "read_text" with arguments: {"limit":120,"offset":1,"path": "docs/adr/018"#;
+        let text6 = r#"[Executed tool "read" with arguments: {"limit":120,"offset":1,"path": "docs/adr/018"#;
         assert!(parse_text_tool_call(text6).is_none());
     }
 

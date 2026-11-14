@@ -26,7 +26,7 @@ pub(super) async fn send_context_projection(
 
 pub(super) async fn persist_request_usage(
     agent: &Agent,
-    session: &SessionStore,
+    session: &ThreadSession,
     session_id: &str,
 ) -> Result<(), String> {
     let Some(ledger) = agent.token_ledger() else {

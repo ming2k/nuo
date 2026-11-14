@@ -36,6 +36,7 @@ pub mod surface;
 pub mod transport;
 pub mod tuning;
 pub mod vision;
+pub mod wire;
 pub mod wire_surface;
 
 pub use endpoint::*;
@@ -105,3 +106,4 @@ pub use transport::{
     Transport, TransportDiagnostic, TransportError, TransportObservation, TransportTelemetry,
     TransportTimings,
 };
+pub use wire::{EncodedRequest, WireRequest};

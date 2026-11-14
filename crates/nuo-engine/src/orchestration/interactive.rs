@@ -8,7 +8,7 @@ pub struct InteractiveRoundContext {
     pub agent: Arc<Agent>,
     pub tx: mpsc::UnboundedSender<AgentResponse>,
     pub lifecycle: Arc<RoundLifecycle>,
-    pub session: Arc<SessionStore>,
+    pub session: Arc<ThreadSession>,
     /// Session id this round belongs to. Tags every emitted
     /// [`RoundEvent`].
     pub session_id: String,

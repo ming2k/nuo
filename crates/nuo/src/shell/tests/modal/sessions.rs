@@ -23,8 +23,7 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
         message_count: 1,
         active: true,
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -69,8 +68,7 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
         message_count: 3,
         active: false,
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -332,8 +330,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
         message_count: 5,
         active: false,
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -391,8 +388,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         message_count: 5,
         active: false,
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -477,7 +473,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
         sid,
         None::<String>,
     ));
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: sid.to_string(),
     };
     assert!(app.is_current_thread_empty());
@@ -525,7 +521,7 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
         sid,
         None::<String>,
     ));
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: sid.to_string(),
     };
 
@@ -565,7 +561,7 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         sid,
         None::<String>,
     ));
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: sid.to_string(),
     };
 
@@ -605,7 +601,7 @@ async fn slash_new_with_round_count_greater_than_zero_opens_new_tab() {
         sid,
         None::<String>,
     ));
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: sid.to_string(),
     };
 

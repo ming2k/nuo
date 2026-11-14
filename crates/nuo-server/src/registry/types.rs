@@ -22,7 +22,7 @@ pub struct HostedThread {
     pub workspace_root: Option<PathBuf>,
     /// Channel accounting shared with the assembled agent.
     pub human_channel: Arc<nuo_protocol::human_request::HumanChannelAccountant>,
-    pub session: Arc<SessionStore>,
+    pub session: Arc<ThreadSession>,
     pub req_tx: mpsc::Sender<AgentRequest>,
     pub events: broadcast::Sender<AgentResponse>,
     pub cancel: CancellationToken,
@@ -441,7 +441,7 @@ pub(super) async fn lookup_session_workspace(id: &str) -> Option<SessionBinding>
     .flatten()
 }
 
-pub(super) async fn lookup_session_manifest(id: &str) -> Option<nuo_protocol::SessionRoleManifest> {
+pub(super) async fn lookup_session_manifest(id: &str) -> Option<nuo_protocol::ThreadRoleManifest> {
     let id = id.to_string();
     tokio::task::spawn_blocking(move || {
         nuo_persistence::db::get_persistence_handle()

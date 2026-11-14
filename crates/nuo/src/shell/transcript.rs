@@ -656,7 +656,7 @@ mod tests {
         };
         let inner_call = ToolCall {
             id: "inner_1".to_string(),
-            name: "read_text".to_string(),
+            name: "read".to_string(),
             arguments: "{}".to_string(),
         };
         // The subagent's partial internal transcript: one completed read round.
@@ -667,7 +667,7 @@ mod tests {
                 tool_calls: Some(vec![inner_call.clone()]),
                 ..Message::new(Role::Assistant, "")
             },
-            Message::tool_result(&inner_call, "[read_text result]:\nfound 1 of 3"),
+            Message::tool_result(&inner_call, "[read result]:\nfound 1 of 3"),
         ];
         let messages = vec![
             Message::new(Role::User, "research the handlers"),
@@ -706,7 +706,7 @@ mod tests {
         assert_eq!(
             kids[0].tool_step_status(),
             Some(nuo_view::model::document::ToolStepStatus::Ok),
-            "the child read_text step completed normally"
+            "the child read step completed normally"
         );
     }
 

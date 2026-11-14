@@ -5,11 +5,11 @@ pub(super) use crate::bootstrap::BootstrapParams;
 pub(super) use crate::monitor::MonitorTracker;
 pub(super) use crate::serve::{AttachAction, AttachSyncBuffer, is_attach_sync_event};
 pub(super) use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile};
-pub(super) use nuo_persistence::session::SessionStore;
+pub(super) use nuo_persistence::thread::ThreadSession;
 pub(super) use nuo_protocol::{
     AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredThread,
-    PermissionDecision, ThreadFilter, ThreadHosting, ThreadOverview, ThreadRemovalReport,
-    ThreadRemovalSkip, ThreadStatus,
+    PermissionDecision, ThreadActivity, ThreadFilter, ThreadHosting, ThreadOverview,
+    ThreadRemovalReport, ThreadRemovalSkip,
 };
 pub(super) use std::collections::HashMap;
 pub(super) use std::path::PathBuf;

@@ -6,13 +6,13 @@ pub(crate) fn header_content(rows: &[MonitoredThread]) -> (String, bool) {
         .filter(|r| {
             matches!(
                 r.status,
-                ThreadStatus::NeedsApproval | ThreadStatus::NeedsInput | ThreadStatus::Failed
+                ThreadActivity::NeedsApproval | ThreadActivity::NeedsInput | ThreadActivity::Failed
             )
         })
         .count();
     let running = rows
         .iter()
-        .filter(|r| r.status == ThreadStatus::Running)
+        .filter(|r| r.status == ThreadActivity::Running)
         .count();
     let total_tokens: u64 = rows.iter().map(|r| r.output_tokens).sum();
     let summary = if rows.is_empty() {
@@ -180,19 +180,13 @@ pub(crate) fn draw_fleet_table(
         };
         let (status_text, status_st) = status_chip(row.status, theme);
 
-        let lineage = match row.fork_kind {
-            nuo_protocol::ThreadForkKind::Trunk | nuo_protocol::ThreadForkKind::Subagent => {
-                String::new()
+        let lineage = if row.parent_id.is_some() {
+            match entry.parent_seq {
+                Some(parent) => format!("\u{21b2}#{parent} "),
+                None => "\u{21b2} ".to_string(),
             }
-            nuo_protocol::ThreadForkKind::Fork => {
-                let address = entry.fork_point.map(|p| p.label()).unwrap_or_default();
-                match (address.is_empty(), entry.parent_seq) {
-                    (false, Some(parent)) => format!("\u{21b2}{address}#{parent} "),
-                    (false, None) => format!("\u{21b2}{address} "),
-                    (true, Some(parent)) => format!("\u{21b2}#{parent} "),
-                    (true, None) => "\u{21b2} ".to_string(),
-                }
-            }
+        } else {
+            String::new()
         };
 
         let raw_title = thread_display_title(row);

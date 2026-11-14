@@ -100,7 +100,7 @@ mod attach_refusal_tests {
             "the bounded store claim must run on the blocking pool"
         );
         assert_eq!(
-            claim.matches("SessionStore::for_workspace").count(),
+            claim.matches("ThreadSession::for_workspace").count(),
             1,
             "claim owns exactly one store open (no transcript load)"
         );
@@ -161,7 +161,7 @@ mod acp_fabric_tests {
 
     #[test]
     fn resumed_developer_manifest_strips_legacy_recall_memory() {
-        let mut manifest = nuo_protocol::SessionRoleManifest::developer();
+        let mut manifest = nuo_protocol::ThreadRoleManifest::developer();
         manifest.tools.push("recall_memory".to_string());
         assert!(manifest.tools.contains(&"recall_memory".to_string()));
 

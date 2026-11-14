@@ -1,7 +1,7 @@
 //! Formatting skills for resolving user mentions.
 use super::metadata::Skill;
 
-/// Build a verbose listing similar to what list_skills returns.
+/// Build a verbose listing for the skill catalog.
 pub fn format_skill_list(skills: &[Skill]) -> String {
     let mut lines = vec!["Available skills:".to_string()];
     for skill in skills {

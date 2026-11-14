@@ -17,7 +17,7 @@ impl PersistenceCommand {
                 ack,
             } => {
                 let res = guarded_save(|| {
-                    crate::db::session_store::save_session_inner(
+                    crate::db::thread_session::save_session_inner(
                         &engine.conn,
                         engine.blob_store.as_ref(),
                         &data,
@@ -30,12 +30,13 @@ impl PersistenceCommand {
             }
             Self::UpsertSession { record, ack } => {
                 let res =
-                    guarded(|| crate::db::session_store::upsert_session(&engine.conn, &record));
+                    guarded(|| crate::db::thread_session::upsert_session(&engine.conn, &record));
                 let _ = ack.send(res);
             }
             Self::DeleteSession { session_id, ack } => {
-                let res =
-                    guarded(|| crate::db::session_store::delete_session(&engine.conn, &session_id));
+                let res = guarded(|| {
+                    crate::db::thread_session::delete_session(&engine.conn, &session_id)
+                });
                 let _ = ack.send(res);
             }
             Self::RenameSession {
@@ -45,7 +46,7 @@ impl PersistenceCommand {
                 ack,
             } => {
                 let res = guarded(|| {
-                    crate::db::session_store::rename_session(
+                    crate::db::thread_session::rename_session(
                         &engine.conn,
                         &session_id,
                         title.as_deref(),
@@ -195,6 +196,17 @@ impl PersistenceCommand {
             // the supervisor is its only sender, so this arm is unreachable
             // by construction.
             Self::RetireEngine { .. } => {}
+            Self::SaveThreadAggregate { thread, ack } => {
+                let res = guarded(|| {
+                    engine.conn.execute(
+                        "DELETE FROM thread_branches WHERE thread_id = ?1",
+                        rusqlite::params![thread.id.0],
+                    )?;
+                    crate::db::thread_store::persist_thread_facts(&engine.conn, &thread, false)
+                        .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))
+                });
+                let _ = ack.send(res);
+            }
             Self::CreateBackup { target_path, ack } => {
                 let res = guarded(|| engine.create_backup(&target_path));
                 let _ = ack.send(res);
@@ -244,59 +256,6 @@ impl PersistenceCommand {
                     let _ = ack.send(res);
                 }
             }
-            Self::SaveSessionDelta { delta, ack } => {
-                let res =
-                    guarded(|| crate::db::session_ir::save_session_delta(&engine.conn, &delta));
-                let _ = ack.send(res);
-            }
-            Self::FlushDerivedSession { session_id, ack } => {
-                let res = guarded(|| crate::db::derived::flush_session(&engine.conn, &session_id));
-                let _ = ack.send(res);
-            }
-            Self::FlushDerivedAll { ack } => {
-                let res = guarded(|| crate::db::derived::flush_all(&engine.conn));
-                let _ = ack.send(res);
-            }
-            Self::CommitContextFacts { commit, ack } => {
-                let borrowed = commit.as_borrowed();
-                let res = crate::db::context_store::commit_facts(&engine.conn, &borrowed);
-                let _ = ack.send(res);
-            }
-            Self::CommitContextView { commit, ack } => {
-                let borrowed = commit.as_borrowed();
-                let res = crate::db::context_store::commit_view(&engine.conn, &borrowed);
-                let _ = ack.send(res);
-            }
-            Self::ExecuteInspectDeletion {
-                session_id,
-                job_id,
-                now_ms,
-                ack,
-            } => {
-                let res = crate::db::inspect_service::execute_deletion(
-                    &engine.conn,
-                    &session_id,
-                    &job_id,
-                    now_ms,
-                );
-                let _ = ack.send(res);
-            }
-            Self::CollectInspectGarbage {
-                session_id,
-                now_ms,
-                batch_limit,
-                batch_ms,
-                ack,
-            } => {
-                let res = crate::db::inspect_service::collect_batch(
-                    &engine.conn,
-                    &session_id,
-                    now_ms,
-                    batch_limit,
-                    batch_ms,
-                );
-                let _ = ack.send(res);
-            }
             #[cfg(test)]
             Self::Die { ack } => {
                 let _ = ack.send(());
@@ -310,7 +269,7 @@ impl PersistenceCommand {
                 guard,
             } => {
                 let _ = guarded_save(|| {
-                    crate::db::session_store::save_session_inner(
+                    crate::db::thread_session::save_session_inner(
                         &engine.conn,
                         engine.blob_store.as_ref(),
                         &data,
@@ -339,26 +298,8 @@ impl PersistenceCommand {
             Self::SaveSession { ack, .. } => {
                 let _ = ack.send(Err(error));
             }
-            Self::SaveSessionDelta { ack, .. } => {
-                let _ = ack.send(Err(error));
-            }
-            Self::FlushDerivedSession { ack, .. } | Self::FlushDerivedAll { ack } => {
-                let _ = ack.send(Err(error));
-            }
-            Self::CommitContextFacts { ack, .. } | Self::CommitContextView { ack, .. } => {
-                let _ = ack.send(Err(
-                    crate::db::context_store::ContextCommitError::PersistenceFailure {
-                        detail: error.to_string(),
-                    },
-                ));
-            }
-            Self::ExecuteInspectDeletion { ack, .. } => {
-                let _ = ack.send(Err(nuo_protocol::context_lifecycle::InspectError::Corrupt));
-            }
-            Self::CollectInspectGarbage { ack, .. } => {
-                let _ = ack.send(Err(nuo_protocol::context_lifecycle::InspectError::Corrupt));
-            }
             Self::UpsertSession { ack, .. }
+            | Self::SaveThreadAggregate { ack, .. }
             | Self::RecordRequestProjection { ack, .. }
             | Self::SetKV { ack, .. }
             | Self::SaveInputHistory { ack, .. }
@@ -673,7 +614,6 @@ const METRICS_INTERVAL: Duration = Duration::from_secs(5);
 /// Cadence of the online derived-index scrub. The scan itself is bounded
 /// (`derived::SCRUB_BATCH`), so this is a duty cycle, not a promise to finish
 /// the catalogue in one pass.
-const SCRUB_INTERVAL: Duration = Duration::from_secs(5);
 /// Busy timeout for the maintenance connection. Small on purpose: a
 /// checkpoint that cannot make progress returns immediately and the thread
 /// goes back to sleep. It must never park a lock the writer needs.
@@ -995,43 +935,6 @@ async fn spawn_writer(
                         }
                         Err(error) => warn!(%error, "usage projection recovery failed"),
                         _ => {}
-                    }
-                }
-                // Derived indexes (causal graph + FTS) are advanced only while
-                // no command is waiting. A commit enqueues the session; this
-                // drain — and an explicit flush on the read path — does the
-                // indexing. Bounded so the next command never waits behind a
-                // backlog.
-                if rx.is_empty()
-                    && let Some(engine) = engine.as_ref()
-                {
-                    match crate::db::derived::advance_batch(
-                        &engine.conn,
-                        crate::db::derived::IDLE_BATCH,
-                    ) {
-                        Ok(n) if n > 0 && rx.is_empty() => {
-                            std::thread::sleep(Duration::from_millis(1));
-                            continue;
-                        }
-                        Err(error) => warn!(%error, "derived index drain failed"),
-                        _ => {}
-                    }
-                }
-                // Online integrity scrub. A bounded slice of sessions is
-                // probed at a fixed cadence, and only while no command waits;
-                // a hit is repaired through the same read-path routine, so a
-                // graph damaged by an older binary heals without a startup
-                // scan or a one-off corruption migration.
-                if rx.is_empty()
-                    && last_scrub.elapsed() >= SCRUB_INTERVAL
-                    && let Some(engine) = engine.as_ref()
-                {
-                    last_scrub = Instant::now();
-                    if let Err(error) = crate::db::derived::scrub_batch(
-                        &engine.conn,
-                        crate::db::derived::SCRUB_BATCH,
-                    ) {
-                        warn!(%error, "derived integrity scrub failed");
                     }
                 }
                 let Some(command) = rx.blocking_recv() else {

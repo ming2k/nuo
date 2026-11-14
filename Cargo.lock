@@ -1714,12 +1714,10 @@ dependencies = [
  "nuo-tool-exec",
  "nuo-tool-fs",
  "nuo-tool-web",
- "proc-macro2",
  "regex",
  "serde",
  "serde_json",
  "sha2",
- "syn 2.0.119",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -1758,6 +1756,7 @@ dependencies = [
  "libc",
  "notify",
  "nuo-protocol",
+ "nuo-tool",
  "serde",
  "serde_json",
  "sha2",
@@ -1822,7 +1821,6 @@ dependencies = [
  "hex",
  "nuo-host",
  "nuo-protocol",
- "nuo-tool",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1853,6 +1851,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.21",
+ "tokio",
  "tokio-util",
  "toml",
  "url",
@@ -2136,7 +2135,6 @@ dependencies = [
  "nuo-inference-wire",
  "nuo-protocol",
  "nuo-provider",
- "nuo-provider-openai",
  "nuo-tool",
  "rsa",
  "serde",
@@ -2170,7 +2168,6 @@ dependencies = [
  "ignore",
  "inventory",
  "libc",
- "mockito",
  "netune",
  "nuo-acp",
  "nuo-engine",
@@ -2216,6 +2213,59 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "yaml_serde",
+]
+
+[[package]]
+name = "nuo-test-support"
+version = "0.0.86"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "nuo-tests"
+version = "0.0.86"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures",
+ "libc",
+ "mockito",
+ "nuo",
+ "nuo-acp",
+ "nuo-engine",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-mcp",
+ "nuo-model-routing",
+ "nuo-persistence",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-provider-anthropic",
+ "nuo-provider-catalog",
+ "nuo-provider-google-antigravity",
+ "nuo-provider-openai",
+ "nuo-provider-qoder",
+ "nuo-server",
+ "nuo-test-support",
+ "nuo-tool",
+ "nuo-tool-exec",
+ "nuo-tool-fs",
+ "nuo-view",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "toml",
+ "uuid",
+ "walkdir",
 ]
 
 [[package]]
@@ -2285,6 +2335,7 @@ name = "nuo-tool-fs"
 version = "0.0.86"
 dependencies = [
  "async-trait",
+ "base64",
  "glob",
  "ignore",
  "nuo-tool",

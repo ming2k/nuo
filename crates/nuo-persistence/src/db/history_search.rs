@@ -41,15 +41,15 @@ fn search_history_inner(
         return Ok(Vec::new());
     }
 
-    let cols = "f.entry_id, f.session_id, s.workspace_root, s.title, f.role, \
-                snippet(fts_entries, 3, '<b>', '</b>', '...', 16) AS snippet, \
-                bm25(fts_entries) AS score";
+    let cols = "f.fact_id, f.thread_id, s.workspace_root, s.title, f.role, \
+                snippet(fts_thread_facts, 3, '<b>', '</b>', '...', 16) AS snippet, \
+                bm25(fts_thread_facts) AS score";
     let mut results = Vec::new();
     match filter {
         Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
             let sql = format!(
-                "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
-                 WHERE fts_entries MATCH ?1 AND s.workspace_root = ?2 ORDER BY score ASC LIMIT ?3;"
+                "SELECT {cols} FROM fts_thread_facts f JOIN thread_list_view s ON f.thread_id = s.id \
+                 WHERE fts_thread_facts MATCH ?1 AND s.workspace_root = ?2 ORDER BY score ASC LIMIT ?3;"
             );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(
@@ -62,8 +62,8 @@ fn search_history_inner(
         }
         Some(nuo_protocol::WorkspaceFilter::Unbound) => {
             let sql = format!(
-                "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
-                 WHERE fts_entries MATCH ?1 AND (s.workspace_root IS NULL OR s.workspace_root = '') ORDER BY score ASC LIMIT ?2;"
+                "SELECT {cols} FROM fts_thread_facts f JOIN thread_list_view s ON f.thread_id = s.id \
+                 WHERE fts_thread_facts MATCH ?1 AND (s.workspace_root IS NULL OR s.workspace_root = '') ORDER BY score ASC LIMIT ?2;"
             );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![clean_query, limit as i64], map_search_row)?;
@@ -73,8 +73,8 @@ fn search_history_inner(
         }
         _ => {
             let sql = format!(
-                "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
-                 WHERE fts_entries MATCH ?1 ORDER BY score ASC LIMIT ?2;"
+                "SELECT {cols} FROM fts_thread_facts f JOIN thread_list_view s ON f.thread_id = s.id \
+                 WHERE fts_thread_facts MATCH ?1 ORDER BY score ASC LIMIT ?2;"
             );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![clean_query, limit as i64], map_search_row)?;

@@ -9,7 +9,7 @@ Host machine execution environment, platform abstraction layer (PAL), sandboxing
 ## Capabilities
 
 - **`tools`**: Canonical host OS capability tools:
-  - `read_text`: Paginated file reader with line-offset navigation.
+  - `read`: Unified path reader — paginated UTF-8 text, one-level directory listings, and normalized image attachments.
   - `write_file`: Atomic file writer with parent directory auto-creation.
   - `edit_text`: Surgical exact-match text replacer with optimistic concurrency checks.
   - `find_files`: Glob-based recursive file finder with `.gitignore` filtering.

@@ -4,12 +4,12 @@ use tokio::sync::mpsc;
 
 use super::SlashEnv;
 use super::record::{record_command, record_error};
-use crate::session_driver::send_harness_state_for_session;
+use crate::thread_driver::send_harness_state_for_session;
 use nuo_harness::Agent;
 use nuo_harness::RoundLifecycle;
 use nuo_harness::orchestration::round_response;
 use nuo_persistence::config::Config;
-use nuo_persistence::session::SessionStore;
+use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentNotice, AgentResponse, CommandResult, LoopStatus, RoundEvent};
 
 pub(crate) async fn supersede_for_session_switch(
@@ -178,7 +178,7 @@ pub(crate) async fn switch_or_start_session_with_role(
                         session,
                         agent,
                         resp_tx,
-                        nuo_protocol::SessionSource::Resume,
+                        nuo_protocol::HookStartSource::Resume,
                     )
                     .await;
                     let transcript = session.full_transcript().await;
@@ -234,7 +234,7 @@ pub(crate) async fn switch_or_start_session_with_role(
                         args,
                         CommandResult::Text(format!(
                             "Resumed session {} with role `{}` (`{}`). Use `/role {role_id} --new` to start a fresh dialogue.",
-                            crate::session_view::short_session_id(&target_id),
+                            crate::thread_view::short_session_id(&target_id),
                             switched.name,
                             switched.id,
                         )),
@@ -403,10 +403,10 @@ pub(crate) async fn start_fresh_session_with_role(
 }
 
 pub(crate) async fn restore_session_runtime(
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     agent: &Arc<Agent>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    source: nuo_protocol::SessionSource,
+    source: nuo_protocol::HookStartSource,
 ) {
     // Restore role and identity from the session's manifest or role metadata
     if let Some(manifest) = session.role_manifest().await {
@@ -501,7 +501,7 @@ pub(crate) async fn restore_session_runtime(
     if messages.len() > before_len
         && let Err(err) = session.append_turn(&messages).await
     {
-        tracing::warn!(error = %err, "failed to persist SessionStart hook context");
+        tracing::warn!(error = %err, "failed to persist ThreadStart hook context");
     }
 
     send_harness_state_for_session(
@@ -541,7 +541,7 @@ pub(crate) fn parse_fork_target(args: &str) -> Result<nuo_persistence::ForkTarge
 }
 
 pub(crate) async fn fork_current_session(
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -562,7 +562,7 @@ pub(crate) async fn fork_current_session(
 /// habit, fork the current session and carry the aside's question into the new
 /// branch, so the operator lands exactly where they intended.
 pub(crate) async fn fork_retired_aside(
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -590,39 +590,38 @@ pub(crate) async fn fork_retired_aside(
     .await;
 }
 
-/// Perform the fork and announce it to the client. `prompt`, when set, rides
-/// with the event so the client dispatches it into the freshly attached branch
-/// (the retired `/btw <prompt>` steer). Returns the child id on success.
+/// Fork the active branch and announce the new cursor. The branch shares the
+/// immutable fact prefix; the client stays on the same thread and simply sees
+/// the new branch view.
 async fn emit_fork(
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
     target: nuo_persistence::ForkTarget,
     prompt: Option<String>,
 ) -> Option<String> {
-    match session.fork_at(target).await {
-        Ok(outcome) => {
-            let fork_point = outcome.fork_point;
-            record_command(
-                session,
-                resp_tx,
-                name,
-                args,
-                CommandResult::Text(format!(
-                    "Forked child thread {} from {} (at {fork_point}). Opening new sovereign tab...",
-                    outcome.child_id, outcome.parent_id
-                )),
-            )
-            .await;
-            let child_id = outcome.child_id;
-            let _ = resp_tx.send(AgentResponse::ThreadForked {
-                child_id: child_id.clone(),
-                parent_id: outcome.parent_id,
-                fork_point: Some(fork_point),
-                prompt,
-            });
-            Some(child_id)
+    let branch_name = format!(
+        "fork-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0)
+    );
+    match session.fork_at_branch(target, branch_name).await {
+        Ok(branch) => {
+            let note = match prompt {
+                Some(prompt) => format!(
+                    "Forked branch {} at {target:?}. Switched to the branch; send `{prompt}` when ready.",
+                    branch.0
+                ),
+                None => format!(
+                    "Forked branch {} at {target:?}. Switched to the branch.",
+                    branch.0
+                ),
+            };
+            record_command(session, resp_tx, name, args, CommandResult::Text(note)).await;
+            Some(branch.0)
         }
         Err(error) => {
             record_error(session, resp_tx, name, args, error).await;

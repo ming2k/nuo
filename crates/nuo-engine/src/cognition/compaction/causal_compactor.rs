@@ -1,42 +1,45 @@
-//! Native Causal Compactor for Session IR.
+//! Native causal compactor for durable threads.
 //!
-//! Replaces legacy transcript-based compaction with native topological operations
-//! on the [`SessionIR`] causal graph (`CausalGraph` and `SessionState`).
+//! Replaces the retired `SessionIR` compactor with topological operations on a
+//! [`Thread`]'s fact DAG. A compaction appends one `Compaction` fact and moves
+//! the selected branch's horizon; sibling branches keep traversing the original
+//! facts.
 //!
 //! Features:
-//! - Turn-internal atomic cut point selection (never cuts on Tool Result).
-//! - Deterministic file operations tracking across folded nodes.
-//! - LLM structured summarization with automatic deterministic excerpt fallback.
-//! - Direct horizon advancement on `SessionState.compaction_horizon`.
+//! - Turn-internal atomic cut point selection (never cuts on an observation).
+//! - Deterministic file-operation tracking across folded facts.
+//! - LLM structured summarization with deterministic excerpt fallback.
+//! - Branch-local horizon advancement only.
 use super::file_tracker::FileOperations;
 use super::split_compaction::{
-    compact_causal_nodes, find_cut_point_nodes, find_tail_preserving_cut_point,
+    compact_facts, find_cut_point_facts, find_tail_preserving_cut_point,
 };
-use nuo_protocol::{CausalNode, NodePayload, Provider, Role, SessionIR};
+use nuo_protocol::{BranchId, FactId, FactPayload, Provider, Role, Thread};
 use std::sync::Arc;
 
-/// Strategy determining where the compaction boundary cuts the active lineage.
+/// Strategy determining where the compaction boundary cuts the live branch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompactionCutMode {
-    /// Token budget preserving mode: preserves ~target_tokens of recent context (used for auto-compaction backstops).
+    /// Token budget preserving mode: preserves ~target_tokens of recent
+    /// context (used for auto-compaction backstops).
     TargetTokens(usize),
-    /// Tail rounds preserving mode: preserves the last N complete user rounds (used for manual /compact).
+    /// Tail rounds preserving mode: preserves the last N complete user rounds
+    /// (used for manual `/compact`).
     PreserveTailRounds(usize),
 }
 
-/// Outcome of a successful causal compaction on Session IR.
+/// Outcome of a successful causal compaction on a thread branch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CausalCompactionOutcome {
-    /// ID of the newly created Compaction causal node.
-    pub compaction_node_id: String,
-    /// ID of the first node preserved in the active tail.
-    pub first_kept_node_id: String,
-    /// ID of the last folded node: the horizon's parent.
-    pub split_parent_node_id: Option<String>,
-    /// Number of causal nodes folded into the compaction checkpoint.
+    /// Identity of the newly created Compaction fact.
+    pub compaction_fact_id: FactId,
+    /// Identity of the first fact preserved in the active tail.
+    pub first_kept_fact_id: FactId,
+    /// Identity of the last folded fact.
+    pub split_parent_fact_id: Option<FactId>,
+    /// Number of facts folded into the compaction checkpoint.
     pub nodes_folded: usize,
-    /// Transcript sequence of the last folded node. The durable `compact`
-    /// directive hides entries through here (snapped to an existing entry).
+    /// Sequence of the last folded fact.
     pub folded_through_seq: u64,
     /// Token weight of the folded prefix.
     pub tokens_before: usize,
@@ -44,225 +47,150 @@ pub struct CausalCompactionOutcome {
     pub summary: String,
     /// Artifact file paths touched across the compacted lineage.
     pub tracked_files: Vec<String>,
-    /// Files the folded range read, carried into the durable compaction fact.
+    /// Files the folded range read.
     pub read_files: Vec<String>,
-    /// Files the folded range modified, carried into the durable fact.
+    /// Files the folded range modified.
     pub modified_files: Vec<String>,
 }
 
-/// Native engine executing causal graph compaction on Session IR.
+/// Native engine executing causal graph compaction on a thread branch.
 pub struct CausalCompactor;
 
 impl CausalCompactor {
-    /// Compact the active branch of a Session IR into a structured checkpoint.
-    pub async fn compact_session_ir(
-        ir: &mut SessionIR,
+    /// Compact one branch of a thread into a structured checkpoint.
+    ///
+    /// The returned thread mutation is in memory. The caller commits it through
+    /// the thread store; a failed summarization leaves the thread untouched.
+    pub async fn compact_thread(
+        thread: &mut Thread,
+        branch: &BranchId,
         provider: Option<Arc<dyn Provider>>,
         cut_mode: CompactionCutMode,
         extra_context: Vec<String>,
         summary_budget: usize,
     ) -> Result<Option<CausalCompactionOutcome>, String> {
-        if ir.state.active_leaf.is_none() {
+        let active_facts = thread.path(branch).map_err(|error| error.to_string())?;
+        if active_facts.is_empty() {
+            return Ok(None);
+        }
+        let horizon_fact = thread
+            .latest_compaction(branch)
+            .map_err(|error| error.to_string())?;
+
+        let cut_point = match cut_mode {
+            CompactionCutMode::TargetTokens(target_tokens) => {
+                find_cut_point_facts(&active_facts, target_tokens)
+            }
+            CompactionCutMode::PreserveTailRounds(rounds) => {
+                find_tail_preserving_cut_point(&active_facts, rounds).or_else(|| {
+                    // When only one round exists, fall back to an intra-round
+                    // token cut above 4,000 tokens.
+                    find_cut_point_facts(&active_facts, 4000)
+                })
+            }
+        };
+        let Some(cut_point) = cut_point else {
+            return Ok(None);
+        };
+        if cut_point.first_kept_index == 0 {
             return Ok(None);
         }
 
-        let (
-            cut_point,
-            summary,
-            split_parent,
-            nodes_folded,
-            folded_through_seq,
+        let nodes_to_fold = &active_facts[..cut_point.first_kept_index];
+        let nodes_folded = nodes_to_fold.len();
+        let folded_through_seq = cut_point.folded_through_seq;
+
+        let previous_summary = horizon_fact
+            .and_then(|fact| match &fact.payload {
+                FactPayload::Compaction { summary, .. } => Some(summary.as_str()),
+                _ => None,
+            })
+            .or_else(|| {
+                nodes_to_fold
+                    .iter()
+                    .rev()
+                    .find_map(|fact| match &fact.payload {
+                        FactPayload::Compaction { summary, .. } => Some(summary.as_str()),
+                        _ => None,
+                    })
+            });
+
+        let mut file_tracker = FileOperations::new();
+        if let Some(FactPayload::Compaction {
             read_files,
             modified_files,
-        ) = {
-            // The active view, not the raw parent chain. After a fold the kept
-            // tail's head still points at the folded chain (`INV-CHK-01`), so
-            // `linear_path` walks straight through the horizon and re-reads
-            // history this session already summarized. `resolve_active_branch`
-            // injects the horizon and stops there — the same walk every other
-            // consumer uses, so the compactor can no longer disagree with the
-            // window it is compacting.
-            let active_nodes = ir.resolve_active_branch();
-            if active_nodes.is_empty() {
-                return Ok(None);
-            }
-            let horizon_node = ir
-                .state
-                .compaction_horizon
-                .as_deref()
-                .and_then(|id| ir.history.nodes.get(id));
+            ..
+        }) = horizon_fact.map(|fact| &fact.payload)
+        {
+            file_tracker.read.extend(read_files.iter().cloned());
+            file_tracker.modified.extend(modified_files.iter().cloned());
+        }
+        for fact in nodes_to_fold {
+            file_tracker.extract_from_fact(fact);
+        }
 
-            // 1. Find atomic cut point according to chosen mode
-            let cut_point = match cut_mode {
-                CompactionCutMode::TargetTokens(target_tokens) => {
-                    find_cut_point_nodes(&active_nodes, target_tokens)
-                }
-                CompactionCutMode::PreserveTailRounds(rounds) => {
-                    find_tail_preserving_cut_point(&active_nodes, rounds).or_else(|| {
-                        // When only 1 round exists, fallback to intra-round token cut if pressure exceeds 4,000 tokens
-                        find_cut_point_nodes(&active_nodes, 4000)
-                    })
-                }
-            };
-
-            let Some(cut_point) = cut_point else {
-                return Ok(None); // Context fits criteria; no compaction needed
-            };
-
-            if cut_point.first_kept_index == 0 {
-                return Ok(None);
-            }
-
-            let nodes_to_fold = &active_nodes[..cut_point.first_kept_index];
-            let nodes_folded = nodes_to_fold.len();
-            let folded_through_seq = nodes_to_fold.last().map(|node| node.seq).unwrap_or(0);
-
-            // 2. Extract the prior summary. The current horizon is the
-            //    authoritative carry-forward: with the horizon-aware walk it is
-            //    the *first* node, not one of the folded nodes, so scanning
-            //    `nodes_to_fold` alone silently dropped it and every fold
-            //    restarted the summary from raw transcripts.
-            let previous_summary = horizon_node
-                .and_then(|node| match &node.payload {
-                    NodePayload::Compaction { summary, .. } => Some(summary.as_str()),
-                    _ => None,
-                })
-                .or_else(|| {
-                    nodes_to_fold.iter().rev().find_map(|n| {
-                        if let NodePayload::Compaction { summary, .. } = &n.payload {
-                            Some(summary.as_str())
-                        } else {
-                            None
-                        }
-                    })
-                });
-
-            // 3. Track file operations across the folded nodes, starting from
-            //    the horizon's manifest so a fold that only folds the tail
-            //    still carries the files the earlier summaries touched.
-            let mut file_tracker = FileOperations::new();
-            if let Some(NodePayload::Compaction {
-                read_files,
-                modified_files,
-                ..
-            }) = horizon_node.map(|node| &node.payload)
-            {
-                file_tracker.read.extend(read_files.iter().cloned());
-                file_tracker.modified.extend(modified_files.iter().cloned());
-            }
-            for node in nodes_to_fold {
-                file_tracker.extract_from_node(node);
-            }
-
-            // 4. Summarize: LLM first, falling back to deterministic excerpt on failure
-            let summary = match provider {
-                Some(p) => {
-                    match compact_causal_nodes(
-                        p,
-                        &active_nodes,
-                        &cut_point,
-                        previous_summary,
-                        &extra_context,
-                    )
-                    .await
-                    {
-                        Ok(NodePayload::Compaction { summary, .. }) => summary,
-                        Ok(_) => build_deterministic_causal_excerpt(
-                            nodes_to_fold,
-                            previous_summary,
-                            &file_tracker,
-                        ),
-                        Err(err) => {
-                            tracing::warn!(
-                                error = %err,
-                                "LLM compaction failed; falling back to deterministic excerpt compaction"
-                            );
-                            build_deterministic_causal_excerpt(
-                                nodes_to_fold,
-                                previous_summary,
-                                &file_tracker,
-                            )
-                        }
-                    }
-                }
-                None => build_deterministic_causal_excerpt(
-                    nodes_to_fold,
-                    previous_summary,
-                    &file_tracker,
-                ),
-            };
-
-            // The summary is part of the post-compaction window. Clamping it
-            // here — after either summarizer — turns "the model happened to be
-            // verbose" into a bounded fact instead of a window that re-crosses
-            // the gate on the next send. The legacy selector already clamped;
-            // the IR path did not.
-            let summary = if summary_budget == 0 {
-                summary
-            } else {
-                nuo_protocol::tokenizer::truncate_to_tokens(&summary, summary_budget)
-                    .0
-                    .trim_end()
-                    .to_string()
-            };
-
-            let split_parent = if cut_point.first_kept_index > 0 {
-                nodes_to_fold.last().map(|n| n.id.clone())
-            } else {
-                None
-            };
-
-            let read_files: Vec<String> = file_tracker.read.into_iter().collect();
-            let modified_files: Vec<String> = file_tracker.modified.into_iter().collect();
-
-            (
-                cut_point,
-                summary,
-                split_parent,
-                nodes_folded,
-                folded_through_seq,
-                read_files,
-                modified_files,
+        let summary = match provider {
+            Some(provider) => match compact_facts(
+                provider,
+                &active_facts,
+                &cut_point,
+                previous_summary,
+                &extra_context,
             )
+            .await
+            {
+                Ok(FactPayload::Compaction { summary, .. }) => summary,
+                Ok(_) => {
+                    build_deterministic_excerpt(nodes_to_fold, previous_summary, &file_tracker)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "LLM compaction failed; falling back to deterministic excerpt compaction"
+                    );
+                    build_deterministic_excerpt(nodes_to_fold, previous_summary, &file_tracker)
+                }
+            },
+            None => build_deterministic_excerpt(nodes_to_fold, previous_summary, &file_tracker),
         };
 
-        // 5. Mutate Session IR Causal Graph
-        let compaction_node_id = format!("compact_{}", uuid::Uuid::new_v4().simple());
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-
-        let tracked_files = {
-            let mut set = std::collections::BTreeSet::new();
-            for f in &read_files {
-                set.insert(f.clone());
-            }
-            for f in &modified_files {
-                set.insert(f.clone());
-            }
-            set.into_iter().collect::<Vec<_>>()
+        let summary = if summary_budget == 0 {
+            summary
+        } else {
+            nuo_protocol::tokenizer::truncate_to_tokens(&summary, summary_budget)
+                .0
+                .trim_end()
+                .to_string()
         };
 
-        ir.append_compaction(
-            &compaction_node_id,
-            split_parent.clone(),
-            now_ms,
-            summary.clone(),
-            cut_point.first_kept_entry_id.clone(),
-            cut_point.tokens_before,
-            read_files.clone(),
-            modified_files.clone(),
-        );
+        let split_parent_fact_id = nodes_to_fold.last().map(|fact| fact.id.clone());
+        let read_files: Vec<String> = file_tracker.read.into_iter().collect();
+        let modified_files: Vec<String> = file_tracker.modified.into_iter().collect();
+        let tracked_files: Vec<String> = read_files
+            .iter()
+            .chain(modified_files.iter())
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
 
-        // Facts are immutable and parent edges never mutate.
-        // A checkpoint references a source interval; the preserved tail's head
-        // node parent_id is strictly preserved and never reparented (INV-CHK-01).
+        let now_ms = crate::runtime::time::unix_epoch_ms();
+        let compaction_fact_id = thread
+            .compact_with_files(
+                branch,
+                summary.clone(),
+                cut_point.first_kept_fact_id.clone(),
+                cut_point.tokens_before,
+                read_files.clone(),
+                modified_files.clone(),
+                now_ms,
+            )
+            .map_err(|error| error.to_string())?;
 
         Ok(Some(CausalCompactionOutcome {
-            compaction_node_id,
-            first_kept_node_id: cut_point.first_kept_entry_id,
-            split_parent_node_id: split_parent,
+            compaction_fact_id,
+            first_kept_fact_id: cut_point.first_kept_fact_id,
+            split_parent_fact_id,
             nodes_folded,
             folded_through_seq,
             tokens_before: cut_point.tokens_before,
@@ -275,11 +203,8 @@ impl CausalCompactor {
 }
 
 /// Deterministic, zero-LLM excerpt summarizer.
-///
-/// Collects user prompts, tool accomplishments, and file touch manifests
-/// without model hallucinations or failure modes.
-fn build_deterministic_causal_excerpt(
-    nodes: &[&CausalNode],
+fn build_deterministic_excerpt(
+    facts: &[&nuo_protocol::ThreadFact],
     previous_summary: Option<&str>,
     file_tracker: &FileOperations,
 ) -> String {
@@ -293,8 +218,8 @@ fn build_deterministic_causal_excerpt(
 
     out.push_str("### User Instructions & Prompts\n");
     let mut user_count = 0;
-    for node in nodes {
-        if let NodePayload::Message { message } = &node.payload
+    for fact in facts {
+        if let FactPayload::Message { message } = &fact.payload
             && message.role == Role::User
             && !message.content.starts_with("[Conversation")
             && !message.is_command_echo()
@@ -319,80 +244,75 @@ fn build_deterministic_causal_excerpt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::{Message, NodeKind, Role, SessionPolicy};
+    use nuo_protocol::{FactContext, Message, ThreadId, ThreadStatus};
+
+    fn thread_with_rounds(rounds: u64) -> Thread {
+        let mut thread = Thread::new(ThreadId::new("test-thread"), 1000);
+        thread.state.status = ThreadStatus::Idle;
+        for i in 1..=rounds {
+            thread
+                .append(
+                    FactPayload::Message {
+                        message: Message::new(Role::User, format!("User message {i}")),
+                    },
+                    FactContext::turn(i, 0),
+                    1000 + i * 10,
+                )
+                .unwrap();
+            thread
+                .append(
+                    FactPayload::Message {
+                        message: Message::new(Role::Assistant, format!("Assistant response {i}")),
+                    },
+                    FactContext::turn(i, 1),
+                    1000 + i * 10 + 5,
+                )
+                .unwrap();
+        }
+        thread
+    }
 
     #[tokio::test]
-    async fn test_causal_compactor_deterministic_fallback() {
-        let mut ir = SessionIR::new("test_session", SessionPolicy::default(), 1000);
+    async fn deterministic_fallback_advances_only_its_branch() {
+        let mut thread = thread_with_rounds(5);
+        assert_eq!(thread.path(&BranchId::main()).unwrap().len(), 10);
 
-        // Add 5 user & assistant turns
-        for i in 1..=5 {
-            ir.append_message(
-                format!("u{i}"),
-                1000 + i * 10,
-                Message::new(Role::User, format!("User message {i}")),
-            );
-            ir.append_message(
-                format!("a{i}"),
-                1000 + i * 10 + 5,
-                Message::new(Role::Assistant, format!("Assistant response {i}")),
-            );
-        }
-
-        assert_eq!(ir.history.nodes.len(), 10);
-
-        // Run CausalCompactor with provider = None (deterministic excerpt fallback)
-        // target_tokens small so it cuts early nodes
-        let outcome = CausalCompactor::compact_session_ir(
-            &mut ir,
+        let outcome = CausalCompactor::compact_thread(
+            &mut thread,
+            &BranchId::main(),
             None,
             CompactionCutMode::TargetTokens(10),
             Vec::new(),
             0,
         )
         .await
-        .unwrap();
+        .unwrap()
+        .expect("the budget must cut");
 
-        assert!(outcome.is_some());
-        let outcome = outcome.unwrap();
         assert!(outcome.nodes_folded > 0);
         assert!(!outcome.summary.is_empty());
-        assert!(ir.state.compaction_horizon.is_some());
-        assert_eq!(
-            ir.state.compaction_horizon.as_deref(),
-            Some(outcome.compaction_node_id.as_str())
+        let horizon = thread
+            .state
+            .branch(&BranchId::main())
+            .unwrap()
+            .compaction_horizon
+            .clone();
+        assert_eq!(horizon, Some(outcome.first_kept_fact_id));
+        assert!(
+            thread
+                .path(&BranchId::main())
+                .unwrap()
+                .iter()
+                .any(|fact| { matches!(fact.payload, FactPayload::Compaction { .. }) })
         );
-
-        // Verify compiler stops at compaction horizon
-        let compiled = ir.history.linear_path_with_horizon(
-            ir.state.active_leaf.as_deref().unwrap(),
-            ir.state.compaction_horizon.as_deref(),
-        );
-        // The compiled path contains the Compaction node at its head, followed only by kept tail nodes
-        assert_eq!(compiled[0].kind, NodeKind::Compaction);
     }
 
     #[tokio::test]
-    async fn test_causal_compactor_preserve_tail_rounds() {
-        let mut ir = SessionIR::new("test_manual_session", SessionPolicy::default(), 1000);
-
-        // Add 3 complete rounds (u1/a1, u2/a2, u3/a3)
-        for i in 1..=3 {
-            ir.append_message(
-                format!("u{i}"),
-                1000 + i * 10,
-                Message::new(Role::User, format!("User message {i}")),
-            );
-            ir.append_message(
-                format!("a{i}"),
-                1000 + i * 10 + 5,
-                Message::new(Role::Assistant, format!("Assistant response {i}")),
-            );
-        }
-
-        // Compact with manual mode: preserve 1 tail round (u3/a3)
-        let outcome = CausalCompactor::compact_session_ir(
-            &mut ir,
+    async fn preserve_tail_rounds_keeps_the_newest_round() {
+        let mut thread = thread_with_rounds(3);
+        let outcome = CausalCompactor::compact_thread(
+            &mut thread,
+            &BranchId::main(),
             None,
             CompactionCutMode::PreserveTailRounds(1),
             vec!["User note".to_string()],
@@ -400,40 +320,51 @@ mod tests {
         )
         .await
         .unwrap()
-        .expect("Should compact successfully with 3 rounds when preserving 1");
+        .expect("3 rounds with preserve=1 must fold");
 
-        assert_eq!(outcome.first_kept_node_id, "u3");
-        assert_eq!(outcome.nodes_folded, 4); // u1, a1, u2, a2
-        assert!(!outcome.summary.is_empty());
+        assert_eq!(outcome.nodes_folded, 4);
+        let path = thread.path(&BranchId::main()).unwrap();
+        let kept_user = path.iter().find_map(|fact| match &fact.payload {
+            FactPayload::Message { message } if message.role == Role::User => {
+                Some(message.content.as_str())
+            }
+            _ => None,
+        });
+        assert_eq!(kept_user, Some("User message 3"));
     }
 
-    /// The summary is part of the post-fold window, so it must be bounded.
-    /// The IR path used to hand the provider's free-form output (plus the file
-    /// manifest) straight into the checkpoint, which could undo the fold's
-    /// budget on its own.
     #[tokio::test]
     async fn a_summary_is_bounded_by_its_budget() {
-        let mut ir = SessionIR::new("bounded-summary", SessionPolicy::default(), 1000);
+        let mut thread = Thread::new(ThreadId::new("bounded-summary"), 1000);
         for i in 1..=8 {
-            ir.append_message(
-                format!("u{i}"),
-                1000 + i * 10,
-                Message::new(
-                    Role::User,
-                    format!("User message {i} {}", "filler ".repeat(40)),
-                ),
-            );
-            ir.append_message(
-                format!("a{i}"),
-                1000 + i * 10 + 5,
-                Message::new(
-                    Role::Assistant,
-                    format!("Assistant response {i} {}", "filler ".repeat(40)),
-                ),
-            );
+            thread
+                .append(
+                    FactPayload::Message {
+                        message: Message::new(
+                            Role::User,
+                            format!("User message {i} {}", "filler ".repeat(40)),
+                        ),
+                    },
+                    FactContext::default(),
+                    1000 + i * 10,
+                )
+                .unwrap();
+            thread
+                .append(
+                    FactPayload::Message {
+                        message: Message::new(
+                            Role::Assistant,
+                            format!("Assistant response {i} {}", "filler ".repeat(40)),
+                        ),
+                    },
+                    FactContext::default(),
+                    1000 + i * 10 + 5,
+                )
+                .unwrap();
         }
-        let outcome = CausalCompactor::compact_session_ir(
-            &mut ir,
+        let outcome = CausalCompactor::compact_thread(
+            &mut thread,
+            &BranchId::main(),
             None,
             CompactionCutMode::TargetTokens(50),
             Vec::new(),

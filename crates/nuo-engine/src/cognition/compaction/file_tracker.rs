@@ -1,4 +1,4 @@
-use nuo_protocol::{CausalNode, Message, NodePayload, Role};
+use nuo_protocol::{FactPayload, Message, Role, ThreadFact};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -29,7 +29,7 @@ impl FileOperations {
                 let path = args.get("path").and_then(|v| v.as_str());
 
                 match call.name.as_str() {
-                    "read_text" | "read_file" | "find_files" | "search_text" => {
+                    "read" | "find_files" | "search_text" => {
                         if let Some(p) = path
                             && !p.is_empty()
                             && p != "."
@@ -59,13 +59,13 @@ impl FileOperations {
         }
     }
 
-    /// Extract file operations from a Session IR CausalNode.
-    pub fn extract_from_node(&mut self, node: &CausalNode) {
-        match &node.payload {
-            NodePayload::Message { message } => {
+    /// Extract file operations from one durable thread fact.
+    pub fn extract_from_fact(&mut self, fact: &ThreadFact) {
+        match &fact.payload {
+            FactPayload::Message { message } => {
                 self.extract_from_message(message);
             }
-            NodePayload::Compaction {
+            FactPayload::Compaction {
                 read_files,
                 modified_files,
                 ..
@@ -115,7 +115,7 @@ mod tests {
         let mut msg1 = Message::new(Role::Assistant, "I will read a file");
         msg1.tool_calls = Some(vec![ToolCall::new(
             "call1",
-            "read_text",
+            "read",
             r#"{"path":"src/main.rs"}"#,
         )]);
         tracker.extract_from_message(&msg1);

@@ -100,7 +100,7 @@ pub fn summary_at(cursor: &SemanticCursor) -> Option<(usize, StepKind)> {
 ///   surface the recovered findings.
 /// - **Ok** → the per-tool default (from the tool's `[tui.default_expanded]` entry
 ///   or built-in component default): `edit_text` and `write_file`
-///   show their bodies; `execute_command`, `read_text` and the rest stay collapsed.
+///   show their bodies; `execute_command`, `read` and the rest stay collapsed.
 pub fn default_tool_expanded(
     status: ToolStepStatus,
     name: &str,
@@ -192,7 +192,7 @@ mod tests {
         ));
         assert!(!default_tool_expanded(
             ToolStepStatus::Ingesting,
-            "read_text",
+            "read",
             &cfg
         ));
         assert!(default_tool_expanded(
@@ -214,8 +214,8 @@ mod tests {
 
     #[test]
     fn tool_ok_follows_declared_default() {
-        let cfg = config(&[("read_text", true)]);
-        assert!(default_tool_expanded(ToolStepStatus::Ok, "read_text", &cfg));
+        let cfg = config(&[("read", true)]);
+        assert!(default_tool_expanded(ToolStepStatus::Ok, "read", &cfg));
         // An explicit config entry overrides the declared default, and the
         // alias family follows the canonical name's choice.
         assert!(default_tool_expanded(ToolStepStatus::Ok, "edit_text", &cfg));

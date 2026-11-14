@@ -559,18 +559,18 @@ mod unknown_command_tests {
 mod retired_aside_redirect_tests {
     use std::sync::Arc;
 
-    use nuo_persistence::session::SessionStore;
+    use nuo_persistence::thread::ThreadSession;
     use nuo_protocol::{AgentResponse, CommandResult, Message, Role, RoundEvent};
     use tokio::sync::mpsc;
 
     use super::super::session_ops::fork_retired_aside;
 
-    /// `[INV-DEPR-01]`: a submitted `/btw <prompt>` forks at head and carries
-    /// the message into the new branch, leaving the parent untouched.
+    /// `[INV-DEPR-01]`: a submitted `/btw <prompt>` forks a branch at head.
+    /// The branch shares facts and the current view switches to it.
     #[tokio::test]
-    async fn btw_forks_at_head_and_carries_the_prompt_into_the_branch() {
+    async fn btw_forks_a_branch_at_head() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
+        let store = Arc::new(ThreadSession::for_path(dir.path().join("session.json")));
         store
             .replace_messages(vec![
                 Message::new(Role::User, "hello"),
@@ -578,52 +578,47 @@ mod retired_aside_redirect_tests {
             ])
             .await
             .unwrap();
-        let parent_id = store.id().await;
+        let before = store.model_window().await;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         fork_retired_aside(&store, &tx, "/btw", "why is the sky blue").await;
 
-        let mut forked = None;
         let mut texts: Vec<String> = Vec::new();
         while let Ok(resp) = rx.try_recv() {
-            match resp {
-                AgentResponse::ThreadForked {
-                    child_id, prompt, ..
-                } => forked = Some((child_id, prompt)),
-                AgentResponse::Round {
-                    scope:
-                        nuo_protocol::RoundScope::Session {
-                            event:
-                                RoundEvent::CommandResult {
-                                    result: CommandResult::Text(text),
-                                    ..
-                                },
-                        },
-                    ..
-                } => texts.push(text),
-                _ => {}
+            if let AgentResponse::Round {
+                scope:
+                    nuo_protocol::RoundScope::Session {
+                        event:
+                            RoundEvent::CommandResult {
+                                result: CommandResult::Text(text),
+                                ..
+                            },
+                    },
+                ..
+            } = resp
+            {
+                texts.push(text);
             }
         }
 
-        let (child_id, prompt) = forked.expect("a retired /btw must fork");
-        assert_eq!(prompt.as_deref(), Some("why is the sky blue"));
-        assert_ne!(child_id, parent_id, "the child is a new sovereign thread");
-        // Sovereign fork [INV-FORK-04]: the parent pointer is never repointed.
-        assert_eq!(store.id().await, parent_id);
-
+        assert_eq!(store.branches().await.unwrap().len(), 2);
+        assert_eq!(store.model_window().await, before);
         assert!(
             texts.iter().any(|t| t.contains("retired")),
             "guidance must explain the retirement: {texts:?}"
         );
+        assert!(
+            texts.iter().any(|t| t.contains("Forked branch")),
+            "the command must announce the branch: {texts:?}"
+        );
     }
 
-    /// `[INV-LINEAGE-01]`: the announcement carries the same fork point the
-    /// child persisted, and the picker's projection surfaces it. One fact, one
-    /// writer, every reader.
+    /// `/fork` writes a branch cursor only. The fact graph is unchanged and the
+    /// active view moves to the new branch.
     #[tokio::test]
-    async fn fork_announcement_and_overview_carry_the_persisted_fork_point() {
+    async fn fork_command_writes_a_branch_cursor_only() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
+        let store = Arc::new(ThreadSession::for_path(dir.path().join("session.json")));
         store
             .replace_messages(vec![
                 Message::new(Role::User, "r1 user"),
@@ -634,46 +629,27 @@ mod retired_aside_redirect_tests {
             .await
             .unwrap();
         store.set_round_counter(2).await.unwrap();
+        let facts_before = store.thread_aggregate().await.unwrap().graph.len();
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         super::super::session_ops::fork_current_session(&store, &tx, "/fork", "2.0").await;
+        while rx.try_recv().is_ok() {}
 
-        let mut announced = None;
-        while let Ok(resp) = rx.try_recv() {
-            if let AgentResponse::ThreadForked {
-                child_id,
-                fork_point,
-                ..
-            } = resp
-            {
-                announced = Some((child_id, fork_point));
-            }
-        }
-        let (child_id, fork_point) = announced.expect("a /fork must announce the branch");
-        assert_eq!(fork_point, Some(nuo_protocol::ForkPoint::at_turn(2, 0)));
-
-        // The picker's own projection reads the same value off the store — it
-        // does not re-derive it from the announcement.
-        let overview = crate::session_view::build_sessions_overview(&store).await;
-        let child = overview
-            .iter()
-            .find(|row| row.id == child_id)
-            .expect("the branch appears in the overview");
-        assert_eq!(
-            child.fork_point,
-            Some(nuo_protocol::ForkPoint::at_turn(2, 0))
+        let aggregate = store.thread_aggregate().await.unwrap();
+        assert_eq!(aggregate.graph.len(), facts_before, "fork copied facts");
+        assert_eq!(aggregate.state.branches.len(), 2);
+        assert_ne!(
+            aggregate.state.active_branch,
+            nuo_protocol::BranchId::main(),
+            "the fork must switch the view to the new cursor"
         );
-        assert_eq!(child.fork_kind, nuo_protocol::ThreadForkKind::Fork);
-        assert_eq!(child.parent_id.as_deref(), Some(store.id().await.as_str()));
-        // A fork no longer invents a title to carry its provenance.
-        assert_eq!(child.title, None, "provenance is not smuggled into a title");
     }
 
     /// A bare `/btw` still forks, but carries no opening message.
     #[tokio::test]
-    async fn bare_btw_forks_without_a_prompt() {
+    async fn bare_btw_forks_without_prompt_dispatch() {
         let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
+        let store = Arc::new(ThreadSession::for_path(dir.path().join("session.json")));
         store
             .replace_messages(vec![Message::new(Role::User, "hello")])
             .await
@@ -681,14 +657,9 @@ mod retired_aside_redirect_tests {
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         fork_retired_aside(&store, &tx, "/btw", "   ").await;
+        while rx.try_recv().is_ok() {}
 
-        let mut prompt_seen = None;
-        while let Ok(resp) = rx.try_recv() {
-            if let AgentResponse::ThreadForked { prompt, .. } = resp {
-                prompt_seen = Some(prompt);
-            }
-        }
-        assert_eq!(prompt_seen, Some(None), "a bare /btw carries no prompt");
+        assert_eq!(store.branches().await.unwrap().len(), 2);
     }
 }
 
@@ -702,7 +673,7 @@ mod command_effect_tests {
     use std::sync::Arc;
 
     use nuo_harness::orchestration::round_response;
-    use nuo_persistence::session::SessionStore;
+    use nuo_persistence::thread::ThreadSession;
     use nuo_protocol::{AgentNotice, AgentResponse, CommandEffect, CommandResult, RoundEvent};
     use tokio::sync::mpsc;
 
@@ -711,8 +682,8 @@ mod command_effect_tests {
     };
     use crate::startup::{BuiltinCmd, effect_for};
 
-    fn store(dir: &tempfile::TempDir) -> Arc<SessionStore> {
-        Arc::new(SessionStore::for_path(dir.path().join("session.json")))
+    fn store(dir: &tempfile::TempDir) -> Arc<ThreadSession> {
+        Arc::new(ThreadSession::for_path(dir.path().join("session.json")))
     }
 
     /// Every `CommandResult` a fake reading emits, so the test cannot pass by

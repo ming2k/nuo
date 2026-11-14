@@ -116,8 +116,7 @@ fn frozen_event_passthrough(event: &Event) -> bool {
 
 pub(crate) fn tool_verb_for(name: &str) -> nuo_view::phase::ToolVerb {
     match name {
-        "find_files" | "read_image" | "read_text" | "read_file" | "read" | "use_skill"
-        | "read_url" => nuo_view::phase::ToolVerb::Exploring,
+        "find_files" | "read" | "read_url" => nuo_view::phase::ToolVerb::Exploring,
         "search_text" => nuo_view::phase::ToolVerb::Searching,
         "search_web" => nuo_view::phase::ToolVerb::WebSearching,
         "write_file" | "edit_text" => nuo_view::phase::ToolVerb::Editing,
@@ -136,7 +135,7 @@ pub(crate) async fn run_app_loop(
     app: &mut App,
     runtime: UiRuntime,
     mutation_rx: mpsc::Receiver<AppMutation>,
-    session: crate::shell::SessionSource,
+    session: crate::shell::HookStartSource,
     input: &mut input_reader::InputSource,
 ) -> io::Result<()> {
     let (copy_tx, mut copy_rx) =
@@ -626,7 +625,7 @@ async fn process_one_event<W: io::Write>(
     app: &mut App,
     terminal: &mut Terminal<W>,
     runtime: &UiRuntime,
-    session: &crate::shell::SessionSource,
+    session: &crate::shell::HookStartSource,
     viewed_session_id: &str,
     copy_tx: &mpsc::UnboundedSender<Result<clipboard::CopyOutcome, String>>,
     copy_pending: &Arc<AtomicUsize>,
@@ -1217,7 +1216,7 @@ mod freeze_guard_tests {
 #[cfg(test)]
 pub(crate) async fn process_event_for_test(app: &mut App, event: &Event, viewed_session_id: &str) {
     let runtime = UiRuntime::minimal_for_test();
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: viewed_session_id.to_string(),
     };
     let (copy_tx, _copy_rx) = tokio::sync::mpsc::unbounded_channel();

@@ -170,11 +170,11 @@ pub fn resolve_thread_scope(
     Ok(nuo_protocol::ThreadScope::new(role, workspace))
 }
 
-/// Resolve an immutable SessionRoleManifest for a role ID within a workspace context.
+/// Resolve an immutable ThreadRoleManifest for a role ID within a workspace context.
 pub fn resolve_role_manifest(
     workspace_root: Option<&std::path::Path>,
     role_id: Option<&str>,
-) -> nuo_protocol::SessionRoleManifest {
+) -> nuo_protocol::ThreadRoleManifest {
     let role_id = role_id.unwrap_or("developer");
     let roles_cfg = RolesConfig::load_for_workspace(workspace_root);
     if let Some(user_role) = roles_cfg.get(role_id) {
@@ -183,7 +183,7 @@ pub fn resolve_role_manifest(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        nuo_protocol::SessionRoleManifest {
+        nuo_protocol::ThreadRoleManifest {
             role_id: role_id.to_string(),
             name: user_role.name.clone(),
             description: user_role.description.clone(),
@@ -196,12 +196,12 @@ pub fn resolve_role_manifest(
         }
     } else if let Some(builtin) = MainAgentRole::parse(role_id) {
         match builtin {
-            MainAgentRole::Developer => nuo_protocol::SessionRoleManifest::developer(),
-            MainAgentRole::Philosophist => nuo_protocol::SessionRoleManifest::philosophist(),
-            MainAgentRole::Ops => nuo_protocol::SessionRoleManifest::ops(),
+            MainAgentRole::Developer => nuo_protocol::ThreadRoleManifest::developer(),
+            MainAgentRole::Philosophist => nuo_protocol::ThreadRoleManifest::philosophist(),
+            MainAgentRole::Ops => nuo_protocol::ThreadRoleManifest::ops(),
         }
     } else {
-        let mut manifest = nuo_protocol::SessionRoleManifest::developer();
+        let mut manifest = nuo_protocol::ThreadRoleManifest::developer();
         manifest.role_id = role_id.to_string();
         manifest.name = role_id.to_string();
         manifest
@@ -227,7 +227,7 @@ name = "Coder"
 [roles.code-reviewer]
 name = "Code Reviewer"
 workspace = "inherit"
-tools = ["read_*", "code_query"]
+tools = ["read", "code_query"]
 "#;
 
     #[test]
@@ -260,8 +260,9 @@ tools = ["read_*", "code_query"]
     fn wildcard_tool_allowlist_matches_prefixes() {
         let config = RolesConfig::from_toml_str(SAMPLE).unwrap();
         let role = config.get("code-reviewer").unwrap();
-        assert!(role.admits_tool("read_text"));
-        assert!(role.admits_tool("read_image"));
+        assert!(role.admits_tool("read"));
+        assert!(!role.admits_tool("read_text"));
+        assert!(!role.admits_tool("read_image"));
         assert!(role.admits_tool("code_query"));
         assert!(!role.admits_tool("write_file"));
         assert!(!role.admits_tool("execute_command"));

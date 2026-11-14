@@ -428,7 +428,42 @@ pub fn apply_fast_fts_triggers_schema(tx: &rusqlite::Transaction) -> Result<()> 
 /// Initializes headless `sessions_v2`, `session_policies`, `causal_nodes` schema,
 /// migrates historical data out of legacy tables, and establishes `session_list_view`.
 pub fn apply_session_ir_clean_break_schema(tx: &rusqlite::Transaction) -> Result<()> {
-    crate::db::session_ir::initialize_session_ir_schema(tx)?;
+    tx.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS sessions_v2 (
+            id TEXT PRIMARY KEY,
+            parent_session_id TEXT REFERENCES sessions_v2(id) ON DELETE SET NULL,
+            active_leaf TEXT,
+            status TEXT NOT NULL DEFAULT 'idle',
+            suspension_payload TEXT,
+            pending_notifications TEXT NOT NULL DEFAULT '[]',
+            round_counter INTEGER NOT NULL DEFAULT 0,
+            created_at_s INTEGER NOT NULL,
+            updated_at_s INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS session_policies (
+            session_id TEXT PRIMARY KEY REFERENCES sessions_v2(id) ON DELETE CASCADE,
+            rules_json TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            guardrails_json TEXT NOT NULL,
+            budget_json TEXT NOT NULL,
+            updated_at_s INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS causal_nodes (
+            id TEXT NOT NULL,
+            session_id TEXT NOT NULL REFERENCES sessions_v2(id) ON DELETE CASCADE,
+            parent_id TEXT,
+            seq INTEGER NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('dialogue','compaction','termination','system_notice')),
+            payload_json TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL,
+            PRIMARY KEY (session_id, id),
+            UNIQUE(session_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS idx_causal_nodes_session_seq ON causal_nodes(session_id, seq ASC);
+        CREATE INDEX IF NOT EXISTS idx_causal_nodes_parent ON causal_nodes(session_id, parent_id);
+        "#,
+    )?;
 
     // Create the CQRS Read Model projection view
     tx.execute_batch(

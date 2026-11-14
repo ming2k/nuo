@@ -180,7 +180,7 @@ pub(crate) fn draw_blank_rows(ctx: &mut RenderCtx<'_, '_>, style: Style, rows: u
 }
 
 /// Render text content as a code block with a line-number gutter on
-/// `code_surface`. Used for `read_text` / `edit_text` results and as the
+/// `code_surface`. Used for `read` / `edit_text` results and as the
 /// fallback for unrecognized tools. The gutter starts at column `indent`
 /// so the code aligns with the rest of the step body.
 ///

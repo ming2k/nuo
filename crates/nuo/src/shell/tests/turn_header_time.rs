@@ -34,7 +34,7 @@ fn apply_edit(app: &mut App, runtime: &UiRuntime, edit: TranscriptEdit) {
 /// A tool step placed at `(round, turn)` with no send time of its own — exactly
 /// what an arm that forgot `.with_sent_at_ms(...)` produces.
 fn unstamped_step(round: u64, turn: u64) -> TranscriptMessage {
-    let mut step = TranscriptMessage::tool_step("call_1", "read_text", r#"{"path":"a.rs"}"#);
+    let mut step = TranscriptMessage::tool_step("call_1", "read", r#"{"path":"a.rs"}"#);
     step.round = Some(round);
     step.turn = Some(turn);
     step

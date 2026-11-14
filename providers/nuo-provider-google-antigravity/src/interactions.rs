@@ -191,7 +191,7 @@ impl GoogleInteractionsProvider {
         }
 
         if !request.instructions.is_empty() {
-            let rendered = request.instructions.render_system_instructions();
+            let rendered = request.instructions.render_fixed();
             if !rendered.is_empty() {
                 body["system_instruction"] = json!({
                     "parts": [{ "text": rendered }]

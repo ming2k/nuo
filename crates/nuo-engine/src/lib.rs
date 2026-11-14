@@ -30,7 +30,7 @@
 //! # Dependency posture
 //!
 //! `nuo-harness` is the runtime wiring layer: it depends on `nuo-protocol` (domain
-//! vocabulary), `nuo-persistence` (durable state: `SessionStore`, `Config`,
+//! vocabulary), `nuo-persistence` (durable state: `ThreadSession`, `Config`,
 //! `EmbeddingStore`), `nuo-model-routing`, and the capability tool crates. Concrete
 //! filesystem / process / web / AST tools live in `nuo-host` and `tools/nuo-tool-*`;
 //! this crate's [`tools`] module holds only orchestration-native model tools
@@ -60,10 +60,10 @@ extern crate self as nuo_harness;
 // Bounded contract re-exports: only protocol types that cross the harness boundary.
 pub use nuo_protocol::{
     AgentEvent, AgentIdentity, AgentNotice, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile,
-    DynamicToolSink, Hook, HookContext, HookEvent, HookEventKind, HookOutcome, InstructionTier,
-    LoopStatus, Message, PermissionDecision, Provider, ProviderStreamEvent, RetryPoint, Role,
-    RoundEvent, SessionDelta, SessionSource, SubagentEvent, TokenUsage, Tool, ToolContext,
-    ToolOutput, ToolSet, ToolStream, Transport, async_trait,
+    Block, BlockRender, DynamicToolSink, Hook, HookContext, HookEvent, HookEventKind, HookOutcome,
+    HookStartSource, InstructionText, LoopStatus, Message, PermissionDecision, Provider,
+    ProviderStreamEvent, RetryPoint, Role, RoundEvent, SubagentEvent, TokenUsage, Tool,
+    ToolContext, ToolOutput, ToolSet, ToolStream, Transport, async_trait,
 };
 
 #[allow(unused_imports)]
@@ -143,6 +143,7 @@ pub use cognition::skills::{
     discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
     format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
 };
+pub use cognition::thread_runtime::{RequestView, ThreadRuntime, ThreadWindow};
 pub use orchestration::context_gate::{PruningProjectionGate, SettingsForWindow};
 
 // -----------------------------------------------------------------------------
@@ -189,11 +190,6 @@ pub(crate) use dispatch::{dynamic_tools, tool_integration, tool_manager, tool_sc
 // Subsystem: Runtime substrate — env, durability, hooks, ports
 // -----------------------------------------------------------------------------
 pub mod runtime;
-pub use runtime::durability::record::*;
-pub use runtime::durability::{
-    Ack, ConformanceReport, FactSink, Hydrate, MemorySink, NullSink, SinkError, SinkHealth,
-    conformance as durability_conformance, record as execution_record, run_conformance,
-};
 pub use runtime::extension::CodeIntelligenceExtension;
 pub use runtime::hooks::{HookRegistry, UserPromptVerdict, matcher_matches};
 pub use runtime::host::*;

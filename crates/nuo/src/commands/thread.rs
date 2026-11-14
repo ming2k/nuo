@@ -521,21 +521,16 @@ pub fn format_threads_table(sessions: &[MonitoredThread], filter: &ThreadFilter)
         } else {
             row.project_root.clone()
         };
-        // Title carries the lineage: the lane geometry, the fork address when
-        // the store recorded one, and a warning when the origin is not here.
+        // Title carries the lane geometry and the parent address for a
+        // subagent thread.
         let mut title = String::new();
         if !lane.is_empty() {
             title.push_str(&lane);
         }
-        match (row.fork_kind, row.fork_point) {
-            (nuo_protocol::ThreadForkKind::Fork, Some(point)) => {
-                title.push_str(&format!("⑂{point} "))
-            }
-            (nuo_protocol::ThreadForkKind::Fork, None) => title.push_str("⑂ "),
-            _ => {}
+        if row.origin == nuo_protocol::ThreadOrigin::Subagent {
+            title.push_str("⑂ ");
         }
-        if let (nuo_protocol::ThreadForkKind::Fork, Some(parent)) =
-            (row.fork_kind, row.parent_id.as_deref())
+        if let Some(parent) = row.parent_id.as_deref()
             && lane.is_empty()
         {
             // An anchorless branch: the parent is not in this listing. Say so
@@ -606,7 +601,7 @@ fn fmt_relative(updated_epoch_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::{ThreadForkKind, ThreadHosting, ThreadStatus};
+    use nuo_protocol::{ThreadActivity, ThreadHosting, ThreadOrigin};
 
     fn test_filter() -> ThreadFilter {
         ThreadFilter {
@@ -675,7 +670,7 @@ mod tests {
             updated_at: 100,
             message_count: 5,
             hosting: ThreadHosting::Hosted,
-            status: ThreadStatus::Running,
+            status: ThreadActivity::Running,
             round: 2,
             turn: Some(1),
             output_tokens: 500,
@@ -687,8 +682,7 @@ mod tests {
             project_root: "/data".into(),
             role: "developer".into(),
             parent_id: None,
-            fork_kind: ThreadForkKind::default(),
-            fork_point: None,
+            origin: ThreadOrigin::default(),
             digest: None,
         }];
         let formatted = format_threads_table(&rows, &test_filter());
@@ -713,7 +707,7 @@ mod tests {
             updated_at: created,
             message_count: 1,
             hosting: ThreadHosting::Hosted,
-            status: ThreadStatus::Idle,
+            status: ThreadActivity::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -725,12 +719,11 @@ mod tests {
             project_root: "/data".into(),
             role: "developer".into(),
             parent_id: parent.map(str::to_string),
-            fork_kind: if parent.is_some() {
-                ThreadForkKind::Fork
+            origin: if parent.is_some() {
+                ThreadOrigin::Subagent
             } else {
-                ThreadForkKind::Trunk
+                ThreadOrigin::Trunk
             },
-            fork_point: parent.map(|_| nuo_protocol::ForkPoint::at_turn(1, 0)),
             digest: None,
         };
 
@@ -743,11 +736,11 @@ mod tests {
 
         assert!(formatted.contains("trunk0001"), "{formatted}");
         assert!(
-            formatted.contains("├─ ⑂r1.0 fork00002"),
+            formatted.contains("├─ ⑂ fork00002"),
             "the newest branch is not last in its sibling set, so it keeps the lane open: {formatted}"
         );
         assert!(
-            formatted.contains("└─ ⑂r1.0 fork00001"),
+            formatted.contains("└─ ⑂ fork00001"),
             "the oldest branch closes its elbow: {formatted}"
         );
         // Newest creation first, and never snapshot order.
@@ -772,7 +765,7 @@ mod tests {
             updated_at: created,
             message_count: 1,
             hosting: ThreadHosting::Hosted,
-            status: ThreadStatus::Idle,
+            status: ThreadActivity::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -784,12 +777,11 @@ mod tests {
             project_root: "/data".into(),
             role: "developer".into(),
             parent_id: parent.map(str::to_string),
-            fork_kind: if parent.is_some() {
-                ThreadForkKind::Fork
+            origin: if parent.is_some() {
+                ThreadOrigin::Subagent
             } else {
-                ThreadForkKind::Trunk
+                ThreadOrigin::Trunk
             },
-            fork_point: parent.map(|_| nuo_protocol::ForkPoint::at_round(1)),
             digest: None,
         };
 
@@ -811,7 +803,7 @@ mod tests {
             "the newer branch stays under its older trunk: {formatted}"
         );
         assert!(
-            formatted.contains("└─ ⑂r1 fork-old1x"),
+            formatted.contains("└─ ⑂ fork-old1x"),
             "a single branch closes its elbow: {formatted}"
         );
     }
@@ -829,7 +821,7 @@ mod tests {
             updated_at: 10,
             message_count: 1,
             hosting: ThreadHosting::Hosted,
-            status: ThreadStatus::Idle,
+            status: ThreadActivity::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -841,8 +833,7 @@ mod tests {
             project_root: "/data".into(),
             role: "developer".into(),
             parent_id: Some("missing-parent-id".into()),
-            fork_kind: ThreadForkKind::Fork,
-            fork_point: None,
+            origin: ThreadOrigin::Subagent,
             digest: None,
         }];
         let formatted = format_threads_table(&rows, &test_filter());

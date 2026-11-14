@@ -1,5 +1,5 @@
 //! Presenters for orchestration / meta tools that act on session state rather
-//! than the filesystem: `todo`, `subagent`, `use_skill`.
+//! than the filesystem: `todo`, `subagent`.
 
 use super::{ResultKind, ToolPresenter, ToolView, truncate};
 use serde_json::Value;
@@ -74,16 +74,6 @@ impl ToolPresenter for SubagentPresenter {
         view.str("description")
             .map(|desc| truncate(desc, 56).to_string())
             .unwrap_or_else(|| "Run subagent".to_string())
-    }
-}
-
-pub struct UseSkillPresenter;
-
-impl ToolPresenter for UseSkillPresenter {
-    fn summary(&self, view: &ToolView) -> String {
-        view.str("name")
-            .map(|name| format!("Use skill {}", name))
-            .unwrap_or_else(|| "Use skill".to_string())
     }
 }
 

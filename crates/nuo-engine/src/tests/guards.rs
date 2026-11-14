@@ -173,15 +173,15 @@ async fn doom_block_is_surgical_across_files() {
     // Two distinct watched tools so the ToolSet routes them separately; the
     // block is keyed on the full signature (`name|path`), so neither a
     // different file under the same tool nor a different tool is masked.
-    let reader = RecordingTool::read("read_text", "READ");
+    let reader = RecordingTool::read("read", "READ");
     let reader_calls = reader.calls_handle();
     let finder = RecordingTool::read("find_files", "FIND");
     let finder_calls = finder.calls_handle();
     // Three reads of big.rs (3rd reaches the default threshold → blocked),
     // then a read of small.rs (must succeed — different path), then a find_files
     // (must succeed — different tool), then done.
-    let read_big = || turn(&[("c", "read_text", r#"{"path":"big.rs"}"#)]);
-    let read_small = || turn(&[("c", "read_text", r#"{"path":"small.rs"}"#)]);
+    let read_big = || turn(&[("c", "read", r#"{"path":"big.rs"}"#)]);
+    let read_small = || turn(&[("c", "read", r#"{"path":"small.rs"}"#)]);
     let find = || turn(&[("c", "find_files", r#"{"path":"."}"#)]);
     let agent = Arc::new(Agent::new(
         Arc::new(ScriptedProvider::new(vec![

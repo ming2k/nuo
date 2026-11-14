@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::{CachePlan, PromptCachePreference};
 use crate::effort::Effort;
-use crate::instructions::InstructionBundle;
+use crate::instructions::InstructionText;
 use crate::model::ModelCapabilities;
 use crate::provider_state::*;
 use crate::token_ledger::TransportTelemetry;
@@ -133,8 +133,8 @@ pub struct ModelRequest {
     #[serde(skip)]
     pub turn_context: Arc<ProviderTurnContext>,
     /// Structured instruction manifest (tiers: Base, Session, Task, Ephemeral).
-    #[serde(default, skip_serializing_if = "InstructionBundle::is_empty")]
-    pub instructions: InstructionBundle,
+    #[serde(default, skip_serializing_if = "InstructionText::is_empty")]
+    pub instructions: InstructionText,
     pub messages: Vec<Message>,
     /// Request-local temporary context (`E_n`): optional,
     /// bounded, and never persisted to the durable interaction record. Provider
@@ -175,7 +175,7 @@ impl ModelRequest {
     pub fn new(messages: Vec<Message>) -> Self {
         Self {
             turn_context: Arc::default(),
-            instructions: InstructionBundle::default(),
+            instructions: InstructionText::default(),
             messages,
             temporary_context: Vec::new(),
             tool_specs: Vec::new(),
@@ -194,7 +194,7 @@ impl ModelRequest {
     pub fn ephemeral(messages: Vec<Message>) -> Self {
         Self {
             turn_context: Arc::default(),
-            instructions: InstructionBundle::default(),
+            instructions: InstructionText::default(),
             messages,
             temporary_context: Vec::new(),
             tool_specs: Vec::new(),
@@ -210,7 +210,7 @@ impl ModelRequest {
     }
 
     /// Set instructions on the request.
-    pub fn with_instructions(mut self, instructions: InstructionBundle) -> Self {
+    pub fn with_instructions(mut self, instructions: InstructionText) -> Self {
         self.instructions = instructions;
         self.with_recomputed_revisions()
     }
@@ -232,7 +232,7 @@ impl ModelRequest {
         tool_specs.sort_by(|a, b| a.name.cmp(&b.name));
         Self {
             turn_context: Arc::default(),
-            instructions: InstructionBundle::default(),
+            instructions: InstructionText::default(),
             messages,
             temporary_context: Vec::new(),
             tool_specs,
@@ -249,7 +249,7 @@ impl ModelRequest {
 
     /// Build a request with structured instructions and pre-computed tool declarations.
     pub fn with_instructions_and_tool_specs(
-        instructions: InstructionBundle,
+        instructions: InstructionText,
         messages: Vec<Message>,
         mut tool_specs: Vec<ToolSpec>,
     ) -> Self {
@@ -271,7 +271,7 @@ impl ModelRequest {
         .with_recomputed_revisions()
     }
     pub fn with_instructions_and_tools(
-        instructions: InstructionBundle,
+        instructions: InstructionText,
         messages: Vec<Message>,
         tools: &[Arc<dyn Tool>],
     ) -> Self {
@@ -473,7 +473,7 @@ mod tests {
     #[test]
     fn variant_defaults_to_default() {
         let tool = DummyTool {
-            name: "read_text",
+            name: "read",
             variant: "default",
             desc: "built-in",
         };
@@ -485,12 +485,12 @@ mod tests {
         // A variant's own description is authoritative: the function schema
         // carries it verbatim, keyed by the shared capability name.
         let terse = DummyTool {
-            name: "read_text",
+            name: "read",
             variant: "terse",
             desc: "terse wording",
         };
         let schema = terse.to_openai_function();
-        assert_eq!(schema["function"]["name"], "read_text");
+        assert_eq!(schema["function"]["name"], "read");
         assert_eq!(desc_of(&schema), "terse wording");
     }
 }

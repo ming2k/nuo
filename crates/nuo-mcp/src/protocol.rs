@@ -183,3 +183,69 @@ impl CallToolResult {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn request_round_trip_preserves_identity_and_params() {
+        let request = JsonRpcRequest::new(7, "tools/call", Some(json!({"name": "read"})));
+        let encoded = serde_json::to_value(&request).unwrap();
+        assert_eq!(encoded["jsonrpc"], "2.0");
+        assert_eq!(encoded["id"], 7);
+        assert_eq!(encoded["method"], "tools/call");
+        assert_eq!(encoded["params"]["name"], "read");
+
+        let decoded: JsonRpcRequest = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.id, 7);
+        assert_eq!(decoded.method, "tools/call");
+    }
+
+    #[test]
+    fn response_omits_absent_result_and_error() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(1),
+            result: None,
+            error: Some(JsonRpcError {
+                code: -32601,
+                message: "method not found".to_string(),
+                data: None,
+            }),
+        };
+        let encoded = serde_json::to_value(&response).unwrap();
+        assert!(
+            encoded.get("result").is_none(),
+            "an absent result must not serialize as null"
+        );
+        assert_eq!(encoded["error"]["code"], -32601);
+
+        let without_error = JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(2),
+            result: Some(json!({"ok": true})),
+            error: None,
+        };
+        let encoded = serde_json::to_value(&without_error).unwrap();
+        assert!(encoded.get("error").is_none());
+    }
+
+    #[test]
+    fn content_item_keeps_text_and_degrades_unknown_kinds() {
+        let text: ContentItem = serde_json::from_value(json!({
+            "type": "text",
+            "text": "hello"
+        }))
+        .unwrap();
+        assert!(matches!(text, ContentItem::Text { text } if text == "hello"));
+
+        let unknown: ContentItem = serde_json::from_value(json!({
+            "type": "audio",
+            "data": "ignored"
+        }))
+        .unwrap();
+        assert!(matches!(unknown, ContentItem::Unknown));
+    }
+}

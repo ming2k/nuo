@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn classifies_two_buckets_in_order() {
         let m = manager(
-            vec![StubTool::new("execute_command"), StubTool::new("read_text")],
+            vec![StubTool::new("execute_command"), StubTool::new("read")],
             vec![StubTool::new("mcp__srv__x")],
             vec![],
         );
@@ -295,7 +295,7 @@ mod tests {
             labels,
             vec![
                 (ToolSource::Builtin, "execute_command"),
-                (ToolSource::Builtin, "read_text"),
+                (ToolSource::Builtin, "read"),
                 (ToolSource::Mcp, "mcp__srv__x"),
             ]
         );

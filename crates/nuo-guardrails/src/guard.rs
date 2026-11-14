@@ -308,8 +308,8 @@ mod tests {
     #[test]
     fn is_blocked_unwatched_tool_admitted_even_if_present_in_args() {
         let state = RoundGuardState::new();
-        // use_skill is not watched; even with a mask it would be admitted, but
+        // view_image is not watched; even with a mask it would be admitted, but
         // here the mask is empty so this just confirms the fast path.
-        assert!(!state.is_blocked("use_skill", r#"{"name":"x"}"#));
+        assert!(!state.is_blocked("view_image", r#"{"name":"x"}"#));
     }
 }

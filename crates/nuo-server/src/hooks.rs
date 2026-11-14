@@ -285,8 +285,8 @@ fn context_to_json(ctx: &HookContext) -> String {
     match &ctx.event {
         HookEvent::SessionStart { source } => {
             value["source"] = json!(match source {
-                nuo_harness::SessionSource::Startup => "startup",
-                nuo_harness::SessionSource::Resume => "resume",
+                nuo_harness::HookStartSource::Startup => "startup",
+                nuo_harness::HookStartSource::Resume => "resume",
             });
         }
         HookEvent::SessionEnd => {}
@@ -366,7 +366,7 @@ fn context_to_json(ctx: &HookContext) -> String {
 
 fn event_name(event: &HookEvent) -> &'static str {
     match event {
-        HookEvent::SessionStart { .. } => "SessionStart",
+        HookEvent::SessionStart { .. } => "ThreadStart",
         HookEvent::SessionEnd => "SessionEnd",
         HookEvent::UserPromptSubmit { .. } => "UserPromptSubmit",
         HookEvent::PreToolUse { .. } => "PreToolUse",

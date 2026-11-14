@@ -54,7 +54,7 @@ impl Agent {
 
     /// Whether a tool call's [`ScopeTarget`] is [`ScopeTarget::Unspecified`] —
     /// i.e. the tool declares no locatable target (a pure read/search like
-    /// `read_text`, `search_text`). Used to classify a turn as read-only for the
+    /// `read`, `search_text`). Used to classify a turn as read-only for the
     /// turn-hook streak counter. An unknown tool name reads as `true`
     /// (unspecified), matching the trait default.
     pub(crate) fn tool_target_is_unspecified(&self, name: &str, arguments: &str) -> bool {

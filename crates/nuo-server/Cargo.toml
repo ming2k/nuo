@@ -61,7 +61,6 @@ chrono = { workspace = true }
 dirs = { workspace = true }
 
 [dev-dependencies]
-mockito = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 nuo-host = { workspace = true, features = ["test-path-override"] }

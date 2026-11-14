@@ -13,6 +13,7 @@ use crate::auth::{PreflightValidator, ResolvedAuth};
 use crate::dialects::OpenAiChatDialect;
 use crate::error::{ProviderError, ProviderErrorKind};
 use crate::transport::RequestBuilder;
+use crate::wire::{EncodedRequest, WireRequest};
 
 /// Phase 1: Structural JSON body transformation (e.g. AgentChat envelope).
 pub trait EnvelopePhase: Send + Sync {
@@ -60,8 +61,8 @@ pub trait RequestSignerPhase: Send + Sync {
 pub struct OutboundPlan {
     /// The absolute request URL.
     pub url: String,
-    /// The final wire body bytes.
-    pub body: Vec<u8>,
+    /// The encoded wire body.
+    pub body: EncodedRequest,
     /// Stamps every protocol header (auth, identity, signing) onto the
     /// builder. Consumes the builder so header order stays plan-owned.
     pub stamp_headers:
@@ -168,17 +169,17 @@ impl fmt::Debug for ProviderPipeline {
 }
 
 impl ProviderPipeline {
-    /// Plan the complete outbound request for `body` under `auth`.
+    /// Plan the complete outbound request for a projected wire body under `auth`.
     pub fn plan_request(
         &self,
         base_url: &str,
-        body: &serde_json::Value,
+        wire: &WireRequest,
         auth: &ResolvedAuth,
     ) -> Result<OutboundPlan, ProviderError> {
         let reshaped = match &self.envelope_phase {
-            Some(phase) => phase.reshape_body(body)?,
+            Some(phase) => phase.reshape_body(&wire.body)?,
             None => ReshapedEnvelope {
-                body: body.clone(),
+                body: wire.body.clone(),
                 identity_headers: Vec::new(),
             },
         };
@@ -193,13 +194,18 @@ impl ProviderPipeline {
             Some(phase) => phase.encode_body(&raw)?,
             None => raw,
         };
+        let encoded = EncodedRequest {
+            protocol: wire.protocol,
+            body: body_bytes,
+            content_type: "application/json",
+        };
 
         match &self.signer_phase {
             Some(signer) => {
                 let url = signer.request_url(base_url, auth);
                 let signer = signer.clone_box_signer();
                 let auth = auth.clone();
-                let body_for_headers = body_bytes.clone();
+                let body_for_headers = encoded.body.clone();
                 let identity_headers = reshaped.identity_headers;
                 let signer_header = move |mut req: RequestBuilder| {
                     req = signer.sign_request(req, &body_for_headers, &auth)?;
@@ -210,7 +216,7 @@ impl ProviderPipeline {
                 };
                 Ok(OutboundPlan {
                     url,
-                    body: body_bytes,
+                    body: encoded,
                     stamp_headers: Box::new(signer_header),
                 })
             }
@@ -233,7 +239,7 @@ impl ProviderPipeline {
                 };
                 Ok(OutboundPlan {
                     url: base_url.to_string(),
-                    body: body_bytes,
+                    body: encoded,
                     stamp_headers: Box::new(stamp_headers),
                 })
             }

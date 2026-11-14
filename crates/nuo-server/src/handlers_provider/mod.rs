@@ -12,13 +12,13 @@ use nuo_persistence::config::{Config, Credentials};
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
-use nuo_persistence::session::{ProviderSelection, SessionStore};
+use nuo_persistence::thread::{ProviderSelection, ThreadSession};
 use nuo_protocol::{AgentNotice, AgentResponse, CommandResult, Provider, RoundEvent, SecretString};
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
 use crate::agent_setup::{reseed_context_policy, reseed_instructions, reseed_tool_variants};
-use crate::session_view::provider_key_status;
+use crate::thread_view::provider_key_status;
 
 pub(crate) mod connection;
 pub(crate) mod model_ops;
@@ -43,7 +43,7 @@ pub(crate) struct ProviderEnv<'a> {
     pub config: &'a mut Config,
     pub agent: &'a Agent,
     pub provider_for_task: &'a Arc<RwLock<Arc<dyn Provider>>>,
-    pub session: &'a SessionStore,
+    pub session: &'a ThreadSession,
     pub resp_tx: &'a mpsc::UnboundedSender<AgentResponse>,
     pub provider_usage: &'a mut ConnectionUsage,
 }
@@ -52,7 +52,7 @@ pub(crate) struct ActivateEnv<'a> {
     pub config: &'a Config,
     pub agent: &'a Agent,
     pub provider_for_task: &'a Arc<RwLock<Arc<dyn Provider>>>,
-    pub session: Option<&'a SessionStore>,
+    pub session: Option<&'a ThreadSession>,
     pub resp_tx: &'a mpsc::UnboundedSender<AgentResponse>,
     pub provider_usage: &'a mut ConnectionUsage,
 }
@@ -173,7 +173,7 @@ pub async fn reapply_session_selection(
     config: &Config,
     agent: &Agent,
     provider_for_task: &Arc<RwLock<Arc<dyn Provider>>>,
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     provider_usage: &mut ConnectionUsage,
 ) {
@@ -231,7 +231,7 @@ pub async fn reapply_session_selection(
 /// — the switch is acknowledged by the `CommandAck` notice the caller already
 /// sent, and a second reply would duplicate it.
 pub(crate) async fn record_provider_ack(
-    session: &SessionStore,
+    session: &ThreadSession,
     provider: &str,
     model: &str,
     ack: String,

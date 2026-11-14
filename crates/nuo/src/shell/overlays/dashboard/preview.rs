@@ -1,13 +1,15 @@
 use super::*;
 
-pub(crate) fn status_style(status: ThreadStatus, theme: &Theme) -> Style {
+pub(crate) fn status_style(status: ThreadActivity, theme: &Theme) -> Style {
     match status {
         // A running thread is *live*, not *identity*: it uses the in-flight hue
         // like every other running surface (ADR-0110 `[INV-TUI-RUNNING-01]`).
-        ThreadStatus::Running => Style::default().fg(theme.running()),
-        ThreadStatus::NeedsApproval | ThreadStatus::NeedsInput => Style::default().fg(theme.warn()),
-        ThreadStatus::Failed => Style::default().fg(theme.err()),
-        ThreadStatus::Idle | ThreadStatus::Interrupted => Style::default().fg(theme.muted()),
+        ThreadActivity::Running => Style::default().fg(theme.running()),
+        ThreadActivity::NeedsApproval | ThreadActivity::NeedsInput => {
+            Style::default().fg(theme.warn())
+        }
+        ThreadActivity::Failed => Style::default().fg(theme.err()),
+        ThreadActivity::Idle | ThreadActivity::Interrupted => Style::default().fg(theme.muted()),
     }
 }
 

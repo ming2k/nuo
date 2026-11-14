@@ -16,21 +16,16 @@ use tracing::{info, warn};
 mod actor;
 pub mod backup;
 mod connection;
-pub mod context_store;
-pub(crate) mod derived;
 pub mod garbage_collection;
 mod handle;
 pub mod history_search;
 pub mod input_history;
-pub mod inspect_service;
-pub mod ir_mirror;
 pub mod kv_store;
 pub mod migration_policy;
-pub mod migration_tool;
 pub mod migrations;
 mod reader;
-pub mod session_ir;
-pub mod session_store;
+pub mod thread_session;
+pub mod thread_store;
 pub mod usage_projection;
 
 pub use handle::{StorageMaintenanceReport, get_persistence_handle};
@@ -44,7 +39,7 @@ mod tests;
 
 /// One projected message row inside a [`ThreadTranscriptView`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SessionMessageView {
+pub struct ThreadMessageView {
     pub seq: u64,
     /// Lowercase role string (`user` / `assistant` / `system` / `tool`).
     pub role: String,
@@ -102,35 +97,21 @@ fn extract_content_blob(payload_json: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Reassemble the persisted fork address from its two columns. A turn without
-/// a round is not a representable address, so it degrades to "unrecorded"
-/// rather than inventing a round the writer never stamped.
-fn fork_point_from_columns(
-    round: Option<i64>,
-    turn: Option<i64>,
-) -> Option<nuo_protocol::ForkPoint> {
-    round.map(|round| nuo_protocol::ForkPoint {
-        round: round.max(0) as u64,
-        turn: turn.map(|t| t.max(0) as u32),
-    })
-}
-
 fn map_session_row(row: &Row) -> Result<ThreadRecord> {
     Ok(ThreadRecord {
         id: row.get(0)?,
         parent_id: row.get(1)?,
-        fork_kind: row.get(2)?,
-        fork_point: fork_point_from_columns(row.get(3)?, row.get(4)?),
-        title: row.get(5)?,
-        created_at_s: row.get(6)?,
-        updated_at_s: row.get(7)?,
-        workspace_root: row.get(8)?,
-        persona: row.get(9)?,
-        msg_count: row.get(10)?,
-        last_user_prompt: row.get(11)?,
-        digest: row.get(12)?,
-        status: row.get(13)?,
-        round_counter: row.get::<_, i64>(14)?.max(0) as u64,
+        origin: row.get(2)?,
+        title: row.get(3)?,
+        created_at_s: row.get(4)?,
+        updated_at_s: row.get(5)?,
+        workspace_root: row.get(6)?,
+        persona: row.get(7)?,
+        msg_count: row.get(8)?,
+        last_user_prompt: row.get(9)?,
+        digest: row.get(10)?,
+        status: row.get(11)?,
+        round_counter: row.get::<_, i64>(12)?.max(0) as u64,
     })
 }
 
@@ -141,8 +122,7 @@ fn map_session_row(row: &Row) -> Result<ThreadRecord> {
 struct SummaryRow {
     id: String,
     parent_id: Option<String>,
-    fork_kind: String,
-    fork_point: Option<nuo_protocol::ForkPoint>,
+    origin: String,
     title: Option<String>,
     created_at_s: i64,
     updated_at_s: i64,
@@ -155,27 +135,25 @@ fn map_summary_row(row: &Row) -> Result<SummaryRow> {
     Ok(SummaryRow {
         id: row.get(0)?,
         parent_id: row.get(1)?,
-        fork_kind: row.get(2)?,
-        fork_point: fork_point_from_columns(row.get(3)?, row.get(4)?),
-        title: row.get(5)?,
-        created_at_s: row.get(6)?,
-        updated_at_s: row.get(7)?,
-        msg_count: row.get(8)?,
-        last_user_prompt: row.get(9)?,
-        digest_json: row.get(10)?,
+        origin: row.get(2)?,
+        title: row.get(3)?,
+        created_at_s: row.get(4)?,
+        updated_at_s: row.get(5)?,
+        msg_count: row.get(6)?,
+        last_user_prompt: row.get(7)?,
+        digest_json: row.get(8)?,
     })
 }
 
 fn push_summary(
-    summaries: &mut Vec<crate::session::SessionSummary>,
+    summaries: &mut Vec<crate::thread::ThreadSummary>,
     item: SummaryRow,
     active_id: &str,
 ) {
     let SummaryRow {
         id,
         parent_id,
-        fork_kind: fork_str,
-        fork_point,
+        origin: fork_str,
         title,
         created_at_s,
         updated_at_s,
@@ -183,10 +161,9 @@ fn push_summary(
         last_user_prompt,
         digest_json,
     } = item;
-    let fork_kind = match fork_str.as_str() {
-        "fork" => nuo_protocol::ThreadForkKind::Fork,
-        "subagent" => nuo_protocol::ThreadForkKind::Subagent,
-        _ => nuo_protocol::ThreadForkKind::Trunk,
+    let origin = match fork_str.as_str() {
+        "subagent" => nuo_protocol::ThreadOrigin::Subagent,
+        _ => nuo_protocol::ThreadOrigin::Trunk,
     };
 
     let final_msg_count = msg_count.max(0) as usize;
@@ -198,19 +175,18 @@ fn push_summary(
         .filter(|t| !t.trim().is_empty())
         .map(|s| s.to_string());
     let overview = if let Some(ref t) = real_title {
-        crate::session::truncate_preview(t, 64)
+        crate::thread::truncate_preview(t, 64)
     } else if let Some(prompt) = last_user_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
-        crate::session::truncate_preview(prompt, 64)
+        crate::thread::truncate_preview(prompt, 64)
     } else {
         "(empty session)".to_string()
     };
     let digest = digest_json.and_then(|digest_raw| serde_json::from_str(&digest_raw).ok());
-    summaries.push(crate::session::SessionSummary {
+    summaries.push(crate::thread::ThreadSummary {
         id: id.clone(),
         title: real_title,
         parent_id,
-        fork_kind,
-        fork_point,
+        origin,
         message_count: final_msg_count,
         updated_at: updated_at_s.max(0) as u64,
         created_at: created_at_s.max(0) as u64,
@@ -565,10 +541,10 @@ impl fmt::Display for SaveError {
 /// The fingerprint is deliberately O(1) in the session's size. It covers the
 /// row checksum (working state), the transcript's tail identity, and the usage
 /// upserts — enough to distinguish a replay from a different operation without
-/// re-serializing the whole transcript, which `SessionData` setter paths clone
+/// re-serializing the whole transcript, which `ThreadData` setter paths clone
 /// in full. Preparation runs **before** the writer transaction.
 fn commit_payload_digest(
-    data: &crate::session::SessionData,
+    data: &crate::thread::ThreadData,
     usage_upserts: &[nuo_protocol::RequestUsageRecord],
 ) -> Result<String> {
     use sha2::{Digest, Sha256};
@@ -594,7 +570,7 @@ fn commit_payload_digest(
 /// The durable revision for a session (D3). Absent means revision 0.
 fn session_revision(conn: &Connection, session_id: &str) -> Result<u64> {
     conn.query_row(
-        "SELECT revision FROM session_revisions WHERE session_id=?1",
+        "SELECT revision FROM thread_revisions WHERE thread_id=?1",
         params![session_id],
         |row| row.get::<_, i64>(0),
     )
@@ -727,7 +703,7 @@ fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
             operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, revision INTEGER NOT NULL,
             payload_hash TEXT NOT NULL
         );
-        CREATE TABLE session_revisions (session_id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
+        CREATE TABLE thread_revisions (thread_id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
     ")?;
     // Prefer historical cross-session attribution; per-session facts fill gaps.
     // `kv_store` predates this migration on every real database, but a
@@ -849,7 +825,7 @@ pub(crate) fn upsert_attempt(
 /// Command variants dispatched to the single-writer persistence actor.
 pub(crate) enum PersistenceCommand {
     SaveSession {
-        data: Box<crate::session::SessionData>,
+        data: Box<crate::thread::ThreadData>,
         /// `true`: rewrite every membership/projection/blob reference from
         /// `data`. `false`: append only rows above the durable watermark,
         /// escalating to a full rewrite on generation mismatch.
@@ -998,6 +974,12 @@ pub(crate) enum PersistenceCommand {
     /// Internal: sent by the supervisor through the writer channel only,
     /// never through the front door.
     RetireEngine { ack: oneshot::Sender<()> },
+    /// Persist a full thread aggregate (branches, cursors, facts) through the
+    /// single writer. Used by branch commands.
+    SaveThreadAggregate {
+        thread: Box<nuo_protocol::Thread>,
+        ack: oneshot::Sender<Result<(), PersistenceError>>,
+    },
     /// Create an online hot backup snapshot using `VACUUM INTO`.
     CreateBackup {
         target_path: PathBuf,
@@ -1007,68 +989,7 @@ pub(crate) enum PersistenceCommand {
     Optimize {
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
-    /// Persist an incremental Session IR delta directly into SQLite (INV-SESSION-05).
-    SaveSessionDelta {
-        delta: Box<nuo_protocol::SessionDelta>,
-        ack: oneshot::Sender<Result<(), PersistenceError>>,
-    },
-    /// Drain one session's derived indexes (causal graph + FTS) to its durable
-    /// end. The read-your-writes boundary: call before hydrating the Session IR
-    /// or searching that session.
-    FlushDerivedSession {
-        session_id: String,
-        ack: oneshot::Sender<Result<usize, PersistenceError>>,
-    },
-    /// Drain every pending session's derived indexes. Transcript search spans
-    /// sessions, so it cannot scope a flush to one id.
-    FlushDerivedAll {
-        ack: oneshot::Sender<Result<usize, PersistenceError>>,
-    },
-    /// Commit immutable execution facts to the canonical context store.
-    CommitContextFacts {
-        commit: Box<crate::db::context_store::OwnedFactCommit>,
-        ack: oneshot::Sender<
-            Result<
-                crate::db::context_store::CommitOutcome,
-                crate::db::context_store::ContextCommitError,
-            >,
-        >,
-    },
-    /// Commit a branch context view to the canonical context store.
-    CommitContextView {
-        commit: Box<crate::db::context_store::OwnedViewCommit>,
-        ack: oneshot::Sender<
-            Result<
-                crate::db::context_store::CommitOutcome,
-                crate::db::context_store::ContextCommitError,
-            >,
-        >,
-    },
-    /// Execute an inspect deletion job.
-    ExecuteInspectDeletion {
-        session_id: String,
-        job_id: String,
-        now_ms: u64,
-        ack: oneshot::Sender<
-            Result<
-                crate::db::inspect_service::DeletionReport,
-                nuo_protocol::context_lifecycle::InspectError,
-            >,
-        >,
-    },
-    /// Collect a bounded garbage collection batch for artifacts/leases.
-    CollectInspectGarbage {
-        session_id: String,
-        now_ms: u64,
-        batch_limit: u32,
-        batch_ms: u64,
-        ack: oneshot::Sender<
-            Result<
-                crate::db::inspect_service::CollectionProgress,
-                nuo_protocol::context_lifecycle::InspectError,
-            >,
-        >,
-    },
+
     /// Test-only: the writer acks and then exits its loop, simulating actor
     /// death so the supervisor's respawn path is exercisable (D6).
     #[cfg(test)]
@@ -1079,7 +1000,7 @@ pub(crate) enum PersistenceCommand {
     /// operation identity, never assumed uncommitted).
     #[cfg(test)]
     SaveSessionThenDie {
-        data: Box<crate::session::SessionData>,
+        data: Box<crate::thread::ThreadData>,
         full: bool,
         usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
         guard: CommitGuard,

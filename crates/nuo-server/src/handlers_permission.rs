@@ -5,9 +5,9 @@
 //! match the original loop locals (`agent`, `session`, `resp_tx`,
 //! `lifecycle`, `side`, `subagent_registry`, …) so the body reads exactly as
 //! it did inline.
-use crate::session_driver::send_harness_state_for_session;
+use crate::thread_driver::send_harness_state_for_session;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
-use nuo_persistence::session::SessionStore;
+use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, LoopStatus, PermissionDecision};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 /// still emits its own "... \[Interrupted\]" cleanup.
 pub async fn interrupt(
     agent: &Agent,
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     lifecycle: &Arc<RoundLifecycle>,
 ) {

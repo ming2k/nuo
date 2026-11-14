@@ -11,63 +11,54 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum BuiltinTool {
     ExecuteCommand,
-    ReadText,
+    Read,
     WriteFile,
     EditText,
     FindFiles,
     SearchText,
     ReadUrl,
     SearchWeb,
-    ReadImage,
     AskUser,
     Todo,
     SpawnAgent,
     RecallMemory,
     CodeQuery,
-    UseSkill,
-    ListSkills,
 }
 
 impl BuiltinTool {
     /// Array of all native built-in tools.
     pub const ALL: &'static [BuiltinTool] = &[
         BuiltinTool::ExecuteCommand,
-        BuiltinTool::ReadText,
+        BuiltinTool::Read,
         BuiltinTool::WriteFile,
         BuiltinTool::EditText,
         BuiltinTool::FindFiles,
         BuiltinTool::SearchText,
         BuiltinTool::ReadUrl,
         BuiltinTool::SearchWeb,
-        BuiltinTool::ReadImage,
         BuiltinTool::AskUser,
         BuiltinTool::Todo,
         BuiltinTool::SpawnAgent,
         BuiltinTool::RecallMemory,
         BuiltinTool::CodeQuery,
-        BuiltinTool::UseSkill,
-        BuiltinTool::ListSkills,
     ];
 
     /// The canonical wire and capability name of this tool.
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::ExecuteCommand => "execute_command",
-            Self::ReadText => "read_text",
+            Self::Read => "read",
             Self::WriteFile => "write_file",
             Self::EditText => "edit_text",
             Self::FindFiles => "find_files",
             Self::SearchText => "search_text",
             Self::ReadUrl => "read_url",
             Self::SearchWeb => "search_web",
-            Self::ReadImage => "read_image",
             Self::AskUser => "ask_user",
             Self::Todo => "todo",
             Self::SpawnAgent => "spawn_agent",
             Self::RecallMemory => "recall_memory",
             Self::CodeQuery => "code_query",
-            Self::UseSkill => "use_skill",
-            Self::ListSkills => "list_skills",
         }
     }
 
@@ -164,10 +155,9 @@ mod tests {
             Some(BuiltinTool::ExecuteCommand)
         );
         assert_eq!(BuiltinTool::from_name("run_command"), None);
-        assert_eq!(
-            BuiltinTool::from_name("read_text"),
-            Some(BuiltinTool::ReadText)
-        );
+        assert_eq!(BuiltinTool::from_name("read"), Some(BuiltinTool::Read));
+        assert_eq!(BuiltinTool::from_name("read_text"), None);
+        assert_eq!(BuiltinTool::from_name("read_image"), None);
         assert_eq!(BuiltinTool::from_name("non_existent"), None);
     }
 

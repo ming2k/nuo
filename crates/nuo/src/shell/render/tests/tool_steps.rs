@@ -36,11 +36,7 @@ fn subagent_view_groups_children_into_turn_bands() {
         duration_ms: 5,
     };
     // Turn 1: a 3-call concurrent batch.
-    for (id, name) in [
-        ("a", "read_text"),
-        ("b", "search_text"),
-        ("c", "find_files"),
-    ] {
+    for (id, name) in [("a", "read"), ("b", "search_text"), ("c", "find_files")] {
         task.push_subagent_event(&call(id, name, 1, 0), &disclosure());
         task.push_subagent_event(&result(id, name), &disclosure());
     }
@@ -116,7 +112,7 @@ fn subagent_view_groups_children_into_turn_bands() {
     let body = rows.join("\n");
     assert!(body.contains("turn 1"), "expected a `turn 1` band: {body}");
     assert!(body.contains("turn 2"), "expected a `turn 2` band: {body}");
-    // Same-turn sibling calls are flush (no blank row between `read_text`
+    // Same-turn sibling calls are flush (no blank row between `read`
     // and `search_text` inside turn 1); the two turns are separated by a blank.
     let line_of = |needle: &str| {
         rows.iter()

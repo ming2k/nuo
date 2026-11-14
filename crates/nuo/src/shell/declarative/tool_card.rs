@@ -200,7 +200,20 @@ impl ToolCardProps {
         };
 
         let presenter = nuo_view::tools::presenter_for(&name);
-        let payload = match presenter.result_kind() {
+        // `read` is polymorphic: its presenter declares `Auto`, and the
+        // structured result picks the concrete renderer. The string output is
+        // not inspected for this decision — a listing's model-facing header
+        // must not become a bullet row.
+        let result_kind = match presenter.result_kind() {
+            nuo_view::tools::ResultKind::Auto => match structured.as_deref() {
+                Some(nuo_protocol::ToolOutput::Listing { .. }) => {
+                    nuo_view::tools::ResultKind::Listing
+                }
+                _ => nuo_view::tools::ResultKind::Code,
+            },
+            kind => kind,
+        };
+        let payload = match result_kind {
             nuo_view::tools::ResultKind::Diff => {
                 if let Some(tool_output) = structured {
                     match &**tool_output {
@@ -323,25 +336,33 @@ impl ToolCardProps {
                 }
             }
             nuo_view::tools::ResultKind::Listing => {
-                let entries = output
-                    .as_deref()
-                    .unwrap_or("")
-                    .lines()
-                    .map(String::from)
-                    .collect();
+                let entries = match structured.as_deref() {
+                    Some(nuo_protocol::ToolOutput::Listing { entries, .. }) => entries.clone(),
+                    _ => output
+                        .as_deref()
+                        .unwrap_or("")
+                        .lines()
+                        .map(String::from)
+                        .collect(),
+                };
                 ToolPayload::Listing { entries }
             }
             nuo_view::tools::ResultKind::Matches => {
-                let matches = output
-                    .as_deref()
-                    .unwrap_or("")
-                    .lines()
-                    .map(String::from)
-                    .collect();
-                ToolPayload::Matches {
-                    query: arguments.clone(),
-                    matches,
-                }
+                let (query, matches) = match structured.as_deref() {
+                    Some(nuo_protocol::ToolOutput::Matches { pattern, lines }) => {
+                        (pattern.clone(), lines.clone())
+                    }
+                    _ => (
+                        arguments.clone(),
+                        output
+                            .as_deref()
+                            .unwrap_or("")
+                            .lines()
+                            .map(String::from)
+                            .collect(),
+                    ),
+                };
+                ToolPayload::Matches { query, matches }
             }
             _ => ToolPayload::Generic {
                 content: output.clone().unwrap_or_default(),
@@ -883,7 +904,7 @@ impl StorybookComponent for ToolCard {
                 "Code Block With Line Offsets",
                 "File inspection view demonstrating 4-digit line numbering starting at line 1420",
                 ToolCardProps {
-                    tool_name: "read_text".to_string(),
+                    tool_name: "read".to_string(),
                     target_path: Some("crates/nuo-protocol/src/codec.rs".to_string()),
                     status: ToolStatus::Success {
                         duration_ms: Some(25),

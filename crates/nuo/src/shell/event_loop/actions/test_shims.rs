@@ -18,7 +18,7 @@ pub(crate) async fn dispatch_action_for_test(
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let (paste_tx, _paste_rx) = mpsc::unbounded_channel();
     let mut sgr_guard = input::SgrLeakGuard::default();
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: viewed_session_id.to_string(),
     };
     let mut ctx = ActionContext {
@@ -54,7 +54,7 @@ pub(crate) async fn dispatch_command_for_test(
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let (paste_tx, _paste_rx) = mpsc::unbounded_channel();
     let mut sgr_guard = input::SgrLeakGuard::default();
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: viewed_session_id.to_string(),
     };
     let ctx = ActionContext {

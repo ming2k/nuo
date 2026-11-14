@@ -34,7 +34,7 @@ pub async fn send_harness_state_for_session(
     tx: &mpsc::UnboundedSender<AgentResponse>,
     session_id: &str,
     agent: &Agent,
-    session: &SessionStore,
+    session: &ThreadSession,
     loop_status: LoopStatus,
 ) {
     // Running snapshots are emitted after lifecycle admission but

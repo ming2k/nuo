@@ -88,17 +88,17 @@ fn tool_variants_table_parses_and_resolves_per_model() {
     // name to the variant id chosen for that model.
     let toml_src = r#"
             [tool_variants."kimi-k2.7-code"]
-            read_text = "terse"
+            read = "terse"
             execute_command = "workspace"
 
             [tool_variants."glm-5.2"]
-            read_text = "verbose"
+            read = "verbose"
         "#;
     let cfg: Config = toml::from_str(toml_src).unwrap();
 
     // Known model → its map; unlisted capability within a known model → absent.
     let kimi = cfg.tool_variants.for_model("kimi-k2.7-code");
-    assert_eq!(kimi.get("read_text").map(String::as_str), Some("terse"));
+    assert_eq!(kimi.get("read").map(String::as_str), Some("terse"));
     assert_eq!(
         kimi.get("execute_command").map(String::as_str),
         Some("workspace")
@@ -107,7 +107,7 @@ fn tool_variants_table_parses_and_resolves_per_model() {
 
     // A different model gets its own independent map.
     let glm = cfg.tool_variants.for_model("glm-5.2");
-    assert_eq!(glm.get("read_text").map(String::as_str), Some("verbose"));
+    assert_eq!(glm.get("read").map(String::as_str), Some("verbose"));
     assert!(glm.get("execute_command").is_none());
 
     // Unknown model → empty (but borrowable without an Option).
@@ -122,7 +122,7 @@ fn tool_variants_table_parses_and_resolves_per_model() {
 fn tool_variants_round_trip_through_serialise() {
     let mut cfg = Config::default();
     let mut sel = nuo_protocol::VariantSelection::new();
-    sel.insert("read_text".to_string(), "terse".to_string());
+    sel.insert("read".to_string(), "terse".to_string());
     sel.insert("bash".to_string(), "strict".to_string());
     cfg.tool_variants
         .0
@@ -130,7 +130,7 @@ fn tool_variants_round_trip_through_serialise() {
     let serialised = toml::to_string(&cfg).unwrap();
     let parsed: Config = toml::from_str(&serialised).unwrap();
     let resolved = parsed.tool_variants.for_model("kimi-k2.7-code");
-    assert_eq!(resolved.get("read_text").map(String::as_str), Some("terse"));
+    assert_eq!(resolved.get("read").map(String::as_str), Some("terse"));
     assert_eq!(resolved.get("bash").map(String::as_str), Some("strict"));
 }
 

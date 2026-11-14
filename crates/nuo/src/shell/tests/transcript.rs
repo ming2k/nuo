@@ -949,7 +949,7 @@ fn a_settled_round_retracts_every_ingesting_step() {
             .with_round(1)
             .with_turn(1),
     );
-    let dispatched = TranscriptMessage::tool_step("call_3", "read_text", "{}")
+    let dispatched = TranscriptMessage::tool_step("call_3", "read", "{}")
         .with_round(1)
         .with_turn(1);
     app.messages.push(dispatched);
@@ -1256,7 +1256,7 @@ mod command_reply_filing {
         let mut app = new_app_for_relay_tests();
         app.command_catalog = nuo_server::startup::command_catalog(&[]);
         let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-        let session = crate::shell::SessionSource::Remote {
+        let session = crate::shell::HookStartSource::Remote {
             session_id: "test-session".to_string(),
         };
 

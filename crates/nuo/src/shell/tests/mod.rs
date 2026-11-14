@@ -377,8 +377,7 @@ fn prompt_tail(messages: &[TranscriptMessage]) -> Vec<(String, bool, u64)> {
 pub(crate) fn overview_row(id: &str) -> nuo_protocol::ThreadOverview {
     nuo_protocol::ThreadOverview {
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         id: id.to_string(),
         title: None,
         overview: format!("overview-{id}"),
@@ -427,7 +426,7 @@ fn console_host_rows(app: &mut App) {
         updated_at: created,
         message_count: 1,
         hosting: nuo_protocol::ThreadHosting::Hosted,
-        status: nuo_protocol::ThreadStatus::Idle,
+        status: nuo_protocol::ThreadActivity::Idle,
         round: 1,
         turn: None,
         output_tokens: 0,
@@ -439,8 +438,7 @@ fn console_host_rows(app: &mut App) {
         project_root: "/tmp/proj".to_string(),
         role: "developer".to_string(),
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     };
     app.host_sessions = vec![row("aaa", 100), row("bbb", 200)];

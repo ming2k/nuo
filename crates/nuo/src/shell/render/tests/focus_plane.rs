@@ -168,7 +168,7 @@ fn rows_painted_entirely(painted: &Painted, tone: nuotc::Color) -> Vec<u16> {
 #[test]
 fn crossing_lifts_the_whole_transcript_pane() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", false)];
+    let messages = vec![step("read", false)];
 
     let composer_plane = paint(&messages, FocusPlane::Composer, None);
     let transcript_plane = paint(&messages, FocusPlane::Transcript, None);
@@ -202,7 +202,7 @@ fn crossing_lifts_the_whole_transcript_pane() {
 #[test]
 fn wash_reaches_the_column_the_reader_is_reading() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", false)];
+    let messages = vec![step("read", false)];
     let transcript_plane = paint(&messages, FocusPlane::Transcript, None);
 
     let y = rows_painted_entirely(&transcript_plane, theme.pane_focus())[0];
@@ -235,7 +235,7 @@ fn wash_reaches_the_column_the_reader_is_reading() {
 #[test]
 fn wash_preserves_the_relative_step_of_a_content_band() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", true)];
+    let messages = vec![step("read", true)];
     let lum = |c: nuotc::Color| -> f32 {
         match c {
             nuotc::Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
@@ -283,7 +283,7 @@ fn wash_keeps_the_sent_message_panel_raised_above_the_page() {
         TranscriptMessage::new(nuo_protocol::Role::User, "please refactor this")
             .with_round(1)
             .with_sent_at_ms(1_700_000_000_000),
-        step("read_text", false),
+        step("read", false),
     ];
     let lum = |c: nuotc::Color| -> f32 {
         match c {
@@ -327,7 +327,7 @@ fn wash_keeps_the_sent_message_panel_raised_above_the_page() {
 #[test]
 fn browse_focus_paints_no_entry_marker() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", false)];
+    let messages = vec![step("read", false)];
     let transcript_plane = paint(&messages, FocusPlane::Transcript, None);
 
     let marker = theme.pane_marker_style();
@@ -351,7 +351,7 @@ fn browse_focus_paints_no_entry_marker() {
 #[test]
 fn focused_entry_is_marked_with_one_gutter_cell() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", false)];
+    let messages = vec![step("read", false)];
     let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let composer_plane = paint(&messages, FocusPlane::Composer, Some(target));
@@ -401,7 +401,7 @@ fn focused_entry_is_marked_with_one_gutter_cell() {
 #[test]
 fn marking_an_entry_does_not_recolour_its_summary() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", true)];
+    let messages = vec![step("read", true)];
     let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let composer_plane = paint(&messages, FocusPlane::Composer, Some(target));
@@ -460,7 +460,7 @@ fn marking_an_entry_does_not_recolour_its_summary() {
 #[test]
 fn expanded_entry_keeps_its_marker() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", true)];
+    let messages = vec![step("read", true)];
     let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let transcript_plane = paint(&messages, FocusPlane::Transcript, Some(target));
@@ -483,7 +483,7 @@ fn expanded_entry_keeps_its_marker() {
 #[test]
 fn both_planes_announce_ownership_in_the_background_channel() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", false)];
+    let messages = vec![step("read", false)];
 
     // The composer half: its panel is the active input surface while it owns the
     // keyboard, and the recessed one the instant a crossing takes it away.
@@ -548,7 +548,7 @@ fn both_planes_announce_ownership_in_the_background_channel() {
 #[test]
 fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
     let theme = Theme::default();
-    let messages = vec![step("read_text", false)];
+    let messages = vec![step("read", false)];
     let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let summary_fg = |painted: &Painted| -> nuotc::Color {
@@ -628,7 +628,7 @@ fn every_shipped_scheme_announces_the_transcript_plane() {
     let messages = vec![
         TranscriptMessage::new(nuo_protocol::Role::User, "selectable prose for the pane")
             .with_round(1),
-        step("read_text", true),
+        step("read", true),
     ];
     let target = nuo_view::model::layout::InteractiveTarget::tool_step(1);
     let selection = SelectionState::Range {

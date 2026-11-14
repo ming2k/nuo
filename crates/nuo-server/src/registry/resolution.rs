@@ -60,7 +60,7 @@ impl ThreadRegistry {
                     ))
                 };
                 self.claim(
-                    crate::startup::SessionStart::Picker,
+                    crate::startup::ThreadStart::Picker,
                     SessionBinding {
                         workspace: ws,
                         role: role_id,
@@ -196,7 +196,7 @@ impl ThreadRegistry {
         };
         match self
             .claim(
-                crate::startup::SessionStart::Resume(id.to_string()),
+                crate::startup::ThreadStart::Resume(id.to_string()),
                 binding,
                 nuo_protocol::ThreadInitOptions::default(),
             )
@@ -226,7 +226,7 @@ impl ThreadRegistry {
     /// network I/O, no agent, no skills, no hooks, no transcript read.
     pub(super) async fn claim(
         &self,
-        mut startup: crate::startup::SessionStart,
+        mut startup: crate::startup::ThreadStart,
         binding: SessionBinding,
         init_options: nuo_protocol::ThreadInitOptions,
     ) -> Result<AttachHandle, AssembleErr> {
@@ -290,13 +290,13 @@ impl ThreadRegistry {
 
         // `--resume`: pick the most recent matching session instead
         // of a fresh one, inside the exact role + workspace scope.
-        if init_options.resume && matches!(startup, crate::startup::SessionStart::Fresh) {
+        if init_options.resume && matches!(startup, crate::startup::ThreadStart::Fresh) {
             let scope = nuo_protocol::ThreadScope::from_binding(
                 role_id.as_deref(),
                 resume_workspace.as_ref(),
             );
             if let Some(id) = lookup_latest_session_in_scope(&scope) {
-                startup = crate::startup::SessionStart::Resume(id);
+                startup = crate::startup::ThreadStart::Resume(id);
             }
         }
 
@@ -304,7 +304,7 @@ impl ThreadRegistry {
         // If resuming an existing session, restore directly from its immutable birth manifest.
         // This guarantees 100% byte-identical prompt cache and zero crash if external roles.toml was modified/deleted.
         let resumed_session_id = match &startup {
-            crate::startup::SessionStart::Resume(id) => Some(id.as_str()),
+            crate::startup::ThreadStart::Resume(id) => Some(id.as_str()),
             _ => None,
         };
         let manifest = match resumed_session_id {
@@ -397,7 +397,7 @@ impl ThreadRegistry {
         let store_workspace = workspace.clone();
         let store_role = role_id.clone();
         let store = tokio::task::spawn_blocking(move || {
-            SessionStore::for_workspace(store_workspace, store_role)
+            ThreadSession::for_workspace(store_workspace, store_role)
         })
         .await
         .map_err(|error| {
@@ -407,7 +407,7 @@ impl ThreadRegistry {
         })?;
         let store = Arc::new(store);
         let session_id = match &startup {
-            crate::startup::SessionStart::Resume(id) => id.clone(),
+            crate::startup::ThreadStart::Resume(id) => id.clone(),
             _ => store.id().await,
         };
         let pending = Arc::new(PendingSession {
@@ -456,7 +456,7 @@ impl ThreadRegistry {
             .lock()
             .await
             .insert(session_id, pending.clone());
-        let resume_code = matches!(startup, crate::startup::SessionStart::Resume(_))
+        let resume_code = matches!(startup, crate::startup::ThreadStart::Resume(_))
             .then_some(nuo_protocol::ERR_SESSION_UNRESUMABLE);
         let registry = self.clone();
         let build_pending = pending.clone();
@@ -473,7 +473,7 @@ impl ThreadRegistry {
     async fn build(
         self,
         pending: Arc<PendingSession>,
-        store: Arc<SessionStore>,
+        store: Arc<ThreadSession>,
         params: BootstrapParams,
         client_rx: mpsc::Receiver<AgentRequest>,
         resume_code: Option<&'static str>,
@@ -583,7 +583,7 @@ impl ThreadRegistry {
         let base = overview_of(&session, true).await;
         let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
             base_row(base, pending.workspace_root.as_deref(), &pending.role),
-            ThreadStatus::Idle,
+            ThreadActivity::Idle,
         )));
         let tracker_for_tap = tracker.clone();
         let monitor_bus = self.monitor.clone();
@@ -735,7 +735,7 @@ impl ThreadRegistry {
 }
 
 #[allow(clippy::collapsible_if)]
-pub(super) async fn overview_of(session: &SessionStore, active: bool) -> ThreadOverview {
+pub(super) async fn overview_of(session: &ThreadSession, active: bool) -> ThreadOverview {
     let id = session.id().await;
     if let Ok(items) = session.list().await {
         if let Some(item) = items.into_iter().find(|i| i.id == id) {
@@ -748,8 +748,7 @@ pub(super) async fn overview_of(session: &SessionStore, active: bool) -> ThreadO
                 message_count: item.message_count,
                 active,
                 parent_id: item.parent_id,
-                fork_kind: item.fork_kind,
-                fork_point: item.fork_point,
+                origin: item.origin,
                 digest: item.digest,
             };
         }
@@ -767,8 +766,7 @@ pub(super) async fn overview_of(session: &SessionStore, active: bool) -> ThreadO
         active,
         // Not on disk yet (never persisted or empty): no lineage to report.
         parent_id: None,
-        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-        fork_point: None,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest,
     }
 }

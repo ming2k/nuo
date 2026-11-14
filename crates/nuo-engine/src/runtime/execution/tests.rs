@@ -1,7 +1,7 @@
 //! Comprehensive unit tests for Capability Seams and Middlewares.
 
 use super::*;
-use crate::tools::{EditTextTool, FindFilesTool, ReadTextTool, WriteFileTool};
+use crate::tools::{EditTextTool, FindFilesTool, ReadTool, WriteFileTool};
 use nuo_protocol::execution::{ExecutionEnvironment, ToolMiddleware};
 use nuo_protocol::{PatchOp, Tool, ToolOutput};
 use std::path::PathBuf;
@@ -89,8 +89,8 @@ async fn tools_running_on_system_tool_context() {
         .unwrap();
     assert!(dir.path().join("lib.rs").exists());
 
-    // 2. ReadTextTool reads file
-    let read_tool = ReadTextTool::new(ctx.clone());
+    // 2. ReadTool reads file
+    let read_tool = ReadTool::new(ctx.clone());
     let read_res = read_tool
         .call_structured(r#"{"path":"lib.rs"}"#)
         .await
@@ -155,13 +155,13 @@ async fn workspace_jail_middleware_blocks_sensitive_roots() {
     let jail = WorkspaceJailMiddleware;
 
     let ok_args = serde_json::json!({ "path": "src/main.rs" });
-    assert!(jail.pre_execute("read_text", &ok_args, &env).await.is_ok());
+    assert!(jail.pre_execute("read", &ok_args, &env).await.is_ok());
 
     // A traversal is platform-independent and exercises the actual jail
     // invariant; hard-coding `/etc` silently becomes a relative path on
     // Windows and leaves the dangerous `..` case untested everywhere.
     let jail_args = serde_json::json!({ "path": "../secret" });
-    let res = jail.pre_execute("read_text", &jail_args, &env).await;
+    let res = jail.pre_execute("read", &jail_args, &env).await;
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("Security Denial"));
 
@@ -173,11 +173,7 @@ async fn workspace_jail_middleware_blocks_sensitive_roots() {
 
     // When confinement is disabled, both are allowed
     env.set_confined(false);
-    assert!(
-        jail.pre_execute("read_text", &jail_args, &env)
-            .await
-            .is_ok()
-    );
+    assert!(jail.pre_execute("read", &jail_args, &env).await.is_ok());
     assert!(
         jail.pre_execute("search_text", &tilde_args, &env)
             .await

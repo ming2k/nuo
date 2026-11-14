@@ -31,6 +31,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
       # Formatting is a hard gate: the repo has no rustfmt.toml, so the default
       # thresholds and import ordering are the contract.
       - name: rustfmt
@@ -41,8 +45,17 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: test
-        run: cargo test --workspace
+      # ADR-0178: the test pyramid is selected mechanically, not by package
+      # lists. L1 is the fast inner loop; L2 owns crate boundaries and the
+      # architecture/contract gates; L3 runs in its own job.
+      - name: unit tests (L1)
+        run: cargo nextest run --workspace --profile unit
+
+      - name: integration tests (L2)
+        run: cargo nextest run --workspace --profile integration
+
+      - name: test architecture
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::test_architecture::)'
 
       # `Cargo.toml` denies broken/private intra-doc links and invalid HTML
       # (`[workspace.lints.rustdoc]`); rustdoc evaluates those lints, so this is
@@ -55,29 +68,29 @@ jobs:
       # mechanical gate (server purity, client-server anti-inversion, zero-IO presentation
       # substrate, retired-crate prohibition, 3-tier topology).
       - name: presentation firewall
-        run: cargo test -p nuo --test architecture_firewall -- test_inv_arch_firewall_and_topology --nocapture
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_arch_firewall_and_topology)' --no-capture
 
       # ADR-0105 / [INV-ARCH-CLI-LEAN-LINK]: a lean `nuo` (without the
       # `interactive` feature) must not link a terminal raw-mode driver, the
       # pure presentation substrate, or a retired presentation crate.
       - name: lean CLI link
-        run: cargo test -p nuo --test architecture_firewall -- test_inv_arch_cli_lean_link --nocapture
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_arch_cli_lean_link)' --no-capture
 
       # [INV-WIRE-03] / ADR-0136: the wire variant census and PROTOCOL_VERSION agree.
       - name: wire census
-        run: cargo test -p nuo --test architecture_firewall -- test_inv_wire_census_matches_protocol_version --nocapture
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_wire_census_matches_protocol_version)' --no-capture
 
       # [INV-ARCH-RESIDENCY-01] / ADR-0124: every .rs file reachable from crate root.
       - name: source residency
-        run: cargo test -p nuo --test architecture_firewall -- test_inv_arch_source_residency --nocapture
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_arch_source_residency)' --no-capture
 
       # [INV-COLOR-01] / ADR-0147: semantic color tokens and palette purity.
       - name: color purity firewall
-        run: cargo test -p nuo --test architecture_firewall -- test_inv_color_purity_firewall --nocapture
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_color_purity_firewall)' --no-capture
 
       # [INV-TEXT-OVERFLOW-01] / [INV-ROW-GRID-01] / ADR-0152: universal text overflow and column budget.
       - name: text overflow firewall
-        run: cargo test -p nuo --test architecture_firewall -- test_inv_text_overflow_and_column_budget_firewall --nocapture
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_text_overflow_and_column_budget_firewall)' --no-capture
 
   # The verify job runs on Linux only, so `#[cfg(windows)]` / `#[cfg(unix)]` arms had
   # never been compiled before the release job first ran. Two platform checks make the
@@ -96,6 +109,61 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets
 
+  # ADR-0178 L3: the real binary, real IPC, and the hermetic mock provider.
+  # Unix-only because the suite asserts process-group and Unix-socket
+  # semantics; the portable tiers already run on every platform above.
+  e2e:
+    name: e2e (L3)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      - name: e2e tests (L3)
+        run: cargo nextest run -p nuo-tests --profile e2e
+
+  # Advisory only (`workflow_dispatch`): execution coverage is a diagnostic,
+  # not a percentage gate (ADR-0178 §Coverage).
+  coverage:
+    name: coverage (advisory)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      - name: workspace coverage
+        run: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: error
+
   # `upload-rust-binary-action` uploads to an existing release; it does not create one
   # ("release not found"). This job cuts the GitHub Release from the CHANGELOG section
   # for the tag before the platform matrix uploads its archives.
@@ -113,7 +181,7 @@ jobs:
 
   release:
     name: release binary (${{ matrix.target }})
-    needs: [verify, create-release]
+    needs: [verify, e2e, create-release]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
     permissions:

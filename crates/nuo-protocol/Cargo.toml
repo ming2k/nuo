@@ -29,6 +29,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true

@@ -189,7 +189,7 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
 async fn slash_dispatch_never_arms_activity_state() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    let session = crate::shell::SessionSource::Remote {
+    let session = crate::shell::HookStartSource::Remote {
         session_id: "session-a".to_string(),
     };
 

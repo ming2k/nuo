@@ -112,18 +112,18 @@ use transcript::{
 /// Where the session this TUI drives lives. All sessions in the unified
 /// server model are remote (server-hosted).
 #[derive(Debug, Clone)]
-pub enum SessionSource {
+pub enum HookStartSource {
     Remote {
         /// The hosted session's id, learned from the WS handshake.
         session_id: String,
     },
 }
 
-impl SessionSource {
+impl HookStartSource {
     /// The primary session id.
     pub(crate) async fn session_id(&self) -> String {
         match self {
-            SessionSource::Remote { session_id } => session_id.clone(),
+            HookStartSource::Remote { session_id } => session_id.clone(),
         }
     }
 }
@@ -251,7 +251,7 @@ pub struct TuiLaunchConfig {
     pub initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
     pub tui_config: config::TuiConfig,
     pub input_history_config: config::InputHistoryConfig,
-    pub session: SessionSource,
+    pub session: HookStartSource,
     pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
     pub initial_tabs: Option<Vec<crate::shell::surfaces::ClientTab>>,

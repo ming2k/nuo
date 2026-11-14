@@ -350,29 +350,30 @@ async fn cognitive_clears_legitimate_repeated_reverse_engineering_data() {
 }
 
 #[tokio::test]
-async fn agent_compiles_request_directly_from_session_ir() {
+async fn agent_assembles_request_from_a_thread_branch() {
     let provider: Arc<dyn Provider> = Arc::new(TestProvider);
     let agent = Agent::new(provider, Vec::new(), crate::AgentIdentity::default());
 
-    let policy = nuo_protocol::SessionPolicy::default();
-    let mut ir = nuo_protocol::SessionIR::new("test-session-agent", policy, 1000);
-    ir.append_message(
-        "n1",
-        1001,
-        Message::new(Role::User, "Hello from native SessionIR to Agent"),
-    );
+    let mut thread = nuo_protocol::Thread::new(nuo_protocol::ThreadId::new("test-thread"), 1000);
+    thread
+        .append(
+            nuo_protocol::FactPayload::Message {
+                message: Message::new(Role::User, "Hello from the durable thread to Agent"),
+            },
+            nuo_protocol::FactContext::turn(1, 0),
+            1001,
+        )
+        .unwrap();
 
-    let artifact = agent
-        .model_request_from_ir(&ir)
-        .expect("Agent must compile model request from SessionIR without error");
+    let request = agent
+        .model_request_from_thread(&thread, &nuo_protocol::BranchId::main())
+        .expect("Agent must assemble a request from a thread branch");
 
-    assert_eq!(artifact.request.messages.len(), 1);
+    assert_eq!(request.messages.len(), 1);
     assert_eq!(
-        artifact.request.messages[0].content,
-        "Hello from native SessionIR to Agent"
+        request.messages[0].content,
+        "Hello from the durable thread to Agent"
     );
-    assert_eq!(artifact.stats.nodes_traversed, 1);
-    assert!(!artifact.cache_boundary.prefix_fingerprint.is_empty());
 }
 
 struct DummyCustomProvider {
@@ -596,7 +597,7 @@ async fn previews_are_emitted_up_front_for_every_mutating_call() {
 }
 
 /// A read-only call is not previewed: there is no change to describe, and a
-/// "preview" card for every `read_text` would bury the ones that matter.
+/// "preview" card for every `read` would bury the ones that matter.
 #[tokio::test]
 async fn read_only_calls_are_not_previewed() {
     let agent = Arc::new(Agent::new(

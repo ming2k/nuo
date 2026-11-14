@@ -64,7 +64,7 @@ pub struct SkillRegistry {
     inner: Arc<RwLock<RegistryInner>>,
     /// Lazily-populated cache of skill bodies, keyed by skill name. A body is
     /// read from disk (via [`Skill::load_body`]) the first time it is
-    /// requested, then reused so repeated `use_skill` / implicit loads in the
+    /// requested, then reused so repeated implicit loads in the
     /// same session never re-read the file.
     bodies: Arc<RwLock<HashMap<String, String>>>,
     shadows: Arc<Mutex<ShadowState>>,

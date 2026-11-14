@@ -46,7 +46,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 - `providers/nuo-provider-*`: Layer-3 model provider adapters (leaves; no vendor-to-vendor edges).
 - `tools/nuo-tool-*`: Layer-3 tool plugins (leaves).
 
-Zero crates reside directly at the workspace root. Gated mechanically by native integration tests (`crates/nuo/tests/architecture_firewall.rs`).
+No production crate resides directly at the workspace root. The sole root package is the dev-only `nuo-tests` harness that owns the two external test entries; gated mechanically by the `governance::architecture_firewall` integration suite.
 
 ### Crate Inclusion Threshold
 New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their responsibilities cannot be cleanly modeled as internal modules of existing domain crates and their position in the hierarchy is unambiguously ratified via an ADR.
@@ -137,7 +137,7 @@ New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their
   public application executable), `providers/nuo-provider-*` (Layer-3 providers), and
   `tools/nuo-tool-*` (Layer-3 tools). Zero crates reside directly at the workspace root, and
   workspace admission is strictly the wildcard set `["crates/*", "tools/*", "providers/*"]`.
-  Gated mechanically by `nuo::dev::firewall` rule R5 (`cargo test -p nuo --test architecture_firewall`).
+  Gated mechanically by `nuo::dev::firewall` rule R5 via the nextest integration filter `test(governance::architecture_firewall::test_inv_arch_firewall_and_topology)`.
 - **`[INV-HOST-01]` Sandbox & Containment**: All local command execution and file mutations must pass through `nuo-host` sandbox and containment boundaries.
 - **`[INV-TOOL-01]` Decentralized Capability Tools**: Tools are natively owned and implemented by their capability crates (`acp`, `nuo-host`, `nuo-persistence`) using the zero-runtime `nuo-tool` standard, rather than concentrated in a monolithic harness.
 - **`[INV-VER-01]` Federated Cluster SemVer**: The workspace lockstep suite (`crates/*`, `providers/*`, `tools/*`) evolves under unified versioning, while external substrates (`nuotc`) maintain autonomous release cycles.

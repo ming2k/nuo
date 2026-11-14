@@ -151,6 +151,7 @@ impl Agent {
             round_counter,
             permissions: Arc::new(crate::permission_store::PermissionStore::new()),
             additional_workspace_roots: Vec::new(),
+            workspace_topology_cache: std::sync::Mutex::new(None),
             workspace_security: Arc::new(std::sync::Mutex::new(
                 nuo_protocol::WorkspaceSecuritySnapshot::default(),
             )),
@@ -361,7 +362,7 @@ impl Agent {
         // remote advertisement ⊕ user overrides). Resolving the model id
         // through the static registry here would miss the fitted-model overlay
         // and per-route overrides, and silently drop vision-gated tools (e.g.
-        // `read_image`) from a relay model that is in fact vision-capable.
+        // `read`) from a relay model that is in fact vision-capable.
         let capabilities = self.provider.model_capabilities();
         let model = nuo_protocol::Model {
             vision: capabilities.accepts_images(),
@@ -401,6 +402,36 @@ impl Agent {
     /// `execute_tool`, outside the authority context by construction.
     pub(crate) fn permission_chain(&self) -> crate::permission_policy::PermissionChain {
         crate::permission_policy::PermissionChain::new(crate::permission_policy::default_chain())
+    }
+
+    /// The workspace topology shown to the model, cached by root-manifest
+    /// mtime.
+    ///
+    /// ADR-0052's detector reads the root `Cargo.toml` and every explicitly
+    /// listed member manifest. That is cheap for a `crates/*` workspace but
+    /// linear in the member count for a repo that lists dozens of paths, and
+    /// it used to run on every model request. The topology only changes when
+    /// the root manifest changes, so one `stat` is the right invalidation
+    /// signal.
+    fn workspace_topology(&self) -> Option<String> {
+        let root = self.workspace_root()?;
+        let manifest = root.join("Cargo.toml");
+        let mtime = std::fs::metadata(&manifest)
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        let mut cache = self
+            .workspace_topology_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some((cached_root, cached_mtime, topology)) = cache.as_ref()
+            && cached_root == &root
+            && *cached_mtime == mtime
+        {
+            return topology.clone();
+        }
+        let topology = detect_workspace_topology(&root);
+        *cache = Some((root, mtime, topology.clone()));
+        topology
     }
 
     /// Snapshot the live state available to declarative system-prompt policy.
@@ -459,9 +490,7 @@ impl Agent {
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect(),
-            workspace_topology: self
-                .workspace_root()
-                .and_then(|p| detect_workspace_topology(&p)),
+            workspace_topology: self.workspace_topology(),
             workspace_root: self.workspace_root().map(|p| p.display().to_string()),
             supports_parallel_tool_calls: self.provider.supports_parallel_tool_calls(),
             project_instructions,
@@ -508,11 +537,12 @@ fn detect_workspace_topology(root: &std::path::Path) -> Option<String> {
 impl Agent {
     /// Build one immutable provider request from a borrowed conversation window.
     ///
-    /// No disk I/O happens here, ever: `@file:` injection ran once when the
+    /// No history I/O happens here: `@file:` injection ran once when the
     /// prompt entered the live window (turn preparation), so this projection
     /// — and every estimate built on it — reuses those bytes. The weights
-    /// cache makes the resulting request cheap to re-estimate; nothing in
-    /// this path can stall the executor behind filesystem reads.
+    /// cache makes the resulting request cheap to re-estimate. The one
+    /// filesystem touch is the root-manifest `stat` that invalidates the
+    /// cached workspace topology; it is O(1), not O(members).
     ///
     /// Image visibility is decided **here, per request**, never on
     /// the durable transcript: a route that declares no image input, or one the
@@ -615,12 +645,15 @@ impl Agent {
             .with_route_state(&self.provider.route_fingerprint(), continuation)
     }
 
-    /// Compile a [`nuo_protocol::ModelRequest`] directly from a canonical [`nuo_protocol::SessionIR`]
-    /// via the multi-pass compiler pipeline (INV-EXEC-02).
-    pub fn model_request_from_ir(
+    /// Assemble a [`nuo_protocol::ModelRequest`] from a durable thread branch.
+    ///
+    /// Live, replay, and branch-switch paths share the same `RequestView`
+    /// projection and `RequestBuilder`; there is no second request compiler.
+    pub fn model_request_from_thread(
         &self,
-        ir: &nuo_protocol::SessionIR,
-    ) -> Result<nuo_protocol::CompilationArtifact, nuo_protocol::CompilerError> {
+        thread: &nuo_protocol::Thread,
+        branch: &nuo_protocol::BranchId,
+    ) -> Result<nuo_protocol::ModelRequest, nuo_protocol::ThreadError> {
         let mut temporary_context: Vec<Message> = Vec::new();
         let ws_root = self.workspace_root();
         let hook_ctx = nuo_protocol::extension::HookContext::temporary_context(ws_root.as_deref());
@@ -635,21 +668,20 @@ impl Agent {
                 ));
             }
         }
-
         let tools = self.visible_tools();
-        let dialect = Some(self.provider.provider_id().to_string());
-        let protocol = self.provider.wire_protocol();
-        self.model_request_assembler
-            .compile_from_ir(ir, temporary_context, &tools, dialect, protocol)
-            .map(|mut artifact| {
-                artifact.request = artifact.request.with_route_state(
-                    &self.provider.route_fingerprint(),
-                    self.provider.continuation_mode(),
-                );
-                artifact
-            })
+        let context = self.instruction_context(&tools);
+        let request = self.model_request_assembler.assemble_thread(
+            thread,
+            branch,
+            temporary_context,
+            &context,
+            &tools,
+        )?;
+        Ok(request.with_route_state(
+            &self.provider.route_fingerprint(),
+            self.provider.continuation_mode(),
+        ))
     }
-
     /// Project inline images away when this route cannot be given them
     /// Two independent reasons qualify, and both are *projection*
     /// facts rather than history edits:
@@ -796,11 +828,16 @@ impl Agent {
         let req = self.model_request(messages);
         let mut debug_messages = Vec::new();
         if !req.instructions.is_empty() {
-            debug_messages.push(
-                Message::new(Role::System, req.instructions.render_combined()).with_origin(
-                    nuo_protocol::InjectionOrigin::new(nuo_protocol::InjectionKind::SystemPrompt),
-                ),
-            );
+            let mut text = req.instructions.fixed.clone();
+            if !req.instructions.transient.is_empty() {
+                if !text.is_empty() {
+                    text.push_str("\n\n");
+                }
+                text.push_str(&req.instructions.transient);
+            }
+            debug_messages.push(Message::new(Role::System, text).with_origin(
+                nuo_protocol::InjectionOrigin::new(nuo_protocol::InjectionKind::SystemPrompt),
+            ));
         }
         debug_messages.extend(req.messages);
         *messages = debug_messages;
@@ -1036,7 +1073,7 @@ impl Agent {
     /// Install the mid-round save point fired at every ReAct-turn boundary
     /// (ADR-0048). The closure receives the current full round history and
     /// should durably append only the new tail (see
-    /// `SessionStore::append_turn`). Called once by orchestration after the
+    /// `ThreadSession::append_turn`). Called once by orchestration after the
     /// agent is built and the session is open; subagents and the review
     /// diagnostic never call this, so the default `None` keeps their turn
     /// boundaries no-ops.
@@ -1219,7 +1256,7 @@ impl Agent {
     /// `SessionStart` observers; injected context becomes hidden setup messages.
     pub async fn fire_session_start(
         &self,
-        source: nuo_protocol::SessionSource,
+        source: nuo_protocol::HookStartSource,
         messages: &mut Vec<Message>,
     ) {
         self.hooks()

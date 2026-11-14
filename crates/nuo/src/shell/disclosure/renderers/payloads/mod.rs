@@ -122,7 +122,13 @@ pub(crate) fn draw_tool_result(
         return;
     }
 
-    let kind = nuo_view::tools::presenter_for(name).result_kind();
+    let kind = match nuo_view::tools::presenter_for(name).result_kind() {
+        ResultKind::Auto => match structured {
+            Some(nuo_protocol::ToolOutput::Listing { .. }) => ResultKind::Listing,
+            _ => ResultKind::Code,
+        },
+        kind => kind,
+    };
     match kind {
         ResultKind::Listing => {
             draw_listing_content(ctx, mi, block_idx, output, selection, indent, inner_w)
@@ -137,7 +143,7 @@ pub(crate) fn draw_tool_result(
                 revealed,
             );
         }
-        ResultKind::Code => {
+        ResultKind::Auto | ResultKind::Code => {
             // Prefer the structured payload: `Code::text` is pure file content
             // (the model-facing `prefix`/`suffix` framing is ignored here) and
             // `start_line` carries the read `offset` so an offset snippet

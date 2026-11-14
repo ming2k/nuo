@@ -21,7 +21,7 @@ use nuo_harness::{
 };
 use nuo_persistence::paths;
 use nuo_persistence::roles::RolesConfig;
-use nuo_persistence::session::SessionStore;
+use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::CustomRole;
 
 /// Role declarations from the product's files.
@@ -125,16 +125,16 @@ impl RoleMemory for ProductRoleMemory {
 /// port, the store owns the session record, and this impl bridges them without
 /// either side learning about the other.
 pub struct SessionTitles {
-    session: Arc<SessionStore>,
+    session: Arc<ThreadSession>,
 }
 
 impl SessionTitles {
-    pub fn new(session: Arc<SessionStore>) -> Self {
+    pub fn new(session: Arc<ThreadSession>) -> Self {
         Self { session }
     }
 
     /// As a port handle, for a round context.
-    pub fn handle(session: &Arc<SessionStore>) -> Arc<dyn TitleSink> {
+    pub fn handle(session: &Arc<ThreadSession>) -> Arc<dyn TitleSink> {
         Arc::new(Self::new(Arc::clone(session)))
     }
 }

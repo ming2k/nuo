@@ -108,23 +108,6 @@ pub enum AgentResponse {
     },
     /// Presentation signal for `/tree`.
     OpenTreePanel,
-    /// A thread was forked into a new child thread (ADR-0058).
-    /// Sent to the client so it mounts a new sovereign `ClientTab::Thread`
-    /// and switches to the child thread.
-    ThreadForked {
-        child_id: String,
-        parent_id: String,
-        /// Where the branch diverged (ADR-0120). Optional only so a peer
-        /// predating the field still decodes; this binary always sends it.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        fork_point: Option<ForkPoint>,
-        /// A user message to dispatch into the new branch once the client has
-        /// attached to it. Set by the retired `/btw <prompt>` steer (ADR-0058
-        /// §4) so an aside habit lands as a fork *with* its question, not a
-        /// bare branch; `None` for an explicit `/fork`.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        prompt: Option<String>,
-    },
     /// Reply to [`AgentRequest::QueryThreadDetail`]: full detail for one
     /// thread (complete last prompt, title, timestamps). Consumed by the
     /// thread-info sub-view.

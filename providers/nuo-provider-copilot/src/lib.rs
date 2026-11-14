@@ -9,3 +9,6 @@ pub mod spec;
 pub use spec::*;
 
 pub mod oauth;
+
+#[cfg(test)]
+mod tests;

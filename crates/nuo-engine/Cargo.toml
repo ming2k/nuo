@@ -45,10 +45,6 @@ tempfile = { workspace = true }
 # `DiscoveryCache::save()` in a test writes `test-instance` rows into the
 # developer's real `$XDG_STATE_HOME/nuo/models_discovery.json`.
 nuo-persistence = { workspace = true, features = ["test-path-override"] }
-# AST parsing for the layering-enforcement test (`tests/layering.rs`): resolves
-# real `crate::<group>` paths instead of text-matching.
-syn = { workspace = true, features = ["visit"] }
-proc-macro2 = { workspace = true }
 
 [lints]
 workspace = true

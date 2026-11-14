@@ -190,7 +190,7 @@ impl PersistenceHandle {
     /// original revision without re-applying.
     pub(crate) async fn save_session(
         &self,
-        data: crate::session::SessionData,
+        data: crate::thread::ThreadData,
         full: bool,
         usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
         guard: CommitGuard,
@@ -213,7 +213,7 @@ impl PersistenceHandle {
     /// rewrite: the blocking callers write fresh or rebuilt state).
     pub(crate) fn save_session_blocking(
         &self,
-        data: crate::session::SessionData,
+        data: crate::thread::ThreadData,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.run_blocking(
@@ -840,6 +840,22 @@ impl PersistenceHandle {
         }
     }
 
+    /// Persist a full thread aggregate through the single writer.
+    pub async fn save_thread_aggregate(
+        &self,
+        thread: nuo_protocol::Thread,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::SaveThreadAggregate {
+                thread: Box::new(thread),
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
     /// Create an online hot backup snapshot of the database using SQLite's `VACUUM INTO`.
     ///
     /// The backup is written to `target_path` in a defragmented, standalone,
@@ -1008,168 +1024,6 @@ impl PersistenceHandle {
         let _ = self.optimize_blocking();
 
         Ok(report)
-    }
-
-    /// Save an incremental [`nuo_protocol::SessionDelta`] asynchronously (INV-SESSION-05).
-    pub async fn save_session_delta(
-        &self,
-        delta: nuo_protocol::SessionDelta,
-    ) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::SaveSessionDelta {
-                delta: Box::new(delta),
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Synchronous [`Self::save_session_delta`] for blocking callers.
-    pub fn save_session_delta_blocking(
-        &self,
-        delta: nuo_protocol::SessionDelta,
-    ) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.run_blocking(
-            PersistenceCommand::SaveSessionDelta {
-                delta: Box::new(delta),
-                ack: ack_tx,
-            },
-            ack_rx,
-        )
-    }
-
-    /// Drain one session's derived indexes (causal graph + FTS) to its durable
-    /// end. The read-your-writes boundary: call before hydrating the Session IR
-    /// or searching that session's transcript.
-    pub async fn flush_derived_session(
-        &self,
-        session_id: String,
-    ) -> Result<usize, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::FlushDerivedSession {
-                session_id,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Drain every pending session's derived indexes. Transcript search spans
-    /// sessions, so it cannot scope a flush to one id.
-    pub async fn flush_derived_all(&self) -> Result<usize, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::FlushDerivedAll { ack: ack_tx })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Commit immutable execution facts asynchronously through the single writer.
-    pub async fn commit_context_facts(
-        &self,
-        commit: crate::db::context_store::OwnedFactCommit,
-    ) -> Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError>
-    {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::CommitContextFacts {
-                commit: Box::new(commit),
-                ack: ack_tx,
-            })
-            .await
-            .map_err(
-                |_| crate::db::context_store::ContextCommitError::PersistenceFailure {
-                    detail: "writer supervisor is closed".into(),
-                },
-            )?;
-        ack_rx.await.map_err(|_| {
-            crate::db::context_store::ContextCommitError::PersistenceFailure {
-                detail: "writer dropped response".into(),
-            }
-        })?
-    }
-
-    /// Commit a branch context view asynchronously through the single writer.
-    pub async fn commit_context_view(
-        &self,
-        commit: crate::db::context_store::OwnedViewCommit,
-    ) -> Result<crate::db::context_store::CommitOutcome, crate::db::context_store::ContextCommitError>
-    {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::CommitContextView {
-                commit: Box::new(commit),
-                ack: ack_tx,
-            })
-            .await
-            .map_err(
-                |_| crate::db::context_store::ContextCommitError::PersistenceFailure {
-                    detail: "writer supervisor is closed".into(),
-                },
-            )?;
-        ack_rx.await.map_err(|_| {
-            crate::db::context_store::ContextCommitError::PersistenceFailure {
-                detail: "writer dropped response".into(),
-            }
-        })?
-    }
-
-    /// Execute an inspect deletion job asynchronously through the single writer.
-    pub async fn execute_inspect_deletion(
-        &self,
-        session_id: impl Into<String>,
-        job_id: impl Into<String>,
-        now_ms: u64,
-    ) -> Result<
-        crate::db::inspect_service::DeletionReport,
-        nuo_protocol::context_lifecycle::InspectError,
-    > {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::ExecuteInspectDeletion {
-                session_id: session_id.into(),
-                job_id: job_id.into(),
-                now_ms,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?;
-        ack_rx
-            .await
-            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?
-    }
-
-    /// Collect a bounded garbage collection batch asynchronously through the single writer.
-    pub async fn collect_inspect_garbage(
-        &self,
-        session_id: impl Into<String>,
-        now_ms: u64,
-        batch_limit: u32,
-        batch_ms: u64,
-    ) -> Result<
-        crate::db::inspect_service::CollectionProgress,
-        nuo_protocol::context_lifecycle::InspectError,
-    > {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::CollectInspectGarbage {
-                session_id: session_id.into(),
-                now_ms,
-                batch_limit,
-                batch_ms,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?;
-        ack_rx
-            .await
-            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?
     }
 
     /// The one blocking bridge for every synchronous verb.

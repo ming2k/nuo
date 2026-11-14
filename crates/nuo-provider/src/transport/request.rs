@@ -99,6 +99,16 @@ impl RequestBuilder {
         self
     }
 
+    /// Set an already-encoded request and its content type.
+    pub fn encoded(mut self, encoded: &crate::EncodedRequest) -> Self {
+        self.headers.insert(
+            http::header::CONTENT_TYPE,
+            HeaderValue::from_static(encoded.content_type),
+        );
+        self.body = Some(Bytes::from(encoded.body.clone()));
+        self
+    }
+
     /// Set a raw body.
     pub fn body(mut self, body: impl Into<Bytes>) -> Self {
         self.body = Some(body.into());

@@ -861,7 +861,7 @@ mod tests {
             panic!("developer role must have explicit scoped tools");
         };
         assert!(!names.contains("code_query"));
-        assert!(names.contains("read_text"));
+        assert!(names.contains("read"));
         assert!(names.contains("write_file"));
 
         // Applying philosophist role drops code intelligence (0 overhead).

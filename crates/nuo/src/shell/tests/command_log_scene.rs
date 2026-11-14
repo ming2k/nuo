@@ -178,7 +178,7 @@ fn a_non_command_step_opens_no_log_scene() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
     let mut message = nuo_view::model::document::TranscriptMessage::tool_step(
         "call_read",
-        "read_text",
+        "read",
         r#"{"path":"Cargo.toml"}"#,
     );
     message.finish_tool_step("call_read", "contents", ToolOutput::text("contents"), 10);

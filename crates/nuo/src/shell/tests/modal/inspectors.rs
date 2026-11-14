@@ -247,7 +247,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
         model: nuo_protocol::ModelInfo::default(),
         tools: vec![
             nuo_protocol::ToolInfo {
-                name: "read_text".to_string(),
+                name: "read".to_string(),
                 description: "Read file".to_string(),
                 enabled: true,
                 source: "builtin".to_string(),

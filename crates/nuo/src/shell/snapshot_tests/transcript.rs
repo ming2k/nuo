@@ -263,7 +263,7 @@ fn catalog_sync_warning_notice_renders_as_entry() {
 fn collapsed_tool_steps_stack_flush() {
     let steps = vec![
         tool_step_structured(
-            "read_text",
+            "read",
             r#"{"path":"a.rs"}"#,
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -275,7 +275,7 @@ fn collapsed_tool_steps_stack_flush() {
             false,
         ),
         tool_step_structured(
-            "read_text",
+            "read",
             r#"{"path":"b.rs"}"#,
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -287,7 +287,7 @@ fn collapsed_tool_steps_stack_flush() {
             false,
         ),
         tool_step_structured(
-            "read_text",
+            "read",
             r#"{"path":"c.rs"}"#,
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -329,7 +329,7 @@ fn collapsed_tool_steps_stack_flush() {
 fn expanded_body_flush_to_header_neighbours_stay_flush() {
     let steps = vec![
         tool_step_structured(
-            "read_text",
+            "read",
             r#"{"path":"a.rs"}"#,
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -350,7 +350,7 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
             true, // expanded legacy step — compatibility separator follows
         ),
         tool_step_structured(
-            "read_text",
+            "read",
             r#"{"path":"c.rs"}"#,
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -373,7 +373,7 @@ fn user_message_before_tool_step_has_single_separator_row() {
     let messages = vec![
         TranscriptMessage::new(Role::User, "inspect files").with_round(1),
         tool_step_structured(
-            "read_text",
+            "read",
             r#"{"path":"src/lib.rs"}"#,
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -857,7 +857,7 @@ fn reasoning_trace_spacing_has_internal_gaps_and_single_trailing_separator() {
 #[test]
 fn default_turn_header_has_one_gap_before_first_tool() {
     let step = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"a.rs"}"#,
         nuo_protocol::ToolOutput::Code {
             lang: None,
@@ -899,7 +899,7 @@ fn default_turn_header_has_one_gap_before_first_tool() {
 #[test]
 fn turn_header_omits_effort_when_absent() {
     let step = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"a.rs"}"#,
         nuo_protocol::ToolOutput::Code {
             lang: None,
@@ -930,7 +930,7 @@ fn turn_header_omits_effort_when_absent() {
 #[test]
 fn turn_header_with_model_effort_and_timestamp() {
     let mut step = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"a.rs"}"#,
         nuo_protocol::ToolOutput::Code {
             lang: None,
@@ -990,7 +990,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let mut thinking = TranscriptMessage::reasoning("inspect the files").with_turn(7);
     thinking.set_reasoning_duration(10);
     let first = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"a.rs"}"#,
         nuo_protocol::ToolOutput::Code {
             lang: None,
@@ -1003,7 +1003,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     )
     .with_turn(7);
     let second = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"b.rs"}"#,
         nuo_protocol::ToolOutput::Code {
             lang: None,
@@ -1051,7 +1051,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
 fn different_tool_turns_have_one_vertical_gap() {
     let make_step = |turn: u64| {
         tool_step_structured(
-            "read_text",
+            "read",
             format!(r#"{{"path":"{turn}.rs"}}"#).as_str(),
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -1111,7 +1111,7 @@ fn seam_steer_terminates_the_turn_band() {
     thinking.set_reasoning_duration(10);
     let step = |path: &str| {
         tool_step_structured(
-            "read_text",
+            "read",
             format!(r#"{{"path":"{path}"}}"#).as_str(),
             nuo_protocol::ToolOutput::Code {
                 lang: None,
@@ -1214,7 +1214,7 @@ fn round_opening_steer_keeps_round_panel_weight() {
 #[test]
 fn notice_still_splits_a_turn_band() {
     let step = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"a.rs"}"#,
         nuo_protocol::ToolOutput::Code {
             lang: None,
@@ -1231,7 +1231,7 @@ fn notice_still_splits_a_turn_band() {
         "stopped by the user",
     );
     let after = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"b.rs"}"#,
         nuo_protocol::ToolOutput::Code {
             lang: None,

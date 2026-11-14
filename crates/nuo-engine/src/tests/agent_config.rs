@@ -15,11 +15,11 @@ fn agent_installs_its_stateful_todo_tools() {
 fn model_request_bands_historical_tool_outputs() {
     let agent = agent();
     agent.set_tool_output_projection(10, 200);
-    let newest = Message::tool_result(&ToolCall::new("c1", "read_text", "{}"), "n".repeat(200));
+    let newest = Message::tool_result(&ToolCall::new("c1", "read", "{}"), "n".repeat(200));
     let middle = Message::tool_result(
-        &ToolCall::new("c2", "read_text", "{}"),
+        &ToolCall::new("c2", "read", "{}"),
         format!(
-            "[read_text result]:\n{}\n- Spool File: \"/tmp/middle.log\"",
+            "[read result]:\n{}\n- Spool File: \"/tmp/middle.log\"",
             (0..120)
                 .map(|i| format!("middle line {i}"))
                 .collect::<Vec<_>>()
@@ -369,15 +369,15 @@ fn project_instructions_render_matching_role_entries_in_scope_order() {
     agent.prepare_request_messages_debug(&mut messages);
     let prompt = &messages[0].content;
     assert!(
-        prompt.contains("## .nuo/instructions/global.md\nGlobal rule."),
+        prompt.contains(".nuo/instructions/global.md:\nGlobal rule."),
         "{prompt}"
     );
     assert!(
-        prompt.contains("## .nuo/instructions/role.md\nReviewer rule."),
+        prompt.contains(".nuo/instructions/role.md:\nReviewer rule."),
         "{prompt}"
     );
     assert!(
-        prompt.contains("## .nuo/instructions/provider.md\nProvider rule."),
+        prompt.contains(".nuo/instructions/provider.md:\nProvider rule."),
         "{prompt}"
     );
     assert!(

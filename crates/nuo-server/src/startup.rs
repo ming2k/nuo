@@ -35,7 +35,7 @@ pub fn env_default_port() -> u16 {
 /// assemble exist here; one-shot CLI modes (`run`, `server`, `config`, …)
 /// are frontend concerns and never reach a session assembly.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionStart {
+pub enum ThreadStart {
     /// A brand-new session.
     Fresh,
     /// A fresh session with the first prompt already queued.
@@ -374,12 +374,12 @@ define_builtin_commands! {
         category: Session,
     },
     Fork = "/fork" : {
-        summary: "Fork thread into a child thread (ADR-0058: round/turn granular)",
+        summary: "Fork the active branch into a new cursor (round/turn granular)",
         usage: ["/fork", "/fork <round>", "/fork <round>.<turn>"],
         examples: [
-            ("/fork", "Branch current thread into a new child thread tab"),
-            ("/fork 2", "Branch from conclusion of Round 2 into a new tab"),
-            ("/fork 2.1", "Branch after Turn 1 of Round 2 into a new tab"),
+            ("/fork", "Branch at head and switch the current view to it"),
+            ("/fork 2", "Branch from the conclusion of Round 2"),
+            ("/fork 2.1", "Branch after Turn 1 of Round 2"),
         ],
         intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread", "aside", "side", "btw"],
         effect: { bare: Mutation, verb: Mutation },

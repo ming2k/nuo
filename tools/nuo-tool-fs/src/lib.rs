@@ -17,6 +17,12 @@ use nuo_tool::{
 use serde::Deserialize;
 use serde_json::Value;
 
+mod edit;
+mod read;
+
+pub use edit::{EditTextArgs, EditTextTool};
+pub use read::{ReadArgs, ReadTool};
+
 /// The `path` argument of a file tool's raw JSON arguments, when present and
 /// non-empty.
 ///
@@ -24,7 +30,7 @@ use serde_json::Value;
 /// touches". Both [`Tool::scope_target`] (permission) and [`Tool::accesses`]
 /// (scheduler arbitration and effect classification) read it, so a tool cannot
 /// declare one path to the permission gate and another to the scheduler.
-fn path_argument(arguments: &str) -> Option<String> {
+pub(crate) fn path_argument(arguments: &str) -> Option<String> {
     serde_json::from_str::<Value>(arguments)
         .ok()
         .and_then(|value| {
@@ -45,7 +51,7 @@ fn path_argument(arguments: &str) -> Option<String> {
 /// [`scope_target`](Tool::scope_target) stays `Unspecified` so they remain
 /// auto-admitted by the permission chain — reading is not an authority the user
 /// should ever be asked to grant.
-fn read_accesses(arguments: &str) -> ToolAccesses {
+pub(crate) fn read_accesses(arguments: &str) -> ToolAccesses {
     match path_argument(arguments) {
         Some(path) => ToolAccesses::read_file(path),
         None => ToolAccesses::none(),
@@ -57,6 +63,10 @@ fn read_accesses(arguments: &str) -> ToolAccesses {
 pub struct SystemToolContext {
     pub workspace_root: PathBuf,
     pub vfs_resolver: Option<Arc<dyn nuo_tool::VirtualFileResolver>>,
+    /// Boundary normalizer for images read from disk. `None` means "pass the
+    /// bytes through unchanged"; the server injects the host implementation so
+    /// a large screenshot does not enter the durable transcript at full size.
+    pub image_normalizer: Option<Arc<dyn nuo_tool::ImageNormalizer>>,
 }
 
 /// Semantic alias for filesystem tool context ([INV-TOOL-15]).
@@ -67,6 +77,7 @@ impl std::fmt::Debug for SystemToolContext {
         f.debug_struct("SystemToolContext")
             .field("workspace_root", &self.workspace_root)
             .field("vfs_resolver", &self.vfs_resolver.is_some())
+            .field("image_normalizer", &self.image_normalizer.is_some())
             .finish()
     }
 }
@@ -76,11 +87,17 @@ impl SystemToolContext {
         Self {
             workspace_root: workspace_root.into(),
             vfs_resolver: None,
+            image_normalizer: None,
         }
     }
 
     pub fn with_vfs_resolver(mut self, resolver: Arc<dyn nuo_tool::VirtualFileResolver>) -> Self {
         self.vfs_resolver = Some(resolver);
+        self
+    }
+
+    pub fn with_image_normalizer(mut self, normalizer: Arc<dyn nuo_tool::ImageNormalizer>) -> Self {
+        self.image_normalizer = Some(normalizer);
         self
     }
 
@@ -112,156 +129,6 @@ fn display_match_path(file_path: &Path, search_root: &Path, workspace_root: &Pat
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| file_path.to_string_lossy().into_owned())
-}
-
-/// Typed parameters for [`ReadTextTool`].
-#[derive(Debug, Clone, Deserialize, ToolSchema)]
-pub struct ReadTextArgs {
-    #[tool(desc = "Path to the text file; relative paths use the workspace root")]
-    pub path: String,
-    #[tool(desc = "1-based line number to start reading from (default 1)")]
-    pub offset: Option<usize>,
-    #[tool(desc = "Maximum number of lines to read")]
-    pub limit: Option<usize>,
-}
-
-/// Reads a text file with optional line-level pagination.
-pub struct ReadTextTool {
-    ctx: Arc<SystemToolContext>,
-}
-
-impl ReadTextTool {
-    pub fn new(ctx: Arc<SystemToolContext>) -> Self {
-        Self { ctx }
-    }
-}
-
-#[async_trait]
-impl Tool for ReadTextTool {
-    fn name(&self) -> &str {
-        BuiltinTool::ReadText.as_str()
-    }
-
-    fn description(&self) -> &str {
-        "Reads a text file with line numbers. Supports offset (1-based start line) and limit (max lines)."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        ReadTextArgs::parameters_schema()
-    }
-
-    fn risk_profile(&self) -> RiskProfile {
-        RiskProfile::ReadOnly
-    }
-
-    fn scopes(&self) -> Vec<ToolScope> {
-        vec![ToolScope::ReadOnly, ToolScope::Workspace]
-    }
-
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
-        read_accesses(arguments)
-    }
-
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: ReadTextArgs = serde_json::from_value(arguments).map_err(|err| {
-            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
-        })?;
-
-        let raw_path = &args.path;
-        let offset = args.offset.unwrap_or(1).max(1);
-        let limit = args.limit.map(|l| l.max(1));
-
-        // ADR-0070 (superseded by ADR-0093): Virtual File System (VFS) in-process resolution
-        let content = if nuo_tool::is_virtual_path(raw_path) {
-            let resolved = if let Some(resolver) = &self.ctx.vfs_resolver {
-                resolver.resolve_virtual(raw_path).await
-            } else if let Some(resolver) = _ctx.service::<Arc<dyn nuo_tool::VirtualFileResolver>>()
-            {
-                resolver.resolve_virtual(raw_path).await
-            } else {
-                None
-            };
-
-            match resolved {
-                Some(text) => text,
-                None => {
-                    // ADR-0093 [INV-SPOOL-02]: Direct disk fallback for physical spool and temporary files
-                    let p = std::path::Path::new(raw_path);
-                    if p.is_file() {
-                        fs::read_to_string(p).map_err(|err| {
-                            ToolError::execution(
-                                self.name(),
-                                format!("failed to read spooled file `{raw_path}`: {err}"),
-                            )
-                        })?
-                    } else {
-                        return Err(ToolError::execution(
-                            self.name(),
-                            format!("virtual path not found or expired: `{raw_path}`"),
-                        ));
-                    }
-                }
-            }
-        } else {
-            let path = self.ctx.resolve_path(raw_path);
-            if !path.exists() {
-                return Err(ToolError::execution(
-                    self.name(),
-                    format!("file does not exist: `{raw_path}`"),
-                ));
-            }
-
-            fs::read_to_string(&path).map_err(|err| {
-                ToolError::execution(
-                    self.name(),
-                    format!("failed to read file `{raw_path}`: {err}"),
-                )
-            })?
-        };
-
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-
-        let start_idx = (offset - 1).min(total_lines);
-        let end_idx = match limit {
-            Some(l) => (start_idx + l).min(total_lines),
-            None => total_lines,
-        };
-
-        let slice = &lines[start_idx..end_idx];
-        let start_line = start_idx + 1;
-
-        // Keep presentation out of the payload: `text` is pure file content
-        // and `start_line` carries the read offset, so the TUI's code band
-        // numbers each row from its true file line and syntax-highlights by
-        // path. The model still needs to know where the slice sits and how to
-        // continue, so that framing rides in the model-only `prefix` / `suffix`
-        // that `ToolOutput::to_text` composes (and the renderer ignores).
-        let prefix = Some(format!(
-            "[Lines {}-{} of {} from `{}`]",
-            start_line, end_idx, total_lines, raw_path
-        ));
-        let remaining = total_lines - end_idx;
-        let suffix = (remaining > 0).then(|| {
-            format!(
-                "[{remaining} more line{} — read with offset={}]",
-                if remaining == 1 { "" } else { "s" },
-                end_idx + 1
-            )
-        });
-        let lang = Path::new(raw_path)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(str::to_ascii_lowercase);
-
-        Ok(ToolOutput::Code {
-            lang,
-            text: slice.join("\n"),
-            start_line,
-            prefix,
-            suffix,
-        })
-    }
 }
 
 /// Typed parameters for [`WriteFileTool`].
@@ -393,276 +260,6 @@ impl Tool for WriteFileTool {
             warnings: Vec::new(),
         })
     }
-}
-
-/// Typed parameters for [`EditTextTool`].
-#[derive(Debug, Clone, Deserialize, ToolSchema)]
-pub struct EditTextArgs {
-    #[tool(desc = "Path to an existing file relative to the workspace root")]
-    pub path: String,
-    #[tool(desc = "The exact verbatim text block to replace. Must be unique within the file")]
-    pub old_string: String,
-    #[tool(desc = "The replacement text to insert in place of old_string")]
-    pub new_string: String,
-}
-
-/// The pure half of an `edit_text`: given the file's current content, decide
-/// whether the edit is legal and what it produces.
-///
-/// Split out so the **preview** and the **execution** paths cannot disagree. A
-/// preview that re-implemented the match logic would eventually drift — it would
-/// show a diff for an edit that execution then rejects (or worse, apply a
-/// different one), and the preview would become the lie instead of the safeguard.
-/// One function, two callers, so an edit's diff is exactly what will be written.
-fn plan_edit(
-    content: &str,
-    old_string: &str,
-    new_string: &str,
-    raw_path: &str,
-) -> Result<(String, usize), String> {
-    if old_string.is_empty() {
-        return Err("`old_string` cannot be empty".to_string());
-    }
-
-    let matches: Vec<_> = content.match_indices(old_string).collect();
-    if matches.is_empty() {
-        return Err(diagnose_edit_failure(content, old_string, raw_path));
-    }
-    if matches.len() > 1 {
-        let line_numbers: Vec<String> = matches
-            .iter()
-            .map(|(offset, _)| (content[..*offset].matches('\n').count() + 1).to_string())
-            .collect();
-        return Err(format!(
-            "`old_string` matched in {} places in `{raw_path}` (lines {}). It must match exactly once. Provide more surrounding context to disambiguate.",
-            matches.len(),
-            line_numbers.join(", ")
-        ));
-    }
-
-    let start_line = content[..matches[0].0].matches('\n').count() + 1;
-    Ok((content.replacen(old_string, new_string, 1), start_line))
-}
-
-/// Surgically replaces an exact, unique occurrence of text in a file.
-pub struct EditTextTool {
-    ctx: Arc<SystemToolContext>,
-}
-
-impl EditTextTool {
-    pub fn new(ctx: Arc<SystemToolContext>) -> Self {
-        Self { ctx }
-    }
-}
-
-#[async_trait]
-impl Tool for EditTextTool {
-    fn name(&self) -> &str {
-        BuiltinTool::EditText.as_str()
-    }
-
-    fn description(&self) -> &str {
-        "Performs exact string replacement in an existing file. old_string must match exactly one location (include surrounding lines as anchors if needed to ensure uniqueness). NEVER use this to create new files."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        EditTextArgs::parameters_schema()
-    }
-
-    fn risk_profile(&self) -> RiskProfile {
-        RiskProfile::IdempotentMutation
-    }
-
-    fn scopes(&self) -> Vec<ToolScope> {
-        vec![ToolScope::Workspace]
-    }
-
-    fn scope_target(&self, arguments: &str) -> ScopeTarget {
-        match path_argument(arguments) {
-            Some(path) => ScopeTarget::Path(PathBuf::from(path)),
-            None => ScopeTarget::Unspecified,
-        }
-    }
-
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
-        match path_argument(arguments) {
-            // Read-modify-write: `edit_text` both reads and rewrites the file,
-            // so it conflicts with any other access to the same path.
-            Some(path) => ToolAccesses::read_write_file(path),
-            None => ToolAccesses::none(),
-        }
-    }
-
-    /// The edit's diff, derived by the *same* function execution uses.
-    ///
-    /// `old` is the file's current bytes (not `old_string`): a preview is what the
-    /// user needs to approve, and that is the whole file region that changes, not
-    /// the needle the model happened to write. `new` is the full post-edit content
-    /// for the same reason — a diff of needle-vs-replacement would hide the effect
-    /// of a replacement that duplicates or drops surrounding text.
-    ///
-    /// Because both sides are the whole file, the hunk starts at line 1 and the
-    /// text diff finds the changed region itself. Reusing `plan_edit`'s needle
-    /// offset here would shift the whole-file hunk down by where the needle
-    /// happened to sit, so the offset is deliberately discarded.
-    fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
-        let args: EditTextArgs = serde_json::from_value(arguments.clone()).ok()?;
-        let path = self.ctx.resolve_path(&args.path);
-        let content = fs::read_to_string(&path).ok()?;
-        let (modified, _needle_offset) =
-            plan_edit(&content, &args.old_string, &args.new_string, &args.path).ok()?;
-        Some(PreviewResult {
-            path: args.path,
-            op: PatchOp::Edit,
-            old: content,
-            new: modified,
-            start_line: 1,
-            warnings: Vec::new(),
-        })
-    }
-
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: EditTextArgs = serde_json::from_value(arguments).map_err(|err| {
-            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
-        })?;
-
-        let raw_path = &args.path;
-
-        let path = self.ctx.resolve_path(raw_path);
-        let content = fs::read_to_string(&path).map_err(|err| {
-            ToolError::execution(
-                self.name(),
-                format!("failed to read file `{raw_path}`: {err}"),
-            )
-        })?;
-
-        // The one place the edit is decided. `plan_edit` is shared with
-        // `preview`, so an approved preview is byte-for-byte what gets written.
-        let (modified, start_line) =
-            plan_edit(&content, &args.old_string, &args.new_string, raw_path)
-                .map_err(|error| ToolError::execution(self.name(), error))?;
-
-        fs::write(&path, modified).map_err(|err| {
-            ToolError::execution(
-                self.name(),
-                format!("failed to write edited file `{raw_path}`: {err}"),
-            )
-        })?;
-
-        Ok(ToolOutput::Patch {
-            path: raw_path.clone(),
-            op: PatchOp::Edit,
-            old: args.old_string.clone(),
-            new: args.new_string.clone(),
-            start_line,
-            warnings: Vec::new(),
-        })
-    }
-}
-
-/// Diagnoses edit failure when `old_string` cannot be matched in `content`.
-fn diagnose_edit_failure(content: &str, old_str: &str, path: &str) -> String {
-    let file_lines: Vec<&str> = content.lines().collect();
-    let old_lines: Vec<&str> = old_str.lines().collect();
-
-    // Check 1: Trailing whitespace mismatch
-    let content_trimmed: String = file_lines
-        .iter()
-        .map(|l| l.trim_end())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let old_trimmed: String = old_lines
-        .iter()
-        .map(|l| l.trim_end())
-        .collect::<Vec<_>>()
-        .join("\n");
-    if content_trimmed.contains(&old_trimmed) && !content.contains(old_str) {
-        let trimmed_old_first = old_lines.first().map(|l| l.trim_end()).unwrap_or("");
-        let matching_line = file_lines
-            .iter()
-            .position(|l| l.trim_end() == trimmed_old_first)
-            .map(|idx| idx + 1)
-            .unwrap_or(1);
-        return format!(
-            "Could not find exact match for `old_string` in '{path}', but a match exists \
-             when ignoring trailing whitespace (around line {matching_line}). \
-             Check for trailing spaces or tabs in your `old_string`."
-        );
-    }
-
-    // Check 2: Multi-line divergence — find where the match starts breaking down
-    if old_lines.len() > 1 {
-        let first_old = old_lines[0];
-        let candidate_starts: Vec<usize> = file_lines
-            .iter()
-            .enumerate()
-            .filter(|(_, line)| **line == first_old)
-            .map(|(idx, _)| idx)
-            .collect();
-
-        if candidate_starts.len() == 1 {
-            let start = candidate_starts[0];
-            for (offset, old_line) in old_lines.iter().enumerate() {
-                let file_idx = start + offset;
-                if file_idx >= file_lines.len() {
-                    return format!(
-                        "Could not find exact match for `old_string` in '{path}'. \
-                         Match started at line {}, but `old_string` extends past the end of the file \
-                         (file has {} lines, `old_string` expected at least {}).",
-                        start + 1,
-                        file_lines.len(),
-                        file_idx + 1
-                    );
-                }
-                if file_lines[file_idx] != *old_line {
-                    let max_disp = 80;
-                    let exp = if old_line.len() > max_disp {
-                        format!("{}...", &old_line[..max_disp])
-                    } else {
-                        old_line.to_string()
-                    };
-                    let got = if file_lines[file_idx].len() > max_disp {
-                        format!("{}...", &file_lines[file_idx][..max_disp])
-                    } else {
-                        file_lines[file_idx].to_string()
-                    };
-                    return format!(
-                        "Could not find exact match for `old_string` in '{path}'. \
-                         Found matching start at line {} (first {} line{} matched), but diverged at line {}:\n\
-                         Expected: `{exp}`\n\
-                         File has: `{got}`\n\
-                         Please re-read '{path}' around line {} to get the latest content.",
-                        start + 1,
-                        offset,
-                        if offset == 1 { "" } else { "s" },
-                        file_idx + 1,
-                        file_idx + 1
-                    );
-                }
-            }
-        } else if candidate_starts.len() > 1 {
-            let lines_str = candidate_starts
-                .iter()
-                .map(|idx| (idx + 1).to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let first_line = if first_old.len() > 60 {
-                format!("{}...", &first_old[..60])
-            } else {
-                first_old.to_string()
-            };
-            return format!(
-                "Could not find exact match for `old_string` in '{path}'. \
-                 The first line `{first_line}` appears multiple times (lines {lines_str}), \
-                 but subsequent lines did not match. Please provide more surrounding context or re-read '{path}'."
-            );
-        }
-    }
-
-    format!(
-        "Could not find exact match for `old_string` in '{path}' (0 matches found). \
-         The content of '{path}' may have changed. Please use `read_text` to inspect the latest file contents before editing."
-    )
 }
 
 /// Directories that are almost never interesting to search or list and can be
@@ -976,11 +573,10 @@ impl Tool for SearchTextTool {
         if matches.is_empty() {
             Ok(ToolOutput::success("No matching lines found.".to_string()))
         } else {
-            Ok(ToolOutput::success(format!(
-                "Found {} match(es):\n{}",
-                matches.len(),
-                matches.join("\n")
-            )))
+            Ok(ToolOutput::Matches {
+                pattern: args.query,
+                lines: matches,
+            })
         }
     }
 }
@@ -988,7 +584,7 @@ impl Tool for SearchTextTool {
 /// Creates the suite of filesystem tools for an agent.
 pub fn create_fs_tools(ctx: Arc<SystemToolContext>) -> Vec<Arc<dyn Tool>> {
     vec![
-        Arc::new(ReadTextTool::new(ctx.clone())),
+        Arc::new(ReadTool::new(ctx.clone())),
         Arc::new(WriteFileTool::new(ctx.clone())),
         Arc::new(EditTextTool::new(ctx.clone())),
         Arc::new(FindFilesTool::new(ctx.clone())),
@@ -1000,493 +596,4 @@ pub fn create_fs_tools(ctx: Arc<SystemToolContext>) -> Vec<Arc<dyn Tool>> {
 mod preview_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use tempfile::tempdir;
-
-    #[tokio::test]
-    async fn test_fs_tools_lifecycle() {
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-
-        let write_tool = WriteFileTool::new(ctx.clone());
-        let read_tool = ReadTextTool::new(ctx.clone());
-        let edit_tool = EditTextTool::new(ctx.clone());
-        let find_tool = FindFilesTool::new(ctx.clone());
-        let search_tool = SearchTextTool::new(ctx.clone());
-
-        // 1. Write file
-        let write_res = write_tool
-            .execute(
-                &t_ctx,
-                json!({
-                    "path": "hello.txt",
-                    "content": "line 1: hello\nline 2: world\nline 3: end"
-                }),
-            )
-            .await
-            .unwrap();
-        assert!(!write_res.is_error());
-        assert!(matches!(
-            &write_res,
-            ToolOutput::Patch {
-                op: PatchOp::Create,
-                start_line: 1,
-                ..
-            }
-        ));
-
-        // 2. Read file
-        let read_res = read_tool
-            .execute(
-                &t_ctx,
-                json!({"path": "hello.txt", "offset": 2, "limit": 1}),
-            )
-            .await
-            .unwrap();
-        assert!(read_res.content().contains("line 2: world"));
-
-        // 3. Edit file
-        let edit_res = edit_tool
-            .execute(
-                &t_ctx,
-                json!({
-                    "path": "hello.txt",
-                    "old_string": "line 2: world",
-                    "new_string": "line 2: nuo"
-                }),
-            )
-            .await
-            .unwrap();
-        assert!(!edit_res.is_error());
-        assert!(matches!(
-            &edit_res,
-            ToolOutput::Patch {
-                op: PatchOp::Edit,
-                start_line: 2,
-                ..
-            }
-        ));
-
-        // 4. Search text
-        let search_res = search_tool
-            .execute(&t_ctx, json!({"path": ".", "query": "nuo"}))
-            .await
-            .unwrap();
-        assert!(search_res.content().contains("hello.txt:2: line 2: nuo"));
-
-        // 5. Find files
-        let find_res = find_tool
-            .execute(&t_ctx, json!({"path": "."}))
-            .await
-            .unwrap();
-        assert!(find_res.content().contains("hello.txt"));
-    }
-
-    #[tokio::test]
-    async fn read_text_emits_structured_code_with_pagination_framing() {
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-        fs::write(dir.path().join("src.rs"), "a\nb\nc\nd\n").unwrap();
-
-        let out = ReadTextTool::new(ctx)
-            .execute(&t_ctx, json!({"path": "src.rs", "offset": 2, "limit": 2}))
-            .await
-            .unwrap();
-
-        match &out {
-            ToolOutput::Code {
-                lang,
-                text,
-                start_line,
-                prefix,
-                suffix,
-            } => {
-                // Pure content: no baked gutter and no range header.
-                assert_eq!(text, "b\nc");
-                assert_eq!(*start_line, 2);
-                assert_eq!(lang.as_deref(), Some("rs"));
-                assert_eq!(prefix.as_deref(), Some("[Lines 2-3 of 4 from `src.rs`]"));
-                assert_eq!(
-                    suffix.as_deref(),
-                    Some("[1 more line — read with offset=4]")
-                );
-            }
-            other => panic!("expected ToolOutput::Code, got {other:?}"),
-        }
-
-        // The model still sees the range header and per-line file numbers,
-        // composed at `to_text` time instead of baked into `text`.
-        assert_eq!(
-            out.to_text(),
-            "[Lines 2-3 of 4 from `src.rs`]\n2: b\n3: c\n[1 more line — read with offset=4]"
-        );
-    }
-
-    #[tokio::test]
-    async fn read_text_to_eof_has_no_continuation_hint() {
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-        fs::write(dir.path().join("full.txt"), "one\ntwo\n").unwrap();
-
-        let out = ReadTextTool::new(ctx)
-            .execute(&t_ctx, json!({"path": "full.txt"}))
-            .await
-            .unwrap();
-
-        match out {
-            ToolOutput::Code {
-                text,
-                start_line,
-                prefix,
-                suffix,
-                ..
-            } => {
-                assert_eq!(text, "one\ntwo");
-                assert_eq!(start_line, 1);
-                assert_eq!(prefix.as_deref(), Some("[Lines 1-2 of 2 from `full.txt`]"));
-                assert_eq!(suffix, None);
-            }
-            other => panic!("expected ToolOutput::Code, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn read_text_resolves_virtual_path_via_vfs_without_disk() {
-        struct MockVfs;
-        #[async_trait]
-        impl nuo_tool::VirtualFileResolver for MockVfs {
-            async fn resolve_virtual(&self, path: &str) -> Option<String> {
-                if path == "/tmp/nuo/vfs/call_123.txt"
-                    || path == ".nuo/virtual/observations/call_123.txt"
-                {
-                    Some("alpha\nbeta\ngamma\ndelta\n".to_string())
-                } else {
-                    None
-                }
-            }
-        }
-
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()).with_vfs_resolver(Arc::new(MockVfs)));
-        let t_ctx = ToolContext::default();
-
-        let out = ReadTextTool::new(ctx)
-            .execute(
-                &t_ctx,
-                json!({
-                    "path": "/tmp/nuo/vfs/call_123.txt",
-                    "offset": 2,
-                    "limit": 2
-                }),
-            )
-            .await
-            .unwrap();
-
-        match out {
-            ToolOutput::Code {
-                text,
-                start_line,
-                prefix,
-                suffix,
-                ..
-            } => {
-                assert_eq!(text, "beta\ngamma");
-                assert_eq!(start_line, 2);
-                assert_eq!(
-                    prefix.as_deref(),
-                    Some("[Lines 2-3 of 4 from `/tmp/nuo/vfs/call_123.txt`]")
-                );
-                assert_eq!(
-                    suffix.as_deref(),
-                    Some("[1 more line — read with offset=4]")
-                );
-            }
-            other => panic!("expected ToolOutput::Code, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_read_text_resolves_spool_disk_fallback() {
-        let spool_dir = nuo_tool::spool_root_dir();
-        let _ = std::fs::create_dir_all(&spool_dir);
-        let spool_file = spool_dir.join("test_spool_fallback.log");
-        std::fs::write(&spool_file, b"line1\nline2\nline3\nline4\n").unwrap();
-
-        let dir = tempdir().unwrap();
-        // Context WITHOUT vfs_resolver
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-
-        let spool_path_str = spool_file.to_str().unwrap().to_string();
-        let out = ReadTextTool::new(ctx)
-            .execute(
-                &t_ctx,
-                json!({
-                    "path": spool_path_str,
-                    "offset": 2,
-                    "limit": 2
-                }),
-            )
-            .await
-            .unwrap();
-
-        let _ = std::fs::remove_file(&spool_file);
-
-        match out {
-            ToolOutput::Code {
-                text, start_line, ..
-            } => {
-                assert_eq!(text, "line2\nline3");
-                assert_eq!(start_line, 2);
-            }
-            other => panic!("expected ToolOutput::Code, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn display_match_path_falls_back_when_root_is_the_file() {
-        let ws = Path::new("/ws");
-        let file = Path::new("/ws/src/actions.rs");
-        // Directory root: relative to the search root.
-        assert_eq!(
-            display_match_path(file, Path::new("/ws/src"), ws),
-            "actions.rs"
-        );
-        // File root (single-file search): stripping would be empty, so fall
-        // back to the workspace-relative path rather than the empty string.
-        assert_eq!(display_match_path(file, file, ws), "src/actions.rs");
-        // No usable base at all -> bare filename, never empty.
-        assert_eq!(
-            display_match_path(file, Path::new("/x"), Path::new("/y")),
-            "actions.rs"
-        );
-    }
-
-    #[tokio::test]
-    async fn search_text_single_file_search_emits_a_real_path() {
-        // Regression: searching a *file* (not a directory) used to strip the
-        // file's own path as a prefix, yielding an empty path and emitting a
-        // pathless `:LINE: content` line — unreadable for both the model and
-        // the TUI (which then tallied 0 files and dropped the file title row).
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-        fs::create_dir_all(dir.path().join("src")).unwrap();
-        let file = dir.path().join("src").join("actions.rs");
-        fs::write(&file, "fn a() {}\npub(super) fn enter_scene(\nfn b() {}\n").unwrap();
-
-        let out = SearchTextTool::new(ctx)
-            .execute(
-                &t_ctx,
-                json!({"path": "src/actions.rs", "query": "enter_scene"}),
-            )
-            .await
-            .unwrap();
-
-        let text = out.content();
-        assert!(
-            text.contains("src/actions.rs:2: pub(super) fn enter_scene("),
-            "the match line must carry a real, workspace-relative path; got:\n{text}"
-        );
-        assert!(
-            !text.contains("\n:2:"),
-            "no pathless match line may be emitted; got:\n{text}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_diagnose_edit_failure_whitespace() {
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-
-        let file_path = dir.path().join("code.rs");
-        fs::write(&file_path, "fn hello() {\n    let a = 1;\n}\n").unwrap();
-
-        let edit_tool = EditTextTool::new(ctx.clone());
-        let err = edit_tool
-            .execute(
-                &t_ctx,
-                json!({
-                    "path": "code.rs",
-                    "old_string": "    let a = 1;  ",
-                    "new_string": "    let a = 2;"
-                }),
-            )
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("trailing whitespace"));
-    }
-
-    #[tokio::test]
-    async fn find_files_ignores_git_dir_and_gitignore_and_ignored_dirs() {
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-
-        // 1. .git internal files must be pruned
-        let git_hooks = dir.path().join(".git").join("hooks");
-        fs::create_dir_all(&git_hooks).unwrap();
-        fs::write(git_hooks.join("applypatch-msg.samp"), "sample hook").unwrap();
-
-        // 2. .gitignore entries must be pruned
-        fs::write(
-            dir.path().join(".gitignore"),
-            "secret.txt\nbuild_out/\n*.log\n",
-        )
-        .unwrap();
-        fs::write(dir.path().join("secret.txt"), "api_key").unwrap();
-        let build_out = dir.path().join("build_out");
-        fs::create_dir_all(&build_out).unwrap();
-        fs::write(build_out.join("artifact.bin"), "bin").unwrap();
-        fs::write(dir.path().join("debug.log"), "debug").unwrap();
-
-        // 3. Known ignored directories like node_modules, target, etc. must be pruned
-        let node_modules = dir.path().join("node_modules").join("pkg");
-        fs::create_dir_all(&node_modules).unwrap();
-        fs::write(node_modules.join("index.js"), "module.exports = {}").unwrap();
-
-        let target_dir = dir.path().join("target").join("debug");
-        fs::create_dir_all(&target_dir).unwrap();
-        fs::write(target_dir.join("build.rs"), "fn main() {}").unwrap();
-
-        // 4. Legitimate project files
-        let src_dir = dir.path().join("src");
-        fs::create_dir_all(&src_dir).unwrap();
-        fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
-
-        let tool = FindFilesTool::new(ctx);
-        let res = tool.execute(&t_ctx, json!({"path": "."})).await.unwrap();
-
-        let content = res.content();
-        assert!(
-            content.contains("src/main.rs"),
-            "legitimate project file must be found; got:\n{content}"
-        );
-        assert!(
-            !content
-                .lines()
-                .any(|l| l == ".git" || l.starts_with(".git/")),
-            ".git directories/files must never be found; got:\n{content}"
-        );
-        assert!(
-            !content.contains("applypatch-msg.samp"),
-            ".git/hooks must not be found; got:\n{content}"
-        );
-        assert!(
-            !content.contains("secret.txt"),
-            ".gitignore files must be pruned; got:\n{content}"
-        );
-        assert!(
-            !content.contains("artifact.bin"),
-            ".gitignore directories must be pruned; got:\n{content}"
-        );
-        assert!(
-            !content.contains("debug.log"),
-            ".gitignore glob matches must be pruned; got:\n{content}"
-        );
-        assert!(
-            !content.contains("node_modules"),
-            "node_modules must be pruned; got:\n{content}"
-        );
-        assert!(
-            !content.contains("target"),
-            "target directory must be pruned; got:\n{content}"
-        );
-    }
-
-    #[tokio::test]
-    async fn find_files_accepts_pattern_variations_and_slashless_globs() {
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-
-        let nested = dir.path().join("crates").join("core").join("src");
-        fs::create_dir_all(&nested).unwrap();
-        fs::write(nested.join("lib.rs"), "pub fn run() {}").unwrap();
-        fs::write(nested.join("readme.md"), "# Core").unwrap();
-
-        let tool = FindFilesTool::new(ctx);
-
-        // A. Singular "pattern" alias with slashless glob matching nested files
-        let res1 = tool
-            .execute(&t_ctx, json!({"pattern": "*.rs"}))
-            .await
-            .unwrap();
-        assert!(
-            res1.content().contains("crates/core/src/lib.rs"),
-            "slashless pattern must match nested file; got:\n{}",
-            res1.content()
-        );
-        assert!(!res1.content().contains("readme.md"));
-
-        // B. "patterns" as array
-        let res2 = tool
-            .execute(&t_ctx, json!({"patterns": ["*.md"]}))
-            .await
-            .unwrap();
-        assert!(res2.content().contains("crates/core/src/readme.md"));
-        assert!(!res2.content().contains("lib.rs"));
-
-        // C. "patterns" as single string (JSON normalization)
-        let res3 = tool
-            .execute(&t_ctx, json!({"patterns": "*.rs"}))
-            .await
-            .unwrap();
-        assert!(res3.content().contains("crates/core/src/lib.rs"));
-
-        // D. Omitted patterns -> all files
-        let res4 = tool
-            .execute(&t_ctx, json!({"path": "crates"}))
-            .await
-            .unwrap();
-        assert!(res4.content().contains("core/src/lib.rs"));
-        assert!(res4.content().contains("core/src/readme.md"));
-    }
-
-    #[tokio::test]
-    async fn search_text_ignores_git_dir_and_gitignore() {
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-
-        let git_dir = dir.path().join(".git");
-        fs::create_dir_all(&git_dir).unwrap();
-        fs::write(git_dir.join("config"), "target_marker_needle = 1").unwrap();
-
-        fs::write(dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
-        fs::write(dir.path().join("ignored.rs"), "target_marker_needle = 2").unwrap();
-
-        let src_dir = dir.path().join("src");
-        fs::create_dir_all(&src_dir).unwrap();
-        fs::write(src_dir.join("main.rs"), "target_marker_needle = 3").unwrap();
-
-        let tool = SearchTextTool::new(ctx);
-        let res = tool
-            .execute(
-                &t_ctx,
-                json!({"path": ".", "query": "target_marker_needle"}),
-            )
-            .await
-            .unwrap();
-
-        let content = res.content();
-        assert!(
-            content.contains("src/main.rs:1: target_marker_needle = 3"),
-            "legitimate file must be matched; got:\n{content}"
-        );
-        assert!(
-            !content.contains(".git"),
-            ".git must not be searched; got:\n{content}"
-        );
-        assert!(
-            !content.contains("ignored.rs"),
-            ".gitignore file must not be searched; got:\n{content}"
-        );
-    }
-}
+mod tests;

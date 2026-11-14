@@ -189,12 +189,13 @@ impl AnthropicMessagesProvider {
     /// Apply the per-request auth + version + beta headers to a request builder.
     fn build_request_for_auth(
         &self,
-        body: &serde_json::Value,
+        wire: &nuo_provider::WireRequest,
         auth: &ResolvedAuth,
-    ) -> RequestBuilder {
+    ) -> Result<RequestBuilder, nuo_provider::ProviderError> {
+        let encoded = wire.encode()?;
         let mut req = RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
             .header(http::header::USER_AGENT, self.endpoint.user_agent())
-            .json(body);
+            .encoded(&encoded);
         for (name, value) in request::headers(
             auth.token.expose_secret(),
             &self.capabilities,
@@ -213,14 +214,15 @@ impl AnthropicMessagesProvider {
         req = self
             .endpoint
             .attach_session_affinity_headers(req, self.prompt_cache.routing_key());
-        self.endpoint.attach_auth_scoped_headers(req, auth)
+        Ok(self.endpoint.attach_auth_scoped_headers(req, auth))
     }
 
-    /// Send a request with automatic token resolution, timeout stamping,
-    /// and reactive force-refresh on HTTP 401 Unauthorized for OAuth channels.
+    /// Send a projected request with automatic token resolution, timeout
+    /// stamping, and reactive force-refresh on HTTP 401 Unauthorized for OAuth
+    /// channels.
     async fn send_request(
         &self,
-        body: &serde_json::Value,
+        wire: &nuo_provider::WireRequest,
         is_stream: bool,
         telemetry: &nuo_provider::TransportTelemetry,
     ) -> Result<HttpResponse, ProviderError> {
@@ -238,7 +240,7 @@ impl AnthropicMessagesProvider {
         let auth = auth_result.map_err(|e| ProviderError::authentication("Anthropic", e))?;
 
         let mut req = self
-            .build_request_for_auth(body, &auth)
+            .build_request_for_auth(wire, &auth)?
             .with_telemetry(telemetry.clone());
         if !is_stream {
             req = req.timeout(self.client.request_timeout());
@@ -257,7 +259,7 @@ impl AnthropicMessagesProvider {
                 .await
                 .map_err(|error| ProviderError::authentication("Anthropic", error))?;
             let mut retry_req = self
-                .build_request_for_auth(body, &refreshed_auth)
+                .build_request_for_auth(wire, &refreshed_auth)?
                 .with_telemetry(telemetry.clone());
             if !is_stream {
                 retry_req = retry_req.timeout(self.client.request_timeout());
@@ -332,8 +334,10 @@ impl Provider for AnthropicMessagesProvider {
             &self.capabilities,
         );
 
+        let wire =
+            nuo_provider::WireRequest::new(nuo_provider::WireProtocol::AnthropicMessages, body);
         let resp = self
-            .send_request(&body, false, &nuo_provider::TransportTelemetry::default())
+            .send_request(&wire, false, &nuo_provider::TransportTelemetry::default())
             .await?;
         let response_json: serde_json::Value = decode_response_json(resp, "Anthropic").await?;
 
@@ -383,7 +387,9 @@ impl Provider for AnthropicMessagesProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &telemetry).await?;
+        let wire =
+            nuo_provider::WireRequest::new(nuo_provider::WireProtocol::AnthropicMessages, body);
+        let response = self.send_request(&wire, true, &telemetry).await?;
 
         // Reuse the shared SSE byte reassembly; each payload is one Anthropic
         // event JSON. Map to text deltas only (this is the simple stream path).
@@ -419,7 +425,9 @@ impl Provider for AnthropicMessagesProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &telemetry).await?;
+        let wire =
+            nuo_provider::WireRequest::new(nuo_provider::WireProtocol::AnthropicMessages, body);
+        let response = self.send_request(&wire, true, &telemetry).await?;
 
         let sig_stash = signature::SignatureStash::shared();
         let terminal_stash = sig_stash.clone();

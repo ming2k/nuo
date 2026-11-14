@@ -79,12 +79,6 @@ pub async fn search_history(
     const MAX_LIMIT: usize = 100;
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let filter = workspace.map(|w| nuo_protocol::WorkspaceFilter::Path(w.into()));
-    // FTS is a derived index built off the hot path; a search must see every
-    // committed transcript row, so drain the pending queue first. A failure is
-    // disclosed — search results would otherwise silently omit recent turns.
-    if let Err(error) = get_persistence_handle().flush_derived_all().await {
-        tracing::warn!(%error, "could not flush derived indexes before history search");
-    }
     let hits = get_persistence_handle()
         .reader()
         .map_err(|e| format!("could not open sqlite db: {e}"))

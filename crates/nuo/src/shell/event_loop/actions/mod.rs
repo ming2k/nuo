@@ -88,7 +88,7 @@ pub(crate) enum ActionFlow {
 
 pub(crate) struct ActionContext<'a> {
     pub runtime: &'a UiRuntime,
-    pub session: &'a crate::shell::SessionSource,
+    pub session: &'a crate::shell::HookStartSource,
     pub viewed_session_id: &'a str,
     pub copy_tx: &'a mpsc::UnboundedSender<Result<clipboard::CopyOutcome, String>>,
     pub copy_pending: &'a Arc<AtomicUsize>,

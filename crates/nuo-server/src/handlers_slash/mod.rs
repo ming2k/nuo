@@ -15,11 +15,11 @@ use tokio::sync::mpsc;
 
 use crate::mcp::McpRuntime;
 use crate::slash_handler::SlashCommandRegistry;
-use crate::startup::SessionStart;
+use crate::startup::ThreadStart;
 use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_harness::{Agent, RoundLifecycle};
 use nuo_persistence::{
-    config::Config, connection_usage::ConnectionUsage, session::SessionStore,
+    config::Config, connection_usage::ConnectionUsage, thread::ThreadSession,
     workspace_security::WorkspaceSecurityStore,
 };
 use nuo_protocol::{AgentRequest, AgentResponse, Provider};
@@ -36,13 +36,13 @@ pub struct SlashEnv<'a> {
     pub shared_additional_roots: &'a nuo_protocol::SharedAdditionalRoots,
     pub shared_confinement: &'a nuo_protocol::SharedConfinement,
     pub resp_tx: &'a mpsc::UnboundedSender<AgentResponse>,
-    pub session: &'a Arc<SessionStore>,
+    pub session: &'a Arc<ThreadSession>,
     pub lifecycle: &'a Arc<RoundLifecycle>,
     pub provider_for_task: &'a Arc<RwLock<Arc<dyn Provider>>>,
     pub provider_usage: &'a mut ConnectionUsage,
     pub skills_registry: &'a Arc<SkillRegistry>,
     pub req_tx_for_commands: &'a mpsc::Sender<AgentRequest>,
-    pub startup: &'a SessionStart,
+    pub startup: &'a ThreadStart,
     pub ui: &'a dyn crate::UiBridge,
     pub extra_commands: &'a SlashCommandRegistry,
     pub websearch_shared: &'a nuo_protocol::SharedWebConfig,

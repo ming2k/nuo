@@ -172,35 +172,6 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             }
             true
         }
-        AppMutation::SessionForked {
-            child_id,
-            parent_id,
-            fork_point,
-            prompt,
-        } => {
-            // The tab is labelled with the address the branch diverged at
-            // (ADR-0120): `⑂r2.1`. The fork no longer mints a title, so this
-            // label is the only textual identity it has until the branch earns
-            // its own (ADR-0050) or is identified by its first prompt. A peer
-            // that predates the fork point still identifies the origin by the
-            // parent's short id, so a branch never appears to have no origin.
-            let label = Some(match fork_point {
-                Some(point) => format!("\u{2442}{point}"),
-                None => format!("\u{2442}{}", parent_id.chars().take(8).collect::<String>()),
-            });
-            let tab = crate::shell::surfaces::ClientTab::thread(&child_id, label);
-            // Checkpoint the departing (parent) tab's context before mounting
-            // the child — the same discipline every other session switch uses.
-            app.open_tab(tab);
-            app.switch_to_target = Some(child_id);
-            // `[INV-DEPR-01]`: a retired `/btw <prompt>` steer rides its message
-            // here, dispatched into the child once the runner re-attaches.
-            app.switch_to_prompt = prompt;
-            app.should_quit
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-            true
-        }
-
         AppMutation::SetPhase(phase) => {
             // The primary's half of the setback-clause lifetime: this mirror is
             // written by every primary phase move, so retiring the clause here

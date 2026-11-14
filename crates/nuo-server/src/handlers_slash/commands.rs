@@ -19,11 +19,11 @@ use super::session_route::{
 use crate::agent_setup::active_context_window;
 use crate::handlers_chat::refuse_if_no_provider;
 use crate::project::init_nuo_config;
-use crate::session_view::{build_sessions_overview, short_session_id};
 use crate::slash_handler::SlashContext;
 use crate::startup::BuiltinCmd;
+use crate::thread_view::{build_sessions_overview, short_session_id};
 
-use crate::session_driver::{compact_round_history, send_harness_state_for_session};
+use crate::thread_driver::{compact_round_history, send_harness_state_for_session};
 use nuo_harness::cognition::skills::ListSkillsTool;
 use nuo_harness::orchestration::{
     ContextProjectionSettings, RoundInput, round_response, send_compaction,
@@ -575,13 +575,13 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                     Ok(()) => {
                         // Full restore of the session-scoped runtime the
                         // bootstrap skipped in Picker mode: todos,
-                        // disabled tools, round counter, and SessionStart
+                        // disabled tools, round counter, and ThreadStart
                         // hooks. Opening a prior session is a resume.
                         restore_session_runtime(
                             session,
                             agent,
                             resp_tx,
-                            nuo_protocol::SessionSource::Resume,
+                            nuo_protocol::HookStartSource::Resume,
                         )
                         .await;
                         let transcript = session.full_transcript().await;
@@ -2006,7 +2006,7 @@ pub(crate) async fn user_command(
 /// gesture — the text is intact and nothing reached the model — and treating it
 /// like a failed side effect (a plain error) is what made it feel unrecoverable.
 pub(crate) async fn record_unknown_command(
-    session: &std::sync::Arc<nuo_persistence::session::SessionStore>,
+    session: &std::sync::Arc<nuo_persistence::thread::ThreadSession>,
     resp_tx: &tokio::sync::mpsc::UnboundedSender<nuo_protocol::AgentResponse>,
     name: &str,
     args: &str,

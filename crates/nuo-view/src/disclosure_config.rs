@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn tool_step_expanded_is_lifecycle_aware() {
         let cfg = source(&[]);
-        // `edit_text` declares expanded-by-default; `execute_command` and `read_text` declare collapsed.
+        // `edit_text` declares expanded-by-default; `execute_command` and `read` declare collapsed.
         assert!(!tool_step_expanded(
             &cfg,
             ToolStepStatus::Executing,
@@ -112,11 +112,7 @@ mod tests {
             ToolStepStatus::Executing,
             "edit_text"
         ));
-        assert!(!tool_step_expanded(
-            &cfg,
-            ToolStepStatus::Executing,
-            "read_text"
-        ));
+        assert!(!tool_step_expanded(&cfg, ToolStepStatus::Executing, "read"));
         for (status, expected) in [
             (ToolStepStatus::Failed, true),
             (ToolStepStatus::Denied, true),
@@ -154,8 +150,8 @@ mod tests {
     /// default for every non-terminal lifecycle.
     #[test]
     fn explicit_entry_overrides_declared_default() {
-        let cfg = source(&[("read_text", true), ("execute_command", true)]);
-        assert!(tool_step_expanded(&cfg, ToolStepStatus::Ok, "read_text"));
+        let cfg = source(&[("read", true), ("execute_command", true)]);
+        assert!(tool_step_expanded(&cfg, ToolStepStatus::Ok, "read"));
         assert!(tool_step_expanded(
             &cfg,
             ToolStepStatus::Executing,

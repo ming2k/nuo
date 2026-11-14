@@ -30,7 +30,7 @@ impl Agent {
     /// already has a title (manual override or previous generation), this is a no-op.
     pub fn spawn_session_titler(
         self: &Arc<Self>,
-        session: Arc<nuo_persistence::SessionStore>,
+        session: Arc<nuo_persistence::ThreadSession>,
         prompt: String,
     ) {
         let agent = Arc::clone(self);
@@ -144,7 +144,7 @@ mod tests {
         let agent = Arc::new(test_agent(provider));
 
         let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(nuo_persistence::SessionStore::for_path(
+        let store = Arc::new(nuo_persistence::ThreadSession::for_path(
             dir.path().join("session.json"),
         ));
         let (title, has_title) = store.title().await;
@@ -174,7 +174,7 @@ mod tests {
         let agent = Arc::new(test_agent(provider.clone()));
 
         let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(nuo_persistence::SessionStore::for_path(
+        let store = Arc::new(nuo_persistence::ThreadSession::for_path(
             dir.path().join("session.json"),
         ));
         store

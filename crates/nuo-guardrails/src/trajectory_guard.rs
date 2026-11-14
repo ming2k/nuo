@@ -27,8 +27,7 @@ pub(crate) fn covers(name: &str) -> bool {
             BuiltinTool::EditText
                 | BuiltinTool::ExecuteCommand
                 | BuiltinTool::FindFiles
-                | BuiltinTool::ReadImage
-                | BuiltinTool::ReadText
+                | BuiltinTool::Read
                 | BuiltinTool::ReadUrl
                 | BuiltinTool::SearchText
                 | BuiltinTool::SearchWeb
@@ -87,7 +86,7 @@ pub fn trajectory_signature(name: &str, args: &str) -> String {
             value.get("regex").and_then(Value::as_bool).unwrap_or(false)
         );
     }
-    if name == "read_text" || name == "read" {
+    if name == "read" {
         let path = value
             .get("path")
             .or_else(|| value.get("file_path"))
@@ -375,10 +374,10 @@ impl TrajectoryLoopGuard {
 }
 
 /// Reduce a machine signature (`name|locator`) to a short human phrase for the
-/// block message, e.g. `bash ls -la`, `read_text src/main.rs`.
+/// block message, e.g. `bash ls -la`, `read src/main.rs`.
 pub fn humanize_sig(signature: &str) -> String {
     let parts: Vec<&str> = signature.split('|').collect();
-    if (parts.first() == Some(&"read_text") || parts.first() == Some(&"read")) && parts.len() == 4 {
+    if parts.first() == Some(&"read") && parts.len() == 4 {
         let name = parts[0];
         let path = parts[1];
         let offset = parts[2].strip_prefix("offset=").unwrap_or("1");
@@ -425,10 +424,9 @@ mod tests {
     fn covers_the_watched_set() {
         assert!(covers("execute_command"));
         assert!(!covers("run_command"));
-        assert!(covers("read_text"));
-        assert!(!covers("read"));
+        assert!(covers("read"));
         assert!(covers("write_file"));
-        assert!(!covers("use_skill"));
+        assert!(!covers("view_image"));
         assert!(!covers("ask_user"));
         assert!(!covers("mcp_tool"));
     }
@@ -564,17 +562,17 @@ mod tests {
 
     #[test]
     fn read_same_range_collides_and_normalizes_defaults() {
-        let s1 = trajectory_signature("read_text", r#"{"path":"foo.rs"}"#);
-        let s2 = trajectory_signature("read_text", r#"{"path":"foo.rs","offset":1}"#);
-        let s3 = trajectory_signature("read_text", r#"{"path":"foo.rs","offset":1,"limit":0}"#);
+        let s1 = trajectory_signature("read", r#"{"path":"foo.rs"}"#);
+        let s2 = trajectory_signature("read", r#"{"path":"foo.rs","offset":1}"#);
+        let s3 = trajectory_signature("read", r#"{"path":"foo.rs","offset":1,"limit":0}"#);
         assert_eq!(s1, s2);
         assert_eq!(s2, s3);
     }
 
     #[test]
     fn read_distinct_ranges_do_not_collide() {
-        let s1 = trajectory_signature("read_text", r#"{"path":"foo.rs","offset":1,"limit":50}"#);
-        let s2 = trajectory_signature("read_text", r#"{"path":"foo.rs","offset":51,"limit":50}"#);
+        let s1 = trajectory_signature("read", r#"{"path":"foo.rs","offset":1,"limit":50}"#);
+        let s2 = trajectory_signature("read", r#"{"path":"foo.rs","offset":51,"limit":50}"#);
         assert_ne!(s1, s2, "different read ranges must not collide");
     }
 
@@ -609,9 +607,9 @@ mod tests {
 
     #[test]
     fn path_decorations_collide() {
-        let s1 = trajectory_signature("read_text", r#"{"path":"./src/main.rs"}"#);
-        let s2 = trajectory_signature("read_text", r#"{"path":"src/main.rs"}"#);
-        let s3 = trajectory_signature("read_text", r#"{"path":"src/main.rs/"}"#);
+        let s1 = trajectory_signature("read", r#"{"path":"./src/main.rs"}"#);
+        let s2 = trajectory_signature("read", r#"{"path":"src/main.rs"}"#);
+        let s3 = trajectory_signature("read", r#"{"path":"src/main.rs/"}"#);
         assert_eq!(s1, s2);
         assert_eq!(s2, s3);
     }
@@ -683,16 +681,16 @@ mod tests {
             "execute_command cargo test"
         );
         assert_eq!(
-            humanize_sig("read_text|src/main.rs|offset=1|limit=0"),
-            "read_text src/main.rs"
+            humanize_sig("read|src/main.rs|offset=1|limit=0"),
+            "read src/main.rs"
         );
         assert_eq!(
-            humanize_sig("read_text|src/main.rs|offset=20|limit=0"),
-            "read_text src/main.rs :20,$"
+            humanize_sig("read|src/main.rs|offset=20|limit=0"),
+            "read src/main.rs :20,$"
         );
         assert_eq!(
-            humanize_sig("read_text|src/main.rs|offset=20|limit=50"),
-            "read_text src/main.rs :20,limit=50"
+            humanize_sig("read|src/main.rs|offset=20|limit=50"),
+            "read src/main.rs :20,limit=50"
         );
     }
 }

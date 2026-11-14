@@ -33,8 +33,8 @@ fn virtual_index_selects_only_chunks_intersecting_the_viewport() {
 fn virtual_index_uses_segmented_same_turn_geometry() {
     let mut thinking = TranscriptMessage::reasoning("reasoning").with_turn(3);
     thinking.set_reasoning_duration(1);
-    let first = TranscriptMessage::tool_step("a", "read_text", r#"{"path":"a"}"#).with_turn(3);
-    let second = TranscriptMessage::tool_step("b", "read_text", r#"{"path":"b"}"#).with_turn(3);
+    let first = TranscriptMessage::tool_step("a", "read", r#"{"path":"a"}"#).with_turn(3);
+    let second = TranscriptMessage::tool_step("b", "read", r#"{"path":"b"}"#).with_turn(3);
     let messages = vec![thinking, first, second];
     let mut cache = HeightCache::default();
     cache.prepare(80);

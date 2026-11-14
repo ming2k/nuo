@@ -344,7 +344,7 @@ mod tests {
         assert!(!tool_default_expanded(&cfg, "execute_command"));
         assert!(tool_default_expanded(&cfg, "todo"));
         assert!(tool_default_expanded(&cfg, "write_todos"));
-        assert!(!tool_default_expanded(&cfg, "read_text"));
+        assert!(!tool_default_expanded(&cfg, "read"));
         // Undeclared (dynamic / MCP) tools are never open by default.
         assert!(!tool_default_expanded(&cfg, "mcp__foo__bar"));
     }
@@ -354,11 +354,11 @@ mod tests {
         let cfg = config(&[
             ("edit_text", false),
             ("execute_command", true),
-            ("read_text", true),
+            ("read", true),
         ]);
         assert!(!tool_default_expanded(&cfg, "edit_text"));
         assert!(tool_default_expanded(&cfg, "execute_command"));
-        assert!(tool_default_expanded(&cfg, "read_text"));
+        assert!(tool_default_expanded(&cfg, "read"));
         // Still falls back for unlisted tools.
         assert!(!tool_default_expanded(&cfg, "search_text"));
     }
@@ -381,7 +381,7 @@ thinking = true
         let cfg: TuiConfig = toml::from_str(toml).expect("parses");
         assert!(tool_default_expanded(&cfg, "edit_text"));
         assert!(tool_default_expanded(&cfg, "execute_command"));
-        assert!(!tool_default_expanded(&cfg, "read_text"));
+        assert!(!tool_default_expanded(&cfg, "read"));
         assert!(reasoning_default_expanded(&cfg));
     }
 

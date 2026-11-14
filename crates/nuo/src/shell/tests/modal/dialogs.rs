@@ -515,7 +515,7 @@ fn disclosure_toggle_latches_scroll_settle() {
     app.expand_auto_scroll = true;
     let mut messages = vec![
         TranscriptMessage::new(Role::User, "hi"),
-        TranscriptMessage::tool_step("call_1", "read_text", r#"{"path":"README.md"}"#),
+        TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#),
     ];
 
     // No toggle happened yet: nothing to settle.
@@ -568,7 +568,7 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
     );
     let mut messages = vec![
         TranscriptMessage::new(Role::User, "hi"),
-        TranscriptMessage::tool_step("call_1", "read_text", r#"{"path":"README.md"}"#),
+        TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#),
     ];
 
     app.scroll = 12;
@@ -601,7 +601,7 @@ fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let mut messages = vec![
         TranscriptMessage::new(Role::User, "initial question"),
-        TranscriptMessage::tool_step("call_1", "read_text", r#"{"path":"README.md"}"#),
+        TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#),
     ];
 
     // Force step expanded initially

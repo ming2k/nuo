@@ -135,7 +135,7 @@ struct EchoReadTool;
 #[async_trait::async_trait]
 impl Tool for EchoReadTool {
     fn name(&self) -> &str {
-        "read_text"
+        "read"
     }
     fn description(&self) -> &str {
         "test read tool"
@@ -148,14 +148,14 @@ impl Tool for EchoReadTool {
     }
 }
 
-/// A terse `read_text` variant and a write tool, to prove a subagent
+/// A terse `read` variant and a write tool, to prove a subagent
 /// resolves the *model's* variant (override axis) and then narrows to the
 /// *profile's* scope (scope axis) — the two are orthogonal.
 struct TerseReadTool;
 #[async_trait::async_trait]
 impl Tool for TerseReadTool {
     fn name(&self) -> &str {
-        "read_text"
+        "read"
     }
     fn variant(&self) -> &str {
         "terse"
@@ -173,7 +173,7 @@ impl Tool for TerseReadTool {
 #[test]
 fn subagent_inherits_model_variant_then_applies_profile_scope() {
     // `StubWriteTool` (name "stub_write") is not in SubAgentProfile::EXPLORE's read-only
-    // scope, so it is always excluded; `read_text` has two variants.
+    // scope, so it is always excluded; `read` has two variants.
     let toolset = nuo_protocol::ToolSet::from_tools([
         std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>,
         std::sync::Arc::new(TerseReadTool) as std::sync::Arc<dyn Tool>,
@@ -193,20 +193,20 @@ fn subagent_inherits_model_variant_then_applies_profile_scope() {
             .resolve_tools(&tool.toolset, &model, &model_sel)
     };
 
-    // Unbound (no model override) → read_text resolves to its default
+    // Unbound (no model override) → read resolves to its default
     // variant; the out-of-scope write tool is excluded regardless.
     let scoped = resolve(&tool);
-    let read = scoped.iter().find(|t| t.name() == "read_text");
+    let read = scoped.iter().find(|t| t.name() == "read");
     assert_eq!(read.map(|t| t.variant()), Some("default"));
     assert!(scoped.iter().all(|t| t.name() != "stub_write"));
 
-    // Bind a model selection pinning read_text=terse: the subagent inherits
+    // Bind a model selection pinning read=terse: the subagent inherits
     // the override (terse), while scope is still profile-driven.
     let mut sel = nuo_protocol::VariantSelection::new();
-    sel.insert("read_text".to_string(), "terse".to_string());
+    sel.insert("read".to_string(), "terse".to_string());
     tool.bind_variant_selection(std::sync::Arc::new(std::sync::Mutex::new(sel)));
     let scoped = resolve(&tool);
-    let read = scoped.iter().find(|t| t.name() == "read_text");
+    let read = scoped.iter().find(|t| t.name() == "read");
     assert_eq!(read.map(|t| t.variant()), Some("terse"));
     assert!(scoped.iter().all(|t| t.name() != "stub_write"));
 }
@@ -281,7 +281,7 @@ async fn task_tool_runs_read_only_subagent_and_returns_answer() {
 }
 
 /// A provider that lets the test control when the *second* model request
-/// is in flight: the first request returns a `read_text` tool call (which
+/// is in flight: the first request returns a `read` tool call (which
 /// the subagent executes), the second flips `second_request_started` and
 /// then never produces a stream event — so the subagent is parked mid-flight
 /// until its cancellation token fires.
@@ -324,12 +324,12 @@ impl Provider for GatedProvider {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             == 0
         {
-            // First request: ask the subagent to run its `read_text` tool.
+            // First request: ask the subagent to run its `read` tool.
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::ToolCallDelta {
                     index: 0,
                     id: Some("subagent_inner_1".to_string()),
-                    name: Some("read_text".to_string()),
+                    name: Some("read".to_string()),
                     arguments: "{}".to_string(),
                 }),
                 Ok(ProviderStreamEvent::Completed(
@@ -399,7 +399,7 @@ async fn interrupting_subagent_preserves_partial_transcript() {
         "model-facing summary should say Interrupted, got: {}",
         outcome.final_content
     );
-    // The partial transcript must contain the completed read_text round.
+    // The partial transcript must contain the completed read round.
     let tool_result_msgs = outcome
         .messages
         .iter()
@@ -444,7 +444,7 @@ async fn subagent_head_system_message_has_no_dead_task_line() {
         .unwrap()
         .clone()
         .expect("subagent request captured");
-    let system_content = request.instructions.render_combined();
+    let system_content = request.instructions.fixed.clone();
     assert!(
         system_content.starts_with("You are a delegated research subagent"),
         "system instructions should open with the SubAgentProfile::EXPLORE task prompt"
@@ -560,12 +560,12 @@ fn explore_profile_excludes_user_write_and_recursion_using_real_tools() {
     let admitted = SubAgentProfile::EXPLORE.resolve_tools(&toolset, &model, &model_sel);
     let admitted_names: Vec<&str> = admitted.iter().map(|t| t.name()).collect();
 
-    assert_eq!(admitted_names, vec!["read_text"]);
+    assert_eq!(admitted_names, vec!["read"]);
 }
 
 /// Cross-cut regression: `SubAgentProfile::EXPLORE` admits only its whitelisted read tools —
 /// `ask_user`, the non-whitelisted write stub, and recursion are all
-/// excluded. The read stub is admitted because it is named `read_text`,
+/// excluded. The read stub is admitted because it is named `read`,
 /// which is in [`READ_ONLY_TOOLS`].
 #[test]
 fn explore_profile_excludes_bash_writes_user_and_recursion() {
@@ -591,7 +591,7 @@ fn explore_profile_excludes_bash_writes_user_and_recursion() {
     let model_sel = nuo_protocol::ToolSelection::unrestricted();
     let explore_selected = SubAgentProfile::EXPLORE.resolve_tools(&toolset, &model, &model_sel);
     let explore_names: Vec<&str> = explore_selected.iter().map(|t| t.name()).collect();
-    assert_eq!(explore_names, vec!["read_text"]);
+    assert_eq!(explore_names, vec!["read"]);
 }
 
 /// A diagnostic `delegate_debug` tool (bound to [`nuo_protocol::SubAgentProfile::DEBUG`])
@@ -628,7 +628,7 @@ fn debug_profile_admits_command_and_read_tools_excluding_writes_and_recursion() 
     let model_sel = nuo_protocol::ToolSelection::unrestricted();
     let selected = nuo_protocol::SubAgentProfile::DEBUG.resolve_tools(&toolset, &model, &model_sel);
     let names: std::collections::HashSet<&str> = selected.iter().map(|t| t.name()).collect();
-    assert!(names.contains("read_text"));
+    assert!(names.contains("read"));
     assert!(names.contains("execute_command"));
     assert!(!names.contains("write_file"));
     assert!(!names.contains("edit_text"));

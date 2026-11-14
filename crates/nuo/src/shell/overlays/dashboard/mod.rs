@@ -38,7 +38,7 @@
 //! running); `i` / `p` / `n` issue control-plane verbs (interrupt / prompt
 //! / new session); `k` kills the selection (confirm step); `s` suspends
 //! it; `Esc` backs out of the preview, then the dashboard.
-use nuo_protocol::{MonitoredThread, ThreadHosting, ThreadStatus};
+use nuo_protocol::{MonitoredThread, ThreadActivity, ThreadHosting};
 use nuotc::{
     Constraint, Direction, Frame, Layout, Line, Modifier, Rect, Span, Style,
     {Block as RtBlock, Paragraph},
@@ -155,9 +155,9 @@ pub fn fmt_tokens_compact(tokens: u64) -> String {
 }
 
 /// Visual status chip and theme-aligned style for a thread (ADR-0129).
-pub fn status_chip(status: ThreadStatus, theme: &Theme) -> (&'static str, Style) {
+pub fn status_chip(status: ThreadActivity, theme: &Theme) -> (&'static str, Style) {
     match status {
-        ThreadStatus::Running => (
+        ThreadActivity::Running => (
             if !theme.elevation.is_chromatic() {
                 "* RUNNING"
             } else {
@@ -167,7 +167,7 @@ pub fn status_chip(status: ThreadStatus, theme: &Theme) -> (&'static str, Style)
                 .fg(theme.brand())
                 .add_modifier(Modifier::BOLD),
         ),
-        ThreadStatus::NeedsApproval => (
+        ThreadActivity::NeedsApproval => (
             if !theme.elevation.is_chromatic() {
                 "! APPROVAL"
             } else {
@@ -177,20 +177,20 @@ pub fn status_chip(status: ThreadStatus, theme: &Theme) -> (&'static str, Style)
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
         ),
-        ThreadStatus::NeedsInput => (
+        ThreadActivity::NeedsInput => (
             "? INPUT",
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
         ),
-        ThreadStatus::Failed => (
+        ThreadActivity::Failed => (
             "✕ FAILED",
             Style::default()
                 .fg(theme.err())
                 .add_modifier(Modifier::BOLD),
         ),
-        ThreadStatus::Interrupted => ("■ STOPPED", Style::default().fg(theme.dim())),
-        ThreadStatus::Idle => ("○ IDLE", Style::default().fg(theme.muted())),
+        ThreadActivity::Interrupted => ("■ STOPPED", Style::default().fg(theme.dim())),
+        ThreadActivity::Idle => ("○ IDLE", Style::default().fg(theme.muted())),
     }
 }
 

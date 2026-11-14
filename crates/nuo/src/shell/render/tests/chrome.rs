@@ -252,8 +252,7 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 12,
                 active: true,
                 parent_id: None,
-                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-                fork_point: None,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
             nuo_protocol::ThreadOverview {
@@ -265,8 +264,7 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 4,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-                fork_point: None,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
         ];

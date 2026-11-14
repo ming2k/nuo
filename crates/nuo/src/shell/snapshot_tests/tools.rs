@@ -6,9 +6,9 @@ use super::helpers::{
 use nuo_view::model::selection::SelectionState;
 
 #[test]
-fn read_text_expanded_renders_code_block() {
+fn read_expanded_renders_code_block() {
     let m = tool_step(
-        "read_text",
+        "read",
         r#"{"path":"src/lib.rs"}"#,
         Some("fn main() {\n    let x = 1;\n}\n"),
         true,
@@ -17,13 +17,13 @@ fn read_text_expanded_renders_code_block() {
 }
 
 #[test]
-fn read_text_with_offset_numbers_from_start_line() {
-    // A structured `Code` carrying `start_line: 100` (as `read_text` emits
+fn read_with_offset_numbers_from_start_line() {
+    // A structured `Code` carrying `start_line: 100` (as `read` emits
     // when called with `offset: 100`) must number the gutter 100, 101, … —
     // not restart at 1. Also locks that the gutter column widens to fit
     // three-digit line numbers instead of overflowing.
     let m = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"src/lib.rs","offset":100}"#,
         nuo_protocol::ToolOutput::Code {
             lang: Some("rs".into()),
@@ -38,12 +38,12 @@ fn read_text_with_offset_numbers_from_start_line() {
 }
 
 #[test]
-fn read_text_structured_code_hides_model_framing_and_numbers_from_offset() {
+fn read_structured_code_hides_model_framing_and_numbers_from_offset() {
     // The structured `Code` carries model-facing `prefix`/`suffix` framing; the
     // renderer must draw only the pure `text` with a gutter based at
     // `start_line` — never the `[Lines …]` header or the continuation hint.
     let m = tool_step_structured(
-        "read_text",
+        "read",
         r#"{"path":"src/lib.rs","offset":100,"limit":2}"#,
         nuo_protocol::ToolOutput::Code {
             lang: Some("rs".into()),
@@ -65,7 +65,7 @@ fn read_text_structured_code_hides_model_framing_and_numbers_from_offset() {
 }
 
 #[test]
-fn read_text_unstructured_strips_lines_framing_and_embedded_numbers() {
+fn read_unstructured_strips_lines_framing_and_embedded_numbers() {
     let raw = "\
 [Lines 1-120 of 205 from `docs/adr/0024-two-row-head-band-session-identity-and-scene-row.md`]
    1 | ---
@@ -79,7 +79,7 @@ fn read_text_unstructured_strips_lines_framing_and_embedded_numbers() {
    9 | ---
   10 | ";
     let m = tool_step(
-        "read_text",
+        "read",
         r#"{"path":"docs/adr/0024-two-row-head-band-session-identity-and-scene-row.md","offset":1,"limit":120}"#,
         Some(raw),
         true,
@@ -109,7 +109,7 @@ fn read_text_unstructured_strips_lines_framing_and_embedded_numbers() {
 }
 
 #[test]
-fn read_text_unstructured_with_offset_and_continuation_hint() {
+fn read_unstructured_with_offset_and_continuation_hint() {
     let raw = "\
 [Lines 100-102 of 500 from `src/lib.rs`]
  100 | fn a() {}
@@ -117,7 +117,7 @@ fn read_text_unstructured_with_offset_and_continuation_hint() {
  102 | fn c() {}
 [398 more lines — read with offset=103]";
     let m = tool_step(
-        "read_text",
+        "read",
         r#"{"path":"src/lib.rs","offset":100,"limit":3}"#,
         Some(raw),
         true,

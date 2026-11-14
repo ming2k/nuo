@@ -8,6 +8,7 @@ description = "Filesystem inspection, mutation, and search tools for Nuo cogniti
 
 [dependencies]
 async-trait = { workspace = true }
+base64 = { workspace = true }
 glob = { workspace = true }
 ignore = { workspace = true }
 nuo-tool = { workspace = true }

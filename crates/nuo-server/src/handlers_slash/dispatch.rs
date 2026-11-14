@@ -200,7 +200,7 @@ struct LedgerMark<'a> {
 
 impl<'a> LedgerMark<'a> {
     async fn of(
-        session: &nuo_persistence::session::SessionStore,
+        session: &nuo_persistence::thread::ThreadSession,
         name: &'a str,
         args: &'a str,
     ) -> Self {
@@ -215,7 +215,7 @@ impl<'a> LedgerMark<'a> {
     /// Write an invocation-only row when a dispatched act left no trace at all.
     async fn assert_recorded(
         self,
-        session: &std::sync::Arc<nuo_persistence::session::SessionStore>,
+        session: &std::sync::Arc<nuo_persistence::thread::ThreadSession>,
     ) {
         if session.id().await != self.thread_id {
             return;
@@ -246,12 +246,12 @@ mod completeness_net_tests {
 
     use std::sync::Arc;
 
-    use nuo_persistence::session::SessionStore;
+    use nuo_persistence::thread::ThreadSession;
 
     use super::LedgerMark;
 
-    fn store(dir: &tempfile::TempDir) -> Arc<SessionStore> {
-        Arc::new(SessionStore::for_path(dir.path().join("session.json")))
+    fn store(dir: &tempfile::TempDir) -> Arc<ThreadSession> {
+        Arc::new(ThreadSession::for_path(dir.path().join("session.json")))
     }
 
     /// The case the net exists for: a mutation handler that recorded nothing.

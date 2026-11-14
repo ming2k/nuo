@@ -16,9 +16,3 @@ pub use syntax::{
     matches_name, parse_syntax_pattern,
 };
 
-/// Creates code AST query tools for an agent.
-pub fn create_ast_tools(
-    root: Option<std::path::PathBuf>,
-) -> Vec<std::sync::Arc<dyn nuo_tool::Tool>> {
-    vec![std::sync::Arc::new(CodeQueryTool::new(root))]
-}

@@ -35,7 +35,7 @@ fn restored_assistant_tool_step_uses_message_timestamp_for_turn_header() {
     assistant.timestamp = Some(1_700_000_002);
     assistant.tool_calls = Some(vec![ToolCall {
         id: "call".to_string(),
-        name: "read_text".to_string(),
+        name: "read".to_string(),
         arguments: r#"{"path":"README.md"}"#.to_string(),
     }]);
 
@@ -71,7 +71,7 @@ fn restored_assistant_components_share_their_round_and_turn() {
     assistant.reasoning_content = Some("inspect first".to_string());
     assistant.tool_calls = Some(vec![ToolCall {
         id: "call".to_string(),
-        name: "read_text".to_string(),
+        name: "read".to_string(),
         arguments: r#"{"path":"README.md"}"#.to_string(),
     }]);
 
@@ -279,7 +279,7 @@ fn restored_native_tool_calls_are_visible() {
         provider_meta: None,
         tool_calls: Some(vec![ToolCall {
             id: "call".to_string(),
-            name: "read_text".to_string(),
+            name: "read".to_string(),
             arguments: "{\"path\":\"README.md\"}".to_string(),
         }]),
         tool_call_id: None,
@@ -296,7 +296,7 @@ fn restored_native_tool_calls_are_visible() {
     };
 
     let restored = transcript_message_from_core(message).unwrap();
-    assert!(restored.raw.contains("read_text"));
+    assert!(restored.raw.contains("read"));
 }
 
 #[test]
@@ -312,12 +312,12 @@ fn restored_tool_results_merge_into_steps_in_fifo_order() {
             tool_calls: Some(vec![
                 ToolCall {
                     id: "one".to_string(),
-                    name: "read_text".to_string(),
+                    name: "read".to_string(),
                     arguments: r#"{"path":"one"}"#.to_string(),
                 },
                 ToolCall {
                     id: "two".to_string(),
-                    name: "read_text".to_string(),
+                    name: "read".to_string(),
                     arguments: r#"{"path":"two"}"#.to_string(),
                 },
             ]),
@@ -336,18 +336,18 @@ fn restored_tool_results_merge_into_steps_in_fifo_order() {
         Message::tool_result(
             &ToolCall {
                 id: "one".to_string(),
-                name: "read_text".to_string(),
+                name: "read".to_string(),
                 arguments: String::new(),
             },
-            "[read_text result]:\nfirst",
+            "[read result]:\nfirst",
         ),
         Message::tool_result(
             &ToolCall {
                 id: "two".to_string(),
-                name: "read_text".to_string(),
+                name: "read".to_string(),
                 arguments: String::new(),
             },
-            "[read_text result]:\nsecond",
+            "[read result]:\nsecond",
         ),
     ];
 
@@ -376,12 +376,12 @@ fn restored_tool_steps_carry_the_call_id_and_pair_by_identity() {
             tool_calls: Some(vec![
                 ToolCall {
                     id: "call_a".to_string(),
-                    name: "read_text".to_string(),
+                    name: "read".to_string(),
                     arguments: r#"{"path":"a"}"#.to_string(),
                 },
                 ToolCall {
                     id: "call_b".to_string(),
-                    name: "read_text".to_string(),
+                    name: "read".to_string(),
                     arguments: r#"{"path":"b"}"#.to_string(),
                 },
             ]),
@@ -401,18 +401,18 @@ fn restored_tool_steps_carry_the_call_id_and_pair_by_identity() {
         Message::tool_result(
             &ToolCall {
                 id: "call_b".to_string(),
-                name: "read_text".to_string(),
+                name: "read".to_string(),
                 arguments: String::new(),
             },
-            "[read_text result]:\nsecond",
+            "[read result]:\nsecond",
         ),
         Message::tool_result(
             &ToolCall {
                 id: "call_a".to_string(),
-                name: "read_text".to_string(),
+                name: "read".to_string(),
                 arguments: String::new(),
             },
-            "[read_text result]:\nfirst",
+            "[read result]:\nfirst",
         ),
     ];
 

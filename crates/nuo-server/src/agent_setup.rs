@@ -4,7 +4,7 @@
 
 use nuo_harness::Agent;
 use nuo_persistence::config::Config;
-use nuo_persistence::session::SessionStore;
+use nuo_persistence::thread::ThreadSession;
 use std::sync::Arc;
 
 /// Resolve the active channel's context window (tokens) from the live provider.
@@ -55,7 +55,7 @@ pub fn reseed_context_policy(agent: &Agent, config: &Config) {
 /// value would freeze the gate on the startup model's window.
 pub fn install_projection_gate(
     agent: &Agent,
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     config: &Config,
     settings: nuo_harness::SettingsForWindow,
 ) {

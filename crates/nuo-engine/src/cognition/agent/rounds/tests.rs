@@ -30,7 +30,7 @@ fn test_shell_output_spilling_and_guidance() {
     assert!(content.contains(".log\""));
     // ADR-0093 [INV-TRUNC-01]: Zero imperative pseudo-guidance to eliminate prompt-injection false positives
     assert!(!content.contains("[Guidance:"));
-    assert!(!content.contains("Use `read_text"));
+    assert!(!content.contains("Use `read"));
     assert!(!content.contains("Claim-Check Stub"));
     assert!(!content.contains("call:call_test_spill_123"));
 
@@ -54,10 +54,10 @@ fn test_shell_output_spilling_and_guidance() {
 }
 
 #[test]
-fn test_vfs_read_text_universal_immunity() {
+fn test_vfs_read_universal_immunity() {
     let call = ToolCall {
         id: "call_vfs_read_456".to_string(),
-        name: "read_text".to_string(),
+        name: "read".to_string(),
         arguments: r#"{"path":"/tmp/nuo/vfs/fold:ckpt_1.txt"}"#.to_string(),
     };
 
@@ -68,9 +68,9 @@ fn test_vfs_read_text_universal_immunity() {
     let msg = format_tool_result_message(&call, &result, &large_text);
     let content = &msg.content;
     // VFS Immunity invariant [INV-VFS-02]: must NOT be truncated, spilled, or stubbed
-    assert!(content.starts_with("[read_text result]:\n"));
+    assert!(content.starts_with("[read result]:\n"));
     assert!(!content.contains("[Output truncated:"));
     assert!(!content.contains("[Full raw output saved to:"));
     assert!(!content.contains("Claim-Check Stub"));
-    assert_eq!(content.len(), "[read_text result]:\n".len() + 12000);
+    assert_eq!(content.len(), "[read result]:\n".len() + 12000);
 }

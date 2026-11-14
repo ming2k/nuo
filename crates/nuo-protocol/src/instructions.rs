@@ -1,167 +1,156 @@
-//! Tiered instruction model for system-level agent directives.
+//! Request instruction text and block composition.
 //!
-//! Replaces legacy flat system-prompt strings with a structured, cache-tiered
-//! instruction manifest. Slices are classified by lifetime volatility, enabling
-//! wire protocol projectors to place optimal KV-cache breakpoints (Anthropic),
-//! map static tiers to top-level `instructions` and dynamic tiers to developer
-//! items (OpenAI Responses), or format leading `Role::System` messages (Chat
-//! Completions).
+//! An assembled request has two text regions: `fixed` (route-stable) and
+//! `transient` (request-local). [`Block`] is the assembly-time fragment used to
+//! build those regions; [`InstructionText`] is the rendered text carried by a
+//! model request. Tools and messages are protocol fields and never enter these
+//! blocks.
 use serde::{Deserialize, Serialize};
 
-/// Cache tier and lifetime volatility of an instruction slice.
-///
-/// Order determines placement priority when flattening or setting cache breakpoints:
-/// lower numerical value = more static / earlier prefix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InstructionTier {
-    /// Immutable base identity, persona, safety ethos, host environment & tool discipline.
-    /// Globally cacheable across turns and sessions.
-    Base = 0,
-    /// Session-stable context: project rules (AGENTS.md), workspace roots, static tool category guidelines.
-    /// Cacheable for the duration of a project / session.
-    Session = 1,
-    /// Task-stable mission guidance: subagent role, subagent task framing.
-    Task = 2,
-    /// Ephemeral / turn-dynamic modifiers: runtime execution mode (Delegated mode), recency nudges.
-    /// Volatile per-round state that should not invalidate static prefixes.
-    Ephemeral = 3,
+/// Boundary choice for one block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockRender {
+    /// Wrap the block in an XML envelope with the given tag.
+    Xml(&'static str),
+    /// Emit the title line and body without an envelope.
+    Plain,
 }
 
-impl InstructionTier {
-    /// Returns true if this tier represents static/system-level instructions
-    /// suitable for top-level instructions or global system blocks.
-    pub fn is_static(&self) -> bool {
-        !matches!(self, Self::Ephemeral)
-    }
-}
-
-/// A self-contained rendered instruction slice with stable identity and tier classification.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InstructionSlice {
+/// One fragment of the `fixed` or `transient` request text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Block {
+    /// Stable identity for deduplication, override, and telemetry.
     pub id: String,
-    pub tier: InstructionTier,
-    pub content: String,
+    /// Optional human-readable label, rendered as a plain title line.
+    pub title: Option<String>,
+    /// Optional provenance (for example `"AGENTS.md"`).
+    pub source: Option<String>,
+    /// Semantic content only. Body syntax (Markdown, prose, code) is preserved.
+    pub body: String,
+    /// Boundary choice.
+    pub render: BlockRender,
 }
 
-impl InstructionSlice {
-    pub fn new(id: impl Into<String>, tier: InstructionTier, content: impl Into<String>) -> Self {
+impl Block {
+    pub fn new(id: impl Into<String>, body: impl Into<String>) -> Self {
         Self {
             id: id.into(),
-            tier,
-            content: content.into(),
+            title: None,
+            source: None,
+            body: body.into(),
+            render: BlockRender::Plain,
         }
     }
-}
 
-/// A structured manifest of instruction slices assembled for a model request.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InstructionBundle {
-    pub slices: Vec<InstructionSlice>,
-}
-
-impl InstructionBundle {
-    pub fn new(slices: Vec<InstructionSlice>) -> Self {
-        Self { slices }
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
-    pub fn from_single(
-        id: impl Into<String>,
-        tier: InstructionTier,
-        content: impl Into<String>,
-    ) -> Self {
-        let content_str = content.into();
-        if content_str.trim().is_empty() {
-            Self::default()
-        } else {
-            Self {
-                slices: vec![InstructionSlice::new(id, tier, content_str)],
-            }
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
+    }
+
+    pub fn with_render(mut self, render: BlockRender) -> Self {
+        self.render = render;
+        self
+    }
+}
+
+/// Rendered instruction text for a model request.
+///
+/// `fixed` is the route-stable prefix. `transient` is request-local text that
+/// must be emitted after the final cache breakpoint. Both are already formatted;
+/// providers project them to their instruction channel without further
+/// concatenation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstructionText {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub fixed: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub transient: String,
+}
+
+impl InstructionText {
+    pub fn new(fixed: impl Into<String>, transient: impl Into<String>) -> Self {
+        Self {
+            fixed: fixed.into(),
+            transient: transient.into(),
+        }
+    }
+
+    /// One text region, no transient content.
+    pub fn fixed(text: impl Into<String>) -> Self {
+        Self {
+            fixed: text.into(),
+            transient: String::new(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.slices.is_empty() || self.slices.iter().all(|s| s.content.trim().is_empty())
+        self.fixed.trim().is_empty() && self.transient.trim().is_empty()
     }
 
-    pub fn len(&self) -> usize {
-        self.slices.len()
+    pub fn has_transient(&self) -> bool {
+        !self.transient.trim().is_empty()
     }
 
-    pub fn push(&mut self, slice: InstructionSlice) {
-        if !slice.content.trim().is_empty() {
-            self.slices.push(slice);
+    pub fn render_fixed(&self) -> &str {
+        &self.fixed
+    }
+
+    pub fn render_transient(&self) -> &str {
+        &self.transient
+    }
+}
+
+/// Render blocks into one deterministic text region.
+///
+/// This is the single formatter for `fixed` and `transient` text. It owns the
+/// title line, XML envelope, and block spacing so sections never carry their
+/// own leading newlines or headings.
+pub fn render_blocks(blocks: &[Block]) -> String {
+    let mut out = String::new();
+    for block in blocks {
+        let normalized = block.body.replace("\r\n", "\n");
+        let body = normalized.trim();
+        if body.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        if let BlockRender::Xml(tag) = block.render {
+            out.push('<');
+            out.push_str(tag);
+            if let Some(source) = &block.source {
+                out.push_str(" source=\"");
+                out.push_str(&escape_attribute(source));
+                out.push('"');
+            }
+            out.push_str(">\n");
+        }
+        if let Some(title) = &block.title {
+            out.push_str(title.trim());
+            out.push_str("\n\n");
+        }
+        out.push_str(body);
+        if let BlockRender::Xml(tag) = block.render {
+            out.push_str("\n</");
+            out.push_str(tag);
+            out.push('>');
         }
     }
+    out
+}
 
-    /// Iterator over slices in a specific tier.
-    pub fn slices_by_tier(&self, tier: InstructionTier) -> impl Iterator<Item = &InstructionSlice> {
-        self.slices
-            .iter()
-            .filter(move |s| s.tier == tier && !s.content.trim().is_empty())
-    }
-
-    /// Non-ephemeral slices (Base, Session, Task) suitable for top-level instructions.
-    pub fn static_slices(&self) -> impl Iterator<Item = &InstructionSlice> {
-        self.slices
-            .iter()
-            .filter(|s| s.tier.is_static() && !s.content.trim().is_empty())
-    }
-
-    /// Ephemeral slices (turn-dynamic nudges, delegated mode flags).
-    pub fn ephemeral_slices(&self) -> impl Iterator<Item = &InstructionSlice> {
-        self.slices
-            .iter()
-            .filter(|s| s.tier == InstructionTier::Ephemeral && !s.content.trim().is_empty())
-    }
-
-    pub fn has_ephemeral(&self) -> bool {
-        self.slices
-            .iter()
-            .any(|s| s.tier == InstructionTier::Ephemeral && !s.content.trim().is_empty())
-    }
-
-    /// Render all active non-empty slices into a single string.
-    /// Sections are joined with a single newline; sections that require
-    /// a paragraph break carry their own leading `\n` to preserve exact formatting.
-    pub fn render_combined(&self) -> String {
-        let mut out = String::new();
-        for slice in &self.slices {
-            let trimmed = slice.content.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            out.push_str(&slice.content);
-        }
-        out
-    }
-
-    /// Render static (Base, Session, Task) slices into a top-level system instruction string.
-    pub fn render_system_instructions(&self) -> String {
-        let mut out = String::new();
-        for slice in self.static_slices() {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            out.push_str(&slice.content);
-        }
-        out
-    }
-
-    /// Render ephemeral slices into a combined ephemeral instruction string.
-    pub fn render_ephemeral(&self) -> String {
-        let mut out = String::new();
-        for slice in self.ephemeral_slices() {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            out.push_str(&slice.content);
-        }
-        out
-    }
+fn escape_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// The route/role facts an instruction selector is evaluated against.
@@ -355,54 +344,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn instruction_bundle_partitions_tiers_correctly() {
-        let mut bundle = InstructionBundle::default();
-        bundle.push(InstructionSlice::new(
-            "base.id",
-            InstructionTier::Base,
-            "You are an AI assistant.",
-        ));
-        bundle.push(InstructionSlice::new(
-            "session.rules",
-            InstructionTier::Session,
-            "Follow project rules.",
-        ));
-        bundle.push(InstructionSlice::new(
-            "task.subagent",
-            InstructionTier::Task,
-            "Analyze code carefully.",
-        ));
-        bundle.push(InstructionSlice::new(
-            "ephem.delegated",
-            InstructionTier::Ephemeral,
-            "Delegated mode active.",
-        ));
+    fn instruction_text_distinguishes_fixed_and_transient() {
+        let text = InstructionText::new("fixed text", "transient text");
+        assert!(!text.is_empty());
+        assert!(text.has_transient());
+        assert_eq!(text.render_fixed(), "fixed text");
+        assert_eq!(text.render_transient(), "transient text");
 
-        assert_eq!(bundle.len(), 4);
-        assert!(bundle.has_ephemeral());
-
-        let static_text = bundle.render_system_instructions();
-        assert_eq!(
-            static_text,
-            "You are an AI assistant.\nFollow project rules.\nAnalyze code carefully."
-        );
-
-        let ephem_text = bundle.render_ephemeral();
-        assert_eq!(ephem_text, "Delegated mode active.");
-
-        let combined_text = bundle.render_combined();
-        assert_eq!(
-            combined_text,
-            "You are an AI assistant.\nFollow project rules.\nAnalyze code carefully.\nDelegated mode active."
-        );
+        let fixed_only = InstructionText::fixed("only fixed");
+        assert!(!fixed_only.is_empty());
+        assert!(!fixed_only.has_transient());
     }
 
     #[test]
-    fn empty_slices_are_skipped() {
-        let mut bundle = InstructionBundle::default();
-        bundle.push(InstructionSlice::new("empty", InstructionTier::Base, "   "));
-        assert!(bundle.is_empty());
-        assert_eq!(bundle.len(), 0);
+    fn render_blocks_is_deterministic_and_owns_presentation() {
+        let blocks = vec![
+            Block::new("agent.identity", "You are an AI assistant.")
+                .with_render(BlockRender::Plain),
+            Block::new("project.rules", "Follow project rules.")
+                .with_title("Project Rules (AGENTS.md)")
+                .with_source("AGENTS.md")
+                .with_render(BlockRender::Xml("policy")),
+            Block::new("request.transient", "Temporary note.")
+                .with_title("Current Turn")
+                .with_render(BlockRender::Plain),
+        ];
+        let rendered = render_blocks(&blocks);
+        assert!(rendered.starts_with("You are an AI assistant."));
+        assert!(rendered.contains("<policy source=\"AGENTS.md\">"));
+        assert!(rendered.contains("Project Rules (AGENTS.md)"));
+        assert!(rendered.contains("Follow project rules."));
+        assert!(rendered.contains("</policy>"));
+        assert!(rendered.ends_with("Current Turn\n\nTemporary note."));
+        assert!(!rendered.starts_with('\n'));
+        assert!(!rendered.ends_with('\n'));
+        assert!(!rendered.contains("\n\n\n"));
+    }
+
+    #[test]
+    fn empty_blocks_are_skipped() {
+        let blocks = vec![Block::new("empty", "   "), Block::new("kept", "body")];
+        assert_eq!(render_blocks(&blocks), "body");
     }
 
     fn route<'a>(

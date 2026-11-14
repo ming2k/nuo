@@ -10,7 +10,7 @@ impl DbReader {
 
     /// The durable commit revision for a session (D3); `0` when the
     /// session has never committed. A caller passes this as
-    /// [`crate::session::CommitTurn::expected_revision`] to make its next write
+    /// [`crate::thread::CommitTurn::expected_revision`] to make its next write
     /// conditional on the revision it actually read.
     pub fn session_revision(&self, session_id: &str) -> Result<u64> {
         session_revision(&self.engine.conn, session_id)
@@ -25,9 +25,13 @@ impl DbReader {
             .map(|receipt| receipt.map(|(operation_id, _hash, revision)| (operation_id, revision)))
     }
 
-    /// Load the canonical [`nuo_protocol::SessionIR`] for a session if it exists.
-    pub fn load_session_ir(&self, session_id: &str) -> Result<Option<nuo_protocol::SessionIR>> {
-        crate::db::session_ir::load_session_ir(&self.engine.conn, session_id)
+    /// Load the canonical durable thread aggregate.
+    pub fn load_thread(&self, thread_id: &str) -> Result<Option<nuo_protocol::Thread>> {
+        crate::db::thread_store::load_thread(
+            &self.engine.conn,
+            &nuo_protocol::ThreadId::new(thread_id),
+        )
+        .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))
     }
 
     #[allow(dead_code)]
@@ -157,7 +161,7 @@ impl DbReader {
 
     /// One thread's header row, if it exists.
     pub fn get_session(&self, session_id: &str) -> Result<Option<ThreadRecord>> {
-        crate::db::session_store::get_session(&self.engine.conn, session_id)
+        crate::db::thread_session::get_session(&self.engine.conn, session_id)
     }
 
     /// Threads matching a role-scoped filter, newest first.
@@ -166,12 +170,12 @@ impl DbReader {
         filter: &nuo_protocol::ThreadFilter,
         include_subagents: bool,
     ) -> Result<Vec<ThreadRecord>> {
-        crate::db::session_store::list_sessions(&self.engine.conn, filter, include_subagents)
+        crate::db::thread_session::list_sessions(&self.engine.conn, filter, include_subagents)
     }
 
     /// Subagent threads spawned by `parent_id`.
     pub fn list_subagent_sessions(&self, parent_id: &str) -> Result<Vec<ThreadRecord>> {
-        crate::db::session_store::list_subagent_sessions(&self.engine.conn, parent_id)
+        crate::db::thread_session::list_subagent_sessions(&self.engine.conn, parent_id)
     }
 
     /// Candidate sessions for switching, strictly excluding the active session.
@@ -179,8 +183,8 @@ impl DbReader {
         &self,
         filter: &nuo_protocol::ThreadFilter,
         active_id: &str,
-    ) -> Result<Vec<crate::session::SessionSummary>> {
-        crate::db::session_store::list_switch_candidates(&self.engine.conn, filter, active_id)
+    ) -> Result<Vec<crate::thread::ThreadSummary>> {
+        crate::db::thread_session::list_switch_candidates(&self.engine.conn, filter, active_id)
     }
 
     /// Picker-facing summaries for a role-scoped filter, newest first.
@@ -188,13 +192,13 @@ impl DbReader {
         &self,
         filter: &nuo_protocol::ThreadFilter,
         active_id: &str,
-    ) -> Result<Vec<crate::session::SessionSummary>> {
-        crate::db::session_store::list_session_summaries(&self.engine.conn, filter, active_id)
+    ) -> Result<Vec<crate::thread::ThreadSummary>> {
+        crate::db::thread_session::list_session_summaries(&self.engine.conn, filter, active_id)
     }
 
     /// The most recently updated session id in `filter` (`--resume`).
     pub fn latest_session(&self, filter: &nuo_protocol::ThreadFilter) -> Result<Option<String>> {
-        crate::db::session_store::latest_session(&self.engine.conn, filter)
+        crate::db::thread_session::latest_session(&self.engine.conn, filter)
     }
 
     /// The most recently updated session id in an exact scope (`--resume`).
@@ -202,7 +206,7 @@ impl DbReader {
         &self,
         scope: &nuo_protocol::ThreadScope,
     ) -> Result<Option<String>> {
-        crate::db::session_store::latest_session_in_scope(&self.engine.conn, scope)
+        crate::db::thread_session::latest_session_in_scope(&self.engine.conn, scope)
     }
 
     /// A session's inherited workspace binding plus its persona.
@@ -210,15 +214,15 @@ impl DbReader {
         &self,
         session_id: &str,
     ) -> Result<Option<(Option<nuo_protocol::WorkspaceBinding>, Option<String>)>> {
-        crate::db::session_store::lookup_session_workspace(&self.engine.conn, session_id)
+        crate::db::thread_session::lookup_session_workspace(&self.engine.conn, session_id)
     }
 
     /// A session's immutable role manifest snapshot.
     pub fn lookup_session_manifest(
         &self,
         session_id: &str,
-    ) -> Result<Option<nuo_protocol::SessionRoleManifest>> {
-        crate::db::session_store::lookup_session_manifest(&self.engine.conn, session_id)
+    ) -> Result<Option<nuo_protocol::ThreadRoleManifest>> {
+        crate::db::thread_session::lookup_session_manifest(&self.engine.conn, session_id)
     }
 
     /// Resolve an id prefix to every matching session id.
@@ -227,7 +231,7 @@ impl DbReader {
         prefix: &str,
         filter: &nuo_protocol::ThreadFilter,
     ) -> Result<Vec<String>> {
-        crate::db::session_store::resolve_session_prefix(&self.engine.conn, prefix, filter)
+        crate::db::thread_session::resolve_session_prefix(&self.engine.conn, prefix, filter)
     }
 
     /// Full detail for one session (the session-info sub-view).
@@ -236,15 +240,12 @@ impl DbReader {
         session_id: &str,
         active_id: &str,
     ) -> Result<Option<nuo_protocol::ThreadDetail>> {
-        crate::db::session_store::get_session_detail(&self.engine.conn, session_id, active_id)
+        crate::db::thread_session::get_session_detail(&self.engine.conn, session_id, active_id)
     }
 
-    /// One session's raw durable data (the load path of `SessionStore`).
-    pub fn load_session_full(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<crate::session::SessionData>> {
-        crate::db::session_store::load_session_full(&self.engine.conn, session_id)
+    /// One session's raw durable data (the load path of `ThreadSession`).
+    pub fn load_session_full(&self, session_id: &str) -> Result<Option<crate::thread::ThreadData>> {
+        crate::db::thread_session::load_session_full(&self.engine.conn, session_id)
     }
 
     /// A session's projected transcript tail as wire rows (the Archivist's
@@ -254,7 +255,7 @@ impl DbReader {
         session_id: &str,
         tail: usize,
     ) -> Result<Option<ThreadTranscriptView>> {
-        crate::db::session_store::read_session_transcript(&self.engine.conn, session_id, tail)
+        crate::db::thread_session::read_session_transcript(&self.engine.conn, session_id, tail)
     }
 
     /// Every blob hash the durable reference ledger still mentions. The sweep
@@ -315,40 +316,5 @@ impl DbReader {
     /// Every key with the given prefix.
     pub fn list_kv_keys_with_prefix(&self, prefix: &str) -> Result<Vec<String>> {
         crate::db::kv_store::list_kv_keys_with_prefix(&self.engine.conn, prefix)
-    }
-
-    // -- context lifecycle ---------------------------
-
-    /// Query the current revision of a context branch.
-    pub fn context_branch_revision(
-        &self,
-        session_id: &str,
-        branch_id: &str,
-    ) -> std::result::Result<Option<u64>, crate::db::context_store::ContextCommitError> {
-        crate::db::context_store::branch_revision(&self.engine.conn, session_id, branch_id)
-    }
-
-    /// Load ordered immutable execution facts for a session branch.
-    pub fn load_context_facts(
-        &self,
-        session_id: &str,
-    ) -> std::result::Result<
-        Vec<nuo_protocol::context_lifecycle::FactNode>,
-        crate::db::context_store::ContextCommitError,
-    > {
-        crate::db::context_store::load_facts(&self.engine.conn, session_id)
-    }
-
-    /// Compute the SHA-256 digest of all facts for a session.
-    pub fn context_facts_digest(
-        &self,
-        session_id: &str,
-    ) -> std::result::Result<String, crate::db::context_store::ContextCommitError> {
-        crate::db::context_store::facts_digest(&self.engine.conn, session_id)
-    }
-
-    /// Obtain an inspect retrieval service bound to this reader connection.
-    pub fn inspect_service(&self) -> crate::db::inspect_service::InspectService<'_> {
-        crate::db::inspect_service::InspectService::new(&self.engine.conn)
     }
 }

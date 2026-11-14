@@ -35,7 +35,7 @@
 use tokio::sync::mpsc;
 
 use nuo_harness::orchestration::round_response;
-use nuo_persistence::session::SessionStore;
+use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, CommandEffect, CommandRecord, CommandResult, RoundEvent};
 
 /// Where the act happened.
@@ -85,7 +85,7 @@ fn effect_of(name: &str, args: &str, result: Option<&CommandResult>) -> CommandE
 /// state event (`/compact`, `/retry`) and a command that ends the process
 /// (`/exit`) take this path.
 async fn emit(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: Option<&mpsc::UnboundedSender<AgentResponse>>,
     performed: Performed,
     name: &str,
@@ -121,7 +121,7 @@ async fn emit(
 
 /// Surface a typed reply, and record it iff the command is an act performed here.
 pub(crate) async fn record_command(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -131,7 +131,7 @@ pub(crate) async fn record_command(
 }
 
 pub(crate) async fn record_command_with_duration(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -155,7 +155,7 @@ pub(crate) async fn record_command_with_duration(
 /// Gains `resp_tx` under ADR-0140: an ack used to be persisted *silently*, which
 /// left four commands answering nothing at all to a non-TUI client.
 pub(crate) async fn record_ack(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -165,7 +165,7 @@ pub(crate) async fn record_ack(
 }
 
 pub(crate) async fn record_ack_with_duration(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -189,12 +189,12 @@ pub(crate) async fn record_ack_with_duration(
 
 /// Record the invocation of an act whose success is carried by its own state
 /// event, with no textual reply (`/compact`).
-pub(crate) async fn record_invocation(session: &SessionStore, name: &str, args: &str) {
+pub(crate) async fn record_invocation(session: &ThreadSession, name: &str, args: &str) {
     record_invocation_with_duration(session, name, args, None).await;
 }
 
 pub(crate) async fn record_invocation_with_duration(
-    session: &SessionStore,
+    session: &ThreadSession,
     name: &str,
     args: &str,
     duration_ms: Option<u64>,
@@ -221,7 +221,7 @@ pub(crate) async fn record_invocation_with_duration(
 /// and acknowledged with a `CommandAck` notice, so the ledger row is written
 /// without a second, duplicate reply.
 pub(crate) async fn record_act_only(
-    session: &SessionStore,
+    session: &ThreadSession,
     name: &str,
     args: &str,
     result: CommandResult,
@@ -238,7 +238,7 @@ pub(crate) async fn record_act_only(
 
 /// Surface a failed act (or a failed reading, which is a receipt only).
 pub(crate) async fn record_error(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -248,7 +248,7 @@ pub(crate) async fn record_error(
 }
 
 pub(crate) async fn record_error_with_duration(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,
@@ -277,7 +277,7 @@ pub(crate) async fn record_error_with_duration(
 /// recorded. The reply exists so the command is never silently dropped from a
 /// client that reached the dispatcher without owning the surface.
 pub(crate) async fn record_surface_only(
-    session: &SessionStore,
+    session: &ThreadSession,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     name: &str,
     args: &str,

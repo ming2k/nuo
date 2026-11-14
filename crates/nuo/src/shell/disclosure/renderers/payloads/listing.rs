@@ -17,6 +17,17 @@ use nuo_view::text_layout::{
 /// at the first entry), in which case no band is invented.
 pub(crate) fn parse_listing_header(first: &str) -> Option<String> {
     let first = first.trim_end();
+    if let Some(inner) = first
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        let inner = inner.split(',').next().unwrap_or(inner).trim();
+        let count = inner
+            .strip_suffix(" entries")
+            .or_else(|| inner.strip_suffix(" entry"))?;
+        let n: usize = count.parse().ok()?;
+        return Some(format!("{n} {}", plural(n, "entry", "entries")));
+    }
     let rest = first.strip_prefix("Found ")?;
     let n: usize = rest.strip_suffix("matching files:")?.trim().parse().ok()?;
     Some(format!("Found {} {}", n, plural(n, "file", "files")))
@@ -138,5 +149,39 @@ pub(crate) fn draw_listing_content(
                 .push(Span::styled(padded_tail(ctx.full_width, used), pad));
             ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_listing_header;
+
+    #[test]
+    fn parses_the_unified_read_listing_header() {
+        assert_eq!(
+            parse_listing_header("[3 entries]").as_deref(),
+            Some("3 entries")
+        );
+        assert_eq!(
+            parse_listing_header("[5 entries, showing 3-4]").as_deref(),
+            Some("5 entries")
+        );
+        assert_eq!(
+            parse_listing_header("[1 entry]").as_deref(),
+            Some("1 entry")
+        );
+    }
+
+    #[test]
+    fn keeps_the_find_files_header() {
+        assert_eq!(
+            parse_listing_header("Found 2 matching files:").as_deref(),
+            Some("Found 2 files")
+        );
+    }
+
+    #[test]
+    fn a_plain_entry_is_not_a_header() {
+        assert!(parse_listing_header("src/main.rs").is_none());
     }
 }

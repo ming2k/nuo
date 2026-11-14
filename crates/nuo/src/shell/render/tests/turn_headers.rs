@@ -87,7 +87,7 @@ fn turn_header_paints_its_send_time_when_thinking_opens_the_band() {
     thinking.set_reasoning_duration(10);
     thinking.sent_at_ms = Some(EPOCH_MS);
 
-    let mut step = finished_step("read_text", r#"{"path":"a.rs"}"#, "x")
+    let mut step = finished_step("read", r#"{"path":"a.rs"}"#, "x")
         .with_round(1)
         .with_turn(1)
         .with_attribution("anthropic", "claude-sonnet");
@@ -105,7 +105,7 @@ fn turn_header_paints_its_send_time_when_thinking_opens_the_band() {
 /// only header owner. It carries the turn's time like every other component.
 #[test]
 fn turn_header_paints_its_send_time_for_a_tool_only_turn() {
-    let mut step = finished_step("read_text", r#"{"path":"a.rs"}"#, "x")
+    let mut step = finished_step("read", r#"{"path":"a.rs"}"#, "x")
         .with_round(1)
         .with_turn(1)
         .with_attribution("anthropic", "claude-sonnet");
@@ -134,7 +134,7 @@ fn every_component_of_one_turn_shares_the_same_time() {
     thinking.set_reasoning_duration(5);
     let thinking = stamp(thinking);
 
-    let step = finished_step("read_text", r#"{"path":"a.rs"}"#, "x")
+    let step = finished_step("read", r#"{"path":"a.rs"}"#, "x")
         .with_attribution("anthropic", "claude-sonnet");
     let step = stamp(step);
 
@@ -164,7 +164,7 @@ fn every_component_of_one_turn_shares_the_same_time() {
 /// not fabricated. This is the negative control for the assertions above.
 #[test]
 fn an_unstamped_entry_renders_no_time_at_all() {
-    let mut step = finished_step("read_text", r#"{"path":"a.rs"}"#, "x")
+    let mut step = finished_step("read", r#"{"path":"a.rs"}"#, "x")
         .with_round(1)
         .with_turn(1)
         .with_attribution("anthropic", "claude-sonnet");

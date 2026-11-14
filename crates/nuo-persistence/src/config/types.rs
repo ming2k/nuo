@@ -93,7 +93,7 @@ pub struct AgentConfig {
 /// scope = "*"
 ///
 /// [[permissions.allow]]
-/// tool = "read_text"
+/// tool = "read"
 /// scope = "*"
 /// ```
 ///
@@ -218,7 +218,7 @@ pub enum BashPolicyActionConfig {
 /// One declarative permission rule from `[permissions]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRuleConfig {
-    /// Tool name (e.g. `"execute_command"`, `"read_text"`, `"mcp__fs__read"`).
+    /// Tool name (e.g. `"execute_command"`, `"read"`, `"mcp__fs__read"`).
     pub tool: String,
     /// Permission scope. `"*"` matches every call to the tool. Any other value
     /// must match the call's scope *exactly* (e.g. a full path, or the exact
@@ -285,7 +285,7 @@ impl Default for ServerConfig {
 ///
 /// ```toml
 /// [tool_variants."glm-5.2"]       # model id (quoted: has dots)
-/// read_text        = "terse"    # capability = variant id
+/// read        = "terse"    # capability = variant id
 /// execute_command  = "workspace"
 /// ```
 ///

@@ -1,7 +1,7 @@
 //! Tools for interacting with the skill registry.
 use super::{SkillRegistry, SkillScope};
 use async_trait::async_trait;
-use nuo_protocol::{BuiltinTool, Tool};
+use nuo_protocol::Tool;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -13,7 +13,7 @@ pub struct UseSkillTool {
 #[async_trait]
 impl Tool for UseSkillTool {
     fn name(&self) -> &str {
-        BuiltinTool::UseSkill.as_str()
+        "use_skill"
     }
 
     fn description(&self) -> &str {
@@ -42,7 +42,7 @@ impl Tool for UseSkillTool {
             let registry = self.registry.lock();
             let Some(skill) = registry.get(name) else {
                 return Err(format!(
-                    "Skill '{}' not found. Use the list_skills tool to discover available skills.",
+                    "Skill '{}' not found. Check the skill catalog to discover available skills.",
                     name
                 ));
             };
@@ -97,7 +97,7 @@ pub struct ListSkillsTool {
 #[async_trait]
 impl Tool for ListSkillsTool {
     fn name(&self) -> &str {
-        BuiltinTool::ListSkills.as_str()
+        "list_skills"
     }
 
     fn description(&self) -> &str {
@@ -118,17 +118,16 @@ impl Tool for ListSkillsTool {
     }
 }
 
-// Tools available for programmatic invocation / tests
+// Programmatic skill utilities, not model-facing built-ins.
 //
-// Not admitted to any agent toolset: `Agent::with_skills` attaches the registry
-// only, and no code path installs `UseSkillTool`/`ListSkillsTool`. The intended
-// design is progressive disclosure — skill metadata in the request with bodies
-// loaded on demand — and that is not yet implemented either, so today the model
-// reaches skills through mention injection and the `skill` subagent role, and
-// reaches skill files with the ordinary file tools..
-//
-// Do not describe these tools as available to the model until a call site
-// installs them.
+// `Agent::with_skills` attaches the registry only, and no code path installs
+// `UseSkillTool`/`ListSkillsTool`. The intended design is progressive
+// disclosure — skill metadata in the request with bodies loaded on demand — and
+// that is not yet implemented either, so today the model reaches skills through
+// mention injection and the `skill` subagent role, and reaches skill files with
+// the ordinary file tools. These names therefore stay out of `BuiltinTool`:
+// advertising a capability that no toolset installs is the defect ADR-0176
+// removed for `read_image`.
 
 #[cfg(test)]
 mod tests {

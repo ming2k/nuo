@@ -78,7 +78,7 @@ impl ToolMiddleware for SecretScrubMiddleware {
                     *d = Self::scrub(d);
                 }
             }
-            ToolOutput::Listing { entries } => {
+            ToolOutput::Listing { entries, .. } => {
                 for e in entries.iter_mut() {
                     *e = Self::scrub(e);
                 }

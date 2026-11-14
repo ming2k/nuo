@@ -25,6 +25,7 @@ pub mod error;
 pub mod events;
 pub mod guard;
 pub mod mcp;
+pub mod media;
 pub mod mention;
 pub mod message;
 pub mod output;
@@ -60,6 +61,7 @@ pub use effect::reconciling;
 pub use error::{Result, ToolError};
 pub use guard::TrajectoryGuardConfig;
 pub use mcp::McpTool;
+pub use media::{ImageNormalizer, NormalizedImage};
 pub use mention::*;
 pub use message::{
     ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall, ToolResult,

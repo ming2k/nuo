@@ -87,7 +87,7 @@ pub struct DiagnosticRecord {
     pub model: Option<String>,
     /// When the entry was stamped, in Unix-epoch milliseconds.
     pub sent_at_ms: Option<u64>,
-    /// Kind-specific facts, in header order (e.g. `tool=read_text exit=1`).
+    /// Kind-specific facts, in header order (e.g. `tool=read exit=1`).
     pub extra: Vec<(&'static str, String)>,
     /// The entry's verbatim text — what the user sees and can select.
     pub body: String,

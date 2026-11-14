@@ -27,7 +27,7 @@ fn wide_table_shrinks_columns_and_keeps_borders_intact() {
             "execute shell command, supports timeout, truncates output".to_string(),
         ],
         vec![
-            "read_text".to_string(),
+            "read".to_string(),
             "Read".to_string(),
             "std::fs::read_to_string".to_string(),
             "supports offset/limit".to_string(),

@@ -7,7 +7,6 @@ pub(crate) struct DockEntry<'a> {
     pub(crate) seq: usize,
     pub(crate) workspace: String,
     pub(crate) parent_seq: Option<usize>,
-    pub(crate) fork_point: Option<nuo_protocol::ForkPoint>,
 }
 
 /// The dashboard's sequence axis: indices into `rows` ordered by creation
@@ -60,7 +59,6 @@ pub(crate) fn dock_entries(rows: &[MonitoredThread]) -> Vec<DockEntry<'_>> {
             seq: seq + 1,
             workspace,
             parent_seq: None,
-            fork_point: row.fork_point,
         });
     }
 
@@ -298,21 +296,13 @@ pub(crate) fn dock_card_line(
     // card #3" — while a trunk keeps the plain name (there is exactly one main
     // line and it needs no marker). The fork address comes from the store; the
     // parent sequence is resolved from the dock itself.
-    let lineage = match row.fork_kind {
-        nuo_protocol::ThreadForkKind::Trunk => String::new(),
-        nuo_protocol::ThreadForkKind::Subagent => String::new(),
-        nuo_protocol::ThreadForkKind::Fork => {
-            let address = entry
-                .fork_point
-                .map(|point| point.label())
-                .unwrap_or_default();
-            match (address.is_empty(), entry.parent_seq) {
-                (false, Some(parent)) => format!("\u{21b2}{address}#{parent} "),
-                (false, None) => format!("\u{21b2}{address} "),
-                (true, Some(parent)) => format!("\u{21b2}#{parent} "),
-                (true, None) => "\u{21b2} ".to_string(),
-            }
+    let lineage = if row.parent_id.is_some() {
+        match entry.parent_seq {
+            Some(parent) => format!("\u{21b2}#{parent} "),
+            None => "\u{21b2} ".to_string(),
         }
+    } else {
+        String::new()
     };
     let lineage_w = lineage.chars().count();
     let name_budget = name_w.saturating_sub(lineage_w);
@@ -352,14 +342,14 @@ pub(crate) fn dock_card_line(
 
 /// The dock's coarse status vocabulary: running vs. done, with the blocked
 /// states kept distinct since they are the dashboard's whole reason to be.
-pub(crate) fn dock_status_label(status: ThreadStatus) -> &'static str {
+pub(crate) fn dock_status_label(status: ThreadActivity) -> &'static str {
     match status {
-        ThreadStatus::Running => "running",
-        ThreadStatus::NeedsApproval => "needs approval",
-        ThreadStatus::NeedsInput => "needs input",
-        ThreadStatus::Interrupted => "interrupted",
-        ThreadStatus::Failed => "failed",
-        ThreadStatus::Idle => "done",
+        ThreadActivity::Running => "running",
+        ThreadActivity::NeedsApproval => "needs approval",
+        ThreadActivity::NeedsInput => "needs input",
+        ThreadActivity::Interrupted => "interrupted",
+        ThreadActivity::Failed => "failed",
+        ThreadActivity::Idle => "done",
     }
 }
 

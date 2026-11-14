@@ -250,7 +250,7 @@ impl OpenAiChatCompletionsProvider {
 
     async fn send_request(
         &self,
-        body: &serde_json::Value,
+        wire: &nuo_provider::WireRequest,
         is_stream: bool,
         telemetry: &nuo_provider::TransportTelemetry,
     ) -> Result<HttpResponse, ProviderError> {
@@ -264,7 +264,7 @@ impl OpenAiChatCompletionsProvider {
 
         self.pipeline.preflight_assert(&auth)?;
 
-        let mut req = self.execute_plan(body, &auth, telemetry)?;
+        let mut req = self.execute_plan(wire, &auth, telemetry)?;
         if !is_stream {
             req = req.timeout(self.client.request_timeout());
         }
@@ -282,7 +282,7 @@ impl OpenAiChatCompletionsProvider {
                 .force_refresh_auth_after(&auth.token)
                 .await
                 .map_err(|error| ProviderError::authentication(self.label(), error))?;
-            let mut retry_req = self.execute_plan(body, &refreshed_auth, telemetry)?;
+            let mut retry_req = self.execute_plan(wire, &refreshed_auth, telemetry)?;
             if !is_stream {
                 retry_req = retry_req.timeout(self.client.request_timeout());
             }
@@ -298,19 +298,17 @@ impl OpenAiChatCompletionsProvider {
     /// headers, session affinity, body, telemetry).
     pub fn execute_plan(
         &self,
-        body: &serde_json::Value,
+        wire: &nuo_provider::WireRequest,
         auth: &ResolvedAuth,
         telemetry: &nuo_provider::TransportTelemetry,
     ) -> Result<RequestBuilder, ProviderError> {
         let plan = self
             .pipeline
-            .plan_request(self.endpoint.base_url(), body, auth)?;
+            .plan_request(self.endpoint.base_url(), wire, auth)?;
         let seed = RequestBuilder::new(http::Method::POST, plan.url)
             .header(http::header::USER_AGENT, self.endpoint.user_agent());
         let stamped = (plan.stamp_headers)(seed)?;
-        let mut req = stamped
-            .header(http::header::CONTENT_TYPE, "application/json")
-            .body(plan.body);
+        let mut req = stamped.encoded(&plan.body);
         for (name, value) in self.endpoint.headers() {
             req = req.header(name, value);
         }
@@ -397,7 +395,14 @@ impl Provider for OpenAiChatCompletionsProvider {
 
         let label = self.label();
         let resp = self
-            .send_request(&body, false, &nuo_provider::TransportTelemetry::default())
+            .send_request(
+                &nuo_provider::WireRequest::new(
+                    nuo_provider::WireProtocol::OpenAiChatCompletions,
+                    body,
+                ),
+                false,
+                &nuo_provider::TransportTelemetry::default(),
+            )
             .await?;
         let response_json: serde_json::Value = decode_response_json(resp, label).await?;
 
@@ -464,7 +469,16 @@ impl Provider for OpenAiChatCompletionsProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &telemetry).await?;
+        let response = self
+            .send_request(
+                &nuo_provider::WireRequest::new(
+                    nuo_provider::WireProtocol::OpenAiChatCompletions,
+                    body,
+                ),
+                true,
+                &telemetry,
+            )
+            .await?;
 
         let pipeline = self.pipeline.clone();
         let label = self.label();
@@ -505,7 +519,16 @@ impl Provider for OpenAiChatCompletionsProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &telemetry).await?;
+        let response = self
+            .send_request(
+                &nuo_provider::WireRequest::new(
+                    nuo_provider::WireProtocol::OpenAiChatCompletions,
+                    body,
+                ),
+                true,
+                &telemetry,
+            )
+            .await?;
 
         // Tool-call echo filter shared between the body and the end-of-stream
         // flush: it suppresses any content that mirrors a native tool call

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// How a session started. Surfed as the `SessionStart` source/matcher value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SessionSource {
+pub enum HookStartSource {
     Startup,
     Resume,
 }
@@ -50,7 +50,7 @@ pub struct HookContext {
 #[derive(Debug, Clone)]
 pub enum HookEvent {
     SessionStart {
-        source: SessionSource,
+        source: HookStartSource,
     },
     SessionEnd,
     UserPromptSubmit {

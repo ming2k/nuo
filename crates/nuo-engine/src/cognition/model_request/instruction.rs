@@ -1,82 +1,66 @@
-//! Agent-owned declarative instruction composition and registry (ADR-0052).
+//! Agent-owned declarative instruction composition.
 //!
-//! Instructions have a lifecycle unlike conversational turn messages: multiple
-//! declarative sections compose into a structured, cache-tiered
-//! [`InstructionBundle`] that is rebuilt before every provider request. The
-//! bundle is the source of the request's system prompt; each wire protocol
-//! decides where it lands (system blocks, top-level `instructions`, developer
-//! items, or a system-role message).
+//! Sections produce [`Block`] fragments for one of two request regions:
+//! `fixed` (route-stable) or `transient` (request-local). Ordering is declared
+//! with semantic anchors (`Head`, `Before`, `After`, `Tail`); the registry
+//! compiles them into a stable topological order and rejects missing anchors or
+//! cycles.
 //!
-//! Sections are categorized by [`InstructionTier`]:
-//! - Base (immutable persona, safety ethos, host environment)
-//! - Session (workspace rules, multi-root access, static tool categories)
-//! - Task (subagent mission, subagent task framing)
-//! - Ephemeral (turn-dynamic nudges)
-//!
-//! Ordering within each tier is governed by semantic [`InstructionOrder`] relations
-//! (Head, After, Before, Tail) eliminating fragile magic rank numbers.
+//! Sections carry no headings, leading newlines, or cache tiers. Formatting is
+//! owned by [`nuo_protocol::render_blocks`].
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use nuo_protocol::{InstructionBundle, InstructionSlice, InstructionTier};
+use nuo_protocol::Block;
 
-/// Read-only view of the live turn state an instruction section may draw on to render.
+/// Read-only view of the live turn state a section may draw on to render.
 ///
-/// Plain data (no `&Agent`) keeps a section's `render` signature free of lifetime parameters.
-/// Automatically derives [`Hash`] so the entire turn context is content-addressed for memoization
-/// without risk of manual hasher drift.
+/// Plain data (no `&Agent`) keeps a section's `render` signature free of lifetime
+/// parameters and makes the whole context content-addressable for memoization.
 #[derive(Debug, Clone, Default, Hash, PartialEq, Eq)]
 pub struct InstructionContext {
     /// The composed identity line — name/mission, a persona override, or a
-    /// `/master` role directive. Empty when the embedding supplies no identity,
-    /// which is the shipped coding CLI's default.
+    /// `/role` directive. Empty means no identity block.
     pub identity_preamble: String,
-    /// Names of the tools admitted this turn (e.g. `["ask_user", ...]`).
+    /// Names of the tools admitted this turn.
     pub tool_names: Vec<String>,
-    /// Whether a subagent-dispatch tool (one whose
-    /// [`Tool::spawns_subagent`](nuo_protocol::Tool::spawns_subagent) is
-    /// true) is admitted this turn. Capability-derived, so a renamed or new
-    /// dispatch tool needs no prompt-policy change.
+    /// Whether a subagent-dispatch tool is admitted this turn.
     pub has_subagent_tool: bool,
-    /// User-authored instructions matching this turn's role and route, already
-    /// filtered and ordered broad-to-narrow by the caller (ADR-0165).
+    /// User-authored instructions matching this turn's role and route.
     pub user_instructions: Vec<nuo_protocol::ScopedInstruction>,
     /// Provider/protocol-specific prompt guidance from the active provider.
     pub provider_guidance: &'static str,
-    /// Content-attested project instructions (e.g. AGENTS.md).
+    /// Content-attested project instructions (for example AGENTS.md).
     pub project_rules: String,
     /// Canonicalized additional workspace roots admitted alongside the primary.
     pub additional_workspace_roots: Vec<String>,
     /// The primary workspace root path, if any.
     pub workspace_root: Option<String>,
-    /// Deterministic workspace architecture / crate topology summary (ADR-0052, [INV-INST-04]).
+    /// Deterministic workspace architecture / crate topology summary.
     pub workspace_topology: Option<String>,
     /// Whether the active provider channel supports parallel tool calling.
     pub supports_parallel_tool_calls: bool,
-    /// Repository-authored instructions that match this turn's role and route,
-    /// already filtered and ordered broad-to-narrow by the caller.
+    /// Repository-authored instructions that match this turn's role and route.
     pub project_instructions: Vec<nuo_protocol::ScopedInstruction>,
 }
 
 impl InstructionContext {
-    /// An all-empty context for registry-mechanics tests and turns with no identity/tools.
+    /// An all-empty context for registry-mechanics tests.
     pub fn empty() -> Self {
         Self::default()
     }
 }
 
-/// Relative or semantic ordering placement of an instruction section within its tier.
+/// Relative placement of a section within its region.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum InstructionOrder {
-    /// Placed at the very front of its tier.
+    /// Placed at the very front.
     Head,
-    /// Placed before the specified section id within its tier.
+    /// Placed before the specified section id.
     Before(&'static str),
-    /// Placed after the specified section id within its tier.
+    /// Placed after the specified section id.
     After(&'static str),
-    /// Explicit rank/order within its tier (lower values sort earlier).
-    Index(u32),
-    /// Placed at the end of its tier (default).
+    /// Placed at the end (default).
     #[default]
     Tail,
 }
@@ -84,28 +68,17 @@ pub enum InstructionOrder {
 /// A self-contained, declaratively registered instruction section.
 pub trait InstructionSection: Send + Sync {
     /// Stable unique identifier, used for overrides, disables, dependencies, and tracing.
-    /// Convention: `system.<area>[.<name>]`, e.g. `"system.project_rules"`.
+    /// Convention: `<origin>.<name>`, e.g. `"project.rules"`.
     fn id(&self) -> &'static str;
 
-    /// Cache tier and lifetime volatility of this section.
-    fn tier(&self) -> InstructionTier {
-        InstructionTier::Session
-    }
-
-    /// Semantic ordering relation within its tier.
+    /// Semantic ordering relation. Defaults to `Tail`.
     fn order(&self) -> InstructionOrder {
         InstructionOrder::Tail
     }
 
-    /// Backward-compatible rank accessor; maps to Index if not overridden.
-    fn rank(&self) -> u32 {
-        match self.order() {
-            InstructionOrder::Head => 0,
-            InstructionOrder::Index(idx) => idx,
-            InstructionOrder::Before(_) => 50,
-            InstructionOrder::After(_) => 60,
-            InstructionOrder::Tail => 100,
-        }
+    /// Whether this section belongs to the request-local `transient` region.
+    fn is_transient(&self) -> bool {
+        false
     }
 
     /// Whether this section applies in the current context. Default `true`.
@@ -113,25 +86,30 @@ pub trait InstructionSection: Send + Sync {
         true
     }
 
-    /// Render the section body. `None` means "active but produces no text this
-    /// turn"; the registry skips a `None` without leaving a blank gap.
-    fn render(&self, ctx: &InstructionContext) -> Option<String>;
+    /// Render one block. `None` means "active but produces no text this turn";
+    /// the registry skips it without leaving a blank gap.
+    fn render(&self, ctx: &InstructionContext) -> Option<Block>;
 }
 
-/// A registered section entry plus runtime overrides.
+/// The two rendered regions produced by one registry pass.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InstructionRegions {
+    pub fixed: Vec<Block>,
+    pub transient: Vec<Block>,
+}
+
+/// A registered section plus runtime overrides.
 struct Entry {
     section: Box<dyn InstructionSection + Send + Sync>,
     order_override: Option<InstructionOrder>,
     disabled: bool,
+    /// Registration index, used as the deterministic tie-break.
+    ordinal: usize,
 }
 
 impl Entry {
     fn id(&self) -> &'static str {
         self.section.id()
-    }
-
-    fn tier(&self) -> InstructionTier {
-        self.section.tier()
     }
 
     fn effective_order(&self) -> InstructionOrder {
@@ -141,32 +119,42 @@ impl Entry {
     }
 }
 
-/// System-prompt policy assembled before an agent starts running.
-///
-/// Holds registered [`InstructionSection`]s, keyed by stable id.
-/// Active fragments are topologically ordered and assembled into a structured
-/// [`InstructionBundle`] by [`build_bundle`](Self::build_bundle).
+/// Declarative instruction policy for one agent.
 #[derive(Default)]
 pub struct InstructionRegistry {
     entries: Vec<Entry>,
-    /// Content-addressed memo of the last render: (context_hash, InstructionBundle).
-    render_memo: std::sync::Mutex<Option<(u64, InstructionBundle)>>,
+    /// Content-addressed memo of the last render: (context_hash, regions).
+    render_memo: std::sync::Mutex<Option<(u64, InstructionRegions)>>,
 }
 
-/// Configuration error returned while composing a [`InstructionRegistry`].
+/// Configuration or layout error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstructionRegistryError {
     /// A section with the same stable id is already registered.
     DuplicateId(&'static str),
     /// An override refers to an id that is not registered.
     UnknownId(String),
+    /// An ordering anchor names a section that is not registered.
+    MissingAnchor {
+        id: &'static str,
+        target: &'static str,
+    },
+    /// Ordering anchors form a cycle.
+    Cycle(Vec<&'static str>),
 }
 
 impl std::fmt::Display for InstructionRegistryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DuplicateId(id) => write!(f, "duplicate InstructionSection id: {id}"),
-            Self::UnknownId(id) => write!(f, "unknown InstructionSection id: {id}"),
+            Self::DuplicateId(id) => write!(f, "duplicate instruction section id: {id}"),
+            Self::UnknownId(id) => write!(f, "unknown instruction section id: {id}"),
+            Self::MissingAnchor { id, target } => {
+                write!(
+                    f,
+                    "instruction section '{id}' anchors to missing '{target}'"
+                )
+            }
+            Self::Cycle(ids) => write!(f, "instruction ordering cycle: {ids:?}"),
         }
     }
 }
@@ -198,20 +186,17 @@ impl InstructionRegistry {
         if self.entries.iter().any(|e| e.id() == id) {
             return Err(InstructionRegistryError::DuplicateId(id));
         }
+        let ordinal = self.entries.len();
         self.entries.push(Entry {
             section: Box::new(section),
             order_override: None,
             disabled: false,
+            ordinal,
         });
         self.invalidate_memo();
         Ok(())
     }
 
-    /// Drop the content-addressed render memo after a registry mutation.
-    ///
-    /// The memo is keyed by the *context* hash, which says nothing about the
-    /// section table. Without this, a `disable`/`set_order`/`register` performed
-    /// after a render would keep serving the stale bundle for the same context.
     fn invalidate_memo(&self) {
         if let Ok(mut memo) = self.render_memo.lock() {
             *memo = None;
@@ -234,11 +219,6 @@ impl InstructionRegistry {
         Ok(())
     }
 
-    /// Set explicit integer rank override (backward-compatible convenience).
-    pub fn set_rank(&mut self, id: &str, rank: u32) -> Result<(), InstructionRegistryError> {
-        self.set_order(id, InstructionOrder::Index(rank))
-    }
-
     /// Disable a section by id (it is skipped as if inactive).
     pub fn disable(&mut self, id: &str) -> Result<(), InstructionRegistryError> {
         let entry = self
@@ -251,294 +231,317 @@ impl InstructionRegistry {
         Ok(())
     }
 
-    /// Build a structured, memoized [`InstructionBundle`] from the current context.
-    pub fn build_bundle(&self, ctx: &InstructionContext) -> InstructionBundle {
+    /// Build the memoized `fixed` / `transient` regions for this context.
+    ///
+    /// Missing anchors and cycles are hard errors. A missing anchor in an
+    /// *inactive* section is not an error: its relation is simply ignored.
+    pub fn build_regions(
+        &self,
+        ctx: &InstructionContext,
+    ) -> Result<InstructionRegions, InstructionRegistryError> {
         let mut hasher = DefaultHasher::new();
         ctx.hash(&mut hasher);
         let hash = hasher.finish();
 
         if let Ok(memo) = self.render_memo.lock()
-            && let Some((cached_hash, bundle)) = memo.as_ref()
+            && let Some((cached_hash, regions)) = memo.as_ref()
             && *cached_hash == hash
         {
-            return bundle.clone();
+            return Ok(regions.clone());
         }
 
-        let bundle = self.render_bundle(ctx);
+        let regions = self.render_regions(ctx)?;
         if let Ok(mut memo) = self.render_memo.lock() {
-            *memo = Some((hash, bundle.clone()));
+            *memo = Some((hash, regions.clone()));
         }
-        bundle
+        Ok(regions)
     }
 
-    /// Topological assembly path: groups by tier and resolves relative order constraints.
-    fn render_bundle(&self, ctx: &InstructionContext) -> InstructionBundle {
-        let active_entries: Vec<&Entry> = self
+    fn render_regions(
+        &self,
+        ctx: &InstructionContext,
+    ) -> Result<InstructionRegions, InstructionRegistryError> {
+        let registered: HashMap<&'static str, usize> = self
             .entries
             .iter()
-            .filter(|e| !e.disabled && e.section.is_active(ctx))
+            .enumerate()
+            .map(|(idx, entry)| (entry.id(), idx))
             .collect();
 
-        // Separate by tier (Base -> Session -> Task -> Ephemeral)
-        let tiers = [
-            InstructionTier::Base,
-            InstructionTier::Session,
-            InstructionTier::Task,
-            InstructionTier::Ephemeral,
-        ];
+        let active: Vec<&Entry> = self
+            .entries
+            .iter()
+            .filter(|entry| !entry.disabled && entry.section.is_active(ctx))
+            .collect();
 
-        let mut slices = Vec::new();
-        for tier in tiers {
-            let tier_entries: Vec<&Entry> = active_entries
-                .iter()
-                .copied()
-                .filter(|e| e.tier() == tier)
-                .collect();
-            let ordered_indices = sort_tier_entries(&tier_entries);
-            for idx in ordered_indices {
-                let entry = tier_entries[idx];
-                if let Some(content) = entry.section.render(ctx)
-                    && !content.trim().is_empty()
-                {
-                    slices.push(InstructionSlice::new(entry.id(), tier, content));
+        for entry in &active {
+            match entry.effective_order() {
+                InstructionOrder::Before(target) | InstructionOrder::After(target) => {
+                    if !registered.contains_key(target) {
+                        return Err(InstructionRegistryError::MissingAnchor {
+                            id: entry.id(),
+                            target,
+                        });
+                    }
                 }
+                InstructionOrder::Head | InstructionOrder::Tail => {}
             }
         }
 
-        let mut bundle = InstructionBundle::new(slices);
-        // A section's leading `\n` is its paragraph break from whatever
-        // precedes it. The shipped agent carries no identity line, so the
-        // host-environment section can be first — drop its separator rather
-        // than opening the system message with a blank line.
-        if let Some(first) = bundle.slices.first_mut() {
-            first.content = first.content.trim_start_matches('\n').to_owned();
+        let ordered = topological_order(&active, &registered)?;
+        let mut regions = InstructionRegions::default();
+        for entry in ordered {
+            let Some(mut block) = entry.section.render(ctx) else {
+                continue;
+            };
+            if block.body.trim().is_empty() {
+                continue;
+            }
+            block.id = entry.id().to_owned();
+            if entry.section.is_transient() {
+                regions.transient.push(block);
+            } else {
+                regions.fixed.push(block);
+            }
         }
-        bundle
+        Ok(regions)
     }
 }
 
-/// Topologically sorts entries within a single tier based on `InstructionOrder`.
-fn sort_tier_entries(entries: &[&Entry]) -> Vec<usize> {
-    let n = entries.len();
-    if n <= 1 {
-        return (0..n).collect();
+/// Stable topological sort of active sections.
+///
+/// Base order is `Head` first, then registration order, then `Tail`. Explicit
+/// `Before`/`After` edges refine it. A target that is registered but inactive
+/// contributes no edge; a target that is not registered is a hard error handled
+/// by the caller.
+fn topological_order<'a>(
+    active: &[&'a Entry],
+    registered: &HashMap<&'static str, usize>,
+) -> Result<Vec<&'a Entry>, InstructionRegistryError> {
+    let mut index_of: HashMap<&'static str, usize> = HashMap::new();
+    for (idx, entry) in active.iter().enumerate() {
+        index_of.insert(entry.id(), idx);
     }
 
-    let id_to_index: HashMap<&'static str, usize> = entries
-        .iter()
-        .enumerate()
-        .map(|(idx, e)| (e.id(), idx))
-        .collect();
+    let mut edges: Vec<Vec<usize>> = vec![Vec::new(); active.len()];
+    let mut indegree: Vec<usize> = vec![0; active.len()];
 
-    let mut heads = Vec::new();
-    let mut indices: Vec<(u32, usize)> = Vec::new();
-    let mut befores: Vec<(usize, usize)> = Vec::new(); // (item_idx, target_idx)
-    let mut afters: Vec<(usize, usize)> = Vec::new(); // (item_idx, target_idx)
-    let mut tails = Vec::new();
-
-    for (idx, entry) in entries.iter().enumerate() {
+    for (idx, entry) in active.iter().enumerate() {
         match entry.effective_order() {
-            InstructionOrder::Head => heads.push(idx),
-            InstructionOrder::Index(rank) => indices.push((rank, idx)),
-            InstructionOrder::Before(target_id) => {
-                if let Some(&target_idx) = id_to_index.get(target_id) {
-                    befores.push((idx, target_idx));
-                } else {
-                    tails.push(idx);
+            InstructionOrder::Before(target) | InstructionOrder::After(target) => {
+                // A registered-but-inactive target contributes no edge.
+                if !registered.contains_key(target) {
+                    return Err(InstructionRegistryError::MissingAnchor {
+                        id: entry.id(),
+                        target,
+                    });
                 }
+                let Some(&target_idx) = index_of.get(target) else {
+                    continue;
+                };
+                let (from, to) = match entry.effective_order() {
+                    InstructionOrder::Before(_) => (idx, target_idx),
+                    InstructionOrder::After(_) => (target_idx, idx),
+                    _ => unreachable!(),
+                };
+                edges[from].push(to);
+                indegree[to] += 1;
             }
-            InstructionOrder::After(target_id) => {
-                if let Some(&target_idx) = id_to_index.get(target_id) {
-                    afters.push((idx, target_idx));
-                } else {
-                    tails.push(idx);
-                }
+            InstructionOrder::Head | InstructionOrder::Tail => {}
+        }
+    }
+
+    // Base priority: Head (0), middle (1), Tail (2), then registration order.
+    let base_rank = |entry: &Entry| match entry.effective_order() {
+        InstructionOrder::Head => 0u8,
+        InstructionOrder::Tail => 2,
+        InstructionOrder::Before(_) | InstructionOrder::After(_) => 1,
+    };
+
+    let mut ready: Vec<usize> = (0..active.len()).filter(|&i| indegree[i] == 0).collect();
+    ready.sort_by_key(|&i| (base_rank(active[i]), active[i].ordinal));
+
+    let mut ordered = Vec::with_capacity(active.len());
+    while let Some(idx) = ready.first().copied() {
+        ready.remove(0);
+        ordered.push(active[idx]);
+        for &next in &edges[idx] {
+            indegree[next] -= 1;
+            if indegree[next] == 0 {
+                ready.push(next);
             }
-            InstructionOrder::Tail => tails.push(idx),
         }
+        ready.sort_by_key(|&i| (base_rank(active[i]), active[i].ordinal));
     }
 
-    indices.sort_by_key(|(rank, _)| *rank);
-    let mut result = Vec::with_capacity(n);
-    result.extend(heads);
-    for (_, idx) in indices {
-        result.push(idx);
-    }
-    result.extend(tails);
-
-    // Apply Before / After relative dependencies
-    for (item_idx, target_idx) in befores {
-        if let Some(target_pos) = result.iter().position(|&x| x == target_idx) {
-            result.retain(|&x| x != item_idx);
-            let insert_pos = result
-                .iter()
-                .position(|&x| x == target_idx)
-                .unwrap_or(target_pos);
-            result.insert(insert_pos, item_idx);
-        } else if !result.contains(&item_idx) {
-            result.push(item_idx);
-        }
+    if ordered.len() != active.len() {
+        let cycle: Vec<&'static str> = active
+            .iter()
+            .filter(|entry| !ordered.iter().any(|seen| seen.id() == entry.id()))
+            .map(|entry| entry.id())
+            .collect();
+        return Err(InstructionRegistryError::Cycle(cycle));
     }
 
-    for (item_idx, target_idx) in afters {
-        if let Some(target_pos) = result.iter().position(|&x| x == target_idx) {
-            result.retain(|&x| x != item_idx);
-            let target_current = result
-                .iter()
-                .position(|&x| x == target_idx)
-                .unwrap_or(target_pos);
-            result.insert(target_current + 1, item_idx);
-        } else if !result.contains(&item_idx) {
-            result.push(item_idx);
-        }
-    }
-
-    result
+    Ok(ordered)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nuo_protocol::BlockRender;
 
     struct TestSection {
         id: &'static str,
-        tier: InstructionTier,
         order: InstructionOrder,
+        transient: bool,
         active: bool,
         text: Option<&'static str>,
+    }
+
+    impl TestSection {
+        fn new(id: &'static str, text: &'static str) -> Self {
+            Self {
+                id,
+                order: InstructionOrder::Tail,
+                transient: false,
+                active: true,
+                text: Some(text),
+            }
+        }
     }
 
     impl InstructionSection for TestSection {
         fn id(&self) -> &'static str {
             self.id
         }
-        fn tier(&self) -> InstructionTier {
-            self.tier
-        }
         fn order(&self) -> InstructionOrder {
             self.order.clone()
+        }
+        fn is_transient(&self) -> bool {
+            self.transient
         }
         fn is_active(&self, _ctx: &InstructionContext) -> bool {
             self.active
         }
-        fn render(&self, _ctx: &InstructionContext) -> Option<String> {
-            self.text.map(String::from)
-        }
-    }
-
-    fn sec(id: &'static str, order: InstructionOrder, text: &'static str) -> TestSection {
-        TestSection {
-            id,
-            tier: InstructionTier::Base,
-            order,
-            active: true,
-            text: Some(text),
+        fn render(&self, _ctx: &InstructionContext) -> Option<Block> {
+            self.text
+                .map(|text| Block::new("ignored", text).with_render(BlockRender::Plain))
         }
     }
 
     #[test]
-    fn relative_ordering_resolves_semantic_dependencies() {
+    fn sections_render_in_registration_order_by_default() {
         let mut reg = InstructionRegistry::new();
-        reg.register(sec("tail_item", InstructionOrder::Tail, "Tail"));
-        reg.register(sec("head_item", InstructionOrder::Head, "Head"));
-        reg.register(sec(
-            "after_head",
-            InstructionOrder::After("head_item"),
-            "AfterHead",
+        reg.register(TestSection::new("a", "A"));
+        reg.register(TestSection::new("b", "B"));
+        let regions = reg.build_regions(&InstructionContext::empty()).unwrap();
+        assert_eq!(regions.fixed.len(), 2);
+        assert_eq!(regions.fixed[0].id, "a");
+        assert_eq!(regions.fixed[1].id, "b");
+    }
+
+    #[test]
+    fn head_before_after_and_tail_are_honored() {
+        let mut reg = InstructionRegistry::new();
+        let mut first = TestSection::new("first", "1");
+        first.order = InstructionOrder::Tail;
+        let mut head = TestSection::new("head", "H");
+        head.order = InstructionOrder::Head;
+        let mut before = TestSection::new("before", "B");
+        before.order = InstructionOrder::Before("first");
+        let mut after = TestSection::new("after", "A");
+        after.order = InstructionOrder::After("first");
+        reg.register(first);
+        reg.register(head);
+        reg.register(before);
+        reg.register(after);
+
+        let regions = reg.build_regions(&InstructionContext::empty()).unwrap();
+        let ids: Vec<&str> = regions.fixed.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["head", "before", "first", "after"]);
+    }
+
+    #[test]
+    fn missing_anchor_is_an_error() {
+        let mut reg = InstructionRegistry::new();
+        let mut section = TestSection::new("a", "A");
+        section.order = InstructionOrder::After("missing");
+        reg.register(section);
+        let error = reg.build_regions(&InstructionContext::empty()).unwrap_err();
+        assert!(matches!(
+            error,
+            InstructionRegistryError::MissingAnchor {
+                id: "a",
+                target: "missing"
+            }
         ));
-        reg.register(sec(
-            "before_tail",
-            InstructionOrder::Before("tail_item"),
-            "BeforeTail",
-        ));
-
-        let bundle = reg.build_bundle(&InstructionContext::empty());
-        assert_eq!(
-            bundle.render_combined(),
-            "Head\nAfterHead\nBeforeTail\nTail"
-        );
     }
 
     #[test]
-    fn equal_orders_preserve_registration_order() {
+    fn cycle_is_an_error() {
         let mut reg = InstructionRegistry::new();
-        reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        reg.register(sec("system.b", InstructionOrder::Head, "B"));
-
-        let bundle = reg.build_bundle(&InstructionContext::empty());
-        assert_eq!(bundle.render_combined(), "A\nB");
+        let mut a = TestSection::new("a", "A");
+        a.order = InstructionOrder::After("b");
+        let mut b = TestSection::new("b", "B");
+        b.order = InstructionOrder::After("a");
+        reg.register(a);
+        reg.register(b);
+        let error = reg.build_regions(&InstructionContext::empty()).unwrap_err();
+        assert!(matches!(error, InstructionRegistryError::Cycle(_)));
     }
 
     #[test]
-    fn first_section_loses_its_separator_newline() {
-        // Sections carry a leading `\n` as their paragraph break from whatever
-        // precedes them. When there is no identity line, the host section is
-        // first and must not open the message with a blank line.
+    fn transient_sections_partition_into_the_transient_region() {
         let mut reg = InstructionRegistry::new();
-        reg.register(sec("system.leading", InstructionOrder::Head, "\n## Host"));
-        reg.register(sec(
-            "system.trailing",
-            InstructionOrder::Tail,
-            "\n## Persistence",
-        ));
-
-        let bundle = reg.build_bundle(&InstructionContext::empty());
-        assert_eq!(bundle.render_combined(), "## Host\n\n## Persistence");
+        reg.register(TestSection::new("fixed", "F"));
+        let mut transient = TestSection::new("transient", "T");
+        transient.transient = true;
+        reg.register(transient);
+        let regions = reg.build_regions(&InstructionContext::empty()).unwrap();
+        assert_eq!(regions.fixed.len(), 1);
+        assert_eq!(regions.transient.len(), 1);
+        assert_eq!(regions.transient[0].id, "transient");
     }
 
     #[test]
-    fn disabled_section_is_skipped() {
+    fn inactive_sections_are_skipped_and_their_anchors_are_ignored() {
         let mut reg = InstructionRegistry::new();
-        reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        reg.register(sec("system.b", InstructionOrder::Tail, "B"));
-        reg.disable("system.a").unwrap();
-
-        let bundle = reg.build_bundle(&InstructionContext::empty());
-        assert_eq!(bundle.render_combined(), "B");
+        let mut inactive = TestSection::new("inactive", "I");
+        inactive.active = false;
+        let mut dependent = TestSection::new("dependent", "D");
+        dependent.order = InstructionOrder::After("inactive");
+        reg.register(inactive);
+        reg.register(dependent);
+        let regions = reg.build_regions(&InstructionContext::empty()).unwrap();
+        let ids: Vec<&str> = regions.fixed.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["dependent"]);
     }
 
     #[test]
-    fn registry_mutation_invalidates_the_render_memo() {
+    fn disable_and_memo_invalidation() {
         let mut reg = InstructionRegistry::new();
-        reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        let ctx = InstructionContext::empty();
-        assert_eq!(reg.build_bundle(&ctx).render_combined(), "A");
-
-        // Same context, mutated registry: the context-addressed memo must not
-        // serve the pre-mutation bundle.
-        reg.disable("system.a").unwrap();
-        assert!(reg.build_bundle(&ctx).is_empty());
+        reg.register(TestSection::new("a", "A"));
+        let first = reg.build_regions(&InstructionContext::empty()).unwrap();
+        assert_eq!(first.fixed.len(), 1);
+        reg.disable("a").unwrap();
+        let second = reg.build_regions(&InstructionContext::empty()).unwrap();
+        assert!(second.fixed.is_empty());
     }
 
     #[test]
-    fn order_override_changes_position() {
+    fn duplicate_ids_are_rejected() {
         let mut reg = InstructionRegistry::new();
-        reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        reg.register(sec("system.b", InstructionOrder::Tail, "B"));
-        reg.set_order("system.b", InstructionOrder::Before("system.a"))
-            .unwrap();
-
-        let bundle = reg.build_bundle(&InstructionContext::empty());
-        assert_eq!(bundle.render_combined(), "B\nA");
+        reg.register(TestSection::new("a", "A"));
+        let error = reg.try_register(TestSection::new("a", "B")).unwrap_err();
+        assert!(matches!(error, InstructionRegistryError::DuplicateId("a")));
     }
 
     #[test]
-    fn instruction_bundle_assembly_is_pure_and_deterministic() {
+    fn registry_overwrites_the_block_id_with_the_section_id() {
         let mut reg = InstructionRegistry::new();
-        reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        let bundle = reg.build_bundle(&InstructionContext::empty());
-        assert_eq!(bundle.len(), 1);
-        assert_eq!(bundle.slices[0].id, "system.a");
-        assert_eq!(bundle.slices[0].tier, InstructionTier::Base);
-        assert_eq!(bundle.slices[0].content, "A");
-    }
-
-    #[test]
-    fn memoization_returns_identical_bundle() {
-        let mut reg = InstructionRegistry::new();
-        reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        let b1 = reg.build_bundle(&InstructionContext::empty());
-        let b2 = reg.build_bundle(&InstructionContext::empty());
-        assert_eq!(b1, b2);
+        reg.register(TestSection::new("canonical", "body"));
+        let regions = reg.build_regions(&InstructionContext::empty()).unwrap();
+        assert_eq!(regions.fixed[0].id, "canonical");
     }
 }

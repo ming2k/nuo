@@ -12,7 +12,7 @@ use nuo_harness::runtime::offstream::{
 };
 use nuo_persistence::blobs::BlobStore;
 use nuo_persistence::db::get_persistence_handle;
-use nuo_protocol::{NodePayload, Role};
+use nuo_protocol::{FactPayload, Role};
 
 /// Pagination and text filtering helper for offstream sources.
 pub fn paginate_text(
@@ -109,21 +109,24 @@ impl OffstreamSource for SubagentSource {
             let mut size_tokens = None;
 
             // Inspect child session termination status dynamically without modifying SubagentRef
-            if let Ok(Some(child_ir)) = reader.load_session_ir(&sub.id) {
-                let total_text: usize = child_ir
-                    .history
-                    .nodes
-                    .values()
-                    .map(|n| match &n.payload {
-                        NodePayload::Message { message } => message.content.len(),
-                        NodePayload::Compaction { summary, .. } => summary.len(),
+            if let Ok(Some(child)) = reader.load_thread(&sub.id) {
+                let total_text: usize = child
+                    .all_facts()
+                    .iter()
+                    .map(|fact| match &fact.payload {
+                        FactPayload::Message { message } => message.content.len(),
+                        FactPayload::Observation { lifecycle, .. } => match lifecycle {
+                            nuo_protocol::ObservationLifecycle::Raw { content } => content.len(),
+                            _ => 0,
+                        },
+                        FactPayload::Compaction { summary, .. } => summary.len(),
                         _ => 0,
                     })
                     .sum();
                 size_tokens = Some(total_text.div_ceil(4));
 
-                for node in child_ir.history.nodes.values() {
-                    if let NodePayload::Termination { reason, .. } = &node.payload {
+                for fact in child.all_facts() {
+                    if let FactPayload::Termination { reason, .. } = &fact.payload {
                         status = match reason {
                             nuo_protocol::TerminationReason::UserInterrupt => {
                                 OffstreamStatus::Interrupted
@@ -165,14 +168,14 @@ impl OffstreamSource for SubagentSource {
             .reader()
             .map_err(|e| format!("Failed to acquire reader: {e}"))?;
 
-        if let Ok(Some(ir)) = reader.load_session_ir(key) {
-            let active_leaf = ir.state.active_leaf.as_deref().unwrap_or("");
-            let nodes = ir.history.linear_path(active_leaf);
+        if let Ok(Some(thread)) = reader.load_thread(key) {
+            let branch = thread.state.active_branch.clone();
+            let facts = thread.path(&branch).unwrap_or_default();
 
             let mut formatted = format!("# Subagent Session Transcript ({key})\n\n");
-            for node in nodes {
-                match &node.payload {
-                    NodePayload::Message { message } => {
+            for fact in facts {
+                match &fact.payload {
+                    FactPayload::Message { message } => {
                         let role_label = match message.role {
                             Role::User => "User",
                             Role::Assistant => "Assistant",
@@ -189,10 +192,22 @@ impl OffstreamSource for SubagentSource {
                             }
                         }
                     }
-                    NodePayload::Compaction { summary, .. } => {
+                    FactPayload::Observation {
+                        call_id,
+                        tool_name,
+                        lifecycle,
+                        ..
+                    } => {
+                        let message = lifecycle.lower_to_message(call_id, tool_name);
+                        formatted.push_str(&format!(
+                            "### [Tool Result ({tool_name})]\n{}\n\n",
+                            message.content
+                        ));
+                    }
+                    FactPayload::Compaction { summary, .. } => {
                         formatted.push_str(&format!("### [Compacted Checkpoint]\n{summary}\n\n"));
                     }
-                    NodePayload::Termination {
+                    FactPayload::Termination {
                         reason,
                         partial_output,
                         ..
@@ -203,7 +218,11 @@ impl OffstreamSource for SubagentSource {
                             partial_output.as_deref().unwrap_or("(no partial output)")
                         ));
                     }
-                    _ => {}
+                    FactPayload::SystemNotice {
+                        content, source, ..
+                    } => {
+                        formatted.push_str(&format!("### [Notice from {source}]\n{content}\n\n"));
+                    }
                 }
             }
             return Ok(paginate_text(&formatted, cursor, query, budget_tokens));
@@ -243,22 +262,22 @@ impl OffstreamSource for FoldedCausalSource {
             .reader()
             .map_err(|e| format!("Failed to acquire reader: {e}"))?;
 
-        let ir = match reader.load_session_ir(sid) {
-            Ok(Some(ir)) => ir,
+        let thread = match reader.load_thread(sid) {
+            Ok(Some(thread)) => thread,
             _ => return Ok(Vec::new()),
         };
 
         let mut entries = Vec::new();
-        for (node_id, node) in &ir.history.nodes {
-            if let NodePayload::Compaction {
+        for fact in thread.all_facts() {
+            if let FactPayload::Compaction {
                 summary,
                 tokens_before,
                 ..
-            } = &node.payload
+            } = &fact.payload
             {
                 let first_line = summary.lines().next().unwrap_or("Compaction checkpoint");
                 entries.push(OffstreamEntry {
-                    handle: format!("fold:{node_id}"),
+                    handle: format!("fold:{}", fact.id.0),
                     label: first_line.chars().take(80).collect(),
                     status: OffstreamStatus::Compacted,
                     size_tokens: Some(*tokens_before),
@@ -280,25 +299,24 @@ impl OffstreamSource for FoldedCausalSource {
             .reader()
             .map_err(|e| format!("Failed to acquire reader: {e}"))?;
 
-        let ir = reader
-            .load_session_ir(&self.session_id)
+        let thread = reader
+            .load_thread(&self.session_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Session '{}' not found", self.session_id))?;
 
-        let target_node = ir
-            .history
-            .nodes
-            .get(key)
-            .ok_or_else(|| format!("Compaction node '{key}' not found"))?;
+        let target_fact = thread
+            .graph
+            .get(&nuo_protocol::FactId::from_raw(key))
+            .ok_or_else(|| format!("Compaction fact '{key}' not found"))?;
 
         let mut formatted = format!("# Folded Causal Checkpoint ({key})\n\n");
-        if let NodePayload::Compaction {
+        if let FactPayload::Compaction {
             summary,
             tokens_before,
             read_files,
             modified_files,
             ..
-        } = &target_node.payload
+        } = &target_fact.payload
         {
             formatted.push_str(&format!(
                 "Tokens before compaction: ~{tokens_before}\n\n## Summary\n{summary}\n\n"
@@ -312,15 +330,15 @@ impl OffstreamSource for FoldedCausalSource {
         }
 
         // Trace upstream parent nodes that were folded into this compaction
-        let mut curr_parent = target_node.parent_id.as_deref();
+        let mut curr_parent = target_fact.parent_id.as_ref();
         let mut folded_nodes = Vec::new();
         while let Some(pid) = curr_parent {
-            if let Some(pnode) = ir.history.nodes.get(pid) {
-                if matches!(pnode.payload, NodePayload::Compaction { .. }) {
+            if let Some(parent) = thread.graph.get(pid) {
+                if matches!(parent.payload, FactPayload::Compaction { .. }) {
                     break; // stop at previous compaction boundary
                 }
-                folded_nodes.push(pnode);
-                curr_parent = pnode.parent_id.as_deref();
+                folded_nodes.push(parent);
+                curr_parent = parent.parent_id.as_ref();
             } else {
                 break;
             }
@@ -329,15 +347,30 @@ impl OffstreamSource for FoldedCausalSource {
 
         if !folded_nodes.is_empty() {
             formatted.push_str("## Folded Dialogue History\n\n");
-            for node in folded_nodes {
-                if let NodePayload::Message { message } = &node.payload {
-                    let role_str = match message.role {
-                        Role::User => "User",
-                        Role::Assistant => "Assistant",
-                        Role::Tool => "Tool Result",
-                        Role::System => "System",
-                    };
-                    formatted.push_str(&format!("### [{role_str}]\n{}\n\n", message.content));
+            for fact in folded_nodes {
+                match &fact.payload {
+                    FactPayload::Message { message } => {
+                        let role_str = match message.role {
+                            Role::User => "User",
+                            Role::Assistant => "Assistant",
+                            Role::Tool => "Tool Result",
+                            Role::System => "System",
+                        };
+                        formatted.push_str(&format!("### [{role_str}]\n{}\n\n", message.content));
+                    }
+                    FactPayload::Observation {
+                        call_id,
+                        tool_name,
+                        lifecycle,
+                        ..
+                    } => {
+                        let message = lifecycle.lower_to_message(call_id, tool_name);
+                        formatted.push_str(&format!(
+                            "### [Tool Result ({tool_name})]\n{}\n\n",
+                            message.content
+                        ));
+                    }
+                    _ => {}
                 }
             }
         }

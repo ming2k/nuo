@@ -6,15 +6,15 @@
 //! config load + migrations, persisted model catalogs, store opens,
 //! the repeat scheduler, provider/skills/toolset wiring, `SubagentTool` layering,
 //! agent construction, MCP background connect, pursuit/todo/session-state
-//! restore, and finally [`SessionDriver`] construction — in the exact order
+//! restore, and finally [`ThreadDriver`] construction — in the exact order
 //! the original `main` did, with the same background spawns.
 //!
 //! The crate stays application-neutral (ADR-0054): the caller supplies the
 //! [`AgentIdentity`], the [`AgentRoleProfile`], and the [`UiBridge`] as
 //! parameters. Nothing here names a product.
 //!
-//! `SessionStart::Version`, `SessionStart::Doctor`, `SessionStart::Attach`, and
-//! `SessionStart::Showcase` are **not** handled here: they are purely local
+//! `ThreadStart::Version`, `ThreadStart::Doctor`, `ThreadStart::Attach`, and
+//! `ThreadStart::Showcase` are **not** handled here: they are purely local
 //! (or client-side) short-circuits and must be dispatched by the caller
 //! before invoking [`assemble`].
 use nuo_harness::orchestration::{ProxyProvider, round_response};
@@ -27,19 +27,19 @@ use nuo_protocol::{
 use crate::mcp::{McpCatalog, McpRuntime};
 use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_persistence::{
-    config::Config, connection_usage, paths, session::SessionStore,
+    config::Config, connection_usage, paths, thread::ThreadSession,
     workspace_security::WorkspaceSecurityStore,
 };
 
-use crate::startup::SessionStart;
-use crate::{SessionDriver, UiBridge};
+use crate::startup::ThreadStart;
+use crate::{ThreadDriver, UiBridge};
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::sync::mpsc;
 
-/// Total wall-clock budget for the SessionStart hook group during assembly.
+/// Total wall-clock budget for the ThreadStart hook group during assembly.
 /// Hooks are external processes with a per-hook timeout of their own; this
 /// outer bound keeps `SessionPhase::Ready` bounded even when several hooks are
 /// configured (ADR-0133).
@@ -59,7 +59,7 @@ pub struct BootstrapParams {
     pub ui: Arc<dyn UiBridge>,
     /// How the session begins (only the assembly-relevant
     /// shapes exist here; one-shot CLI modes never reach the harness).
-    pub startup: SessionStart,
+    pub startup: ThreadStart,
     /// `--project` override: the workspace binding. `None` = workspace-free.
     pub project_root: Option<PathBuf>,
     /// The role staffing this session, if any. Recorded on
@@ -100,7 +100,7 @@ pub type PhaseSink = Arc<dyn Fn(nuo_protocol::PrepareStage) + Send + Sync>;
 pub struct Bootstrap {
     /// The session driver, fully wired. The caller moves it into a task
     /// (`tokio::spawn(driver.run())`).
-    pub driver: SessionDriver,
+    pub driver: ThreadDriver,
     /// The frontend's request sender (the driver holds the receiver).
     pub req_tx: mpsc::Sender<AgentRequest>,
     /// The frontend's response receiver (the driver holds the sender).
@@ -110,7 +110,7 @@ pub struct Bootstrap {
     /// owns the agent by then.
     pub agent_for_session_end: Arc<Agent>,
     /// The primary session store, shared with the driver.
-    pub session: Arc<SessionStore>,
+    pub session: Arc<ThreadSession>,
     /// Shared token-source ledger, shared with the driver; the frontend reads
     /// it for the token-source report.
     pub token_ledger: Arc<nuo_protocol::TokenSourceLedger>,
@@ -172,7 +172,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         .project_root
         .as_ref()
         .map(nuo_protocol::WorkspaceBinding::new);
-    let session = Arc::new(SessionStore::for_workspace(workspace, params.role.clone()));
+    let session = Arc::new(ThreadSession::for_workspace(workspace, params.role.clone()));
     assemble_with_store(session, params).await
 }
 
@@ -184,7 +184,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
 /// either lazy (credentials) or backgrounded (remote skills, MCP, catalog).
 #[allow(clippy::too_many_lines)]
 pub async fn assemble_with_store(
-    session: Arc<SessionStore>,
+    session: Arc<ThreadSession>,
     params: BootstrapParams,
 ) -> Result<Bootstrap, Box<dyn std::error::Error>> {
     crate::provider_registry::init();
@@ -213,10 +213,10 @@ pub async fn assemble_with_store(
     debug_assert!(
         matches!(
             startup,
-            SessionStart::Fresh
-                | SessionStart::FreshWithPrompt(_)
-                | SessionStart::Resume(_)
-                | SessionStart::Picker
+            ThreadStart::Fresh
+                | ThreadStart::FreshWithPrompt(_)
+                | ThreadStart::Resume(_)
+                | ThreadStart::Picker
         ),
         "assemble only handles Fresh/FreshWithPrompt/Resume/Picker; other modes must short-circuit in the caller"
     );
@@ -287,9 +287,9 @@ pub async fn assemble_with_store(
     // does so here — after Welcome, inside the visible `Loading`/`Preparing`
     // phase.
     let open_picker_on_start = match &startup {
-        SessionStart::Fresh | SessionStart::FreshWithPrompt(_) => false,
-        SessionStart::Picker => true,
-        SessionStart::Resume(id) => {
+        ThreadStart::Fresh | ThreadStart::FreshWithPrompt(_) => false,
+        ThreadStart::Picker => true,
+        ThreadStart::Resume(id) => {
             session.resume(Some(id.as_str())).await?;
             false
         }
@@ -542,7 +542,8 @@ pub async fn assemble_with_store(
 
     let sys_ctx = Arc::new(
         nuo_tool_fs::SystemToolContext::new(effective_tool_root.clone())
-            .with_vfs_resolver(offstream_reg.clone()),
+            .with_vfs_resolver(offstream_reg.clone())
+            .with_image_normalizer(Arc::new(nuo_host::image::HostImageNormalizer)),
     );
     for tool in nuo_tool_fs::create_fs_tools(sys_ctx) {
         toolset.upsert(tool);
@@ -551,15 +552,10 @@ pub async fn assemble_with_store(
     for tool in nuo_tool_exec::create_exec_tools(exec_ctx) {
         toolset.upsert(tool);
     }
-    for tool in nuo_tool_ast::create_ast_tools(workspace_root.clone()) {
-        toolset.upsert(tool);
-    }
-    if let Ok(store) = nuo_persistence::get_role_memory_store() {
-        let p_tools = nuo_persistence::create_persistence_tools(Arc::new(store));
-        for tool in p_tools {
-            toolset.upsert(tool);
-        }
-    }
+    // `code_query` and `recall_memory` are self-registered (`register_tool!`)
+    // and already collected above. Direct insertion here would shadow the
+    // factory-built instances with a second implementation of the same
+    // `(name, variant)` — the duplicate-registration defect this audit removes.
     // MCP tools are discovered after Agent construction and published through
     // its connector-neutral dynamic-tool sink. The MCP runtime owns protocol
     // and connection state; the agent owns advertisement and dispatch.
@@ -595,7 +591,7 @@ pub async fn assemble_with_store(
     toolset.insert(subagent_tool);
 
     // ADR-0070 (superseded by ADR-0093): recall_context is abolished. All offstream artifacts (subagents,
-    // visual artifacts, compacted history) are projected via VFS into read_text/read_image.
+    // visual artifacts, compacted history) are projected via VFS into `read`.
 
     let mut agent = Agent::builder_from_toolset(agent_provider, toolset, identity)
         .with_host(agent_kernel_host.clone())
@@ -627,7 +623,7 @@ pub async fn assemble_with_store(
     let subagent_context_policy = config.context.clone();
     subagent_tool_handle.bind_session(
         Arc::clone(&session),
-        Arc::new(move |child: &Agent, child_session: Arc<SessionStore>| {
+        Arc::new(move |child: &Agent, child_session: Arc<ThreadSession>| {
             let window = child.provider.model_capabilities().context_window;
             let budget = subagent_context_policy.resolve_budget(window);
             child.set_context_prune_threshold(budget.prune_threshold_tokens);
@@ -838,11 +834,11 @@ pub async fn assemble_with_store(
     // Read the current state for startup model resolution without redundant disk I/O.
 
     // `nuo attach` (no id) opens the sessions picker at startup instead of
-    // loading any session: no transcript, todos, or SessionStart hooks should
+    // loading any session: no transcript, todos, or ThreadStart hooks should
     // run against the throwaway fresh session — the real session is restored
     // only once the user picks one from the picker (`/session open`). Fresh and
     // `nuo attach <id>` loads eagerly as before.
-    let is_picker = matches!(startup, SessionStart::Picker);
+    let is_picker = matches!(startup, ThreadStart::Picker);
 
     // Mid-turn context projection: when pruning is enabled, install the gate that
     // relieves pressure between ReAct turns. Without it, `project_context_if_needed`
@@ -915,10 +911,10 @@ pub async fn assemble_with_store(
     let thread_id = session.id().await;
     agent.set_thread_id(&thread_id);
 
-    // Restore the session-scoped runtime state and fire SessionStart hooks.
+    // Restore the session-scoped runtime state and fire ThreadStart hooks.
     // Skipped entirely in Picker mode: the bootstrap session is a throwaway
     // fresh one, and the user has not chosen a session yet. The full restore
-    // (todos + disabled tools + round counter + the delegated flag + SessionStart
+    // (todos + disabled tools + round counter + the delegated flag + ThreadStart
     // hooks) runs when a real session is opened from the picker — see
     // `handlers_slash`'s `restore_session_runtime`.
     if !is_picker {
@@ -953,15 +949,15 @@ pub async fn assemble_with_store(
             );
         }
 
-        // SessionStart hooks: inject setup context before the first
+        // ThreadStart hooks: inject setup context before the first
         // round. Resume vs fresh start is surfaced so a hook can branch.
         // A hook is an external process; it runs after Welcome, inside the
         // visible `Preparing{Hooks}` phase, and is bounded as a startup group so
         // one hung script cannot hold `Ready` for an unbounded time (ADR-0133).
         {
             let source = match &startup {
-                SessionStart::Resume(_) => nuo_protocol::SessionSource::Resume,
-                _ => nuo_protocol::SessionSource::Startup,
+                ThreadStart::Resume(_) => nuo_protocol::HookStartSource::Resume,
+                _ => nuo_protocol::HookStartSource::Startup,
             };
             stage(nuo_protocol::PrepareStage::Hooks);
             let mut messages = session.model_window().await;
@@ -975,7 +971,7 @@ pub async fn assemble_with_store(
                 Ok(()) => {}
                 Err(_) => tracing::warn!(
                     budget = ?SESSION_START_HOOK_BUDGET,
-                    "SessionStart hooks exceeded the startup budget; continuing without waiting"
+                    "ThreadStart hooks exceeded the startup budget; continuing without waiting"
                 ),
             }
             // Persist the hook-injected setup context through the single write
@@ -983,7 +979,7 @@ pub async fn assemble_with_store(
             if messages.len() > before_len
                 && let Err(err) = session.append_turn(&messages).await
             {
-                tracing::warn!(error = %err, "failed to persist SessionStart hook context");
+                tracing::warn!(error = %err, "failed to persist ThreadStart hook context");
             }
         }
     }
@@ -1028,7 +1024,7 @@ pub async fn assemble_with_store(
         agent.round_counter_handle(),
     );
 
-    let driver = SessionDriver {
+    let driver = ThreadDriver {
         req_rx,
         tx: resp_tx,
         req_tx: req_tx_for_commands,
@@ -1249,427 +1245,4 @@ fn spawn_mcp_config_watcher(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-    use tempfile::tempdir;
-
-    #[tokio::test]
-    async fn test_mcp_watcher_ignores_non_mcp_workspace_config() {
-        let tmp = tempdir().unwrap();
-        let ws_root = tmp
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| tmp.path().to_path_buf());
-        let dot_nuo = ws_root.join(".nuo");
-        std::fs::create_dir_all(&dot_nuo).unwrap();
-
-        let cfg_file = dot_nuo.join("config.toml");
-        std::fs::write(&cfg_file, "[workspace]\nadditional_roots = [\"../foo\"]\n").unwrap();
-
-        let sec_file = tmp.path().join("workspace_security.json");
-        let security = Arc::new(WorkspaceSecurityStore::load_from(sec_file));
-
-        let agent = Arc::new(Agent::new(
-            Arc::new(nuo_harness::NoProvider),
-            vec![],
-            nuo_protocol::AgentIdentity::default(),
-        ));
-        let mcp = Arc::new(McpRuntime::start_background(
-            Default::default(),
-            agent.dynamic_tool_sink(),
-        ));
-
-        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
-        spawn_mcp_config_watcher(
-            mcp,
-            Some(ws_root.clone()),
-            security,
-            resp_tx,
-            "test-session".to_string(),
-        );
-
-        // Give watcher thread a moment to initialize inotify
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Modify .nuo/config.toml with non-MCP content
-        std::fs::write(&cfg_file, "[workspace]\nadditional_roots = [\"../bar\"]\n").unwrap();
-
-        // Wait for debounce window (500ms + margin)
-        let notice = tokio::time::timeout(Duration::from_millis(800), resp_rx.recv()).await;
-
-        // Should NOT receive any TrustChanged warning
-        if let Ok(Some(AgentResponse::Round {
-            scope:
-                nuo_protocol::RoundScope::Session {
-                    event: RoundEvent::Notice(n),
-                },
-            ..
-        })) = notice
-        {
-            panic!(
-                "Unexpected notice for non-MCP config modification: {:?}",
-                n.title
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn test_mcp_watcher_warns_on_untrusted_workspace_mcp() {
-        let tmp = tempdir().unwrap();
-        let ws_root = tmp
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| tmp.path().to_path_buf());
-        let dot_nuo = ws_root.join(".nuo");
-        std::fs::create_dir_all(&dot_nuo).unwrap();
-
-        let sec_file = tmp.path().join("workspace_security.json");
-        let security = Arc::new(WorkspaceSecurityStore::load_from(sec_file));
-
-        let agent = Arc::new(Agent::new(
-            Arc::new(nuo_harness::NoProvider),
-            vec![],
-            nuo_protocol::AgentIdentity::default(),
-        ));
-        let mcp = Arc::new(McpRuntime::start_background(
-            Default::default(),
-            agent.dynamic_tool_sink(),
-        ));
-
-        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
-        spawn_mcp_config_watcher(
-            mcp,
-            Some(ws_root.clone()),
-            security,
-            resp_tx,
-            "test-session".to_string(),
-        );
-
-        // Give watcher thread a moment to initialize
-        tokio::time::sleep(Duration::from_millis(600)).await;
-
-        // Write an MCP server into .nuo/mcp.json
-        let mcp_json = dot_nuo.join("mcp.json");
-        std::fs::write(
-            &mcp_json,
-            r#"{"mcpServers": {"test": {"command": "echo", "args": ["hello"]}}}"#,
-        )
-        .unwrap();
-
-        // Should receive TrustChanged warning
-        let mut got_warning = false;
-        while let Ok(Some(resp)) =
-            tokio::time::timeout(Duration::from_millis(3000), resp_rx.recv()).await
-        {
-            if let AgentResponse::Round {
-                scope:
-                    nuo_protocol::RoundScope::Session {
-                        event: RoundEvent::Notice(n),
-                    },
-                ..
-            } = resp
-                && n.kind == nuo_protocol::NoticeKind::TrustChanged
-            {
-                got_warning = true;
-                break;
-            }
-        }
-        assert!(
-            got_warning,
-            "Expected TrustChanged warning for untrusted workspace MCP"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_mcp_watcher_user_config_does_not_trigger_workspace_warning() {
-        let tmp = tempdir().unwrap();
-        // Simulate a workspace root containing user config directory
-        let ws_root = tmp
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| tmp.path().to_path_buf());
-        let user_config_file = nuo_host::paths::get().config_file();
-
-        let sec_file = tmp.path().join("workspace_security.json");
-        let security = Arc::new(WorkspaceSecurityStore::load_from(sec_file));
-
-        let agent = Arc::new(Agent::new(
-            Arc::new(nuo_harness::NoProvider),
-            vec![],
-            nuo_protocol::AgentIdentity::default(),
-        ));
-        let mcp = Arc::new(McpRuntime::start_background(
-            Default::default(),
-            agent.dynamic_tool_sink(),
-        ));
-
-        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel();
-        // If workspace_root is the parent of user_config_file (e.g. $HOME)
-        let home_root = user_config_file
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_path_buf())
-            .unwrap_or(ws_root);
-
-        spawn_mcp_config_watcher(
-            mcp,
-            Some(home_root),
-            security,
-            resp_tx,
-            "test-session".to_string(),
-        );
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Verify that no spurious TrustChanged notice is emitted
-        let notice = tokio::time::timeout(Duration::from_millis(300), resp_rx.recv()).await;
-        if let Ok(Some(AgentResponse::Round {
-            scope:
-                nuo_protocol::RoundScope::Session {
-                    event: RoundEvent::Notice(n),
-                },
-            ..
-        })) = notice
-            && n.kind == nuo_protocol::NoticeKind::TrustChanged
-        {
-            panic!("User config modification must not trigger TrustChanged warning!");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_user_assets_zero_bypass_and_ttl_lifecycle() {
-        use nuo_protocol::WorkspaceTrustState;
-        use nuo_protocol::security::{AssetLocator, AssetSpec, AttestationStatus};
-
-        let tmp = tempfile::tempdir().unwrap();
-        let handle =
-            nuo_persistence::db::PersistenceHandle::spawn(tmp.path().join("assets.db"), None);
-        let ledger = nuo_persistence::AssetAttestationLedger::for_handle(handle);
-
-        let locator = AssetLocator::UserMcp {
-            name: "sqlite_audit".into(),
-        };
-        let spec_v1 = AssetSpec::Process {
-            command: vec!["uvx".into(), "mcp-server-sqlite".into()],
-            env: std::collections::BTreeMap::new(),
-        };
-
-        // 1. Zero implicit trust: user assets start strictly Quarantined
-        assert_eq!(
-            ledger.status(&locator, &spec_v1),
-            AttestationStatus::Quarantined
-        );
-        assert!(!ledger.is_trusted(&locator, &spec_v1));
-
-        // 2. Trust asset grants a 30-day lease
-        ledger.trust_asset(&locator, &spec_v1).unwrap();
-        assert_eq!(
-            ledger.status(&locator, &spec_v1),
-            AttestationStatus::Trusted
-        );
-        assert!(ledger.is_trusted(&locator, &spec_v1));
-
-        // 3. Modifying command on the same locator triggers Changed (replacement semantics)
-        let spec_v2 = AssetSpec::Process {
-            command: vec![
-                "uvx".into(),
-                "mcp-server-sqlite".into(),
-                "--read-only".into(),
-            ],
-            env: std::collections::BTreeMap::new(),
-        };
-        assert_eq!(
-            ledger.status(&locator, &spec_v2),
-            AttestationStatus::Changed
-        );
-        assert!(!ledger.is_trusted(&locator, &spec_v2));
-
-        // 4. Re-trusting restores Trusted state
-        ledger.trust_asset(&locator, &spec_v2).unwrap();
-        assert_eq!(
-            ledger.status(&locator, &spec_v2),
-            AttestationStatus::Trusted
-        );
-
-        // 5. Expired lease (> 30 days) fails closed
-        ledger
-            .trust_asset_with_expiry(&locator, &spec_v2, 100, 200)
-            .unwrap();
-        assert_eq!(
-            ledger.status(&locator, &spec_v2),
-            AttestationStatus::Expired
-        );
-        assert!(!ledger.is_trusted(&locator, &spec_v2));
-
-        // 6. Snapshot aggregate reflects user-level quarantine even in workspace-free sessions
-        let mut snapshot = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
-        assert_eq!(snapshot.aggregate(), WorkspaceTrustState::Absent);
-        snapshot.user_assets = WorkspaceTrustState::Quarantined;
-        assert_eq!(snapshot.aggregate(), WorkspaceTrustState::Quarantined);
-        snapshot.user_assets = WorkspaceTrustState::Trusted;
-        assert_eq!(snapshot.aggregate(), WorkspaceTrustState::Trusted);
-    }
-
-    #[tokio::test]
-    async fn test_ops_role_assembles_with_full_operational_toolset() {
-        struct HeadlessProbe;
-        #[async_trait::async_trait]
-        impl crate::UiBridge for HeadlessProbe {
-            async fn copy_to_clipboard(&self, _text: &str) -> Result<crate::CopyOutcome, String> {
-                Err("probe: headless".to_string())
-            }
-        }
-
-        let base_identity = nuo_protocol::AgentIdentity::new("ops", "system operator");
-        let ops_profile = nuo_protocol::AgentRoleProfile::ops();
-        let params = BootstrapParams {
-            human_channel: None,
-            identity: base_identity,
-            preset: ops_profile,
-            ui: Arc::new(HeadlessProbe),
-            startup: SessionStart::Fresh,
-            project_root: None,
-            role: Some("ops".to_string()),
-            unattended: false,
-            confined: false,
-            teardown_token: None,
-            shared_config: None,
-            shared_provider_usage: None,
-            phase_sink: None,
-        };
-        let boot = assemble(params).await.expect("ops assemble succeeds");
-        assert_eq!(boot.session.role().as_deref(), Some("ops"));
-        assert!(boot.session.workspace().is_none());
-
-        let tool_names: std::collections::HashSet<String> = boot
-            .agent
-            .installed_tools()
-            .into_iter()
-            .map(|t| t.name().to_string())
-            .collect();
-
-        // Host system and remote operational capabilities must be admitted:
-        assert!(
-            tool_names.contains("execute_command"),
-            "ops must have execute_command"
-        );
-        assert!(tool_names.contains("read_text"), "ops must have read_text");
-        assert!(tool_names.contains("edit_text"), "ops must have edit_text");
-        assert!(
-            tool_names.contains("write_file"),
-            "ops must have write_file"
-        );
-        assert!(
-            tool_names.contains("find_files"),
-            "ops must have find_files"
-        );
-        assert!(
-            tool_names.contains("search_text"),
-            "ops must have search_text"
-        );
-        assert!(tool_names.contains("read_url"), "ops must have read_url");
-        assert!(
-            tool_names.contains("search_web"),
-            "ops must have search_web"
-        );
-        assert!(
-            tool_names.contains("spawn_agent"),
-            "ops must have spawn_agent"
-        );
-
-        // AST-level code parsing and dialog memory are excluded by design:
-        assert!(
-            !tool_names.contains("code_query"),
-            "ops must not have code_query"
-        );
-        assert!(
-            !tool_names.contains("recall_memory"),
-            "ops must not have recall_memory"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_philosophist_role_assembles_with_only_philosophist_tools() {
-        struct HeadlessProbe;
-        #[async_trait::async_trait]
-        impl crate::UiBridge for HeadlessProbe {
-            async fn copy_to_clipboard(&self, _text: &str) -> Result<crate::CopyOutcome, String> {
-                Err("probe: headless".to_string())
-            }
-        }
-
-        let base_identity = nuo_protocol::AgentIdentity::new("philosophist", "philosopher");
-        let profile = nuo_protocol::AgentRoleProfile::philosophist();
-        let params = BootstrapParams {
-            human_channel: None,
-            identity: base_identity,
-            preset: profile,
-            ui: Arc::new(HeadlessProbe),
-            startup: SessionStart::Fresh,
-            project_root: None,
-            role: Some("philosophist".to_string()),
-            unattended: false,
-            confined: true,
-            teardown_token: None,
-            shared_config: None,
-            shared_provider_usage: None,
-            phase_sink: None,
-        };
-        let boot = assemble(params)
-            .await
-            .expect("philosophist assemble succeeds");
-        assert_eq!(boot.session.role().as_deref(), Some("philosophist"));
-        assert!(boot.session.workspace().is_none());
-
-        let tool_names: std::collections::HashSet<String> = boot
-            .agent
-            .installed_tools()
-            .into_iter()
-            .map(|t| t.name().to_string())
-            .collect();
-
-        assert!(
-            tool_names.contains("read_url"),
-            "philosophist must have read_url"
-        );
-        assert!(
-            tool_names.contains("search_web"),
-            "philosophist must have search_web"
-        );
-        assert!(
-            tool_names.contains("recall_memory"),
-            "philosophist must have recall_memory"
-        );
-
-        // System operations and fs tools must NOT be admitted to philosophist:
-        assert!(
-            !tool_names.contains("execute_command"),
-            "philosophist must not have execute_command"
-        );
-        assert!(
-            !tool_names.contains("read_text"),
-            "philosophist must not have read_text"
-        );
-        assert!(
-            !tool_names.contains("edit_text"),
-            "philosophist must not have edit_text"
-        );
-        assert!(
-            !tool_names.contains("write_file"),
-            "philosophist must not have write_file"
-        );
-        assert!(
-            !tool_names.contains("find_files"),
-            "philosophist must not have find_files"
-        );
-        assert!(
-            !tool_names.contains("search_text"),
-            "philosophist must not have search_text"
-        );
-        assert!(
-            !tool_names.contains("spawn_agent"),
-            "philosophist must not have spawn_agent"
-        );
-    }
-}
+mod tests;

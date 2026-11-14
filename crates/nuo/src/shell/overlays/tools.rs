@@ -389,7 +389,7 @@ mod tests {
             model: nuo_protocol::ModelInfo::default(),
             tools: vec![
                 nuo_protocol::ToolInfo {
-                    name: "read_text".to_string(),
+                    name: "read".to_string(),
                     description: "Reads a text file with line numbers.".to_string(),
                     enabled: true,
                     source: "builtin".to_string(),
@@ -470,12 +470,12 @@ mod tests {
             .map(|c| c.symbol.as_str())
             .collect();
         assert!(text.contains("Tools"), "Header should be Tools");
-        assert!(text.contains("read_text"), "Should contain read_text");
+        assert!(text.contains("read"), "Should contain read");
         assert!(
             text.contains("execute_command"),
             "Should contain execute_command"
         );
-        assert!(text.contains("[on]"), "read_text is on");
+        assert!(text.contains("[on]"), "read is on");
         assert!(text.contains("[off]"), "execute_command is off");
         // Ensure "builtin" category column is not in Level 1 row
         assert!(
@@ -513,9 +513,9 @@ mod tests {
             .map(|c| c.symbol.as_str())
             .collect();
         assert!(text.contains("Tools"), "Breadcrumb parent");
-        assert!(text.contains("read_text"), "Breadcrumb child tool name");
+        assert!(text.contains("read"), "Breadcrumb child tool name");
         assert!(text.contains("Status:"), "Should show status");
-        assert!(text.contains("Enabled"), "read_text is enabled");
+        assert!(text.contains("Enabled"), "read is enabled");
         // Native tool should not have category/source line
         assert!(
             !text.contains("Provider:"),

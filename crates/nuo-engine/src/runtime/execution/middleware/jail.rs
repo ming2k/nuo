@@ -17,8 +17,9 @@ impl ToolMiddleware for WorkspaceJailMiddleware {
         env: &dyn ExecutionEnvironment,
     ) -> Result<(), String> {
         let path_str = match tool {
-            "edit_text" | "find_files" | "read_text" | "read_text_terse" | "search_text"
-            | "write_file" | "read_image" => arguments.get("path").and_then(|v| v.as_str()),
+            "edit_text" | "find_files" | "read" | "search_text" | "write_file" => {
+                arguments.get("path").and_then(|v| v.as_str())
+            }
             _ => None,
         };
 

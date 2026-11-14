@@ -1,7 +1,7 @@
 //! Per-session monitor state machines.
 //!
 //! A [`MonitorTracker`] taps one hosted session's [`AgentResponse`] broadcast
-//! and maintains the [`ThreadStatus`] + accounting row a control panel
+//! and maintains the [`ThreadActivity`] + accounting row a control panel
 //! renders. The tap lives in the session's broadcast-tap task
 //! ([`crate::registry`]), which calls [`MonitorTracker::observe`] for every
 //! response; the registry owns publishing the resulting
@@ -11,7 +11,7 @@
 //! lifecycle itself stays binary (ADR-0078) — `Idle`/`Running` here are a
 //! display badge, and the `Needs*` states are overlays on a still-running
 //! round.
-use nuo_protocol::{AgentResponse, MonitoredThread, RoundEvent, ThreadStatus};
+use nuo_protocol::{AgentResponse, MonitoredThread, RoundEvent, ThreadActivity};
 
 /// Tracks one hosted thread. `base` is the cheap header row (from the same
 /// deferred parse that feeds the threads picker), re-seeded whenever a
@@ -20,7 +20,7 @@ use nuo_protocol::{AgentResponse, MonitoredThread, RoundEvent, ThreadStatus};
 /// [`Self::bootstrap`].
 pub struct MonitorTracker {
     base: MonitoredThread,
-    status: ThreadStatus,
+    status: ThreadActivity,
     round: u64,
     turn: Option<usize>,
     output_tokens: u64,
@@ -35,10 +35,10 @@ pub struct MonitorTracker {
 impl MonitorTracker {
     /// Seed the tracker for a session that has just been (re-)hosted.
     ///
-    /// `seed_status` is the registry's bootstrap verdict: [`ThreadStatus::Running`]
+    /// `seed_status` is the registry's bootstrap verdict: [`ThreadActivity::Running`]
     /// when the resumed transcript's tail shows an unfinished round (the
-    /// driver will re-drive it), otherwise [`ThreadStatus::Idle`].
-    pub fn bootstrap(mut base: MonitoredThread, seed_status: ThreadStatus) -> Self {
+    /// driver will re-drive it), otherwise [`ThreadActivity::Idle`].
+    pub fn bootstrap(mut base: MonitoredThread, seed_status: ThreadActivity) -> Self {
         base.status = seed_status;
         Self {
             base,
@@ -46,7 +46,7 @@ impl MonitorTracker {
             round: 0,
             turn: None,
             output_tokens: 0,
-            round_started: if seed_status == ThreadStatus::Running {
+            round_started: if seed_status == ThreadActivity::Running {
                 Some(std::time::Instant::now())
             } else {
                 None
@@ -93,10 +93,9 @@ impl MonitorTracker {
                 self.base.created_at = item.created_at;
                 // Lineage (fork surfacing): the overview is the authoritative
                 // source — it reads the persisted snapshot, where `parent_id`
-                // and `fork_kind` are stamped at fork time.
+                // and `origin` are stamped at fork time.
                 self.base.parent_id.clone_from(&item.parent_id);
-                self.base.fork_kind = item.fork_kind;
-                self.base.fork_point = item.fork_point;
+                self.base.origin = item.origin;
                 self.base.digest.clone_from(&item.digest);
             }
             return;
@@ -124,22 +123,22 @@ impl MonitorTracker {
                 self.round = context.round;
                 self.turn = Some(context.turn as usize);
                 self.note = None;
-                self.status = ThreadStatus::Running;
+                self.status = ThreadActivity::Running;
             }
             RoundEvent::ToolCall { name, .. } => {
                 self.current_tool = Some(name.clone());
-                self.status = ThreadStatus::Running;
+                self.status = ThreadActivity::Running;
                 self.note = None;
             }
             RoundEvent::ToolResult { .. } | RoundEvent::ToolCancelled { .. } => {
                 self.current_tool = None;
             }
             RoundEvent::PermissionRequest(request) => {
-                self.status = ThreadStatus::NeedsApproval;
+                self.status = ThreadActivity::NeedsApproval;
                 self.note = Some(format!("permission: {}", request.tool));
             }
             RoundEvent::UserQuestionRequest(request) => {
-                self.status = ThreadStatus::NeedsInput;
+                self.status = ThreadActivity::NeedsInput;
                 self.note = Some(
                     request
                         .questions
@@ -149,7 +148,7 @@ impl MonitorTracker {
                 );
             }
             RoundEvent::StdinRequest(request) => {
-                self.status = ThreadStatus::NeedsInput;
+                self.status = ThreadActivity::NeedsInput;
                 self.note = Some(format!("stdin: {}", truncate(&request.prompt, 80)));
             }
             RoundEvent::StreamStart | RoundEvent::StreamDelta(_) | RoundEvent::StreamEnd(_) => {
@@ -157,31 +156,31 @@ impl MonitorTracker {
                 // has been resolved.
                 if matches!(
                     self.status,
-                    ThreadStatus::NeedsApproval | ThreadStatus::NeedsInput
+                    ThreadActivity::NeedsApproval | ThreadActivity::NeedsInput
                 ) {
-                    self.status = ThreadStatus::Running;
+                    self.status = ThreadActivity::Running;
                     self.note = None;
                 }
             }
             RoundEvent::RoundCompleted(summary) => {
-                self.finish_round(ThreadStatus::Idle);
+                self.finish_round(ThreadActivity::Idle);
                 self.round = summary.round;
                 self.output_tokens = summary.output_tokens;
                 self.elapsed_ms = summary.duration_ms;
             }
             RoundEvent::Error(message) => {
-                self.finish_round(ThreadStatus::Failed);
+                self.finish_round(ThreadActivity::Failed);
                 self.note = Some(truncate(message, 120));
             }
             RoundEvent::UnsentInput { .. } => {
-                self.finish_round(ThreadStatus::Interrupted);
+                self.finish_round(ThreadActivity::Interrupted);
             }
             RoundEvent::RoundInterrupted(record) => {
                 // Every interrupted round now carries an explicit record
                 // (C11) — including the previously invisible supersede and
                 // phase-2/3 interrupt paths. Fold it as the row's terminal
                 // state with the reason as the note.
-                self.finish_round(ThreadStatus::Interrupted);
+                self.finish_round(ThreadActivity::Interrupted);
                 self.note = Some(truncate(record.label(), 120));
             }
             RoundEvent::Activity(text) => {
@@ -220,7 +219,7 @@ impl MonitorTracker {
             self.output_tokens = 0;
             self.current_tool = None;
             self.note = None;
-            self.status = ThreadStatus::Running;
+            self.status = ThreadActivity::Running;
         }
     }
 
@@ -231,12 +230,12 @@ impl MonitorTracker {
         }
     }
 
-    fn finish_round(&mut self, status: ThreadStatus) {
+    fn finish_round(&mut self, status: ThreadActivity) {
         self.elapsed_ms = self.elapsed_ms();
         self.round_started = None;
         self.current_tool = None;
         self.status = status;
-        if status != ThreadStatus::Failed {
+        if status != ThreadActivity::Failed {
             self.note = None;
         }
     }
@@ -299,7 +298,7 @@ mod tests {
                 created_at: 1,
                 updated_at: 1,
                 message_count: 2,
-                status: ThreadStatus::Idle,
+                status: ThreadActivity::Idle,
                 hosting: nuo_protocol::ThreadHosting::Hosted,
                 round: 0,
                 turn: None,
@@ -312,11 +311,10 @@ mod tests {
                 project_root: "/tmp/proj".into(),
                 role: "developer".into(),
                 parent_id: None,
-                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-                fork_point: None,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
-            ThreadStatus::Idle,
+            ThreadActivity::Idle,
         )
     }
 
@@ -337,8 +335,7 @@ mod tests {
                 message_count: 9,
                 active: true,
                 parent_id: None,
-                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-                fork_point: None,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
             // Another session's row must not leak into ours.
@@ -351,8 +348,7 @@ mod tests {
                 message_count: 1,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-                fork_point: None,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
         ]));
@@ -378,8 +374,7 @@ mod tests {
                 message_count: 1,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
-                fork_point: None,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
         ]));
@@ -393,7 +388,7 @@ mod tests {
         let mut t = tracker();
         t.observe(&turn_started(1, 0));
         let row = t.row();
-        assert_eq!(row.status, ThreadStatus::Running);
+        assert_eq!(row.status, ThreadActivity::Running);
         assert_eq!(row.round, 1);
         assert_eq!(row.turn, Some(0));
         t.observe(&turn_started(1, 1));
@@ -413,7 +408,7 @@ mod tests {
             ..Default::default()
         })));
         let row = t.row();
-        assert_eq!(row.status, ThreadStatus::Idle);
+        assert_eq!(row.status, ThreadActivity::Idle);
         assert_eq!(row.round, 1);
         assert_eq!(row.output_tokens, 300);
         assert_eq!(row.elapsed_ms, 5_000);
@@ -438,10 +433,10 @@ mod tests {
                 ..Default::default()
             },
         )));
-        assert_eq!(t.row().status, ThreadStatus::NeedsApproval);
+        assert_eq!(t.row().status, ThreadActivity::NeedsApproval);
         assert!(t.row().note.unwrap().contains("write_file"));
         t.observe(&turn_event(RoundEvent::StreamDelta("…".into())));
-        assert_eq!(t.row().status, ThreadStatus::Running);
+        assert_eq!(t.row().status, ThreadActivity::Running);
         assert!(t.row().note.is_none());
     }
 
@@ -451,7 +446,7 @@ mod tests {
         t.observe(&turn_started(1, 0));
         t.observe(&round_event(RoundEvent::Error("provider blew up".into())));
         let row = t.row();
-        assert_eq!(row.status, ThreadStatus::Failed);
+        assert_eq!(row.status, ThreadActivity::Failed);
         assert_eq!(row.note.as_deref(), Some("provider blew up"));
     }
 
@@ -463,7 +458,7 @@ mod tests {
             prompt: "redo".into(),
             images: Vec::new(),
         }));
-        assert_eq!(t.row().status, ThreadStatus::Interrupted);
+        assert_eq!(t.row().status, ThreadActivity::Interrupted);
     }
 
     #[test]
@@ -482,7 +477,7 @@ mod tests {
             },
         )));
         let row = t.row();
-        assert_eq!(row.status, ThreadStatus::Interrupted);
+        assert_eq!(row.status, ThreadActivity::Interrupted);
         assert_eq!(row.note.as_deref(), Some("Esc Esc"));
     }
 
@@ -494,6 +489,6 @@ mod tests {
         let row = t.row();
         assert_eq!(row.round, 1, "turns of one round must not double-count");
         assert_eq!(row.turn, Some(1));
-        assert_eq!(row.status, ThreadStatus::Running);
+        assert_eq!(row.status, ThreadActivity::Running);
     }
 }

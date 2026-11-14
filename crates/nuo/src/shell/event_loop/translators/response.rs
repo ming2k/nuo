@@ -1508,21 +1508,6 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
                 AgentResponse::OpenTreePanel => {
                     mutations.send(M::OpenTreePanel).await;
                 }
-                AgentResponse::ThreadForked {
-                    child_id,
-                    parent_id,
-                    fork_point,
-                    prompt,
-                } => {
-                    mutations
-                        .send(M::SessionForked {
-                            child_id,
-                            parent_id,
-                            fork_point,
-                            prompt,
-                        })
-                        .await;
-                }
                 AgentResponse::ThreadDetail(detail) => {
                     mutations.send(M::SessionDetail(detail)).await;
                 }

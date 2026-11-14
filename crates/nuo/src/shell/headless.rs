@@ -67,7 +67,7 @@ pub async fn run_headless(
             nuo_protocol::human_request::HumanChannelPosture::Autonomous
         });
     }
-    let init_options = client::SessionInitOptions::new(unattended, confined)
+    let init_options = client::ThreadInitOptions::new(unattended, confined)
         .with_role(role)
         .with_resume(resume);
     let action = AttachAction::New(if init_options.is_default() {

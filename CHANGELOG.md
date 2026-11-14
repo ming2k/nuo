@@ -8,6 +8,17 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+### Changed
+
+- **One `read` capability replaces `read_text` + `read_image`.** The model-facing surface is now `read` (`path`, `offset`, `limit`). It dispatches internally by filesystem kind and magic bytes: text pages are capped at 2,000 lines / 50 KiB / 2,000 chars per line, directories list one level with deterministic pagination, PNG/JPEG/GIF/WebP return typed `ToolOutput::Image` payloads, and NUL-bearing, invalid-UTF-8, and PDF files are reported instead of decoded. The ghost `read_image` capability is gone; `find_files` and `search_text` remain separate query tools ([ADR-0176](docs/adr/0176-read-is-one-capability-with-bounded-content-dispatch.md)).
+- **`edit_text` retries with a unique line-window normalization.** Exact matching stays first; when it misses, CRLF/trailing-whitespace/typographic differences are folded at whole-line granularity, never by rewriting unmatched bytes and never by ignoring leading indentation. `replace_all` is explicit, normalized matches are disclosed in the patch warnings, and preview/execution still share one pure matcher ([ADR-0177](docs/adr/0177-edit-matching-is-exact-first-with-a-unique-line-window-normalization.md)).
+- **Workspace topology is cached by root-manifest mtime.** The system-prompt section no longer re-reads every explicitly listed member manifest on every model request; one `stat` invalidates the cache.
+
+### Fixed
+
+- **Ghost built-ins and duplicate registrations are gone.** `use_skill`/`list_skills` are no longer `BuiltinTool` variants — they were implemented but never installed in any toolset, so the enum advertised capabilities the runtime could not produce. Their structs remain programmatic utilities (`/skills` uses `ListSkillsTool` directly), not model-facing tools. The persistence `recall_memory` implementation and the direct `code_query` insertion were removed in favor of the self-registered port/factory paths, so each capability has exactly one producer. `search_text` now emits structured `ToolOutput::Matches` instead of a formatted string, making the variant live ([ADR-0178](docs/adr/0178-one-capability-one-producer-and-no-ghost-builtins.md)).
+- **Background sub-agent rejection no longer points at nonexistent `execute_command` modes.** The message now says only that the child runs inside the calling turn.
+
 ## [0.0.86] - 2026-11-13
 
 ### Fixed

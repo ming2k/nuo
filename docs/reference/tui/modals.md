@@ -160,7 +160,7 @@ moves.
 
 ### 4.6 Mechanical governance
 
-`cargo test -p nuo --test architecture_firewall` fails if a truncation helper
+`cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_firewall::test_inv_text_overflow_and_column_budget_firewall)'` fails if a truncation helper
 builds its own ellipsis, or if a renderer sizes a column by percentage
 arithmetic. Both are bug classes, not style preferences: a private truncation is
 how two surfaces disagree about which end of a string matters, and a private

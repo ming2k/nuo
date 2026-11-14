@@ -80,15 +80,14 @@ impl AgentRoleProfile {
         self
     }
 
-    /// Preset for standard developer master (native tools, full delegation).
+    /// Preset for the standard developer role.
+    ///
+    /// The default developer is a policy, not a persona: its tools, workspace,
+    /// and permissions define it. It emits no identity preamble, so a bare
+    /// developer session carries no role prose.
     pub fn developer() -> Self {
-        Self::with_identity(
-            "developer",
-            role_directive(
-                "Role: developer. You are an expert AI software engineer with native tool access and deep system architecture capability. Execute commands and edit files with surgical precision, maintain strict testing discipline, and prioritize root-cause solutions over superficial patches.",
-            ),
-        )
-        .with_tools(MainAgentRole::Developer.tool_selection())
+        Self::with_identity("developer", AgentIdentity::default())
+            .with_tools(MainAgentRole::Developer.tool_selection())
     }
 
     /// Role for standard developer master.
@@ -215,7 +214,7 @@ pub type SubAgent = Agent<SubAgentRole>;
 /// Captured at session birth to guarantee hermetic restoration and deterministic prompt caching,
 /// completely decoupled from external mutable `roles.toml` files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionRoleManifest {
+pub struct ThreadRoleManifest {
     pub role_id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -236,7 +235,7 @@ pub struct SessionRoleManifest {
     pub created_at_s: u64,
 }
 
-impl SessionRoleManifest {
+impl ThreadRoleManifest {
     pub fn new(
         role_id: impl Into<String>,
         name: impl Into<String>,
@@ -462,14 +461,13 @@ impl MainAgentRole {
     /// repository workspace, git history, and tests are the authoritative ground truth.
     pub const DEVELOPER_TOOLS: &'static [BuiltinTool] = &[
         BuiltinTool::ExecuteCommand,
-        BuiltinTool::ReadText,
+        BuiltinTool::Read,
         BuiltinTool::EditText,
         BuiltinTool::WriteFile,
         BuiltinTool::FindFiles,
         BuiltinTool::SearchText,
         BuiltinTool::ReadUrl,
         BuiltinTool::SearchWeb,
-        BuiltinTool::ReadImage,
         BuiltinTool::SpawnAgent,
     ];
 
@@ -483,14 +481,13 @@ impl MainAgentRole {
     /// Built-in tools admitted for ops sessions.
     pub const OPS_TOOLS: &'static [BuiltinTool] = &[
         BuiltinTool::ExecuteCommand,
-        BuiltinTool::ReadText,
+        BuiltinTool::Read,
         BuiltinTool::EditText,
         BuiltinTool::WriteFile,
         BuiltinTool::FindFiles,
         BuiltinTool::SearchText,
         BuiltinTool::ReadUrl,
         BuiltinTool::SearchWeb,
-        BuiltinTool::ReadImage,
         BuiltinTool::SpawnAgent,
     ];
 }
@@ -728,10 +725,8 @@ mod tests {
 
         let default_dev = AgentRoleProfile::developer();
         assert!(
-            default_dev
-                .identity
-                .preamble()
-                .starts_with("Role: developer.")
+            default_dev.identity.preamble().is_empty(),
+            "the default developer role must not emit a persona directive"
         );
 
         let phil = AgentRoleProfile::from_role(MainAgentRole::Philosophist, &base);
@@ -750,7 +745,7 @@ mod tests {
             panic!("developer must be scoped with explicit tools");
         };
         assert!(names.contains(BuiltinTool::ExecuteCommand.as_str()));
-        assert!(names.contains(BuiltinTool::ReadText.as_str()));
+        assert!(names.contains(BuiltinTool::Read.as_str()));
         assert!(names.contains(BuiltinTool::EditText.as_str()));
         assert!(names.contains(BuiltinTool::WriteFile.as_str()));
         assert!(names.contains(BuiltinTool::SpawnAgent.as_str()));
@@ -776,7 +771,7 @@ mod tests {
         assert!(!names.contains("write_file"));
         assert!(!names.contains("edit_text"));
         assert!(!names.contains("execute_command"));
-        assert!(!names.contains("read_text"));
+        assert!(!names.contains("read"));
         assert!(names.contains("read_url"));
         assert!(names.contains("search_web"));
         assert!(!names.contains("ask_user"));
@@ -800,7 +795,7 @@ mod tests {
 
     #[test]
     fn session_role_manifest_defaults_and_serde() {
-        let dev_manifest = SessionRoleManifest::developer();
+        let dev_manifest = ThreadRoleManifest::developer();
         assert_eq!(dev_manifest.role_id, "developer");
         assert_eq!(dev_manifest.builtin_tools(), MainAgentRole::DEVELOPER_TOOLS);
         assert!(
@@ -809,13 +804,11 @@ mod tests {
                 .contains(&BuiltinTool::CodeQuery.as_str().to_string())
         );
         assert!(
-            dev_manifest
-                .identity
-                .preamble()
-                .starts_with("Role: developer.")
+            dev_manifest.identity.preamble().is_empty(),
+            "the default developer manifest must not emit a persona directive"
         );
 
-        let phil_manifest = SessionRoleManifest::philosophist();
+        let phil_manifest = ThreadRoleManifest::philosophist();
         assert_eq!(phil_manifest.role_id, "philosophist");
         assert_eq!(
             phil_manifest.builtin_tools(),
@@ -828,7 +821,7 @@ mod tests {
                 .starts_with("Role: philosophist.")
         );
 
-        let ops_manifest = SessionRoleManifest::ops();
+        let ops_manifest = ThreadRoleManifest::ops();
         assert_eq!(ops_manifest.role_id, "ops");
         assert!(
             ops_manifest
@@ -845,12 +838,12 @@ mod tests {
         assert!(ops_manifest.identity.preamble().starts_with("Role: ops."));
 
         let serialized = serde_json::to_string(&ops_manifest).expect("serialize ops manifest");
-        let deserialized: SessionRoleManifest =
+        let deserialized: ThreadRoleManifest =
             serde_json::from_str(&serialized).expect("deserialize ops manifest");
         assert_eq!(ops_manifest, deserialized);
 
         let serialized = serde_json::to_string(&dev_manifest).expect("serialize manifest");
-        let deserialized: SessionRoleManifest =
+        let deserialized: ThreadRoleManifest =
             serde_json::from_str(&serialized).expect("deserialize manifest");
         assert_eq!(dev_manifest, deserialized);
     }
@@ -872,7 +865,7 @@ mod tests {
         };
         // System and remote operational capabilities admitted:
         assert!(names.contains(BuiltinTool::ExecuteCommand.as_str()));
-        assert!(names.contains(BuiltinTool::ReadText.as_str()));
+        assert!(names.contains(BuiltinTool::Read.as_str()));
         assert!(names.contains(BuiltinTool::EditText.as_str()));
         assert!(names.contains(BuiltinTool::WriteFile.as_str()));
         assert!(names.contains(BuiltinTool::FindFiles.as_str()));

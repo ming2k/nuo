@@ -36,7 +36,6 @@ pub use nuo_server::serve_discovery::{
     self as discovery, default_local_endpoint, global_discovery_path, global_lock_path,
     global_spawn_lock_path, instance_dir,
 };
-pub type SessionInitOptions = ThreadInitOptions;
 
 /// Initialize client logging guard.
 pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {

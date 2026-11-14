@@ -42,6 +42,26 @@ pub struct NormalizedImage {
     pub height: u32,
 }
 
+/// Host implementation of the tool-boundary image normalizer.
+///
+/// `nuo-tool-fs` owns the read capability but must not link the codec stack;
+/// the server injects this zero-sized adapter into the filesystem tool context.
+/// The policy is the ingest policy above: PNG/JPEG only, everything else passes
+/// through untouched.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct HostImageNormalizer;
+
+impl nuo_tool::ImageNormalizer for HostImageNormalizer {
+    fn normalize(&self, data: &[u8], mime: &str) -> Option<nuo_tool::NormalizedImage> {
+        normalize_image(data, mime).map(|image| nuo_tool::NormalizedImage {
+            data: image.data,
+            mime: image.mime,
+            width: image.width,
+            height: image.height,
+        })
+    }
+}
+
 /// Normalize one raster image, or return `None` when it is already within
 /// budget, cannot be decoded, or is a format this boundary deliberately does
 /// not rewrite.

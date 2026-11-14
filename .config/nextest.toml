@@ -1,0 +1,74 @@
+# Layered test execution (ADR-0178).
+#
+# The three named profiles are the mechanical definition of the test pyramid:
+#
+#   cargo nextest run --workspace --profile unit
+#   cargo nextest run --workspace --profile integration
+#   cargo nextest run -p nuo-tests --profile e2e
+#
+# nextest is the only executable test runner; there is no cargo-test or xtask
+# fallback. The profiles change selection, timeouts, and setup only.
+
+[experimental]
+# The E2E entry lives in the root `nuo-tests` package, so Cargo cannot inject
+# `CARGO_BIN_EXE_nuo`. The setup script builds the host binary and exports its
+# exact path as NUO_TEST_BIN (ADR-0178).
+setup-scripts = true
+
+[scripts.setup.nuo-binary]
+command = [
+    "sh",
+    "-c",
+    '''set -eu
+exe=$(cargo build -p nuo --bin nuo --message-format=json 2>/dev/null \
+  | sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' | tail -n 1)
+test -n "$exe"
+printf 'NUO_TEST_BIN=%s\n' "$exe" >> "$NEXTEST_ENV"
+''',
+]
+slow-timeout = { period = "300s", terminate-after = 2 }
+capture-stdout = true
+capture-stderr = true
+
+[[profile.default.scripts]]
+filter = 'binary(e2e)'
+platform = { host = "cfg(unix)" }
+setup = 'nuo-binary'
+
+[profile.default]
+retries = 0
+# A hung test is a failure, not a reason to wait forever. Two periods give a
+# slow machine one grace interval before the process is terminated.
+slow-timeout = { period = "120s", terminate-after = 2 }
+status-level = "skip"
+final-status-level = "slow"
+failure-output = "immediate-final"
+success-output = "never"
+
+[profile.unit]
+# Unit tests are pure/in-memory; they must stay fast enough for the inner loop.
+default-filter = "kind(lib) | kind(bin) | kind(proc-macro)"
+slow-timeout = { period = "30s", terminate-after = 2 }
+
+[profile.integration]
+# Every crate integration module compiles into the one root integration binary.
+default-filter = "kind(test) and not binary(e2e)"
+slow-timeout = { period = "120s", terminate-after = 2 }
+
+[profile.e2e]
+# Real `nuo` processes, real IPC, isolated NUO_HOME, hermetic mock provider.
+default-filter = "binary(e2e)"
+slow-timeout = { period = "180s", terminate-after = 2 }
+# Process startup and socket binding are the only genuinely timing-sensitive
+# steps in the suite. One retry is allowed here and nowhere else; a test that
+# needs more than one is flaky and must be fixed.
+retries = 1
+
+# E2E tests own sockets, process groups, and a sandbox root; run them one at a
+# time so a leaked process cannot collide with the next test's instance.
+[[profile.default.overrides]]
+filter = "binary(e2e)"
+test-group = "e2e-serial"
+
+[test-groups.e2e-serial]
+max-threads = 1

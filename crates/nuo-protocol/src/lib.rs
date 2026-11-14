@@ -75,13 +75,35 @@ pub use transcript::{
 };
 
 pub mod instructions;
+pub mod observation;
+pub mod request_builder;
+pub mod thread;
+pub mod thread_store;
+pub mod thread_view;
 pub use instructions::{
-    InstructionBundle, InstructionRoute, InstructionSelector, InstructionSlice, InstructionSource,
-    InstructionTier, ScopedInstruction,
+    Block, BlockRender, InstructionRoute, InstructionSelector, InstructionSource, InstructionText,
+    ScopedInstruction, render_blocks,
 };
 
 pub mod command;
 pub use command::*;
+pub use observation::{
+    InvalidationReason, ObservationLifecycle, ObservationMetrics, TerminationReason, Trust,
+};
+pub use request_builder::{RequestBuilder, RequestContext};
+pub use thread::{
+    BlobRef, BranchId, BranchPolicy, BranchState, ByteRange, Client, ClientId, ClientState,
+    CommandEnvelope, CommandMeta, CommandOutcome, FACT_SCHEMA_VERSION, FactContext, FactEnvelope,
+    FactId, FactKind, FactPayload, InputQueue, PermissionSnapshot, QueuedInput,
+    THREAD_SCHEMA_VERSION, Thread, ThreadCommand, ThreadDelta, ThreadError, ThreadFact,
+    ThreadGraph, ThreadId, ThreadPolicy, ThreadQuery, ThreadRevision, ThreadState,
+    ThreadStateUpdate, ThreadStatus, TranscriptItem, TranscriptView, TurnState, WriterLease,
+};
+pub use thread_store::{
+    Ack, BlobStore, CommandAck, GcReport, MemoryBlobStore, MemoryThreadStore, ThreadStore,
+    ThreadStoreError,
+};
+pub use thread_view::{FactSummary, FoldReason, FoldRecord, RequestView, ThreadWindow};
 
 pub mod mention;
 
@@ -155,7 +177,7 @@ pub mod subagent;
 pub use agent_kind::AgentKind;
 pub use agent_role::{
     Agent, AgentRole, AgentRoleDelegation, AgentRoleProfile, AgentRuntimeConfig, DelegationPolicy,
-    MainAgent, MainAgentRole, SessionRoleManifest, SubAgent, SubAgentRole,
+    MainAgent, MainAgentRole, SubAgent, SubAgentRole, ThreadRoleManifest,
 };
 pub use cognitive::{
     CognitiveModelPreference, CognitiveTask, HarnessTask, HarnessTaskModelPreference,
@@ -210,16 +232,6 @@ pub mod session_title;
 
 pub mod context_lifecycle;
 
-pub mod session_ir;
-pub use session_ir::{
-    BeliefState, BudgetPolicy, CacheBoundary, CapabilityPolicy, CausalGraph, CausalNode,
-    CompilationArtifact, CompilationStats, CompilerError, CompilerOptions, ExecutionStatus,
-    GuardrailPolicy, InvalidationReason, NodeId, NodeKind, NodePayload, ObservationLifecycle,
-    ObservationMetrics, RuleSet, SessionDelta, SessionIR, SessionPolicy, SessionState, StateUpdate,
-    SuspensionReason, SystemNoticePayload, TerminationReason, TimelineCursor, TimelineKind,
-    compile_session_request,
-};
-
 pub mod session_tree;
 pub use session_tree::{
     CompactionPayload, ThreadEntry, ThreadEntryId, ThreadEntryKind, ThreadTree,
@@ -257,7 +269,7 @@ pub use trajectory_guard_config::TrajectoryGuardConfig;
 pub mod monitor;
 pub use dialects::{DiscoveredModel, ModelListError};
 pub use hooks::{
-    Hook, HookContext, HookEvent, HookEventKind, HookOutcome, RestorePoint, SessionSource,
+    Hook, HookContext, HookEvent, HookEventKind, HookOutcome, HookStartSource, RestorePoint,
 };
 pub use identity::AgentIdentity;
 pub use job::{
@@ -356,9 +368,9 @@ pub use policy_schema::*;
 /// `payload` carrying the JSON-encoded result of data-bearing verbs
 /// (`ListThreads`, `StopThreads`, `PurgeThreads`, usage/endpoint reports).
 /// The envelope shape changes, so the floor moves with the ceiling.
-pub const PROTOCOL_VERSION: u32 = 27;
+pub const PROTOCOL_VERSION: u32 = 29;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 27;
+pub const MIN_PROTOCOL_VERSION: u32 = 29;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -550,6 +562,28 @@ pub enum ControlRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         filter: Option<ThreadFilter>,
         ids: Vec<String>,
+    },
+    /// Fork a branch cursor in a live thread. The branch shares the immutable
+    /// fact prefix; no conversation bytes are copied.
+    ForkBranch {
+        thread_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_fact_id: Option<String>,
+    },
+    /// List every branch cursor of a thread.
+    ListBranches {
+        thread_id: String,
+    },
+    /// Switch the thread's active branch.
+    SwitchBranch {
+        thread_id: String,
+        branch_id: String,
+    },
+    /// Delete a branch cursor. Facts reachable from another branch survive.
+    DeleteBranch {
+        thread_id: String,
+        branch_id: String,
     },
     /// ADR-0171: permanently delete durable thread history. The ids are the
     /// exact snapshot the operator confirmed; `filter` guards the scope.

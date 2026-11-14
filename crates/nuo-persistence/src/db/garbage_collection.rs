@@ -24,7 +24,7 @@ use rusqlite::{Connection, Result};
 /// bookkeeping at all, so drift is unrepresentable rather than merely unlikely.
 pub(crate) fn live_blob_hashes(conn: &Connection) -> Result<HashSet<String>> {
     let mut stmt = conn.prepare(
-        "SELECT hash FROM blob_refs
+        "SELECT hash FROM thread_blob_refs
          UNION
          SELECT before_hash FROM workspace_effects
              WHERE before_hash IS NOT NULL AND expired_at_ms IS NULL
@@ -45,12 +45,9 @@ pub(crate) fn live_blob_hashes(conn: &Connection) -> Result<HashSet<String>> {
 /// rows are removable; the foreign key from `entry_memberships` makes the two tables'
 /// agreement structural, and entry insert + membership insert share one transaction,
 /// so a GC pass can never observe the half of a pair. Returns the rows reclaimed.
-pub(crate) fn collect_entry_garbage(conn: &Connection) -> Result<usize> {
-    let reclaimed = conn.execute(
-        "DELETE FROM entries WHERE NOT EXISTS (
-            SELECT 1 FROM entry_memberships m WHERE m.entry_id = entries.id
-        )",
-        [],
-    )?;
-    Ok(reclaimed)
+pub(crate) fn collect_entry_garbage(_conn: &Connection) -> Result<usize> {
+    // Transcript entries are retired; facts own their blobs via
+    // `thread_blob_refs`. Kept as a zero-work maintenance verb so the storage
+    // maintenance report stays stable.
+    Ok(0)
 }

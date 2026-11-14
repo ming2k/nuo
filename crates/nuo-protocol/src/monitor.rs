@@ -10,11 +10,11 @@
 //! accounting — so a dashboard never deserializes a transcript.
 //!
 //! The types are pure contracts (ADR-0057 → ADR-0066): no I/O, no derivations. The
-//! session status machine that produces [`SessionStatus`] values from the
+//! session status machine that produces [`ThreadActivity`] values from the
 //! `AgentResponse` stream lives in `nuo_runtime::monitor`.
 use serde::{Deserialize, Serialize};
 
-use crate::events::{ForkPoint, ThreadForkKind};
+use crate::events::ThreadOrigin;
 
 /// Handshake action selecting a server-observability stream instead of a
 /// session attach. Sent as the first frame:
@@ -219,7 +219,7 @@ pub struct MonitoredThread {
     #[serde(default)]
     pub hosting: ThreadHosting,
     /// Derived lifecycle status: the panel's primary sort key.
-    pub status: ThreadStatus,
+    pub status: ThreadActivity,
     /// 1-based index of the current (or most recently completed) user round.
     pub round: u64,
     /// 0-based index of the model request within the current round, when one
@@ -261,11 +261,9 @@ pub struct MonitoredThread {
     /// How this session came to exist: trunk root or `/fork` branch (ADR-0058).
     /// Defaults to `Trunk` for producers that predate the field.
     #[serde(default)]
-    pub fork_kind: ThreadForkKind,
+    pub origin: ThreadOrigin,
     /// Where this branch diverged from its parent (ADR-0120). Persisted on the
     /// child at fork time and read verbatim here — never re-derived.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fork_point: Option<ForkPoint>,
     /// Structured digest (intent + history checklist), if
     /// the session has generated one.
     #[serde(default)]
@@ -284,7 +282,7 @@ impl MonitoredThread {
             updated_at: 0,
             message_count: 0,
             hosting: ThreadHosting::Hosted,
-            status: ThreadStatus::Idle,
+            status: ThreadActivity::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -296,8 +294,7 @@ impl MonitoredThread {
             project_root: String::new(),
             role: default_role(),
             parent_id: None,
-            fork_kind: ThreadForkKind::default(),
-            fork_point: None,
+            origin: ThreadOrigin::default(),
             digest: None,
         }
     }
@@ -309,7 +306,7 @@ impl MonitoredThread {
 /// itself stays binary (`RoundLifecycle`, ADR-0078).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ThreadStatus {
+pub enum ThreadActivity {
     /// No round running, nothing waiting on a human.
     Idle,
     /// A round is actively producing model output or running tools.
@@ -324,9 +321,7 @@ pub enum ThreadStatus {
     Failed,
 }
 
-pub type SessionStatus = ThreadStatus;
-
-impl ThreadStatus {
+impl ThreadActivity {
     /// Whether a panel row in this status describes ongoing or blocked work —
     /// the default (non-`include_idle`) filter for monitor snapshots.
     pub fn is_active(self) -> bool {
@@ -346,7 +341,7 @@ impl ThreadStatus {
     }
 }
 
-impl std::fmt::Display for SessionStatus {
+impl std::fmt::Display for ThreadActivity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -377,22 +372,22 @@ mod tests {
     #[test]
     fn session_status_serializes_as_snake_case() {
         assert_eq!(
-            serde_json::to_string(&SessionStatus::NeedsApproval).unwrap(),
+            serde_json::to_string(&ThreadActivity::NeedsApproval).unwrap(),
             "\"needs_approval\""
         );
-        assert_eq!(SessionStatus::NeedsApproval.as_str(), "needs-approval");
-        assert_eq!(SessionStatus::NeedsInput.to_string(), "needs-input");
+        assert_eq!(ThreadActivity::NeedsApproval.as_str(), "needs-approval");
+        assert_eq!(ThreadActivity::NeedsInput.to_string(), "needs-input");
     }
 
     #[test]
     fn session_status_is_active_gates_idle_only() {
-        assert!(!SessionStatus::Idle.is_active());
+        assert!(!ThreadActivity::Idle.is_active());
         for status in [
-            SessionStatus::Running,
-            SessionStatus::NeedsApproval,
-            SessionStatus::NeedsInput,
-            SessionStatus::Interrupted,
-            SessionStatus::Failed,
+            ThreadActivity::Running,
+            ThreadActivity::NeedsApproval,
+            ThreadActivity::NeedsInput,
+            ThreadActivity::Interrupted,
+            ThreadActivity::Failed,
         ] {
             assert!(status.is_active(), "{status} should be active");
         }
@@ -439,7 +434,7 @@ mod tests {
                 updated_at: 2,
                 message_count: 7,
                 hosting: ThreadHosting::Hosted,
-                status: ThreadStatus::Running,
+                status: ThreadActivity::Running,
                 round: 3,
                 turn: Some(1),
                 output_tokens: 512,
@@ -451,8 +446,7 @@ mod tests {
                 project_root: "/tmp/proj".into(),
                 role: "developer".into(),
                 parent_id: None,
-                fork_kind: ThreadForkKind::Trunk,
-                fork_point: None,
+                origin: ThreadOrigin::Trunk,
                 digest: None,
             }],
         };

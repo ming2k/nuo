@@ -1,17 +1,17 @@
 //! Constants, record types, and column lists for SQLite migrations.
 use serde::{Deserialize, Serialize};
 
-use crate::db::SessionMessageView;
+use crate::db::ThreadMessageView;
 
 /// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 33;
+pub const CURRENT_DB_VERSION: u32 = 38;
 
 /// SHA-256 fingerprint of the migration catalog (version + SQL of every
 /// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
 /// for the discipline this enforces.
 #[cfg(test)]
 pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "3c0959b1dc6e1ecbee7325d41958e329d3c6300e3a5a885ff0ff6c3f4a5d19dd";
+    "fe859fbf362131bb3c788f24dcb2a484c4018435a7cf5d6ad04ee727bc99a1dd";
 
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
@@ -62,7 +62,7 @@ pub const SESSIONS_V2_COLUMNS: &[(&str, &str)] = &[
 pub const SESSIONS_IDENTITY_COLUMNS: &[&str] = &[
     "id",
     "parent_id",
-    "fork_kind",
+    "origin",
     "title",
     "created_at_s",
     "updated_at_s",
@@ -83,12 +83,7 @@ pub const SESSIONS_RETIRED_COLUMNS: &[&str] = &["scheduled_jobs", "data", "title
 pub struct ThreadRecord {
     pub id: String,
     pub parent_id: Option<String>,
-    pub fork_kind: String,
-    /// Fork provenance (ADR-0120): the address the branch diverged at, or
-    /// `None` on a trunk. One canonical type rather than the two raw columns,
-    /// so an invalid pairing (a turn with no round) cannot be carried around.
-    #[serde(default)]
-    pub fork_point: Option<nuo_protocol::ForkPoint>,
+    pub origin: String,
     pub title: Option<String>,
     pub created_at_s: i64,
     pub updated_at_s: i64,
@@ -137,5 +132,5 @@ pub struct ThreadTranscriptView {
     pub digest: Option<nuo_protocol::ThreadDigest>,
     pub workspace_root: Option<String>,
     pub message_count: usize,
-    pub messages: Vec<SessionMessageView>,
+    pub messages: Vec<ThreadMessageView>,
 }

@@ -4,7 +4,7 @@
 //! This is the file analogue of [`super::skills`]: a mention of
 //! `@file:src/main.rs` reads that file (subject to a workspace sandbox and a
 //! size cap) and appends its contents as a hidden user message, so the model
-//! sees the referenced source without an explicit `read_text` call.
+//! sees the referenced source without an explicit `read` call.
 //!
 //! ## Reference semantics
 //!

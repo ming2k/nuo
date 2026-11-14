@@ -67,8 +67,7 @@ impl SubagentTool {
             return Err(
                 "Background sub-agent dispatch is not available: this sub-agent runs to \
                  completion inside the calling turn. Re-issue the call without `background` \
-                 to run it synchronously and receive its result, or run long independent \
-                 work through the execute_command tool's `background`/`service` modes."
+                 to run it synchronously and receive its result."
                     .to_string(),
             );
         }
@@ -317,7 +316,7 @@ impl SubagentTool {
         let child_session = match bound_parent.as_ref() {
             Some(parent) => {
                 let id = uuid::Uuid::new_v4().to_string();
-                match nuo_persistence::session::SessionStore::for_subagent(parent, id) {
+                match nuo_persistence::thread::ThreadSession::for_subagent(parent, id) {
                     Ok((store, _parent_id)) => Some(std::sync::Arc::new(store)),
                     Err(error) => {
                         // Refusing is the honest outcome: a child without a parent
@@ -348,9 +347,9 @@ impl SubagentTool {
                 prompt,
             )];
             if let Err(error) = session
-                .commit_turn(nuo_persistence::session::CommitTurn {
+                .commit_turn(nuo_persistence::thread::CommitTurn {
                     messages: &seed,
-                    basis: nuo_persistence::session::CommitBasis::Appended,
+                    basis: nuo_persistence::thread::CommitBasis::Appended,
                     round_counter: Some(1),
                     usage_records: &[],
                     retry_point: None,
@@ -423,12 +422,12 @@ impl SubagentTool {
                     let snapshot = messages.to_vec();
                     Box::pin(async move {
                         let basis = if agent.take_history_reprojected() {
-                            nuo_persistence::session::CommitBasis::Reprojected
+                            nuo_persistence::thread::CommitBasis::Reprojected
                         } else {
-                            nuo_persistence::session::CommitBasis::Appended
+                            nuo_persistence::thread::CommitBasis::Appended
                         };
                         session
-                            .commit_turn(nuo_persistence::session::CommitTurn {
+                            .commit_turn(nuo_persistence::thread::CommitTurn {
                                 messages: &snapshot,
                                 basis,
                                 round_counter: None,

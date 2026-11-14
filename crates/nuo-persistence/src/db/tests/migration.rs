@@ -25,7 +25,7 @@ fn interim_v5_stamp_is_repaired_to_final_schema() {
             CREATE TABLE sessions (
                 id               TEXT PRIMARY KEY,
                 parent_id        TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-                fork_kind        TEXT NOT NULL DEFAULT 'trunk',
+                fork_kind     TEXT NOT NULL DEFAULT 'trunk',
                 title            TEXT,
                 created_at_ms    INTEGER NOT NULL,
                 updated_at_ms    INTEGER NOT NULL,
@@ -58,150 +58,6 @@ fn interim_v5_stamp_is_repaired_to_final_schema() {
         })
         .unwrap();
     assert_eq!(count, 1);
-}
-
-/// Databases already at the final version-5 schema (no interim stamp) pass
-/// through the repair as a no-op.
-#[test]
-fn final_v5_schema_passes_through_migration_six_unchanged() {
-    let mut conn = initialize_in_memory_db().unwrap();
-    conn.execute_batch("PRAGMA user_version = 5;").unwrap();
-    migrate_schema(&mut conn).unwrap();
-    let version: u32 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(version, CURRENT_DB_VERSION);
-}
-
-/// Regression (2026-09-08 incident): migration 10 rebuilds `entries`, the
-/// parent table of `entry_memberships`' foreign key. With foreign-key
-/// enforcement left ON across the migration transaction, the
-/// drop-and-rename swap incremented SQLite's deferred-constraint counter
-/// and COMMIT failed with `FOREIGN KEY constraint failed` even though the
-/// rebuilt state was perfectly referentially consistent. The transaction
-/// rolled back, `user_version` never advanced, and every subsequent
-/// open retried and re-failed the rebuild — wedging workspace-trust
-/// persistence (the TUI stuck on "Trusting workspace...") until the state
-/// file was recreated. The subagent must disable enforcement before `BEGIN`
-/// (a no-op inside a transaction), restore it after, and gate the result
-/// on `PRAGMA foreign_key_check`.
-#[test]
-fn migration_ten_rebuilds_parent_entries_with_membership_rows_present() {
-    let mut conn = Connection::open_in_memory().unwrap();
-    configure_connection(&mut conn).unwrap();
-    conn.execute_batch(
-        r#"
-            -- Final version-5 shape with live transcript rows that
-            -- satisfy the pre-migration CHECKs. Stamped v5 so the v6-v9 hooks
-            -- build the real pre-v10 state on the way up (column repairs,
-            -- membership/projection rebuilds, FTS backfill), exactly like a
-            -- production database that never survived migration 10.
-            CREATE TABLE sessions (
-                id               TEXT PRIMARY KEY,
-                parent_id        TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-                fork_kind        TEXT NOT NULL DEFAULT 'trunk',
-                title            TEXT,
-                created_at_ms    INTEGER NOT NULL,
-                updated_at_ms    INTEGER NOT NULL,
-                project_root     TEXT NOT NULL,
-                msg_count        INTEGER NOT NULL DEFAULT 0,
-                last_user_prompt TEXT,
-                digest           TEXT,
-                data             TEXT,
-                title_manual     BOOLEAN NOT NULL DEFAULT 0
-            );
-            INSERT INTO sessions (id, created_at_ms, updated_at_ms, project_root)
-                VALUES ('s1', 1, 1, '/tmp');
-
-            CREATE TABLE entries (
-                id            TEXT PRIMARY KEY,
-                kind          TEXT NOT NULL CHECK (kind IN ('message','state')),
-                role          TEXT CHECK (role IN ('user','assistant','system','tool')),
-                content       TEXT,
-                origin        TEXT CHECK (origin IS NULL OR origin IN ('harness','checkpoint')),
-                hidden        INTEGER NOT NULL DEFAULT 0,
-                created_at_ms INTEGER NOT NULL,
-                payload       TEXT NOT NULL,
-                CHECK ( origin IS NULL OR hidden = 1 ),
-                CHECK ( kind <> 'message' OR role IS NOT NULL )
-            );
-            INSERT INTO entries (id, kind, role, content, origin, hidden, created_at_ms, payload)
-                VALUES ('e1', 'message', 'user', 'hello', NULL, 0, 1, '{"content":"hello"}'),
-                       ('e2', 'message', 'assistant', 'hi', 'harness', 1, 2, '{"content":"hi"}'),
-                       ('e3', 'message', 'user', 'ckpt', 'checkpoint', 1, 3, '{"content":"ckpt"}');
-
-            CREATE TABLE entry_memberships (
-                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-                seq        INTEGER NOT NULL,
-                entry_id   TEXT NOT NULL REFERENCES entries(id),
-                added_by   INTEGER NOT NULL,
-                PRIMARY KEY (session_id, seq)
-            );
-            INSERT INTO entry_memberships (session_id, seq, entry_id, added_by)
-                VALUES ('s1', 1, 'e1', 0), ('s1', 2, 'e2', 0), ('s1', 3, 'e3', 0);
-
-            CREATE TABLE projections (
-                session_id    TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-                seq           INTEGER NOT NULL,
-                kind          TEXT NOT NULL CHECK (kind IN ('prune','compact','freeze')),
-                up_to_seq     INTEGER NOT NULL,
-                payload       TEXT NOT NULL,
-                created_at_ms INTEGER NOT NULL,
-                PRIMARY KEY (session_id, seq)
-            );
-            INSERT INTO projections (session_id, seq, kind, up_to_seq, payload, created_at_ms)
-                VALUES ('s1', 1, 'freeze', 2, '{}', 3);
-
-            CREATE VIRTUAL TABLE fts_entries USING fts5(
-                entry_id UNINDEXED, session_id UNINDEXED, role UNINDEXED, content,
-                tokenize = 'porter unicode61'
-            );
-
-            PRAGMA user_version = 5;
-            "#,
-    )
-    .unwrap();
-
-    migrate_schema(&mut conn).unwrap();
-
-    let version: u32 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(version, CURRENT_DB_VERSION);
-
-    // Enforcement is a per-connection invariant installed by
-    // `configure_connection`; the subagent must hand the connection back
-    // with it restored.
-    let fk_enforced: i64 = conn
-        .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(fk_enforced, 1);
-
-    // The rebuild preserved every row byte-for-byte, including the
-    // membership references into the swapped table.
-    let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
-    assert_eq!(count("SELECT COUNT(*) FROM entries"), 3);
-    assert_eq!(count("SELECT COUNT(*) FROM entry_memberships"), 3);
-    assert_eq!(count("SELECT COUNT(*) FROM projections"), 1);
-    // FTS backfill rode along through the v7 hook.
-    assert_eq!(count("SELECT COUNT(*) FROM fts_entries"), 3);
-
-    // Referential integrity holds with enforcement back ON.
-    let violations: i64 = conn
-        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(violations, 0);
-
-    // The migration-10 CHECKs accept the visible harness provenance the
-    // v5 schema rejected (the integrity fix the rebuild ships).
-    conn.execute(
-        "INSERT INTO entries (id, kind, role, content, origin, hidden, created_at_ms, payload)
-             VALUES ('e4', 'message', 'user', 'steer', 'harness', 0, 4, '{}')",
-        [],
-    )
-    .unwrap();
 }
 
 /// The startup guard fails loudly on a database missing runtime columns.
@@ -242,54 +98,19 @@ fn migration_33_detaches_the_workspace_journal_from_threads() {
     assert_eq!(no_delete, 1, "append-only evidence is still enforced");
 }
 
-/// The migration-31 lock: no trigger on the transcript may write the derived
-/// FTS table.
-///
-/// Migration 28 dropped four names, but migration 24 had re-created the
-/// membership pair as `trg_entries_membership_*`. They survived, so every
-/// commit indexed FTS inline and a full rewrite scanned the whole FTS table
-/// through the `UNINDEXED` session column — the seconds-long `saving request`
-/// stall. The sweep also covers a name the list does not know.
+/// The post-RFC schema carries facts and the derived FTS index, not a
+/// transcript table. This is the clean-break assertion: there is no second
+/// durable conversation shape.
 #[test]
-fn migration_31_drops_every_legacy_fts_write_trigger() {
-    let mut conn = initialize_in_memory_db().unwrap();
-    conn.execute_batch(
-        r#"
-        CREATE TRIGGER trg_entries_membership_ai AFTER INSERT ON entry_memberships BEGIN
-            INSERT INTO fts_entries(rowid, entry_id, session_id, role, content)
-            SELECT new.rowid, new.entry_id, new.session_id, e.role, e.content
-            FROM entries e WHERE e.id = new.entry_id;
-        END;
-        CREATE TRIGGER trg_entries_membership_ad AFTER DELETE ON entry_memberships BEGIN
-            DELETE FROM fts_entries WHERE rowid = old.rowid;
-        END;
-        -- A trigger spelling the named list cannot anticipate.
-        CREATE TRIGGER trg_unexpected_fts_write AFTER INSERT ON entries BEGIN
-            INSERT INTO fts_entries(entry_id, session_id, role, content)
-            VALUES (new.id, '', '', '');
-        END;
-        PRAGMA user_version = 30;
-        "#,
-    )
-    .unwrap();
-
-    migrate_schema(&mut conn).unwrap();
-
-    let version: u32 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(version, CURRENT_DB_VERSION);
-    let leftover: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master
-              WHERE type = 'trigger'
-                AND tbl_name IN ('entries', 'entry_memberships')
-                AND lower(sql) LIKE '%fts_entries%'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(leftover, 0, "a transcript trigger still writes FTS");
+fn migration_36_retires_the_transcript_tables() {
+    let conn = initialize_in_memory_db().unwrap();
+    assert!(!table_exists(&conn, "entries").unwrap());
+    assert!(!table_exists(&conn, "entry_memberships").unwrap());
+    assert!(!table_exists(&conn, "projections").unwrap());
+    assert!(!table_exists(&conn, "blob_refs").unwrap());
+    assert!(table_exists(&conn, "causal_nodes").unwrap());
+    assert!(table_exists(&conn, "thread_blob_refs").unwrap());
+    assert!(table_exists(&conn, "fts_thread_facts").unwrap());
 }
 
 /// Migration immutability lock: once a migration version has shipped in a

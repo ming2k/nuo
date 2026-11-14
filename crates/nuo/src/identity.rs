@@ -25,8 +25,9 @@
 //! (see [`AgentRoleProfile::from_role`]).
 use nuo_protocol::AgentRoleProfile;
 
-/// The built-in **coding agent** profile: the declarative
-/// form of the standard developer role with canonical Base-Tier identity directive.
+/// The built-in **coding agent** profile: the declarative policy for the
+/// standard developer role. It intentionally carries no identity preamble; the
+/// tool surface, workspace, and permissions define the role.
 pub fn agent_code() -> AgentRoleProfile {
     AgentRoleProfile::developer()
 }

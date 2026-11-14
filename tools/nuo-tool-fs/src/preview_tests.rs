@@ -178,7 +178,7 @@ fn unpredictable_tools_have_no_preview() {
     let ctx = context(&dir);
     // A reader, a searcher, and a lister are not mutating tools at all.
     assert!(
-        ReadTextTool::new(ctx.clone())
+        ReadTool::new(ctx.clone())
             .preview(&json!({ "path": "a.rs" }))
             .is_none()
     );

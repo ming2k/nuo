@@ -145,21 +145,19 @@ pub struct RequestRevisions {
 /// turn.
 #[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
 pub fn request_revisions<T: Serialize>(
-    instructions: &crate::instructions::InstructionBundle,
+    instructions: &crate::instructions::InstructionText,
     messages: &[Message],
     tools: &[T],
 ) -> RequestRevisions {
     let mut semantic = Sha256::new();
     let mut prefix = Sha256::new();
     let mut envelope = Sha256::new();
-    for slice in &instructions.slices {
-        for digest in [&mut prefix, &mut envelope] {
-            digest.update(slice.id.as_bytes());
-            digest.update([slice.tier as u8]);
-            digest.update(slice.content.as_bytes());
-            digest.update([0xff]);
-        }
+    for digest in [&mut prefix, &mut envelope] {
+        digest.update(instructions.fixed.as_bytes());
+        digest.update([0xff]);
     }
+    envelope.update(instructions.transient.as_bytes());
+    envelope.update([0xff]);
     let tools_bytes = serde_json::to_vec(tools).expect("tool declarations serialize");
     prefix.update(&tools_bytes);
     prefix.update([0xfe]);
@@ -230,17 +228,13 @@ pub fn semantic_context_head<'a>(messages: impl IntoIterator<Item = &'a Message>
 /// `temporary_context`.
 #[allow(clippy::expect_used)] // Tool declarations contain no fallible custom serializers.
 pub fn request_prefix_fingerprint<T: Serialize>(
-    instructions: &crate::instructions::InstructionBundle,
+    instructions: &crate::instructions::InstructionText,
     messages: &[Message],
     tools: &[T],
 ) -> String {
     let mut digest = Sha256::new();
-    for slice in &instructions.slices {
-        digest.update(slice.id.as_bytes());
-        digest.update([slice.tier as u8]);
-        digest.update(slice.content.as_bytes());
-        digest.update([0xff]);
-    }
+    digest.update(instructions.fixed.as_bytes());
+    digest.update([0xff]);
     digest.update(serde_json::to_vec(tools).expect("tool declarations serialize"));
     digest.update([0xfe]);
     for message in messages {
@@ -254,17 +248,15 @@ pub fn request_prefix_fingerprint<T: Serialize>(
 
 #[allow(clippy::expect_used)] // Tool declarations contain no fallible custom serializers.
 pub fn request_envelope_fingerprint<T: Serialize>(
-    instructions: &crate::instructions::InstructionBundle,
+    instructions: &crate::instructions::InstructionText,
     messages: &[Message],
     tools: &[T],
 ) -> String {
     let mut digest = Sha256::new();
-    for slice in &instructions.slices {
-        digest.update(slice.id.as_bytes());
-        digest.update([slice.tier as u8]);
-        digest.update(slice.content.as_bytes());
-        digest.update([0xff]);
-    }
+    digest.update(instructions.fixed.as_bytes());
+    digest.update([0xff]);
+    digest.update(instructions.transient.as_bytes());
+    digest.update([0xff]);
     for message in messages
         .iter()
         .filter(|message| message.role == Role::System)
@@ -385,7 +377,7 @@ mod tests {
 
     #[test]
     fn one_pass_revisions_match_the_standalone_fingerprints() {
-        let instructions = crate::instructions::InstructionBundle::default();
+        let instructions = crate::instructions::InstructionText::default();
         let messages = vec![
             Message::new(Role::System, "system zero"),
             Message::new(Role::User, "hello"),

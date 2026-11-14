@@ -263,7 +263,7 @@ async fn finish_completes_even_when_the_call_failed_partway() {
 async fn reads_are_not_journaled() {
     let dir = tempfile::tempdir().unwrap();
     let journal = MemJournal::default();
-    let tool = StubTool::reader("read_text", "a.rs");
+    let tool = StubTool::reader("read", "a.rs");
 
     let pending = begin(&journal, Some(dir.path()), coordinates("th"), &tool, "{}")
         .await

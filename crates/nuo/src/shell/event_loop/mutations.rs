@@ -290,18 +290,6 @@ pub(crate) enum AppMutation {
         previous_id: String,
         next_id: String,
     },
-    /// A fork landed (ADR-0058, ADR-0120). Carries the persisted fork point so
-    /// the new tab is labelled with the address the branch actually diverged
-    /// at, instead of a title the fork invented.
-    SessionForked {
-        child_id: String,
-        parent_id: String,
-        fork_point: Option<nuo_protocol::ForkPoint>,
-        /// Opening prompt to dispatch into the child after re-attach (retired
-        /// `/btw <prompt>` steer, `[INV-DEPR-01]`).
-        prompt: Option<String>,
-    },
-
     // Activity / phase / counters.
     SetPhase(Option<Phase>),
     SetResponding(bool),

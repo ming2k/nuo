@@ -56,6 +56,10 @@ impl ModelRequestAssembler {
     /// `temporary_context` is the request-local `E_n` tail:
     /// it is attached to the snapshot but excluded from the cacheable prefix and
     /// never enters durable history.
+    // A section table with a missing anchor or a cycle is a programming error
+    // in the compiled policy, not a recoverable runtime condition. Failing hard
+    // here keeps a corrupt layout from silently misordering a request.
+    #[allow(clippy::panic)]
     pub(crate) fn assemble_prepared(
         &self,
         messages: Vec<Message>,
@@ -63,45 +67,59 @@ impl ModelRequestAssembler {
         context: &InstructionContext,
         tools: &[Arc<dyn Tool>],
     ) -> nuo_protocol::ModelRequest {
-        let instructions = self.instruction_registry.build_bundle(context);
-        let tool_specs = tools
+        let regions = self
+            .instruction_registry
+            .build_regions(context)
+            .unwrap_or_else(|error| panic!("invalid instruction layout: {error}"));
+        let tools = tools
             .iter()
             .map(|t| {
                 nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
             })
             .collect();
-        nuo_protocol::ModelRequest::with_instructions_and_tool_specs(
-            instructions,
+        nuo_protocol::RequestBuilder {
+            tools,
+            fixed: regions.fixed,
             messages,
-            tool_specs,
-        )
+            transient: regions.transient,
+        }
+        .build()
         .with_temporary_context(temporary_context)
     }
 
-    /// Compile a [`nuo_protocol::ModelRequest`] directly from a canonical [`nuo_protocol::SessionIR`]
-    /// via the 4-pass compiler pipeline (INV-EXEC-02).
-    pub fn compile_from_ir(
+    /// Assemble a request from a durable thread projection.
+    ///
+    /// This is the replay/branch-switch entry point: the fact window is
+    /// projected to a `RequestView`, then the one `RequestBuilder` renders the
+    /// final request. It never reads or mutates `SessionIR`.
+    #[allow(clippy::panic)]
+    pub(crate) fn assemble_thread(
         &self,
-        ir: &nuo_protocol::SessionIR,
+        thread: &nuo_protocol::Thread,
+        branch: &nuo_protocol::BranchId,
         temporary_context: Vec<Message>,
+        context: &InstructionContext,
         tools: &[Arc<dyn Tool>],
-        dialect: Option<String>,
-        protocol: Option<nuo_protocol::WireProtocol>,
-    ) -> Result<nuo_protocol::CompilationArtifact, nuo_protocol::CompilerError> {
-        let tool_specs = tools
+    ) -> Result<nuo_protocol::ModelRequest, nuo_protocol::ThreadError> {
+        let window = nuo_protocol::ThreadWindow::from_thread(thread, branch, usize::MAX)?;
+        let view = nuo_protocol::RequestView::from_window(&window);
+        let regions = self
+            .instruction_registry
+            .build_regions(context)
+            .unwrap_or_else(|error| panic!("invalid instruction layout: {error}"));
+        let tools = tools
             .iter()
             .map(|t| {
                 nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
             })
             .collect();
-        let options = nuo_protocol::CompilerOptions {
-            tool_specs,
-            temporary_context,
-            ephemeral_instruction: None,
-            target_dialect: dialect,
-            target_protocol: protocol,
-        };
-        nuo_protocol::compile_session_request(ir, options)
+        let request_context =
+            nuo_protocol::RequestContext::new(regions.fixed, regions.transient, tools);
+        Ok(
+            nuo_protocol::RequestBuilder::from_view(&view, &request_context)
+                .build()
+                .with_temporary_context(temporary_context),
+        )
     }
 }
 
@@ -157,28 +175,33 @@ mod tests {
     }
 
     #[test]
-    fn compile_from_ir_executes_compiler_passes() {
+    fn assemble_thread_projects_a_branch_and_adds_tools() {
         let tool: Arc<dyn Tool> = Arc::new(TestTool);
         let assembler = ModelRequestAssembler::new(InstructionRegistry::new());
-        let policy = nuo_protocol::SessionPolicy::default();
-        let mut ir = nuo_protocol::SessionIR::new("test-session", policy, 1000);
-        ir.append_message("node-1", 1001, Message::new(Role::User, "compile this"));
-
-        let artifact = assembler
-            .compile_from_ir(
-                &ir,
-                vec![],
-                &[tool],
-                Some("anthropic".into()),
-                Some(nuo_protocol::WireProtocol::AnthropicMessages),
+        let mut thread = nuo_protocol::Thread::new(nuo_protocol::ThreadId::new("t"), 1000);
+        thread
+            .append(
+                nuo_protocol::FactPayload::Message {
+                    message: Message::new(Role::User, "compile this"),
+                },
+                nuo_protocol::FactContext::default(),
+                1001,
             )
-            .expect("SessionIR compilation must succeed");
+            .unwrap();
 
-        assert_eq!(artifact.request.messages.len(), 1);
-        assert_eq!(artifact.request.messages[0].content, "compile this");
-        assert_eq!(artifact.request.tool_specs.len(), 1);
-        assert_eq!(artifact.request.tool_specs[0].name, "inspect");
-        assert!(!artifact.cache_boundary.prefix_fingerprint.is_empty());
-        assert_eq!(artifact.stats.nodes_traversed, 1);
+        let request = assembler
+            .assemble_thread(
+                &thread,
+                &nuo_protocol::BranchId::main(),
+                Vec::new(),
+                &InstructionContext::empty(),
+                &[tool],
+            )
+            .expect("thread projection must succeed");
+
+        assert_eq!(request.messages.len(), 1);
+        assert_eq!(request.messages[0].content, "compile this");
+        assert_eq!(request.tool_specs.len(), 1);
+        assert_eq!(request.tool_specs[0].name, "inspect");
     }
 }

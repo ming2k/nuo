@@ -396,7 +396,7 @@ pub async fn run_attached(
     // that could not be reopened (ADR-0123 `[INV-ATTACH-02]`). Handed to the next
     // run so the notice log owns them instead of a lost stderr line.
     let mut retire_notice: Option<crate::shell::app::notice_catalog::ClientNotice> = None;
-    let init_options = client::SessionInitOptions::new(unattended_at_start, confined_at_start)
+    let init_options = client::ThreadInitOptions::new(unattended_at_start, confined_at_start)
         .with_role(role.clone())
         .with_resume(resume);
 
@@ -570,7 +570,7 @@ pub async fn run_attached(
                 initial_prompt: launch_prompt,
                 tui_config,
                 input_history_config,
-                session: crate::shell::SessionSource::Remote {
+                session: crate::shell::HookStartSource::Remote {
                     session_id: hosted_session_id,
                 },
                 token_ledger: None,

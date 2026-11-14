@@ -18,7 +18,7 @@ impl ThreadRegistry {
     ) -> Result<String, String> {
         let handle = self
             .claim(
-                crate::startup::SessionStart::Fresh,
+                crate::startup::ThreadStart::Fresh,
                 SessionBinding::workspace(project),
                 options,
             )
@@ -60,7 +60,7 @@ impl ThreadRegistry {
     ) -> ResolveOutcome {
         match self
             .claim(
-                crate::startup::SessionStart::Fresh,
+                crate::startup::ThreadStart::Fresh,
                 SessionBinding::workspace(project),
                 options,
             )

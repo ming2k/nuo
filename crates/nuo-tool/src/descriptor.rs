@@ -23,7 +23,7 @@ use crate::scope::ToolScope;
 /// existing tool implementations (the method-explosion churn ADR-0008 removes).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolDescriptor {
-    /// Distinct identifier of the tool (e.g. `read_text`). Shared by all
+    /// Distinct identifier of the tool (e.g. `read`). Shared by all
     /// variants of one capability.
     pub name: String,
     /// Natural-language description of what the tool does.
@@ -213,15 +213,15 @@ mod tests {
         assert_eq!(d.identity(), ("write_file", "terse"));
         assert!(d.matches_name("write_file"));
         assert!(d.matches_name("write"));
-        assert!(!d.matches_name("read_text"));
+        assert!(!d.matches_name("read"));
         assert_eq!(d.risk, RiskProfile::IdempotentMutation);
     }
 
     #[test]
     fn descriptor_is_serializable_as_data() {
-        let d = ToolDescriptor::builder("read_text", "Reads a file").build();
+        let d = ToolDescriptor::builder("read", "Reads a file").build();
         let json = serde_json::to_value(&d).unwrap();
-        assert_eq!(json["name"], "read_text");
+        assert_eq!(json["name"], "read");
         let round: ToolDescriptor = serde_json::from_value(json).unwrap();
         assert_eq!(round, d);
     }

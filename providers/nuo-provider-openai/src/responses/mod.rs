@@ -270,16 +270,17 @@ impl OpenAiResponsesProvider {
     /// Build the HTTP request for the given payload and resolved credentials.
     fn build_request_for_auth(
         &self,
-        body: &serde_json::Value,
+        wire: &nuo_provider::WireRequest,
         auth: &ResolvedAuth,
         turn_state: Option<&str>,
-    ) -> RequestBuilder {
+    ) -> Result<RequestBuilder, ProviderError> {
+        let encoded = wire.encode()?;
         let mut req = RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
             .header(http::header::USER_AGENT, self.endpoint.user_agent())
-            .json(body);
+            .encoded(&encoded);
         let copilot = self.dialect == nuo_provider::OpenAiResponsesDialect::Copilot;
         let chatgpt = self.dialect == nuo_provider::OpenAiResponsesDialect::ChatGpt;
-        let is_copilot_vision = copilot && request::has_input_image(body);
+        let is_copilot_vision = copilot && request::has_input_image(&wire.body);
         let account_id = auth
             .extension::<nuo_provider::ChatGptAuthMetadata>()
             .map(|m| m.account_id.as_str());
@@ -316,14 +317,15 @@ impl OpenAiResponsesProvider {
         req = self
             .endpoint
             .attach_session_affinity_headers(req, self.prompt_cache.routing_key());
-        self.endpoint.attach_auth_scoped_headers(req, auth)
+        Ok(self.endpoint.attach_auth_scoped_headers(req, auth))
     }
 
-    /// Send a request with automatic token resolution, timeout stamping,
-    /// and reactive force-refresh on HTTP 401 Unauthorized for OAuth channels.
+    /// Send a projected request with automatic token resolution, timeout
+    /// stamping, and reactive force-refresh on HTTP 401 Unauthorized for OAuth
+    /// channels.
     async fn send_request(
         &self,
-        body: &serde_json::Value,
+        wire: &nuo_provider::WireRequest,
         is_stream: bool,
         turn_context: &nuo_provider::capability::ProviderTurnContext,
         telemetry: &nuo_provider::TransportTelemetry,
@@ -343,7 +345,7 @@ impl OpenAiResponsesProvider {
             acct_id
         ));
         let mut req = self
-            .build_request_for_auth(body, &auth, turn_state.get().map(String::as_str))
+            .build_request_for_auth(wire, &auth, turn_state.get().map(String::as_str))?
             .with_telemetry(telemetry.clone());
         if !is_stream {
             req = req.timeout(self.client.request_timeout());
@@ -374,7 +376,11 @@ impl OpenAiResponsesProvider {
                 ));
             }
             let mut retry_req = self
-                .build_request_for_auth(body, &refreshed_auth, turn_state.get().map(String::as_str))
+                .build_request_for_auth(
+                    wire,
+                    &refreshed_auth,
+                    turn_state.get().map(String::as_str),
+                )?
                 .with_telemetry(telemetry.clone());
             if !is_stream {
                 retry_req = retry_req.timeout(self.client.request_timeout());
@@ -562,7 +568,15 @@ impl Provider for OpenAiResponsesProvider {
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, false)?;
         let resp = self
-            .send_request(&body, false, &turn_context, &transport_telemetry)
+            .send_request(
+                &nuo_provider::WireRequest::new(
+                    nuo_provider::WireProtocol::OpenAiResponses,
+                    body.clone(),
+                ),
+                false,
+                &turn_context,
+                &transport_telemetry,
+            )
             .await?;
         let value: serde_json::Value = decode_response_json(resp, label).await?;
         if let Some(err) = value.get("error") {
@@ -617,7 +631,15 @@ impl Provider for OpenAiResponsesProvider {
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, true)?;
         let resp = self
-            .send_request(&body, true, &turn_context, &telemetry)
+            .send_request(
+                &nuo_provider::WireRequest::new(
+                    nuo_provider::WireProtocol::OpenAiResponses,
+                    body.clone(),
+                ),
+                true,
+                &turn_context,
+                &telemetry,
+            )
             .await?;
         let stream = nuo_provider::transport::sse::data_payloads(resp, label).map(|item| {
             let data = item.map_err(ProviderError::from)?;
@@ -644,7 +666,15 @@ impl Provider for OpenAiResponsesProvider {
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, true)?;
         let resp = self
-            .send_request(&body, true, &turn_context, &telemetry)
+            .send_request(
+                &nuo_provider::WireRequest::new(
+                    nuo_provider::WireProtocol::OpenAiResponses,
+                    body.clone(),
+                ),
+                true,
+                &turn_context,
+                &telemetry,
+            )
             .await?;
         let model_catalog_etag = models_etag(&resp.headers);
 
@@ -733,7 +763,15 @@ mod stream_protocol_tests {
                 .create_async()
                 .await;
             provider
-                .send_request(&body, true, &round, &telemetry())
+                .send_request(
+                    &nuo_provider::WireRequest::new(
+                        nuo_provider::WireProtocol::OpenAiResponses,
+                        body.clone(),
+                    ),
+                    true,
+                    &round,
+                    &telemetry(),
+                )
                 .await
                 .unwrap();
             mock.assert_async().await;
@@ -748,7 +786,7 @@ mod stream_protocol_tests {
             .await;
         provider
             .send_request(
-                &body,
+                &nuo_provider::WireRequest::new(nuo_provider::WireProtocol::OpenAiResponses, body),
                 true,
                 &nuo_provider::capability::ProviderTurnContext::default(),
                 &telemetry(),
@@ -791,7 +829,15 @@ mod stream_protocol_tests {
                 .create_async()
                 .await;
             let response = provider
-                .send_request(&body, true, &round, &telemetry())
+                .send_request(
+                    &nuo_provider::WireRequest::new(
+                        nuo_provider::WireProtocol::OpenAiResponses,
+                        body.clone(),
+                    ),
+                    true,
+                    &round,
+                    &telemetry(),
+                )
                 .await;
             assert_eq!(response.is_ok(), status == 200);
             mock.assert_async().await;
@@ -849,7 +895,15 @@ mod stream_protocol_tests {
                 .create_async()
                 .await;
             provider
-                .send_request(&body, true, &round, &telemetry())
+                .send_request(
+                    &nuo_provider::WireRequest::new(
+                        nuo_provider::WireProtocol::OpenAiResponses,
+                        body.clone(),
+                    ),
+                    true,
+                    &round,
+                    &telemetry(),
+                )
                 .await
                 .unwrap();
             warmup.assert_async().await;
@@ -877,7 +931,15 @@ mod stream_protocol_tests {
                 .create_async()
                 .await;
             provider
-                .send_request(&body, true, &round, &telemetry())
+                .send_request(
+                    &nuo_provider::WireRequest::new(
+                        nuo_provider::WireProtocol::OpenAiResponses,
+                        body.clone(),
+                    ),
+                    true,
+                    &round,
+                    &telemetry(),
+                )
                 .await
                 .unwrap();
             rejected.assert_async().await;

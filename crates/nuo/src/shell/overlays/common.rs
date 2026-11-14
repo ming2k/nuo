@@ -353,7 +353,7 @@ mod tests {
         let selected_line = selectable_row(
             0,
             0,
-            "read_text",
+            "read",
             "Read file contents",
             true,
             "enabled",

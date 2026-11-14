@@ -45,8 +45,7 @@ fn seed_thread(handle: &PersistenceHandle, thread_id: &str) {
     handle.try_upsert_session(nuo_persistence::db::ThreadRecord {
         id: thread_id.to_string(),
         parent_id: None,
-        fork_kind: "trunk".to_string(),
-        fork_point: None,
+        origin: "trunk".to_string(),
         title: None,
         created_at_s: 0,
         updated_at_s: 0,

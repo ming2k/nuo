@@ -87,7 +87,7 @@ pub struct SubagentTool {
     /// instead of being reconstructed afterwards from the parent's embedded
     /// `children`. `None` (tests, bare `call` paths) runs the child session-free,
     /// which is the pre-existing behaviour.
-    parent_session: std::sync::Mutex<Option<Arc<nuo_persistence::session::SessionStore>>>,
+    parent_session: std::sync::Mutex<Option<Arc<nuo_persistence::thread::ThreadSession>>>,
     /// Factory producing a child's mid-turn relief (threshold + projection gate).
     /// Injected by the composition root because the implementation lives above
     /// this layer (`[INV-HARNESS-04]`).
@@ -102,7 +102,7 @@ pub struct SubagentTool {
 /// `[INV-HARNESS-04]`). The composition root supplies the implementation; this is
 /// the seam, not a dependency.
 pub type SubagentRelief =
-    Arc<dyn Fn(&Agent, Arc<nuo_persistence::session::SessionStore>) + Send + Sync>;
+    Arc<dyn Fn(&Agent, Arc<nuo_persistence::thread::ThreadSession>) + Send + Sync>;
 
 #[derive(Clone)]
 struct SubagentAccountingContext {
@@ -296,7 +296,7 @@ impl SubagentTool {
     /// *when* it lacks one.
     pub fn bind_session(
         &self,
-        session: Arc<nuo_persistence::session::SessionStore>,
+        session: Arc<nuo_persistence::thread::ThreadSession>,
         relief: SubagentRelief,
     ) {
         *self

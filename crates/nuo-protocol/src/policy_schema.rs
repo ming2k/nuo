@@ -108,7 +108,7 @@ pub enum BashPolicyActionConfig {
 /// One declarative permission rule from `[permissions]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRuleConfig {
-    /// Tool name (e.g. `"execute_command"`, `"read_text"`, `"mcp__fs__read"`).
+    /// Tool name (e.g. `"execute_command"`, `"read"`, `"mcp__fs__read"`).
     pub tool: String,
     /// Permission scope. `"*"` matches every call to the tool. Any other value
     /// must match the call's scope *exactly* (e.g. a full path, or the exact
@@ -185,7 +185,7 @@ impl Serialize for RoleWorkspace {
 /// The declaration only: name, identity material, capability lists, and the
 /// workspace policy. Discovery, file loading, and the built-in fallbacks are the
 /// host's (`nuo-persistence::roles`), which resolves a declaration into a
-/// [`crate::SessionRoleManifest`] or an [`crate::AgentRoleProfile`].
+/// [`crate::ThreadRoleManifest`] or an [`crate::AgentRoleProfile`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomRole {
@@ -340,7 +340,7 @@ mod tests {
         let rule: PermissionRuleConfig = toml::from_str("tool = \"bash\"").unwrap();
         assert_eq!(rule.scope, "*");
         let exact: PermissionRuleConfig =
-            toml::from_str("tool = \"read_text\"\nscope = \"/etc/passwd\"").unwrap();
+            toml::from_str("tool = \"read\"\nscope = \"/etc/passwd\"").unwrap();
         assert_eq!(exact.scope, "/etc/passwd");
     }
 

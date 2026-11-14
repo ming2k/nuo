@@ -583,7 +583,7 @@ struct SubagentReadTool;
 #[async_trait]
 impl Tool for SubagentReadTool {
     fn name(&self) -> &str {
-        "read_text"
+        "read"
     }
     fn description(&self) -> &str {
         "test read tool"
@@ -596,7 +596,7 @@ impl Tool for SubagentReadTool {
     }
 }
 
-/// A provider whose first request returns a `read_text` tool call and whose
+/// A provider whose first request returns a `read` tool call and whose
 /// second request flips the gate and then stalls forever — so the subagent is
 /// parked mid-flight and can only stop when its cancellation token fires.
 struct GatedSubagentProvider {
@@ -638,7 +638,7 @@ impl Provider for GatedSubagentProvider {
                 Ok(nuo_protocol::ProviderStreamEvent::ToolCallDelta {
                     index: 0,
                     id: Some("inner_1".to_string()),
-                    name: Some("read_text".to_string()),
+                    name: Some("read".to_string()),
                     arguments: "{}".to_string(),
                 }),
                 Ok(nuo_protocol::ProviderStreamEvent::Completed(

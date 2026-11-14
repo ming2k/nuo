@@ -8,17 +8,17 @@ use nuo_harness::orchestration::{
 };
 use nuo_harness::{Agent, RoundLifecycle};
 use nuo_persistence::config::Config;
-use nuo_persistence::session::SessionStore;
+use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, LoopStatus, QueuedMessage, RoundEvent};
 
 use crate::agent_setup::active_context_window;
-use crate::session_driver::send_harness_state_for_session;
+use crate::thread_driver::send_harness_state_for_session;
 
 /// Bundled round-execution environment for sovereign sessions.
 #[derive(Clone, Copy)]
 pub(crate) struct ChatEnv<'a> {
     pub agent: &'a Arc<Agent>,
-    pub session: &'a Arc<SessionStore>,
+    pub session: &'a Arc<ThreadSession>,
     pub lifecycle: &'a Arc<RoundLifecycle>,
     pub tx: &'a mpsc::UnboundedSender<AgentResponse>,
     pub config: &'a Config,
@@ -28,7 +28,7 @@ pub(crate) struct ChatEnv<'a> {
 pub(crate) async fn refuse_if_no_provider(
     tx: &mpsc::UnboundedSender<AgentResponse>,
     agent: &Agent,
-    session: &SessionStore,
+    session: &ThreadSession,
     session_id: &str,
 ) -> bool {
     if !nuo_harness::NoProvider::is(agent.provider.as_ref()) {
@@ -124,7 +124,7 @@ pub(crate) async fn chat(
 /// Queue a steering input into the exact live round named by `session_id`.
 pub async fn steer(
     agent: &Arc<Agent>,
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     session_id: String,
     input: QueuedMessage,
@@ -145,7 +145,7 @@ pub async fn steer(
 /// Cancel a steering message if it has not crossed the agent boundary yet.
 pub async fn cancel_steer(
     agent: &Arc<Agent>,
-    session: &Arc<SessionStore>,
+    session: &Arc<ThreadSession>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     session_id: String,
     input_id: String,
@@ -166,7 +166,7 @@ pub async fn cancel_steer(
 /// `AgentRequest::FollowUp` — the driver-owned follow-up queue authority.
 pub(crate) async fn follow_up(
     env: ChatEnv<'_>,
-    queue: &mut crate::session_driver::FollowUpQueue,
+    queue: &mut crate::thread_driver::FollowUpQueue,
     wake: &mpsc::Sender<String>,
     session_id: String,
     input: QueuedMessage,
@@ -200,7 +200,7 @@ pub(crate) async fn start_queued_follow_up(
     env: ChatEnv<'_>,
     session_id: String,
     input: QueuedMessage,
-    queue: &mut crate::session_driver::FollowUpQueue,
+    queue: &mut crate::thread_driver::FollowUpQueue,
 ) {
     let current_id = env.session.id().await;
     if current_id != session_id {
@@ -232,7 +232,7 @@ pub(crate) async fn start_queued_follow_up(
 /// The authoritative queue snapshot for one session.
 pub(crate) fn emit_queue_snapshot(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    queue: &crate::session_driver::FollowUpQueue,
+    queue: &crate::thread_driver::FollowUpQueue,
     session_id: &str,
 ) {
     let (items, paused) = queue.snapshot(session_id);
@@ -262,7 +262,7 @@ pub(crate) fn spawn_boundary_watcher(
 /// `AgentRequest::QueueRemove`.
 pub(crate) async fn queue_remove(
     tx: &mpsc::UnboundedSender<AgentResponse>,
-    queue: &mut crate::session_driver::FollowUpQueue,
+    queue: &mut crate::thread_driver::FollowUpQueue,
     session_id: String,
     input_id: String,
 ) {
@@ -273,7 +273,7 @@ pub(crate) async fn queue_remove(
 /// `AgentRequest::QueueClear`.
 pub(crate) async fn queue_clear(
     tx: &mpsc::UnboundedSender<AgentResponse>,
-    queue: &mut crate::session_driver::FollowUpQueue,
+    queue: &mut crate::thread_driver::FollowUpQueue,
     session_id: String,
 ) {
     queue.clear(&session_id);
@@ -283,7 +283,7 @@ pub(crate) async fn queue_clear(
 /// `AgentRequest::QueueReorder`.
 pub(crate) async fn queue_reorder(
     tx: &mpsc::UnboundedSender<AgentResponse>,
-    queue: &mut crate::session_driver::FollowUpQueue,
+    queue: &mut crate::thread_driver::FollowUpQueue,
     session_id: String,
     input_id: String,
     delta: i32,
@@ -302,7 +302,7 @@ pub(crate) async fn queue_reorder(
 /// for work.
 pub(crate) async fn queue_paused(
     tx: &mpsc::UnboundedSender<AgentResponse>,
-    queue: &mut crate::session_driver::FollowUpQueue,
+    queue: &mut crate::thread_driver::FollowUpQueue,
     wake: &mpsc::Sender<String>,
     session_id: String,
     paused: bool,

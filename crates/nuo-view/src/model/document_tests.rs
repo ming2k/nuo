@@ -35,10 +35,10 @@ fn inline_code_keeps_its_backtick_quotes_in_prose() {
     // so the rendered/copied paragraph still shows the quotes, and the
     // renderer can paint the span on the code surface. This holds across
     // paragraph / heading / list item / quote contexts.
-    let blocks = parse_blocks("Call the `read_text` tool.");
+    let blocks = parse_blocks("Call the `read` tool.");
     assert!(matches!(
         &blocks[0],
-        Block::Text(inline) if inline.content == "Call the `read_text` tool."
+        Block::Text(inline) if inline.content == "Call the `read` tool."
     ));
 
     // Heading.
@@ -115,8 +115,8 @@ fn parses_display_math_blocks() {
 
 #[test]
 fn inline_code_records_byte_ranges_for_every_prose_context() {
-    // Paragraph: the run is `read_text` including both backticks.
-    let text = "Call the `read_text` tool.";
+    // Paragraph: the run is `read` including both backticks.
+    let text = "Call the `read` tool.";
     let expected = code_ranges_of(text);
     let blocks = parse_blocks(text);
     let Block::Text(inline) = &blocks[0] else {
@@ -362,11 +362,10 @@ fn table_normalizes_ragged_body_rows_to_header_width() {
 
 #[test]
 fn tool_step_collapses_and_restores_full_semantic_detail() {
-    let mut message =
-        TranscriptMessage::tool_step("call_1", "read_text", r#"{"path":"README.md"}"#);
+    let mut message = TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#);
     // Collapsed running: human-readable summary only — no tool name.
     assert!(message.raw.contains("Read README.md"));
-    assert!(!message.raw.contains("read_text"));
+    assert!(!message.raw.contains("read"));
 
     assert!(message.finish_tool_step(
         "call_1",
@@ -398,7 +397,7 @@ fn subagent_task_is_detected_and_addressable() {
     assert_eq!(task.subagent_role(), None);
 
     // A regular tool step is not a subagent task.
-    let read = TranscriptMessage::tool_step("call_1", "read_text", r#"{"path":"a"}"#);
+    let read = TranscriptMessage::tool_step("call_1", "read", r#"{"path":"a"}"#);
     assert!(!read.is_subagent_task());
     assert!(read.subagent_status_line().is_none());
 }
@@ -598,7 +597,7 @@ fn interrupted_subagent_status_reports_interrupted_not_failed() {
     task.push_subagent_event(
         &SubagentEvent::ToolCall {
             id: "i".into(),
-            name: "read_text".into(),
+            name: "read".into(),
             arguments: "{}".into(),
             round: 1,
             turn: 0,
@@ -608,7 +607,7 @@ fn interrupted_subagent_status_reports_interrupted_not_failed() {
     task.push_subagent_event(
         &SubagentEvent::ToolResult {
             id: "i".into(),
-            name: "read_text".into(),
+            name: "read".into(),
             output: "found 1 of 3 handlers".into(),
             duration_ms: 5,
         },
@@ -817,8 +816,8 @@ fn cancelling_a_subagent_also_cancels_its_running_children() {
 
 #[test]
 fn cancel_all_running_is_a_defensive_sweep_that_skips_terminal_steps() {
-    let mut a = TranscriptMessage::tool_step("a", "read_text", "{}");
-    let mut b = TranscriptMessage::tool_step("b", "read_text", "{}");
+    let mut a = TranscriptMessage::tool_step("a", "read", "{}");
+    let mut b = TranscriptMessage::tool_step("b", "read", "{}");
     // `b` already finished successfully; the sweep must not clobber it.
     assert!(b.finish_tool_step(
         "b",
@@ -1417,7 +1416,7 @@ fn only_an_ingesting_step_is_retractable() {
 
     // A dispatched call is real: a retraction that crossed it in flight must
     // never remove it.
-    let dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
+    let dispatched = TranscriptMessage::tool_step("call_1", "read", "{}");
     assert!(!dispatched.is_pending_tool_step());
     assert!(!dispatched.is_pending_tool_step());
 }
@@ -1455,10 +1454,10 @@ fn a_duplicate_announcement_after_dispatch_cannot_regress_the_step() {
 fn a_replayed_partial_announcement_cannot_shorten_the_dispatched_name() {
     // The announcement fires at the first *named* fragment, which may be a
     // prefix. A replay of it must not overwrite the full name dispatch supplied.
-    let mut step = TranscriptMessage::tool_step("c1", "read_file", r#"{"path":"a"}"#);
+    let mut step = TranscriptMessage::tool_step("c1", "read", r#"{"path":"a"}"#);
     let partial = TranscriptMessage::tool_step_announced("c1", "read_");
     assert!(!step.merge_tool_step(&partial));
-    assert_eq!(step.tool_step_name(), Some("read_file"));
+    assert_eq!(step.tool_step_name(), Some("read"));
     assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Executing));
     assert!(!step.is_pending_tool_step());
 }

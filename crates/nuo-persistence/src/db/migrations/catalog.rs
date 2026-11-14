@@ -537,4 +537,34 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 33,
         sql: "",
     },
+    Migration {
+        // Thread/Branch/Fact runtime substrate (RFC-0003 / ADR-0173):
+        // branch cursors, a monotonic thread revision, per-fact execution
+        // context, and a dedicated thread-policy JSON column.
+        version: 34,
+        sql: "",
+    },
+    Migration {
+        // Durable command receipts, writer leases, and the blob reference
+        // ledger (RFC-0003 §6.18–6.19).
+        version: 35,
+        sql: "",
+    },
+    Migration {
+        // Thread facts become the conversation SSOT; transcript tables are
+        // converted and dropped (RFC-0003 / ADR-0173).
+        version: 36,
+        sql: "",
+    },
+    Migration {
+        // Working-state mirror (todos) on the thread policy row.
+        version: 37,
+        sql: "",
+    },
+    Migration {
+        // Thread nomenclature and dead-table cleanup: origin, one fact table,
+        // one revision table, no derived queue.
+        version: 38,
+        sql: "",
+    },
 ];
