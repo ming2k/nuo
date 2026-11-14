@@ -3,7 +3,8 @@
 use super::*;
 use crate::tools::{EditTextTool, FindFilesTool, ReadTool, WriteFileTool};
 use nuo_protocol::execution::{ExecutionEnvironment, ToolMiddleware};
-use nuo_protocol::{PatchOp, Tool, ToolOutput};
+use nuo_tool::{PatchOp, Tool, ToolOutput};
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -133,7 +134,7 @@ async fn secret_scrub_middleware_redacts_credentials() {
         exit: Some(0),
         truncated: false,
         truncated_note: None,
-        termination: nuo_protocol::ShellTermination::Exited,
+        termination: nuo_tool::ShellTermination::Exited,
         detached_job_id: None,
     };
 

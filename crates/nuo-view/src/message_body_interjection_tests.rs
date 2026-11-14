@@ -66,7 +66,7 @@ fn render_rows(message: &TranscriptMessage, width: u16, height: u16) -> (Vec<Str
 }
 
 fn steer(text: &str, tags: Vec<SteerOriginTag>) -> TranscriptMessage {
-    TranscriptMessage::new(nuo_protocol::Role::User, text)
+    TranscriptMessage::new(nuo_tool::Role::User, text)
         .with_origin(UserMessageOrigin::Steer)
         .with_sent_at_ms(1_700_000_000_000)
         .with_origin_tags(tags)

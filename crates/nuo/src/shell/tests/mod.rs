@@ -8,7 +8,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use nuo_protocol::{AgentResponse, LoopStatus, Message, Role, RoundEvent, ToolCall};
+use nuo_protocol::{AgentResponse, LoopStatus, RoundEvent};
+use nuo_tool::{Message, Role, ToolCall};
+
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -35,8 +37,8 @@ use std::collections::HashMap;
 /// The vocabulary fixture is the **server's** catalog — the same publication a
 /// real client receives during attach. A test-local copy was what let the TUI's
 /// popup advertise `/delegate` and lose `/quotas` without any test noticing.
-fn test_command_catalog() -> nuo_protocol::CommandCatalog {
-    nuo_server::startup::command_catalog(&[])
+fn test_command_catalog() -> nuo_tool::CommandCatalog {
+    nuo_server::composition::startup::command_catalog(&[])
 }
 
 fn thread_with_subagents() -> Vec<TranscriptMessage> {

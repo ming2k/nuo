@@ -484,10 +484,10 @@ pub enum RoundEvent {
     /// `effect` is the server's authoritative class for this invocation
     /// (ADR-0140) and it decides where the reply is filed — nothing else does:
     ///
-    /// - [`crate::CommandEffect::Mutation`] — an act. A durable row already exists in
+    /// - [`nuo_tool::CommandEffect::Mutation`] — an act. A durable row already exists in
     ///   the session's command ledger; the client settles the staged thread row
     ///   in place, so the act holds its position in the conversation.
-    /// - [`crate::CommandEffect::Reading`] — a report of the world at the moment of
+    /// - [`nuo_tool::CommandEffect::Reading`] — a report of the world at the moment of
     ///   asking. **No** ledger row exists and none may be fabricated: the reply
     ///   is an ephemeral receipt on the client. A reading is answered in full,
     ///   it is simply never asserted later as still true.
@@ -502,7 +502,7 @@ pub enum RoundEvent {
         args: String,
         result: crate::command::CommandResult,
         /// Whether this invocation was an act (recorded) or a reading (ephemeral).
-        effect: crate::CommandEffect,
+        effect: nuo_tool::CommandEffect,
     },
     /// Turn-level error (e.g. a provider failure mid-turn). Distinct from the
     /// global [`AgentResponse::Error`] only in that it belongs to a specific
@@ -545,7 +545,7 @@ pub enum RoundEvent {
         /// The dispatch id, matching the `ToolCall` it describes.
         id: String,
         name: String,
-        preview: crate::preview::PreviewResult,
+        preview: nuo_tool::preview::PreviewResult,
     },
     ToolResult {
         id: String,
@@ -608,7 +608,7 @@ pub enum RoundEvent {
     /// The task list changed (full-replace via `todo`, surgical update via
     /// `todo_update`). Mirrors [`AgentEvent::TodosUpdated`]. An empty list
     /// means "no active task list" and hides the sticky panel.
-    TodosUpdated(crate::todos::TodoList),
+    TodosUpdated(nuo_tool::todos::TodoList),
     /// The unattended execution toggle changed. `true` = the agent runs in unattended
     /// mode (suppresses interactive human confirmations). Emitted by `/unattended` so
     /// the TUI can refresh its badge without waiting for the next harness snapshot.
@@ -659,7 +659,7 @@ pub enum RoundEvent {
     /// message, tool calls, or output tokens are produced or recorded.
     UnsentInput {
         prompt: String,
-        images: Vec<crate::ImagePart>,
+        images: Vec<nuo_tool::ImagePart>,
     },
     /// A subagent event to render nested inside the parent tool step. The
     /// variant carries the child's own [`SubagentEvent`] plus the parent

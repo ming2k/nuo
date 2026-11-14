@@ -298,9 +298,9 @@ fn a_content_free_400_gains_the_sent_request_shape() {
     // The reported failure: Google's canonical refusal names no field, so
     // the notice said only "Request contains an invalid argument." with
     // nothing to act on. The sent shape must now ride along.
-    let raw = nuo_provider::ProviderError::new(
+    let raw = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::InvalidRequest,
+        nuo_protocol::ProviderErrorKind::InvalidRequest,
         "Google HTTP 400 Bad Request: Request contains an invalid argument.",
     )
     .with_status(400);
@@ -340,9 +340,9 @@ fn a_content_free_400_gains_the_sent_request_shape() {
 fn a_non_refusal_keeps_its_own_guidance_and_gains_no_shape() {
     // A 429's body is rich; bolting the request shape onto it would bury
     // the quota facts under irrelevant request anatomy.
-    let raw = nuo_provider::ProviderError::new(
+    let raw = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::RateLimited,
+        nuo_protocol::ProviderErrorKind::RateLimited,
         "Google HTTP 429 Too Many Requests: {\"error\":{\"status\":\"RESOURCE_EXHAUSTED\"}}",
     )
     .with_status(429)
@@ -354,7 +354,7 @@ fn a_non_refusal_keeps_its_own_guidance_and_gains_no_shape() {
     assert!(!clarified.message().contains("names no field"));
     assert_eq!(
         clarified.retry_disposition(),
-        nuo_provider::RetryDisposition::Retry {
+        nuo_protocol::RetryDisposition::Retry {
             retry_after_ms: None
         }
     );
@@ -362,9 +362,9 @@ fn a_non_refusal_keeps_its_own_guidance_and_gains_no_shape() {
 
 #[test]
 fn clarify_error_appends_guidance_to_retryable_error() {
-    let raw = nuo_provider::ProviderError::new(
+    let raw = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::RateLimited,
+        nuo_protocol::ProviderErrorKind::RateLimited,
         "Google HTTP 429 Too Many Requests: {\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\"}}",
     )
     .with_status(429)
@@ -379,7 +379,7 @@ fn clarify_error_appends_guidance_to_retryable_error() {
     assert_eq!(clarified.status(), Some(429));
     assert_eq!(
         clarified.retry_disposition(),
-        nuo_provider::RetryDisposition::Retry {
+        nuo_protocol::RetryDisposition::Retry {
             retry_after_ms: None
         }
     );
@@ -400,9 +400,9 @@ fn clarify_error_appends_guidance_to_retryable_error() {
 #[test]
 fn clarify_error_promotes_google_retryinfo_delay_into_retry_after_ms() {
     let body = r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"3620s"}]}}"#;
-    let raw = nuo_provider::ProviderError::new(
+    let raw = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::RateLimited,
+        nuo_protocol::ProviderErrorKind::RateLimited,
         format!("Google HTTP 429 Too Many Requests: {body}"),
     )
     .with_status(429)
@@ -410,7 +410,7 @@ fn clarify_error_promotes_google_retryinfo_delay_into_retry_after_ms() {
     let clarified = super::clarify_error_with_shape(raw, "gemini-3.7-flash", "https://x", None);
     assert_eq!(
         clarified.retry_disposition(),
-        nuo_provider::RetryDisposition::Retry {
+        nuo_protocol::RetryDisposition::Retry {
             retry_after_ms: Some(3_620_000)
         }
     );
@@ -423,9 +423,9 @@ fn clarify_error_promotes_google_retryinfo_delay_into_retry_after_ms() {
 
 #[test]
 fn clarify_error_preserves_an_existing_retry_after() {
-    let raw = nuo_provider::ProviderError::new(
+    let raw = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::RateLimited,
+        nuo_protocol::ProviderErrorKind::RateLimited,
         "Google HTTP 429: {\"error\":{\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"retryDelay\":\"45s\"}]}}",
     )
     .with_status(429)
@@ -433,7 +433,7 @@ fn clarify_error_preserves_an_existing_retry_after() {
     let clarified = super::clarify_error_with_shape(raw, "m", "https://x", None);
     assert_eq!(
         clarified.retry_disposition(),
-        nuo_provider::RetryDisposition::Retry {
+        nuo_protocol::RetryDisposition::Retry {
             retry_after_ms: Some(120_000)
         }
     );
@@ -441,9 +441,9 @@ fn clarify_error_preserves_an_existing_retry_after() {
 
 #[test]
 fn clarify_error_passes_non_retryable_errors_through_with_guidance() {
-    let raw = nuo_provider::ProviderError::new(
+    let raw = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::InvalidRequest,
+        nuo_protocol::ProviderErrorKind::InvalidRequest,
         "Google HTTP 404 Not Found",
     )
     .with_status(404);
@@ -457,7 +457,7 @@ fn clarify_error_passes_non_retryable_errors_through_with_guidance() {
     assert!(!clarified.message().contains("Switch to a model"));
     assert_eq!(
         clarified.retry_disposition(),
-        nuo_provider::RetryDisposition::Never
+        nuo_protocol::RetryDisposition::Never
     );
 }
 
@@ -533,9 +533,9 @@ fn the_augmented_message_must_never_be_fed_to_the_downgrade_predicate() {
     // image).
     //
     // The typed entry point reads the upstream text, so it stays false.
-    let upstream = nuo_provider::ProviderError::new(
+    let upstream = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::InvalidRequest,
+        nuo_protocol::ProviderErrorKind::InvalidRequest,
         "Google HTTP 400 Bad Request: Request contains an invalid argument.",
     )
     .with_status(400);
@@ -564,9 +564,9 @@ fn the_augmented_message_must_never_be_fed_to_the_downgrade_predicate() {
          that is precisely why callers must classify before augmenting"
     );
     // ...and a genuine thinking rejection is still recognized upstream.
-    let genuine = nuo_provider::ProviderError::new(
+    let genuine = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::InvalidRequest,
+        nuo_protocol::ProviderErrorKind::InvalidRequest,
         "Google HTTP 400: {\"error\":{\"status\":\"INVALID_ARGUMENT\",\
          \"message\":\"Invalid JSON payload received. Unknown name \
          \\\"thinkingConfig\\\" at 'request': Cannot find field.\"}}",

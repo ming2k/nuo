@@ -1,5 +1,5 @@
 use super::*;
-use crate::message::{InjectionKind, ToolCall};
+use nuo_tool::{InjectionKind, ToolCall};
 
 fn message_entry(seq: u64, role: Role, content: &str) -> TranscriptEntry {
     let mut message = Message::new(role, content);
@@ -70,12 +70,12 @@ fn state_entries_never_enter_the_view() {
 #[test]
 fn todos_derive_from_newest_state_entry() {
     let mut transcript = Transcript::new();
-    let first = crate::todos::TodoList::default();
+    let first = nuo_tool::todos::TodoList::default();
     // (The list starts empty; an empty mirror still counts as derived
     // state, so push two mirrors and expect the newest to win.)
     transcript.push(TranscriptEntry::from_state(0, Some(first.clone())));
     transcript.push(message_entry(1, Role::User, "work"));
-    let second = crate::todos::TodoList::default();
+    let second = nuo_tool::todos::TodoList::default();
     transcript.push(TranscriptEntry::from_state(2, Some(second)));
     assert!(transcript.derive_todos().is_some());
 }
@@ -114,7 +114,7 @@ fn compact_replaces_range_with_checkpoint_once() {
     transcript.push(message_entry(1, Role::Assistant, "older"));
     let mut checkpoint = Message::new(Role::User, "summary of old rounds");
     checkpoint.hidden = true;
-    checkpoint.origin = Some(crate::message::InjectionOrigin::new(
+    checkpoint.origin = Some(nuo_tool::InjectionOrigin::new(
         InjectionKind::CompactionCheckpoint,
     ));
     let checkpoint = TranscriptEntry::from_message(2, &checkpoint);
@@ -145,14 +145,14 @@ fn later_compact_wins_over_earlier() {
     }
     let mut checkpoint_a = Message::new(Role::User, "checkpoint a");
     checkpoint_a.hidden = true;
-    checkpoint_a.origin = Some(crate::message::InjectionOrigin::new(
+    checkpoint_a.origin = Some(nuo_tool::InjectionOrigin::new(
         InjectionKind::CompactionCheckpoint,
     ));
     let checkpoint_a = TranscriptEntry::from_message(5, &checkpoint_a);
     transcript.push(checkpoint_a);
     let mut checkpoint_b = Message::new(Role::User, "checkpoint b");
     checkpoint_b.hidden = true;
-    checkpoint_b.origin = Some(crate::message::InjectionOrigin::new(
+    checkpoint_b.origin = Some(nuo_tool::InjectionOrigin::new(
         InjectionKind::CompactionCheckpoint,
     ));
     let checkpoint_b = TranscriptEntry::from_message(6, &checkpoint_b);
@@ -207,7 +207,7 @@ fn message_round_trip_is_lossless() {
 fn compaction_checkpoint_maps_to_checkpoint_origin() {
     let mut message = Message::new(Role::User, "checkpoint");
     message.hidden = true;
-    message.origin = Some(crate::message::InjectionOrigin::new(
+    message.origin = Some(nuo_tool::InjectionOrigin::new(
         InjectionKind::CompactionCheckpoint,
     ));
     let entry = TranscriptEntry::from_message(0, &message);
@@ -272,7 +272,7 @@ fn seq_watermarks_advance_gap_free() {
 fn prune_replaces_user_media_with_invoice_placeholder() {
     let mut transcript = Transcript::new();
     let user_msg =
-        Message::new(Role::User, "User prompt with image").with_images(vec![crate::ImagePart {
+        Message::new(Role::User, "User prompt with image").with_images(vec![nuo_tool::ImagePart {
             mime: "image/png".into(),
             data: "base64data".into(),
         }]);

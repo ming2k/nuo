@@ -2,7 +2,7 @@
 
 use base64::Engine as _;
 use nuo_provider::BodyCodecPhase;
-use nuo_provider::ProviderError;
+use nuo_protocol::ProviderError;
 
 const QODER_ALPHABET: &[u8; 64] =
     b"_doRTgHZBKcGVjlvpC,@aFSx#DPuNJme&i*MzLOEn)sUrthbf%Y^w.(kIQyXqWA!";

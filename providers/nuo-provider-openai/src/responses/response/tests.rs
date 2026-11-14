@@ -23,7 +23,7 @@ fn incomplete_response_still_delivers_output_usage_and_terminality() {
     let output = meta
         .artifacts
         .as_ref()
-        .and_then(|artifacts| artifacts.get(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
+        .and_then(|artifacts| artifacts.get(nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
         .and_then(Value::as_array)
         .expect("the truncated turn stays replayable");
     assert_eq!(output[0]["content"][0]["text"], "partial");
@@ -330,7 +330,7 @@ fn completed_reconstructs_empty_terminal_output_from_done_items() {
     let output = meta
         .artifacts
         .as_ref()
-        .and_then(|artifacts| artifacts.get(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
+        .and_then(|artifacts| artifacts.get(nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
         .and_then(Value::as_array)
         .unwrap();
     assert_eq!(output.len(), 2);

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
 use futures::{StreamExt, stream::BoxStream};
-pub use nuo_tool::Tool;
+use nuo_tool::Tool;
 use nuo_tool::message::Message;
 use nuo_tool::usage::TokenUsage;
 use serde::{Deserialize, Serialize};
@@ -402,17 +402,6 @@ pub fn empty_variant_selection() -> &'static VariantSelection {
     &EMPTY
 }
 
-/// Runtime input supervisor for a supervised command invocation. Relocated to
-/// the tool leaf (`nuo_tool::stream::InputHandler`) per ADR-0008; re-exported
-/// here for existing call sites.
-pub use nuo_tool::stream::InputHandler;
-
-/// Everything a tool needs for one invocation beyond its own state. Relocated to
-/// the tool leaf (`nuo_tool::context::ToolInvocation`) per ADR-0008; re-exported
-/// here for existing call sites.
-pub use nuo_tool::context::ToolInvocation;
-
-pub use nuo_tool::{BuiltinTool, ScopeTarget};
 #[cfg(test)]
 mod tests {
     use super::Tool;

@@ -2,6 +2,6 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-// The `nuo_harness` alias lives at the root integration entry.
+// The `nuo_engine` alias lives at the root integration entry.
 mod it;
 mod layering;

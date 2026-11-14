@@ -41,7 +41,7 @@
 //! physical filesystem/process boundary, applied independently of command
 //! text. Treat the bash policy as a lint, not a wall.
 
-use nuo_persistence::config::{
+use nuo_protocol::policy_config::{
     BashPolicyActionConfig, BashPolicyConfig, BashPolicyMatcherConfig, BashPolicyRuleConfig,
 };
 use regex::Regex;
@@ -103,8 +103,8 @@ impl BashPolicyMatch {
 
     /// A hard refusal (built-in/user `Deny`). Same wording in the interactive
     /// full check and the chain's non-interactive check.
-    pub fn blocked_output(&self, command: &str) -> nuo_protocol::ToolOutput {
-        nuo_protocol::ToolOutput::Error {
+    pub fn blocked_output(&self, command: &str) -> nuo_tool::ToolOutput {
+        nuo_tool::ToolOutput::Error {
             message: format!("[bash policy] Blocked dangerous command: {command}"),
             detail: Some(self.detail()),
         }
@@ -496,7 +496,7 @@ fn builtin_allow_rules() -> Vec<CompiledRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_persistence::config::{
+    use nuo_protocol::policy_config::{
         BashPolicyActionConfig, BashPolicyMatcherConfig, BashPolicyRuleConfig,
     };
 

@@ -21,10 +21,10 @@
 //!   stream), and the loop drains eagerly each iteration.
 use std::collections::HashMap;
 
-use nuo_protocol::{
-    InputRequest, PermissionRequest, ProviderPickerSnapshot, SubagentEvent, ThreadOverview,
-    ToolStream, UserQuestionRequest,
-};
+use nuo_protocol::{InputRequest, ProviderPickerSnapshot, ThreadOverview};
+
+use nuo_tool::{PermissionRequest, SubagentEvent, ToolStream, UserQuestionRequest};
+
 
 use crate::shell::app::{OauthAddSignal, ProviderRetryState};
 use crate::shell::pre_attach::PreAttachSignal;
@@ -38,7 +38,7 @@ pub(crate) struct CompletionSignal {
     pub request_id: u64,
     pub input: String,
     pub cursor: usize,
-    pub items: Vec<nuo_protocol::InputCompletion>,
+    pub items: Vec<nuo_tool::InputCompletion>,
 }
 
 /// One semantic edit of the primary transcript document. The applier executes
@@ -121,7 +121,7 @@ pub(crate) enum TranscriptEdit {
     /// carries the preview where a decision is at stake.
     ToolPreview {
         id: String,
-        preview: nuo_protocol::PreviewResult,
+        preview: nuo_tool::PreviewResult,
     },
     /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call, addressed by call id (ADR-0166).
     ToolInputProgress {
@@ -136,7 +136,7 @@ pub(crate) enum TranscriptEdit {
         id: String,
         name: String,
         output: String,
-        structured: nuo_protocol::ToolOutput,
+        structured: nuo_tool::ToolOutput,
         duration_ms: u64,
         fallback: Option<TranscriptMessage>,
     },
@@ -271,7 +271,7 @@ pub(crate) enum AppMutation {
     SessionPhase(nuo_protocol::ThreadPhase),
     /// Replace the server-owned slash-command vocabulary from an authoritative
     /// hydration snapshot.
-    CommandCatalog(nuo_protocol::CommandCatalog),
+    CommandCatalog(nuo_tool::CommandCatalog),
     HarnessUnattended(bool),
     HarnessConfined(bool),
     ClearSwitchingSession,

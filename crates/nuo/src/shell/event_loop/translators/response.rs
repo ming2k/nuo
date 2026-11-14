@@ -12,9 +12,17 @@ use crate::shell::{
     },
     transcript_turn,
 };
-use nuo_protocol::{AgentResponse, LoopStatus, ProviderPickerSnapshot, Role, RoundEvent};
+use nuo_protocol::{AgentResponse, LoopStatus, ProviderPickerSnapshot, RoundEvent};
+use nuo_tool::{Role};
+
 use nuo_view::model::document::{NoticeSeverity, TranscriptMessage, UserMessageOrigin};
 use nuo_view::phase::Phase;
+
+/// Translator-side alias for the mutation type (formerly a `use` inside the
+/// event loop).
+type M = event_loop::mutations::AppMutation;
+/// Translator-side alias for the transcript edit type.
+type E = event_loop::mutations::TranscriptEdit;
 
 pub struct ResponseTranslatorConfig {
     pub rx: mpsc::UnboundedReceiver<AgentResponse>,
@@ -25,6 +33,59 @@ pub struct ResponseTranslatorConfig {
     pub initial_model: String,
     pub initial_round_count: u64,
     pub live_session: String,
+}
+
+/// Long-lived translator state, moved out of the `tokio::spawn` body.
+struct TranslatorState {
+    /// A session switch replaces the transcript before its authoritative idle
+    /// `HarnessState` arrives. Rebase the reconstructed tail exactly once when
+    /// that snapshot supplies the persisted round counter.
+    needs_round_rebase: bool,
+    /// Translator-owned mirrors of the values it itself receives (sent to
+    /// `App` via mutations): attribution, the provider-picker snapshot
+    /// (effort derivation), and the harness snapshot (idle gating). No
+    /// shared cells are read for these.
+    current_provider: String,
+    current_model: String,
+    picker: ProviderPickerSnapshot,
+    harness: nuo_protocol::HarnessSnapshot,
+    /// The round's retry episode, as the *typed* state machine
+    /// (`nuo_view::retry`). One value holds the attempt pair, the
+    /// backoff instant and the fault history, so the three consumers
+    /// that need it — the bar clause, the receipt-log line and the
+    /// settled turn anchor — cannot disagree about any of them.
+    ///
+    /// It is the only retry state in the translator: there is no
+    /// parallel counter and no second copy of the count. `None` means
+    /// the round in flight has not retried. Boundary writes below exist so
+    /// a later round's error can never be blamed for an earlier round's
+    /// attempts.
+    retry_progress: Option<nuo_view::retry::RetryProgress>,
+    reasoning_start: Option<std::time::Instant>,
+    /// The live primary session id: the translator updates it on
+    /// `/new` / `/session open` / `/resume` / `/fork` and scopes
+    /// session-addressed replies (the tree snapshot) against it.
+    live_session: String,
+    /// ADR-0166 `[INV-TOOL-ID-06]`: sessions this client has switched
+    /// away from. A superseded round can still emit terminal frames after
+    /// the switch (`cancel_current` signals a token; it does not join the
+    /// task), and those frames must not write into the replacement
+    /// buffer. See [`session_gate`] for why this is a superseded set and
+    /// not an equality check against the live id.
+    session_gate: session_gate::SessionGate,
+    mutations: event_loop::mutations::MutationSink,
+    tui_config: Arc<crate::shell::config::TuiConfig>,
+    trust_gate_dismissed: Arc<std::sync::atomic::AtomicBool>,
+    awaiting_oauth_add: Arc<std::sync::atomic::AtomicBool>,
+    viewed_session_id: Arc<tokio::sync::Mutex<Option<String>>>,
+}
+
+/// Turn position and send time carried by a turn-scoped round event.
+#[derive(Clone, Copy)]
+struct TurnCtx {
+    turn_context: Option<nuo_protocol::TurnContext>,
+    turn_position: Option<(u64, u64)>,
+    turn_sent_at: Option<u64>,
 }
 
 pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
@@ -57,81 +118,31 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
         // (`RoundScope::Turn`); the translator keeps no per-session
         // position or timestamp map (ADR-0168). A mid-stream attach is
         // therefore as correct as a client that observed `TurnStarted`.
-        // A session switch replaces the transcript before its authoritative
-        // idle HarnessState arrives. Rebase the reconstructed tail exactly
-        // once when that snapshot supplies the persisted round counter.
-        let mut needs_round_rebase = false;
-        // Translator-owned mirrors of the values it itself receives (sent to
-        // `App` via mutations): attribution, the provider-picker snapshot
-        // (effort derivation), and the harness snapshot (idle gating). No
-        // shared cells are read for these.
-        let mut current_provider = initial_provider_for_translator.clone();
-        let mut current_model = initial_model_for_translator.clone();
-        let mut picker = ProviderPickerSnapshot::default();
-        let mut harness = nuo_protocol::HarnessSnapshot {
-            loop_status: LoopStatus::Idle,
-            round_counter: initial_round_count,
-            unattended: false,
-            confined: true,
-            workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
-            retry_pending: false,
-            role: None,
-            workspace: None,
+        let mut state = TranslatorState {
+            needs_round_rebase: false,
+            current_provider: initial_provider_for_translator.clone(),
+            current_model: initial_model_for_translator.clone(),
+            picker: ProviderPickerSnapshot::default(),
+            harness: nuo_protocol::HarnessSnapshot {
+                loop_status: LoopStatus::Idle,
+                round_counter: initial_round_count,
+                unattended: false,
+                confined: true,
+                workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
+                retry_pending: false,
+                role: None,
+                workspace: None,
+            },
+            retry_progress: None,
+            reasoning_start: None,
+            live_session: live_session_for_translator.clone(),
+            session_gate: session_gate::SessionGate::new(),
+            mutations,
+            tui_config: tui_config_clone,
+            trust_gate_dismissed: trust_gate_dismissed_clone,
+            awaiting_oauth_add: awaiting_oauth_add_clone,
+            viewed_session_id: viewed_session_id_clone,
         };
-        // The round's retry episode, as the *typed* state machine
-        // (`nuo_view::retry`). One value holds the attempt pair, the
-        // backoff instant and the fault history, so the three consumers
-        // that need it — the bar clause, the receipt-log line and the
-        // settled turn anchor — cannot disagree about any of them.
-        //
-        // It is the only retry state in the translator: there is no
-        // parallel counter and no second copy of the count. `None` means
-        // the round in flight has not retried. The `= None` writes below
-        // are the round boundaries, and they exist so a later round's
-        // error can never be blamed for an earlier round's attempts.
-        let mut retry_progress: Option<nuo_view::retry::RetryProgress> = None;
-        let mut reasoning_start: Option<std::time::Instant> = None;
-        // The live primary session id: the translator updates it on
-        // `/new` / `/session open` / `/resume` / `/fork` and scopes
-        // session-addressed replies (the tree snapshot) against it.
-        let mut live_session = live_session_for_translator.clone();
-        // ADR-0166 `[INV-TOOL-ID-06]`: sessions this client has switched
-        // away from. A superseded round can still emit terminal frames after
-        // the switch (`cancel_current` signals a token; it does not join the
-        // task), and those frames must not write into the replacement
-        // buffer. See [`session_gate`] for why this is a superseded set and
-        // not an equality check against the live id.
-        let mut session_gate = session_gate::SessionGate::new();
-
-        // Attribution + effort derivation from translator-owned mirrors
-        // (formerly `event_loop::attribution` / `picker_effort` over
-        // shared cells).
-        macro_rules! attribution {
-            () => {
-                (current_provider.clone(), current_model.clone())
-            };
-        }
-        macro_rules! picker_effort {
-            () => {
-                // The picker row already carries the server's resolved
-                // depth — no protocol sniffing, no re-derivation
-                // (ADR-0126).
-                picker
-                    .rows
-                    .iter()
-                    .find(|row| row.id == current_provider)
-                    .and_then(|row| row.model_info.iter().find(|m| m.model == current_model))
-                    .and_then(|m| m.effort.clone())
-            };
-        }
-        macro_rules! now_ms {
-            () => {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0)
-            };
-        }
 
         while let Some(resp) = rx.recv().await {
             // Any handled response can change state the loop renders from,
@@ -147,1635 +158,7 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
             if !defer_stream_wakeup {
                 dirty_notify_clone.notify_one();
             }
-            use event_loop::mutations::AppMutation as M;
-            use event_loop::mutations::TranscriptEdit as E;
-            match resp {
-                // Per-turn events arrive tagged with the session they
-                // belong to; there is a single primary transcript buffer now
-                // (the aside substrate is retired, ADR-0058), so the
-                // translator routes every event to it. Permission and
-                // user-question requests stay global so their modals surface
-                // regardless of which view is focused.
-                AgentResponse::Round {
-                    thread_id: session_id,
-                    scope,
-                } => {
-                    // ADR-0166: **the buffer holds exactly one session.**
-                    // `ConversationCleared` / `ConversationReplaced` replace
-                    // it, and a superseded round keeps unwinding afterwards —
-                    // `cancel_current` signals a token, it does not join the
-                    // task — so its terminal frames can land *after* the
-                    // switch. Applying them would append stale rows to the
-                    // new transcript (a result with no matching row becomes a
-                    // fallback insert). Drop every frame addressed to a
-                    // session this buffer has switched away from.
-                    if !session_gate.accepts(&session_id) {
-                        continue;
-                    }
-                    let (event, turn_context) = match scope {
-                        nuo_protocol::RoundScope::Turn { context, event } => (event, Some(context)),
-                        nuo_protocol::RoundScope::Session { event } => (event, None),
-                    };
-                    // A turn-scoped event always carries its context; a
-                    // session-scoped event cannot claim one. There is no
-                    // per-session position map left to consult (ADR-0168).
-                    let turn_position =
-                        turn_context.map(|context| (context.round, transcript_turn(context.turn)));
-                    let turn_sent_at = turn_context.map(|context| context.sent_at_ms);
-                    macro_rules! require_turn {
-                        () => {
-                            match turn_context {
-                                Some(context) => context,
-                                None => continue,
-                            }
-                        };
-                    }
-                    macro_rules! transcript {
-                        ($edit:expr) => {
-                            mutations.send(M::Transcript { edit: $edit }).await;
-                        };
-                    }
-                    macro_rules! chrome {
-                        ($edit:expr) => {
-                            mutations
-                                .send(M::ChromeEdit {
-                                    session_id: session_id.clone(),
-                                    edit: $edit,
-                                })
-                                .await;
-                        };
-                    }
-                    match event {
-                        RoundEvent::ContextTokens(snapshot) => {
-                            mutations
-                                .send(M::ContextTokens {
-                                    session_id: session_id.clone(),
-                                    snapshot,
-                                })
-                                .await;
-                        }
-                        RoundEvent::TurnPerformance(performance) => {
-                            chrome!(event_loop::mutations::ChromeEdit::TurnPerformance(
-                                Box::new(performance),
-                            ));
-                        }
-                        RoundEvent::SteerUnavailable { input_id } => {
-                            // Steer is ephemeral to the active round. It MUST NOT silently mutate
-                            // into a next-round follow-up item. Remove the optimistic entry from transcript
-                            // and restore the text directly to the composer draft.
-                            mutations
-                                .send(M::SteerMissed {
-                                    session_id,
-                                    input_id,
-                                })
-                                .await;
-                        }
-                        RoundEvent::SteerAdmitted(input) => {
-                            let input_id = input.id.clone();
-                            let visible = input
-                                .display_text
-                                .clone()
-                                .unwrap_or_else(|| input.text.clone());
-                            // ADR-0137: admission is the materialization
-                            // point, and the buffer tail is the turn seam
-                            // (the harness persisted the steer after the
-                            // finished turn; the next turn's components
-                            // have not arrived). The message is APPENDED —
-                            // never head-inserted, which would put a
-                            // round-N steer above round 1.
-                            //
-                            // Position: the steer is *consumed* by the turn
-                            // that is about to start, and the event carries
-                            // that turn's context directly. The round is
-                            // unchanged (a steer never opens a round).
-                            let mut admitted = TranscriptMessage::new(Role::User, visible);
-                            admitted.insert_id = Some(input_id.clone());
-                            admitted.sent_at_ms = input.sent_at_ms;
-                            admitted.origin = UserMessageOrigin::Steer;
-                            let context = require_turn!();
-                            admitted.round = Some(context.round);
-                            admitted.turn = Some(transcript_turn(context.turn));
-                            // In-round provenance: the renderer draws it as
-                            // a one-body-row interjection (ADR-0137).
-                            admitted = admitted.with_origin_tags(vec![
-                                nuo_view::model::document::SteerOriginTag::InRound,
-                            ]);
-                            transcript!(E::InsertAdmittedSeam { message: admitted });
-                            mutations
-                                .send(M::DispatchRemoved {
-                                    session_id,
-                                    input_id,
-                                })
-                                .await;
-                        }
-                        RoundEvent::SteerCancelled { input_id } => {
-                            // The pending steer was cancelled before
-                            // admission (its only legal fate beside
-                            // SteerAdmitted, per the protocol's
-                            // linearization contract). Restore the text to
-                            // the composer and drop the outbox row; the
-                            // transcript never held it (ADR-0137).
-                            mutations
-                                .send(M::SteerCancelledRestored {
-                                    session_id,
-                                    input_id,
-                                })
-                                .await;
-                        }
-                        RoundEvent::SteerCancelFailed { input_id } => {
-                            // Cancellation lost the race with admission (or
-                            // the id was unknown): the protocol guarantees
-                            // that `SteerAdmitted` / `SteerUnavailable`
-                            // still follows and is authoritative.
-                            //
-                            // What must be repaired here is the client-side
-                            // intent recorded by a deletion: the suppress
-                            // flag exists so a *deleted* steer cannot
-                            // resurrect into the composer. If the cancel
-                            // failed, the steer is going to land after all,
-                            // so keeping the flag would silently swallow a
-                            // future recall for this id. Clear it and say
-                            // what happened — a deletion that lost the race
-                            // must not be a silent surprise (ADR-0137).
-                            mutations
-                                .send(M::SteerCancelFailedCleared {
-                                    session_id,
-                                    input_id,
-                                })
-                                .await;
-                        }
-                        RoundEvent::FollowUpQueued { input_id } => {
-                            // The server admitted the follow-up into its
-                            // queue: the optimistic entry settles back to
-                            // Waiting (the queue bar keeps showing it).
-                            mutations
-                                .send(M::DispatchQueued {
-                                    session_id: session_id.clone(),
-                                    input_id,
-                                })
-                                .await;
-                        }
-                        RoundEvent::QueueUpdated { items, paused } => {
-                            // The authoritative queue snapshot (
-                            // M4): full-replace projection.
-                            mutations
-                                .send(M::QueueSnapshot {
-                                    session_id: session_id.clone(),
-                                    items,
-                                    paused,
-                                })
-                                .await;
-                        }
-                        RoundEvent::FollowUpStarted(input) => {
-                            let input_id = input.id.clone();
-                            let visible = input
-                                .display_text
-                                .clone()
-                                .unwrap_or_else(|| input.text.clone());
-                            // ADR-0137: a follow-up opens a *fresh round*, so
-                            // its admission is the same materialization
-                            // point as a steer's — one transcript fact,
-                            // appended at the seam the harness persisted it
-                            // at. The former `SettleInserted` path settled an
-                            // optimistic in-thread row that no longer exists
-                            // (follow-ups live in the outbox until now), so
-                            // both admission kinds share one edit.
-                            let mut admitted = TranscriptMessage::new(Role::User, visible);
-                            admitted.insert_id = Some(input_id.clone());
-                            admitted.sent_at_ms = input.sent_at_ms;
-                            admitted.origin = UserMessageOrigin::FollowUp;
-                            // A follow-up opens its own round, so it keeps
-                            // full round-panel weight.
-                            admitted = admitted.with_origin_tags(vec![
-                                nuo_view::model::document::SteerOriginTag::RoundOpening,
-                            ]);
-                            transcript!(E::InsertAdmittedSeam { message: admitted });
-                            mutations
-                                .send(M::DispatchRemoved {
-                                    session_id,
-                                    input_id,
-                                })
-                                .await;
-                        }
-                        RoundEvent::RoundCompleted(_summary) => {
-                            // The retry episode is over; retire any transient state.
-                            retry_progress = None;
-                            // ADR-0166 `[INV-TOOL-ID-05]`: the round is over,
-                            // so no step it announced can still be ingesting
-                            // arguments. A round outcome is the boundary
-                            // signal; a `HarnessState` snapshot is a *state*
-                            // sample and must not be used as an edge.
-                            transcript!(E::RetractPendingToolSteps);
-                        }
-                        RoundEvent::RoundInterrupted(record) => {
-                            // C11: the durable twin of the live stop.
-                            //
-                            // If the round died while backing off, the last
-                            // fault is the *reason*, and the anchor's
-                            // one-line detail is where it belongs — one
-                            // line, not a pretty-printed HTTP body in the
-                            // timeline. The full payload is already in the
-                            // notice log (each scheduled attempt wrote its
-                            // receipt) and in the client log file.
-                            let last_fault = retry_progress
-                                .as_ref()
-                                .and_then(|progress| progress.faults().last().cloned());
-                            let record = match (record.detail, last_fault) {
-                                (None, Some(fault)) => nuo_protocol::RoundInterrupt {
-                                    detail: Some(nuo_view::model::notice_text::display_text(
-                                        &fault,
-                                    )),
-                                    ..record
-                                },
-                                (detail, _) => nuo_protocol::RoundInterrupt { detail, ..record },
-                            };
-                            retry_progress = None;
-                            chrome!(event_loop::mutations::ChromeEdit::RoundEnded);
-
-                            mutations.send(M::SetPhase(None)).await;
-                            mutations.send(M::SetResponding(false)).await;
-
-                            // ADR-0166: a stopped round is a boundary for the
-                            // same reason a completed one is.
-                            transcript!(E::RetractPendingToolSteps);
-                            transcript!(E::Interrupted { record });
-                        }
-                        RoundEvent::Notice(notice) => {
-                            // While the PreAttach trust gate owns the screen, a
-                            // trust **failure** is the gate's round-trip outcome
-                            // (the server could not persist the grant) — deliver it
-                            // to the surface so the failure renders where the
-                            // submitting spinner was, instead of burying it in a
-                            // transcript the full-screen interstitial hides. The
-                            // applier drops it when no gate is mounted, so
-                            // in-session failures keep their normal disclosure.
-                            //
-                            // Only `TrustFailure` is intercepted. A
-                            // `TrustChanged` *condition* is what opened the gate in
-                            // the first place; feeding it here would render the
-                            // workspace's own state as if it were an error.
-                            if notice.kind == nuo_protocol::NoticeKind::TrustFailure {
-                                mutations
-                                    .send(M::PreAttachAttestationError(notice.render_text()))
-                                    .await;
-                            }
-                            // The layer is derived from the surface context,
-                            // never chosen by the producer and never the
-                            // thread transcript ([INV-LAYER-04]): a notice is
-                            // a receipt, not dialogue.
-                            //
-                            // `SHELL` declares the notice log, so every
-                            // disclosure is *retained* there. A fault
-                            // additionally raises a bubble that names the log;
-                            // an acknowledgement does not. That inversion is
-                            // the point: the log is the home, the bubble is a
-                            // pointer to it.
-                            let layer = nuo_view::model::layer::layer_for(
-                                &notice,
-                                nuo_view::model::layer::SHELL,
-                            );
-                            if layer != nuo_view::model::layer::ContentLayer::Absorbed {
-                                // `RetryScheduled` owns the retry disclosure;
-                                // an absorbed receipt is dropped rather than
-                                // written into the conversation. The catalog
-                                // projects the wire notice into the funnel
-                                // payload (ADR-0138), taking the topic from
-                                // the closed wire vocabulary.
-                                mutations
-                                        .send(M::NoticeDisclosure(
-                                            crate::shell::app::notice_catalog::RenderedNotice::from_core(
-                                                &notice,
-                                            ),
-                                        ))
-                                        .await;
-                            }
-                        }
-                        RoundEvent::Text(t) => {
-                            retry_progress = None;
-                            let (provider, model) = attribution!();
-                            let effort = picker_effort!();
-                            let mut message = TranscriptMessage::new(Role::Assistant, t)
-                                .with_attribution(provider, model)
-                                .with_effort(effort)
-                                .with_sent_at_ms(turn_sent_at.unwrap_or_else(|| now_ms!()));
-                            if let Some((round, turn)) = turn_position {
-                                message.round = Some(round);
-                                message.turn = Some(turn);
-                            }
-                            transcript!(E::Append {
-                                class: nuo_protocol::EventClass::Dialogue,
-                                message
-                            });
-                            // A one-shot text payload is the degenerate case
-                            // of the delta stream: it *is* visible model
-                            // output, so it moves the session's phase
-                            // exactly as a delta does. Otherwise the bar
-                            // keeps reading "waiting for model" after the
-                            // model has answered — and, since the setback
-                            // clause is retired when the phase leaves
-                            // `AwaitingModel`, the countdown for
-                            // the attempt that just landed rides on.
-                            chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
-                                Phase::Answering,
-                            )));
-
-                            if harness.loop_status.is_idle() {
-                                mutations.send(M::SetResponding(false)).await;
-                                mutations.send(M::SetPhase(None)).await;
-                            } else {
-                                mutations.send(M::SetPhase(Some(Phase::Answering))).await;
-                            }
-                        }
-                        RoundEvent::CommandResult {
-                            name,
-                            args,
-                            result,
-                            effect,
-                        } => {
-                            mutations.send(M::ClearSwitchingSession).await;
-                            retry_progress = None;
-                            let invocation = if args.is_empty() {
-                                format!("/{}", name)
-                            } else {
-                                format!("/{} {}", name, args)
-                            };
-                            // The server's declared class decides where the
-                            // reply is filed, and nothing else does
-                            // (ADR-0140, `[INV-CMD-08]`). An **act** holds a
-                            // position in the thread, so it settles the staged
-                            // row in place (or materialises the fallback if
-                            // the act happened before this view was watching).
-                            // A **reading** never touches the thread: its
-                            // reply is a receipt in the client's notice log,
-                            // beside every other disclosure, because a
-                            // measurement of the world is not a thing that was
-                            // said.
-                            //
-                            // Furthermore (ADR-0149, `[INV-CMD-09]`), any failed
-                            // command or unknown command is withdrawn from the thread:
-                            // errors never deface L0 transcript, but route to the
-                            // top-right notice toast and restore the user's draft.
-                            let is_failure = matches!(
-                                result,
-                                nuo_protocol::CommandResult::Error { .. }
-                                    | nuo_protocol::CommandResult::UnknownCommand { .. }
-                            );
-                            if is_failure || effect == nuo_protocol::CommandEffect::Reading {
-                                transcript!(E::WithdrawStagedCommand {
-                                    invocation: invocation.clone(),
-                                    restore_draft: is_failure,
-                                });
-                                mutations
-                                        .send(M::NoticeDisclosure(
-                                            crate::shell::app::notice_catalog::ClientNotice::CommandReceipt {
-                                                invocation,
-                                                body: result.to_text(),
-                                                failed: is_failure,
-                                            }
-                                            .render(),
-                                        ))
-                                        .await;
-                            } else {
-                                let fallback = TranscriptMessage::command_result(
-                                    name.clone(),
-                                    args.clone(),
-                                    Some(result.clone()),
-                                )
-                                .with_sent_at_ms(now_ms!());
-                                transcript!(E::SettleCommandResult {
-                                    invocation,
-                                    result,
-                                    fallback: Some(fallback),
-                                });
-                            }
-                            if harness.loop_status.is_idle() {
-                                mutations.send(M::SetResponding(false)).await;
-                                mutations.send(M::SetPhase(None)).await;
-                            }
-                        }
-                        RoundEvent::Activity(status) => {
-                            // View-scoped chrome: record this session's own
-                            // phase regardless of focus. Stale in-flight
-                            // activity events must not revive the bar if the
-                            // harness is already idle (e.g. after interrupt).
-                            if !harness.loop_status.is_idle() {
-                                let folded = Phase::classify(&status);
-                                chrome!(event_loop::mutations::ChromeEdit::ActivityFolded(
-                                    folded.clone(),
-                                ));
-
-                                mutations.send(M::SetPhase(Some(folded))).await;
-                                mutations.send(M::SetResponding(true)).await;
-                            }
-                        }
-                        RoundEvent::TurnStarted => {
-                            let Some(context) = turn_context else {
-                                continue;
-                            };
-                            let round = context.round;
-                            // 1-indexed for display: turn 0 is the first
-                            // model request, shown as `turn 1`.
-                            let turn = transcript_turn(context.turn);
-                            transcript!(E::StampTurnPrompt { round });
-
-                            mutations.send(M::SetRoundCount(round)).await;
-                            mutations.send(M::SetCurrentTurn(turn)).await;
-
-                            chrome!(event_loop::mutations::ChromeEdit::TurnStarted { round, turn });
-
-                            mutations
-                                .send(M::SetPhase(Some(Phase::AwaitingModel)))
-                                .await;
-                        }
-                        RoundEvent::StreamStart => {
-                            // A stream lifecycle event is not visible
-                            // transcript content; the first visible delta
-                            // lazily creates its own typed component. A
-                            // successful stream does retire any transient
-                            // provider-retry disclosure.
-                            transcript!(E::BeginStream);
-                            chrome!(event_loop::mutations::ChromeEdit::StreamStarted);
-
-                            mutations.send(M::SetResponding(true)).await;
-                            mutations.send(M::SetPhase(Some(Phase::Answering))).await;
-                        }
-                        RoundEvent::StreamDelta(delta) => {
-                            // Visible-text deltas outrank the reasoning phase.
-
-                            mutations.send(M::SetPhase(Some(Phase::Answering))).await;
-
-                            chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
-                                Phase::Answering,
-                            )));
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            let sent_at_ms = context.sent_at_ms;
-                            let round = position.map(|(round, _)| round);
-                            let turn = position.map(|(_, turn)| turn);
-                            let (provider, model) = attribution!();
-                            let effort = picker_effort!();
-                            let mut created =
-                                TranscriptMessage::new(Role::Assistant, delta.clone())
-                                    .with_attribution(provider, model)
-                                    .with_effort(effort)
-                                    // The turn header's `HH:MM` reads this
-                                    // stamp. It is the *turn's* send time, so
-                                    // thinking / text / tools of one turn can
-                                    // never disagree, live or resumed.
-                                    .with_sent_at_ms(sent_at_ms);
-                            if let Some((r, t)) = position {
-                                created.round = Some(r);
-                                created.turn = Some(t);
-                            }
-                            transcript!(E::StreamTextDelta {
-                                round,
-                                turn,
-                                delta,
-                                created: Some(created),
-                                clear_retry: false,
-                            });
-                        }
-                        RoundEvent::StreamEnd(final_content) => {
-                            mutations.send(M::SetResponding(true)).await;
-                            mutations.send(M::SetPhase(Some(Phase::Finalizing))).await;
-
-                            retry_progress = None;
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            let sent_at_ms = context.sent_at_ms;
-                            let round = position.map(|(round, _)| round);
-                            let turn = position.map(|(_, turn)| turn);
-                            // Identity-addressed: the applier
-                            // resolves the streaming entry by position. The
-                            // fallback (providers that deliver only a final
-                            // payload) is built only for non-empty content.
-                            let created = if !final_content.is_empty() {
-                                let (provider, model) = attribution!();
-                                let effort = picker_effort!();
-                                let mut message =
-                                    TranscriptMessage::new(Role::Assistant, final_content.clone())
-                                        .with_attribution(provider, model)
-                                        .with_effort(effort)
-                                        // Same rule as the delta arm: this
-                                        // only-visible-bytes path must carry the
-                                        // turn's send time into the band header.
-                                        .with_sent_at_ms(sent_at_ms);
-                                if let Some((r, t)) = position {
-                                    message.round = Some(r);
-                                    message.turn = Some(t);
-                                }
-                                Some(message)
-                            } else {
-                                None
-                            };
-                            transcript!(E::StreamTextFinalize {
-                                round,
-                                turn,
-                                content: final_content,
-                                created,
-                            });
-                        }
-                        RoundEvent::StreamDiscard => {
-                            retry_progress = None;
-                            // The turn context rides the envelope
-                            // (ADR-0168); no `TurnStarted` observation is
-                            // required. The wire ordinal is 0-based; the
-                            // transcript row is 1-based.
-                            let Some(context) = turn_context else {
-                                continue;
-                            };
-                            transcript!(stream_discard_edit(context.round, context.turn));
-                        }
-                        RoundEvent::UnsentInput { .. } => {
-                            // Retraction is removed: entries only grow and
-                            // update in place; the prompt is marked Cancelled.
-                            retry_progress = None;
-                            transcript!(E::CancelLastUserPrompt);
-
-                            mutations.send(M::SetResponding(false)).await;
-                            mutations.send(M::SetPhase(None)).await;
-                        }
-                        RoundEvent::StreamReasoningDelta(delta) => {
-                            // Phase fact before anything else: the reasoning
-                            // stream is alive. Hidden-chain models also land
-                            // here (their summary deltas still prove thinking).
-
-                            mutations.send(M::SetPhase(Some(Phase::Reasoning))).await;
-
-                            chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
-                                Phase::Reasoning,
-                            )));
-                            // Surface only a reasoning summary, never their
-                            // full chain: gate at message creation. Unrecognized
-                            // ids default to disclosed — only known
-                            // `ReasoningSummary` models are gated.
-                            let hidden_chain = !nuo_protocol::model_by_id(&current_model)
-                                .map(|m| m.thinking.chain_disclosed())
-                                .unwrap_or(true);
-                            if hidden_chain {
-                                continue;
-                            }
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            let sent_at_ms = context.sent_at_ms;
-                            let round = position.map(|(round, _)| round);
-                            let turn = position.map(|(_, turn)| turn);
-                            let (provider, model) = attribution!();
-                            let effort = picker_effort!();
-                            let mut created = TranscriptMessage::reasoning(delta.clone())
-                                .with_attribution(provider, model)
-                                .with_effort(effort)
-                                // A reasoning trace is a turn component, so it
-                                // carries the turn's send time: when thinking
-                                // is the *first* thing a turn emits (the common
-                                // case for a reasoning channel), this entry
-                                // owns the band header and its `HH:MM`.
-                                .with_sent_at_ms(sent_at_ms);
-                            if let Some((r, t)) = position {
-                                created.round = Some(r);
-                                created.turn = Some(t);
-                            }
-                            // Disclosure default is applied by the applier
-                            // (`App::reasoning_default_expanded`).
-                            transcript!(E::ReasoningDelta {
-                                round,
-                                turn,
-                                delta,
-                                created: Some(created),
-                            });
-                            reasoning_start = Some(std::time::Instant::now());
-                        }
-                        RoundEvent::StreamReasoningEnd(content) => {
-                            let duration_ms = reasoning_start
-                                .take()
-                                .map(|started| started.elapsed().as_millis() as u64);
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            transcript!(E::ReasoningFinalize {
-                                round: position.map(|(round, _)| round),
-                                turn: position.map(|(_, turn)| turn),
-                                content,
-                                duration_ms,
-                            });
-                        }
-                        RoundEvent::ToolCallStarted { id, name } => {
-                            // ADR-0026 / ADR-0166: the call is named but its
-                            // arguments are still streaming. Show a running
-                            // step and move the phase to the tool verb now,
-                            // instead of leaving the bar on the misleading
-                            // `answering` phase for the whole argument stream.
-                            // The step carries the call id the later
-                            // `ToolCall` will carry, so the applier merges
-                            // instead of inserting a second row.
-                            mutations
-                                .send(M::SetPhase(Some(Phase::Tool(event_loop::tool_verb_for(
-                                    &name,
-                                )))))
-                                .await;
-                            mutations.send(M::SetResponding(true)).await;
-
-                            chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
-                                Phase::Tool(event_loop::tool_verb_for(&name)),
-                            )));
-                            let (provider, model) = attribution!();
-                            let effort = picker_effort!();
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            let sent_at_ms = context.sent_at_ms;
-                            let mut message = TranscriptMessage::tool_step_announced(id, name)
-                                .with_attribution(provider, model)
-                                .with_effort(effort)
-                                // A tool-only turn has no text or thinking to own
-                                // the band header: this announced step does. It
-                                // carries the turn's send time so the live band
-                                // shows `HH:MM` exactly as the resumed one does.
-                                .with_sent_at_ms(sent_at_ms);
-                            if let Some((round, turn)) = position {
-                                message = message.with_round(round).with_turn(turn);
-                            }
-                            transcript!(E::ToolStepUpsert { message });
-                        }
-                        RoundEvent::ToolInputProgress {
-                            id,
-                            bytes,
-                            arguments,
-                        } => {
-                            // ADR-0026 / ADR-0046: progress tick and streaming arguments.
-                            mutations.send(M::SetResponding(true)).await;
-
-                            transcript!(E::ToolInputProgress {
-                                id,
-                                bytes,
-                                arguments,
-                            });
-                        }
-                        RoundEvent::ToolCallsRetracted { ids } => {
-                            // The attempt that announced these calls died
-                            // before dispatch. Drop the provisional rows;
-                            // they never described a call, so a terminal
-                            // "cancelled" row would be a lie.
-                            transcript!(E::ToolCallsRetracted { ids });
-                        }
-                        RoundEvent::ToolCall {
-                            id,
-                            name,
-                            arguments,
-                        } => {
-                            mutations
-                                .send(M::SetPhase(Some(Phase::Tool(event_loop::tool_verb_for(
-                                    &name,
-                                )))))
-                                .await;
-
-                            let (provider, model) = attribution!();
-                            let effort = picker_effort!();
-                            retry_progress = None;
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            let sent_at_ms = context.sent_at_ms;
-                            // The turn's time, not this call's: it is the same
-                            // value the announced step (and every sibling
-                            // component) carries, so advancing an announcement
-                            // into a dispatch cannot change the band header.
-                            // ADR-0166: the dispatch fact carries the same id
-                            // the announcement did. The applier merges it into
-                            // that row (or inserts it when the provider never
-                            // announced, or the attempt was retracted).
-                            let mut message = TranscriptMessage::tool_step(id, name, arguments)
-                                .with_attribution(provider, model)
-                                .with_effort(effort)
-                                .with_sent_at_ms(sent_at_ms);
-                            if let Some((round, turn)) = position {
-                                message = message.with_round(round).with_turn(turn);
-                            }
-                            transcript!(E::ToolStepUpsert { message });
-
-                            mutations.send(M::SetResponding(true)).await;
-                        }
-                        RoundEvent::ToolPreview { id, preview, .. } => {
-                            // ADR-0125: the preview arrives strictly after the
-                            // `ToolCall` that created this step, so matching by
-                            // dispatch id finds it. No phase change and no
-                            // responding toggle: nothing is running yet, and the
-                            // card simply gains its diff.
-                            transcript!(E::ToolPreview { id, preview });
-                        }
-                        RoundEvent::ToolResult {
-                            id,
-                            name,
-                            output,
-                            structured,
-                            duration_ms,
-                        } => {
-                            mutations.send(M::SetPhase(Some(Phase::Preparing))).await;
-
-                            chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
-                                Phase::Preparing,
-                            )));
-                            let (provider, model) = attribution!();
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            // The fallback (no matching in-flight call, e.g. a
-                            // turn restored from history) is fully finished by
-                            // the translator; the applier applies the
-                            // lifecycle-aware default disclosure.
-                            let mut fallback =
-                                TranscriptMessage::tool_step(id.clone(), name.clone(), "{}")
-                                    .with_attribution(provider, model);
-                            if let Some((round, turn)) = position {
-                                fallback.round = Some(round);
-                                fallback.turn = Some(turn);
-                            }
-                            fallback.finish_tool_step(
-                                &id,
-                                output.clone(),
-                                structured.clone(),
-                                duration_ms,
-                            );
-                            transcript!(E::ToolResult {
-                                id,
-                                name,
-                                output,
-                                structured,
-                                duration_ms,
-                                fallback: Some(fallback),
-                            });
-                        }
-                        RoundEvent::ToolCancelled { id, .. } => {
-                            // An in-flight call was aborted: flip it (and any
-                            // nested subagent children) to Cancelled.
-                            let context = require_turn!();
-                            let position = Some((context.round, transcript_turn(context.turn)));
-                            let mut fallback =
-                                TranscriptMessage::tool_step(id.clone(), "tool", "{}");
-                            if let Some((round, turn)) = position {
-                                fallback.round = Some(round);
-                                fallback.turn = Some(turn);
-                            }
-                            fallback.cancel_tool_step(&id);
-                            fallback.set_tool_step_expanded(false);
-                            transcript!(E::ToolCancel {
-                                id,
-                                fallback: Some(fallback)
-                            });
-                        }
-                        RoundEvent::ToolStream { id, stream } => {
-                            transcript!(E::ToolStream { id, stream });
-                        }
-                        RoundEvent::SubagentStep {
-                            parent_call_id,
-                            event,
-                        } => {
-                            // Full-duplex (ADR-0029): a subagent's permission
-                            // broker or `ask_user` request bubbles up nested
-                            // under this `parent_call_id`; the reply is tagged
-                            // for down-routing into the child.
-                            match &event {
-                                nuo_protocol::SubagentEvent::PermissionRequest(req) => {
-                                    mutations
-                                        .send(M::QueuePermission {
-                                            request: req.clone(),
-                                            parent_call_id: Some(parent_call_id.clone()),
-                                        })
-                                        .await;
-
-                                    mutations.send(M::SetPhase(Some(Phase::AwaitingUser))).await;
-                                    mutations.send(M::SetResponding(true)).await;
-                                }
-                                nuo_protocol::SubagentEvent::UserQuestionRequest(req) => {
-                                    mutations
-                                        .send(M::QueueQuestion {
-                                            request: req.clone(),
-                                            parent_call_id: Some(parent_call_id.clone()),
-                                        })
-                                        .await;
-
-                                    mutations.send(M::SetPhase(Some(Phase::AwaitingUser))).await;
-                                    mutations.send(M::SetResponding(true)).await;
-                                }
-                                _ => {}
-                            }
-                            transcript!(E::SubagentEvent {
-                                parent_call_id,
-                                event,
-                            });
-                        }
-                        RoundEvent::PermissionRequest(request) => {
-                            // Stays global regardless of session so the modal
-                            // always surfaces (ADR-0017 → ADR-0058).
-                            mutations
-                                .send(M::QueuePermission {
-                                    request,
-                                    parent_call_id: None,
-                                })
-                                .await;
-
-                            mutations.send(M::SetPhase(Some(Phase::AwaitingUser))).await;
-                            mutations.send(M::SetResponding(true)).await;
-                        }
-                        RoundEvent::UserQuestionRequest(request) => {
-                            mutations
-                                .send(M::QueueQuestion {
-                                    request,
-                                    parent_call_id: None,
-                                })
-                                .await;
-
-                            mutations.send(M::SetPhase(Some(Phase::AwaitingUser))).await;
-                            mutations.send(M::SetResponding(true)).await;
-                        }
-                        RoundEvent::StdinRequest(request) => {
-                            mutations.send(M::QueueInput(request)).await;
-
-                            mutations.send(M::SetPhase(Some(Phase::AwaitingUser))).await;
-                            mutations.send(M::SetResponding(true)).await;
-                        }
-                        RoundEvent::Compacted {
-                            archived_messages,
-                            window_tokens_before,
-                            window_tokens_after,
-                            summary,
-                            tracked_files,
-                        } => {
-                            let message = TranscriptMessage::compacted_card(
-                                archived_messages,
-                                window_tokens_before,
-                                window_tokens_after,
-                                summary,
-                                tracked_files,
-                            )
-                            .with_sent_at_ms(now_ms!());
-                            transcript!(E::Append {
-                                class: nuo_protocol::EventClass::TurnOutcome,
-                                message
-                            });
-                        }
-                        RoundEvent::HarnessState(snapshot) => {
-                            harness.loop_status = snapshot.loop_status;
-                            harness.round_counter = snapshot.round_counter;
-                            let running = !snapshot.loop_status.is_idle();
-                            // View-scoped chrome: the authoritative
-                            // running/idle transition for this session.
-                            chrome!(event_loop::mutations::ChromeEdit::RoundLifecycle {
-                                round_count: snapshot.round_counter,
-                                running,
-                                can_retry: snapshot.retry_pending && !running,
-                            });
-
-                            // Publish a quarantined snapshot to
-                            // the PreAttach mount when the per-run gate
-                            // has not already answered. The applier
-                            // deduplicates (it mounts only when the
-                            // interstitial is absent).
-                            {
-                                harness.workspace_security = snapshot.workspace_security.clone();
-                                let gate_needed = !trust_gate_dismissed_clone
-                                    .load(Ordering::SeqCst)
-                                    && nuo_view::trust_gate::gate_request(
-                                        &harness.workspace_security,
-                                    )
-                                    .is_some();
-                                if gate_needed {
-                                    mutations
-                                        .send(M::PreAttach(crate::shell::PreAttachSignal {
-                                            snapshot: harness.workspace_security.clone(),
-                                        }))
-                                        .await;
-                                }
-                            }
-                            if running {
-                                // A new round resets the turn counter and
-                                // stamps the elapsed-timer origin.
-                                mutations.send(M::SetCurrentTurn(0)).await;
-                                mutations
-                                    .send(M::SetRoundStartedAt(Some(std::time::Instant::now())))
-                                    .await;
-                            }
-                            mutations.send(M::SetResponding(running)).await;
-                            if !running {
-                                // The dispatch cycle is complete: any
-                                // command component still Pending will
-                                // never receive its reply on this pass
-                                // mark Cancelled.
-                                mutations
-                                    .send(M::Transcript {
-                                        edit: E::CancelPendingCommands,
-                                    })
-                                    .await;
-                                mutations.send(M::SetPhase(None)).await;
-                                mutations.send(M::SetCurrentTurn(0)).await;
-                                mutations.send(M::SetRoundStartedAt(None)).await;
-                            }
-                            if !running && needs_round_rebase {
-                                // A session switch replaced the transcript
-                                // before its authoritative idle snapshot
-                                // arrived: rebase the reconstructed tail
-                                // exactly once, now that the persisted
-                                // round counter is known.
-                                mutations
-                                    .send(M::Transcript {
-                                        edit: E::RebaseRounds {
-                                            round_counter: snapshot.round_counter,
-                                        },
-                                    })
-                                    .await;
-                                needs_round_rebase = false;
-                            }
-                            mutations.send(M::Harness(snapshot.clone())).await;
-
-                            // A harness state change is always a round
-                            // boundary. If the previous round ended
-                            // mid-reasoning, `StreamReasoningEnd` never
-                            // arrives; freeze the orphaned trace so the
-                            // spinner stops.
-                            let duration_ms = reasoning_start
-                                .take()
-                                .map(|started| started.elapsed().as_millis() as u64);
-                            if !running {
-                                retry_progress = None;
-                                // ADR-0166: a `HarnessState` sample is not a
-                                // round boundary. The provisional-row sweep
-                                // lives on the round-outcome events
-                                // (`RoundCompleted` / `RoundInterrupted` /
-                                // `Error`), which *mean* "the round ended".
-                                // Making an idle sample harmless requires the
-                                // server to publish idle only when it is idle;
-                                // that is enforced at every publisher.
-                            }
-                            transcript!(E::FinalizeOrphanedReasoning { duration_ms });
-                        }
-                        RoundEvent::TodosUpdated(_) => {}
-                        RoundEvent::UnattendedChanged(enabled) => {
-                            harness.unattended = enabled;
-                            mutations.send(M::HarnessUnattended(enabled)).await;
-                        }
-                        RoundEvent::ConfinementChanged(confined) => {
-                            harness.confined = confined;
-                            mutations.send(M::HarnessConfined(confined)).await;
-                        }
-                        RoundEvent::RetryScheduled {
-                            attempt,
-                            max_attempts,
-                            delay_ms,
-                            message,
-                        } => {
-                            // ADR-0166: a scheduled retry is an attempt
-                            // boundary — the failed attempt is over and its
-                            // provisional rows cannot become calls. The
-                            // harness retracted them by id; this sweep makes
-                            // the invariant hold even if that frame was lost
-                            // or arrived after the retry.
-                            transcript!(E::RetractPendingToolSteps);
-                            let delay = std::time::Duration::from_millis(delay_ms);
-                            let retry_at = std::time::Instant::now() + delay;
-                            // Advance the one typed state machine. Every
-                            // consumer below reads *this* value, so the
-                            // ordinal on the bar and the ordinal in the
-                            // receipt are the same number by construction.
-                            let progress = match retry_progress.take() {
-                                Some(progress) => progress.with_next_attempt(
-                                    attempt,
-                                    max_attempts,
-                                    retry_at,
-                                    message.clone(),
-                                ),
-                                None => nuo_view::retry::RetryProgress::scheduled(
-                                    attempt,
-                                    max_attempts,
-                                    retry_at,
-                                    message.clone(),
-                                ),
-                            };
-                            let fault = nuo_view::model::notice_text::display_text(&message);
-                            // The record's ordinal pair, composed by the same
-                            // owner as the bar's clause (`receipt_label`), so
-                            // the two can never disagree about which retry
-                            // this was — and this is the one place the
-                            // attempt *budget* is stated: `retry 2 of 30`
-                            // answers "how much rope is left?" for a reader
-                            // consulting the log afterwards, which is exactly
-                            // the question the live bar must not spend
-                            // columns on.
-                            let receipt = progress.receipt_label();
-                            // The bar's clause and the stored state are the
-                            // same value: clone once here so the published
-                            // setback cannot be a second, independently
-                            // constructed copy.
-                            let published = progress.clone();
-                            retry_progress = Some(progress);
-
-                            // Publish-only. The clause is retired by the
-                            // next phase write for *this* session — each
-                            // store owns its own phase — never by this
-                            // translator, which is why no arm of this match
-                            // carries a clause clear. The primary's slot is
-                            // the App mirror; a background session's is its
-                            // own chrome entry, so a background retry cannot
-                            // paint a countdown onto the primary's bar.
-                            mutations.send(M::SetProviderRetry(published)).await;
-                            // Transport setback, not a workflow phase: the
-                            // countdown rides the dedicated clause channel.
-                            mutations
-                                .send(M::SetPhase(Some(Phase::AwaitingModel)))
-                                .await;
-                            mutations.send(M::SetResponding(true)).await;
-
-                            // The receipt: the setback is retained in the
-                            // notice log (a viewport the user can open,
-                            // scroll and copy from), never in the
-                            // conversation. One line per scheduled attempt,
-                            // tagged with the route that failed.
-                            let (provider, model) = attribution!();
-                            let summary = if provider.is_empty() {
-                                format!("{receipt} — {fault}")
-                            } else if model.is_empty() {
-                                format!("{receipt} — {provider}: {fault}")
-                            } else {
-                                format!("{receipt} — {provider}/{model}: {fault}")
-                            };
-                            mutations
-                                    .send(M::NoticeDisclosure(
-                                        crate::shell::app::notice_catalog::ClientNotice::ProviderRetryScheduled {
-                                            summary,
-                                            // The detail is the fault verbatim so
-                                            // the provider's full body stays
-                                            // readable and pasteable in the viewer
-                                            // now that the transcript no longer
-                                            // carries it.
-                                            detail: nuo_view::model::notice_text::display_text(
-                                                &message,
-                                            ),
-                                        }
-                                        .render(),
-                                    ))
-                                    .await;
-                        }
-                        RoundEvent::Error(e) => {
-                            let attempts = retry_progress
-                                .as_ref()
-                                .map_or(0, nuo_view::retry::RetryProgress::retries);
-                            retry_progress = None;
-                            // A terminal round error may still carry the raw
-                            // retryable-envelope encoding: strip it so the
-                            // user sees the message, never the wire framing.
-                            let message = if attempts > 1 {
-                                if e.starts_with("Failed after") || e.starts_with("Exhausted") {
-                                    e
-                                } else {
-                                    format!("Exhausted {attempts} retry attempts — {e}")
-                                }
-                            } else {
-                                e
-                            };
-                            // A round-level failure is a turn outcome: it
-                            // holds a position in time (the round ended
-                            // here) but says nothing to the model.
-                            //
-                            // ADR-0166: a terminal error ends the round just
-                            // as a completion does (`RoundInterrupted` is not
-                            // emitted for `reason == Error`), so it is the
-                            // boundary the provisional-row sweep must read.
-                            // `RoundEvent::Error` is only ever a terminal
-                            // round error or a pre-round admission refusal —
-                            // never an error while a round continues.
-                            transcript!(E::RetractPendingToolSteps);
-                            let notice = TranscriptMessage::notice(NoticeSeverity::Error, message)
-                                .with_sent_at_ms(now_ms!());
-                            transcript!(E::Append {
-                                class: nuo_protocol::EventClass::TurnOutcome,
-                                message: notice
-                            });
-
-                            mutations.send(M::SetResponding(false)).await;
-                            mutations.send(M::SetPhase(None)).await;
-
-                            chrome!(event_loop::mutations::ChromeEdit::RoundEnded);
-                        }
-                        RoundEvent::BackgroundJobStarted(info) => {
-                            let label = match &info.spec {
-                                nuo_protocol::JobSpec::Process { command, label, .. } => {
-                                    label.as_deref().unwrap_or(command)
-                                }
-                                nuo_protocol::JobSpec::Timer { label, prompt, .. } => {
-                                    label.as_deref().unwrap_or(prompt.as_str())
-                                }
-                            };
-                            mutations
-                                .send(M::BackgroundTaskStarted {
-                                    id: info.id.0.clone(),
-                                    label: label.to_string(),
-                                    started_at_ms: info.created_at_ms,
-                                })
-                                .await;
-                            let message = TranscriptMessage::notice(
-                                NoticeSeverity::Info,
-                                format!("Background job started: {label} ({})", info.id.0),
-                            )
-                            .with_sent_at_ms(now_ms!());
-                            transcript!(E::Append {
-                                class: nuo_protocol::EventClass::TurnOutcome,
-                                message
-                            });
-                        }
-                        RoundEvent::BackgroundJobProgress { .. } => {}
-                        RoundEvent::BackgroundJobReady { job_id } => {
-                            // A service task reported readiness.
-                            let message = TranscriptMessage::notice(
-                                NoticeSeverity::Info,
-                                format!("Background service ready: {}", job_id.0),
-                            )
-                            .with_sent_at_ms(now_ms!());
-                            transcript!(E::Append {
-                                class: nuo_protocol::EventClass::TurnOutcome,
-                                message
-                            });
-                        }
-                        RoundEvent::BackgroundJobCompleted(outcome) => {
-                            let (label, is_success, exit_code, duration_secs) = match &outcome.state
-                            {
-                                nuo_protocol::JobState::Succeeded { duration_ms, .. } => (
-                                    format!(
-                                        "Background job `{}` completed ({}s)",
-                                        outcome.job_id.0,
-                                        duration_ms / 1000
-                                    ),
-                                    true,
-                                    Some(0),
-                                    duration_ms / 1000,
-                                ),
-                                nuo_protocol::JobState::Failed {
-                                    duration_ms,
-                                    exit_code,
-                                    ..
-                                } => (
-                                    format!(
-                                        "Background job `{}` failed (exit {exit_code}, {}s)",
-                                        outcome.job_id.0,
-                                        duration_ms / 1000
-                                    ),
-                                    false,
-                                    Some(*exit_code),
-                                    duration_ms / 1000,
-                                ),
-                                nuo_protocol::JobState::Killed { duration_ms } => (
-                                    format!(
-                                        "Background job `{}` terminated ({}s)",
-                                        outcome.job_id.0,
-                                        duration_ms / 1000
-                                    ),
-                                    false,
-                                    None,
-                                    duration_ms / 1000,
-                                ),
-                                nuo_protocol::JobState::TimedOut { duration_ms } => (
-                                    format!(
-                                        "Background job `{}` timed out ({}s)",
-                                        outcome.job_id.0,
-                                        duration_ms / 1000
-                                    ),
-                                    false,
-                                    None,
-                                    duration_ms / 1000,
-                                ),
-                                _ => (
-                                    format!("Background job `{}` completed", outcome.job_id.0),
-                                    true,
-                                    None,
-                                    0,
-                                ),
-                            };
-                            mutations
-                                .send(M::BackgroundTaskCompleted {
-                                    id: outcome.job_id.0.clone(),
-                                    success: is_success,
-                                    exit_code,
-                                    duration_secs,
-                                })
-                                .await;
-                            let severity = if is_success {
-                                NoticeSeverity::Info
-                            } else {
-                                NoticeSeverity::Warning
-                            };
-                            let message = TranscriptMessage::notice(severity, label)
-                                .with_sent_at_ms(now_ms!());
-                            transcript!(E::Append {
-                                class: nuo_protocol::EventClass::TurnOutcome,
-                                message
-                            });
-                        }
-                    } // end inner `match event`
-                }
-                AgentResponse::InputHistory(rows) => {
-                    mutations.send(M::InputHistory(rows)).await;
-                }
-                // Dashboard Archivist search hits. The TUI's
-                // Archivist pane lands in a later stage; for now the
-                // response is acknowledged (logged) so the wire stays
-                // exhaustive without inventing premature UI state.
-                AgentResponse::HistorySearch(hits) => {
-                    tracing::debug!(count = hits.len(), "history search hits");
-                }
-                AgentResponse::RouteSettings {
-                    provider_id,
-                    model,
-                    overrides,
-                } => {
-                    mutations
-                        .send(M::RouteSettings {
-                            provider_id,
-                            model,
-                            overrides,
-                        })
-                        .await;
-                }
-                AgentResponse::PermissionsCleared => {
-                    mutations.send(M::ClearPermissions).await;
-                    mutations.send(M::SetPhase(None)).await;
-                }
-                AgentResponse::ProviderKeys(status) => {
-                    mutations
-                        .send(M::KeyStatus(status.into_iter().collect()))
-                        .await;
-                }
-                AgentResponse::ProviderPicker(snapshot) => {
-                    picker = snapshot.clone();
-                    mutations.send(M::ProviderPicker(snapshot)).await;
-                }
-                AgentResponse::ConversationCleared {
-                    previous_id,
-                    thread_id: session_id,
-                } => {
-                    // ADR-0166: the buffer is being replaced, so the session
-                    // it just left can no longer write into it; the session
-                    // it is entering is current again.
-                    session_gate.supersede(&previous_id, &session_id);
-                    // The left session's terminal frames are now dropped by
-                    // the gate, so its per-round translator state must not
-                    // leak into the new session's first turn.
-                    retry_progress = None;
-                    reasoning_start = None;
-                    mutations
-                        .send(M::Transcript {
-                            edit: event_loop::mutations::TranscriptEdit::Clear,
-                        })
-                        .await;
-                    mutations.send(M::SetRoundCount(0)).await;
-                    needs_round_rebase = false;
-                    mutations.send(M::ClearContextTokens).await;
-                    // `/new` minted a fresh thread and switched to it: rebase
-                    // **the tab that represented `previous_id`** — never "the
-                    // active tab" (ADR-0123 `[INV-TAB-13]`). The two can differ
-                    // whenever a thread switch raced this frame, and rebasing
-                    // the wrong one manufactures a tab pointing at a thread
-                    // that does not exist.
-                    mutations
-                        .send(M::LiveSession {
-                            previous_id,
-                            next_id: session_id.clone(),
-                        })
-                        .await;
-                    live_session = session_id.clone();
-                    mutations.send(M::TokenReport(None)).await;
-                    mutations
-                        .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
-                        .await;
-                }
-                AgentResponse::ConversationReplaced {
-                    previous_id,
-                    thread_id: session_id,
-                    messages,
-                    commands,
-                    round_interrupts,
-                } => {
-                    // ADR-0166: see `ConversationCleared` — the replaced
-                    // buffer must never receive the superseded session's
-                    // trailing frames, nor inherit its per-round state.
-                    session_gate.supersede(&previous_id, &session_id);
-                    retry_progress = None;
-                    reasoning_start = None;
-                    mutations.send(M::ClearSwitchingSession).await;
-                    let mut rebuilt = transcript_messages_from_core(messages, &tui_config_clone);
-                    rebuilt =
-                        merge_command_rows(rebuilt, transcript_commands_from_ledger(commands));
-                    rebuilt = merge_round_interrupt_rows(
-                        rebuilt,
-                        transcript_interrupts_from_records(round_interrupts),
-                    );
-                    mutations
-                        .send(M::Transcript {
-                            edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
-                                messages: rebuilt,
-                            },
-                        })
-                        .await;
-                    needs_round_rebase = true;
-                    // The model-window revision changed; do not reuse an API
-                    // anchor from the previous thread/projection.
-                    mutations.send(M::ClearContextTokens).await;
-                    // Track the new id so thread-scoped client state follows,
-                    // and drop the previous thread's cached report. Addressed
-                    // by `previous_id`, exactly as `ConversationCleared` is
-                    // (ADR-0123 `[INV-TAB-13]`).
-                    mutations
-                        .send(M::LiveSession {
-                            previous_id,
-                            next_id: session_id.clone(),
-                        })
-                        .await;
-                    live_session = session_id;
-                    mutations.send(M::TokenReport(None)).await;
-                    mutations
-                        .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
-                        .await;
-                }
-                AgentResponse::ThreadsOverview(sessions) => {
-                    mutations.send(M::SessionsOverview(sessions)).await;
-                }
-                AgentResponse::OpenThreadsPanel => {
-                    mutations.send(M::OpenSessionsPanel).await;
-                }
-                AgentResponse::ThreadTreeSnapshot {
-                    thread_id: session_id,
-                    tree,
-                } => {
-                    // A tree query is thread-scoped: reject a reply that
-                    // raced a primary-thread switch.
-                    if live_session == session_id {
-                        mutations.send(M::SessionTree(tree)).await;
-                    }
-                }
-                AgentResponse::OpenTreePanel => {
-                    mutations.send(M::OpenTreePanel).await;
-                }
-                AgentResponse::ThreadDetail(detail) => {
-                    mutations.send(M::SessionDetail(detail)).await;
-                }
-                AgentResponse::ConnectionDetail(detail) => {
-                    mutations.send(M::ConnectionDetail(detail)).await;
-                }
-                AgentResponse::TokenUsageReport {
-                    thread_id: session_id,
-                    report,
-                } => {
-                    // Install the report only when it still belongs to the
-                    // thread the frontend is viewing — a reply that raced a
-                    // thread switch would populate the modal with the
-                    // previous thread's rows.
-                    let viewed = viewed_session_id_clone.lock().await.clone();
-                    if viewed.as_deref() == Some(session_id.as_str()) {
-                        mutations.send(M::TokenReport(Some(report))).await;
-                    }
-                }
-                AgentResponse::UsageStatsReport { report } => {
-                    // Thread-independent by design.
-                    mutations.send(M::UsageStats(report)).await;
-                }
-                AgentResponse::ProviderQuotas(snapshot) => {
-                    mutations.send(M::ProviderQuotas(snapshot)).await;
-                }
-                AgentResponse::ComposerCompletions {
-                    request_id,
-                    text,
-                    cursor,
-                    items,
-                } => {
-                    mutations
-                        .send(M::CompletionSignal(
-                            event_loop::mutations::CompletionSignal {
-                                request_id,
-                                input: text,
-                                cursor,
-                                items,
-                            },
-                        ))
-                        .await;
-                }
-                AgentResponse::ThreadContext(snapshot) => {
-                    mutations.send(M::SessionContext(snapshot)).await;
-                }
-                AgentResponse::Exit => {
-                    mutations.send(M::Quit).await;
-                }
-                AgentResponse::ProviderSwitched { provider, model } => {
-                    // Refreshes the hint bar; NOT appended to the transcript
-                    // (the acknowledgment is a command ack).
-                    current_provider = provider.clone();
-                    current_model = model.clone();
-                    mutations
-                        .send(M::ProviderSwitched { provider, model })
-                        .await;
-                }
-                AgentResponse::ConnectStatus(status) => {
-                    match status {
-                        nuo_protocol::ConnectStatus::Pending {
-                            url,
-                            user_code,
-                            message,
-                            ..
-                        } => {
-                            if !url.is_empty() {
-                                let url_for_open = url.clone();
-                                tokio::task::spawn_blocking(move || {
-                                    if let Err(err) =
-                                        crate::shell::browser::open_browser(&url_for_open)
-                                    {
-                                        tracing::warn!("Failed to open browser: {err}");
-                                    }
-                                });
-                            }
-                            mutations
-                                .send(M::Oauth(crate::shell::app::OauthAddSignal::Pending {
-                                    url: url.clone(),
-                                    user_code: user_code.clone(),
-                                    message: message.clone(),
-                                }))
-                                .await;
-                            // The add-flow surfaces the URL/code in the
-                            // OauthPending modal, so suppress the transcript
-                            // notice there. Only the reconnect flow gets it.
-                            let in_add_flow = awaiting_oauth_add_clone.load(Ordering::SeqCst);
-                            if !in_add_flow {
-                                mutations
-                                        .send(M::NoticeDisclosure(
-                                            crate::shell::app::notice_catalog::ClientNotice::OauthPending {
-                                                message: message.clone(),
-                                                url: url.clone(),
-                                                user_code: user_code.clone(),
-                                            }
-                                            .render(),
-                                        ))
-                                        .await;
-                            }
-                        }
-                        nuo_protocol::ConnectStatus::Done { provider } => {
-                            mutations
-                                .send(M::Oauth(crate::shell::app::OauthAddSignal::Done))
-                                .await;
-                            mutations
-                                    .send(M::NoticeDisclosure(
-                                        crate::shell::app::notice_catalog::ClientNotice::OauthAuthorized {
-                                            provider,
-                                        }
-                                        .render(),
-                                    ))
-                                    .await;
-                        }
-                        nuo_protocol::ConnectStatus::CatalogSyncWarning {
-                            provider,
-                            message,
-                            kind,
-                        } => {
-                            // A refusal is actionable and permanent (the
-                            // account may not use this provider); a
-                            // transient failure is not. Say which.
-                            let refused = matches!(kind, nuo_protocol::CatalogSyncFailure::Refused);
-                            mutations
-                                    .send(M::NoticeDisclosure(
-                                        crate::shell::app::notice_catalog::ClientNotice::CatalogSyncWarning {
-                                            provider,
-                                            message,
-                                            refused,
-                                        }
-                                        .render(),
-                                    ))
-                                    .await;
-                        }
-                        nuo_protocol::ConnectStatus::Failed { provider, message } => {
-                            mutations
-                                .send(M::Oauth(crate::shell::app::OauthAddSignal::Failed {
-                                    message: message.clone(),
-                                }))
-                                .await;
-                            mutations
-                                    .send(M::NoticeDisclosure(
-                                        crate::shell::app::notice_catalog::ClientNotice::OauthConnectFailed {
-                                            provider,
-                                            message,
-                                        }
-                                        .render(),
-                                    ))
-                                    .await;
-                        }
-                    }
-                }
-                AgentResponse::Error(msg) => {
-                    mutations.send(M::ClearSwitchingSession).await;
-                    // A control-plane error is a receipt: the toast
-                    // surface carries it, the conversation does not.
-                    mutations
-                        .send(M::NoticeDisclosure(
-                            crate::shell::app::notice_catalog::ClientNotice::LocalFault {
-                                topic: crate::shell::app::notice_catalog::ClientTopic::Client,
-                                message: msg,
-                            }
-                            .render(),
-                        ))
-                        .await;
-                }
-                AgentResponse::TuiLayoutUpdated(_value) => {
-                    // The apply path already set `app.transcript_layout`
-                    // optimistically; a save failure surfaces as `Error`.
-                }
-                AgentResponse::TuiColorSchemeUpdated { .. } => {
-                    // Applied optimistically; save failures arrive as `Error`.
-                }
-                AgentResponse::WebSearchConfigSnapshot(snapshot) => {
-                    mutations.send(M::WebSearchConfig(Some(snapshot))).await;
-                }
-                AgentResponse::WebSearchConfigUpdated(snapshot) => {
-                    // Authoritative post-update ack: re-render from persisted
-                    // state, discarding any optimistic local edit.
-                    mutations.send(M::WebSearchConfig(Some(snapshot))).await;
-                }
-                AgentResponse::CopyToClipboard { text } => {
-                    let _ = crate::shell::clipboard::copy(&text).await;
-                }
-                AgentResponse::ServerEndpointsStatus(report) => {
-                    mutations.send(M::ServerEndpoints(report)).await;
-                }
-                AgentResponse::ThreadSnapshot(snapshot) => {
-                    let sid = snapshot.thread_id.clone();
-                    // ADR-0166: a hydration frame names the session the
-                    // buffer now holds. It cannot be a superseded one, and it
-                    // repoints the live id that gates thread-scoped replies.
-                    session_gate.hydrate(&sid);
-                    live_session = sid.clone();
-                    // `[INV-ATTACH-04]` (ADR-0133): this frame is the
-                    // authoritative hydration payload. Rebuild the whole
-                    // visible transcript from it (and the command ledger),
-                    // exactly like `ConversationReplaced`, but addressed to
-                    // the snapshot's own thread id.
-                    let mut rebuilt =
-                        transcript_messages_from_core(snapshot.messages, &tui_config_clone);
-                    rebuilt = merge_command_rows(
-                        rebuilt,
-                        transcript_commands_from_ledger(snapshot.commands),
-                    );
-                    rebuilt = merge_round_interrupt_rows(
-                        rebuilt,
-                        transcript_interrupts_from_records(snapshot.round_interrupts),
-                    );
-                    mutations
-                        .send(M::Transcript {
-                            edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
-                                messages: rebuilt,
-                            },
-                        })
-                        .await;
-                    mutations
-                        .send(M::SetRoundCount(snapshot.round_counter))
-                        .await;
-                    mutations.send(M::ClearContextTokens).await;
-                    needs_round_rebase = true;
-                    if let Some(picker) = snapshot.provider_picker {
-                        mutations.send(M::ProviderPicker(picker)).await;
-                    }
-                    if let Some(keys) = snapshot.provider_keys {
-                        mutations
-                            .send(M::KeyStatus(keys.into_iter().collect()))
-                            .await;
-                    }
-                    if let Some(ct) = snapshot.context_tokens {
-                        mutations
-                            .send(M::ContextTokens {
-                                session_id: sid,
-                                snapshot: ct,
-                            })
-                            .await;
-                    }
-                    if let Some(harness) = snapshot.harness_state {
-                        mutations.send(M::Harness(harness)).await;
-                    }
-                    if let Some(catalog) = snapshot.command_catalog {
-                        mutations.send(M::CommandCatalog(catalog)).await;
-                    }
-                    mutations
-                        .send(M::ProviderSwitched {
-                            provider: snapshot.provider,
-                            model: snapshot.model,
-                        })
-                        .await;
-                }
-                AgentResponse::ThreadPhase(update) => {
-                    mutations.send(M::SessionPhase(update.phase)).await;
-                }
-                AgentResponse::StateDelta(delta) => {
-                    if let (Some(provider), Some(model)) = (delta.provider, delta.model) {
-                        mutations
-                            .send(M::ProviderSwitched { provider, model })
-                            .await;
-                    }
-                    if let Some(ct) = delta.context_tokens {
-                        mutations
-                            .send(M::ContextTokens {
-                                session_id: delta.thread_id,
-                                snapshot: ct,
-                            })
-                            .await;
-                    }
-                }
-            }
+            state.handle(resp).await;
         }
         // The response stream ended. Only a *transport* failure is a
         // fault: the reader records that case with its real error, so the
@@ -1788,9 +171,1924 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
             .unwrap_or_else(|e| e.into_inner())
             .take();
         if let Some(reason) = transport_failure {
-            mutations
-                .send(event_loop::mutations::AppMutation::LinkLost { reason })
-                .await;
+            state.mutations.send(M::LinkLost { reason }).await;
         }
     });
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+impl TranslatorState {
+    /// Attribution from the translator-owned mirrors.
+    fn attribution(&self) -> (String, String) {
+        (self.current_provider.clone(), self.current_model.clone())
+    }
+
+    /// Effort derivation from the translator-owned picker mirror. The picker
+    /// row already carries the server's resolved depth — no protocol
+    /// sniffing, no re-derivation (ADR-0126).
+    fn picker_effort(&self) -> Option<String> {
+        self.picker
+            .rows
+            .iter()
+            .find(|row| row.id == self.current_provider)
+            .and_then(|row| {
+                row.model_info
+                    .iter()
+                    .find(|m| m.model == self.current_model)
+            })
+            .and_then(|m| m.effort.clone())
+    }
+
+    async fn transcript(&self, edit: E) {
+        self.mutations.send(M::Transcript { edit }).await;
+    }
+
+    async fn chrome(&self, session_id: &str, edit: event_loop::mutations::ChromeEdit) {
+        self.mutations
+            .send(M::ChromeEdit {
+                session_id: session_id.to_string(),
+                edit,
+            })
+            .await;
+    }
+
+    /// Route one wire response to its event-family handler.
+    async fn handle(&mut self, resp: AgentResponse) {
+        match resp {
+            // Per-turn events arrive tagged with the session they
+            // belong to; there is a single primary transcript buffer now
+            // (the aside substrate is retired, ADR-0058), so the
+            // translator routes every event to it. Permission and
+            // user-question requests stay global so their modals surface
+            // regardless of which view is focused.
+            AgentResponse::Round { thread_id, scope } => self.handle_round(thread_id, scope).await,
+            AgentResponse::ConversationCleared { .. }
+            | AgentResponse::ConversationReplaced { .. }
+            | AgentResponse::ThreadSnapshot(_) => self.handle_thread_hydration(resp).await,
+            AgentResponse::InputHistory(_)
+            | AgentResponse::HistorySearch(_)
+            | AgentResponse::ThreadsOverview(_)
+            | AgentResponse::OpenThreadsPanel
+            | AgentResponse::ThreadTreeSnapshot { .. }
+            | AgentResponse::OpenTreePanel
+            | AgentResponse::ThreadDetail(_)
+            | AgentResponse::ConnectionDetail(_)
+            | AgentResponse::TokenUsageReport { .. }
+            | AgentResponse::UsageStatsReport { .. }
+            | AgentResponse::ComposerCompletions { .. }
+            | AgentResponse::ThreadContext(_)
+            | AgentResponse::ServerEndpointsStatus(_)
+            | AgentResponse::ThreadPhase(_) => self.handle_thread_metadata(resp).await,
+            AgentResponse::RouteSettings { .. }
+            | AgentResponse::PermissionsCleared
+            | AgentResponse::ProviderKeys(_)
+            | AgentResponse::ProviderPicker(_)
+            | AgentResponse::ProviderSwitched { .. }
+            | AgentResponse::ProviderQuotas(_)
+            | AgentResponse::ConnectStatus(_)
+            | AgentResponse::StateDelta(_) => self.handle_provider_state(resp).await,
+            AgentResponse::Error(_)
+            | AgentResponse::TuiLayoutUpdated(_)
+            | AgentResponse::TuiColorSchemeUpdated { .. }
+            | AgentResponse::WebSearchConfigSnapshot(_)
+            | AgentResponse::WebSearchConfigUpdated(_)
+            | AgentResponse::CopyToClipboard { .. }
+            | AgentResponse::Exit => self.handle_notice_and_client_ops(resp).await,
+        }
+    }
+
+    /// Session/thread lifecycle: a switch or hydration replaces the visible
+    /// transcript and rebases every thread-scoped client projection.
+    async fn handle_thread_hydration(&mut self, resp: AgentResponse) {
+        match resp {
+            AgentResponse::ConversationCleared {
+                previous_id,
+                thread_id: session_id,
+            } => {
+                // ADR-0166: the buffer is being replaced, so the session
+                // it just left can no longer write into it; the session
+                // it is entering is current again.
+                self.session_gate.supersede(&previous_id, &session_id);
+                // The left session's terminal frames are now dropped by
+                // the gate, so its per-round translator state must not
+                // leak into the new session's first turn.
+                self.retry_progress = None;
+                self.reasoning_start = None;
+                self.mutations
+                    .send(M::Transcript {
+                        edit: event_loop::mutations::TranscriptEdit::Clear,
+                    })
+                    .await;
+                self.mutations.send(M::SetRoundCount(0)).await;
+                self.needs_round_rebase = false;
+                self.mutations.send(M::ClearContextTokens).await;
+                // `/new` minted a fresh thread and switched to it: rebase
+                // **the tab that represented `previous_id`** — never "the
+                // active tab" (ADR-0123 `[INV-TAB-13]`). The two can differ
+                // whenever a thread switch raced this frame, and rebasing
+                // the wrong one manufactures a tab pointing at a thread
+                // that does not exist.
+                self.mutations
+                    .send(M::LiveSession {
+                        previous_id,
+                        next_id: session_id.clone(),
+                    })
+                    .await;
+                self.live_session = session_id.clone();
+                self.mutations.send(M::TokenReport(None)).await;
+                self.mutations
+                    .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
+                    .await;
+            }
+            AgentResponse::ConversationReplaced {
+                previous_id,
+                thread_id: session_id,
+                messages,
+                commands,
+                round_interrupts,
+            } => {
+                // ADR-0166: see `ConversationCleared` — the replaced
+                // buffer must never receive the superseded session's
+                // trailing frames, nor inherit its per-round state.
+                self.session_gate.supersede(&previous_id, &session_id);
+                self.retry_progress = None;
+                self.reasoning_start = None;
+                self.mutations.send(M::ClearSwitchingSession).await;
+                let mut rebuilt = transcript_messages_from_core(messages, &self.tui_config);
+                rebuilt = merge_command_rows(rebuilt, transcript_commands_from_ledger(commands));
+                rebuilt = merge_round_interrupt_rows(
+                    rebuilt,
+                    transcript_interrupts_from_records(round_interrupts),
+                );
+                self.mutations
+                    .send(M::Transcript {
+                        edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
+                            messages: rebuilt,
+                        },
+                    })
+                    .await;
+                self.needs_round_rebase = true;
+                // The model-window revision changed; do not reuse an API
+                // anchor from the previous thread/projection.
+                self.mutations.send(M::ClearContextTokens).await;
+                // Track the new id so thread-scoped client state follows,
+                // and drop the previous thread's cached report. Addressed
+                // by `previous_id`, exactly as `ConversationCleared` is
+                // (ADR-0123 `[INV-TAB-13]`).
+                self.mutations
+                    .send(M::LiveSession {
+                        previous_id,
+                        next_id: session_id.clone(),
+                    })
+                    .await;
+                self.live_session = session_id;
+                self.mutations.send(M::TokenReport(None)).await;
+                self.mutations
+                    .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
+                    .await;
+            }
+            AgentResponse::ThreadSnapshot(snapshot) => {
+                let sid = snapshot.thread_id.clone();
+                // ADR-0166: a hydration frame names the session the
+                // buffer now holds. It cannot be a superseded one, and it
+                // repoints the live id that gates thread-scoped replies.
+                self.session_gate.hydrate(&sid);
+                self.live_session = sid.clone();
+                // `[INV-ATTACH-04]` (ADR-0133): this frame is the
+                // authoritative hydration payload. Rebuild the whole
+                // visible transcript from it (and the command ledger),
+                // exactly like `ConversationReplaced`, but addressed to
+                // the snapshot's own thread id.
+                let mut rebuilt =
+                    transcript_messages_from_core(snapshot.messages, &self.tui_config);
+                rebuilt =
+                    merge_command_rows(rebuilt, transcript_commands_from_ledger(snapshot.commands));
+                rebuilt = merge_round_interrupt_rows(
+                    rebuilt,
+                    transcript_interrupts_from_records(snapshot.round_interrupts),
+                );
+                self.mutations
+                    .send(M::Transcript {
+                        edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
+                            messages: rebuilt,
+                        },
+                    })
+                    .await;
+                self.mutations
+                    .send(M::SetRoundCount(snapshot.round_counter))
+                    .await;
+                self.mutations.send(M::ClearContextTokens).await;
+                self.needs_round_rebase = true;
+                if let Some(picker) = snapshot.provider_picker {
+                    self.mutations.send(M::ProviderPicker(picker)).await;
+                }
+                if let Some(keys) = snapshot.provider_keys {
+                    self.mutations
+                        .send(M::KeyStatus(keys.into_iter().collect()))
+                        .await;
+                }
+                if let Some(ct) = snapshot.context_tokens {
+                    self.mutations
+                        .send(M::ContextTokens {
+                            session_id: sid,
+                            snapshot: ct,
+                        })
+                        .await;
+                }
+                if let Some(harness) = snapshot.harness_state {
+                    self.mutations.send(M::Harness(harness)).await;
+                }
+                if let Some(catalog) = snapshot.command_catalog {
+                    self.mutations.send(M::CommandCatalog(catalog)).await;
+                }
+                self.mutations
+                    .send(M::ProviderSwitched {
+                        provider: snapshot.provider,
+                        model: snapshot.model,
+                    })
+                    .await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Thread-scoped queries and metadata (history, tree/detail views, token
+    /// and usage reports, completions, phases).
+    async fn handle_thread_metadata(&mut self, resp: AgentResponse) {
+        match resp {
+            AgentResponse::InputHistory(rows) => {
+                self.mutations.send(M::InputHistory(rows)).await;
+            }
+            // Dashboard Archivist search hits. The TUI's
+            // Archivist pane lands in a later stage; for now the
+            // response is acknowledged (logged) so the wire stays
+            // exhaustive without inventing premature UI state.
+            AgentResponse::HistorySearch(hits) => {
+                tracing::debug!(count = hits.len(), "history search hits");
+            }
+            AgentResponse::ThreadsOverview(sessions) => {
+                self.mutations.send(M::SessionsOverview(sessions)).await;
+            }
+            AgentResponse::OpenThreadsPanel => {
+                self.mutations.send(M::OpenSessionsPanel).await;
+            }
+            AgentResponse::ThreadTreeSnapshot {
+                thread_id: session_id,
+                tree,
+            } => {
+                // A tree query is thread-scoped: reject a reply that
+                // raced a primary-thread switch.
+                if self.live_session == session_id {
+                    self.mutations.send(M::SessionTree(tree)).await;
+                }
+            }
+            AgentResponse::OpenTreePanel => {
+                self.mutations.send(M::OpenTreePanel).await;
+            }
+            AgentResponse::ThreadDetail(detail) => {
+                self.mutations.send(M::SessionDetail(detail)).await;
+            }
+            AgentResponse::ConnectionDetail(detail) => {
+                self.mutations.send(M::ConnectionDetail(detail)).await;
+            }
+            AgentResponse::TokenUsageReport {
+                thread_id: session_id,
+                report,
+            } => {
+                // Install the report only when it still belongs to the
+                // thread the frontend is viewing — a reply that raced a
+                // thread switch would populate the modal with the
+                // previous thread's rows.
+                let viewed = self.viewed_session_id.lock().await.clone();
+                if viewed.as_deref() == Some(session_id.as_str()) {
+                    self.mutations.send(M::TokenReport(Some(report))).await;
+                }
+            }
+            AgentResponse::UsageStatsReport { report } => {
+                // Thread-independent by design.
+                self.mutations.send(M::UsageStats(report)).await;
+            }
+            AgentResponse::ComposerCompletions {
+                request_id,
+                text,
+                cursor,
+                items,
+            } => {
+                self.mutations
+                    .send(M::CompletionSignal(
+                        event_loop::mutations::CompletionSignal {
+                            request_id,
+                            input: text,
+                            cursor,
+                            items,
+                        },
+                    ))
+                    .await;
+            }
+            AgentResponse::ThreadContext(snapshot) => {
+                self.mutations.send(M::SessionContext(snapshot)).await;
+            }
+            AgentResponse::ServerEndpointsStatus(report) => {
+                self.mutations.send(M::ServerEndpoints(report)).await;
+            }
+            AgentResponse::ThreadPhase(update) => {
+                self.mutations.send(M::SessionPhase(update.phase)).await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Provider routing, auth/connect status, picker snapshots and the
+    /// provider/context slices of state deltas.
+    async fn handle_provider_state(&mut self, resp: AgentResponse) {
+        match resp {
+            AgentResponse::RouteSettings {
+                provider_id,
+                model,
+                overrides,
+            } => {
+                self.mutations
+                    .send(M::RouteSettings {
+                        provider_id,
+                        model,
+                        overrides,
+                    })
+                    .await;
+            }
+            AgentResponse::PermissionsCleared => {
+                self.mutations.send(M::ClearPermissions).await;
+                self.mutations.send(M::SetPhase(None)).await;
+            }
+            AgentResponse::ProviderKeys(status) => {
+                self.mutations
+                    .send(M::KeyStatus(status.into_iter().collect()))
+                    .await;
+            }
+            AgentResponse::ProviderPicker(snapshot) => {
+                self.picker = snapshot.clone();
+                self.mutations.send(M::ProviderPicker(snapshot)).await;
+            }
+            AgentResponse::ProviderSwitched { provider, model } => {
+                // Refreshes the hint bar; NOT appended to the transcript
+                // (the acknowledgment is a command ack).
+                self.current_provider = provider.clone();
+                self.current_model = model.clone();
+                self.mutations
+                    .send(M::ProviderSwitched { provider, model })
+                    .await;
+            }
+            AgentResponse::ProviderQuotas(snapshot) => {
+                self.mutations.send(M::ProviderQuotas(snapshot)).await;
+            }
+            AgentResponse::ConnectStatus(status) => {
+                match status {
+                    nuo_protocol::ConnectStatus::Pending {
+                        url,
+                        user_code,
+                        message,
+                        ..
+                    } => {
+                        if !url.is_empty() {
+                            let url_for_open = url.clone();
+                            tokio::task::spawn_blocking(move || {
+                                if let Err(err) = crate::shell::browser::open_browser(&url_for_open)
+                                {
+                                    tracing::warn!("Failed to open browser: {err}");
+                                }
+                            });
+                        }
+                        self.mutations
+                            .send(M::Oauth(crate::shell::app::OauthAddSignal::Pending {
+                                url: url.clone(),
+                                user_code: user_code.clone(),
+                                message: message.clone(),
+                            }))
+                            .await;
+                        // The add-flow surfaces the URL/code in the
+                        // OauthPending modal, so suppress the transcript
+                        // notice there. Only the reconnect flow gets it.
+                        let in_add_flow = self.awaiting_oauth_add.load(Ordering::SeqCst);
+                        if !in_add_flow {
+                            self.mutations
+                                .send(M::NoticeDisclosure(
+                                    crate::shell::app::notice_catalog::ClientNotice::OauthPending {
+                                        message: message.clone(),
+                                        url: url.clone(),
+                                        user_code: user_code.clone(),
+                                    }
+                                    .render(),
+                                ))
+                                .await;
+                        }
+                    }
+                    nuo_protocol::ConnectStatus::Done { provider } => {
+                        self.mutations
+                            .send(M::Oauth(crate::shell::app::OauthAddSignal::Done))
+                            .await;
+                        self.mutations
+                            .send(M::NoticeDisclosure(
+                                crate::shell::app::notice_catalog::ClientNotice::OauthAuthorized {
+                                    provider,
+                                }
+                                .render(),
+                            ))
+                            .await;
+                    }
+                    nuo_protocol::ConnectStatus::CatalogSyncWarning {
+                        provider,
+                        message,
+                        kind,
+                    } => {
+                        // A refusal is actionable and permanent (the
+                        // account may not use this provider); a
+                        // transient failure is not. Say which.
+                        let refused = matches!(kind, nuo_protocol::CatalogSyncFailure::Refused);
+                        self.mutations
+                            .send(M::NoticeDisclosure(
+                                crate::shell::app::notice_catalog::ClientNotice::CatalogSyncWarning {
+                                    provider,
+                                    message,
+                                    refused,
+                                }
+                                .render(),
+                            ))
+                            .await;
+                    }
+                    nuo_protocol::ConnectStatus::Failed { provider, message } => {
+                        self.mutations
+                            .send(M::Oauth(crate::shell::app::OauthAddSignal::Failed {
+                                message: message.clone(),
+                            }))
+                            .await;
+                        self.mutations
+                            .send(M::NoticeDisclosure(
+                                crate::shell::app::notice_catalog::ClientNotice::OauthConnectFailed {
+                                    provider,
+                                    message,
+                                }
+                                .render(),
+                            ))
+                            .await;
+                    }
+                }
+            }
+            AgentResponse::StateDelta(delta) => {
+                if let (Some(provider), Some(model)) = (delta.provider, delta.model) {
+                    self.mutations
+                        .send(M::ProviderSwitched { provider, model })
+                        .await;
+                }
+                if let Some(ct) = delta.context_tokens {
+                    self.mutations
+                        .send(M::ContextTokens {
+                            session_id: delta.thread_id,
+                            snapshot: ct,
+                        })
+                        .await;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Control-plane notices/errors and local client operations.
+    async fn handle_notice_and_client_ops(&mut self, resp: AgentResponse) {
+        match resp {
+            AgentResponse::Error(msg) => {
+                self.mutations.send(M::ClearSwitchingSession).await;
+                // A control-plane error is a receipt: the toast
+                // surface carries it, the conversation does not.
+                self.mutations
+                    .send(M::NoticeDisclosure(
+                        crate::shell::app::notice_catalog::ClientNotice::LocalFault {
+                            topic: crate::shell::app::notice_catalog::ClientTopic::Client,
+                            message: msg,
+                        }
+                        .render(),
+                    ))
+                    .await;
+            }
+            AgentResponse::TuiLayoutUpdated(_value) => {
+                // The apply path already set `app.transcript_layout`
+                // optimistically; a save failure surfaces as `Error`.
+            }
+            AgentResponse::TuiColorSchemeUpdated { .. } => {
+                // Applied optimistically; save failures arrive as `Error`.
+            }
+            AgentResponse::WebSearchConfigSnapshot(snapshot) => {
+                self.mutations
+                    .send(M::WebSearchConfig(Some(snapshot)))
+                    .await;
+            }
+            AgentResponse::WebSearchConfigUpdated(snapshot) => {
+                // Authoritative post-update ack: re-render from persisted
+                // state, discarding any optimistic local edit.
+                self.mutations
+                    .send(M::WebSearchConfig(Some(snapshot)))
+                    .await;
+            }
+            AgentResponse::CopyToClipboard { text } => {
+                let _ = crate::shell::clipboard::copy(&text).await;
+            }
+            AgentResponse::Exit => {
+                self.mutations.send(M::Quit).await;
+            }
+            _ => {}
+        }
+    }
+
+    /// ADR-0166: **the buffer holds exactly one session.**
+    /// `ConversationCleared` / `ConversationReplaced` replace it, and a
+    /// superseded round keeps unwinding afterwards — `cancel_current` signals
+    /// a token, it does not join the task — so its terminal frames can land
+    /// *after* the switch. Applying them would append stale rows to the new
+    /// transcript (a result with no matching row becomes a fallback insert).
+    /// Drop every frame addressed to a session this buffer has switched away
+    /// from.
+    async fn handle_round(&mut self, session_id: String, scope: nuo_protocol::RoundScope) {
+        if !self.session_gate.accepts(&session_id) {
+            return;
+        }
+        let (event, turn_context) = match scope {
+            nuo_protocol::RoundScope::Turn { context, event } => (event, Some(context)),
+            nuo_protocol::RoundScope::Session { event } => (event, None),
+        };
+        // A turn-scoped event always carries its context; a
+        // session-scoped event cannot claim one. There is no
+        // per-session position map left to consult (ADR-0168).
+        let turn_position =
+            turn_context.map(|context| (context.round, transcript_turn(context.turn)));
+        let turn_sent_at = turn_context.map(|context| context.sent_at_ms);
+        let ctx = TurnCtx {
+            turn_context,
+            turn_position,
+            turn_sent_at,
+        };
+        self.handle_round_event(session_id, event, ctx).await;
+    }
+
+    /// Route one round event to its family handler.
+    async fn handle_round_event(&mut self, session_id: String, event: RoundEvent, ctx: TurnCtx) {
+        match event {
+            RoundEvent::ContextTokens(_)
+            | RoundEvent::TurnPerformance(_)
+            | RoundEvent::RoundCompleted(_)
+            | RoundEvent::RoundInterrupted(_)
+            | RoundEvent::Text(_)
+            | RoundEvent::Activity(_)
+            | RoundEvent::TurnStarted
+            | RoundEvent::StreamStart
+            | RoundEvent::StreamDelta(_)
+            | RoundEvent::StreamEnd(_)
+            | RoundEvent::StreamDiscard
+            | RoundEvent::UnsentInput { .. }
+            | RoundEvent::StreamReasoningDelta(_)
+            | RoundEvent::StreamReasoningEnd(_)
+            | RoundEvent::Compacted { .. } => {
+                self.handle_stream_round_event(session_id, event, ctx).await
+            }
+            RoundEvent::SteerAdmitted(_)
+            | RoundEvent::SteerUnavailable { .. }
+            | RoundEvent::FollowUpQueued { .. }
+            | RoundEvent::QueueUpdated { .. }
+            | RoundEvent::SteerCancelled { .. }
+            | RoundEvent::SteerCancelFailed { .. }
+            | RoundEvent::FollowUpStarted(_) => {
+                self.handle_steer_event(session_id, event, ctx).await
+            }
+            RoundEvent::ToolCallStarted { .. }
+            | RoundEvent::ToolInputProgress { .. }
+            | RoundEvent::ToolCallsRetracted { .. }
+            | RoundEvent::ToolCall { .. }
+            | RoundEvent::ToolPreview { .. }
+            | RoundEvent::ToolResult { .. }
+            | RoundEvent::ToolCancelled { .. }
+            | RoundEvent::ToolStream { .. } => self.handle_tool_event(session_id, event, ctx).await,
+            RoundEvent::SubagentStep { .. }
+            | RoundEvent::PermissionRequest(_)
+            | RoundEvent::UserQuestionRequest(_)
+            | RoundEvent::StdinRequest(_) => self.handle_interaction_event(event).await,
+            RoundEvent::CommandResult { .. } => self.handle_command_event(event).await,
+            RoundEvent::Notice(_) | RoundEvent::Error(_) => {
+                self.handle_notice_event(session_id, event).await
+            }
+            RoundEvent::HarnessState(_)
+            | RoundEvent::TodosUpdated(_)
+            | RoundEvent::UnattendedChanged(_)
+            | RoundEvent::ConfinementChanged(_) => {
+                self.handle_harness_event(session_id, event).await
+            }
+            RoundEvent::RetryScheduled { .. } => self.handle_retry_event(event).await,
+            RoundEvent::BackgroundJobStarted(_)
+            | RoundEvent::BackgroundJobProgress { .. }
+            | RoundEvent::BackgroundJobReady { .. }
+            | RoundEvent::BackgroundJobCompleted(_) => {
+                self.handle_background_job_event(event).await
+            }
+        }
+    }
+
+    /// Round/stream lifecycle: phase facts, stream deltas, and round
+    /// outcomes.
+    async fn handle_stream_round_event(
+        &mut self,
+        session_id: String,
+        event: RoundEvent,
+        ctx: TurnCtx,
+    ) {
+        match event {
+            RoundEvent::ContextTokens(snapshot) => {
+                self.mutations
+                    .send(M::ContextTokens {
+                        session_id: session_id.clone(),
+                        snapshot,
+                    })
+                    .await;
+            }
+            RoundEvent::TurnPerformance(performance) => {
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::TurnPerformance(Box::new(performance)),
+                )
+                .await;
+            }
+            RoundEvent::RoundCompleted(_summary) => {
+                // The retry episode is over; retire any transient state.
+                self.retry_progress = None;
+                // ADR-0166 `[INV-TOOL-ID-05]`: the round is over,
+                // so no step it announced can still be ingesting
+                // arguments. A round outcome is the boundary
+                // signal; a `HarnessState` snapshot is a *state*
+                // sample and must not be used as an edge.
+                self.transcript(E::RetractPendingToolSteps).await;
+            }
+            RoundEvent::RoundInterrupted(record) => {
+                // C11: the durable twin of the live stop.
+                //
+                // If the round died while backing off, the last
+                // fault is the *reason*, and the anchor's
+                // one-line detail is where it belongs — one
+                // line, not a pretty-printed HTTP body in the
+                // timeline. The full payload is already in the
+                // notice log (each scheduled attempt wrote its
+                // receipt) and in the client log file.
+                let last_fault = self
+                    .retry_progress
+                    .as_ref()
+                    .and_then(|progress| progress.faults().last().cloned());
+                let record = match (record.detail, last_fault) {
+                    (None, Some(fault)) => nuo_protocol::RoundInterrupt {
+                        detail: Some(nuo_view::model::notice_text::display_text(&fault)),
+                        ..record
+                    },
+                    (detail, _) => nuo_protocol::RoundInterrupt { detail, ..record },
+                };
+                self.retry_progress = None;
+                self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundEnded)
+                    .await;
+
+                self.mutations.send(M::SetPhase(None)).await;
+                self.mutations.send(M::SetResponding(false)).await;
+
+                // ADR-0166: a stopped round is a boundary for the
+                // same reason a completed one is.
+                self.transcript(E::RetractPendingToolSteps).await;
+                self.transcript(E::Interrupted { record }).await;
+            }
+            RoundEvent::Text(t) => {
+                self.retry_progress = None;
+                let (provider, model) = self.attribution();
+                let effort = self.picker_effort();
+                let mut message = TranscriptMessage::new(Role::Assistant, t)
+                    .with_attribution(provider, model)
+                    .with_effort(effort)
+                    .with_sent_at_ms(ctx.turn_sent_at.unwrap_or_else(|| now_ms()));
+                if let Some((round, turn)) = ctx.turn_position {
+                    message.round = Some(round);
+                    message.turn = Some(turn);
+                }
+                self.transcript(E::Append {
+                    class: nuo_protocol::EventClass::Dialogue,
+                    message,
+                })
+                .await;
+                // A one-shot text payload is the degenerate case
+                // of the delta stream: it *is* visible model
+                // output, so it moves the session's phase
+                // exactly as a delta does. Otherwise the bar
+                // keeps reading "waiting for model" after the
+                // model has answered — and, since the setback
+                // clause is retired when the phase leaves
+                // `AwaitingModel`, the countdown for
+                // the attempt that just landed rides on.
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Answering)),
+                )
+                .await;
+
+                if self.harness.loop_status.is_idle() {
+                    self.mutations.send(M::SetResponding(false)).await;
+                    self.mutations.send(M::SetPhase(None)).await;
+                } else {
+                    self.mutations
+                        .send(M::SetPhase(Some(Phase::Answering)))
+                        .await;
+                }
+            }
+            RoundEvent::Activity(status) => {
+                // View-scoped chrome: record this session's own
+                // phase regardless of focus. Stale in-flight
+                // activity events must not revive the bar if the
+                // harness is already idle (e.g. after interrupt).
+                if !self.harness.loop_status.is_idle() {
+                    let folded = Phase::classify(&status);
+                    self.chrome(
+                        &session_id,
+                        event_loop::mutations::ChromeEdit::ActivityFolded(folded.clone()),
+                    )
+                    .await;
+
+                    self.mutations.send(M::SetPhase(Some(folded))).await;
+                    self.mutations.send(M::SetResponding(true)).await;
+                }
+            }
+            RoundEvent::TurnStarted => {
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let round = context.round;
+                // 1-indexed for display: turn 0 is the first
+                // model request, shown as `turn 1`.
+                let turn = transcript_turn(context.turn);
+                self.transcript(E::StampTurnPrompt { round }).await;
+
+                self.mutations.send(M::SetRoundCount(round)).await;
+                self.mutations.send(M::SetCurrentTurn(turn)).await;
+
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::TurnStarted { round, turn },
+                )
+                .await;
+
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::AwaitingModel)))
+                    .await;
+            }
+            RoundEvent::StreamStart => {
+                // A stream lifecycle event is not visible
+                // transcript content; the first visible delta
+                // lazily creates its own typed component. A
+                // successful stream does retire any transient
+                // provider-retry disclosure.
+                self.transcript(E::BeginStream).await;
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::StreamStarted,
+                )
+                .await;
+
+                self.mutations.send(M::SetResponding(true)).await;
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::Answering)))
+                    .await;
+            }
+            RoundEvent::StreamDelta(delta) => {
+                // Visible-text deltas outrank the reasoning phase.
+
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::Answering)))
+                    .await;
+
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Answering)),
+                )
+                .await;
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                let sent_at_ms = context.sent_at_ms;
+                let round = position.map(|(round, _)| round);
+                let turn = position.map(|(_, turn)| turn);
+                let (provider, model) = self.attribution();
+                let effort = self.picker_effort();
+                let mut created = TranscriptMessage::new(Role::Assistant, delta.clone())
+                    .with_attribution(provider, model)
+                    .with_effort(effort)
+                    // The turn header's `HH:MM` reads this
+                    // stamp. It is the *turn's* send time, so
+                    // thinking / text / tools of one turn can
+                    // never disagree, live or resumed.
+                    .with_sent_at_ms(sent_at_ms);
+                if let Some((r, t)) = position {
+                    created.round = Some(r);
+                    created.turn = Some(t);
+                }
+                self.transcript(E::StreamTextDelta {
+                    round,
+                    turn,
+                    delta,
+                    created: Some(created),
+                    clear_retry: false,
+                })
+                .await;
+            }
+            RoundEvent::StreamEnd(final_content) => {
+                self.mutations.send(M::SetResponding(true)).await;
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::Finalizing)))
+                    .await;
+
+                self.retry_progress = None;
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                let sent_at_ms = context.sent_at_ms;
+                let round = position.map(|(round, _)| round);
+                let turn = position.map(|(_, turn)| turn);
+                // Identity-addressed: the applier
+                // resolves the streaming entry by position. The
+                // fallback (providers that deliver only a final
+                // payload) is built only for non-empty content.
+                let created = if !final_content.is_empty() {
+                    let (provider, model) = self.attribution();
+                    let effort = self.picker_effort();
+                    let mut message =
+                        TranscriptMessage::new(Role::Assistant, final_content.clone())
+                            .with_attribution(provider, model)
+                            .with_effort(effort)
+                            // Same rule as the delta arm: this
+                            // only-visible-bytes path must carry the
+                            // turn's send time into the band header.
+                            .with_sent_at_ms(sent_at_ms);
+                    if let Some((r, t)) = position {
+                        message.round = Some(r);
+                        message.turn = Some(t);
+                    }
+                    Some(message)
+                } else {
+                    None
+                };
+                self.transcript(E::StreamTextFinalize {
+                    round,
+                    turn,
+                    content: final_content,
+                    created,
+                })
+                .await;
+            }
+            RoundEvent::StreamDiscard => {
+                self.retry_progress = None;
+                // The turn context rides the envelope
+                // (ADR-0168); no `TurnStarted` observation is
+                // required. The wire ordinal is 0-based; the
+                // transcript row is 1-based.
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                self.transcript(stream_discard_edit(context.round, context.turn))
+                    .await;
+            }
+            RoundEvent::UnsentInput { .. } => {
+                // Retraction is removed: entries only grow and
+                // update in place; the prompt is marked Cancelled.
+                self.retry_progress = None;
+                self.transcript(E::CancelLastUserPrompt).await;
+
+                self.mutations.send(M::SetResponding(false)).await;
+                self.mutations.send(M::SetPhase(None)).await;
+            }
+            RoundEvent::StreamReasoningDelta(delta) => {
+                // Phase fact before anything else: the reasoning
+                // stream is alive. Hidden-chain models also land
+                // here (their summary deltas still prove thinking).
+
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::Reasoning)))
+                    .await;
+
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Reasoning)),
+                )
+                .await;
+                // Surface only a reasoning summary, never their
+                // full chain: gate at message creation. Unrecognized
+                // ids default to disclosed — only known
+                // `ReasoningSummary` models are gated.
+                let hidden_chain = !nuo_protocol::model_by_id(&self.current_model)
+                    .map(|m| m.thinking.chain_disclosed())
+                    .unwrap_or(true);
+                if hidden_chain {
+                    return;
+                }
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                let sent_at_ms = context.sent_at_ms;
+                let round = position.map(|(round, _)| round);
+                let turn = position.map(|(_, turn)| turn);
+                let (provider, model) = self.attribution();
+                let effort = self.picker_effort();
+                let mut created = TranscriptMessage::reasoning(delta.clone())
+                    .with_attribution(provider, model)
+                    .with_effort(effort)
+                    // A reasoning trace is a turn component, so it
+                    // carries the turn's send time: when thinking
+                    // is the *first* thing a turn emits (the common
+                    // case for a reasoning channel), this entry
+                    // owns the band header and its `HH:MM`.
+                    .with_sent_at_ms(sent_at_ms);
+                if let Some((r, t)) = position {
+                    created.round = Some(r);
+                    created.turn = Some(t);
+                }
+                // Disclosure default is applied by the applier
+                // (`App::reasoning_default_expanded`).
+                self.transcript(E::ReasoningDelta {
+                    round,
+                    turn,
+                    delta,
+                    created: Some(created),
+                })
+                .await;
+                self.reasoning_start = Some(std::time::Instant::now());
+            }
+            RoundEvent::StreamReasoningEnd(content) => {
+                let duration_ms = self
+                    .reasoning_start
+                    .take()
+                    .map(|started| started.elapsed().as_millis() as u64);
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                self.transcript(E::ReasoningFinalize {
+                    round: position.map(|(round, _)| round),
+                    turn: position.map(|(_, turn)| turn),
+                    content,
+                    duration_ms,
+                })
+                .await;
+            }
+            RoundEvent::Compacted {
+                archived_messages,
+                window_tokens_before,
+                window_tokens_after,
+                summary,
+                tracked_files,
+            } => {
+                let message = TranscriptMessage::compacted_card(
+                    archived_messages,
+                    window_tokens_before,
+                    window_tokens_after,
+                    summary,
+                    tracked_files,
+                )
+                .with_sent_at_ms(now_ms());
+                self.transcript(E::Append {
+                    class: nuo_protocol::EventClass::TurnOutcome,
+                    message,
+                })
+                .await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Steering, follow-up queue and unsent-input events.
+    async fn handle_steer_event(&mut self, session_id: String, event: RoundEvent, ctx: TurnCtx) {
+        match event {
+            RoundEvent::SteerUnavailable { input_id } => {
+                // Steer is ephemeral to the active round. It MUST NOT silently mutate
+                // into a next-round follow-up item. Remove the optimistic entry from transcript
+                // and restore the text directly to the composer draft.
+                self.mutations
+                    .send(M::SteerMissed {
+                        session_id,
+                        input_id,
+                    })
+                    .await;
+            }
+            RoundEvent::SteerAdmitted(input) => {
+                let input_id = input.id.clone();
+                let visible = input
+                    .display_text
+                    .clone()
+                    .unwrap_or_else(|| input.text.clone());
+                // ADR-0137: admission is the materialization
+                // point, and the buffer tail is the turn seam
+                // (the harness persisted the steer after the
+                // finished turn; the next turn's components
+                // have not arrived). The message is APPENDED —
+                // never head-inserted, which would put a
+                // round-N steer above round 1.
+                //
+                // Position: the steer is *consumed* by the turn
+                // that is about to start, and the event carries
+                // that turn's context directly. The round is
+                // unchanged (a steer never opens a round).
+                let mut admitted = TranscriptMessage::new(Role::User, visible);
+                admitted.insert_id = Some(input_id.clone());
+                admitted.sent_at_ms = input.sent_at_ms;
+                admitted.origin = UserMessageOrigin::Steer;
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                admitted.round = Some(context.round);
+                admitted.turn = Some(transcript_turn(context.turn));
+                // In-round provenance: the renderer draws it as
+                // a one-body-row interjection (ADR-0137).
+                admitted = admitted
+                    .with_origin_tags(vec![nuo_view::model::document::SteerOriginTag::InRound]);
+                self.transcript(E::InsertAdmittedSeam { message: admitted })
+                    .await;
+                self.mutations
+                    .send(M::DispatchRemoved {
+                        session_id,
+                        input_id,
+                    })
+                    .await;
+            }
+            RoundEvent::SteerCancelled { input_id } => {
+                // The pending steer was cancelled before
+                // admission (its only legal fate beside
+                // SteerAdmitted, per the protocol's
+                // linearization contract). Restore the text to
+                // the composer and drop the outbox row; the
+                // transcript never held it (ADR-0137).
+                self.mutations
+                    .send(M::SteerCancelledRestored {
+                        session_id,
+                        input_id,
+                    })
+                    .await;
+            }
+            RoundEvent::SteerCancelFailed { input_id } => {
+                // Cancellation lost the race with admission (or
+                // the id was unknown): the protocol guarantees
+                // that `SteerAdmitted` / `SteerUnavailable`
+                // still follows and is authoritative.
+                //
+                // What must be repaired here is the client-side
+                // intent recorded by a deletion: the suppress
+                // flag exists so a *deleted* steer cannot
+                // resurrect into the composer. If the cancel
+                // failed, the steer is going to land after all,
+                // so keeping the flag would silently swallow a
+                // future recall for this id. Clear it and say
+                // what happened — a deletion that lost the race
+                // must not be a silent surprise (ADR-0137).
+                self.mutations
+                    .send(M::SteerCancelFailedCleared {
+                        session_id,
+                        input_id,
+                    })
+                    .await;
+            }
+            RoundEvent::FollowUpQueued { input_id } => {
+                // The server admitted the follow-up into its
+                // queue: the optimistic entry settles back to
+                // Waiting (the queue bar keeps showing it).
+                self.mutations
+                    .send(M::DispatchQueued {
+                        session_id: session_id.clone(),
+                        input_id,
+                    })
+                    .await;
+            }
+            RoundEvent::QueueUpdated { items, paused } => {
+                // The authoritative queue snapshot (
+                // M4): full-replace projection.
+                self.mutations
+                    .send(M::QueueSnapshot {
+                        session_id: session_id.clone(),
+                        items,
+                        paused,
+                    })
+                    .await;
+            }
+            RoundEvent::FollowUpStarted(input) => {
+                let input_id = input.id.clone();
+                let visible = input
+                    .display_text
+                    .clone()
+                    .unwrap_or_else(|| input.text.clone());
+                // ADR-0137: a follow-up opens a *fresh round*, so
+                // its admission is the same materialization
+                // point as a steer's — one transcript fact,
+                // appended at the seam the harness persisted it
+                // at. The former `SettleInserted` path settled an
+                // optimistic in-thread row that no longer exists
+                // (follow-ups live in the outbox until now), so
+                // both admission kinds share one edit.
+                let mut admitted = TranscriptMessage::new(Role::User, visible);
+                admitted.insert_id = Some(input_id.clone());
+                admitted.sent_at_ms = input.sent_at_ms;
+                admitted.origin = UserMessageOrigin::FollowUp;
+                // A follow-up opens its own round, so it keeps
+                // full round-panel weight.
+                admitted = admitted.with_origin_tags(vec![
+                    nuo_view::model::document::SteerOriginTag::RoundOpening,
+                ]);
+                self.transcript(E::InsertAdmittedSeam { message: admitted })
+                    .await;
+                self.mutations
+                    .send(M::DispatchRemoved {
+                        session_id,
+                        input_id,
+                    })
+                    .await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Tool call lifecycle: announcement, argument stream, dispatch, preview,
+    /// result, cancellation and output stream.
+    async fn handle_tool_event(&mut self, session_id: String, event: RoundEvent, ctx: TurnCtx) {
+        match event {
+            RoundEvent::ToolCallStarted { id, name } => {
+                // ADR-0026 / ADR-0166: the call is named but its
+                // arguments are still streaming. Show a running
+                // step and move the phase to the tool verb now,
+                // instead of leaving the bar on the misleading
+                // `answering` phase for the whole argument stream.
+                // The step carries the call id the later
+                // `ToolCall` will carry, so the applier merges
+                // instead of inserting a second row.
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::Tool(event_loop::tool_verb_for(
+                        &name,
+                    )))))
+                    .await;
+                self.mutations.send(M::SetResponding(true)).await;
+
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Tool(
+                        event_loop::tool_verb_for(&name),
+                    ))),
+                )
+                .await;
+                let (provider, model) = self.attribution();
+                let effort = self.picker_effort();
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                let sent_at_ms = context.sent_at_ms;
+                let mut message = TranscriptMessage::tool_step_announced(id, name)
+                    .with_attribution(provider, model)
+                    .with_effort(effort)
+                    // A tool-only turn has no text or thinking to own
+                    // the band header: this announced step does. It
+                    // carries the turn's send time so the live band
+                    // shows `HH:MM` exactly as the resumed one does.
+                    .with_sent_at_ms(sent_at_ms);
+                if let Some((round, turn)) = position {
+                    message = message.with_round(round).with_turn(turn);
+                }
+                self.transcript(E::ToolStepUpsert { message }).await;
+            }
+            RoundEvent::ToolInputProgress {
+                id,
+                bytes,
+                arguments,
+            } => {
+                // ADR-0026 / ADR-0046: progress tick and streaming arguments.
+                self.mutations.send(M::SetResponding(true)).await;
+
+                self.transcript(E::ToolInputProgress {
+                    id,
+                    bytes,
+                    arguments,
+                })
+                .await;
+            }
+            RoundEvent::ToolCallsRetracted { ids } => {
+                // The attempt that announced these calls died
+                // before dispatch. Drop the provisional rows;
+                // they never described a call, so a terminal
+                // "cancelled" row would be a lie.
+                self.transcript(E::ToolCallsRetracted { ids }).await;
+            }
+            RoundEvent::ToolCall {
+                id,
+                name,
+                arguments,
+            } => {
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::Tool(event_loop::tool_verb_for(
+                        &name,
+                    )))))
+                    .await;
+
+                let (provider, model) = self.attribution();
+                let effort = self.picker_effort();
+                self.retry_progress = None;
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                let sent_at_ms = context.sent_at_ms;
+                // The turn's time, not this call's: it is the same
+                // value the announced step (and every sibling
+                // component) carries, so advancing an announcement
+                // into a dispatch cannot change the band header.
+                // ADR-0166: the dispatch fact carries the same id
+                // the announcement did. The applier merges it into
+                // that row (or inserts it when the provider never
+                // announced, or the attempt was retracted).
+                let mut message = TranscriptMessage::tool_step(id, name, arguments)
+                    .with_attribution(provider, model)
+                    .with_effort(effort)
+                    .with_sent_at_ms(sent_at_ms);
+                if let Some((round, turn)) = position {
+                    message = message.with_round(round).with_turn(turn);
+                }
+                self.transcript(E::ToolStepUpsert { message }).await;
+
+                self.mutations.send(M::SetResponding(true)).await;
+            }
+            RoundEvent::ToolPreview { id, preview, .. } => {
+                // ADR-0125: the preview arrives strictly after the
+                // `ToolCall` that created this step, so matching by
+                // dispatch id finds it. No phase change and no
+                // responding toggle: nothing is running yet, and the
+                // card simply gains its diff.
+                self.transcript(E::ToolPreview { id, preview }).await;
+            }
+            RoundEvent::ToolResult {
+                id,
+                name,
+                output,
+                structured,
+                duration_ms,
+            } => {
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::Preparing)))
+                    .await;
+
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Preparing)),
+                )
+                .await;
+                let (provider, model) = self.attribution();
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                // The fallback (no matching in-flight call, e.g. a
+                // turn restored from history) is fully finished by
+                // the translator; the applier applies the
+                // lifecycle-aware default disclosure.
+                let mut fallback = TranscriptMessage::tool_step(id.clone(), name.clone(), "{}")
+                    .with_attribution(provider, model);
+                if let Some((round, turn)) = position {
+                    fallback.round = Some(round);
+                    fallback.turn = Some(turn);
+                }
+                fallback.finish_tool_step(&id, output.clone(), structured.clone(), duration_ms);
+                self.transcript(E::ToolResult {
+                    id,
+                    name,
+                    output,
+                    structured,
+                    duration_ms,
+                    fallback: Some(fallback),
+                })
+                .await;
+            }
+            RoundEvent::ToolCancelled { id, .. } => {
+                // An in-flight call was aborted: flip it (and any
+                // nested subagent children) to Cancelled.
+                let Some(context) = ctx.turn_context else {
+                    return;
+                };
+                let position = Some((context.round, transcript_turn(context.turn)));
+                let mut fallback = TranscriptMessage::tool_step(id.clone(), "tool", "{}");
+                if let Some((round, turn)) = position {
+                    fallback.round = Some(round);
+                    fallback.turn = Some(turn);
+                }
+                fallback.cancel_tool_step(&id);
+                fallback.set_tool_step_expanded(false);
+                self.transcript(E::ToolCancel {
+                    id,
+                    fallback: Some(fallback),
+                })
+                .await;
+            }
+            RoundEvent::ToolStream { id, stream } => {
+                self.transcript(E::ToolStream { id, stream }).await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Human-in-the-loop requests and nested subagent events.
+    async fn handle_interaction_event(&mut self, event: RoundEvent) {
+        match event {
+            RoundEvent::SubagentStep {
+                parent_call_id,
+                event,
+            } => {
+                // Full-duplex (ADR-0029): a subagent's permission
+                // broker or `ask_user` request bubbles up nested
+                // under this `parent_call_id`; the reply is tagged
+                // for down-routing into the child.
+                match &event {
+                    nuo_tool::SubagentEvent::PermissionRequest(req) => {
+                        self.mutations
+                            .send(M::QueuePermission {
+                                request: req.clone(),
+                                parent_call_id: Some(parent_call_id.clone()),
+                            })
+                            .await;
+
+                        self.mutations
+                            .send(M::SetPhase(Some(Phase::AwaitingUser)))
+                            .await;
+                        self.mutations.send(M::SetResponding(true)).await;
+                    }
+                    nuo_tool::SubagentEvent::UserQuestionRequest(req) => {
+                        self.mutations
+                            .send(M::QueueQuestion {
+                                request: req.clone(),
+                                parent_call_id: Some(parent_call_id.clone()),
+                            })
+                            .await;
+
+                        self.mutations
+                            .send(M::SetPhase(Some(Phase::AwaitingUser)))
+                            .await;
+                        self.mutations.send(M::SetResponding(true)).await;
+                    }
+                    _ => {}
+                }
+                self.transcript(E::SubagentEvent {
+                    parent_call_id,
+                    event,
+                })
+                .await;
+            }
+            RoundEvent::PermissionRequest(request) => {
+                // Stays global regardless of session so the modal
+                // always surfaces (ADR-0017 → ADR-0058).
+                self.mutations
+                    .send(M::QueuePermission {
+                        request,
+                        parent_call_id: None,
+                    })
+                    .await;
+
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::AwaitingUser)))
+                    .await;
+                self.mutations.send(M::SetResponding(true)).await;
+            }
+            RoundEvent::UserQuestionRequest(request) => {
+                self.mutations
+                    .send(M::QueueQuestion {
+                        request,
+                        parent_call_id: None,
+                    })
+                    .await;
+
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::AwaitingUser)))
+                    .await;
+                self.mutations.send(M::SetResponding(true)).await;
+            }
+            RoundEvent::StdinRequest(request) => {
+                self.mutations.send(M::QueueInput(request)).await;
+
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::AwaitingUser)))
+                    .await;
+                self.mutations.send(M::SetResponding(true)).await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Typed slash-command results (acts settle in place; readings are
+    /// notices).
+    async fn handle_command_event(&mut self, event: RoundEvent) {
+        match event {
+            RoundEvent::CommandResult {
+                name,
+                args,
+                result,
+                effect,
+            } => {
+                self.mutations.send(M::ClearSwitchingSession).await;
+                self.retry_progress = None;
+                let invocation = if args.is_empty() {
+                    format!("/{}", name)
+                } else {
+                    format!("/{} {}", name, args)
+                };
+                // The server's declared class decides where the
+                // reply is filed, and nothing else does
+                // (ADR-0140, `[INV-CMD-08]`). An **act** holds a
+                // position in the thread, so it settles the staged
+                // row in place (or materialises the fallback if
+                // the act happened before this view was watching).
+                // A **reading** never touches the thread: its
+                // reply is a receipt in the client's notice log,
+                // beside every other disclosure, because a
+                // measurement of the world is not a thing that was
+                // said.
+                //
+                // Furthermore (ADR-0149, `[INV-CMD-09]`), any failed
+                // command or unknown command is withdrawn from the thread:
+                // errors never deface L0 transcript, but route to the
+                // top-right notice toast and restore the user's draft.
+                let is_failure = matches!(
+                    result,
+                    nuo_protocol::CommandResult::Error { .. }
+                        | nuo_protocol::CommandResult::UnknownCommand { .. }
+                );
+                if is_failure || effect == nuo_tool::CommandEffect::Reading {
+                    self.transcript(E::WithdrawStagedCommand {
+                        invocation: invocation.clone(),
+                        restore_draft: is_failure,
+                    })
+                    .await;
+                    self.mutations
+                        .send(M::NoticeDisclosure(
+                            crate::shell::app::notice_catalog::ClientNotice::CommandReceipt {
+                                invocation,
+                                body: result.to_text(),
+                                failed: is_failure,
+                            }
+                            .render(),
+                        ))
+                        .await;
+                } else {
+                    let fallback = TranscriptMessage::command_result(
+                        name.clone(),
+                        args.clone(),
+                        Some(result.clone()),
+                    )
+                    .with_sent_at_ms(now_ms());
+                    self.transcript(E::SettleCommandResult {
+                        invocation,
+                        result,
+                        fallback: Some(fallback),
+                    })
+                    .await;
+                }
+                if self.harness.loop_status.is_idle() {
+                    self.mutations.send(M::SetResponding(false)).await;
+                    self.mutations.send(M::SetPhase(None)).await;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Round-level notices and terminal errors.
+    async fn handle_notice_event(&mut self, session_id: String, event: RoundEvent) {
+        match event {
+            RoundEvent::Notice(notice) => {
+                // While the PreAttach trust gate owns the screen, a
+                // trust **failure** is the gate's round-trip outcome
+                // (the server could not persist the grant) — deliver it
+                // to the surface so the failure renders where the
+                // submitting spinner was, instead of burying it in a
+                // transcript the full-screen interstitial hides. The
+                // applier drops it when no gate is mounted, so
+                // in-session failures keep their normal disclosure.
+                //
+                // Only `TrustFailure` is intercepted. A
+                // `TrustChanged` *condition* is what opened the gate in
+                // the first place; feeding it here would render the
+                // workspace's own state as if it were an error.
+                if notice.kind == nuo_tool::NoticeKind::TrustFailure {
+                    self.mutations
+                        .send(M::PreAttachAttestationError(notice.render_text()))
+                        .await;
+                }
+                // The layer is derived from the surface context,
+                // never chosen by the producer and never the
+                // thread transcript ([INV-LAYER-04]): a notice is
+                // a receipt, not dialogue.
+                //
+                // `SHELL` declares the notice log, so every
+                // disclosure is *retained* there. A fault
+                // additionally raises a bubble that names the log;
+                // an acknowledgement does not. That inversion is
+                // the point: the log is the home, the bubble is a
+                // pointer to it.
+                let layer =
+                    nuo_view::model::layer::layer_for(&notice, nuo_view::model::layer::SHELL);
+                if layer != nuo_view::model::layer::ContentLayer::Absorbed {
+                    // `RetryScheduled` owns the retry disclosure;
+                    // an absorbed receipt is dropped rather than
+                    // written into the conversation. The catalog
+                    // projects the wire notice into the funnel
+                    // payload (ADR-0138), taking the topic from
+                    // the closed wire vocabulary.
+                    self.mutations
+                        .send(M::NoticeDisclosure(
+                            crate::shell::app::notice_catalog::RenderedNotice::from_core(&notice),
+                        ))
+                        .await;
+                }
+            }
+            RoundEvent::Error(e) => {
+                let attempts = self
+                    .retry_progress
+                    .as_ref()
+                    .map_or(0, nuo_view::retry::RetryProgress::retries);
+                self.retry_progress = None;
+                // A terminal round error may still carry the raw
+                // retryable-envelope encoding: strip it so the
+                // user sees the message, never the wire framing.
+                let message = if attempts > 1 {
+                    if e.starts_with("Failed after") || e.starts_with("Exhausted") {
+                        e
+                    } else {
+                        format!("Exhausted {attempts} retry attempts — {e}")
+                    }
+                } else {
+                    e
+                };
+                // A round-level failure is a turn outcome: it
+                // holds a position in time (the round ended
+                // here) but says nothing to the model.
+                //
+                // ADR-0166: a terminal error ends the round just
+                // as a completion does (`RoundInterrupted` is not
+                // emitted for `reason == Error`), so it is the
+                // boundary the provisional-row sweep must read.
+                // `RoundEvent::Error` is only ever a terminal
+                // round error or a pre-round admission refusal —
+                // never an error while a round continues.
+                self.transcript(E::RetractPendingToolSteps).await;
+                let notice = TranscriptMessage::notice(NoticeSeverity::Error, message)
+                    .with_sent_at_ms(now_ms());
+                self.transcript(E::Append {
+                    class: nuo_protocol::EventClass::TurnOutcome,
+                    message: notice,
+                })
+                .await;
+
+                self.mutations.send(M::SetResponding(false)).await;
+                self.mutations.send(M::SetPhase(None)).await;
+
+                self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundEnded)
+                    .await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Harness snapshots and the posture toggles they mirror.
+    async fn handle_harness_event(&mut self, session_id: String, event: RoundEvent) {
+        match event {
+            RoundEvent::HarnessState(snapshot) => {
+                self.harness.loop_status = snapshot.loop_status;
+                self.harness.round_counter = snapshot.round_counter;
+                let running = !snapshot.loop_status.is_idle();
+                // View-scoped chrome: the authoritative
+                // running/idle transition for this session.
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::RoundLifecycle {
+                        round_count: snapshot.round_counter,
+                        running,
+                        can_retry: snapshot.retry_pending && !running,
+                    },
+                )
+                .await;
+
+                // Publish a quarantined snapshot to
+                // the PreAttach mount when the per-run gate
+                // has not already answered. The applier
+                // deduplicates (it mounts only when the
+                // interstitial is absent).
+                {
+                    self.harness.workspace_security = snapshot.workspace_security.clone();
+                    let gate_needed = !self.trust_gate_dismissed.load(Ordering::SeqCst)
+                        && nuo_view::trust_gate::gate_request(&self.harness.workspace_security)
+                            .is_some();
+                    if gate_needed {
+                        self.mutations
+                            .send(M::PreAttach(crate::shell::PreAttachSignal {
+                                snapshot: self.harness.workspace_security.clone(),
+                            }))
+                            .await;
+                    }
+                }
+                if running {
+                    // A new round resets the turn counter and
+                    // stamps the elapsed-timer origin.
+                    self.mutations.send(M::SetCurrentTurn(0)).await;
+                    self.mutations
+                        .send(M::SetRoundStartedAt(Some(std::time::Instant::now())))
+                        .await;
+                }
+                self.mutations.send(M::SetResponding(running)).await;
+                if !running {
+                    // The dispatch cycle is complete: any
+                    // command component still Pending will
+                    // never receive its reply on this pass
+                    // mark Cancelled.
+                    self.mutations
+                        .send(M::Transcript {
+                            edit: E::CancelPendingCommands,
+                        })
+                        .await;
+                    self.mutations.send(M::SetPhase(None)).await;
+                    self.mutations.send(M::SetCurrentTurn(0)).await;
+                    self.mutations.send(M::SetRoundStartedAt(None)).await;
+                }
+                if !running && self.needs_round_rebase {
+                    // A session switch replaced the transcript
+                    // before its authoritative idle snapshot
+                    // arrived: rebase the reconstructed tail
+                    // exactly once, now that the persisted
+                    // round counter is known.
+                    self.mutations
+                        .send(M::Transcript {
+                            edit: E::RebaseRounds {
+                                round_counter: snapshot.round_counter,
+                            },
+                        })
+                        .await;
+                    self.needs_round_rebase = false;
+                }
+                self.mutations.send(M::Harness(snapshot.clone())).await;
+
+                // A harness state change is always a round
+                // boundary. If the previous round ended
+                // mid-reasoning, `StreamReasoningEnd` never
+                // arrives; freeze the orphaned trace so the
+                // spinner stops.
+                let duration_ms = self
+                    .reasoning_start
+                    .take()
+                    .map(|started| started.elapsed().as_millis() as u64);
+                if !running {
+                    self.retry_progress = None;
+                    // ADR-0166: a `HarnessState` sample is not a
+                    // round boundary. The provisional-row sweep
+                    // lives on the round-outcome events
+                    // (`RoundCompleted` / `RoundInterrupted` /
+                    // `Error`), which *mean* "the round ended".
+                    // Making an idle sample harmless requires the
+                    // server to publish idle only when it is idle;
+                    // that is enforced at every publisher.
+                }
+                self.transcript(E::FinalizeOrphanedReasoning { duration_ms })
+                    .await;
+            }
+            RoundEvent::TodosUpdated(_) => {}
+            RoundEvent::UnattendedChanged(enabled) => {
+                self.harness.unattended = enabled;
+                self.mutations.send(M::HarnessUnattended(enabled)).await;
+            }
+            RoundEvent::ConfinementChanged(confined) => {
+                self.harness.confined = confined;
+                self.mutations.send(M::HarnessConfined(confined)).await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Provider retry scheduling.
+    async fn handle_retry_event(&mut self, event: RoundEvent) {
+        match event {
+            RoundEvent::RetryScheduled {
+                attempt,
+                max_attempts,
+                delay_ms,
+                message,
+            } => {
+                // ADR-0166: a scheduled retry is an attempt
+                // boundary — the failed attempt is over and its
+                // provisional rows cannot become calls. The
+                // harness retracted them by id; this sweep makes
+                // the invariant hold even if that frame was lost
+                // or arrived after the retry.
+                self.transcript(E::RetractPendingToolSteps).await;
+                let delay = std::time::Duration::from_millis(delay_ms);
+                let retry_at = std::time::Instant::now() + delay;
+                // Advance the one typed state machine. Every
+                // consumer below reads *this* value, so the
+                // ordinal on the bar and the ordinal in the
+                // receipt are the same number by construction.
+                let progress = match self.retry_progress.take() {
+                    Some(progress) => {
+                        progress.with_next_attempt(attempt, max_attempts, retry_at, message.clone())
+                    }
+                    None => nuo_view::retry::RetryProgress::scheduled(
+                        attempt,
+                        max_attempts,
+                        retry_at,
+                        message.clone(),
+                    ),
+                };
+                let fault = nuo_view::model::notice_text::display_text(&message);
+                // The record's ordinal pair, composed by the same
+                // owner as the bar's clause (`receipt_label`), so
+                // the two can never disagree about which retry
+                // this was — and this is the one place the
+                // attempt *budget* is stated: `retry 2 of 30`
+                // answers "how much rope is left?" for a reader
+                // consulting the log afterwards, which is exactly
+                // the question the live bar must not spend
+                // columns on.
+                let receipt = progress.receipt_label();
+                // The bar's clause and the stored state are the
+                // same value: clone once here so the published
+                // setback cannot be a second, independently
+                // constructed copy.
+                let published = progress.clone();
+                self.retry_progress = Some(progress);
+
+                // Publish-only. The clause is retired by the
+                // next phase write for *this* session — each
+                // store owns its own phase — never by this
+                // translator, which is why no arm of this match
+                // carries a clause clear. The primary's slot is
+                // the App mirror; a background session's is its
+                // own chrome entry, so a background retry cannot
+                // paint a countdown onto the primary's bar.
+                self.mutations.send(M::SetProviderRetry(published)).await;
+                // Transport setback, not a workflow phase: the
+                // countdown rides the dedicated clause channel.
+                self.mutations
+                    .send(M::SetPhase(Some(Phase::AwaitingModel)))
+                    .await;
+                self.mutations.send(M::SetResponding(true)).await;
+
+                // The receipt: the setback is retained in the
+                // notice log (a viewport the user can open,
+                // scroll and copy from), never in the
+                // conversation. One line per scheduled attempt,
+                // tagged with the route that failed.
+                let (provider, model) = self.attribution();
+                let summary = if provider.is_empty() {
+                    format!("{receipt} — {fault}")
+                } else if model.is_empty() {
+                    format!("{receipt} — {provider}: {fault}")
+                } else {
+                    format!("{receipt} — {provider}/{model}: {fault}")
+                };
+                self.mutations
+                    .send(M::NoticeDisclosure(
+                        crate::shell::app::notice_catalog::ClientNotice::ProviderRetryScheduled {
+                            summary,
+                            // The detail is the fault verbatim so
+                            // the provider's full body stays
+                            // readable and pasteable in the viewer
+                            // now that the transcript no longer
+                            // carries it.
+                            detail: nuo_view::model::notice_text::display_text(&message),
+                        }
+                        .render(),
+                    ))
+                    .await;
+            }
+            _ => {}
+        }
+    }
+
+    /// Background job lifecycle notices.
+    async fn handle_background_job_event(&mut self, event: RoundEvent) {
+        match event {
+            RoundEvent::BackgroundJobStarted(info) => {
+                let label = match &info.spec {
+                    nuo_protocol::JobSpec::Process { command, label, .. } => {
+                        label.as_deref().unwrap_or(command)
+                    }
+                    nuo_protocol::JobSpec::Timer { label, prompt, .. } => {
+                        label.as_deref().unwrap_or(prompt.as_str())
+                    }
+                };
+                self.mutations
+                    .send(M::BackgroundTaskStarted {
+                        id: info.id.0.clone(),
+                        label: label.to_string(),
+                        started_at_ms: info.created_at_ms,
+                    })
+                    .await;
+                let message = TranscriptMessage::notice(
+                    NoticeSeverity::Info,
+                    format!("Background job started: {label} ({})", info.id.0),
+                )
+                .with_sent_at_ms(now_ms());
+                self.transcript(E::Append {
+                    class: nuo_protocol::EventClass::TurnOutcome,
+                    message,
+                })
+                .await;
+            }
+            RoundEvent::BackgroundJobProgress { .. } => {}
+            RoundEvent::BackgroundJobReady { job_id } => {
+                // A service task reported readiness.
+                let message = TranscriptMessage::notice(
+                    NoticeSeverity::Info,
+                    format!("Background service ready: {}", job_id.0),
+                )
+                .with_sent_at_ms(now_ms());
+                self.transcript(E::Append {
+                    class: nuo_protocol::EventClass::TurnOutcome,
+                    message,
+                })
+                .await;
+            }
+            RoundEvent::BackgroundJobCompleted(outcome) => {
+                let (label, is_success, exit_code, duration_secs) = match &outcome.state {
+                    nuo_protocol::JobState::Succeeded { duration_ms, .. } => (
+                        format!(
+                            "Background job `{}` completed ({}s)",
+                            outcome.job_id.0,
+                            duration_ms / 1000
+                        ),
+                        true,
+                        Some(0),
+                        duration_ms / 1000,
+                    ),
+                    nuo_protocol::JobState::Failed {
+                        duration_ms,
+                        exit_code,
+                        ..
+                    } => (
+                        format!(
+                            "Background job `{}` failed (exit {exit_code}, {}s)",
+                            outcome.job_id.0,
+                            duration_ms / 1000
+                        ),
+                        false,
+                        Some(*exit_code),
+                        duration_ms / 1000,
+                    ),
+                    nuo_protocol::JobState::Killed { duration_ms } => (
+                        format!(
+                            "Background job `{}` terminated ({}s)",
+                            outcome.job_id.0,
+                            duration_ms / 1000
+                        ),
+                        false,
+                        None,
+                        duration_ms / 1000,
+                    ),
+                    nuo_protocol::JobState::TimedOut { duration_ms } => (
+                        format!(
+                            "Background job `{}` timed out ({}s)",
+                            outcome.job_id.0,
+                            duration_ms / 1000
+                        ),
+                        false,
+                        None,
+                        duration_ms / 1000,
+                    ),
+                    _ => (
+                        format!("Background job `{}` completed", outcome.job_id.0),
+                        true,
+                        None,
+                        0,
+                    ),
+                };
+                self.mutations
+                    .send(M::BackgroundTaskCompleted {
+                        id: outcome.job_id.0.clone(),
+                        success: is_success,
+                        exit_code,
+                        duration_secs,
+                    })
+                    .await;
+                let severity = if is_success {
+                    NoticeSeverity::Info
+                } else {
+                    NoticeSeverity::Warning
+                };
+                let message = TranscriptMessage::notice(severity, label).with_sent_at_ms(now_ms());
+                self.transcript(E::Append {
+                    class: nuo_protocol::EventClass::TurnOutcome,
+                    message,
+                })
+                .await;
+            }
+            _ => {}
+        }
+    }
 }

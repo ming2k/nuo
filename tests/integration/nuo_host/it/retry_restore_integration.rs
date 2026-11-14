@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use super::sandbox_once;
 use nuo::UiBridge;
-use nuo::bootstrap::{self, BootstrapParams};
-use nuo::startup::ThreadStart;
-use nuo::thread_driver::send_harness_state_for_session;
+use nuo::composition::bootstrap::{self, BootstrapParams};
+use nuo::composition::startup::ThreadStart;
+use nuo::runtime::thread_driver::send_harness_state_for_session;
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, LoopStatus, RetryPoint, RoundEvent};
 use tokio::sync::mpsc;
@@ -59,8 +59,8 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
         .replace_messages(vec![
-            nuo_protocol::Message::new(nuo_protocol::Role::User, "run task"),
-            nuo_protocol::Message::new(nuo_protocol::Role::Assistant, "partial progress"),
+            nuo_tool::Message::new(nuo_tool::Role::User, "run task"),
+            nuo_tool::Message::new(nuo_tool::Role::Assistant, "partial progress"),
         ])
         .await
         .unwrap();
@@ -185,8 +185,8 @@ admit_mcp = ["security-scan"]
 
     // Persist a turn into SQLite so the session is written with its manifest
     let turn = vec![
-        nuo_protocol::Message::new(nuo_protocol::Role::User, "audit this codebase"),
-        nuo_protocol::Message::new(nuo_protocol::Role::Assistant, "auditing now"),
+        nuo_tool::Message::new(nuo_tool::Role::User, "audit this codebase"),
+        nuo_tool::Message::new(nuo_tool::Role::Assistant, "auditing now"),
     ];
     store.append_turn(&turn).await.unwrap();
 

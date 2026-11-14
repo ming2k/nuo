@@ -130,9 +130,9 @@ fn remote_stored_continuations_are_exempt_from_tool_output_projection() {
 fn todo_state_is_scoped_to_one_agent() {
     let first = agent();
     let second = agent();
-    let mut list = nuo_protocol::TodoList::new();
+    let mut list = nuo_tool::TodoList::new();
     list.reconcile(
-        &[("only first".to_string(), nuo_protocol::TodoStatus::Pending)],
+        &[("only first".to_string(), nuo_tool::TodoStatus::Pending)],
         1,
         1,
     );

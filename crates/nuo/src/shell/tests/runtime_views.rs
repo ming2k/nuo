@@ -379,7 +379,8 @@ fn websearch_reader_dropdown_builds_and_selects() {
 /// palette against the stale `transcript_focused`.
 #[tokio::test]
 async fn sheet_mount_parks_browse_focus_not_just_step_target() {
-    use nuo_protocol::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+    use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
@@ -439,7 +440,7 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
 /// per-frame sync — the park happens at mount only.
 #[tokio::test]
 async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
-    use nuo_protocol::PermissionRequest;
+    use nuo_tool::PermissionRequest;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();

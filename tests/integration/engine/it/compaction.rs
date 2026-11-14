@@ -15,12 +15,13 @@
 
 use std::sync::Arc;
 
-use nuo_harness::cognition::compaction::{CausalCompactor, CompactionCutMode};
-use nuo_harness::orchestration::{ContextProjectionSettings, compact_round_history};
-use nuo_harness::{Agent, AgentIdentity};
+use nuo_engine::cognition::compaction::{CausalCompactor, CompactionCutMode};
+use nuo_engine::orchestration::{ContextProjectionSettings, compact_round_history};
+use nuo_engine::{Agent, AgentIdentity};
 use nuo_persistence::thread::CommitBasis;
 use nuo_persistence::thread::{CommitTurn, ThreadSession};
-use nuo_protocol::{Message, Role};
+use nuo_tool::{Message, Role};
+
 
 fn sandbox(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("nuo-{tag}-{}", uuid::Uuid::new_v4()));
@@ -392,14 +393,14 @@ async fn an_aggressive_fold_never_drops_the_admitted_prompt() {
 /// reaches `execute_round`'s pre-round prune or compaction.
 #[tokio::test]
 async fn the_mid_turn_gate_prunes_a_pressurised_window() {
-    use nuo_harness::PruningProjectionGate;
-    use nuo_harness::cognition::context_projection::ContextProjectionGate;
+    use nuo_engine::PruningProjectionGate;
+    use nuo_engine::cognition::context_projection::ContextProjectionGate;
 
     let (dir, path) = sandbox("gate-prunes");
     let session = Arc::new(ThreadSession::for_path(path));
 
     // A committed round carrying a large tool result.
-    let call = nuo_protocol::ToolCall::new("c1", "execute_command", "{}");
+    let call = nuo_tool::ToolCall::new("c1", "execute_command", "{}");
     let mut assistant = Message::new(Role::Assistant, "running");
     assistant.tool_calls = Some(vec![call.clone()]);
     let big = "FAILED: test_x\nAssertionError\n".repeat(600);
@@ -525,7 +526,7 @@ async fn an_untranslatable_projection_never_rewrites_history() {
 /// check reads a missing gate as "nothing to do").
 #[tokio::test]
 async fn a_subagent_gets_a_session_and_a_projection_gate() {
-    use nuo_harness::PruningProjectionGate;
+    use nuo_engine::PruningProjectionGate;
 
     let (dir, path) = sandbox("subagent-relief");
     let session = Arc::new(ThreadSession::for_path(path));
@@ -538,7 +539,7 @@ async fn a_subagent_gets_a_session_and_a_projection_gate() {
     let child_store = Arc::new(child_store);
 
     let child = Agent::new(
-        Arc::new(nuo_harness::NoProvider),
+        Arc::new(nuo_engine::NoProvider),
         Vec::new(),
         AgentIdentity::default(),
     );

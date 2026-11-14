@@ -209,7 +209,7 @@ fn responses_state_is_provider_declared_not_assumed() {
         matches!(
             channel.transport,
             Transport::OpenAiResponses {
-                state: nuo_provider::ResponsesState::Stateless,
+                state: nuo_protocol::ResponsesState::Stateless,
                 ..
             }
         ),
@@ -222,7 +222,7 @@ fn responses_state_is_provider_declared_not_assumed() {
         matches!(
             channel.transport,
             Transport::OpenAiResponses {
-                state: nuo_provider::ResponsesState::Stateless,
+                state: nuo_protocol::ResponsesState::Stateless,
                 ..
             }
         ),
@@ -342,7 +342,7 @@ fn custom_instance_serves_its_declared_models() {
         "https://relay.example.com/v1",
         WireProtocol::OpenAiChatCompletions,
         &[],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     let mut custom = instance("relay", Some("test-relay-declared"));
     custom.models.include = vec![
@@ -788,7 +788,7 @@ fn model_level_protocol_cascade_resolution() {
         "https://relay.example.com/v1",
         WireProtocol::OpenAiChatCompletions,
         &[],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     let conn = Connection {
         name: "corp-relay".to_string(),

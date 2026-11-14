@@ -46,7 +46,7 @@
 //! module strips the path suffix (`/chat/completions`, `/messages`, or the
 //! bare `/v1beta` root) and re-appends the models path. A caller that already
 //! has a bare API root can pass it directly.
-pub use nuo_provider::CatalogShape;
+pub use nuo_protocol::CatalogShape;
 
 /// Everything a live catalog request needs, borrowed from the instance's
 /// first channel. Fields mirror what a chat request would use so the auth
@@ -96,6 +96,6 @@ pub fn models_endpoint_for(
     protocol: CatalogShape,
     base_url: &str,
 ) -> Result<String, ModelListError> {
-    let root = nuo_provider::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
+    let root = nuo_protocol::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
     Ok(root.append(protocol.path()))
 }

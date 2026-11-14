@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use nuo_protocol::ImagePart;
+use nuo_tool::ImagePart;
 
 use crate::shell::App;
 use crate::shell::clipboard::{self, ClipboardRead, CopyOutcome};

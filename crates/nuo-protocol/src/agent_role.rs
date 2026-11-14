@@ -8,7 +8,9 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 
 use crate::subagent::SubAgentProfile;
-use crate::{AgentIdentity, BuiltinTool, ToolSelection};
+use crate::{AgentIdentity, ToolSelection};
+use nuo_tool::{BuiltinTool};
+
 
 /// User-tunable agent runtime behaviour.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -16,7 +18,7 @@ pub struct AgentRuntimeConfig {
     /// Opt-in hard-stop budget: abort a round after this many ReAct turns.
     pub hard_stop_turns: usize,
     /// Doom-loop guard config. Default disabled.
-    pub trajectory_guard: crate::TrajectoryGuardConfig,
+    pub trajectory_guard: nuo_tool::TrajectoryGuardConfig,
     /// Whether the model may supply stdin bytes for an `execute_command` call. Default false.
     pub allow_model_stdin: bool,
     /// Whether an interactive `execute_command` call skips the inline input panel. Default false.
@@ -660,14 +662,14 @@ mod tests {
         let p = AgentRoleProfile::with_identity("developer", AgentIdentity::new("n", "m"));
         assert_eq!(p.name, "developer");
         assert!(!p.unattended);
-        assert_eq!(p.tools.scope, crate::ToolScope::All);
+        assert_eq!(p.tools.scope, crate::CapabilityScope::All);
         assert!(p.tools.variants.is_empty());
         assert_eq!(p.config.hard_stop_turns, 0);
         assert!(!p.config.allow_model_stdin);
         assert!(!p.config.skip_interactive_input);
         assert_eq!(
             p.config.trajectory_guard,
-            crate::TrajectoryGuardConfig::default()
+            nuo_tool::TrajectoryGuardConfig::default()
         );
     }
 
@@ -741,7 +743,7 @@ mod tests {
     fn developer_role_excludes_ast_code_query_and_recall_memory() {
         let base = AgentIdentity::from_mission("coding assistant");
         let dev = AgentRoleProfile::from_role(MainAgentRole::Developer, &base);
-        let crate::ToolScope::Only(names) = &dev.tools.scope else {
+        let crate::CapabilityScope::Only(names) = &dev.tools.scope else {
             panic!("developer must be scoped with explicit tools");
         };
         assert!(names.contains(BuiltinTool::ExecuteCommand.as_str()));
@@ -765,7 +767,7 @@ mod tests {
     fn philosophist_role_is_workspace_free() {
         let base = AgentIdentity::from_mission("coding assistant");
         let phil = AgentRoleProfile::from_role(MainAgentRole::Philosophist, &base);
-        let crate::ToolScope::Only(names) = &phil.tools.scope else {
+        let crate::CapabilityScope::Only(names) = &phil.tools.scope else {
             panic!("philosophist must be scoped, not unrestricted");
         };
         assert!(!names.contains("write_file"));
@@ -860,7 +862,7 @@ mod tests {
         assert!(!MainAgentRole::Philosophist.requires_workspace());
         assert!(MainAgentRole::Philosophist.default_confined());
 
-        let crate::ToolScope::Only(names) = &ops.tools.scope else {
+        let crate::CapabilityScope::Only(names) = &ops.tools.scope else {
             panic!("ops must be scoped with explicit tools");
         };
         // System and remote operational capabilities admitted:

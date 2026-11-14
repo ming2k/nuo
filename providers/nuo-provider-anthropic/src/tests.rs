@@ -6,7 +6,8 @@
 use super::request::{self, BodyInput};
 use super::response;
 use super::*;
-use nuo_provider::{Effort, PromptCacheMode, ReasoningMode, ResolvedCachePolicy};
+use nuo_protocol::{Effort, PromptCacheMode, ReasoningMode, ResolvedCachePolicy};
+
 use nuo_tool::Tool;
 use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
@@ -15,7 +16,7 @@ use std::sync::Arc;
 static DEFAULT_UNSUPPORTED_CACHE_PLAN: ResolvedCachePolicy = ResolvedCachePolicy::Unsupported;
 static DEFAULT_EXPLICIT_CACHE_PLAN: ResolvedCachePolicy = ResolvedCachePolicy::Enabled {
     mode: PromptCacheMode::Explicit,
-    retention: Some(nuo_provider::CacheRetention::FiveMinutes),
+    retention: Some(nuo_protocol::CacheRetention::FiveMinutes),
     routing_key: None,
     max_breakpoints: Some(4),
 };
@@ -35,12 +36,12 @@ fn body_input<'a>(provider: &'a AnthropicMessagesProvider, stream: bool) -> Body
 }
 
 /// Route capabilities with only the vision declaration varied.
-fn caps_with_vision(vision: Option<bool>) -> nuo_provider::ModelCapabilities {
-    nuo_provider::ModelCapabilities {
+fn caps_with_vision(vision: Option<bool>) -> nuo_protocol::ModelCapabilities {
+    nuo_protocol::ModelCapabilities {
         family: "claude".into(),
         context_window: 200_000,
         max_output_tokens: None,
-        thinking: nuo_provider::ReasoningSupport::None,
+        thinking: nuo_protocol::ReasoningSupport::None,
         tool_call: true,
         vision,
         effort_levels: Vec::new(),
@@ -63,7 +64,7 @@ fn body_of(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 fn body_with_caps_of(
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_provider::ModelCapabilities,
+    capabilities: &nuo_protocol::ModelCapabilities,
 ) -> Value {
     request::body_with_capabilities(&messages, &[], input, capabilities)
 }
@@ -199,7 +200,7 @@ fn request_body_includes_tools_in_anthropic_shape() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(DummyTool)];
-    let request = nuo_provider::capability::ModelRequest::with_tools(
+    let request = nuo_protocol::capability::ModelRequest::with_tools(
         vec![Message::new(Role::User, "hi")],
         &tools,
     );
@@ -259,7 +260,7 @@ fn cache_breakpoints_use_all_four_slots() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(DummyTool)];
-    let request = nuo_provider::capability::ModelRequest::with_tools(
+    let request = nuo_protocol::capability::ModelRequest::with_tools(
         vec![
             Message::new(Role::System, "you are a coding agent"),
             Message::new(Role::User, "do task A"),
@@ -301,7 +302,7 @@ fn disabled_cache_plan_omits_cache_breakpoints() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(DummyTool)];
-    let request = nuo_provider::capability::ModelRequest::with_tools(
+    let request = nuo_protocol::capability::ModelRequest::with_tools(
         vec![
             Message::new(Role::System, "you are a coding agent"),
             Message::new(Role::User, "compact context summary"),
@@ -319,7 +320,7 @@ fn disabled_cache_plan_omits_cache_breakpoints() {
             tool_specs: Some(&tool_specs),
             max_tokens: provider.max_tokens,
             thinking: provider.thinking,
-            cache_plan: &nuo_provider::ResolvedCachePolicy::Disabled,
+            cache_plan: &nuo_protocol::ResolvedCachePolicy::Disabled,
         },
     );
     assert_eq!(count_cache_breakpoints(&body), 0);
@@ -338,7 +339,7 @@ fn cache_breakpoints_never_exceed_four_cap() {
             ]
         })
         .collect();
-    let request = nuo_provider::capability::ModelRequest::with_tools(history, &tools);
+    let request = nuo_protocol::capability::ModelRequest::with_tools(history, &tools);
     let messages = request.messages.clone();
     let tool_specs = request.tool_specs.clone();
     let body = body_of(
@@ -594,7 +595,7 @@ fn non_default_effort_is_stamped_into_output_config() {
 #[test]
 fn effort_clamps_to_model_support_levels() {
     let cfg = ThinkingConfig::default().with_effort(Effort::Xhigh);
-    let common: Vec<nuo_provider::EffortLevel> = nuo_provider::COMMON_LADDER
+    let common: Vec<nuo_protocol::EffortLevel> = nuo_protocol::COMMON_LADDER
         .iter()
         .copied()
         .map(Into::into)
@@ -612,7 +613,7 @@ fn effort_clamps_to_model_support_levels() {
         Effort::Xhigh,
         Effort::Max,
     ];
-    let claude: Vec<nuo_provider::EffortLevel> =
+    let claude: Vec<nuo_protocol::EffortLevel> =
         claude_levels.iter().copied().map(Into::into).collect();
     let resolved_claude = cfg.resolve_for(&claude);
     assert_eq!(resolved_claude.effort, Some(Effort::Xhigh));

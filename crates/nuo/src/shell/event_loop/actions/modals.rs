@@ -757,7 +757,7 @@ pub(crate) async fn handle_permission_submit(
             parent_call_id,
         });
         if decision == nuo_protocol::PermissionDecision::Reject {
-            let queued: Vec<nuo_protocol::PermissionRequest> =
+            let queued: Vec<nuo_tool::PermissionRequest> =
                 app.pending_permissions.drain(..).collect();
             for pending in queued {
                 let parent_call_id = app.subagent_permission_parent.remove(&pending.id);
@@ -915,7 +915,8 @@ mod tests {
         // Simulate the mounted sheet exactly as the per-frame sync leaves it:
         // slot state set, no router transient pushed on top of the session view.
         let request = {
-            use nuo_protocol::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+            use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+
             UserQuestionRequest {
                 id: "q1".into(),
                 questions: vec![UserQuestion {

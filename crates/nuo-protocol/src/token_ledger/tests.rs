@@ -37,7 +37,7 @@ fn settled_requests_are_mirrored_to_the_usage_sink() {
     ledger.settle_request(
         &key,
         RequestUsageStatus::Completed,
-        Some(crate::TokenUsage {
+        Some(nuo_tool::TokenUsage {
             prompt_tokens: 900,
             completion_tokens: 100,
             total_tokens: 1_000,
@@ -91,7 +91,7 @@ fn lifecycle_attempts_are_keyed_idempotent_and_session_scoped() {
     ledger.settle_request(
         &retry,
         RequestUsageStatus::Completed,
-        Some(crate::TokenUsage {
+        Some(nuo_tool::TokenUsage {
             prompt_tokens: 990,
             completion_tokens: 110,
             total_tokens: 1_100,
@@ -530,7 +530,7 @@ fn performance_settlement_stores_telemetry_and_rate_helpers() {
     ledger.settle_request_with_performance_and_error(
         &key,
         RequestUsageStatus::Completed,
-        Some(crate::TokenUsage {
+        Some(nuo_tool::TokenUsage {
             prompt_tokens: 100,
             completion_tokens: 101,
             total_tokens: 201,
@@ -754,7 +754,7 @@ fn reported_upgrade_preserves_fresh_but_not_stale_performance() {
     ledger.settle_request_with_performance_and_error(
         &key,
         RequestUsageStatus::Completed,
-        Some(crate::TokenUsage {
+        Some(nuo_tool::TokenUsage {
             completion_tokens: 60,
             total_tokens: 160,
             ..Default::default()

@@ -36,7 +36,7 @@
 //! only needed when the *gate* changes, never when the model does.
 
 use async_trait::async_trait;
-use nuo_protocol::Message;
+use nuo_tool::Message;
 use std::sync::Arc;
 
 use crate::cognition::compaction::CompactionCutMode;

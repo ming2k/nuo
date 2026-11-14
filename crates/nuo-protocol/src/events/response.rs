@@ -26,7 +26,7 @@ pub enum AgentResponse {
         #[serde(alias = "input")]
         text: String,
         cursor: usize,
-        items: Vec<crate::ComposerCompletion>,
+        items: Vec<nuo_tool::ComposerCompletion>,
     },
     /// The persisted prompt input history, in stored order — reply to
     /// [`AgentRequest::QueryInputHistory`].

@@ -72,7 +72,9 @@ impl Agent {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_protocol::{Message, ModelRequest, Provider, Role};
+    use nuo_protocol::{ModelRequest, Provider};
+    use nuo_tool::{Message, Role};
+
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct MockTitleProvider {
@@ -96,7 +98,7 @@ mod tests {
         async fn stream_chat(
             &self,
             _request: &ModelRequest,
-            _telemetry: nuo_provider::TransportTelemetry,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,

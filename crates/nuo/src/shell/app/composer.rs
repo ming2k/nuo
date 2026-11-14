@@ -127,7 +127,7 @@ impl App {
     /// ([`crate::shell::composer_grid`]), and the `@`-mention scanner all index
     /// by bytes. The control-plane contract is different:
     /// [`nuo_protocol::AgentRequest::CompleteComposer`] and
-    /// [`nuo_protocol::InputCompletion`]'s `replace_start`/`replace_end` are
+    /// [`nuo_tool::InputCompletion`]'s `replace_start`/`replace_end` are
     /// **Unicode scalar indices** (`nuo-server`'s completion engine converts
     /// them with `char_to_byte`). Sending bytes where the backend reads chars
     /// silently dead-ends every completion whose prefix is not pure ASCII: the

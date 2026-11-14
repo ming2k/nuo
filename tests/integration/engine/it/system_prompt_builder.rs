@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
-use nuo_harness::{
+use nuo_engine::{
     Agent, AgentIdentity, Block, InstructionContext, InstructionRegistryError, InstructionSection,
     Message, Provider, Role,
 };
@@ -51,7 +51,7 @@ impl InstructionSection for ProductPolicy {
     }
 }
 
-fn builder() -> nuo_harness::AgentBuilder {
+fn builder() -> nuo_engine::AgentBuilder {
     Agent::builder(Arc::new(IdleProvider), Vec::new(), AgentIdentity::default())
 }
 
@@ -121,7 +121,7 @@ fn embedding_can_order_sections_semantically() {
         .unwrap()
         .order_instruction_section(
             "embedding.first",
-            nuo_harness::InstructionOrder::Before("embedding.second"),
+            nuo_engine::InstructionOrder::Before("embedding.second"),
         )
         .unwrap()
         .build();
@@ -188,7 +188,7 @@ fn subagent_inherits_parent_user_instructions() {
     };
     let parent = builder().with_user_instructions(vec![instruction]).build();
 
-    let tool = nuo_harness::SubagentTool::new(
+    let tool = nuo_engine::SubagentTool::new(
         Arc::new(IdleProvider),
         nuo_protocol::ToolSet::from_tools(Vec::new()),
         &nuo_protocol::SubAgentProfile::EXPLORE,
@@ -273,7 +273,7 @@ fn subagent_inherits_parent_project_instructions_and_provider_kind() {
 
 #[test]
 fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
-    let reg = nuo_harness::default_instruction_registry();
+    let reg = nuo_engine::default_instruction_registry();
 
     // 1. Channel without parallel tool calls and without code_query:
     let ctx_no_parallel = InstructionContext {

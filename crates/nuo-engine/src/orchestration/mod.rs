@@ -38,11 +38,9 @@ use nuo_persistence::{
     config::Config,
     thread::{CommitBasis, ContextProjectionCheckpoint, ContextProjectionResult, ThreadSession},
 };
-use nuo_protocol::{
-    AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
-    Message, ModelRequest, NoticeKind, NoticeSeverity, NoticeSource, Provider, ProviderStreamEvent,
-    Role, RoundEvent, RoundScope, TurnContext,
-};
+use nuo_protocol::{AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, LoopStatus, ModelRequest, Provider, ProviderStreamEvent, RoundEvent, RoundScope, TurnContext};
+use nuo_tool::{ImagePart, InjectionKind, Message, NoticeKind, NoticeSeverity, NoticeSource, Role};
+
 
 /// Wrap a session-scoped [`RoundEvent`] in the [`AgentResponse::Round`]
 /// envelope. Every round-scoped emitter routes through this so the
@@ -98,8 +96,8 @@ fn now_ms() -> u64 {
 }
 
 /// The explicit "the fold did not reach the gate" signal.
-fn compaction_insufficient_notice(tokens_after: usize, gate: usize) -> nuo_protocol::AgentNotice {
-    nuo_protocol::AgentNotice::new(
+fn compaction_insufficient_notice(tokens_after: usize, gate: usize) -> nuo_tool::AgentNotice {
+    nuo_tool::AgentNotice::new(
         NoticeKind::ReviewAlert,
         NoticeSeverity::Warning,
         "Compaction could not bring the window under the limit",
@@ -119,8 +117,8 @@ fn compaction_insufficient_notice(tokens_after: usize, gate: usize) -> nuo_proto
 /// whether images were the cause — every vendor formats that differently — so it
 /// states the empirical finding instead of attributing a claim to the provider
 /// that it may never have made.
-fn image_withheld_notice(model: &str) -> nuo_protocol::AgentNotice {
-    nuo_protocol::AgentNotice::new(
+fn image_withheld_notice(model: &str) -> nuo_tool::AgentNotice {
+    nuo_tool::AgentNotice::new(
         NoticeKind::ImageInputWithheld,
         NoticeSeverity::Warning,
         format!("{model} cannot take images — continuing without them"),

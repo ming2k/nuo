@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use nuo_provider::LoginMethod;
+use nuo_protocol::LoginMethod;
 use nuo_provider::auth::{
     ClientAuthMethod, DeviceFlowMode, DeviceLogin, OAuthConfig, OAuthProvider, PkceMode, PortMode,
     TokenRequestFormat,

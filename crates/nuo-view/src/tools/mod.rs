@@ -123,7 +123,7 @@ impl ToolStatus {
 pub enum ResultKind {
     /// Line-numbered code block (default / unknown tools, `read` text).
     Code,
-    /// Dispatch on the structured [`nuo_protocol::ToolOutput`] variant. Used by
+    /// Dispatch on the structured [`nuo_tool::ToolOutput`] variant. Used by
     /// capabilities whose one tool can return more than one shape (`read`:
     /// code, listing, or an image placeholder).
     Auto,

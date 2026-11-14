@@ -13,8 +13,9 @@
 //! for a given channel is enforced by the channel crate's realm gate
 //! ([`realm_gate`]) — [INV-PROV-REALM-01].
 
-use nuo_provider::WirePlacement;
-use nuo_provider::auth::{BoxFuture, CredentialSource, ResolvedAuth};
+use nuo_protocol::WirePlacement;
+use nuo_protocol::auth::{CredentialSource, ResolvedAuth};
+use nuo_provider::auth::BoxFuture;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Mutex;

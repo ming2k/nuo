@@ -54,7 +54,7 @@ fn push_bounded_tail(buf: &mut String, fragment: &str, cap: usize) {
 
 #[derive(Debug, Clone)]
 struct StreamLoopIncident {
-    pattern: crate::stream_loop_detector::DegeneratePattern,
+    pattern: nuo_guardrails::stream_loop_detector::DegeneratePattern,
     channel: nuo_protocol::StreamLoopChannel,
 }
 
@@ -65,14 +65,14 @@ struct StreamLoopIncident {
 struct PendingStreamLoopReview {
     candidate_key: String,
     channel: nuo_protocol::StreamLoopChannel,
-    pattern: crate::stream_loop_detector::DegeneratePattern,
+    pattern: nuo_guardrails::stream_loop_detector::DegeneratePattern,
     verdict_rx: tokio::sync::oneshot::Receiver<nuo_protocol::StreamLoopVerdict>,
 }
 
 /// Memo key identifying an L1 candidate: its channel and pattern identity.
 fn stream_loop_candidate_key(
     channel: nuo_protocol::StreamLoopChannel,
-    pattern: &crate::stream_loop_detector::DegeneratePattern,
+    pattern: &nuo_guardrails::stream_loop_detector::DegeneratePattern,
 ) -> String {
     format!("{channel:?}:{pattern:?}")
 }

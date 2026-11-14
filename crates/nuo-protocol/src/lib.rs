@@ -53,19 +53,13 @@ pub mod budget;
 pub use budget::{BudgetPeriod, ConnectionBudget};
 pub mod pricing;
 pub use pricing::{ModelPricing, NanoUsd, PricingTier, TurnCost};
-pub mod usage;
-pub use usage::TokenUsage;
 
 pub mod error;
 pub use error::{
-    HarnessError, ProviderError, ProviderErrorKind, RetryDisposition, RetryVerdict, ToolError,
-    ToolErrorKind, TransportDiagnostic,
+    HarnessError, ProviderError, ProviderErrorKind, RetryDisposition, RetryVerdict,
+    TransportDiagnostic,
 };
 
-pub mod message;
-pub use message::{
-    ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall, ToolResult,
-};
 
 pub mod transcript;
 pub use transcript::{
@@ -105,32 +99,8 @@ pub use thread_store::{
 };
 pub use thread_view::{FactSummary, FoldReason, FoldRecord, RequestView, ThreadWindow};
 
-pub mod mention;
 
-pub mod completion;
-pub use completion::{
-    CommandAlias, CommandCatalog, CommandEffect, CommandExample, CommandSpec,
-    CommandSubcommandSpec, CommandSuggestion, ComposerCompletion, ComposerCompletionKind,
-    InputCompletion, InputCompletionKind,
-};
 
-pub mod tool_output;
-pub use tool_output::{
-    InputContract, InputExpectation, InputPrompt, PatchOp, ShellTermination, ToolOutput,
-    ToolStream, WebSearchHit,
-};
-pub mod tool_access;
-pub use tool_access::{ToolAccess, ToolAccesses, ToolFileAccessOperation};
-
-/// Re-exports the pure preview shape from `nuo-tool` so the wire vocabulary (the
-/// `ToolPreview` event and `PermissionRequest::preview`) can name it without a
-/// second definition. A mirrored struct here would be a second thing to keep in
-/// sync, and the whole point of `PreviewResult` is that a preview and an applied
-/// patch are one shape.
-pub mod preview {
-    pub use nuo_tool::preview::*;
-}
-pub use preview::PreviewResult;
 
 pub mod auth;
 pub use auth::{
@@ -138,10 +108,8 @@ pub use auth::{
     PreflightValidator, ResolvedAuth, StaticCredentialSource, static_credential,
 };
 
-pub mod tool_validation;
 
 pub mod capability;
-pub mod catalog;
 pub mod connection_auth;
 pub mod connection_detail;
 pub mod dialects;
@@ -162,16 +130,12 @@ pub use events::*;
 pub mod hooks;
 pub mod mcp;
 pub mod model;
-pub mod todos;
-pub use todos::{MAX_TODOS, TodoId, TodoItem, TodoList, TodoStatus};
 pub mod agent_kind;
 pub mod agent_role;
 pub mod cognitive;
 pub mod execution_policy;
 pub mod extension;
 pub use extension::{Extension, HookPhase};
-pub mod hazard;
-pub use hazard::*;
 pub mod job;
 pub mod subagent;
 pub use agent_kind::AgentKind;
@@ -193,7 +157,6 @@ pub use human_request::*;
 pub mod identity;
 pub mod pressure;
 pub mod token_ledger;
-pub mod tokenizer;
 pub use token_ledger::{
     BeginRequestParams, MAX_PLAUSIBLE_STREAM_TPS, MIN_DEFENSIBLE_STREAM_SPAN_US,
     PerformanceTimingSource, RequestPerformance, RequestUsageKey, RequestUsageRecord,
@@ -211,12 +174,10 @@ pub mod execution;
 pub mod secret;
 pub mod security;
 pub mod shared_roots;
-pub mod trajectory_guard_config;
 pub use execution::{
     DirEntry, ExecutionEnvironment, FsError, FsMetadata, FsProvider, ProcessOutput, ProcessRunner,
     ShellIsolation, ToolMiddleware,
 };
-pub use hazard::{HazardLevel, HazardTier, ProcessKillSpec, ToolPermissionSubmission};
 pub use security::{
     AssetLocator, AssetSpec, AttestationStatus, TrustDomain, WorkspaceSecuritySnapshot,
     WorkspaceTrustState,
@@ -230,26 +191,29 @@ pub use workspace::{
 
 pub mod session_title;
 
-pub mod context_lifecycle;
+pub mod context_policy;
+pub use context_policy::{
+    CONTEXT_POLICY_SCHEMA_VERSION, ContextPolicy, DEFAULT_MAX_INPUT_TOKENS,
+    DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS, DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS,
+    PolicyError, WatermarkError, WatermarkPolicy,
+};
 
 pub mod session_tree;
 pub use session_tree::{
     CompactionPayload, ThreadEntry, ThreadEntryId, ThreadEntryKind, ThreadTree,
 };
-pub mod skills_config;
 pub use shared_roots::{SharedAdditionalRoots, SharedConfinement};
 pub mod tool_registry;
 pub mod web_config;
 pub use capability::{
-    BuiltinTool, InputHandler, ModelRequest, Provider, ProviderEventStream, ProviderPromptHints,
-    ProviderStreamEvent, ProviderTextStream, ProviderTurnContext, ScopeTarget, Tool,
-    ToolInvocation, ToolSpec, VariantSelection, empty_variant_selection,
+    ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
+    ProviderTextStream, ProviderTurnContext, ToolSpec, VariantSelection, empty_variant_selection,
 };
-pub use catalog::{
+pub use dialects::{
     AnthropicMessagesDialect, Channel, GoogleGenerateContentDialect, GoogleInteractionsDialect,
     OpenAiChatDialect, OpenAiResponsesDialect, ProviderDialect, ProviderEntry, Transport,
 };
-pub use connection_auth::{ConnectionAuth, Entitlement, LoginMethod};
+pub use connection_auth::{ConnectionAuth, Entitlement, LoginMethod, WirePlacement};
 pub use connection_detail::{
     BalanceQuota, ConnectionDetail, ConnectionQuotaEntry, ConnectionUsageState,
     ModelAvailabilityRule, PeriodicQuota, ProviderQuotaData, ProviderQuotaSnapshot, ProviderUsage,
@@ -265,11 +229,13 @@ pub use provider_state::{
     select_request_delivery, semantic_context_head, write_continuation_cursor,
 };
 pub use subagent::{SubAgentProfile, ToolPolicy};
-pub use trajectory_guard_config::TrajectoryGuardConfig;
 pub mod monitor;
-pub use dialects::{DiscoveredModel, ModelListError};
+pub use dialects::{
+    DiscoveredModel, ModelListError, ResponsesState, clean_model_display_name,
+    format_model_display_name,
+};
 pub use hooks::{
-    Hook, HookContext, HookEvent, HookEventKind, HookOutcome, HookStartSource, RestorePoint,
+    Hook, HookContext, HookEvent, HookOutcome, HookStartSource, RestorePoint,
 };
 pub use identity::AgentIdentity;
 pub use job::{
@@ -280,9 +246,9 @@ pub use mcp::{McpConnectionStatus, McpServerConfig};
 pub use model::{
     Availability, BaselineModels, CapabilityOverrides, ConnectionFilterPolicy, DeclaredModel,
     FittedModel, Model, ModelCapabilities, ModelCapabilityPatch, ModelScopeConfig,
-    ModelTargetScope, NamedFilterPolicy, RemoteModelMetadata, WireProtocol, baseline_models,
-    model_by_id, register_fitted_models, resolve as resolve_model, sanitize_model_id,
-    simple_glob_matches,
+    ModelTargetScope, NamedFilterPolicy, RemoteModelMetadata, WireEntityResolution, WireProtocol,
+    baseline_models, model_by_id, register_fitted_models, resolve as resolve_model,
+    sanitize_model_id, simple_glob_matches,
 };
 pub use monitor::*;
 pub use pressure::{
@@ -297,16 +263,13 @@ pub use pressure::{
 };
 pub use secret::SecretString;
 pub use session_title::{TITLE_MAX_LEN, ThreadTitle, clean_title};
-pub use skills_config::SkillsConfig;
-/// The BPE token counter ([`crate::tokenizer`]) under the name the
+/// The BPE token counter (`nuo_tool::tokenizer`) under the name the
 /// heuristic estimator used to own: token prediction is BPE now, and callers
 /// that imported `count_tokens` for budget-fitting (summary truncation)
 /// must measure in the same unit as the projection thresholds.
-pub use tokenizer::{StreamingCounter, Tokenizer, count_tokens, truncate_to_tokens};
-pub use tool_output::truncate_utf8;
 pub use tool_registry::{
-    Capability, ToolCapabilityAudit, ToolContext, ToolContextBuilder, ToolDeclaration, ToolFactory,
-    ToolPool, ToolPoolSnapshot, ToolScope, ToolSelection, ToolSet, WorkspaceRoot, WorkspaceRoots,
+    Capability, ToolCapabilityAudit, ToolFactoryContext, ToolFactoryContextBuilder, ToolDeclaration, ToolFactory,
+    ToolPool, ToolPoolSnapshot, CapabilityScope, ToolSelection, ToolSet, WorkspaceRoot, WorkspaceRoots,
     collect_toolset,
 };
 pub use web_config::{
@@ -317,12 +280,12 @@ pub use web_config::{
     WebSearchProvider, web_provider_capabilities,
 };
 
-pub mod provider_surface;
 pub mod surface;
-pub use provider_surface::{ApiRoot, CatalogShape, RemoteCatalogSource};
+pub use surface::{ApiRoot, CatalogShape, RemoteCatalogSource};
 
 pub mod context_projection;
 pub use context_projection::*;
+pub mod policy_config;
 pub mod policy_schema;
 pub use policy_schema::*;
 
@@ -866,6 +829,7 @@ impl Encoder<Wire> for NativeWireCodec {
 #[cfg(test)]
 mod readiness_protocol_tests {
     use super::*;
+    use nuo_tool::{CommandCatalog, Role};
 
     /// ADR-0136 `[INV-WIRE-01]`: an envelope naming a variant this build does
     /// not model is a *per-frame* fact, never a dead stream.

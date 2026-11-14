@@ -10,24 +10,24 @@ fn body_of(
 fn body_with_caps_of(
     messages: Vec<nuo_tool::Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_provider::ModelCapabilities,
+    capabilities: &nuo_protocol::ModelCapabilities,
 ) -> Result<Value, RequestBuildError> {
     body_with_capabilities(&messages, &[], input, capabilities)
 }
 use nuo_tool::ToolCall;
 
-static DEFAULT_DELIVERY: nuo_provider::RequestDelivery = nuo_provider::RequestDelivery::FullReplay;
-static DEFAULT_CACHE_PLAN: nuo_provider::ResolvedCachePolicy =
-    nuo_provider::ResolvedCachePolicy::Unsupported;
+static DEFAULT_DELIVERY: nuo_protocol::RequestDelivery = nuo_protocol::RequestDelivery::FullReplay;
+static DEFAULT_CACHE_PLAN: nuo_protocol::ResolvedCachePolicy =
+    nuo_protocol::ResolvedCachePolicy::Unsupported;
 
 fn test_body_input<'a>(
     model: &'a str,
     stream: bool,
-    tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
+    tool_specs: Option<&'a [nuo_protocol::capability::ToolSpec]>,
     reasoning_effort: Option<Effort>,
-    delivery: &'a nuo_provider::RequestDelivery,
+    delivery: &'a nuo_protocol::RequestDelivery,
     store: bool,
-    cache_plan: &'a nuo_provider::ResolvedCachePolicy,
+    cache_plan: &'a nuo_protocol::ResolvedCachePolicy,
 ) -> BodyInput<'a> {
     BodyInput {
         model,
@@ -37,7 +37,7 @@ fn test_body_input<'a>(
         reasoning_effort,
         delivery,
         store,
-        dialect: nuo_provider::OpenAiResponsesDialect::Standard,
+        dialect: nuo_protocol::OpenAiResponsesDialect::Standard,
         cache_plan,
     }
 }
@@ -52,8 +52,8 @@ fn assistant_with_call(call: ToolCall, content: &str) -> Message {
 /// A portable-gateway route: same capabilities as the Go relay advertises
 /// for its DeepSeek rows, but the dialect is the transcoding one.
 fn portable_body_input<'a>(
-    delivery: &'a nuo_provider::RequestDelivery,
-    cache_plan: &'a nuo_provider::ResolvedCachePolicy,
+    delivery: &'a nuo_protocol::RequestDelivery,
+    cache_plan: &'a nuo_protocol::ResolvedCachePolicy,
 ) -> BodyInput<'a> {
     BodyInput {
         model: "deepseek-v4.1-flash",
@@ -63,7 +63,7 @@ fn portable_body_input<'a>(
         reasoning_effort: Some(Effort::High),
         delivery,
         store: false,
-        dialect: nuo_provider::OpenAiResponsesDialect::Portable,
+        dialect: nuo_protocol::OpenAiResponsesDialect::Portable,
         cache_plan,
     }
 }
@@ -74,7 +74,7 @@ fn portable_body_input<'a>(
 /// a nested tool definition are both rejected upstream.
 #[test]
 fn portable_dialect_emits_flat_tools_and_never_store() {
-    let tool = nuo_provider::capability::ToolSpec {
+    let tool = nuo_protocol::capability::ToolSpec {
         name: "test_tool".into(),
         description: "test".into(),
         parameters: json!({"type": "object"}),
@@ -247,12 +247,12 @@ fn portable_dialect_replays_the_latest_chain_in_both_forms() {
 
 /// Capability view for a DeepSeek Responses route: reasoning via plaintext
 /// `reasoning` output items, the full native effort ladder (ADR-0083).
-fn deepseek_capabilities() -> nuo_provider::ModelCapabilities {
-    nuo_provider::ModelCapabilities {
+fn deepseek_capabilities() -> nuo_protocol::ModelCapabilities {
+    nuo_protocol::ModelCapabilities {
         family: "deepseek".into(),
         context_window: 1_000_000,
         max_output_tokens: None,
-        thinking: nuo_provider::ReasoningSupport::ReasoningContent,
+        thinking: nuo_protocol::ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: Some(true),
         effort_levels: Effort::ORDER.iter().copied().map(Into::into).collect(),
@@ -264,7 +264,7 @@ fn deepseek_capabilities() -> nuo_provider::ModelCapabilities {
 fn deepseek_body_input<'a>(
     reasoning_effort: Option<Effort>,
     store: bool,
-    cache_plan: &'a nuo_provider::ResolvedCachePolicy,
+    cache_plan: &'a nuo_protocol::ResolvedCachePolicy,
 ) -> BodyInput<'a> {
     BodyInput {
         model: "deepseek-flash",
@@ -274,7 +274,7 @@ fn deepseek_body_input<'a>(
         reasoning_effort,
         delivery: &DEFAULT_DELIVERY,
         store,
-        dialect: nuo_provider::OpenAiResponsesDialect::DeepSeek,
+        dialect: nuo_protocol::OpenAiResponsesDialect::DeepSeek,
         cache_plan,
     }
 }
@@ -310,7 +310,7 @@ fn deepseek_dialect_emits_only_the_fields_its_schema_defines() {
 
 #[test]
 fn deepseek_dialect_with_tools_omits_parallel_tool_calls_and_tool_choice() {
-    let tool = nuo_provider::capability::ToolSpec {
+    let tool = nuo_protocol::capability::ToolSpec {
         name: "test_tool".into(),
         description: "test".into(),
         parameters: json!({"type": "object"}),
@@ -356,7 +356,7 @@ fn standard_dialect_emits_the_flattened_openai_tool_shape() {
     // The DeepSeek dialect's nested `{function:{name}}` form leaves that
     // field undefined, which such a gateway rejects with
     // `400 expected string, received undefined` (ADR-0113).
-    let specs = [nuo_provider::capability::ToolSpec {
+    let specs = [nuo_protocol::capability::ToolSpec {
         name: "test_tool".into(),
         description: "test".into(),
         parameters: json!({"type": "object"}),
@@ -473,7 +473,7 @@ fn deepseek_dialect_prunes_historical_reasoning_items_on_older_turns() {
 
 #[test]
 fn deepseek_dialect_folds_ephemeral_instructions_into_instructions() {
-    let bundle = nuo_provider::InstructionText::new("system prompt", "ephemeral instruction");
+    let bundle = nuo_protocol::InstructionText::new("system prompt", "ephemeral instruction");
     let mut input = deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN);
     input.instructions = Some(&bundle);
     let body = body_with_caps_of(
@@ -523,7 +523,7 @@ fn reasoning_object_is_omitted_when_there_is_nothing_to_say() {
     // A route with no effort ladder and no override must not send `{}`:
     // the documented default (thinking on, server-chosen effort) applies
     // only when the field is absent.
-    let capabilities = nuo_provider::ModelCapabilities {
+    let capabilities = nuo_protocol::ModelCapabilities {
         effort_levels: Vec::new(),
         ..deepseek_capabilities()
     };
@@ -624,7 +624,7 @@ fn duplicate_provider_call_ids_are_uniquified_with_their_outputs() {
             true,
             None,
             None,
-            &nuo_provider::RequestDelivery::OpaqueReplay,
+            &nuo_protocol::RequestDelivery::OpaqueReplay,
             false,
             &DEFAULT_CACHE_PLAN,
         ),
@@ -653,7 +653,7 @@ fn duplicate_ids_inside_opaque_replay_preserve_provider_items() {
     fn opaque_assistant(call: ToolCall, item_id: &str) -> Message {
         let mut provider_meta = serde_json::Map::new();
         provider_meta.insert(
-            nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+            nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
             serde_json::json!([{
                 "id": item_id,
                 "type": "function_call",
@@ -692,7 +692,7 @@ fn duplicate_ids_inside_opaque_replay_preserve_provider_items() {
             true,
             None,
             None,
-            &nuo_provider::RequestDelivery::OpaqueReplay,
+            &nuo_protocol::RequestDelivery::OpaqueReplay,
             false,
             &DEFAULT_CACHE_PLAN,
         ),
@@ -717,7 +717,7 @@ fn remote_continuation_keeps_outputs_for_calls_in_the_cursor_anchor() {
         name: "lookup".into(),
         arguments: "{}".into(),
     };
-    let delivery = nuo_provider::RequestDelivery::RemoteContinuation {
+    let delivery = nuo_protocol::RequestDelivery::RemoteContinuation {
         continuation_id: "resp_1".into(),
         input_start: 2,
     };
@@ -804,17 +804,17 @@ fn stateless_requests_preserve_encrypted_reasoning_and_parallel_tools() {
         test_body_input(
             "gpt-5.6-sol",
             true,
-            Some(&[nuo_provider::capability::ToolSpec {
+            Some(&[nuo_protocol::capability::ToolSpec {
                 name: "lookup".to_string(),
                 description: "lookup".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
             }]),
             None,
-            &nuo_provider::RequestDelivery::OpaqueReplay,
+            &nuo_protocol::RequestDelivery::OpaqueReplay,
             false,
-            &nuo_provider::ResolvedCachePolicy::Unsupported,
+            &nuo_protocol::ResolvedCachePolicy::Unsupported,
         ),
-        &nuo_provider::ModelCapabilities::for_channel("gpt-5.6-sol", None),
+        &nuo_protocol::ModelCapabilities::for_channel("gpt-5.6-sol", None),
     )
     .unwrap();
     assert_eq!(
@@ -897,11 +897,11 @@ fn user_message_with_image_serializes_as_input_image_string_url() {
         data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".to_string(),
     }]);
 
-    let remote = nuo_provider::RemoteModelMetadata {
+    let remote = nuo_protocol::RemoteModelMetadata {
         vision: Some(true),
         ..Default::default()
     };
-    let caps = nuo_provider::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
+    let caps = nuo_protocol::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
     let payload = body_with_caps_of(
         vec![msg],
@@ -944,11 +944,11 @@ fn declared_text_only_route_projects_remote_continuation_images_away() {
         data: "aGk=".to_string(),
     }]);
 
-    let remote = nuo_provider::RemoteModelMetadata {
+    let remote = nuo_protocol::RemoteModelMetadata {
         vision: Some(false),
         ..Default::default()
     };
-    let caps = nuo_provider::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
+    let caps = nuo_protocol::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
     let payload = body_with_caps_of(
         vec![msg],
@@ -976,7 +976,7 @@ fn declared_text_only_route_projects_remote_continuation_images_away() {
 fn empty_opaque_replay_artifact_fails_closed() {
     let mut provider_meta = serde_json::Map::new();
     provider_meta.insert(
-        nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+        nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
         serde_json::json!([]),
     );
     let assistant = Message {
@@ -990,7 +990,7 @@ fn empty_opaque_replay_artifact_fails_closed() {
             true,
             None,
             None,
-            &nuo_provider::RequestDelivery::OpaqueReplay,
+            &nuo_protocol::RequestDelivery::OpaqueReplay,
             false,
             &DEFAULT_CACHE_PLAN,
         ),

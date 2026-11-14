@@ -7,7 +7,7 @@
 //! covers the cross-provider invariants.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::LoginMethod;
+use nuo_protocol::LoginMethod;
 use nuo_provider::auth::{DeviceFlowMode, PkceMode};
 
 use crate::spec::{COPILOT_CLIENT_HEADERS, MODEL_PROVIDER_SPEC, MODELS};

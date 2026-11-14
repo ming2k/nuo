@@ -48,7 +48,7 @@ pub use spec::{CODEBUDDY_CN_BUILTIN_MODELS, MODEL_PROVIDER_SPEC};
 mod realm_tests {
     use super::*;
     use nuo_provider::Endpoint;
-    use nuo_provider::auth::CredentialSource as _;
+    use nuo_protocol::auth::CredentialSource as _;
     use nuo_provider::auth::OAuthProvider as _;
     use nuo_provider_codebuddy_auth::auth_file::{
         CodeBuddyByokSource, StoredCredentials, realm_gate,

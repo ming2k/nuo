@@ -218,7 +218,7 @@ fn command_effects_are_declared_not_inferred() {
 
     // The resolver is one function over the vocabulary, not a per-command match.
     let resolver = startup
-        .find("pub fn effect_for(parts: &[&str]) -> nuo_protocol::CommandEffect {")
+        .find("pub fn effect_for(parts: &[&str]) -> nuo_tool::CommandEffect {")
         .expect("startup::effect_for must exist as the single resolver");
     let body = &startup[resolver..];
     let end = body.find("\n}\n").expect("effect_for body must close");

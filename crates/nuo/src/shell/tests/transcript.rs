@@ -21,7 +21,7 @@ fn only_high_frequency_stream_updates_are_coalesced() {
     let stream_delta = turn_event(RoundEvent::StreamDelta("hello".to_string()));
     let tool_stream = turn_event(RoundEvent::ToolStream {
         id: "call".to_string(),
-        stream: nuo_protocol::ToolStream::Stdout("line\n".to_string()),
+        stream: nuo_tool::ToolStream::Stdout("line\n".to_string()),
     });
     let stream_start = turn_event(RoundEvent::StreamStart);
     let stream_end = turn_event(RoundEvent::StreamEnd("done".to_string()));
@@ -120,7 +120,7 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
     assert_eq!(search.round, None, "a command is not a thread turn");
     assert_ne!(
         search.role,
-        nuo_protocol::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "never assistant prose"
     );
 
@@ -162,7 +162,7 @@ fn command_error_settles_pending_command_in_place() {
 #[test]
 fn command_rows_merge_at_their_turn_seams_on_restore() {
     use crate::shell::transcript::merge_command_rows;
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
     use nuo_view::model::document::TranscriptMessage;
 
     // Dialogue: two rounds, timestamps 1000 and 3000.
@@ -213,7 +213,7 @@ fn command_rows_merge_at_their_turn_seams_on_restore() {
 #[test]
 fn command_rows_tail_when_dialogue_has_no_timestamps() {
     use crate::shell::transcript::merge_command_rows;
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
     use nuo_view::model::document::TranscriptMessage;
 
     let dialogue = vec![
@@ -338,7 +338,7 @@ fn queued_dispatch_carries_text_and_images() {
         state: QueuedDispatchState::Waiting,
         text: "hello".to_string(),
         queued_at_ms: Some(0),
-        images: vec![nuo_protocol::ImagePart {
+        images: vec![nuo_tool::ImagePart {
             mime: "image/png".to_string(),
             data: "base64".to_string(),
         }],
@@ -522,7 +522,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // User prompt is sending in transcript
     let prompt = nuo_view::model::document::TranscriptMessage::new(
-        nuo_protocol::Role::User,
+        nuo_tool::Role::User,
         "write a fibonacci function",
     )
     .sending();
@@ -567,7 +567,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     let prompt =
-        nuo_view::model::document::TranscriptMessage::new(nuo_protocol::Role::User, "calculate pi")
+        nuo_view::model::document::TranscriptMessage::new(nuo_tool::Role::User, "calculate pi")
             .sending();
     app.messages.push(prompt);
 
@@ -979,7 +979,7 @@ mod command_reply_filing {
     use super::*;
 
     use crate::shell::app::notice_catalog::{ClientNotice, RenderedNotice};
-    use nuo_protocol::CommandEffect;
+    use nuo_tool::CommandEffect;
 
     /// Render the receipt a reading produces, exactly as the event arm does.
     fn receipt(invocation: &str, body: &str, failed: bool) -> RenderedNotice {
@@ -1109,7 +1109,7 @@ mod command_reply_filing {
     /// withdrawal is pinned below.
     #[test]
     fn an_unknown_name_is_staged_and_a_known_reading_is_not() {
-        let catalog = nuo_server::startup::command_catalog(&[]);
+        let catalog = nuo_server::composition::startup::command_catalog(&[]);
 
         // A reading is not staged.
         assert_eq!(
@@ -1133,7 +1133,7 @@ mod command_reply_filing {
         // An *empty* catalog — the pre-attach state — stages everything, which is
         // exactly why the withdrawal below has to exist.
         assert_eq!(
-            nuo_protocol::CommandCatalog::default().effect_for("/usage", None),
+            nuo_tool::CommandCatalog::default().effect_for("/usage", None),
             CommandEffect::Mutation,
             "an empty catalog cannot know, so it predicts an act"
         );
@@ -1254,7 +1254,7 @@ mod command_reply_filing {
     #[tokio::test]
     async fn unknown_slash_command_never_stages_and_surfaces_error_headline() {
         let mut app = new_app_for_relay_tests();
-        app.command_catalog = nuo_server::startup::command_catalog(&[]);
+        app.command_catalog = nuo_server::composition::startup::command_catalog(&[]);
         let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
         let session = crate::shell::HookStartSource::Remote {
             session_id: "test-session".to_string(),

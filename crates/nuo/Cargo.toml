@@ -13,12 +13,6 @@ path = "src/main.rs"
 name = "nuo"
 path = "src/lib.rs"
 
-# The storybook is an interactive-shell artifact, so it needs the same optional
-# feature the shell itself is gated behind (`[INV-ARCH-CLI-LEAN-LINK]`).
-[[example]]
-name = "storybook"
-required-features = ["interactive"]
-
 [dependencies]
 nuo-protocol = { workspace = true }
 nuo-persistence = { workspace = true }
@@ -28,7 +22,6 @@ nuo-server = { workspace = true }
 nuo-ui-primitives = { workspace = true, optional = true }
 nuo-view = { workspace = true, optional = true }
 crossterm = { workspace = true, optional = true }
-notify = { workspace = true, optional = true }
 nuotc = { workspace = true, optional = true }
 unicode-width = { workspace = true, optional = true }
 unicode-segmentation = { workspace = true, optional = true }
@@ -69,7 +62,6 @@ interactive = [
     "dep:nuo-ui-primitives",
     "dep:nuo-view",
     "dep:crossterm",
-    "dep:notify",
     "dep:nuotc",
     "dep:unicode-width",
     "dep:unicode-segmentation",
@@ -80,7 +72,7 @@ interactive = [
 # fabric for its own mesh/Hypervisor/Archivist infrastructure; this feature
 # gates only the *model-facing tool surface*, so lean single-agent builds omit
 # the multi-agent tools without dropping the internal fabric.
-collaboration = []
+collaboration = ["nuo-server/collaboration"]
 
 [lints]
 workspace = true

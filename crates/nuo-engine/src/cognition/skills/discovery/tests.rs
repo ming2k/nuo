@@ -37,7 +37,7 @@ async fn pinned_project_root_scopes_project_local_skills() {
     )
     .unwrap();
 
-    let config = nuo_protocol::SkillsConfig {
+    let config = nuo_tool::SkillsConfig {
         project_root: Some(root.to_path_buf()),
         ..Default::default()
     };
@@ -49,7 +49,7 @@ async fn pinned_project_root_scopes_project_local_skills() {
 
     // Without a pinned root the same config discovers nothing here: the
     // process cwd (the test binary's) has no `.nuo/skills/pinned`.
-    let unpinned = nuo_protocol::SkillsConfig::default();
+    let unpinned = nuo_tool::SkillsConfig::default();
     let result = discover_all_with_trust_state(&unpinned, WorkspaceTrustState::Trusted).await;
     assert!(
         !result.skills.iter().any(|skill| skill.name == "pinned"),
@@ -74,7 +74,7 @@ async fn quarantined_skills_discovered_as_disabled_and_quarantined() {
         .unwrap();
     }
 
-    let config = nuo_protocol::SkillsConfig {
+    let config = nuo_tool::SkillsConfig {
         project_root: Some(root.to_path_buf()),
         ..Default::default()
     };
@@ -124,7 +124,7 @@ async fn role_scoped_skills_discovered_with_role_scope() {
     )
     .unwrap();
 
-    let config = nuo_protocol::SkillsConfig {
+    let config = nuo_tool::SkillsConfig {
         role: Some("philosophist".to_string()),
         paths: vec![role_dir.to_str().unwrap().to_string()],
         ..Default::default()

@@ -22,14 +22,14 @@ fn subagent_view_groups_children_into_turn_bands() {
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
     let call =
-        |id: &str, name: &str, round: u64, turn: usize| nuo_protocol::SubagentEvent::ToolCall {
+        |id: &str, name: &str, round: u64, turn: usize| nuo_tool::SubagentEvent::ToolCall {
             id: id.into(),
             name: name.into(),
             arguments: r#"{"p":"x"}"#.into(),
             round,
             turn,
         };
-    let result = |id: &str, name: &str| nuo_protocol::SubagentEvent::ToolResult {
+    let result = |id: &str, name: &str| nuo_tool::SubagentEvent::ToolResult {
         id: id.into(),
         name: name.into(),
         output: "done".into(),
@@ -139,7 +139,7 @@ fn subagent_step_and_view_render_without_panicking() {
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
     task.push_subagent_event(
-        &nuo_protocol::SubagentEvent::ToolCall {
+        &nuo_tool::SubagentEvent::ToolCall {
             id: "inner".into(),
             name: "search_text".into(),
             arguments: r#"{"pattern":"foo"}"#.into(),
@@ -151,11 +151,11 @@ fn subagent_step_and_view_render_without_panicking() {
     task.finish_tool_step(
         "task_1",
         "found 3 matches",
-        nuo_protocol::ToolOutput::text("found 3 matches"),
+        nuo_tool::ToolOutput::text("found 3 matches"),
         1200,
     );
     let root_messages = vec![
-        TranscriptMessage::new(nuo_protocol::Role::User, "explore please"),
+        TranscriptMessage::new(nuo_tool::Role::User, "explore please"),
         task,
     ];
 
@@ -326,7 +326,7 @@ fn height_cache_skip_path_matches_full_layout() {
     let messages: Vec<TranscriptMessage> = (0..40)
         .map(|i| {
             TranscriptMessage::new(
-                nuo_protocol::Role::Assistant,
+                nuo_tool::Role::Assistant,
                 format!(
                     "Message number {i} with enough words to wrap across a \
                          couple of lines in an eighty column terminal so the \
@@ -433,9 +433,9 @@ fn expanded_edit_diff_height_is_scroll_independent() {
         "edit_text",
         r#"{"path":"a.rs","old_string":"…","new_string":"…"}"#,
     );
-    let structured = nuo_protocol::ToolOutput::Patch {
+    let structured = nuo_tool::ToolOutput::Patch {
         path: "a.rs".into(),
-        op: nuo_protocol::PatchOp::Edit,
+        op: nuo_tool::PatchOp::Edit,
         old,
         new,
         start_line: 0,
@@ -543,7 +543,7 @@ fn completed_diff_cache_survives_height_invalidation_and_resize() {
 #[test]
 fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     let theme = Theme::default();
-    let messages = vec![TranscriptMessage::new(nuo_protocol::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
     let queue_items = [crate::shell::chrome::QueueItemProps {
         queued_at_ms: Some(1_700_000_000_000),
         text: "next".into(),
@@ -810,7 +810,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
     m.finish_tool_step(
         "todo_call",
         output.to_string(),
-        nuo_protocol::ToolOutput::Text(output.to_string()),
+        nuo_tool::ToolOutput::Text(output.to_string()),
         0,
     );
     if let nuo_view::model::document::MessageKind::ToolStep { expanded, .. } = &mut m.kind {

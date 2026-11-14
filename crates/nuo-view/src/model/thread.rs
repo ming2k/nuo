@@ -184,7 +184,7 @@ impl ThreadDoc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
 
     fn msg(text: &str) -> TranscriptMessage {
         TranscriptMessage::new(Role::Assistant, text)

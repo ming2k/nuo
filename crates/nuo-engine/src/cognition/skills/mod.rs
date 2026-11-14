@@ -4,7 +4,7 @@
 //! lowest first) across:
 //!   - Remote skill repositories fetched into `$XDG_CACHE_HOME/nuo/skills/remote/`.
 //!   - User-global skills: `$XDG_DATA_HOME/nuo/skills/` (XDG-resolved via
-//!     [`nuo_persistence::paths`]).
+//!     [`nuo_host::paths`]).
 //!   - Configured extra paths (`[skills] paths = [...]` in `config.toml`).
 //!   - Project-local skills: `.nuo/skills/<name>/SKILL.md` (highest priority).
 //!
@@ -37,7 +37,7 @@ pub use discovery::{
     discoverable_skill_directories, project_skills_present,
 };
 pub use metadata::{Skill, SkillDependency, SkillPolicy, SkillScope};
-pub use nuo_protocol::SkillsConfig;
+pub use nuo_tool::SkillsConfig;
 pub use render::{format_skill_injection, format_skill_list, list_skill_files, resolve_mentions};
 pub use tools::{ListSkillsTool, UseSkillTool};
 

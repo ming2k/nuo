@@ -120,7 +120,7 @@ mod turn_headers;
 /// "thinking cannot be expanded".
 #[test]
 fn live_subagent_reasoning_renders_its_body_when_expanded() {
-    use nuo_protocol::SubagentEvent;
+    use nuo_tool::SubagentEvent;
 
     let mut task = TranscriptMessage::tool_step(
         "task_1",

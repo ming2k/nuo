@@ -382,7 +382,7 @@ impl RenderedNotice {
     /// The topic comes from the closed wire vocabulary
     /// ([`notice_topic_label`]), so a routed notice never falls back to the
     /// generic topic either.
-    pub fn from_core(notice: &nuo_protocol::AgentNotice) -> Self {
+    pub fn from_core(notice: &nuo_tool::AgentNotice) -> Self {
         let title = notice.render_text();
         let (title, detail) = split_title_detail(title, notice.body.as_deref());
         Self {
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn a_routed_notice_takes_its_topic_from_the_wire_vocabulary() {
-        let notice = nuo_protocol::AgentNotice::trust_changed("Workspace configurations changed")
+        let notice = nuo_tool::AgentNotice::trust_changed("Workspace configurations changed")
             .with_body("Changed on disk.");
         let rendered = RenderedNotice::from_core(&notice);
         assert_eq!(rendered.topic, "trust");

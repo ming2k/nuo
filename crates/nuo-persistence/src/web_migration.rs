@@ -6,7 +6,7 @@
 
 use serde::Deserialize;
 
-use crate::paths;
+use nuo_host::paths;
 
 #[derive(Debug, Default, Deserialize)]
 struct LegacyStore {
@@ -185,16 +185,16 @@ mod tests {
     #[test]
     fn selected_connection_maps_to_its_preset() {
         let root = tempfile::tempdir().unwrap();
-        let _sandbox = crate::paths::TestDirsGuard::install(crate::paths::Dirs {
+        let _sandbox = nuo_host::paths::TestDirsGuard::install(nuo_host::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
             cache_dir: root.path().join("cache"),
             runtime_dir: None,
         });
-        std::fs::create_dir_all(&crate::paths::get().state_dir).unwrap();
+        std::fs::create_dir_all(&nuo_host::paths::get().state_dir).unwrap();
         std::fs::write(
-            crate::paths::get().web_connections_file(),
+            nuo_host::paths::get().web_connections_file(),
             "[[search_connections]]\nid = 'team-search'\npreset_id = 'tavily'\nenabled = true\n",
         )
         .unwrap();

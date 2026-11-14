@@ -1645,7 +1645,6 @@ dependencies = [
  "futures",
  "insta",
  "libc",
- "notify",
  "nuo-engine",
  "nuo-host",
  "nuo-persistence",
@@ -1733,9 +1732,10 @@ name = "nuo-guardrails"
 version = "0.0.87"
 dependencies = [
  "async-trait",
+ "nuo-host",
  "nuo-inference-wire",
- "nuo-persistence",
  "nuo-protocol",
+ "nuo-tool",
  "regex",
  "serde",
  "serde_json",
@@ -1799,6 +1799,7 @@ dependencies = [
  "futures",
  "glob",
  "mockito",
+ "nuo-host",
  "nuo-persistence",
  "nuo-protocol",
  "nuo-provider",
@@ -1821,6 +1822,7 @@ dependencies = [
  "hex",
  "nuo-host",
  "nuo-protocol",
+ "nuo-tool",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1893,6 +1895,7 @@ dependencies = [
  "http",
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
  "nuo-tool",
  "serde_json",
@@ -1908,6 +1911,7 @@ dependencies = [
  "http",
  "netune",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
  "nuo-provider-anthropic",
  "nuo-provider-google-antigravity",
@@ -1926,6 +1930,7 @@ dependencies = [
  "netune",
  "nuo-host",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
  "serde",
  "serde_json",
@@ -1940,6 +1945,7 @@ dependencies = [
  "futures",
  "netune",
  "nuo-host",
+ "nuo-protocol",
  "nuo-provider",
  "serde",
  "serde_json",
@@ -1953,6 +1959,7 @@ dependencies = [
  "inventory",
  "nuo-host",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
  "nuo-provider-codebuddy-auth",
  "tokio",
@@ -1965,6 +1972,7 @@ dependencies = [
  "inventory",
  "nuo-host",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
  "nuo-provider-codebuddy-auth",
  "tokio",
@@ -1989,6 +1997,7 @@ dependencies = [
  "async-trait",
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
 ]
 
@@ -2010,6 +2019,7 @@ version = "0.0.87"
 dependencies = [
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
 ]
 
@@ -2056,6 +2066,7 @@ dependencies = [
  "inventory",
  "mockito",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
  "nuo-tool",
  "serde_json",
@@ -2084,6 +2095,7 @@ version = "0.0.87"
 dependencies = [
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
 ]
 
@@ -2093,6 +2105,7 @@ version = "0.0.87"
 dependencies = [
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
 ]
 
@@ -2114,6 +2127,7 @@ version = "0.0.87"
 dependencies = [
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
 ]
 
@@ -2152,6 +2166,7 @@ dependencies = [
  "async-trait",
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
 ]
 
@@ -2202,6 +2217,7 @@ dependencies = [
  "nuo-tool-ast",
  "nuo-tool-exec",
  "nuo-tool-fs",
+ "nuo-tool-web",
  "serde",
  "serde_json",
  "tempfile",
@@ -2237,6 +2253,7 @@ dependencies = [
  "nuo",
  "nuo-acp",
  "nuo-engine",
+ "nuo-guardrails",
  "nuo-host",
  "nuo-inference-wire",
  "nuo-mcp",
@@ -2252,8 +2269,10 @@ dependencies = [
  "nuo-server",
  "nuo-test-support",
  "nuo-tool",
+ "nuo-tool-ast",
  "nuo-tool-exec",
  "nuo-tool-fs",
+ "nuo-tool-web",
  "nuo-view",
  "proc-macro2",
  "serde",
@@ -2387,6 +2406,7 @@ dependencies = [
  "nuo-provider-anthropic",
  "nuo-provider-google-antigravity",
  "nuo-provider-openai",
+ "nuo-tool",
  "nuo-ui-primitives",
  "nuotc",
  "serde_json",

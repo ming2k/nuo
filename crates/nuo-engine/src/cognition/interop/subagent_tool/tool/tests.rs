@@ -3,7 +3,9 @@
 use super::*;
 
 use futures::stream::{self, BoxStream};
-use nuo_protocol::{Message, Provider, ProviderStreamEvent, Role, SubAgentProfile};
+use nuo_protocol::{Provider, ProviderStreamEvent, SubAgentProfile};
+use nuo_tool::{Message, Role};
+
 
 struct CannedProvider;
 
@@ -373,7 +375,7 @@ async fn interrupting_subagent_preserves_partial_transcript() {
             .run_subagent_outcome(
                 Some("call_interrupt"),
                 r#"{"description":"interrupt me","prompt":"find the handlers"}"#,
-                Box::new(|_event: nuo_protocol::SubagentEvent| {}),
+                Box::new(|_event: nuo_tool::SubagentEvent| {}),
             )
             .await
     });
@@ -433,7 +435,7 @@ async fn subagent_head_system_message_has_no_dead_task_line() {
         .run_subagent_outcome(
             None,
             r#"{"description":"find files","prompt":"where are the handlers?"}"#,
-            Box::new(|_event: nuo_protocol::SubagentEvent| {}),
+            Box::new(|_event: nuo_tool::SubagentEvent| {}),
         )
         .await
         .unwrap();
@@ -458,19 +460,19 @@ async fn subagent_head_system_message_has_no_dead_task_line() {
         outcome
             .messages
             .iter()
-            .all(|message| message.role != nuo_protocol::Role::System),
+            .all(|message| message.role != nuo_tool::Role::System),
         "request-scoped policy must not be persisted in the child transcript"
     );
 
     // The task is the first durable user message.
-    assert_eq!(outcome.messages[0].role, nuo_protocol::Role::User);
+    assert_eq!(outcome.messages[0].role, nuo_tool::Role::User);
     assert_eq!(outcome.messages[0].content, "where are the handlers?");
     assert_eq!(
         outcome.messages[0]
             .origin
             .as_ref()
             .map(|origin| origin.kind),
-        Some(nuo_protocol::InjectionKind::SubagentTask)
+        Some(nuo_tool::InjectionKind::SubagentTask)
     );
 }
 

@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_provider::LoginMethod;
+use nuo_protocol::LoginMethod;
 use nuo_provider::auth::OAuthProvider;
 use nuo_provider::auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,

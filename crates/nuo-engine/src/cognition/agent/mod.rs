@@ -74,7 +74,7 @@ pub(crate) fn subagent_result_text(
 // `ScopedToolDisable` is a governance-layer type (`[INV-HARNESS-03]`, ADR-0100).
 // Re-exported here so the agent's submodules (`use super::*`) and the dispatch
 // tool manager keep their existing paths without the agent owning it.
-pub(crate) use crate::governance::ScopedToolDisable;
+pub(crate) use nuo_guardrails::ScopedToolDisable;
 
 /// Mid-turn save-point closure installed by orchestration (ADR-0048).
 ///
@@ -110,8 +110,8 @@ impl Default for ToolOutputProjectionBudget {
     fn default() -> Self {
         Self {
             verbatim_tokens:
-                nuo_protocol::context_lifecycle::DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS as usize,
-            retention_tokens: nuo_protocol::context_lifecycle::DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
+                nuo_protocol::context_policy::DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS as usize,
+            retention_tokens: nuo_protocol::context_policy::DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
                 as usize,
         }
     }
@@ -134,7 +134,7 @@ pub use nuo_protocol::RequestTokenEstimate;
 // `AgentIdentity` now lives in `nuo-protocol` (`identity.rs`) as pure domain
 // vocabulary, alongside the role profiles. It is re-exported by name at the
 // crate root below and via `pub use nuo_protocol::*`, so all existing
-// `nuo_harness::AgentIdentity` / `crate::AgentIdentity` references keep
+// `nuo_engine::AgentIdentity` / `crate::AgentIdentity` references keep
 // resolving unchanged.
 
 /// Parked oneshots for in-flight interactive-input requests (L3.5 β): a
@@ -185,12 +185,12 @@ pub struct Agent {
     /// do." Drives the sticky panel and persists across restarts. Shared
     /// with the concrete `todo` / `todo_update` tools installed by
     /// [`crate::tool_integration`].
-    todos: Arc<std::sync::Mutex<nuo_protocol::TodoList>>,
+    todos: Arc<std::sync::Mutex<nuo_tool::TodoList>>,
     /// Harness round counter, bumped at the start of every `execute_round`.
     /// Shared with the todo tools so they can stamp
     /// `updated_at_round` for the TUI stale detector.
     round_counter: Arc<std::sync::Mutex<u64>>,
-    permissions: Arc<crate::permission_store::PermissionStore>,
+    permissions: Arc<nuo_guardrails::permission_store::PermissionStore>,
     /// Canonicalized additional workspace roots, set once by the
     /// assembling bootstrap. Kept as an owned copy so system-prompt assembly
     /// never re-reads the project config mid-session.
@@ -255,10 +255,10 @@ pub struct Agent {
     hard_stop_turns: Arc<std::sync::Mutex<usize>>,
     /// Advanced pre-dispatch trajectory loop guard configuration.
     /// Seeded from `[agent.trajectory_guard]` in `config.toml`.
-    trajectory_guard_config: Arc<std::sync::RwLock<nuo_protocol::TrajectoryGuardConfig>>,
+    trajectory_guard_config: Arc<std::sync::RwLock<nuo_tool::TrajectoryGuardConfig>>,
     /// Unified interaction controller governing human posture, stdin policy,
     /// and autonomous fallback behaviors.
-    pub(crate) interaction: Arc<crate::interaction::InteractionController>,
+    pub(crate) interaction: Arc<nuo_guardrails::interaction::InteractionController>,
     /// The single owner of parked human-decision oneshots
     /// (permission / ask_user / interactive input).
     human_broker: crate::human_broker::HumanRequestBroker,
@@ -266,7 +266,7 @@ pub struct Agent {
     /// Command-aware safety policy for `bash`. This sits above the ordinary
     /// permission broker so broad approvals such as `bash *` cannot silently
     /// authorize destructive commands like `git reset --hard`.
-    bash_policy: std::sync::RwLock<crate::bash_policy::BashPolicy>,
+    bash_policy: std::sync::RwLock<nuo_guardrails::bash_policy::BashPolicy>,
     /// Lifecycle event hooks (ADR-0025). Installed once at startup from the
     /// `[hooks]` config by the CLI; empty by default (subagents, tests). Read
     /// at the PreToolUse / PostToolUse / Stop insertion points. Held as a
@@ -534,7 +534,7 @@ pub(crate) struct RoundState {
     /// `ReadLoopGuard`) and tool-call data for the ReAct turn just dispatched.
     /// It lives and dies with this `RoundState`, so loop
     /// state never crosses user rounds.
-    pub(crate) guards: crate::guard::RoundGuardState,
+    pub(crate) guards: nuo_guardrails::guard::RoundGuardState,
     /// Exact tool calls that reached a terminal result in this round. The set
     /// becomes an idempotency fence only after a transient provider retry;
     /// normal ReAct turns retain their existing repeat-call behavior.
@@ -554,10 +554,10 @@ impl RoundState {
     /// even when disabled (it just never fires). It lives and dies with this
     /// `RoundState`, so loop state never crosses user rounds.
     fn guards_default(
-        config: nuo_protocol::TrajectoryGuardConfig,
-    ) -> crate::guard::RoundGuardState {
-        crate::guard::RoundGuardState::new()
-            .with_trajectory(crate::trajectory_guard::TrajectoryLoopGuard::new(config))
+        config: nuo_tool::TrajectoryGuardConfig,
+    ) -> nuo_guardrails::guard::RoundGuardState {
+        nuo_guardrails::guard::RoundGuardState::new()
+            .with_trajectory(nuo_guardrails::trajectory_guard::TrajectoryLoopGuard::new(config))
     }
 
     pub(crate) fn remember_completed_tool(&mut self, call: &ToolCall) {
@@ -654,7 +654,7 @@ impl StreamingRoundState {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_token_usage_for_test(&mut self, usage: nuo_protocol::TokenUsage) {
+    pub(crate) fn set_token_usage_for_test(&mut self, usage: nuo_tool::TokenUsage) {
         self.state.token_usage = usage;
     }
 }
@@ -764,7 +764,7 @@ struct RequestAccountingGuard {
     observed_completion_tokens: i64,
     /// Incremental BPE counter for streamed deltas (exact across delta
     /// boundaries; a per-delta sum would over-count merges that span them).
-    output_counter: nuo_protocol::tokenizer::StreamingCounter,
+    output_counter: nuo_tool::tokenizer::StreamingCounter,
     observed_usage: Option<TokenUsage>,
     error: Option<String>,
     settled: bool,
@@ -833,7 +833,7 @@ impl RequestAccountingGuard {
             cancel: cancel.clone(),
             projected_prompt_tokens: projected_prompt_tokens as i64,
             observed_completion_tokens: 0,
-            output_counter: nuo_protocol::tokenizer::StreamingCounter::new(),
+            output_counter: nuo_tool::tokenizer::StreamingCounter::new(),
             observed_usage: None,
             error: None,
             settled: false,
@@ -1030,7 +1030,7 @@ impl RequestAccountingGuard {
             tail_us: span(self.last_output_at, self.stream_end_at),
             e2e_us: offset(self.validated_at),
             streamed_output_tokens: self.observed_completion_tokens.max(0) as u64,
-            first_output_tokens: nuo_protocol::count_tokens(&self.first_output_fragment) as u64,
+            first_output_tokens: nuo_tool::count_tokens(&self.first_output_fragment) as u64,
             output_events: self.output_events,
             timing_source: nuo_protocol::PerformanceTimingSource::ClientObserved,
             stream_token_source: nuo_protocol::StreamTokenSource::Cl100k,
@@ -1300,8 +1300,8 @@ pub(crate) use state::strip_images;
 
 /// Render a missing runtime grant without conflating it with project asset
 /// trust. This is returned when no interactive approver is available.
-fn permission_required_output(request: &nuo_protocol::PermissionRequest) -> ToolOutput {
-    use nuo_protocol::ToolPermissionPayload;
+fn permission_required_output(request: &nuo_tool::PermissionRequest) -> ToolOutput {
+    use nuo_tool::ToolPermissionPayload;
 
     let operation = match request.submission.as_ref().map(|s| &s.payload) {
         Some(ToolPermissionPayload::Command { command, .. }) => {
@@ -1395,7 +1395,7 @@ pub(crate) fn remove_empty_assistant_messages(messages: &mut Vec<Message>) {
 // the concrete Agent type.
 
 #[async_trait::async_trait]
-impl crate::permission_policy::PermissionContext for Agent {
+impl nuo_guardrails::permission_policy::PermissionContext for Agent {
     async fn check_pre_tool_use(
         &self,
         tool_name: &str,
@@ -1420,7 +1420,7 @@ impl crate::permission_policy::PermissionContext for Agent {
         &self,
         command: &str,
         _arguments: &str,
-    ) -> crate::permission_policy::BashVerdict {
+    ) -> nuo_guardrails::permission_policy::BashVerdict {
         // The single source of truth for the chain's BashPolicy gate. Returns
         // a disjoint Allow / Confirm / Deny verdict so the gate can decide
         // everything (including the interactive confirm) without the caller
@@ -1431,25 +1431,25 @@ impl crate::permission_policy::PermissionContext for Agent {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         let Some(decision) = policy.evaluate(command) else {
-            return crate::permission_policy::BashVerdict::Allow;
+            return nuo_guardrails::permission_policy::BashVerdict::Allow;
         };
         match decision.action {
-            crate::bash_policy::BashPolicyAction::Deny => {
+            nuo_guardrails::bash_policy::BashPolicyAction::Deny => {
                 tracing::warn!(command = %command, rule = %decision.name, "bash command blocked by policy");
-                crate::permission_policy::BashVerdict::Deny {
+                nuo_guardrails::permission_policy::BashVerdict::Deny {
                     output: decision.blocked_output(command),
                 }
             }
-            crate::bash_policy::BashPolicyAction::Confirm => {
-                crate::permission_policy::BashVerdict::Confirm { match_: decision }
+            nuo_guardrails::bash_policy::BashPolicyAction::Confirm => {
+                nuo_guardrails::permission_policy::BashVerdict::Confirm { match_: decision }
             }
-            crate::bash_policy::BashPolicyAction::Allow => {
-                crate::permission_policy::BashVerdict::Allow
+            nuo_guardrails::bash_policy::BashPolicyAction::Allow => {
+                nuo_guardrails::permission_policy::BashVerdict::Allow
             }
         }
     }
 
-    fn permissions(&self) -> &crate::permission_store::PermissionStore {
+    fn permissions(&self) -> &nuo_guardrails::permission_store::PermissionStore {
         &self.permissions
     }
 }

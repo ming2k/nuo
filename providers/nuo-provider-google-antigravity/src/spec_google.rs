@@ -1,9 +1,10 @@
 //! The built-in `google` provider preset: the native Google API, one key.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::*;
 
 /// The Gemini model ids the built-in `google` provider serves (native Google
@@ -11,11 +12,11 @@ use nuo_provider::*;
 /// canonical text-generation family that Google plus common relays/中转站
 /// advertise — image/embedding/video/audio-only models are excluded since an
 /// agent only consumes the `generateContent` text surface.
-pub use nuo_provider::model_providers::GOOGLE_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::GOOGLE_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_provider::model::BaselineModels`]).
+/// [`nuo_protocol::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Google (native)
     // Native Google REST surface (`generateContent`/`streamGenerateContent`).
@@ -32,7 +33,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -44,7 +45,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -56,7 +57,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -68,7 +69,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -80,7 +81,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -92,7 +93,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -104,7 +105,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -117,7 +118,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -129,7 +130,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -141,7 +142,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_BUDGET,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -153,7 +154,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_BUDGET,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -165,7 +166,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -177,17 +178,17 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
-    nuo_provider::PromptCacheSpec {
-        modes: &[nuo_provider::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_protocol::PromptCacheSpec {
+    nuo_protocol::PromptCacheSpec {
+        modes: &[nuo_protocol::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -201,7 +202,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::OpenAiChatCompletions,
@@ -224,7 +225,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Google),
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
 };
 
 #[cfg(test)]
@@ -253,7 +254,7 @@ mod tests {
             "https://generativelanguage.googleapis.com/v1beta/interactions"
         );
 
-        let argon = nuo_provider::model::resolve("gemini-4-argon");
+        let argon = nuo_protocol::model::resolve("gemini-4-argon");
         assert_eq!(argon.id, "gemini-4-argon");
         assert_eq!(argon.context_window, 1_000_000);
         assert_eq!(argon.protocol, WireProtocol::GoogleGenerateContent);
@@ -261,7 +262,7 @@ mod tests {
         assert!(argon.thinking.reasons());
         assert_eq!(argon.effort_levels, effort_ladders::GEMINI_LEVEL);
 
-        let flash38 = nuo_provider::model::resolve("gemini-3.8-flash");
+        let flash38 = nuo_protocol::model::resolve("gemini-3.8-flash");
         assert_eq!(flash38.id, "gemini-3.8-flash");
         assert_eq!(flash38.context_window, 1_000_000);
         assert_eq!(flash38.protocol, WireProtocol::GoogleGenerateContent);

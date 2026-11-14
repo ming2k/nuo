@@ -25,7 +25,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::Tool;
+use nuo_tool::Tool;
 
 /// A destination for a named source's dynamically changing tool snapshot.
 ///

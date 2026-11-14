@@ -1,5 +1,6 @@
 use super::*;
-use crate::{ScopeTarget, ToolAccesses};
+use nuo_tool::{ScopeTarget, ToolAccesses};
+
 use async_trait::async_trait;
 use std::path::PathBuf;
 
@@ -131,7 +132,7 @@ fn safe_targets_ignores_read_only_tools() {
 
 #[test]
 fn collect_toolset_includes_registered_and_skips_declined() {
-    let ctx = ToolContextBuilder::new().build();
+    let ctx = ToolFactoryContextBuilder::new().build();
     let toolset = collect_toolset(&ctx);
     let names: Vec<&str> = toolset
         .capability_names()
@@ -334,12 +335,12 @@ fn model(vision: bool) -> Model {
 #[test]
 fn tool_scope_intersect_is_a_meet() {
     // All is the identity.
-    let only = ToolScope::only(["a", "b"]);
-    assert_eq!(ToolScope::All.intersect(&only), only);
-    assert_eq!(only.intersect(&ToolScope::All), only);
+    let only = CapabilityScope::only(["a", "b"]);
+    assert_eq!(CapabilityScope::All.intersect(&only), only);
+    assert_eq!(only.intersect(&CapabilityScope::All), only);
     // Two Only sets intersect.
-    let other = ToolScope::only(["b", "c"]);
-    assert_eq!(only.intersect(&other), ToolScope::only(["b"]));
+    let other = CapabilityScope::only(["b", "c"]);
+    assert_eq!(only.intersect(&other), CapabilityScope::only(["b"]));
     // Commutative.
     assert_eq!(only.intersect(&other), other.intersect(&only));
 }
@@ -466,7 +467,7 @@ fn resolve_for_model_cannot_be_overridden_into_an_unusable_variant() {
 
 #[test]
 fn context_provides_and_looks_up_by_type() {
-    let mut builder = ToolContextBuilder::new();
+    let mut builder = ToolFactoryContextBuilder::new();
     builder.provide(42_u32).provide(String::from("hi"));
     let ctx = builder.build();
     assert_eq!(ctx.get::<u32>(), Some(&42));
@@ -476,7 +477,7 @@ fn context_provides_and_looks_up_by_type() {
 
 #[test]
 fn shared_clones_an_arc_out() {
-    let mut builder = ToolContextBuilder::new();
+    let mut builder = ToolFactoryContextBuilder::new();
     builder.provide(Arc::new(7_i32));
     let ctx = builder.build();
     let handle: Arc<i32> = ctx.shared::<i32>().unwrap();
@@ -523,7 +524,7 @@ fn tool_pool_declaration_and_resolution() {
     let decl = ToolDeclaration::new(
         "code_analyst",
         crate::AgentKind::Root,
-        ToolScope::only(["read", "search_text"]),
+        CapabilityScope::only(["read", "search_text"]),
     );
     pool.declare(decl.clone());
 

@@ -7,6 +7,7 @@ license.workspace = true
 description = "Pure, zero-IO domain presentation and agent views for Nuo"
 
 [dependencies]
+nuo-tool = { workspace = true }
 chrono = { workspace = true }
 nuo-ui-primitives = { workspace = true }
 nuo-protocol = { workspace = true }

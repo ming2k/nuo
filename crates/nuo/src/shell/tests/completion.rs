@@ -209,7 +209,7 @@ fn resolved_slash_len_covers_only_the_command_token_not_args() {
 #[test]
 fn resolved_slash_len_matches_custom_command() {
     let customs = vec![("/deploy".to_string(), "Deploy the app".to_string())];
-    let catalog = nuo_server::startup::command_catalog(&customs);
+    let catalog = nuo_server::composition::startup::command_catalog(&customs);
     assert_eq!(
         resolved_slash_command_len("/deploy prod", &catalog),
         Some(7)
@@ -242,7 +242,7 @@ fn resolved_slash_len_rejects_partial_prefix_and_unknown_commands() {
 /// `/unconfined`), and carried a `/setup` alias the server could not dispatch at
 /// all. Nothing could catch that: the two lists had no shared owner.
 ///
-/// There is one owner now (`nuo_server::startup::command_catalog`). This pins
+/// There is one owner now (`nuo_server::composition::startup::command_catalog`). This pins
 /// the consequence in both directions — every advertised name is admitted, and
 /// every admitted command is advertised.
 #[test]
@@ -254,21 +254,21 @@ fn completion_catalog_matches_the_dispatchers_vocabulary() {
     );
     for spec in &catalog.commands {
         assert!(
-            nuo_server::startup::BuiltinCmd::from_slash(&spec.name).is_some(),
+            nuo_server::composition::startup::BuiltinCmd::from_slash(&spec.name).is_some(),
             "client advertises {} but the dispatcher does not admit it",
             spec.name
         );
     }
     for alias in &catalog.aliases {
         assert!(
-            nuo_server::startup::BuiltinCmd::from_slash(&alias.name).is_some(),
+            nuo_server::composition::startup::BuiltinCmd::from_slash(&alias.name).is_some(),
             "client advertises alias {} that the dispatcher does not resolve",
             alias.name
         );
     }
     // Every executable built-in is completable: a command you cannot discover
     // from the menu does not exist for practical purposes.
-    for (name, _) in nuo_server::startup::BuiltinCmd::ALL {
+    for (name, _) in nuo_server::composition::startup::BuiltinCmd::ALL {
         assert!(
             catalog.recognizes(name),
             "built-in {name} is missing from the completion catalog"
@@ -621,13 +621,13 @@ fn two_stage_skill_completion_descends_and_terminates() {
     assert_eq!(app.input, "@skill:");
 
     // Simulate backend skill arrival for Stage 2
-    let item = nuo_protocol::InputCompletion {
+    let item = nuo_tool::InputCompletion {
         label: "@skill:rust-expert".to_string(),
         description: "Expert Rust developer".to_string(),
         insert_text: "@skill:rust-expert ".to_string(),
         replace_start: 0,
         replace_end: 7,
-        kind: nuo_protocol::InputCompletionKind::PathExplicit,
+        kind: nuo_tool::InputCompletionKind::PathExplicit,
         alias_of: None,
         command: None,
     };
@@ -665,13 +665,13 @@ fn bare_at_query_does_not_pass_through_to_stage2_content() {
     // Stage-2 content IS reachable — but only after the namespace is committed.
     app.input = "@skill:wright".to_string();
     app.cursor_position = app.input.chars().count();
-    let item = nuo_protocol::InputCompletion {
+    let item = nuo_tool::InputCompletion {
         label: "@skill:wright-plan-authoring".to_string(),
         description: "Author and write wright plan.toml manifests".to_string(),
         insert_text: "@skill:wright-plan-authoring ".to_string(),
         replace_start: 0,
         replace_end: app.input.chars().count(),
-        kind: nuo_protocol::InputCompletionKind::PathExplicit,
+        kind: nuo_tool::InputCompletionKind::PathExplicit,
         alias_of: None,
         command: None,
     };
@@ -1566,13 +1566,13 @@ fn adr0162_swr_retains_backend_completions_during_path_mention_typing() {
     app.cursor_position = app.input.len();
 
     // Simulate backend response arriving for @src/
-    let item = nuo_protocol::InputCompletion {
+    let item = nuo_tool::InputCompletion {
         label: "src/main.rs".to_string(),
         description: "main entrypoint".to_string(),
         insert_text: "src/main.rs".to_string(),
         replace_start: 8,
         replace_end: 13,
-        kind: nuo_protocol::InputCompletionKind::PathFile,
+        kind: nuo_tool::InputCompletionKind::PathFile,
         alias_of: None,
         command: None,
     };
@@ -1741,7 +1741,7 @@ fn mid_paragraph_mention_edit_offsets_are_scalar_indices() {
     let caret = app.input.find(" 然后再继续").expect("suffix present");
     app.cursor_position = caret;
 
-    let wire_items = nuo_server::input_completion::complete_for_frontend_test(
+    let wire_items = nuo_server::runtime::input_completion::complete_for_frontend_test(
         app.command_catalog.clone(),
         app.cwd.clone(),
         &app.input,

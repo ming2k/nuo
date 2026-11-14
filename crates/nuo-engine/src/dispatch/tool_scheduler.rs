@@ -55,7 +55,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::FutureExt;
-use nuo_protocol::ToolAccesses;
+use nuo_tool::ToolAccesses;
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;

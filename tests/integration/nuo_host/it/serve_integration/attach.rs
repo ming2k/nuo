@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo::registry::ThreadRegistry;
-use nuo::serve::{self, AttachAction, Wire};
+use nuo::runtime::registry::ThreadRegistry;
+use nuo_server::transport::serve::{self, AttachAction, Wire};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentRequest, AgentResponse, RoundEvent};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -15,12 +15,12 @@ use super::helpers::{host_with_project, prehosted, prehosted_with_catalog};
 async fn completion_catalog_and_edits_round_trip_over_websocket() {
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(ThreadSession::for_path(tmp.path().join("session.json")));
-    let command = nuo_protocol::CommandSpec {
+    let command = nuo_tool::CommandSpec {
         name: "/models".into(),
         summary: "Choose a model".into(),
         ..Default::default()
     };
-    let catalog = nuo_protocol::CommandCatalog {
+    let catalog = nuo_tool::CommandCatalog {
         commands: vec![command.clone()],
         ..Default::default()
     };
@@ -112,13 +112,13 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
         } if text == "/mod"
     ));
 
-    let item = nuo_protocol::ComposerCompletion {
+    let item = nuo_tool::ComposerCompletion {
         label: "/models".into(),
         description: "Choose a model".into(),
         insert_text: "/models ".into(),
         replace_start: 0,
         replace_end: 4,
-        kind: nuo_protocol::ComposerCompletionKind::Slash,
+        kind: nuo_tool::ComposerCompletionKind::Slash,
         alias_of: None,
         command: Some(command),
     };
@@ -335,17 +335,17 @@ async fn attach_receives_restored_todos_after_welcome() {
 
     // Give the session content so its file persists, then a non-empty list.
     session
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "hello",
         )])
         .await
         .unwrap();
-    let mut todos = nuo_protocol::TodoList::new();
-    todos.items.push(nuo_protocol::TodoItem {
-        id: nuo_protocol::TodoId(1),
+    let mut todos = nuo_tool::TodoList::new();
+    todos.items.push(nuo_tool::TodoItem {
+        id: nuo_tool::TodoId(1),
         content: "restored task".to_string(),
-        status: nuo_protocol::TodoStatus::InProgress,
+        status: nuo_tool::TodoStatus::InProgress,
         created_at: 1,
         updated_at: 1,
     });

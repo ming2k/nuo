@@ -7,8 +7,9 @@
 //! back. Callers see one capability value ([`input_supervision`]) and one opaque
 //! handle ([`SupervisedChild`]); they never see a pty, a `pre_exec` hook, or
 //! `/proc`..
-pub mod job;
-pub use job::*;
+// Background-job contracts are protocol-owned zero-I/O data; the host
+// supplies the process supervision that implements them.
+pub use nuo_protocol::job::*;
 
 use std::io;
 

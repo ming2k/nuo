@@ -7,7 +7,7 @@
 //! module — no central list to keep in sync.
 //!
 //! Tools that need runtime state (config blobs, shared registries) pull it out
-//! of an opaque [`ToolContext`]: a type-keyed service map. This keeps
+//! of an opaque [`ToolFactoryContext`]: a type-keyed service map. This keeps
 //! `nuo-protocol` free of dependencies on the concrete state types, which live
 //! in higher crates (e.g. `SkillRegistry` in `nuo-skills`). The map is the
 //! only seam.
@@ -18,7 +18,9 @@
 //! dependency is created; the registry collects everything that is
 //! self-contained.
 use crate::model::Model;
-use crate::{BuiltinTool, Tool, VariantSelection, empty_variant_selection};
+use crate::{VariantSelection, empty_variant_selection};
+use nuo_tool::{BuiltinTool, Tool};
+
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
@@ -28,14 +30,14 @@ use std::sync::Arc;
 /// is intentionally no typed list of fields: that would force `nuo-protocol` to
 /// depend on every higher crate's state types. The map is the seam.
 ///
-/// Cheaply [`Clone`](self::ToolContext#method.clone)-able (shared via `Arc`);
-/// build one with [`ToolContextBuilder`] and freeze it.
+/// Cheaply [`Clone`](self::ToolFactoryContext#method.clone)-able (shared via `Arc`);
+/// build one with [`ToolFactoryContextBuilder`] and freeze it.
 #[derive(Clone, Default)]
-pub struct ToolContext {
+pub struct ToolFactoryContext {
     services: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
 }
 
-impl ToolContext {
+impl ToolFactoryContext {
     /// Look up a value by its exact type. `None` if no service of type `T` was
     /// provided.
     pub fn get<T: Any + Send + Sync>(&self) -> Option<&T> {
@@ -71,7 +73,7 @@ impl ToolContext {
 #[derive(Debug, Clone)]
 pub struct WorkspaceRoot(pub std::path::PathBuf);
 
-impl ToolContext {
+impl ToolFactoryContext {
     /// The session's workspace root, when the assembling bootstrap provided
     /// one. `None` in contexts that predate or decline the service (tests,
     /// side sessions); callers treat that as "use the process cwd".
@@ -158,14 +160,14 @@ impl WorkspaceRoots {
     }
 }
 
-/// Builder for [`ToolContext`]. Provide services by concrete type, then
+/// Builder for [`ToolFactoryContext`]. Provide services by concrete type, then
 /// [`build`](Self::build) to freeze an immutable, cheaply cloneable context.
 #[derive(Default)]
-pub struct ToolContextBuilder {
+pub struct ToolFactoryContextBuilder {
     services: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 
-impl ToolContextBuilder {
+impl ToolFactoryContextBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -178,20 +180,20 @@ impl ToolContextBuilder {
     }
 
     /// Freeze the context.
-    pub fn build(self) -> ToolContext {
-        ToolContext {
+    pub fn build(self) -> ToolFactoryContext {
+        ToolFactoryContext {
             services: Arc::new(self.services),
         }
     }
 }
 
-/// Build step that turns a [`ToolContext`] into one tool instance. Each
+/// Build step that turns a [`ToolFactoryContext`] into one tool instance. Each
 /// concrete tool registers its own factory (a private unit struct) via
 /// [`register_tool!`](crate::register_tool!). Returning `None` lets a factory
 /// decline (e.g. a required service is absent or a feature is off); the tool
 /// then simply does not appear in the assembled set.
 pub trait ToolFactory: Send + Sync {
-    fn build(&self, ctx: &ToolContext) -> Option<Arc<dyn Tool>>;
+    fn build(&self, ctx: &ToolFactoryContext) -> Option<Arc<dyn Tool>>;
 }
 
 /// An entry in the global, compile-time tool registry. Collected by
@@ -214,7 +216,7 @@ inventory::collect!(ToolRegistration);
 /// it loudly at its source in debug/test builds via
 /// `debug_assert_unique_identities`, where which-registration-wins would
 /// otherwise depend on non-deterministic `inventory` link order.
-pub fn collect_toolset(ctx: &ToolContext) -> ToolSet {
+pub fn collect_toolset(ctx: &ToolFactoryContext) -> ToolSet {
     let mut tools = Vec::new();
     for entry in inventory::iter::<ToolRegistration> {
         if let Some(tool) = entry.factory.build(ctx) {
@@ -291,7 +293,7 @@ fn debug_assert_safe_targets(tools: &[Arc<dyn Tool>]) {
             }
             let target = tool.scope_target(sample);
             assert!(
-                !matches!(target, crate::ScopeTarget::Unspecified),
+                !matches!(target, nuo_tool::ScopeTarget::Unspecified),
                 "tool {:?} declares a mutating access (writes) for input {:?} but \
                  returns ScopeTarget::Unspecified — the write would bypass the \
                  bash-policy and permission broker. Override `scope_target` to \
@@ -340,7 +342,7 @@ impl Capability {
     }
 
     /// Whether `scope` admits this capability either by its primary name or by any variant's alias.
-    pub fn admits(&self, scope: &ToolScope) -> bool {
+    pub fn admits(&self, scope: &CapabilityScope) -> bool {
         if scope.admits(self.name()) {
             return true;
         }
@@ -574,7 +576,7 @@ fn overlay_variants(high: &VariantSelection, low: &VariantSelection) -> VariantS
 /// the scope is deliberately blind to *which variant* is used (that is the
 /// override axis).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum ToolScope {
+pub enum CapabilityScope {
     /// Admit every capability in the pool. The principal agent's default, and a
     /// model's default (a model restricts by *capability requirement*, e.g.
     /// vision, not by capability *name*).
@@ -586,14 +588,14 @@ pub enum ToolScope {
     Only(BTreeSet<String>),
 }
 
-impl ToolScope {
+impl CapabilityScope {
     /// Build an `Only` scope from a list of capability names.
     pub fn only<I, S>(names: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        ToolScope::Only(names.into_iter().map(Into::into).collect())
+        CapabilityScope::Only(names.into_iter().map(Into::into).collect())
     }
 
     /// Build a scope from an allowlist of capability names or patterns.
@@ -604,17 +606,17 @@ impl ToolScope {
     {
         let set: BTreeSet<String> = patterns.into_iter().map(Into::into).collect();
         if set.contains("*") {
-            ToolScope::All
+            CapabilityScope::All
         } else {
-            ToolScope::Only(set)
+            CapabilityScope::Only(set)
         }
     }
 
     /// Whether this scope admits the capability `name`.
     pub fn admits(&self, name: &str) -> bool {
         match self {
-            ToolScope::All => true,
-            ToolScope::Only(set) => set.iter().any(|pat| {
+            CapabilityScope::All => true,
+            CapabilityScope::Only(set) => set.iter().any(|pat| {
                 if pat == "*" {
                     true
                 } else if let Some(prefix) = pat.strip_suffix('*') {
@@ -631,7 +633,7 @@ impl ToolScope {
     where
         I: IntoIterator<Item = BuiltinTool>,
     {
-        ToolScope::Only(tools.into_iter().map(|t| t.as_str().to_string()).collect())
+        CapabilityScope::Only(tools.into_iter().map(|t| t.as_str().to_string()).collect())
     }
 
     /// Whether this scope admits a typed `BuiltinTool` (checking both canonical name and aliases).
@@ -647,18 +649,18 @@ impl ToolScope {
     /// The *meet* of two scopes — the set of capabilities **both** admit.
     /// `All` is the identity (`All ∩ x == x`); two `Only` sets intersect.
     /// Commutative and associative, so composition order is irrelevant.
-    pub fn intersect(&self, other: &ToolScope) -> ToolScope {
+    pub fn intersect(&self, other: &CapabilityScope) -> CapabilityScope {
         match (self, other) {
-            (ToolScope::All, other) => other.clone(),
-            (this, ToolScope::All) => this.clone(),
-            (ToolScope::Only(a), ToolScope::Only(b)) => {
-                ToolScope::Only(a.intersection(b).cloned().collect())
+            (CapabilityScope::All, other) => other.clone(),
+            (this, CapabilityScope::All) => this.clone(),
+            (CapabilityScope::Only(a), CapabilityScope::Only(b)) => {
+                CapabilityScope::Only(a.intersection(b).cloned().collect())
             }
         }
     }
 }
 
-/// One party's ask of the [`ToolSet`] pool: a [`ToolScope`] (which capabilities)
+/// One party's ask of the [`ToolSet`] pool: a [`CapabilityScope`] (which capabilities)
 /// plus a [`VariantSelection`] (which implementation of each). Both the agent
 /// identity (principal or subagent role) and the active model express themselves
 /// as a `ToolSelection`; [`ToolSet::resolve_for`] composes the two — scope by
@@ -667,7 +669,7 @@ impl ToolScope {
 #[derive(Debug, Clone, Default)]
 pub struct ToolSelection {
     /// Which capabilities this party admits.
-    pub scope: ToolScope,
+    pub scope: CapabilityScope,
     /// This party's variant preference per capability. Empty means "default
     /// variant"; entries are honoured only when the chosen variant is usable on
     /// the active model.
@@ -688,7 +690,7 @@ impl ToolSelection {
         S: Into<String>,
     {
         Self {
-            scope: ToolScope::from_allowlist(patterns),
+            scope: CapabilityScope::from_allowlist(patterns),
             variants: VariantSelection::new(),
         }
     }
@@ -700,7 +702,7 @@ impl ToolSelection {
         S: Into<String>,
     {
         Self {
-            scope: ToolScope::only(names),
+            scope: CapabilityScope::only(names),
             variants: VariantSelection::new(),
         }
     }
@@ -711,7 +713,7 @@ impl ToolSelection {
         I: IntoIterator<Item = BuiltinTool>,
     {
         Self {
-            scope: ToolScope::from_builtin(tools),
+            scope: CapabilityScope::from_builtin(tools),
             variants: VariantSelection::new(),
         }
     }
@@ -731,11 +733,11 @@ pub struct ToolDeclaration {
     /// Archetype/kind of the agent making the declaration.
     pub kind: crate::AgentKind,
     /// The capability name scope requested.
-    pub scope: ToolScope,
+    pub scope: CapabilityScope,
 }
 
 impl ToolDeclaration {
-    pub fn new(agent_name: impl Into<String>, kind: crate::AgentKind, scope: ToolScope) -> Self {
+    pub fn new(agent_name: impl Into<String>, kind: crate::AgentKind, scope: CapabilityScope) -> Self {
         Self {
             agent_name: agent_name.into(),
             kind,
@@ -894,9 +896,9 @@ macro_rules! register_tool {
         impl $crate::ToolFactory for $id {
             fn build(
                 &self,
-                $ctx: &$crate::tool_registry::ToolContext,
-            ) -> Option<std::sync::Arc<dyn $crate::Tool>> {
-                let tool: std::sync::Arc<dyn $crate::Tool> = std::sync::Arc::new($build);
+                $ctx: &$crate::tool_registry::ToolFactoryContext,
+            ) -> Option<std::sync::Arc<dyn ::nuo_tool::Tool>> {
+                let tool: std::sync::Arc<dyn ::nuo_tool::Tool> = std::sync::Arc::new($build);
                 Some(tool)
             }
         }
@@ -907,9 +909,9 @@ macro_rules! register_tool {
         impl $crate::ToolFactory for $id {
             fn build(
                 &self,
-                _ctx: &$crate::tool_registry::ToolContext,
-            ) -> Option<std::sync::Arc<dyn $crate::Tool>> {
-                let tool: std::sync::Arc<dyn $crate::Tool> = std::sync::Arc::new($build);
+                _ctx: &$crate::tool_registry::ToolFactoryContext,
+            ) -> Option<std::sync::Arc<dyn ::nuo_tool::Tool>> {
+                let tool: std::sync::Arc<dyn ::nuo_tool::Tool> = std::sync::Arc::new($build);
                 Some(tool)
             }
         }

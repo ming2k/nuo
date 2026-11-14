@@ -110,10 +110,10 @@ a `thinkingLevel` outside `LOW`/`MEDIUM`/`HIGH` is a 400.";
 #[test]
 fn a_content_free_400_reaches_the_transcript_with_its_evidence() {
     use crate::model::document::{NoticeSeverity, TranscriptMessage};
-    use nuo_provider::ProviderErrorKind;
+    use nuo_protocol::ProviderErrorKind;
 
     // 1. The upstream refusal, verbatim — this is all Google says.
-    let upstream = nuo_provider::ProviderError::new(
+    let upstream = nuo_protocol::ProviderError::new(
         "Google",
         ProviderErrorKind::InvalidRequest,
         "Google HTTP 400 Bad Request: Request contains an invalid argument.",
@@ -185,9 +185,9 @@ fn a_content_free_400_reaches_the_transcript_with_its_evidence() {
 fn a_replayed_signature_becomes_visible_evidence() {
     use crate::model::document::{NoticeSeverity, TranscriptMessage};
 
-    let upstream = nuo_provider::ProviderError::new(
+    let upstream = nuo_protocol::ProviderError::new(
         "Google",
-        nuo_provider::ProviderErrorKind::InvalidRequest,
+        nuo_protocol::ProviderErrorKind::InvalidRequest,
         "Google HTTP 400 Bad Request: Corrupted thought signature.",
     )
     .with_status(400);

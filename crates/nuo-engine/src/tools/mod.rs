@@ -17,7 +17,11 @@ pub use ask_user::AskUserTool;
 pub use recall_memory::{RecallMemoryService, RecallMemoryTool};
 pub use todo::{TodoTool, TodoToolContext};
 
+#[cfg(test)]
 pub use nuo_tool_ast::*;
+#[cfg(test)]
 pub use nuo_tool_exec::*;
+#[cfg(test)]
 pub use nuo_tool_fs::*;
+#[cfg(test)]
 pub use nuo_tool_web::*;

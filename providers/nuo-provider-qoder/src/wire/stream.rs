@@ -1,6 +1,6 @@
 //! Qoder's SSE stream frame decoder and HTTP envelope unwrapper.
 
-use nuo_provider::ProviderError;
+use nuo_protocol::ProviderError;
 use nuo_provider::pipeline::{ProviderFault, StreamMetrics, StreamTransformer, TransformedFrame};
 use serde_json::Value;
 

@@ -1,7 +1,7 @@
 //! Provider HTTP response validation, error classification, and JSON decoding.
 
 use crate::transport::{HttpResponse, retry_after_ms};
-use crate::{ProviderError, ProviderErrorKind};
+use nuo_protocol::{ProviderError, ProviderErrorKind};
 
 /// Enforce HTTP success on provider response, classifying error kinds.
 pub async fn ensure_success(

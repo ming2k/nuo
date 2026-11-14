@@ -10,7 +10,7 @@
 //! - Auth: `Authorization: Bearer <oauth access_token>` plus the optional
 //!   `ChatGPT-Account-Id` header (applied by the provider, not here).
 //! - Body: `{model, instructions?, input, tools?, reasoning?, tool_choice?, stream}`.
-use nuo_provider::Effort;
+use nuo_protocol::Effort;
 use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 
@@ -48,16 +48,16 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_provider::InstructionText>,
+    pub instructions: Option<&'a nuo_protocol::InstructionText>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
-    pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
+    pub tool_specs: Option<&'a [nuo_protocol::capability::ToolSpec]>,
     pub reasoning_effort: Option<Effort>,
-    pub delivery: &'a nuo_provider::RequestDelivery,
+    pub delivery: &'a nuo_protocol::RequestDelivery,
     pub store: bool,
     /// Provider-specific behavior layered on the shared Responses wire. The
     /// builder never emits a field this dialect does not define (ADR-0083).
-    pub dialect: nuo_provider::OpenAiResponsesDialect,
-    pub cache_plan: &'a nuo_provider::ResolvedCachePolicy,
+    pub dialect: nuo_protocol::OpenAiResponsesDialect,
+    pub cache_plan: &'a nuo_protocol::ResolvedCachePolicy,
 }
 
 /// Build the Responses request body.
@@ -72,7 +72,7 @@ pub fn body(
     temporary_context: &[Message],
     input: BodyInput<'_>,
 ) -> Result<Value, RequestBuildError> {
-    let capabilities = nuo_provider::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_protocol::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(conversation, temporary_context, input, &capabilities)
 }
 
@@ -83,7 +83,7 @@ pub fn body_with_capabilities(
     conversation: &[Message],
     temporary_context: &[Message],
     input: BodyInput<'_>,
-    capabilities: &nuo_provider::ModelCapabilities,
+    capabilities: &nuo_protocol::ModelCapabilities,
 ) -> Result<Value, RequestBuildError> {
     let BodyInput {
         model: model_id,
@@ -133,7 +133,7 @@ pub fn body_with_capabilities(
                 instructions.push_str(&m.content);
             }
             _ => {
-                if let nuo_provider::RequestDelivery::RemoteContinuation { input_start, .. } =
+                if let nuo_protocol::RequestDelivery::RemoteContinuation { input_start, .. } =
                     delivery
                     && index < *input_start
                 {
@@ -172,10 +172,10 @@ pub fn body_with_capabilities(
             }
             Role::Assistant => {
                 let is_latest_assistant = Some(m_idx) == last_assistant_idx;
-                let is_deepseek = dialect == nuo_provider::OpenAiResponsesDialect::DeepSeek;
-                if matches!(delivery, nuo_provider::RequestDelivery::OpaqueReplay) {
+                let is_deepseek = dialect == nuo_protocol::OpenAiResponsesDialect::DeepSeek;
+                if matches!(delivery, nuo_protocol::RequestDelivery::OpaqueReplay) {
                     match m.provider_meta.as_ref().and_then(|meta| {
-                        meta.get(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                        meta.get(nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
                     }) {
                         Some(Value::Array(items)) if items.is_empty() => {
                             return Err(RequestBuildError::EmptyReplayArtifact);
@@ -343,7 +343,7 @@ pub fn body_with_capabilities(
         // `reasoning` items (DeepSeek) neither define this grant nor need it.
         body["include"] = json!(["reasoning.encrypted_content"]);
     }
-    if let nuo_provider::RequestDelivery::RemoteContinuation {
+    if let nuo_protocol::RequestDelivery::RemoteContinuation {
         continuation_id, ..
     } = delivery
     {
@@ -397,9 +397,9 @@ pub fn body_with_capabilities(
 /// calls; older calls are already settled inside the remote chain.
 fn remote_parent_call_ids(
     messages: &[Message],
-    delivery: &nuo_provider::RequestDelivery,
+    delivery: &nuo_protocol::RequestDelivery,
 ) -> Vec<String> {
-    let nuo_provider::RequestDelivery::RemoteContinuation { input_start, .. } = delivery else {
+    let nuo_protocol::RequestDelivery::RemoteContinuation { input_start, .. } = delivery else {
         return Vec::new();
     };
     let Some(anchor_index) = input_start.checked_sub(1) else {
@@ -459,7 +459,7 @@ fn valid_message(message: &Message) -> bool {
                 .map(|calls| calls.is_empty())
                 .unwrap_or(true)
             && !message.provider_meta.as_ref().is_some_and(|meta| {
-                meta.contains_key(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
+                meta.contains_key(nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
             });
         return !empty;
     }
@@ -489,7 +489,7 @@ fn message_item(role: &str, m: &Message, text_part: &str) -> Value {
 /// - Nested shape for DeepSeek Responses (`{type:"function", function:{name, description, parameters}}`)
 /// - Flattened shape for OpenAI Responses (`{type:"function", name, description, parameters, strict:false}`).
 fn format_tools(
-    tool_specs: Option<&[nuo_provider::capability::ToolSpec]>,
+    tool_specs: Option<&[nuo_protocol::capability::ToolSpec]>,
     nested: bool,
 ) -> Option<Value> {
     let specs = tool_specs?;

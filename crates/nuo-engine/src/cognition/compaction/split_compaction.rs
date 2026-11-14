@@ -5,9 +5,9 @@
 //! - Conservative token estimation per `ThreadFact`.
 //! - LLM structured summarization into dense context checkpoints.
 use super::file_tracker::FileOperations;
-use nuo_protocol::{
-    FactId, FactPayload, Message, ModelRequest, ObservationLifecycle, Provider, Role, ThreadFact,
-};
+use nuo_protocol::{FactId, FactPayload, ModelRequest, ObservationLifecycle, Provider, ThreadFact};
+use nuo_tool::{Message, Role};
+
 use std::sync::Arc;
 use tokio::time::Duration;
 

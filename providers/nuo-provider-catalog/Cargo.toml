@@ -9,6 +9,7 @@ description = "Live remote model-catalog discovery (CatalogDiscovery / CatalogPa
 # Dependency set derived from the imports of `nuo-provider-adapters/src/list_models.rs`
 # (see the `crate::...` sites called out below). `cargo check` is authoritative.
 [dependencies]
+nuo-protocol = { workspace = true }
 # The CatalogDiscovery port, RemoteCatalog* envelopes, CatalogShape, DiscoveredModel.
 nuo-provider = { workspace = true }
 # Http transport, NUO_USER_AGENT, Request builder, netune Method.

@@ -1,6 +1,6 @@
 use super::*;
 use crate::model::document::{Block, Inline, TranscriptMessage};
-use nuo_protocol::Role;
+use nuo_tool::Role;
 
 #[test]
 fn test_block_selection() {
@@ -113,7 +113,7 @@ fn expanded_tool_step_copy_uses_semantic_detail() {
     message.finish_tool_step(
         "call_1",
         "file contents",
-        nuo_protocol::ToolOutput::text("file contents"),
+        nuo_tool::ToolOutput::text("file contents"),
         42,
     );
     message.set_tool_step_expanded(true);

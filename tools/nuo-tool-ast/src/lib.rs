@@ -15,4 +15,3 @@ pub use syntax::{
     DECLARATION_KINDS, Declaration, SupportedLanguage, SyntaxPattern, extract_declarations,
     matches_name, parse_syntax_pattern,
 };
-

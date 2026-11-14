@@ -1,4 +1,6 @@
-use nuo_protocol::{FactPayload, Message, Role, ThreadFact};
+use nuo_protocol::{FactPayload, ThreadFact};
+use nuo_tool::{Message, Role};
+
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -107,7 +109,7 @@ impl FileOperations {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::ToolCall;
+    use nuo_tool::ToolCall;
 
     #[test]
     fn extracts_reads_and_modifications() {

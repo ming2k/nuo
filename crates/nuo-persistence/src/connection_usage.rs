@@ -13,7 +13,7 @@
 //!   connection re-opens on the exact model it was left at (not a re-derived
 //!   default).
 
-use crate::paths;
+use nuo_host::paths;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};

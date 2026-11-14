@@ -1,7 +1,7 @@
 //! Typed slash-command effects, records, and results.
 //!
 //! A `/` command is an *operation on the session*, not a conversation turn, and
-//! it is one of exactly two kinds ([`crate::CommandEffect`], ADR-0140):
+//! it is one of exactly two kinds ([`nuo_tool::CommandEffect`], ADR-0140):
 //!
 //! - an **act** (`Mutation`) that changes durable state. Only an act is recorded
 //!   in the durable **command ledger** ([`CommandRecord`]);
@@ -45,7 +45,7 @@ pub struct SearchHit {
 /// unstructured strings that a consumer would have to string-sniff.
 ///
 /// Serde uses the default externally-tagged representation, matching
-/// [`ToolOutput`](crate::ToolOutput) (ADR-0001) — the precedessor this type
+/// [`ToolOutput`](nuo_tool::ToolOutput) (ADR-0001) — the precedessor this type
 /// mirrors. The ledger (`session.commands`) persists these directly, so resume
 /// and `/export` reconstruct the full result without re-running the command.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -283,7 +283,7 @@ impl CommandResult {
 ///
 /// Persisted on the session as the `commands` ledger. The message stream is pure
 /// dialogue; these records are the **acts** that happened — a command declared
-/// [`crate::CommandEffect::Reading`] never reaches this ledger (ADR-0140), so every row
+/// [`nuo_tool::CommandEffect::Reading`] never reaches this ledger (ADR-0140), so every row
 /// here is a fact whose truth does not decay. `result: None` means the invocation
 /// is recorded but the reply could not be read back (an invocation-only row
 /// written by the dispatch completeness net).
@@ -309,7 +309,7 @@ impl CommandRecord {
             args: args.into(),
             status: CommandStatus::Success,
             result: None,
-            timestamp: crate::todos::unix_now().saturating_mul(1000),
+            timestamp: nuo_tool::todos::unix_now().saturating_mul(1000),
             duration_ms: None,
         }
     }

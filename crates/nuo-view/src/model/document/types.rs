@@ -168,7 +168,7 @@ pub enum MessageKind {
         arguments: String,
         output: Option<String>,
         /// Typed result (ADR-0001). `None` until the result lands, then a
-        /// [`nuo_protocol::ToolOutput`] carrying structured data (e.g. a shell
+        /// [`nuo_tool::ToolOutput`] carrying structured data (e.g. a shell
         /// exit code) alongside the legacy `output` text. Consumed by the
         /// renderer for data-level classification — `finish_tool_step` derives
         /// [`ToolStepStatus`] from `ToolOutput::is_error()` instead of
@@ -181,7 +181,7 @@ pub enum MessageKind {
         /// `Option<ToolOutput>` would dominate the `MessageKind` enum size
         /// (clippy::large_enum_variant). The indirection is transparent to
         /// callers — the surrounding accessors deref it as needed.
-        structured: Option<Box<nuo_protocol::ToolOutput>>,
+        structured: Option<Box<nuo_tool::ToolOutput>>,
         /// Explicit lifecycle. Kept in sync with `output` by the
         /// `finish_tool_step` / `cancel_tool_step` transitions below.
         status: ToolStepStatus,
@@ -220,7 +220,7 @@ pub enum MessageKind {
         /// steps, which never show a peek.
         activity: Option<String>,
         /// The subagent's provider-retry progress, from
-        /// [`nuo_protocol::SubagentEvent::RetryScheduled`].
+        /// [`nuo_tool::SubagentEvent::RetryScheduled`].
         ///
         /// A subagent's setback is real state with a real countdown, so it gets
         /// the same typed treatment as the principal round's
@@ -419,11 +419,11 @@ impl NoticeSeverity {
     }
 }
 
-pub fn notice_severity_from_core(severity: nuo_protocol::NoticeSeverity) -> NoticeSeverity {
+pub fn notice_severity_from_core(severity: nuo_tool::NoticeSeverity) -> NoticeSeverity {
     match severity {
-        nuo_protocol::NoticeSeverity::Info => NoticeSeverity::Info,
-        nuo_protocol::NoticeSeverity::Warning => NoticeSeverity::Warning,
-        nuo_protocol::NoticeSeverity::Error => NoticeSeverity::Error,
+        nuo_tool::NoticeSeverity::Info => NoticeSeverity::Info,
+        nuo_tool::NoticeSeverity::Warning => NoticeSeverity::Warning,
+        nuo_tool::NoticeSeverity::Error => NoticeSeverity::Error,
     }
 }
 
@@ -454,16 +454,16 @@ pub struct NoticeParts {
 /// predictable, architecture-agreed vocabulary for "what is speaking".
 /// Each kind maps 1:1 to its topic; frontends may localize these, the
 /// *kind* stays stable on the wire.
-pub fn notice_topic_label(kind: nuo_protocol::NoticeKind) -> &'static str {
+pub fn notice_topic_label(kind: nuo_tool::NoticeKind) -> &'static str {
     match kind {
-        nuo_protocol::NoticeKind::CheckpointReplay => "replay",
-        nuo_protocol::NoticeKind::NudgeInjected => "turn guard",
-        nuo_protocol::NoticeKind::ReviewAlert => "review",
-        nuo_protocol::NoticeKind::TrustChanged => "trust",
-        nuo_protocol::NoticeKind::TrustFailure => "trust error",
-        nuo_protocol::NoticeKind::CommandAck => "command",
-        nuo_protocol::NoticeKind::ImageInputWithheld => "images",
-        nuo_protocol::NoticeKind::Configuration => "config",
+        nuo_tool::NoticeKind::CheckpointReplay => "replay",
+        nuo_tool::NoticeKind::NudgeInjected => "turn guard",
+        nuo_tool::NoticeKind::ReviewAlert => "review",
+        nuo_tool::NoticeKind::TrustChanged => "trust",
+        nuo_tool::NoticeKind::TrustFailure => "trust error",
+        nuo_tool::NoticeKind::CommandAck => "command",
+        nuo_tool::NoticeKind::ImageInputWithheld => "images",
+        nuo_tool::NoticeKind::Configuration => "config",
     }
 }
 

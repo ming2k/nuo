@@ -7,6 +7,7 @@ license.workspace = true
 description = "Tencent CodeBuddy AI international provider channel for Nuo — www.codebuddy.ai ingress"
 
 [dependencies]
+nuo-protocol = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-provider-codebuddy-auth = { workspace = true }
 nuo-inference-wire = { workspace = true }

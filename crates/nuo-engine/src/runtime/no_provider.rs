@@ -107,7 +107,7 @@ mod tests {
             async fn stream_chat(
                 &self,
                 _request: &ModelRequest,
-                _telemetry: nuo_provider::TransportTelemetry,
+                _telemetry: nuo_protocol::TransportTelemetry,
             ) -> Result<
                 BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
                 nuo_protocol::ProviderError,

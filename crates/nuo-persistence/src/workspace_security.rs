@@ -6,7 +6,7 @@
 //! Trust is strictly content-bound via per-domain SHA-256 digests.
 //! If project assets change (e.g. via git pull/checkout), trust drops back to
 //! Quarantined until explicitly reviewed again.
-use crate::paths;
+use nuo_host::paths;
 use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use serde::{Deserialize, Serialize};
 

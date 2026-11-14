@@ -1,0 +1,2028 @@
+//! Per-command handlers for `AgentRequest::SlashCommand`.
+//!
+//! Each built-in lives in its own async fn so the dispatcher stays a thin
+//! router. One giant async fn accumulated a ~1.6 MiB debug-build stack frame
+//! (rustc does not reuse stack slots across a 1700-line state machine), which
+//! overflowed the server's 2 MiB Tokio worker stack on every slash command.
+use super::SlashEnv;
+use super::record::{
+    record_ack, record_command, record_command_with_duration, record_error, record_invocation,
+};
+use super::security_ops::{TrustRoute, reload_trusted_assets, trust_route};
+use super::session_ops::{
+    fork_current_session, fork_retired_aside, restore_session_runtime, start_fresh_session,
+    supersede_for_session_switch, switch_or_start_session_with_role,
+};
+use super::session_route::{
+    SessionRoute, parse_confinement_arg, parse_unattended_arg, session_route,
+};
+use crate::composition::agent_setup::active_context_window;
+use crate::handlers::handlers_chat::refuse_if_no_provider;
+use crate::product::project::init_nuo_config;
+use crate::handlers::slash_handler::SlashContext;
+use crate::composition::startup::BuiltinCmd;
+use crate::transport::thread_view::{build_sessions_overview, short_session_id};
+
+use crate::runtime::thread_driver::{compact_round_history, send_harness_state_for_session};
+use nuo_engine::cognition::skills::ListSkillsTool;
+use nuo_engine::orchestration::{
+    ContextProjectionSettings, RoundInput, round_response, send_compaction,
+};
+use nuo_protocol::{AgentResponse, CommandResult, LoopStatus, RoundEvent, TrustDomain};
+use nuo_tool::{Tool};
+
+
+pub(crate) async fn permissions(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        agent,
+        resp_tx,
+        session,
+        ..
+    } = env;
+    if parts.get(1) == Some(&"clear") {
+        agent.clear_allowed_tools();
+        record_ack(
+            session,
+            resp_tx,
+            name,
+            args,
+            "Always-allowed tool rules cleared.",
+        )
+        .await;
+    } else {
+        let allowed = agent.allowed_tools();
+        record_command(
+            session,
+            resp_tx,
+            name,
+            args,
+            CommandResult::PermissionList { allowed },
+        )
+        .await;
+    }
+}
+
+pub(crate) async fn unattended(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        agent,
+        resp_tx,
+        session,
+        ..
+    } = env;
+    let arg = parts.get(1).map(|s| s.to_lowercase()).unwrap_or_default();
+    let next = match parse_unattended_arg(&arg) {
+        Ok(next) => next,
+        Err(msg) => {
+            record_error(session, resp_tx, name, args, msg).await;
+            return;
+        }
+    };
+    // A bare `/unattended` (`None`) toggles the current state.
+    let enabled = next.unwrap_or_else(|| !agent.unattended());
+    agent.set_unattended(enabled);
+    if let Err(error) = session.set_unattended(enabled).await {
+        tracing::warn!(
+            error = %error,
+            "could not persist unattended posture; it will not survive a restart"
+        );
+    }
+    // The ack is a headline plus dimmed explanation lines (never a
+    // `•`-joined one-row squeeze); the command entry settles in place
+    // with this body, so the mode change owns its own durable row.
+    // The current posture is carried by the `UnattendedChanged` chip, not a
+    // second transcript entry.
+    let (title, detail) = if enabled {
+        (
+            "Unattended mode ON",
+            vec![
+                "Autonomous decision-making & tool execution enabled".to_string(),
+                "Ambiguities resolved self-reliantly without interruptions".to_string(),
+            ],
+        )
+    } else {
+        (
+            "Unattended mode OFF",
+            vec![
+                "Interactive confirmation prompts restored".to_string(),
+                "Questions and approval prompts are available".to_string(),
+            ],
+        )
+    };
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        CommandResult::Ack {
+            title: title.to_string(),
+            detail: Some(detail.clone()),
+        },
+    )
+    .await;
+    let _ = resp_tx.send(round_response(
+        &session.id().await,
+        RoundEvent::UnattendedChanged(enabled),
+    ));
+}
+
+pub(crate) async fn confinement(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        shared_confinement,
+        resp_tx,
+        session,
+        ..
+    } = env;
+    let arg = parts.get(1).map(|s| s.to_lowercase()).unwrap_or_default();
+    let next = match parse_confinement_arg(&arg) {
+        Ok(next) => next,
+        Err(msg) => {
+            record_error(session, resp_tx, name, args, msg).await;
+            return;
+        }
+    };
+    // A bare `/confinement` (`None`) toggles the current state.
+    let next_confined = next.unwrap_or_else(|| !shared_confinement.is_confined());
+    shared_confinement.set_confined(next_confined);
+
+    let (title, detail) = if next_confined {
+        (
+            "Workspace Confinement ON",
+            vec![
+                "File tools are confined to workspace root and temp paths".to_string(),
+                "Escapes outside admitted roots will be blocked".to_string(),
+            ],
+        )
+    } else {
+        (
+            "Workspace Confinement OFF (Unconfined File Access)",
+            vec![
+                "Tools may access and edit any file on the host system".to_string(),
+                "Constrained only by server OS user permissions".to_string(),
+            ],
+        )
+    };
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        CommandResult::Ack {
+            title: title.to_string(),
+            detail: Some(detail),
+        },
+    )
+    .await;
+    let _ = resp_tx.send(round_response(
+        &session.id().await,
+        RoundEvent::ConfinementChanged(next_confined),
+    ));
+}
+
+pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        resp_tx, session, ..
+    } = env;
+    // /role [id] [workspace] — switch the live agent role.
+    // Resolves the role or preset onto the live agent, applies the
+    // resulting profile (identity preamble, capability scope, extensions,
+    // runtime knobs, unattended posture), updates session workspace if applicable,
+    // and records the session metadata.
+    // With no argument, lists the available built-in and user roles.
+    let target = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
+    match target {
+        None => {
+            let roles_config = nuo_persistence::roles::RolesConfig::load_for_workspace(
+                session.workspace_root().as_deref(),
+            );
+            let mut lines = Vec::new();
+
+            let current = session
+                .active_role()
+                .await
+                .or_else(|| session.role())
+                .unwrap_or_else(|| "developer".to_string());
+            let ws_str = session
+                .workspace_root()
+                .map(|r| format!(" ({})", r.display()))
+                .unwrap_or_default();
+            lines.push(format!("Active role: `{current}`{ws_str}\n"));
+
+            lines.push("Available roles:".to_string());
+            lines.push("  Built-in roles:".to_string());
+            for preset in nuo_protocol::MainAgentRole::ALL {
+                lines.push(format!(
+                    "    • `{}` — {}",
+                    preset.as_str(),
+                    preset.description()
+                ));
+            }
+
+            if !roles_config.is_empty() {
+                lines.push(String::new());
+                lines.push("  User roles (~/.config/nuo/roles.toml):".to_string());
+                for (id, p) in &roles_config.roles {
+                    let desc = p.description.as_deref().unwrap_or(p.name.as_str());
+                    let mcp_info =
+                        if !p.admit_mcp.is_empty() && p.admit_mcp != vec!["*".to_string()] {
+                            format!(" [mcp: {}]", p.admit_mcp.join(", "))
+                        } else {
+                            String::new()
+                        };
+                    let tools_info = if !p.tools.is_empty() && p.tools != vec!["*".to_string()] {
+                        format!(" [tools: {}]", p.tools.join(", "))
+                    } else {
+                        String::new()
+                    };
+                    lines.push(format!("    • `{id}`{tools_info}{mcp_info} — {desc}"));
+                }
+            }
+
+            lines.push(String::new());
+            lines.push(
+                "Usage: `/role ops`, `/role philosophist`, or `/role developer <workspace>`.\n\
+                 A thread is owned by exactly one role: `/role` resumes or starts that role's thread; it never rebinds the current one."
+                    .to_string(),
+            );
+
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(lines.join("\n")),
+            )
+            .await;
+        }
+        Some(role_id) => {
+            let role_id_owned = match nuo_persistence::roles::canonical_role_id(
+                role_id,
+                session.workspace_root().as_deref(),
+            ) {
+                Ok(role) => role,
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                    return;
+                }
+            };
+            let role_id = role_id_owned.as_str();
+            let roles_config = nuo_persistence::roles::RolesConfig::load_for_workspace(
+                session.workspace_root().as_deref(),
+            );
+            let user_role = roles_config.get(role_id);
+            let builtin = nuo_protocol::MainAgentRole::parse(role_id);
+
+            if user_role.is_none() && builtin.is_none() {
+                let mut available: Vec<String> = nuo_protocol::MainAgentRole::ALL
+                    .iter()
+                    .map(|p| format!("`{}`", p.as_str()))
+                    .collect();
+                for id in roles_config.ids() {
+                    available.push(format!("`{id}`"));
+                }
+                record_error(
+                    session,
+                    resp_tx,
+                    name,
+                    args,
+                    format!(
+                        "Unknown role `{role_id}`. Available roles: {}.",
+                        available.join(", ")
+                    ),
+                )
+                .await;
+                return;
+            }
+
+            let policy = if let Some(user_role) = user_role {
+                user_role.resolved_workspace()
+            } else {
+                builtin
+                    .map(nuo_protocol::MainAgentRole::workspace_policy)
+                    .unwrap_or(nuo_persistence::roles::RoleWorkspace::Unbound)
+            };
+            let ws_arg = parts
+                .get(2..)
+                .map(|p| p.join(" "))
+                .filter(|s| !s.trim().is_empty());
+            let target_workspace = match policy {
+                nuo_persistence::roles::RoleWorkspace::Unbound => {
+                    if ws_arg.is_some() {
+                        record_error(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            format!(
+                                "Role `{role_id}` is workspace-free; it does not accept a workspace path."
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                    None
+                }
+                nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
+                    if ws_arg.is_some() {
+                        record_error(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            format!(
+                                "Role `{role_id}` is pinned to `{}`; omit the workspace argument.",
+                                root.display()
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                    Some(nuo_protocol::WorkspaceBinding::new(root))
+                }
+                nuo_persistence::roles::RoleWorkspace::Inherit => {
+                    let target_path = match ws_arg {
+                        Some(ws_str) => {
+                            let trimmed = ws_str.trim();
+                            let raw_path = std::path::PathBuf::from(trimmed);
+                            let resolved = if raw_path.starts_with("~") {
+                                if let Some(home) = dirs::home_dir() {
+                                    if let Ok(stripped) = raw_path.strip_prefix("~") {
+                                        home.join(stripped)
+                                    } else {
+                                        raw_path
+                                    }
+                                } else {
+                                    raw_path
+                                }
+                            } else {
+                                raw_path
+                            };
+                            match std::fs::canonicalize(&resolved) {
+                                Ok(canon) if canon.is_dir() => canon,
+                                Ok(_) => {
+                                    record_error(
+                                        session,
+                                        resp_tx,
+                                        name,
+                                        args,
+                                        format!("Workspace path `{trimmed}` is not a directory"),
+                                    )
+                                    .await;
+                                    return;
+                                }
+                                Err(e) => {
+                                    record_error(
+                                        session,
+                                        resp_tx,
+                                        name,
+                                        args,
+                                        format!(
+                                            "Workspace path `{trimmed}` does not exist or is inaccessible: {e}"
+                                        ),
+                                    )
+                                    .await;
+                                    return;
+                                }
+                            }
+                        }
+                        None => {
+                            if let Some(ws_root) = session.workspace_root() {
+                                ws_root
+                            } else {
+                                record_error(
+                                    session,
+                                    resp_tx,
+                                    name,
+                                    args,
+                                    format!(
+                                        "Role `{role_id}` requires a workspace path. Usage: `/role {role_id} <workspace>`"
+                                    ),
+                                )
+                                .await;
+                                return;
+                            }
+                        }
+                    };
+                    Some(nuo_protocol::WorkspaceBinding::new(target_path))
+                }
+            };
+
+            let force_new = parts.iter().any(|&p| p == "--new" || p == "-n");
+            switch_or_start_session_with_role(
+                &mut env,
+                role_id,
+                target_workspace,
+                force_new,
+                name,
+                args,
+            )
+            .await;
+        }
+    }
+}
+
+pub(crate) async fn search(
+    env: SlashEnv<'_>,
+    cmd: &str,
+    name: &str,
+    args: &str,
+    _parts: &[&str],
+    start_instant: std::time::Instant,
+) {
+    let SlashEnv {
+        resp_tx, session, ..
+    } = env;
+    let query = cmd.strip_prefix("/search").unwrap_or("").trim();
+    if query.is_empty() {
+        record_command(
+            session,
+            resp_tx,
+            name,
+            args,
+            CommandResult::Text("Usage: /search <query>".to_string()),
+        )
+        .await;
+    } else {
+        // Lexical ranking over the live transcript + command ledger.
+        // The embedding-index machinery (persisted vectors from a
+        // hash-based mock provider) was real cost with no semantics;
+        // until a real embedding provider exists, `/search` is
+        // deterministic lexical scoring over the in-memory transcript
+        // — no index file, no rewrite per search.
+        let messages = session.full_transcript().await;
+        let commands = session.commands().await;
+        let hits = crate::runtime::search_lexical::search(query, &messages, &commands, 5);
+        let hits = hits
+            .into_iter()
+            .map(|hit| nuo_protocol::SearchHit {
+                text: hit.text,
+                score: hit.score,
+            })
+            .collect::<Vec<_>>();
+        if hits.is_empty() {
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text("No matching messages in this session.".to_string()),
+            )
+            .await;
+        } else {
+            record_command_with_duration(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Search {
+                    query: query.to_string(),
+                    hits,
+                },
+                Some(start_instant.elapsed().as_millis() as u64),
+            )
+            .await;
+        }
+    }
+}
+
+pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        config,
+        agent,
+        resp_tx,
+        session,
+        lifecycle,
+        provider_for_task,
+        ref mut provider_usage,
+        ..
+    } = env;
+    // `/sessions` opens the picker; `/sessions <id>` opens that
+    // session directly. The retired `/resume` and `/session`
+    // spellings resolve here through the alias table, so their legacy
+    // grammar is translated first:
+    //   `/resume [id]`             → picker, or open <id>
+    //   `/session`                  → picker
+    //   `/session open|resume <id>`  → open <id> (picker without one)
+    //   `/session list`             → picker
+    //   `/session new`              → fresh session (same as `/new`)
+    //   `/session fork`             → fork (same as `/fork`)
+    //   `/session status`           → retired; error with guidance
+    let route = match session_route(name, parts) {
+        Ok(route) => route,
+        Err(message) => {
+            record_error(session, resp_tx, name, args, message).await;
+            return;
+        }
+    };
+    match route {
+        SessionRoute::New => {
+            // Rebuild a SlashEnv whose mutable usage cell points at
+            // the same place, without partially moving `env` while
+            // fields are still read for the rest of the match.
+            let provider_usage = &mut *env.provider_usage;
+            let mut fresh_env = SlashEnv {
+                session: env.session,
+                config: env.config,
+                agent: env.agent,
+                lifecycle: env.lifecycle,
+                resp_tx: env.resp_tx,
+                provider_for_task: env.provider_for_task,
+                provider_usage,
+                mcp_runtime: env.mcp_runtime,
+                workspace_security: env.workspace_security,
+                shared_additional_roots: env.shared_additional_roots,
+                shared_confinement: env.shared_confinement,
+                skills_registry: env.skills_registry,
+                req_tx_for_commands: env.req_tx_for_commands,
+                startup: env.startup,
+                ui: env.ui,
+                extra_commands: env.extra_commands,
+                websearch_shared: env.websearch_shared,
+                background_jobs: env.background_jobs,
+            };
+            start_fresh_session(&mut fresh_env, name, args).await;
+        }
+        SessionRoute::Fork => {
+            fork_current_session(session, resp_tx, name, args).await;
+        }
+        SessionRoute::Status => {
+            record_error(
+                session,
+                resp_tx,
+                name,
+                args,
+                "/session status is retired. Session id, counts, and timestamps now live \
+                 in the /sessions info view (press i in the picker).",
+            )
+            .await;
+        }
+        SessionRoute::Open(target_id) => match target_id {
+            // `/sessions <id>` (and the legacy `/resume <id>`,
+            // `/session open <id>`, `/session list`) — the same flow
+            // the picker's Enter key drives. Without an id, the
+            // picker (the old "resume most recent" guess is gone).
+            Some(id) => {
+                let current_id = session.id().await;
+                if current_id == id {
+                    let status = if lifecycle.is_running().await {
+                        LoopStatus::Running
+                    } else {
+                        LoopStatus::Idle
+                    };
+                    send_harness_state_for_session(resp_tx, &current_id, agent, session, status)
+                        .await;
+                    return;
+                }
+                supersede_for_session_switch(lifecycle, agent, resp_tx).await;
+                match session.open(id).await {
+                    Ok(()) => {
+                        // Full restore of the session-scoped runtime the
+                        // bootstrap skipped in Picker mode: todos,
+                        // disabled tools, round counter, and ThreadStart
+                        // hooks. Opening a prior session is a resume.
+                        restore_session_runtime(
+                            session,
+                            agent,
+                            resp_tx,
+                            nuo_protocol::HookStartSource::Resume,
+                        )
+                        .await;
+                        let transcript = session.full_transcript().await;
+                        let _ = resp_tx.send(AgentResponse::ConversationReplaced {
+                            // `[INV-TAB-13]`: the id being left addresses the tab.
+                            previous_id: current_id.clone(),
+                            thread_id: session.id().await,
+                            messages: transcript,
+                            commands: session.commands().await,
+                            round_interrupts: session.round_interrupts().await,
+                        });
+                        // The live provider tracks the opened session's
+                        // own provider pin (or the global default).
+                        crate::handlers::handlers_provider::reapply_session_selection(
+                            config,
+                            agent,
+                            provider_for_task,
+                            session,
+                            resp_tx,
+                            provider_usage,
+                        )
+                        .await;
+                        record_command(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            CommandResult::Text(format!(
+                                "Opened session {}.",
+                                short_session_id(&session.id().await)
+                            )),
+                        )
+                        .await;
+                        send_harness_state_for_session(
+                            resp_tx,
+                            &session.id().await,
+                            agent,
+                            session,
+                            LoopStatus::Idle,
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        record_error(session, resp_tx, name, args, error).await;
+                    }
+                }
+            }
+            None => {
+                // No id (bare `/sessions`, `/session list`, or a
+                // legacy open/resume without one): open the picker.
+                let overview_fut = build_sessions_overview(session);
+                let record_fut = record_command(
+                    session,
+                    resp_tx,
+                    name,
+                    args,
+                    CommandResult::Text(String::new()),
+                );
+                let (overview, ()) = tokio::join!(overview_fut, record_fut);
+                let _ = resp_tx.send(AgentResponse::ThreadsOverview(overview));
+                let _ = resp_tx.send(AgentResponse::OpenThreadsPanel);
+            }
+        },
+    }
+}
+
+pub(crate) async fn fork(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        resp_tx, session, ..
+    } = env;
+    fork_current_session(session, resp_tx, name, args).await;
+}
+
+pub(crate) async fn tree(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        resp_tx, session, ..
+    } = env;
+    let tree = session.tree().await;
+    let _ = resp_tx.send(AgentResponse::ThreadTreeSnapshot {
+        thread_id: session.id().await,
+        tree: tree.clone(),
+    });
+    let _ = resp_tx.send(AgentResponse::OpenTreePanel);
+    record_ack(
+        session,
+        resp_tx,
+        name,
+        args,
+        format!(
+            "Session DAG Tree has {} nodes and {} branch leaves.",
+            tree.entries.len(),
+            tree.leaves().len()
+        ),
+    )
+    .await;
+}
+
+pub(crate) async fn diff(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    let session_id = session.id().await;
+
+    let effects = match session
+        .persistence()
+        .list_workspace_effects(session_id.clone())
+        .await
+    {
+        Ok(effects) => effects,
+        Err(error) => {
+            record_error(
+                session,
+                resp_tx,
+                name,
+                args,
+                format!("could not read the workspace journal: {error}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let workspace_root = session.workspace_root();
+    let (reversible, irreversible, unconfirmed) =
+        project_changes(&effects, workspace_root.as_deref());
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        CommandResult::WorkspaceChanges {
+            reversible,
+            irreversible,
+            unconfirmed,
+        },
+    )
+    .await;
+}
+
+pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    let session_id = session.id().await;
+    let workspace_root = session.workspace_root();
+
+    // The undo unit is the round: it is the boundary the user perceives ("what did
+    // that turn do?") and the boundary the causal graph already uses.
+    let candidate_limit = UNDO_CANDIDATE_LIMIT;
+    let candidates = match session
+        .persistence()
+        .undoable_workspace_effects(session_id.clone(), candidate_limit)
+        .await
+    {
+        Ok(effects) => effects,
+        Err(error) => {
+            record_error(
+                session,
+                resp_tx,
+                name,
+                args,
+                format!("could not read the workspace journal: {error}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Only the newest round's rows: undoing "the last turn" must not silently
+    // reach back into earlier rounds.
+    let newest_round = candidates.first().map(|effect| effect.round_id.clone());
+    let targets: Vec<_> = candidates
+        .into_iter()
+        .filter(|effect| Some(&effect.round_id) == newest_round.as_ref())
+        .collect();
+
+    if targets.is_empty() {
+        record_command(
+            session,
+            resp_tx,
+            name,
+            args,
+            CommandResult::UndoOutcome {
+                restored: Vec::new(),
+                refused: Vec::new(),
+                nothing_to_undo: true,
+            },
+        )
+        .await;
+        return;
+    }
+
+    // Reverse through the same content-addressed store the journal wrote through,
+    // so a pre-image is looked up by the hash that was recorded for it.
+    let store = crate::runtime::workspace_journal::SessionBlobAdapter::new(session.blob_store().clone());
+    let outcomes = nuo_engine::runtime::workspace_journal::reversal::reverse_all(
+        &targets,
+        workspace_root.as_deref(),
+        &store,
+    );
+
+    let mut restored = Vec::new();
+    let mut refused = Vec::new();
+    for (stamp, outcome) in outcomes {
+        match outcome {
+            nuo_engine::runtime::workspace_journal::reversal::Reversal::Restored(file) => {
+                // Stamp before reporting: a reversal the journal does not know
+                // about would be offered again on the next `/undo`, and the second
+                // attempt would either refuse (post-image no longer matches) or,
+                // worse, act twice.
+                if let Err(error) = session
+                    .persistence()
+                    .mark_workspace_effect_reversed(
+                        stamp.effect_id,
+                        unix_ms(),
+                        Some(stamp.note.clone()),
+                    )
+                    .await
+                {
+                    refused.push(nuo_protocol::UndoRefusal {
+                        path: file.path.clone(),
+                        reason: format!(
+                            "restored, but the journal could not record it: {error}. \
+                             Do not run /undo again for this round; the file is correct."
+                        ),
+                    });
+                }
+                restored.push(file);
+            }
+            nuo_engine::runtime::workspace_journal::reversal::Reversal::Refused(refusal) => {
+                // A refusal is stamped too, with its reason, so a later `/diff`
+                // explains why the change stayed instead of silently dropping it.
+                let _ = session
+                    .persistence()
+                    .mark_workspace_effect_reversed(
+                        stamp.effect_id,
+                        unix_ms(),
+                        Some(stamp.note.clone()),
+                    )
+                    .await;
+                refused.push(refusal);
+            }
+            nuo_engine::runtime::workspace_journal::reversal::Reversal::Skipped => {}
+        }
+    }
+
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        CommandResult::UndoOutcome {
+            restored,
+            refused,
+            nothing_to_undo: false,
+        },
+    )
+    .await;
+}
+
+/// How many recent journal rows `/undo` considers before narrowing to the newest
+/// round. A round that touched more files than this is not silently truncated: the
+/// cap is far above any plausible round and exists only so a runaway journal cannot
+/// turn `/undo` into an unbounded read.
+const UNDO_CANDIDATE_LIMIT: u32 = 512;
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Project journal rows into the three groups `/diff` reports.
+///
+/// The grouping is the point: a change the journal cannot reverse must not appear
+/// in the same list as one it can, and a row whose mutation may never have run must
+/// not be presented as either.
+fn project_changes(
+    effects: &[nuo_persistence::workspace_effects::WorkspaceEffect],
+    workspace_root: Option<&std::path::Path>,
+) -> (
+    Vec<nuo_protocol::ChangedFile>,
+    Vec<nuo_protocol::ChangedFile>,
+    Vec<nuo_protocol::ChangedFile>,
+) {
+    let mut reversible = Vec::new();
+    let mut irreversible = Vec::new();
+    let mut unconfirmed = Vec::new();
+    for effect in effects {
+        let file = nuo_protocol::ChangedFile {
+            path: display_path(effect.path.as_deref(), workspace_root),
+            tool: effect.tool_name.clone(),
+            round_id: effect.round_id.clone(),
+            line_counts: None,
+            reason: effect.irreversible_reason.clone(),
+            created: effect.op == nuo_persistence::workspace_effects::JournalOp::Create,
+            deleted: effect.op == nuo_persistence::workspace_effects::JournalOp::Delete,
+        };
+        if effect.effect_class == "file_bytes" {
+            if effect.completed_at_ms.is_none() {
+                // Journaled but never confirmed: the journal cannot say whether
+                // the mutation ran, so it belongs in its own group.
+                unconfirmed.push(file);
+            } else if effect.reversed_at_ms.is_some() {
+                // Already undone: reporting it as a pending change would invite a
+                // second `/undo` for work that is no longer there.
+            } else {
+                reversible.push(file);
+            }
+        } else {
+            irreversible.push(file);
+        }
+    }
+    (reversible, irreversible, unconfirmed)
+}
+
+fn display_path(path: Option<&str>, workspace_root: Option<&std::path::Path>) -> String {
+    let Some(path) = path else {
+        return "<no path>".to_string();
+    };
+    if let Some(root) = workspace_root
+        && let Ok(relative) = std::path::Path::new(path).strip_prefix(root)
+        && !relative.as_os_str().is_empty()
+    {
+        return relative.to_string_lossy().into_owned();
+    }
+    path.to_string()
+}
+
+pub(crate) async fn stats(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    record_ack(
+        session,
+        resp_tx,
+        name,
+        args,
+        "Thread stats are shown by the TUI overlay — run /stats in the terminal app.",
+    )
+    .await;
+}
+
+pub(crate) async fn trace(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    record_ack(
+        session,
+        resp_tx,
+        name,
+        args,
+        "Session execution trace is shown by the TUI overlay — run /trace in the terminal app.",
+    )
+    .await;
+}
+
+pub(crate) async fn usage(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    // Handled in TUI: `/usage` opens the usage-statistics overlay
+    // locally (intercepted in input.rs as `InputAction::OpenUsage`)
+    // and issues `AgentRequest::QueryUsageStats`; it never arrives
+    // here as a SlashCommand. Reaching this arm means a non-TUI
+    // client (Web app) typed it — answer inline with a pointer so
+    // the command is never silently dropped.
+    record_ack(
+        session,
+        resp_tx,
+        name,
+        args,
+        "Usage statistics are shown by the TUI overlay — open the terminal app and run /usage there.",
+    )
+    .await;
+}
+
+pub(crate) async fn quota(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    record_ack(
+        session,
+        resp_tx,
+        name,
+        args,
+        "Provider quotas are shown by CLI or TUI — run `nuo quota [provider]` in your terminal.",
+    )
+    .await;
+}
+
+pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        config,
+        agent,
+        resp_tx,
+        session,
+        ..
+    } = env;
+    let mut current = session.model_window().await;
+    let settings = ContextProjectionSettings::from_context_policy(
+        &config.context,
+        active_context_window(agent),
+    )
+    .for_request(agent.estimate_next_request_tokens(&current));
+
+    let _ = resp_tx.send(round_response(
+        &session.id().await,
+        nuo_protocol::RoundEvent::Notice(
+            nuo_tool::AgentNotice::new(
+                nuo_tool::NoticeKind::CommandAck,
+                nuo_tool::NoticeSeverity::Info,
+                "Compacting Context",
+                nuo_tool::NoticeSource::Harness,
+            )
+            .with_body("Synthesizing completed rounds into structured checkpoint..."),
+        ),
+    ));
+
+    let mut extra = agent.fire_pre_compact().await;
+    let trimmed = args.trim();
+    if !trimmed.is_empty() {
+        extra.push(format!(
+            "User Focus / Instructions for Compaction: {}",
+            trimmed
+        ));
+    }
+
+    // Universal Causal Compaction folds [0..N-1] and preserves round N
+    match compact_round_history(
+        &mut current,
+        session,
+        &settings,
+        Some(agent.provider.clone()),
+        extra,
+    )
+    .await
+    {
+        Ok(Some(report)) => {
+            record_invocation(session, name, args).await;
+            let session_id = session.id().await;
+            send_compaction(resp_tx, &session_id, &report.checkpoint);
+            if !report.satisfied {
+                let _ = resp_tx.send(round_response(
+                    &session_id,
+                    nuo_protocol::RoundEvent::Notice(
+                        nuo_tool::AgentNotice::new(
+                            nuo_tool::NoticeKind::ReviewAlert,
+                            nuo_tool::NoticeSeverity::Warning,
+                            "Compaction could not bring the window under the limit",
+                            nuo_tool::NoticeSource::Harness,
+                        )
+                        .with_body(format!(
+                            "The compacted window is {} tokens; this model's compaction gate is {}. \
+                             Run /compact again or switch to a larger window.",
+                            report.checkpoint.window_tokens_after,
+                            settings.budget.compaction_threshold_tokens
+                        )),
+                    ),
+                ));
+            }
+        }
+        Ok(None) => {
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text("No completed dialogue history to compact yet.".to_string()),
+            )
+            .await;
+        }
+        Err(error) => {
+            record_error(session, resp_tx, name, args, error).await;
+        }
+    }
+    agent.fire_post_compact().await;
+}
+
+pub(crate) async fn jobs(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        resp_tx,
+        session,
+        background_jobs,
+        ..
+    } = env;
+    let sub = parts.get(1).copied().unwrap_or("list");
+    match sub {
+        "kill" => {
+            if let Some(target_id) = parts.get(2) {
+                let jid = nuo_protocol::JobId(target_id.to_string());
+                match background_jobs.kill_job(&jid) {
+                    Ok(()) => {
+                        record_ack(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            format!("Terminated background job {}.", target_id),
+                        )
+                        .await;
+                    }
+                    Err(err) => {
+                        record_error(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            &format!("Failed to kill job {}: {}", target_id, err),
+                        )
+                        .await;
+                    }
+                }
+            } else {
+                record_error(session, resp_tx, name, args, "Usage: /jobs kill <job_id>").await;
+            }
+        }
+        "logs" => {
+            if let Some(target_id) = parts.get(2) {
+                let jid = nuo_protocol::JobId(target_id.to_string());
+                match background_jobs.get_logs(&jid, 50) {
+                    Some(lines) => {
+                        let output = if lines.is_empty() {
+                            "(no logs recorded yet)".to_string()
+                        } else {
+                            lines.join("\n")
+                        };
+                        record_command(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            CommandResult::Text(format!(
+                                "Logs for {}:\n```\n{}\n```",
+                                target_id, output
+                            )),
+                        )
+                        .await;
+                    }
+                    None => {
+                        record_error(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            &format!("Job not found: {}", target_id),
+                        )
+                        .await;
+                    }
+                }
+            } else {
+                record_error(session, resp_tx, name, args, "Usage: /jobs logs <job_id>").await;
+            }
+        }
+        _ => {
+            let jobs = background_jobs.list_jobs();
+            if jobs.is_empty() {
+                record_command(
+                    session,
+                    resp_tx,
+                    name,
+                    args,
+                    CommandResult::Text("No active or recent background jobs.".to_string()),
+                )
+                .await;
+            } else {
+                let mut table = String::from(
+                    "### Background Jobs\n\n| ID | Type | State | Latest Output |\n|---|---|---|---|\n",
+                );
+                for j in jobs {
+                    let (kind_str, detail) = match &j.spec {
+                        nuo_protocol::JobSpec::Process { command, label, .. } => (
+                            label.clone().unwrap_or_else(|| "process".to_string()),
+                            command.clone(),
+                        ),
+                        nuo_protocol::JobSpec::Timer { label, prompt, .. } => (
+                            label.clone().unwrap_or_else(|| "timer".to_string()),
+                            prompt.clone(),
+                        ),
+                    };
+                    let status_str = match &j.state {
+                        nuo_protocol::JobState::Queued => "Queued".to_string(),
+                        nuo_protocol::JobState::Running { pid, .. } => {
+                            if let Some(p) = pid {
+                                format!("Running (PID {p})")
+                            } else {
+                                "Running".to_string()
+                            }
+                        }
+                        nuo_protocol::JobState::Ready { .. } => "Ready (service)".to_string(),
+                        nuo_protocol::JobState::Succeeded { duration_ms, .. } => {
+                            format!("✓ Passed ({}s)", duration_ms / 1000)
+                        }
+                        nuo_protocol::JobState::Failed {
+                            duration_ms,
+                            exit_code,
+                            ..
+                        } => {
+                            format!("✗ Failed (Exit {exit_code}, {}s)", duration_ms / 1000)
+                        }
+                        nuo_protocol::JobState::Killed { duration_ms } => {
+                            format!("Killed ({}s)", duration_ms / 1000)
+                        }
+                        nuo_protocol::JobState::TimedOut { duration_ms } => {
+                            format!("Timed Out ({}s)", duration_ms / 1000)
+                        }
+                    };
+                    let latest = j.latest_output.as_deref().unwrap_or(detail.as_str());
+                    let truncated_latest = if latest.len() > 60 {
+                        format!("{}...", &latest[..57])
+                    } else {
+                        latest.to_string()
+                    };
+                    table.push_str(&format!(
+                        "| `{}` | {} | {} | `{}` |\n",
+                        j.id.0, kind_str, status_str, truncated_latest
+                    ));
+                }
+                record_command(session, resp_tx, name, args, CommandResult::Text(table)).await;
+            }
+        }
+    }
+}
+
+pub(crate) async fn init(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        resp_tx, session, ..
+    } = env;
+    let target = parts.get(1).copied().unwrap_or(".");
+    match init_nuo_config(std::path::Path::new(target)) {
+        Ok(created) if created.is_empty() => {
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(format!(
+                    "nuo is already configured in '{}'. Nothing to do.",
+                    target
+                )),
+            )
+            .await;
+        }
+        Ok(created) => {
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(format!(
+                    "Initialized nuo configuration in '{}'.\nCreated:\n{}",
+                    target,
+                    created
+                        .iter()
+                        .map(|path| format!("- {}", path))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )),
+            )
+            .await;
+        }
+        Err(error) => {
+            record_error(session, resp_tx, name, args, error).await;
+        }
+    }
+}
+
+pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        agent,
+        mcp_runtime,
+        workspace_security,
+        shared_additional_roots,
+        resp_tx,
+        session,
+        skills_registry,
+        ..
+    } = env;
+    let ws_opt = session.workspace();
+    let project_root = ws_opt.as_ref().map(|w| w.root.as_path());
+    let route = match trust_route(name, parts) {
+        Ok(route) => route,
+        Err(error) => {
+            record_error(session, resp_tx, name, args, error).await;
+            return;
+        }
+    };
+    let Some(project_root) = project_root else {
+        match route {
+            TrustRoute::GrantAll | TrustRoute::Grant(TrustDomain::UserAssets) => {
+                let user_granted = crate::handlers::handlers_slash::security_ops::trust_user_assets();
+                let effective = nuo_persistence::config::Config::load();
+                let mcp_report = mcp_runtime.reconfigure(effective.mcp.clone()).await;
+                let mut snap = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
+                snap.user_assets = crate::handlers::handlers_slash::security_ops::compute_user_assets_trust();
+                agent.set_workspace_security(snap.clone());
+                let user_granted_str = if user_granted.is_empty() {
+                    "none".to_string()
+                } else {
+                    user_granted.join(", ")
+                };
+                let message = format!(
+                    "User asset trust updated.\n\
+                     - Granted: {}\n\
+                     - Connected MCP: {}",
+                    user_granted_str,
+                    if mcp_report.connected.is_empty() {
+                        "none".to_string()
+                    } else {
+                        mcp_report
+                            .connected
+                            .iter()
+                            .filter_map(|(n, ok)| ok.then_some(n.as_str()))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }
+                );
+                record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+            }
+            TrustRoute::DenyAll | TrustRoute::Deny(TrustDomain::UserAssets) => {
+                // A workspace-free session's only project-supplied assets are
+                // user-level MCP servers, so a refusal here is exactly the
+                // `deny_user_assets` path — the same one the pre-attach gate
+                // uses for unselected user rows.
+                let denied = crate::handlers::handlers_slash::security_ops::deny_user_assets();
+                let effective = nuo_persistence::config::Config::load();
+                let mcp_report = mcp_runtime.reconfigure(effective.mcp.clone()).await;
+                let mut snap = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
+                snap.user_assets = crate::handlers::handlers_slash::security_ops::compute_user_assets_trust();
+                agent.set_workspace_security(snap.clone());
+                let message = if denied.is_empty() {
+                    "Nothing to refuse: no user-level asset is awaiting review.".to_string()
+                } else {
+                    format!(
+                        "User asset trust refused.\n\
+                         - Refused: {}\n\
+                         - Connected MCP: {}\n\
+                         Refused assets stay inactive until their declaration changes.",
+                        denied.join(", "),
+                        if mcp_report.connected.is_empty() {
+                            "none".to_string()
+                        } else {
+                            mcp_report
+                                .connected
+                                .iter()
+                                .filter_map(|(n, ok)| ok.then_some(n.as_str()))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        }
+                    )
+                };
+                record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+            }
+            TrustRoute::Status => {
+                let mut snapshot = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
+                snapshot.user_assets =
+                    crate::handlers::handlers_slash::security_ops::compute_user_assets_trust();
+                agent.set_workspace_security(snapshot.clone());
+                let message = format!(
+                    "Session Asset Trust (Workspace-Free)\n\
+                     - User Assets: {}\n\
+                     - Aggregate: {}\n\
+                     Asset trust does not grant runtime execution permission.",
+                    snapshot.user_assets.as_str(),
+                    snapshot.aggregate().as_str(),
+                );
+                record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+            }
+            _ => {
+                record_error(
+                    session,
+                    resp_tx,
+                    name,
+                    args,
+                    "project asset trust is unavailable in a workspace-free session".to_string(),
+                )
+                .await;
+            }
+        }
+        send_harness_state_for_session(
+            resp_tx,
+            &session.id().await,
+            agent,
+            session,
+            LoopStatus::Idle,
+        )
+        .await;
+        return;
+    };
+    match route {
+        TrustRoute::Status => {
+            let mut snapshot = workspace_security.snapshot(project_root);
+            snapshot.user_assets = crate::handlers::handlers_slash::security_ops::compute_user_assets_trust();
+            agent.set_workspace_security(snapshot.clone());
+            let message = format!(
+                "Workspace Asset Trust\n\
+                 - Root: {}\n\
+                 - Instructions: {}\n\
+                 - Ex-Workspace: {}\n\
+                 - MCP: {}\n\
+                 - Skills: {}\n\
+                 - Hooks: {}\n\
+                 - User Assets: {}\n\
+                 - Aggregate: {}\n\
+                 Asset trust does not grant runtime execution permission.",
+                snapshot.root,
+                snapshot.instructions.as_str(),
+                snapshot.ex_workspace.as_str(),
+                snapshot.mcp.as_str(),
+                snapshot.skills.as_str(),
+                snapshot.hooks.as_str(),
+                snapshot.user_assets.as_str(),
+                snapshot.aggregate().as_str(),
+            );
+            record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+        }
+        TrustRoute::DenyAll | TrustRoute::Deny(_) => {
+            // A refusal is a decision, not an absence of one. Recording it is
+            // what stops the workspace asking again: `deny_domains` stores the
+            // digest of the content that was refused, so the next snapshot
+            // reports `Denied` (settled, no gate) until the bytes change — at
+            // which point it flips to `Changed` and asks again. That is the
+            // exact "stop nagging me about *this* content" semantic the attach
+            // banner used to promise while pointing at `/untrust`, which
+            // revoked everything and re-armed the gate instead.
+            let snapshot_before = workspace_security.snapshot(project_root);
+            let requested: Vec<TrustDomain> = match route {
+                TrustRoute::DenyAll => snapshot_before.domains_needing_review(),
+                TrustRoute::Deny(domain) => vec![domain],
+                _ => unreachable!(),
+            };
+            if requested.is_empty() {
+                record_command(
+                    session,
+                    resp_tx,
+                    name,
+                    args,
+                    CommandResult::Text(
+                        "Nothing to refuse: no project asset domain is awaiting review."
+                            .to_string(),
+                    ),
+                )
+                .await;
+                send_harness_state_for_session(
+                    resp_tx,
+                    &session.id().await,
+                    agent,
+                    session,
+                    LoopStatus::Idle,
+                )
+                .await;
+                return;
+            }
+
+            let user_domains: Vec<TrustDomain> = requested
+                .iter()
+                .copied()
+                .filter(|d| *d == TrustDomain::UserAssets)
+                .collect();
+            let ws_domains: Vec<TrustDomain> = requested
+                .iter()
+                .copied()
+                .filter(|d| *d != TrustDomain::UserAssets)
+                .collect();
+            let user_denied = if user_domains.is_empty() {
+                Vec::new()
+            } else {
+                crate::handlers::handlers_slash::security_ops::deny_user_assets()
+            };
+            let denied = if ws_domains.is_empty() {
+                Vec::new()
+            } else {
+                match workspace_security.deny_domains(project_root, &ws_domains) {
+                    Ok(denied) => denied,
+                    Err(error) => {
+                        record_error(session, resp_tx, name, args, error).await;
+                        return;
+                    }
+                }
+            };
+            let report = match reload_trusted_assets(
+                agent,
+                mcp_runtime,
+                workspace_security,
+                project_root,
+                skills_registry,
+                shared_additional_roots,
+            )
+            .await
+            {
+                Ok(report) => report,
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                    return;
+                }
+            };
+            // The refusal is a decision the user must be able to see the
+            // *consequence* of, so report both what was refused and what the
+            // workspace now looks like — an unloaded domain is the point, not a
+            // side effect.
+            let denied_str = denied
+                .iter()
+                .chain(user_denied.iter().map(|_| &TrustDomain::UserAssets))
+                .map(|domain| domain.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let still_pending = report
+                .snapshot
+                .domains_needing_review()
+                .into_iter()
+                .map(|domain| domain.as_str())
+                .collect::<Vec<_>>();
+            let message = format!(
+                "Project asset trust refused.\n\
+                 - Root: {}\n\
+                 - Refused: {denied_str}\n\
+                 - Still awaiting review: {}\n\
+                 Refused content stays inactive. This will not be asked again until the content \
+                 changes on disk.",
+                report.snapshot.root,
+                if still_pending.is_empty() {
+                    "none".to_string()
+                } else {
+                    still_pending.join(", ")
+                },
+            );
+            record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+        }
+        TrustRoute::GrantAll | TrustRoute::Grant(_) => {
+            let domains: &[TrustDomain] = match route {
+                TrustRoute::GrantAll => &TrustDomain::ALL,
+                TrustRoute::Grant(ref domain) => std::slice::from_ref(domain),
+                _ => unreachable!(),
+            };
+            let should_trust_user = route == TrustRoute::GrantAll
+                || matches!(route, TrustRoute::Grant(TrustDomain::UserAssets));
+            let user_granted = if should_trust_user {
+                crate::handlers::handlers_slash::security_ops::trust_user_assets()
+            } else {
+                Vec::new()
+            };
+
+            let ws_domains: Vec<TrustDomain> = domains
+                .iter()
+                .copied()
+                .filter(|d| *d != TrustDomain::UserAssets)
+                .collect();
+            let mut granted = if ws_domains.is_empty() {
+                Vec::new()
+            } else {
+                match workspace_security.trust_domains(project_root, &ws_domains) {
+                    Ok(granted) => granted,
+                    Err(error) => {
+                        record_error(session, resp_tx, name, args, error).await;
+                        return;
+                    }
+                }
+            };
+            if !user_granted.is_empty() {
+                granted.push(TrustDomain::UserAssets);
+            }
+            let report = match reload_trusted_assets(
+                agent,
+                mcp_runtime,
+                workspace_security,
+                project_root,
+                skills_registry,
+                shared_additional_roots,
+            )
+            .await
+            {
+                Ok(report) => report,
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                    return;
+                }
+            };
+            let granted_str = if granted.is_empty() {
+                "none (the selected domains have no assets)".to_string()
+            } else {
+                granted
+                    .iter()
+                    .map(|domain| domain.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let mcp = if report.connected_mcp.is_empty() {
+                String::new()
+            } else {
+                format!("\n- MCP connected: {}", report.connected_mcp.join(", "))
+            };
+            let message = format!(
+                "Workspace trust updated.\n\
+                 - Root: {}\n\
+                 - Granted: {}\n\
+                 - Instructions: {}; Ex-Workspace: {}; MCP: {}; Skills: {}; Hooks: {}; User Assets: {}{}",
+                report.snapshot.root,
+                granted_str,
+                report.snapshot.instructions.as_str(),
+                report.snapshot.ex_workspace.as_str(),
+                report.snapshot.mcp.as_str(),
+                report.snapshot.skills.as_str(),
+                report.snapshot.hooks.as_str(),
+                report.snapshot.user_assets.as_str(),
+                mcp,
+            );
+            record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+        }
+        TrustRoute::Revoke => {
+            let revoked = match workspace_security.revoke_workspace(project_root) {
+                Ok(revoked) => revoked,
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                    return;
+                }
+            };
+            let report = match reload_trusted_assets(
+                agent,
+                mcp_runtime,
+                workspace_security,
+                project_root,
+                skills_registry,
+                shared_additional_roots,
+            )
+            .await
+            {
+                Ok(report) => report,
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                    return;
+                }
+            };
+            let removed = if report.removed_mcp.is_empty() {
+                String::new()
+            } else {
+                format!(" Disconnected MCP: {}.", report.removed_mcp.join(", "))
+            };
+            let message = if revoked {
+                format!(
+                    "Project asset trust revoked. Instructions, external workspaces, MCP, skills, and hooks were unloaded.{removed}"
+                )
+            } else {
+                "No project asset grants were recorded for this workspace.".to_string()
+            };
+            record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+        }
+    }
+    send_harness_state_for_session(
+        resp_tx,
+        &session.id().await,
+        agent,
+        session,
+        LoopStatus::Idle,
+    )
+    .await;
+}
+
+pub(crate) async fn skills(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+    let SlashEnv {
+        resp_tx,
+        session,
+        skills_registry,
+        ..
+    } = env;
+    let sub = parts.get(1).copied().unwrap_or("list");
+    match sub {
+        "list" => {
+            let tool = ListSkillsTool {
+                registry: (*skills_registry).clone(),
+            };
+            match tool.call("{}").await {
+                Ok(output) => {
+                    record_command(session, resp_tx, name, args, CommandResult::Text(output)).await;
+                }
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                }
+            }
+        }
+        "status" => {
+            let status_lines = {
+                let guard = skills_registry.lock();
+                let list = guard.list();
+                let total = list.len();
+                let quarantined = list.iter().filter(|s| s.quarantined).count();
+                let enabled = list.iter().filter(|s| s.enabled && !s.quarantined).count();
+                let user_count = list
+                    .iter()
+                    .filter(|s| s.scope == nuo_engine::cognition::skills::SkillScope::User)
+                    .count();
+                let repo_count = list
+                    .iter()
+                    .filter(|s| s.scope == nuo_engine::cognition::skills::SkillScope::Repo)
+                    .count();
+                let extra_count = list
+                    .iter()
+                    .filter(|s| s.scope == nuo_engine::cognition::skills::SkillScope::Extra)
+                    .count();
+                let remote_count = list
+                    .iter()
+                    .filter(|s| s.scope == nuo_engine::cognition::skills::SkillScope::Remote)
+                    .count();
+
+                let mut lines = vec![
+                    format!(
+                        "Skills Status: {total} total ({enabled} enabled, {quarantined} quarantined)"
+                    ),
+                    format!("  • User: {user_count}"),
+                    format!("  • Repo: {repo_count}"),
+                    format!("  • Extra: {extra_count}"),
+                    format!("  • Remote: {remote_count}"),
+                ];
+                if quarantined > 0 {
+                    lines.push("\nNote: Quarantined skills require authorization. Run `/trust skills` or `/trust` to enable them.".to_string());
+                }
+                lines.join("\n")
+            };
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(status_lines),
+            )
+            .await;
+        }
+        "reload" => {
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(
+                    "Manual `/skills reload` has been retired.\n\
+                     Skills update automatically via reactive file watching.\n\
+                     To authorize project skills in a new workspace, run `/trust skills`."
+                        .to_string(),
+                ),
+            )
+            .await;
+        }
+        other => {
+            record_error(
+                session,
+                resp_tx,
+                name,
+                args,
+                format!(
+                    "Unknown skills command '{}'. Use 'list' or 'status'.",
+                    other
+                ),
+            )
+            .await;
+        }
+    }
+}
+
+pub(crate) async fn new_session(mut env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    // `/new` never wipes anything in place: it starts a fresh session
+    // and leaves the current one on disk (resumable via `/sessions`
+    // or `/session open`). The retired `/clear` resolves here through
+    // the alias table, so old muscle memory gets the safe semantics.
+    start_fresh_session(&mut env, name, args).await;
+}
+
+pub(crate) async fn export(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        agent,
+        resp_tx,
+        session,
+        ui,
+        ..
+    } = env;
+    let messages = session.model_window().await;
+    let commands = session.commands().await;
+    let session_id = session.id().await;
+    let provider_id = agent.provider.provider_id();
+    let model_name = agent.provider.model();
+    let markdown = crate::product::export::format_export_markdown(
+        crate::product::export::ExportContext {
+            session_id: &session_id,
+            provider: &provider_id,
+            model: &model_name,
+        },
+        &messages,
+        &commands,
+    );
+    let char_count = markdown.chars().count();
+    match ui.copy_to_clipboard(&markdown).await {
+        Ok(crate::CopyOutcome::Native) => {
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(format!(
+                    "Session exported to clipboard ({} messages, {} chars). \
+                                     Paste it into another agent to continue this work.",
+                    messages.len(),
+                    char_count
+                )),
+            )
+            .await;
+        }
+        Ok(crate::CopyOutcome::Osc52) => {
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(format!(
+                    "Session exported via OSC52 ({} messages, {} chars). \
+                                     If your terminal did not capture it, run nuo in a \
+                                     clipboard-capable environment.",
+                    messages.len(),
+                    char_count
+                )),
+            )
+            .await;
+        }
+        Err(_) => {
+            let _ = resp_tx.send(AgentResponse::CopyToClipboard { text: markdown });
+            record_command(
+                session,
+                resp_tx,
+                name,
+                args,
+                CommandResult::Text(format!(
+                    "Session exported to clipboard ({} messages, {} chars). \
+                     Paste it into another agent to continue this work.",
+                    messages.len(),
+                    char_count
+                )),
+            )
+            .await;
+        }
+    }
+}
+
+pub(crate) async fn retry(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        config,
+        agent,
+        resp_tx,
+        session,
+        lifecycle,
+        ..
+    } = env;
+    if lifecycle.is_running().await {
+        record_command(
+            session,
+            resp_tx,
+            name,
+            args,
+            CommandResult::Text("Cannot retry while a round is already running.".to_string()),
+        )
+        .await;
+        return;
+    }
+    // `/retry` exists to let a stopped round finish itself
+    // it resumes the parked round with the same number
+    // and an unbroken turn sequence. It is deliberately a no-op for
+    // a round that completed naturally — re-sending a finished
+    // round's history would mint a new round and duplicate the
+    // assistant's answer, so without an armed resume point there is
+    // simply nothing to do.
+    let Some(point) = session.retry_pending().await else {
+        record_command(
+            session,
+            resp_tx,
+            name,
+            args,
+            CommandResult::Text("Nothing to retry — the last round already completed.".to_string()),
+        )
+        .await;
+        return;
+    };
+    // A newer round (or `/new`) retires the point; a stale point for
+    // an older round must never resurrect a round the session has
+    // moved past.
+    if point.round != session.round_counter().await {
+        if let Err(error) = session.clear_retry_pending().await {
+            tracing::warn!(%error, "could not clear stale retry point");
+        }
+        record_command(
+            session,
+            resp_tx,
+            name,
+            args,
+            CommandResult::Text("Nothing to retry — the last round already completed.".to_string()),
+        )
+        .await;
+        return;
+    }
+    if refuse_if_no_provider(resp_tx, agent, session, &session.id().await).await {
+        return;
+    }
+    record_invocation(session, name, args).await;
+    crate::handlers::handlers_chat::start_turn(
+        crate::handlers::handlers_chat::ChatEnv {
+            agent,
+            session,
+            lifecycle,
+            tx: resp_tx,
+            config,
+        },
+        RoundInput::resume(point),
+    )
+    .await;
+}
+
+pub(crate) async fn help(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        resp_tx,
+        session,
+        extra_commands,
+        ..
+    } = env;
+    let extra_help = if extra_commands.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\nExtension commands:\n{}",
+            extra_commands
+                .list()
+                .into_iter()
+                .map(|(name, desc)| format!("/{name} — {desc}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
+    let mut lines = vec!["Slash commands:".to_string()];
+    for (name, desc) in BuiltinCmd::ALL {
+        lines.push(format!("{name:<13} — {desc}"));
+    }
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        CommandResult::Text(format!("{}\n{extra_help}", lines.join("\n\n"))),
+    )
+    .await;
+}
+
+pub(crate) async fn exit(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
+    let SlashEnv {
+        resp_tx, session, ..
+    } = env;
+    record_invocation(session, name, args).await;
+    let _ = resp_tx.send(AgentResponse::Exit);
+}
+
+pub(crate) async fn user_command(
+    mut env: SlashEnv<'_>,
+    cmd: &str,
+    name: &str,
+    args: &str,
+    parts: &[&str],
+) {
+    let SlashEnv {
+        config,
+        agent,
+        resp_tx,
+        session,
+        lifecycle,
+        provider_for_task,
+        ref mut provider_usage,
+        skills_registry,
+        req_tx_for_commands,
+        startup,
+        ui,
+        extra_commands,
+        ..
+    } = env;
+    // Application-registered Rust handlers (extension point): try the
+    // extra-commands registry. A handler that returns `true` fully handled
+    // it; otherwise fall through to the unknown-command path.
+    let name_no_slash = parts[0].strip_prefix('/').unwrap_or(parts[0]);
+    if let Some(handler) = extra_commands.get(name_no_slash) {
+        let ctx = SlashContext {
+            cmd,
+            parts,
+            config,
+            agent,
+            resp_tx,
+            session,
+            lifecycle,
+            provider_holder: provider_for_task,
+            provider_usage,
+            skills_registry,
+            req_tx: req_tx_for_commands,
+            project_root: None,
+            startup,
+            ui,
+        };
+        if handler.handle(ctx).await {
+            return;
+        }
+    }
+    // Retired-command steering (ADR-0058 §4, `[INV-DEPR-01]`): the `/btw` aside
+    // substrate is gone. Non-destructively redirect a submission to a fork at
+    // head instead of dead-ending it as an unknown command.
+    if matches!(name_no_slash, "btw" | "aside" | "side") {
+        fork_retired_aside(session, resp_tx, name, args).await;
+        return;
+    }
+    // Unknown command: a `/`-prefixed draft is a command, not a prompt, so it
+    // must never be silently appended to the transcript as a user turn (the
+    // client sends it here precisely because it is spelled as a command). Answer
+    // with the dedicated `UnknownCommand` result — `startup` owns the vocabulary,
+    // so this is also the only place that can name the command that was meant.
+    record_unknown_command(session, resp_tx, name, args, parts[0]).await;
+}
+
+/// Record an unrecognized `/name` and hand the caller a computable reply.
+///
+/// Distinct from [`record_error`] on purpose: the reply is machine-readable
+/// (`CommandResult::UnknownCommand`), so a frontend can return the draft to the
+/// composer instead of only painting a message. A typo is a *correctable*
+/// gesture — the text is intact and nothing reached the model — and treating it
+/// like a failed side effect (a plain error) is what made it feel unrecoverable.
+pub(crate) async fn record_unknown_command(
+    session: &std::sync::Arc<nuo_persistence::thread::ThreadSession>,
+    resp_tx: &tokio::sync::mpsc::UnboundedSender<nuo_protocol::AgentResponse>,
+    name: &str,
+    args: &str,
+    typed: &str,
+) {
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        nuo_protocol::CommandResult::UnknownCommand {
+            name: typed.to_string(),
+            suggestion: crate::composition::startup::suggest_command(typed).map(str::to_string),
+        },
+    )
+    .await;
+}

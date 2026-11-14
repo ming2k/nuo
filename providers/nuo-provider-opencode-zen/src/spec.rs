@@ -3,13 +3,14 @@
 //! (`OPENCODE_API_KEY`) or public keyless bearer.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// Curated seed models offered by the OpenCode Zen preset.
-pub use nuo_provider::model_providers::OPENCODE_ZEN_MODELS;
+pub use nuo_protocol::model_providers::OPENCODE_ZEN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 pub const MODELS: &[Model] = &[
@@ -22,7 +23,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -38,7 +39,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -50,7 +51,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -62,7 +63,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -74,7 +75,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // =========================================================================
@@ -92,7 +93,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -104,17 +105,17 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
 pub const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::AnthropicMessages,
@@ -139,14 +140,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Structural,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
     models: OPENCODE_ZEN_MODELS,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_provider::model::{BaselineModels, resolve};
+    use nuo_protocol::model::{BaselineModels, resolve};
 
     #[test]
     fn baseline_ids_are_unique() {

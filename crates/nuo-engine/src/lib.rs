@@ -46,7 +46,7 @@
 //! so it lives here, under `cognition::interop`.
 //!
 //! Everything `nuo-protocol` exports is re-exported here so consumers can
-//! `use nuo_harness::*` and get the full domain vocabulary alongside the
+//! `use nuo_engine::*` and get the full domain vocabulary alongside the
 //! orchestration API.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
@@ -54,25 +54,16 @@
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-extern crate self as nuo_engine;
-extern crate self as nuo_harness;
 
 // Bounded contract re-exports: only protocol types that cross the harness boundary.
-pub use nuo_protocol::{
-    AgentEvent, AgentIdentity, AgentNotice, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile,
-    Block, BlockRender, DynamicToolSink, Hook, HookContext, HookEvent, HookEventKind, HookOutcome,
-    HookStartSource, InstructionText, LoopStatus, Message, PermissionDecision, Provider,
-    ProviderStreamEvent, RetryPoint, Role, RoundEvent, SubagentEvent, TokenUsage, Tool,
-    ToolContext, ToolOutput, ToolSet, ToolStream, Transport, async_trait,
-};
+pub use nuo_protocol::{AgentEvent, AgentIdentity, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile, Block, BlockRender, DynamicToolSink, Hook, HookContext, HookEvent, HookOutcome, HookStartSource, InstructionText, LoopStatus, PermissionDecision, Provider, ProviderStreamEvent, RetryPoint, RoundEvent, ToolSet, Transport, async_trait};
+pub use nuo_tool::{AgentNotice, HookEventKind, Message, Role, SubagentEvent, TokenUsage, Tool, ToolOutput, ToolStream};
+
 
 #[allow(unused_imports)]
-pub(crate) use nuo_protocol::{
-    ExecutionEnvironment, HarnessError, ImagePart, InjectionKind, InjectionOrigin, InputRequest,
-    NoticeKind, NoticeSeverity, NoticeSource, QueuedMessage, StdinReply, TodoList, ToolCall,
-    UserQuestion, UserQuestionReply, UserQuestionRequest, WorkspaceRoot, WorkspaceRoots, message,
-    pressure,
-};
+pub(crate) use nuo_protocol::{ExecutionEnvironment, HarnessError, InputRequest, QueuedMessage, StdinReply, UserQuestionReply, WorkspaceRoot, WorkspaceRoots, pressure};
+pub(crate) use nuo_tool::{ImagePart, InjectionKind, InjectionOrigin, NoticeKind, NoticeSeverity, NoticeSource, TodoList, ToolCall, UserQuestion, UserQuestionRequest, message};
+
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from
 // `nuo-protocol`'s lib.rs (`use super::*`).
@@ -145,23 +136,6 @@ pub use cognition::skills::{
 };
 pub use cognition::thread_runtime::{RequestView, ThreadRuntime, ThreadWindow};
 pub use orchestration::context_gate::{PruningProjectionGate, SettingsForWindow};
-
-// -----------------------------------------------------------------------------
-// Subsystem: Governance & Policy Enforcement (Living in nuo-guardrails)
-// -----------------------------------------------------------------------------
-pub use nuo_guardrails as governance;
-pub use nuo_guardrails::bash_policy::{BashPolicy, BashPolicyAction, BashPolicyMatch};
-pub use nuo_guardrails::permission_policy::{
-    BashVerdict, HookSideEffects, PermissionChain, PermissionContext, PermissionPolicy,
-    PolicyContext, PolicyDecision, PreToolUseVerdict, default_chain,
-};
-pub use nuo_guardrails::permission_store::{PermissionRule, PermissionStore};
-pub use nuo_guardrails::{
-    DegeneratePattern, GuardAction, InteractionConfig, InteractionController, RoundGuardState,
-    ScopedToolDisable, StreamLoopDetector, TrajectoryLoopGuard,
-};
-pub(crate) use nuo_guardrails::{bash_policy, permission_policy, permission_store, shell_input};
-pub use nuo_guardrails::{guard, interaction, stream_loop_detector, trajectory_guard};
 
 // -----------------------------------------------------------------------------
 // Subsystem: Orchestration — per-round policy, lifecycle & titles

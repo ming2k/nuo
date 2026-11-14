@@ -194,7 +194,7 @@ async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRo
     let agent = Arc::new(Agent::new(
         provider,
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let lifecycle = Arc::new(RoundLifecycle::new());
     let (tx, rx) = mpsc::unbounded_channel();
@@ -226,7 +226,7 @@ async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRo
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await;
@@ -393,7 +393,7 @@ async fn real_interrupt_of_a_live_round_still_records() {
     assert_eq!(records[0].round, Some(1));
     let messages = session.model_window().await;
     assert!(
-        messages.iter().any(|m| m.role == nuo_protocol::Role::User),
+        messages.iter().any(|m| m.role == nuo_tool::Role::User),
         "sent prompt is preserved in transcript"
     );
     let _ = std::fs::remove_dir_all(directory);

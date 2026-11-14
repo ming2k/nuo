@@ -5,9 +5,9 @@
 //! (Abolition of Legacy Version Blacklists), and [INV-CATALOG-04] (Provider-Owned
 //! Dialect Ingestion) per ADR-0068.
 
-use nuo_provider::Availability;
+use nuo_protocol::Availability;
 use nuo_provider::catalog::DiscoveredModel;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::reasoning::ReasoningSupport;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -131,7 +131,7 @@ fn clean_display_name(raw_name: &str) -> String {
             break;
         }
     }
-    nuo_provider::clean_model_display_name(name)
+    nuo_protocol::clean_model_display_name(name)
 }
 
 fn is_internal_helper(id: &str) -> bool {

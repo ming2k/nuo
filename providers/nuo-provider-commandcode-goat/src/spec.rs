@@ -2,12 +2,13 @@
 //! (`api.commandcode.ai/provider/v1`), authenticated via a Command Code API key.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
-pub use nuo_provider::model_providers::COMMANDCODE_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::COMMANDCODE_BUILTIN_MODELS;
 
 /// Seed models offered by the Command Code Provider preset before the first sync.
 pub const MODELS: &[Model] = &[
@@ -20,7 +21,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -32,7 +33,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -44,7 +45,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -56,7 +57,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // CommandCode names its models `vendor/model`, and the server resolves the
@@ -75,7 +76,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -87,7 +88,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -99,15 +100,15 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -120,7 +121,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: Some(nuo_provider::QuotaPort::CommandCodeCredits),
     display_policy: nuo_provider::DisplayPolicy::Structural,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
     models: COMMANDCODE_BUILTIN_MODELS,
 };
 
@@ -224,7 +225,7 @@ mod tests {
             "deepseek/deepseek-v4.1-flash-fast",
             "deepseek/deepseek-v4-pro",
         ] {
-            let resolved = nuo_provider::model::resolve(id);
+            let resolved = nuo_protocol::model::resolve(id);
             assert!(
                 !resolved.effort_levels.is_empty(),
                 "{id} must resolve a reasoning-effort ladder, got empty"

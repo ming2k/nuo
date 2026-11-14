@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo::monitor::MonitorTracker;
-use nuo::registry::{HostedThread, ThreadRegistry};
-use nuo::serve::{self, AttachAction, Wire};
+use nuo::runtime::monitor::MonitorTracker;
+use nuo::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_server::transport::serve::{self, AttachAction, Wire};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentRequest, AgentResponse, RoundEvent};
 use tokio::sync::{Mutex, broadcast, mpsc};
@@ -57,7 +57,7 @@ async fn attach_trust_workspace_with_posture(
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let (req_tx, _req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
-    let sync_buffer = Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new()));
+    let sync_buffer = Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new()));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
         nuo_protocol::ThreadActivity::Idle,
@@ -131,7 +131,7 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let (req_tx, _req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
-    let sync_buffer = Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new()));
+    let sync_buffer = Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new()));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
         nuo_protocol::ThreadActivity::Idle,
@@ -293,7 +293,7 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
                         event: RoundEvent::Notice(n),
                     },
                 ..
-            } if n.kind == nuo_protocol::NoticeKind::TrustChanged => {
+            } if n.kind == nuo_tool::NoticeKind::TrustChanged => {
                 saw_banner = true;
             }
             _ => {}
@@ -348,7 +348,7 @@ async fn autonomous_attach_falls_back_to_the_banner() {
             continue;
         };
         if let RoundEvent::Notice(n) = scope.into_event()
-            && n.kind == nuo_protocol::NoticeKind::TrustChanged
+            && n.kind == nuo_tool::NoticeKind::TrustChanged
         {
             saw_banner = true;
             break;

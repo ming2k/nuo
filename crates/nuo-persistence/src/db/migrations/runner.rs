@@ -39,7 +39,10 @@ pub(crate) fn initialize_in_memory_db() -> Result<Connection> {
 /// Used by the offline migration tool to prepare a target database without
 /// going through the server's single-writer door (the tool is a separate
 /// process).
-pub(crate) fn initialize_connection_schema(conn: &mut Connection) -> Result<()> {
+pub(crate) fn initialize_connection_schema(
+    conn: &mut Connection,
+    _db_path: Option<&std::path::Path>,
+) -> Result<()> {
     configure_connection(conn)?;
     migrate_schema(conn)
 }
@@ -51,7 +54,7 @@ pub(crate) fn initialize_connection_schema(conn: &mut Connection) -> Result<()> 
 #[doc(hidden)]
 pub fn open_in_memory_for_tests() -> Result<Connection> {
     let mut conn = Connection::open_in_memory()?;
-    initialize_connection_schema(&mut conn)?;
+    initialize_connection_schema(&mut conn, None)?;
     Ok(conn)
 }
 
@@ -331,9 +334,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                                 .chain(probe.archived_transcript.iter().rev())
                                 .find(|m| {
                                     let is_echo = m.origin.as_ref().is_some_and(|o| {
-                                        o.kind == nuo_protocol::InjectionKind::CommandEcho
+                                        o.kind == nuo_tool::InjectionKind::CommandEcho
                                     });
-                                    m.role == nuo_protocol::Role::User && !m.hidden && !is_echo
+                                    m.role == nuo_tool::Role::User && !m.hidden && !is_echo
                                 })
                                 .map(|m| m.content.clone());
                             let digest_json = probe

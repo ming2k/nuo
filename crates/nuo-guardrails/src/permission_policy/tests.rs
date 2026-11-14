@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 use async_trait::async_trait;
-use nuo_protocol::ToolAccesses;
+use nuo_tool::ToolAccesses;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -388,8 +388,8 @@ impl Tool for SafeTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({})
     }
-    fn hazard_level(&self) -> nuo_protocol::HazardLevel {
-        nuo_protocol::HazardLevel::Safe
+    fn hazard_level(&self) -> nuo_tool::HazardLevel {
+        nuo_tool::HazardLevel::Safe
     }
     async fn call(&self, _args: &str) -> Result<String, String> {
         Ok("ok".into())
@@ -408,22 +408,22 @@ impl Tool for DangerousCommandTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({})
     }
-    fn hazard_level(&self) -> nuo_protocol::HazardLevel {
-        nuo_protocol::HazardLevel::CommandExecution
+    fn hazard_level(&self) -> nuo_tool::HazardLevel {
+        nuo_tool::HazardLevel::CommandExecution
     }
     fn scope_target(&self, args: &str) -> ScopeTarget {
         ScopeTarget::Command(args.to_string())
     }
-    fn permission_submission(&self, args: &str) -> Option<nuo_protocol::ToolPermissionSubmission> {
-        Some(nuo_protocol::ToolPermissionSubmission {
-            hazard_level: nuo_protocol::HazardLevel::CommandExecution,
+    fn permission_submission(&self, args: &str) -> Option<nuo_tool::ToolPermissionSubmission> {
+        Some(nuo_tool::ToolPermissionSubmission {
+            hazard_level: nuo_tool::HazardLevel::CommandExecution,
             label: format!("Execute command: `{args}`"),
             description: format!("Runs host shell command `{args}`"),
             scope: args.to_string(),
-            payload: nuo_protocol::ToolPermissionPayload::Command {
+            payload: nuo_tool::ToolPermissionPayload::Command {
                 command: args.to_string(),
                 cwd: None,
-                kill_spec: nuo_protocol::ProcessKillSpec {
+                kill_spec: nuo_tool::ProcessKillSpec {
                     command: args.split_whitespace().next().unwrap_or("sh").to_string(),
                     process_group_killable: true,
                     pkill_target: format!("pkill -f '{args}'"),
@@ -482,12 +482,12 @@ async fn broker_submits_hazard_and_kill_spec_for_dangerous_commands() {
         PolicyDecision::MissingAuthority { request, .. } => {
             assert_eq!(
                 request.hazard,
-                Some(nuo_protocol::HazardLevel::CommandExecution)
+                Some(nuo_tool::HazardLevel::CommandExecution)
             );
             assert!(request.submission.is_some());
             let sub = request.submission.unwrap();
             match sub.payload {
-                nuo_protocol::ToolPermissionPayload::Command { kill_spec, .. } => {
+                nuo_tool::ToolPermissionPayload::Command { kill_spec, .. } => {
                     assert!(kill_spec.process_group_killable);
                     assert_eq!(kill_spec.pkill_target, "pkill -f 'cargo test'");
                 }

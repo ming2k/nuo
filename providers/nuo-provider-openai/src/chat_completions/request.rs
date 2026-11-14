@@ -23,7 +23,8 @@
 //! 3. Reasoning replay is projected per dialect: an assistant turn's CoT
 //!    reaches the wire only where that surface defines a replayable field
 //!    (ADR-0083).
-use nuo_provider::{Effort, OpenAiChatDialect};
+use nuo_protocol::{Effort, OpenAiChatDialect};
+
 use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 
@@ -123,16 +124,16 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions to project as the leading system message.
-    pub instructions: Option<&'a nuo_provider::InstructionText>,
+    pub instructions: Option<&'a nuo_protocol::InstructionText>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
-    pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
+    pub tool_specs: Option<&'a [nuo_protocol::capability::ToolSpec]>,
     /// Optional OpenAI reasoning-effort override. `None` omits the field and
     /// keeps the model/provider default.
     pub reasoning_effort: Option<Effort>,
     /// Provider-specific behavior layered on the shared Chat Completions wire.
     pub dialect: OpenAiChatDialect,
     /// Cache controls resolved against this exact provider route.
-    pub cache_plan: &'a nuo_provider::ResolvedCachePolicy,
+    pub cache_plan: &'a nuo_protocol::ResolvedCachePolicy,
 }
 
 /// Build the chat-completions request body.
@@ -152,7 +153,7 @@ pub fn body(
     temporary_context: &[Message],
     input: BodyInput<'_>,
 ) -> Value {
-    let capabilities = nuo_provider::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_protocol::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(conversation, temporary_context, input, &capabilities)
 }
 
@@ -168,7 +169,7 @@ pub fn body_with_capabilities(
     conversation: &[Message],
     temporary_context: &[Message],
     input: BodyInput<'_>,
-    capabilities: &nuo_provider::ModelCapabilities,
+    capabilities: &nuo_protocol::ModelCapabilities,
 ) -> Value {
     let BodyInput {
         model: model_id,

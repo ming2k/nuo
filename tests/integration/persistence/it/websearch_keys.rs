@@ -6,16 +6,16 @@ use nuo_protocol::{
     SecretString, WebCredentialStatus, WebProviderAxis, WebReaderProvider, WebSearchProvider,
 };
 
-fn sandbox() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
+fn sandbox() -> (nuo_host::paths::TestDirsGuard, tempfile::TempDir) {
     let root = tempfile::tempdir().unwrap();
-    let dirs = nuo_persistence::paths::Dirs {
+    let dirs = nuo_host::paths::Dirs {
         config_dir: root.path().join("config"),
         data_dir: root.path().join("data"),
         state_dir: root.path().join("state"),
         cache_dir: root.path().join("cache"),
         runtime_dir: None,
     };
-    (nuo_persistence::paths::TestDirsGuard::install(dirs), root)
+    (nuo_host::paths::TestDirsGuard::install(dirs), root)
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn provider_credentials_round_trip_by_axis_and_id() {
 #[test]
 fn legacy_builtin_reader_canonicalizes_to_disabled() {
     let (_sandbox, _root) = sandbox();
-    std::fs::create_dir_all(&nuo_persistence::paths::get().config_dir).unwrap();
+    std::fs::create_dir_all(&nuo_host::paths::get().config_dir).unwrap();
     std::fs::write(
         Config::config_file_path(),
         "[websearch]\nreader = 'builtin'\n",
@@ -85,7 +85,7 @@ fn required_credential_readiness_is_explicit() {
 #[test]
 fn legacy_connection_selection_and_token_migrate_without_deleting_source() {
     let (_sandbox, _root) = sandbox();
-    let dirs = nuo_persistence::paths::get();
+    let dirs = nuo_host::paths::get();
     std::fs::create_dir_all(&dirs.config_dir).unwrap();
     std::fs::create_dir_all(&dirs.state_dir).unwrap();
     std::fs::write(

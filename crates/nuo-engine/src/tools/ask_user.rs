@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use nuo_protocol::{BuiltinTool, Tool};
+use nuo_tool::{BuiltinTool, Tool};
+
 use serde_json::json;
 
 /// Ask the user one or more multiple-choice questions mid-task.

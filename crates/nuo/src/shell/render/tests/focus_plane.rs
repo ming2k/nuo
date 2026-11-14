@@ -280,7 +280,7 @@ fn wash_preserves_the_relative_step_of_a_content_band() {
 fn wash_keeps_the_sent_message_panel_raised_above_the_page() {
     let theme = Theme::default();
     let messages = vec![
-        TranscriptMessage::new(nuo_protocol::Role::User, "please refactor this")
+        TranscriptMessage::new(nuo_tool::Role::User, "please refactor this")
             .with_round(1)
             .with_sent_at_ms(1_700_000_000_000),
         step("read", false),
@@ -626,7 +626,7 @@ fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
 #[test]
 fn every_shipped_scheme_announces_the_transcript_plane() {
     let messages = vec![
-        TranscriptMessage::new(nuo_protocol::Role::User, "selectable prose for the pane")
+        TranscriptMessage::new(nuo_tool::Role::User, "selectable prose for the pane")
             .with_round(1),
         step("read", true),
     ];
@@ -750,7 +750,7 @@ fn a_selection_keeps_its_separation_under_the_pane_wash() {
     // and a step's chrome carries no selectable text to select.
     let messages = vec![
         TranscriptMessage::new(
-            nuo_protocol::Role::User,
+            nuo_tool::Role::User,
             "please refactor the selection rendering path",
         )
         .with_round(1),

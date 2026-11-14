@@ -130,7 +130,7 @@ mod tests {
             _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             Ok(nuo_protocol::ProviderCompletion::message(
-                nuo_protocol::Message::new(nuo_protocol::Role::Assistant, "ok"),
+                nuo_tool::Message::new(nuo_tool::Role::Assistant, "ok"),
             ))
         }
         async fn stream_chat(

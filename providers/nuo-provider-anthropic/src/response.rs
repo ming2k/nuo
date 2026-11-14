@@ -5,7 +5,7 @@
 //! the `usage` object (with cache-token folding), and the per-event stream
 //! parsing.
 
-use nuo_provider::capability::ProviderStreamEvent;
+use nuo_protocol::capability::ProviderStreamEvent;
 use nuo_tool::ToolCall;
 use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::{Map, Value};

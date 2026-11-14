@@ -106,7 +106,7 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
     let agent = Arc::new(Agent::new(
         Arc::new(ReasoningThenTruncatedProvider(attempts.clone())),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -137,7 +137,7 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await;

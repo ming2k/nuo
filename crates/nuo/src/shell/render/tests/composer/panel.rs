@@ -14,7 +14,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
     // A long user message fills the first wrapped line edge to edge, so the
     // right-side padding is only present if the wrap width reserves it.
     let messages = vec![TranscriptMessage::new(
-        nuo_protocol::Role::User,
+        nuo_tool::Role::User,
         "x".repeat(200),
     )];
     let long_input = "y".repeat(200);
@@ -309,7 +309,7 @@ fn in_round_interjection_renders_one_body_row() {
     let width = 72u16;
     let mut terminal = nuotc::TestTerminal::new(width, 24);
 
-    let steer = TranscriptMessage::new(nuo_protocol::Role::User, "use rg, not find")
+    let steer = TranscriptMessage::new(nuo_tool::Role::User, "use rg, not find")
         .with_origin(nuo_view::model::document::UserMessageOrigin::Steer)
         .with_sent_at_ms(1_700_000_000_000)
         .with_origin_tags(vec![SteerOriginTag::InRound]);
@@ -483,7 +483,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_protocol::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "# 👨‍👩‍👧 OKX\n\nbody\n",
     )];
     terminal.draw(|f| {

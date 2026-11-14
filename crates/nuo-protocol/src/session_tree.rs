@@ -1,4 +1,4 @@
-use crate::message::{Message, Role};
+use nuo_tool::{Message, Role};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

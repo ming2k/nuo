@@ -55,13 +55,13 @@ impl Hook for HazardHook {
     fn permission_submission(
         &self,
         _ctx: &HookContext,
-    ) -> Option<nuo_protocol::ToolPermissionSubmission> {
-        Some(nuo_protocol::ToolPermissionSubmission {
-            hazard_level: nuo_protocol::HazardLevel::CommandExecution,
+    ) -> Option<nuo_tool::ToolPermissionSubmission> {
+        Some(nuo_tool::ToolPermissionSubmission {
+            hazard_level: nuo_tool::HazardLevel::CommandExecution,
             label: "test hook".to_string(),
             description: "test command hook".to_string(),
             scope: "echo gated".to_string(),
-            payload: nuo_protocol::ToolPermissionPayload::Generic {
+            payload: nuo_tool::ToolPermissionPayload::Generic {
                 summary: "test hook".to_string(),
                 details: serde_json::Value::Null,
             },
@@ -211,7 +211,7 @@ async fn permission_request_is_observe_only_but_fires() {
         matcher: None,
         fires: fires.clone(),
     })]);
-    let request = nuo_protocol::PermissionRequest {
+    let request = nuo_tool::PermissionRequest {
         id: "permission_x".into(),
         tool: "execute_command".into(),
         label: "Run command".into(),
@@ -241,7 +241,7 @@ async fn permission_request_matcher_targets_tool() {
         matcher: Some("execute_command".into()),
         fires: fires.clone(),
     })]);
-    let bash_req = nuo_protocol::PermissionRequest {
+    let bash_req = nuo_tool::PermissionRequest {
         id: "p1".into(),
         tool: "execute_command".into(),
         label: "".into(),
@@ -253,7 +253,7 @@ async fn permission_request_matcher_targets_tool() {
         origin: None,
         ..Default::default()
     };
-    let edit_req = nuo_protocol::PermissionRequest {
+    let edit_req = nuo_tool::PermissionRequest {
         id: "p2".into(),
         tool: "edit_text".into(),
         label: "".into(),
@@ -284,12 +284,12 @@ async fn user_question_is_observe_only_but_fires() {
         matcher: None,
         fires: fires.clone(),
     })]);
-    let request = nuo_protocol::UserQuestionRequest {
+    let request = nuo_tool::UserQuestionRequest {
         id: "ask_user_x".into(),
-        questions: vec![nuo_protocol::UserQuestion {
+        questions: vec![nuo_tool::UserQuestion {
             header: Some("Pick one".into()),
             question: "Which?".into(),
-            options: vec![nuo_protocol::UserQuestionOption {
+            options: vec![nuo_tool::UserQuestionOption {
                 label: "A".into(),
                 description: None,
             }],

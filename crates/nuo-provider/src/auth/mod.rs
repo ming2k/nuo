@@ -2,7 +2,6 @@
 
 pub mod browser;
 pub mod config;
-pub mod core;
 pub mod credential_source;
 pub mod device;
 pub mod enricher;
@@ -21,10 +20,6 @@ pub use browser::{CallbackOutcome, CallbackServer, render_page};
 pub use config::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, OAuthConfigBuilder, PkceMode, PortMode,
     TokenRequestFormat,
-};
-pub use core::{
-    ChatGptAuthMetadata, CopilotAuthMetadata, CredentialSource, ExtensionMap, GoogleAuthMetadata,
-    PreflightValidator, ResolvedAuth, StaticCredentialSource, static_credential,
 };
 pub use credential_source::OAuthCredentialSource;
 pub use device::{

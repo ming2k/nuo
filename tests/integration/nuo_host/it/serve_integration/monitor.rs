@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo::serve::{self, AttachAction, Wire};
+use nuo_server::transport::serve::{self, AttachAction, Wire};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
 use tokio::sync::mpsc;
@@ -95,8 +95,8 @@ async fn rename_live_session_republishes_monitor_row() {
     // real content so it persists and appears in `list()`.
     let session = Arc::new(ThreadSession::for_path(tmp.path().join("session.json")));
     session
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "first prompt",
         )])
         .await
@@ -116,7 +116,7 @@ async fn rename_live_session_republishes_monitor_row() {
             let _ = forward.send(response);
         }
     });
-    nuo::handlers_thread::rename(
+    nuo::handlers::handlers_thread::rename(
         &session,
         &resp_tx,
         session_id.clone(),

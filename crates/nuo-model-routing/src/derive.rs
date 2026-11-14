@@ -30,7 +30,9 @@ use nuo_protocol::{
     ConnectionFilterPolicy, NamedFilterPolicy, ProviderDialect, SecretString, WireProtocol,
 };
 use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
-use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
+use nuo_provider::{CredentialHost, model_provider_spec};
+use nuo_protocol::{RemoteCatalogSource};
+
 
 /// Everything a derivation reads. Borrowed, never lifted from disk here.
 pub struct DerivationInputs<'a> {
@@ -223,7 +225,7 @@ pub fn derive_channel(
         .map(|spec| spec.resolve_display_label(advertised, model))
         .unwrap_or_else(|| {
             advertised
-                .map(nuo_provider::clean_model_display_name)
+                .map(nuo_protocol::clean_model_display_name)
                 .filter(|label| !label.is_empty() && label != model)
         });
     if label.is_some() {
@@ -334,7 +336,7 @@ struct BaseRoute {
     user_agent: String,
     headers: Vec<(String, String)>,
     dialect: ProviderDialect,
-    responses_state: nuo_provider::ResponsesState,
+    responses_state: nuo_protocol::ResponsesState,
 }
 
 /// Model protocol metadata overrides the provider-scoped baseline and default,

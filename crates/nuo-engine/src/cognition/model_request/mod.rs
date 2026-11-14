@@ -74,7 +74,7 @@ impl ModelRequestAssembler {
         let tools = tools
             .iter()
             .map(|t| {
-                nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
+                nuo_protocol::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
             })
             .collect();
         nuo_protocol::RequestBuilder {
@@ -110,7 +110,7 @@ impl ModelRequestAssembler {
         let tools = tools
             .iter()
             .map(|t| {
-                nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
+                nuo_protocol::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
             })
             .collect();
         let request_context =

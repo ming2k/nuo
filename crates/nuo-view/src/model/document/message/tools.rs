@@ -3,7 +3,7 @@ use super::super::helpers::*;
 use super::super::types::*;
 use super::{TranscriptMessage, next_message_id};
 use crate::model::interactive::InteractiveEntry;
-use nuo_protocol::Role;
+use nuo_tool::Role;
 
 impl TranscriptMessage {
     /// ADR-0166: whether this step is still ingesting its arguments (announced,
@@ -156,7 +156,7 @@ impl TranscriptMessage {
     pub fn set_tool_preview(
         &mut self,
         call_id: &str,
-        preview: nuo_protocol::PreviewResult,
+        preview: nuo_tool::PreviewResult,
     ) -> bool {
         let MessageKind::ToolStep { id, structured, .. } = &mut self.kind else {
             return false;
@@ -246,7 +246,7 @@ impl TranscriptMessage {
         &mut self,
         id: &str,
         output: impl Into<String>,
-        structured: nuo_protocol::ToolOutput,
+        structured: nuo_tool::ToolOutput,
         duration_ms: u64,
     ) -> bool {
         let MessageKind::ToolStep {
@@ -275,12 +275,12 @@ impl TranscriptMessage {
         // from a runtime error.
         *status = if matches!(
             structured,
-            nuo_protocol::ToolOutput::PermissionDenied { .. }
+            nuo_tool::ToolOutput::PermissionDenied { .. }
         ) {
             ToolStepStatus::Denied
         } else if matches!(
             &structured,
-            nuo_protocol::ToolOutput::Subagent {
+            nuo_tool::ToolOutput::Subagent {
                 interrupted: true,
                 ..
             }
@@ -303,10 +303,10 @@ impl TranscriptMessage {
 
     /// Accumulate an incremental stream chunk into a still-running tool step,
     /// so the UI can render partial output (e.g. bash stdout) live. The first
-    /// chunk initializes a partial [`nuo_protocol::ToolOutput::Shell`]; the
+    /// chunk initializes a partial [`nuo_tool::ToolOutput::Shell`]; the
     /// terminal `finish_tool_step` later overwrites it with the final result.
     /// Returns `false` if this isn't a matching running step.
-    pub fn push_tool_stream(&mut self, id: &str, stream: &nuo_protocol::ToolStream) -> bool {
+    pub fn push_tool_stream(&mut self, id: &str, stream: &nuo_tool::ToolStream) -> bool {
         let MessageKind::ToolStep {
             id: step_id,
             arguments,
@@ -322,14 +322,14 @@ impl TranscriptMessage {
         }
         if !matches!(
             structured.as_deref(),
-            Some(nuo_protocol::ToolOutput::Shell { .. })
+            Some(nuo_tool::ToolOutput::Shell { .. })
         ) {
             let cmd = parse_arguments_kv(arguments)
                 .into_iter()
                 .find(|(k, _)| k == "command")
                 .map(|(_, v)| v)
                 .unwrap_or_default();
-            *structured = Some(Box::new(nuo_protocol::ToolOutput::Shell {
+            *structured = Some(Box::new(nuo_tool::ToolOutput::Shell {
                 command: cmd,
                 stdout: String::new(),
                 stderr: String::new(),
@@ -339,11 +339,11 @@ impl TranscriptMessage {
                 // Still-streaming seed: the real termination lands with the
                 // final result (`finish_tool_step`). Default until then.
                 truncated_note: None,
-                termination: nuo_protocol::tool_output::ShellTermination::default(),
+                termination: nuo_tool::ShellTermination::default(),
                 detached_job_id: None,
             }));
         }
-        if let Some(nuo_protocol::ToolOutput::Shell {
+        if let Some(nuo_tool::ToolOutput::Shell {
             stdout,
             stderr,
             lines,
@@ -361,23 +361,23 @@ impl TranscriptMessage {
             // stream. Trailing empties (from the terminal `\n`) are dropped so
             // they don't paint phantom blank rows.
             let stream_tag = match stream {
-                nuo_protocol::ToolStream::Stdout(_) => nuo_protocol::tool_output::ShellStream::Out,
-                nuo_protocol::ToolStream::Stderr(_) => nuo_protocol::tool_output::ShellStream::Err,
+                nuo_tool::ToolStream::Stdout(_) => nuo_tool::ShellStream::Out,
+                nuo_tool::ToolStream::Stderr(_) => nuo_tool::ShellStream::Err,
             };
             let text = match stream {
-                nuo_protocol::ToolStream::Stdout(s) | nuo_protocol::ToolStream::Stderr(s) => s,
+                nuo_tool::ToolStream::Stdout(s) | nuo_tool::ToolStream::Stderr(s) => s,
             };
             for piece in text.split('\n') {
                 if !piece.is_empty() {
-                    lines.push(nuo_protocol::tool_output::ShellLine {
+                    lines.push(nuo_tool::ShellLine {
                         stream: stream_tag,
                         text: piece.to_string(),
                     });
                 }
             }
             match stream {
-                nuo_protocol::ToolStream::Stdout(s) => stdout.push_str(s),
-                nuo_protocol::ToolStream::Stderr(s) => stderr.push_str(s),
+                nuo_tool::ToolStream::Stdout(s) => stdout.push_str(s),
+                nuo_tool::ToolStream::Stderr(s) => stderr.push_str(s),
             }
         }
         self.refresh_tool_step();
@@ -681,7 +681,7 @@ impl TranscriptMessage {
         let effective_args = if arguments.trim().is_empty() {
             if let Some(box_structured) = structured {
                 match &**box_structured {
-                    nuo_protocol::ToolOutput::Patch { path, old, new, .. } => {
+                    nuo_tool::ToolOutput::Patch { path, old, new, .. } => {
                         effective_args_buf = serde_json::json!({
                             "path": path,
                             "old_string": old,

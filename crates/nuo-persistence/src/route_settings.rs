@@ -25,7 +25,7 @@ use std::fs;
 use serde::{Deserialize, Serialize};
 
 pub use crate::config::RouteSettings;
-use crate::paths;
+use nuo_host::paths;
 
 /// Read the historical `route_settings` map out of a pre-split catalog file.
 /// Returns an empty map for a missing file, a post-split file (no such key), or
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn round_trips_through_disk() {
         let root = tempfile::tempdir().unwrap();
-        let _sandbox = crate::paths::TestDirsGuard::install(crate::paths::Dirs {
+        let _sandbox = nuo_host::paths::TestDirsGuard::install(nuo_host::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn migration_rescues_user_route_settings_and_leaves_derivable_state_alone() {
         let root = tempfile::tempdir().unwrap();
-        let _sandbox = crate::paths::TestDirsGuard::install(crate::paths::Dirs {
+        let _sandbox = nuo_host::paths::TestDirsGuard::install(nuo_host::paths::Dirs {
             config_dir: root.path().join("config"),
             data_dir: root.path().join("data"),
             state_dir: root.path().join("state"),
@@ -440,7 +440,7 @@ mod tests {
         });
         std::fs::create_dir_all(root.path().join("state")).unwrap();
         std::fs::write(
-            crate::paths::get().retired_remote_catalog_state_file(),
+            nuo_host::paths::get().retired_remote_catalog_state_file(),
             serde_json::to_string_pretty(&retired_json).unwrap(),
         )
         .unwrap();

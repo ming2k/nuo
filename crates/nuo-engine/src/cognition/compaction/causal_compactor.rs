@@ -14,7 +14,9 @@ use super::file_tracker::FileOperations;
 use super::split_compaction::{
     compact_facts, find_cut_point_facts, find_tail_preserving_cut_point,
 };
-use nuo_protocol::{BranchId, FactId, FactPayload, Provider, Role, Thread};
+use nuo_protocol::{BranchId, FactId, FactPayload, Provider, Thread};
+use nuo_tool::{Role};
+
 use std::sync::Arc;
 
 /// Strategy determining where the compaction boundary cuts the live branch.
@@ -157,7 +159,7 @@ impl CausalCompactor {
         let summary = if summary_budget == 0 {
             summary
         } else {
-            nuo_protocol::tokenizer::truncate_to_tokens(&summary, summary_budget)
+            nuo_tool::tokenizer::truncate_to_tokens(&summary, summary_budget)
                 .0
                 .trim_end()
                 .to_string()
@@ -244,7 +246,9 @@ fn build_deterministic_excerpt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::{FactContext, Message, ThreadId, ThreadStatus};
+    use nuo_protocol::{FactContext, ThreadId, ThreadStatus};
+    use nuo_tool::{Message};
+
 
     fn thread_with_rounds(rounds: u64) -> Thread {
         let mut thread = Thread::new(ThreadId::new("test-thread"), 1000);
@@ -374,9 +378,9 @@ mod tests {
         .unwrap()
         .expect("the fold must engage");
         assert!(
-            nuo_protocol::tokenizer::count_tokens(&outcome.summary) <= 30,
+            nuo_tool::tokenizer::count_tokens(&outcome.summary) <= 30,
             "summary exceeded its budget: {} tokens",
-            nuo_protocol::tokenizer::count_tokens(&outcome.summary)
+            nuo_tool::tokenizer::count_tokens(&outcome.summary)
         );
     }
 }

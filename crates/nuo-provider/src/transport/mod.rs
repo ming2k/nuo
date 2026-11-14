@@ -10,7 +10,6 @@ pub mod http;
 pub mod network;
 pub mod request;
 pub mod sse;
-pub mod telemetry;
 
 pub use client::{Client, HttpResponse, NetTransport, TraceSink, Transport};
 pub use diagnostic::TransportDiagnostic;
@@ -20,7 +19,6 @@ pub use http::{Body, Http, Reply, Request};
 pub use network::{direct_client, shared_client};
 pub use request::{RequestBuilder, RequestParts};
 pub use sse::{data_payloads, payloads_from_chunks};
-pub use telemetry::{TransportObservation, TransportTelemetry, TransportTimings};
 
 // Re-export response helpers previously exposed under `transport`
 pub use crate::response::{

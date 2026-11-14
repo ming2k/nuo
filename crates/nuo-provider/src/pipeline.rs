@@ -9,8 +9,8 @@
 //!   Phase 3: `RequestSignerPhase` (Final immutable request inspection and cryptographic signing)
 use std::fmt;
 
-use crate::auth::{PreflightValidator, ResolvedAuth};
-use crate::dialects::OpenAiChatDialect;
+use nuo_protocol::auth::{PreflightValidator, ResolvedAuth};
+use nuo_protocol::dialects::OpenAiChatDialect;
 use crate::error::{ProviderError, ProviderErrorKind};
 use crate::transport::RequestBuilder;
 use crate::wire::{EncodedRequest, WireRequest};

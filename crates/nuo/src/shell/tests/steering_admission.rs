@@ -298,7 +298,7 @@ fn steer_text_survives_a_snapshot_then_a_missed_round() {
     app.current_session_id = "s".to_string();
 
     let mut steer = steer_dispatch("st-1", "s", "use rg not find");
-    steer.images = vec![nuo_protocol::ImagePart {
+    steer.images = vec![nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "base64".to_string(),
     }];

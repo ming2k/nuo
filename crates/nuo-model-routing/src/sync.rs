@@ -14,10 +14,10 @@ use futures::stream::{self, StreamExt};
 use nuo_persistence::config::{FittedModelInfo, ModelListCacheState, RemoteCatalogCache};
 use nuo_persistence::connections::Connections;
 use nuo_protocol::WireProtocol;
-use nuo_provider::{
-    CatalogShape, ModelProviderSpec, RemoteCatalogOptions, RemoteCatalogRequest,
-    RemoteCatalogSource, RemoteCatalogUpdate, model_provider_spec,
-};
+use nuo_provider::{RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate, model_provider_spec};
+use nuo_protocol::{CatalogShape, ModelListError, RemoteCatalogSource};
+use nuo_provider::ModelProviderSpec;
+
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
@@ -126,7 +126,7 @@ struct CatalogSyncJob {
 struct CatalogFetchResult {
     connection: nuo_persistence::connections::Connection,
     source_identity: String,
-    update: Result<RemoteCatalogUpdate, nuo_provider::ModelListError>,
+    update: Result<RemoteCatalogUpdate, ModelListError>,
 }
 
 async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
@@ -153,7 +153,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                     return CatalogFetchResult {
                         connection: job.connection,
                         source_identity,
-                        update: Err(nuo_provider::ModelListError::BadEndpoint(
+                        update: Err(ModelListError::BadEndpoint(
                             "no credential source builder registered (composition root not initialized)"
                                 .to_string(),
                         )),
@@ -167,7 +167,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                         return CatalogFetchResult {
                             connection: job.connection,
                             source_identity,
-                            update: Err(nuo_provider::ModelListError::Http(error)),
+                            update: Err(ModelListError::Http(error)),
                         };
                     }
                 }
@@ -454,7 +454,7 @@ async fn sync_routes_matching(
         }
         let refused = error
             .as_ref()
-            .is_some_and(nuo_provider::ModelListError::is_refusal);
+            .is_some_and(ModelListError::is_refusal);
         if let Some(error) = &error {
             tracing::warn!(
                 connection = %connection_name,
@@ -487,7 +487,7 @@ fn apply_fetched(
     cache: &mut RemoteCatalogCache,
     fetched: CatalogFetchResult,
     now_ms: i64,
-) -> (bool, Option<nuo_provider::ModelListError>) {
+) -> (bool, Option<ModelListError>) {
     let connection = &fetched.connection;
     match fetched.update {
         Ok(RemoteCatalogUpdate::Modified { models, etag }) => {
@@ -670,7 +670,7 @@ fn build_first_party_source(
     // needs dialect signing; the fetcher receives the built signer as data.
     let needs_dialect_signing = protocol
         .auth()
-        .eq(&nuo_protocol::provider_surface::CatalogAuth::Dialect);
+        .eq(&nuo_protocol::surface::CatalogAuth::Dialect);
     let dimensions = resolved_catalog_dimensions(connection, protocol);
     Some(CatalogFetchSource::FirstParty {
         protocol,
@@ -760,7 +760,7 @@ pub fn sync_fitted_model_registry() {
     nuo_protocol::model::register_fitted_models(fitted);
 }
 
-fn fitted_model_info(model: &nuo_provider::DiscoveredModel) -> FittedModelInfo {
+fn fitted_model_info(model: &nuo_protocol::DiscoveredModel) -> FittedModelInfo {
     FittedModelInfo {
         context_window: model.context_window.unwrap_or(0),
         reasoning: model.reasoning.unwrap_or(false),
@@ -772,7 +772,7 @@ fn fitted_model_info(model: &nuo_provider::DiscoveredModel) -> FittedModelInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_provider::DiscoveredModel;
+    use nuo_protocol::DiscoveredModel;
 
     fn discovered(id: &str, availability: Option<nuo_protocol::Availability>) -> DiscoveredModel {
         DiscoveredModel {
@@ -921,7 +921,7 @@ mod tests {
         let failed = CatalogFetchResult {
             connection,
             source_identity: "sha256:test".to_string(),
-            update: Err(nuo_provider::ModelListError::Status(
+            update: Err(ModelListError::Status(
                 503,
                 "upstream down".to_string(),
             )),

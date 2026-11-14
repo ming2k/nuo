@@ -4,7 +4,7 @@ use super::super::types::*;
 use super::{TranscriptMessage, next_message_id};
 use crate::model::interactive::InteractiveEntry;
 use crate::model::markdown::{parse_blocks, parse_blocks_plain};
-use nuo_protocol::Role;
+use nuo_tool::Role;
 
 impl TranscriptMessage {
     /// A slash-command invocation with its typed result. `name` is

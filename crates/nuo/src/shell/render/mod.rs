@@ -72,7 +72,8 @@ use nuotc::{
 };
 
 #[cfg(test)]
-use nuo_protocol::{PermissionRequest, UserQuestionRequest};
+use nuo_tool::{PermissionRequest, UserQuestionRequest};
+
 use nuo_view::model::document::TranscriptMessage;
 use nuo_view::model::layout::{InteractiveTarget, LayoutMap};
 use nuo_view::model::selection::{CellDragInfo, SelectionState};

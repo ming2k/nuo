@@ -8,7 +8,7 @@
 
 use futures::StreamExt as _;
 use nuo_host::SecretString;
-use nuo_provider::capability::{Provider, ProviderStreamEvent};
+use nuo_protocol::capability::{Provider, ProviderStreamEvent};
 use nuo_provider_catalog::{CatalogShape, RemoteCatalogRequest, list_models};
 use nuo_provider_commandcode_goat::CommandCodeUsageFetcher;
 use nuo_tool::{Message, Role};
@@ -54,12 +54,12 @@ async fn main() {
     )
     .with_id("cmd-smoke-chat".to_string());
 
-    let req_chat = nuo_provider::capability::ModelRequest::new(vec![Message::new(
+    let req_chat = nuo_protocol::capability::ModelRequest::new(vec![Message::new(
         Role::User,
         "Please reply with 'Hello from Command Code OpenAI!' and nothing else.",
     )]);
     match provider_chat
-        .stream_chat_events(&req_chat, nuo_provider::TransportTelemetry::default())
+        .stream_chat_events(&req_chat, nuo_protocol::TransportTelemetry::default())
         .await
     {
         Ok(mut stream) => {
@@ -82,8 +82,8 @@ async fn main() {
     }
 
     println!("\n=== 3. Anthropic Messages Streaming (claude-sonnet-5-5) ===");
-    let cred_source: Arc<dyn nuo_provider::CredentialSource> = Arc::new(
-        nuo_provider::auth::StaticCredentialSource::new(secret.clone()),
+    let cred_source: Arc<dyn nuo_protocol::CredentialSource> = Arc::new(
+        nuo_protocol::auth::StaticCredentialSource::new(secret.clone()),
     );
     let provider_anthropic = nuo_provider_anthropic::AnthropicMessagesProvider::with_credentials(
         cred_source,
@@ -92,12 +92,12 @@ async fn main() {
     )
     .with_id("cmd-smoke-anthropic".to_string());
 
-    let req_anthropic = nuo_provider::capability::ModelRequest::new(vec![Message::new(
+    let req_anthropic = nuo_protocol::capability::ModelRequest::new(vec![Message::new(
         Role::User,
         "Please reply with 'Hello from Command Code Anthropic!' and nothing else.",
     )]);
     match provider_anthropic
-        .stream_chat_events(&req_anthropic, nuo_provider::TransportTelemetry::default())
+        .stream_chat_events(&req_anthropic, nuo_protocol::TransportTelemetry::default())
         .await
     {
         Ok(mut stream) => {

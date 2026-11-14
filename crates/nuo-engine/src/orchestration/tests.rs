@@ -27,7 +27,9 @@ fn compaction_target_accounts_for_projected_request_overhead() {
 
 use crate::AgentIdentity;
 use async_trait::async_trait;
-use nuo_protocol::{Message, ModelRequest, ProviderStreamEvent, Role};
+use nuo_protocol::{ModelRequest, ProviderStreamEvent};
+use nuo_tool::{Message, Role};
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TitleProvider {
@@ -49,7 +51,7 @@ impl nuo_protocol::Provider for TitleProvider {
     async fn stream_chat(
         &self,
         _request: &ModelRequest,
-        _telemetry: nuo_provider::TransportTelemetry,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -59,7 +61,7 @@ impl nuo_protocol::Provider for TitleProvider {
     async fn stream_chat_events(
         &self,
         _request: &ModelRequest,
-        _telemetry: nuo_provider::TransportTelemetry,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         futures::stream::BoxStream<
             'static,

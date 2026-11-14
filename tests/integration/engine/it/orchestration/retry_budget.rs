@@ -14,7 +14,7 @@ async fn turn_exhaustion_message_explains_retry_budget() {
     let agent = Arc::new(Agent::new(
         Arc::new(AlwaysRetryableProvider),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -46,7 +46,7 @@ async fn turn_exhaustion_message_explains_retry_budget() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -88,7 +88,7 @@ async fn mid_stream_failures_consume_only_the_restart_budget() {
     let agent = Arc::new(Agent::new(
         Arc::new(VisibleFailProvider(attempts.clone())),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -119,7 +119,7 @@ async fn mid_stream_failures_consume_only_the_restart_budget() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -298,7 +298,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
             requests: requests.clone(),
         }),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -333,7 +333,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

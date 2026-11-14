@@ -114,7 +114,7 @@ fn restored_user_insert_keeps_mid_round_origin_without_opening_a_turn() {
     use nuo_view::model::document::UserMessageOrigin;
     let first = Message::new(Role::Assistant, "first answer");
     let inserted = Message::new(Role::User, "one more constraint").with_origin(
-        nuo_protocol::InjectionOrigin::new(nuo_protocol::InjectionKind::UserSteer),
+        nuo_tool::InjectionOrigin::new(nuo_tool::InjectionKind::UserSteer),
     );
     let second = Message::new(Role::Assistant, "revised answer");
 
@@ -162,7 +162,7 @@ fn restored_command_echo_origin_from_durable_provenance() {
 /// dropped from the dialogue before merge; the ledger row keeps the record.
 #[test]
 fn restored_slash_echoes_fold_into_command_components() {
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
     use nuo_view::model::document::UserMessageOrigin;
 
     let restored = transcript_messages_from_core(

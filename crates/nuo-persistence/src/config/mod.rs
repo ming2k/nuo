@@ -1,7 +1,8 @@
 //! User configuration schema and persistence.
-use crate::fsutil;
-use crate::paths;
-use nuo_protocol::{CompactionPolicy, McpServerConfig, SkillsConfig, WebConfig};
+use nuo_host::fsutil;
+use nuo_host::paths;
+use nuo_protocol::{CompactionPolicy, McpServerConfig, WebConfig};
+use nuo_tool::SkillsConfig;
 
 pub use nuo_protocol::ConnectionAuth as ConfigChannelAuth;
 use serde::{Deserialize, Serialize};
@@ -24,7 +25,7 @@ pub struct Config {
     pub default_connection: String,
     pub mcp: HashMap<String, McpServerConfig>,
     /// Versioned context lifecycle and admission policy.
-    pub context: nuo_protocol::context_lifecycle::ContextPolicy,
+    pub context: nuo_protocol::context_policy::ContextPolicy,
     /// Maximum number of attempts for a single model request when the connection returns a
     /// transient error (HTTP 408/429/5xx, connection, timeout). The initial try
     /// counts as the first attempt, so this is the *total* attempts, not extra
@@ -118,7 +119,7 @@ pub(super) struct RawConfig {
     #[serde(default)]
     mcp: Option<HashMap<String, McpServerConfig>>,
     #[serde(default)]
-    context: Option<nuo_protocol::context_lifecycle::ContextPolicy>,
+    context: Option<nuo_protocol::context_policy::ContextPolicy>,
     #[serde(default)]
     compaction: Option<CompactionPolicy>,
     #[serde(default)]
@@ -260,7 +261,7 @@ impl Default for Config {
         Self {
             default_connection: String::new(),
             mcp: HashMap::new(),
-            context: nuo_protocol::context_lifecycle::ContextPolicy::default(),
+            context: nuo_protocol::context_policy::ContextPolicy::default(),
             connection_retry_max_attempts: 30,
             connection_stream_restart_max_attempts: 3,
             connection_retry_base_ms: 1_000,
@@ -357,7 +358,7 @@ struct DomainAgentFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<AgentConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    context: Option<nuo_protocol::context_lifecycle::ContextPolicy>,
+    context: Option<nuo_protocol::context_policy::ContextPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     permissions: Option<PermissionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1125,7 +1126,8 @@ impl Config {
 }
 
 #[cfg(test)]
-pub use nuo_protocol::{HookEventKind, RemoteModelMetadata, SecretString};
+pub use nuo_protocol::{RemoteModelMetadata, SecretString};
+pub use nuo_tool::HookEventKind;
 
 #[cfg(test)]
 pub(crate) mod tests;

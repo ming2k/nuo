@@ -1,5 +1,5 @@
 //! Core TranscriptMessage entity and lifecycle mutations.
-use nuo_protocol::Role;
+use nuo_tool::Role;
 
 use super::blocks::Block;
 use super::helpers::*;
@@ -57,7 +57,7 @@ pub struct TranscriptMessage {
     /// `InjectionKind`.
     pub origin_tags: Vec<SteerOriginTag>,
     /// Provider/solution id that produced this message, mirrored from the
-    /// core [`nuo_protocol::Message`] so the transcript stays traceable across
+    /// core [`nuo_tool::Message`] so the transcript stays traceable across
     /// model switches. `None` for messages that don't carry attribution.
     pub provider: Option<String>,
     /// Model id that produced this message, companion to [`TranscriptMessage::provider`].
@@ -97,7 +97,7 @@ pub struct TranscriptMessage {
     /// it is storage/UI metadata, never conversation content.
     pub sent_at_ms: Option<u64>,
     /// Durable provenance / injection origin stamped by the harness (ADR-0050).
-    pub injection_origin: Option<nuo_protocol::InjectionOrigin>,
+    pub injection_origin: Option<nuo_tool::InjectionOrigin>,
     /// Component state revision. Incremented on mutations so the cascade
     /// layout cache instantly detects if remeasurement is required.
     pub rev: u64,
@@ -326,7 +326,7 @@ impl TranscriptMessage {
                     matches!(status, ToolStepStatus::Failed | ToolStepStatus::Denied);
                 let failed_output = structured
                     .as_deref()
-                    .is_some_and(nuo_protocol::ToolOutput::is_error);
+                    .is_some_and(nuo_tool::ToolOutput::is_error);
                 if failed_status || failed_output {
                     Facets::TOOL.union(Facets::ERROR)
                 } else {
@@ -564,7 +564,7 @@ impl TranscriptMessage {
             let effective_args = if arguments.trim().is_empty() {
                 if let Some(box_structured) = structured {
                     match &**box_structured {
-                        nuo_protocol::ToolOutput::Patch { path, old, new, .. } => {
+                        nuo_tool::ToolOutput::Patch { path, old, new, .. } => {
                             effective_args_buf = serde_json::json!({
                                 "path": path,
                                 "old_string": old,

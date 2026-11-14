@@ -30,7 +30,7 @@ fn text(delta: &str) -> TranscriptEdit {
         turn: TURN,
         delta: delta.to_string(),
         created: Some(
-            TranscriptMessage::new(nuo_protocol::Role::Assistant, delta)
+            TranscriptMessage::new(nuo_tool::Role::Assistant, delta)
                 .with_round(2)
                 .with_turn(1),
         ),

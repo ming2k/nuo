@@ -196,8 +196,8 @@ impl Tool for WriteTestTool {
         serde_json::json!({"type": "object"})
     }
 
-    fn scope_target(&self, _arguments: &str) -> nuo_protocol::ScopeTarget {
-        nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from("/tmp/test"))
+    fn scope_target(&self, _arguments: &str) -> nuo_tool::ScopeTarget {
+        nuo_tool::ScopeTarget::Path(std::path::PathBuf::from("/tmp/test"))
     }
 
     async fn call(&self, _arguments: &str) -> Result<String, String> {
@@ -435,7 +435,7 @@ impl Tool for RecordingTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    fn scope_target(&self, arguments: &str) -> nuo_protocol::ScopeTarget {
+    fn scope_target(&self, arguments: &str) -> nuo_tool::ScopeTarget {
         if self.name == "execute_command" {
             let command = serde_json::from_str::<serde_json::Value>(arguments)
                 .ok()
@@ -445,7 +445,7 @@ impl Tool for RecordingTool {
                         .map(str::to_string)
                 })
                 .unwrap_or_else(|| arguments.to_string());
-            nuo_protocol::ScopeTarget::Command(command)
+            nuo_tool::ScopeTarget::Command(command)
         } else if self.declares_target {
             // Pull a path from the args if present, else a fixed sentinel, so
             // the broker fires for the `write` variant.
@@ -453,9 +453,9 @@ impl Tool for RecordingTool {
                 .ok()
                 .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(str::to_string))
                 .unwrap_or_else(|| "/tmp/recording".to_string());
-            nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from(path))
+            nuo_tool::ScopeTarget::Path(std::path::PathBuf::from(path))
         } else {
-            nuo_protocol::ScopeTarget::Unspecified
+            nuo_tool::ScopeTarget::Unspecified
         }
     }
     async fn call(&self, arguments: &str) -> Result<String, String> {

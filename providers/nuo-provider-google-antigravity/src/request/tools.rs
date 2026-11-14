@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 pub(super) fn google_tools(
-    tool_specs: Option<&[nuo_provider::capability::ToolSpec]>,
+    tool_specs: Option<&[nuo_protocol::capability::ToolSpec]>,
 ) -> Option<Value> {
     let specs = tool_specs?;
     if specs.is_empty() {

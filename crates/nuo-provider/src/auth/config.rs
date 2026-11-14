@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-use crate::connection_auth::LoginMethod;
+use nuo_protocol::connection_auth::LoginMethod;
 
 const fn enabled() -> bool {
     true

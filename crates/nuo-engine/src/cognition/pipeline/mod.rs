@@ -12,11 +12,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_protocol::{
-    Message, ModelRequest, Provider, Role, StreamLoopReviewInput, StreamLoopReviewerTask,
-    StreamLoopVerdict, ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput,
-    TrajectoryLoopReviewerTask, TrajectoryLoopVerdict,
-};
+use nuo_protocol::{ModelRequest, Provider, StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict, ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput, TrajectoryLoopReviewerTask, TrajectoryLoopVerdict};
+
+use nuo_tool::{Message, Role};
+
 
 /// Errors that can occur during a harness task consultation.
 #[derive(Debug)]
@@ -163,7 +162,7 @@ impl HarnessTaskPipeline {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_protocol::Message;
+    use nuo_tool::Message;
 
     struct MockProvider {
         response: Result<String, String>,
@@ -191,7 +190,7 @@ mod tests {
         async fn stream_chat(
             &self,
             _req: &ModelRequest,
-            _telemetry: nuo_provider::TransportTelemetry,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,

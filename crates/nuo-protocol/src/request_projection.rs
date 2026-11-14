@@ -27,7 +27,7 @@ pub struct RequestProjection {
     /// Request-local temporary context (`E_n`) captured verbatim, bounded by the
     /// producer budget. This is evidence, not history.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub temporary_context: Vec<crate::Message>,
+    pub temporary_context: Vec<nuo_tool::Message>,
 }
 
 impl RequestProjection {

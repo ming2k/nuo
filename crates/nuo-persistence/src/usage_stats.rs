@@ -275,7 +275,7 @@ mod tests {
     /// wiring the server bootstrap performs.
     #[test]
     fn ledger_sink_end_to_end_persists_and_aggregates() {
-        use nuo_protocol::TokenUsage;
+        use nuo_tool::TokenUsage;
         use std::sync::Arc;
 
         let (root, _tmp) = temp_root();

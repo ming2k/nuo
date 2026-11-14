@@ -13,15 +13,15 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use nuo_protocol::{
-    Hook, HookContext, HookEvent, HookEventKind, HookOutcome, HookStartSource, InjectionKind,
-    Message, PermissionRequest, UserQuestionRequest,
-};
+use nuo_protocol::{Hook, HookContext, HookEvent, HookOutcome, HookStartSource};
+
+use nuo_tool::{HookEventKind, InjectionKind, Message, PermissionRequest, UserQuestionRequest};
+
 
 /// Read-only permission check used before a hook with runtime side effects is
 /// fired. The closure receives the hook's structured hazard submission.
 pub type HookAuthorizer =
-    Arc<dyn Fn(&nuo_protocol::ToolPermissionSubmission) -> bool + Send + Sync>;
+    Arc<dyn Fn(&nuo_tool::ToolPermissionSubmission) -> bool + Send + Sync>;
 
 /// Evaluate a Claude-Code-style tool-name matcher against a tool name.
 ///

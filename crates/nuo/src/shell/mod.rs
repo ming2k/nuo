@@ -38,7 +38,6 @@ pub mod composer_grid;
 pub mod composer_hints;
 pub mod config;
 pub mod copy;
-pub mod declarative;
 pub mod disclosure;
 pub mod event_loop;
 pub mod focus;
@@ -92,9 +91,10 @@ pub(crate) fn grid_rows(grid: &nuotc::CellGrid) -> Vec<String> {
         .collect()
 }
 
-use nuo_protocol::{
-    AgentRequest, AgentResponse, LoopStatus, Message, ProviderPickerSnapshot, Role, RoundEvent,
-};
+use nuo_protocol::{AgentRequest, AgentResponse, LoopStatus, ProviderPickerSnapshot, RoundEvent};
+
+use nuo_tool::{Message, Role};
+
 use nuotc::{Backend, Terminal};
 use std::{collections::HashMap, error::Error, io, sync::Arc, sync::atomic::AtomicBool};
 use tokio::sync::{Mutex, mpsc};
@@ -232,8 +232,8 @@ pub(crate) fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
                     | RoundEvent::ToolStream { .. }
                     | RoundEvent::ToolInputProgress { .. }
                     | RoundEvent::SubagentStep {
-                        event: nuo_protocol::SubagentEvent::StreamDelta(_)
-                            | nuo_protocol::SubagentEvent::StreamReasoningDelta(_),
+                        event: nuo_tool::SubagentEvent::StreamDelta(_)
+                            | nuo_tool::SubagentEvent::StreamReasoningDelta(_),
                         ..
                     }
             )
@@ -247,7 +247,7 @@ pub struct TuiLaunchConfig {
     pub initial_messages: Vec<Message>,
     pub initial_commands: Vec<nuo_protocol::CommandRecord>,
     pub initial_round_count: u64,
-    pub command_catalog: nuo_protocol::CommandCatalog,
+    pub command_catalog: nuo_tool::CommandCatalog,
     pub initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
     pub tui_config: config::TuiConfig,
     pub input_history_config: config::InputHistoryConfig,
@@ -1007,7 +1007,7 @@ mod streaming_appends_tests {
 
     #[test]
     fn text_delta_appends_across_an_intervening_command_entry() {
-        use nuo_protocol::Role;
+        use nuo_tool::Role;
         let mut text = TranscriptMessage::new(Role::Assistant, "hello ");
         text.round = Some(3);
         text.turn = Some(1);

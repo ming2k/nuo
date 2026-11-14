@@ -857,7 +857,7 @@ mod tests {
         assert_eq!(agent.extensions().len(), 1);
         assert_eq!(agent.extensions()[0].id(), "code_intelligence");
         let tools_scope = agent.tools.lock().unwrap().scope.clone();
-        let nuo_protocol::ToolScope::Only(names) = tools_scope else {
+        let nuo_protocol::CapabilityScope::Only(names) = tools_scope else {
             panic!("developer role must have explicit scoped tools");
         };
         assert!(!names.contains("code_query"));

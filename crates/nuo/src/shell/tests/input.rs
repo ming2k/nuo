@@ -205,7 +205,8 @@ fn caret_owner_question_owns_caret_only_on_other() {
     // ownership, so the IME anchor appears exactly when there is a field to
     // type into and never when there is not.
     use crate::shell::question_model::{QuestionAction, QuestionModel};
-    use nuo_protocol::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+    use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let req = UserQuestionRequest {

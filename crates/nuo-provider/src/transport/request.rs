@@ -6,7 +6,7 @@ use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, Method};
 
 use super::error::TransportError;
-use super::telemetry::TransportTelemetry;
+use nuo_protocol::token_ledger::TransportTelemetry;
 
 /// A request in transport-neutral form ready for execution.
 #[derive(Debug, Clone)]

@@ -16,7 +16,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::Message;
+use nuo_tool::Message;
 use crate::observation::{ObservationLifecycle, ObservationMetrics, TerminationReason, Trust};
 
 /// Current persisted thread-record schema version.
@@ -247,7 +247,7 @@ impl FactPayload {
     pub fn validate(&self) -> Result<(), ThreadError> {
         match self {
             Self::Message { message } => {
-                if message.role == crate::Role::Tool {
+                if message.role == nuo_tool::Role::Tool {
                     return Err(ThreadError::InvalidFact {
                         fact: FactId::from_raw("<new>"),
                         reason: "tool results are Observations, not Message facts".to_string(),

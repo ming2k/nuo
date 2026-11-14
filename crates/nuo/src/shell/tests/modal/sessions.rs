@@ -9,7 +9,7 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     app.running_sessions.insert(sid.to_string());
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_protocol::Role::User,
+            nuo_tool::Role::User,
             "Hello",
         ));
     app.scroll = 42;
@@ -374,7 +374,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
     // Add a message to make it non-empty
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_protocol::Role::User,
+            nuo_tool::Role::User,
             "Hello",
         ));
     assert!(!app.is_current_thread_empty());
@@ -444,7 +444,7 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     // 2. In non-empty tab: pressing 'N' should arm switch_to_new
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_protocol::Role::User,
+            nuo_tool::Role::User,
             "Existing message",
         ));
     assert!(!app.is_current_thread_empty());
@@ -492,7 +492,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     app.messages.clear();
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_protocol::Role::User,
+            nuo_tool::Role::User,
             "Crucial conversation",
         ));
     assert!(!app.is_current_thread_empty());
@@ -527,7 +527,7 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
 
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_protocol::Role::User,
+            nuo_tool::Role::User,
             "Prior turn",
         ));
     assert!(!app.is_current_thread_empty());
@@ -567,7 +567,7 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
 
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_protocol::Role::User,
+            nuo_tool::Role::User,
             "Active dialogue",
         ));
     assert!(!app.is_current_thread_empty());

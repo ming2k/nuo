@@ -108,11 +108,11 @@ async fn image_refusal_is_learned_and_the_round_continues_without_images() {
             rejections: 1,
         }),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
-    let images = vec![nuo_protocol::ImagePart {
+    let images = vec![nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "aGk=".to_string(),
     }];
@@ -151,7 +151,7 @@ async fn image_refusal_is_learned_and_the_round_continues_without_images() {
             },
             _ => None,
         })
-        .filter(|notice| notice.kind == nuo_protocol::NoticeKind::ImageInputWithheld)
+        .filter(|notice| notice.kind == nuo_tool::NoticeKind::ImageInputWithheld)
         .collect::<Vec<_>>();
     assert_eq!(notices.len(), 1, "exactly one withholding notice");
     assert!(
@@ -199,7 +199,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
             rejections: 1,
         }),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -208,7 +208,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
         image_round_context(&agent, tx, &session, &session_id),
         image_round_input(
             "describe it",
-            vec![nuo_protocol::ImagePart {
+            vec![nuo_tool::ImagePart {
                 mime: "image/png".to_string(),
                 data: "aGk=".to_string(),
             }],
@@ -237,7 +237,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
             },
             _ => None,
         })
-        .filter(|notice| notice.kind == nuo_protocol::NoticeKind::ImageInputWithheld)
+        .filter(|notice| notice.kind == nuo_tool::NoticeKind::ImageInputWithheld)
         .collect::<Vec<_>>();
     assert_eq!(notices.len(), 1);
     assert!(
@@ -274,7 +274,7 @@ async fn an_unrelated_refusal_is_not_blamed_on_images() {
             rejections: usize::MAX,
         }),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -283,7 +283,7 @@ async fn an_unrelated_refusal_is_not_blamed_on_images() {
         image_round_context(&agent, tx, &session, &session_id),
         image_round_input(
             "describe it",
-            vec![nuo_protocol::ImagePart {
+            vec![nuo_tool::ImagePart {
                 mime: "image/png".to_string(),
                 data: "aGk=".to_string(),
             }],
@@ -342,13 +342,13 @@ fn image_round_context(
 
 /// The `RoundInput` every test runs with: a fresh round carrying
 /// `images`.
-fn image_round_input(prompt: &str, images: Vec<nuo_protocol::ImagePart>) -> RoundInput {
+fn image_round_input(prompt: &str, images: Vec<nuo_tool::ImagePart>) -> RoundInput {
     RoundInput {
         prompt: prompt.to_string(),
         hidden: false,
         display_prompt: None,
         sent_at_ms: None,
         images,
-        driver: nuo_harness::orchestration::RoundDriver::Fresh,
+        driver: nuo_engine::orchestration::RoundDriver::Fresh,
     }
 }

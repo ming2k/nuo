@@ -127,7 +127,7 @@ fn model_recency_isolation_across_same_preset_connections() {
         "https://relay.example.com",
         WireProtocol::OpenAiChatCompletions,
         &[],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     let mut conn1 = instance("conn-1", Some("test-open-relay-recency"));
     conn1.models.include = vec![nuo_protocol::model::DeclaredModel {

@@ -13,7 +13,7 @@ use crate::response::{
 const TEST_ORIGIN: &str = "gemini-test";
 
 fn test_body_input<'a>(
-    tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
+    tool_specs: Option<&'a [nuo_protocol::capability::ToolSpec]>,
     include_thoughts: bool,
     thinking: Option<GoogleThinking>,
 ) -> BodyInput<'a> {
@@ -35,12 +35,12 @@ fn stamp_test_origin(meta: &mut serde_json::Map<String, Value>) {
 }
 
 /// Route capabilities with only the vision declaration varied.
-fn caps_with_vision(vision: Option<bool>) -> nuo_provider::ModelCapabilities {
-    nuo_provider::ModelCapabilities {
+fn caps_with_vision(vision: Option<bool>) -> nuo_protocol::ModelCapabilities {
+    nuo_protocol::ModelCapabilities {
         family: "google".into(),
         context_window: 1_000_000,
         max_output_tokens: None,
-        thinking: nuo_provider::ReasoningSupport::None,
+        thinking: nuo_protocol::ReasoningSupport::None,
         tool_call: true,
         vision,
         effort_levels: Vec::new(),

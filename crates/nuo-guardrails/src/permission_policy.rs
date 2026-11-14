@@ -42,7 +42,7 @@
 //!    [`PolicyDecision::MissingAuthority`]; the caller may park once, emit one prompt, and
 //!    await one decision. A bash command is never prompted twice (the old
 //!    chain-external re-evaluation is gone). A missing-authority
-//!    [`nuo_protocol::PermissionRequest`]
+//!    [`nuo_tool::PermissionRequest`]
 //!    carries `elevation` (out-of-scope, ADR-0028) and `one_off` (the bash
 //!    dangerous-command confirm: an `Always` reply is honoured but not
 //!    persisted) so the caller and the TUI handle both uniformly.
@@ -50,7 +50,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_protocol::{HookOutcome, RestorePoint, ScopeTarget, Tool, ToolOutput};
+use nuo_protocol::{HookOutcome, RestorePoint};
+use nuo_tool::{ScopeTarget, Tool, ToolOutput};
+
 
 use super::scoped_tools::ScopedToolDisable;
 use crate::bash_policy::BashPolicyMatch;
@@ -141,7 +143,7 @@ pub enum PolicyDecision {
     /// `Always` reply (the bash dangerous-command confirm is one-off); its
     /// `elevation` flag tells the TUI the call is out-of-scope (ADR-0028).
     MissingAuthority {
-        request: Box<nuo_protocol::PermissionRequest>,
+        request: Box<nuo_tool::PermissionRequest>,
         rule: PermissionRule,
     },
 }
@@ -318,7 +320,7 @@ impl PermissionPolicy for SchemaPolicy {
         "schema"
     }
     async fn evaluate(&self, ctx: &PolicyContext<'_>) -> PolicyDecision {
-        match nuo_protocol::tool_validation::validate_tool_arguments(
+        match nuo_tool::validation::validate_tool_arguments(
             &ctx.tool.parameters(),
             ctx.arguments,
         ) {
@@ -359,7 +361,7 @@ impl PermissionPolicy for BashPolicy {
                 } else {
                     // Build the one-off dangerous-command prompt.
                     PolicyDecision::MissingAuthority {
-                        request: Box::new(nuo_protocol::PermissionRequest {
+                        request: Box::new(nuo_tool::PermissionRequest {
                             id: String::new(),
                             tool: "execute_command".to_string(),
                             label: "Dangerous command".to_string(),
@@ -376,7 +378,7 @@ impl PermissionPolicy for BashPolicy {
                             elevation: false,
                             one_off: true,
                             origin: None,
-                            hazard: Some(nuo_protocol::hazard::HazardLevel::CommandExecution),
+                            hazard: Some(nuo_tool::hazard::HazardLevel::CommandExecution),
                             submission: None,
                             // A shell command's effect cannot be computed without
                             // running it, which is precisely why this prompt asks a
@@ -450,7 +452,7 @@ impl PermissionPolicy for BrokerPolicy {
             .preview(&serde_json::from_str(ctx.arguments).unwrap_or(serde_json::Value::Null));
 
         PolicyDecision::MissingAuthority {
-            request: Box::new(nuo_protocol::PermissionRequest {
+            request: Box::new(nuo_tool::PermissionRequest {
                 id: String::new(), // caller fills the generated id
                 tool: ctx.call_name.to_string(),
                 label,

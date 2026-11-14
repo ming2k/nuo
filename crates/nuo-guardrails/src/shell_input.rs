@@ -20,8 +20,8 @@ impl ShellInputKind {
 /// Build the advisory [`InputExpectation`] for a command the classifier
 /// recognized. Used to seed the operator input panel's prompt text and masking
 /// before the runtime examiner confirms the wait.
-pub fn expectation(command: &str, kind: ShellInputKind) -> nuo_protocol::InputExpectation {
-    nuo_protocol::InputExpectation {
+pub fn expectation(command: &str, kind: ShellInputKind) -> nuo_tool::InputExpectation {
+    nuo_tool::InputExpectation {
         prompt: if kind.is_secret() {
             "Enter the secret this command is waiting for:".to_string()
         } else {

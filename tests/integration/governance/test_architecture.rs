@@ -339,6 +339,60 @@ fn tier_runner_profiles_are_declared() {
     );
 }
 
+/// `[INV-VOCAB-03]` (ADR-0180): a source file copied between crates is a
+/// second definition waiting to drift. Four byte-identical files once lived in
+/// both `nuo-protocol` and `nuo-host`; this gate makes a recurrence loud.
+#[test]
+fn source_files_are_not_byte_identical_across_crates() {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+
+    fn digest(bytes: &[u8]) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    let root = workspace_root();
+    let mut by_shape: HashMap<(usize, u64), Vec<(PathBuf, Vec<u8>)>> = HashMap::new();
+    for tier in TIERS {
+        for crate_dir in workspace_crates(&root) {
+            if !crate_dir.starts_with(root.join(tier)) {
+                continue;
+            }
+            for path in rust_files(&crate_dir) {
+                let bytes = fs::read(&path).unwrap_or_default();
+                by_shape
+                    .entry((bytes.len(), digest(&bytes)))
+                    .or_default()
+                    .push((path, bytes));
+            }
+        }
+    }
+    let mut duplicates = Vec::new();
+    for group in by_shape.values() {
+        if group.len() < 2 {
+            continue;
+        }
+        for (index, (path, bytes)) in group.iter().enumerate() {
+            for (other_path, other_bytes) in &group[index + 1..] {
+                if bytes == other_bytes {
+                    duplicates.push(format!(
+                        "{} == {}",
+                        path.strip_prefix(&root).unwrap_or(path).display(),
+                        other_path.strip_prefix(&root).unwrap_or(other_path).display()
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        duplicates.is_empty(),
+        "byte-identical source files across crates are duplicate definitions, \
+         not copies ([INV-VOCAB-03], ADR-0180): {duplicates:?}"
+    );
+}
+
 #[test]
 fn snapshot_drift_is_not_committed() {
     let root = workspace_root();

@@ -40,7 +40,7 @@ impl BackupManager {
 
     /// Default backup directory under application state.
     pub fn default_dir() -> PathBuf {
-        crate::paths::get().db_file().with_extension("backups")
+        nuo_host::paths::get().db_file().with_extension("backups")
     }
 
     /// Root directory holding managed backup files.

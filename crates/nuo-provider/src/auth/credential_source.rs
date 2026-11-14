@@ -8,7 +8,7 @@
 use super::provider::{OAuthProvider, oauth_config};
 use super::session::{ACCESS_TOKEN_REFRESH_SKEW_MS, OAuth, access_token_is_expiring};
 use crate::credentials::{CredentialHost, CredentialSession, CredentialStore, TokenSet};
-use crate::{ConnectionAuth, CredentialSource, ResolvedAuth};
+use nuo_protocol::{ConnectionAuth, CredentialSource, ResolvedAuth};
 use futures::future::BoxFuture;
 use nuo_host::SecretString;
 use std::collections::HashMap;
@@ -313,7 +313,7 @@ mod tests {
             config
         }
         fn project_metadata(&self, _tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
-            auth = auth.with_extension(super::super::core::GoogleAuthMetadata {
+            auth = auth.with_extension(nuo_protocol::auth::GoogleAuthMetadata {
                 project_id: "proj-1".to_string(),
             });
             auth
@@ -346,7 +346,7 @@ mod tests {
         let resolved = source.resolved(&tokens("access"));
         assert_eq!(
             resolved
-                .extension::<super::super::core::GoogleAuthMetadata>()
+                .extension::<nuo_protocol::auth::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str()),
             Some("proj-1"),
             "the engine must invoke the provider's projection hook"

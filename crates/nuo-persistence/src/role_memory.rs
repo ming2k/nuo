@@ -146,7 +146,7 @@ impl RoleMemoryStore {
 
     /// Open the standard user-global role memory database.
     pub fn open_default() -> rusqlite::Result<Self> {
-        let path = crate::paths::get().role_memory_db();
+        let path = nuo_host::paths::get().role_memory_db();
         Self::open(&path)
     }
 

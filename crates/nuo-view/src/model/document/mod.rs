@@ -14,7 +14,8 @@ pub use blocks::Block;
 pub use helpers::*;
 pub use inlines::{CodeRange, Inline, InlineScan, LinkRange, MathRange};
 pub use message::{CompactedCardData, TranscriptMessage};
-pub use nuo_protocol::{Role, SubagentEvent};
+pub use nuo_tool::{Role, SubagentEvent};
+
 pub use types::*;
 
 pub(crate) use super::markdown::{clamp_link_ranges, clamp_ranges, scan_inline};

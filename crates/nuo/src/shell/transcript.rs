@@ -4,11 +4,12 @@
 //! matching `` `Calling \`<tool>\`` `` formatter used when no display content
 //! is available for a restored assistant turn.
 //!
-//! [`Message`]: nuo_protocol::Message
+//! [`Message`]: nuo_tool::Message
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-use nuo_protocol::{Message, Role};
+use nuo_tool::{Message, Role};
+
 
 use crate::shell::step_interaction;
 use nuo_view::disclosure_config::DisclosureSource;
@@ -55,7 +56,7 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
     let is_insert = message
         .origin
         .as_ref()
-        .is_some_and(|origin| origin.kind == nuo_protocol::InjectionKind::UserSteer);
+        .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::UserSteer);
     let content = if let Some(display_content) = message.display_content {
         display_content
     } else if message.content.is_empty() {
@@ -157,7 +158,7 @@ pub(super) fn merge_round_interrupt_rows(
     dialogue: Vec<TranscriptMessage>,
     interrupts: Vec<TranscriptMessage>,
 ) -> Vec<TranscriptMessage> {
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
 
     if interrupts.is_empty() {
         return dialogue;
@@ -235,7 +236,7 @@ pub(super) fn merge_command_rows(
     dialogue: Vec<TranscriptMessage>,
     commands: Vec<TranscriptMessage>,
 ) -> Vec<TranscriptMessage> {
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
 
     if commands.is_empty() {
         return dialogue;
@@ -318,7 +319,7 @@ fn transcript_from_core_inner(
             let is_insert = message
                 .origin
                 .as_ref()
-                .is_some_and(|origin| origin.kind == nuo_protocol::InjectionKind::UserSteer);
+                .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::UserSteer);
             let opens_round =
                 message.role == Role::User && !is_insert && !message.is_command_echo();
             if opens_round {
@@ -467,17 +468,17 @@ fn transcript_from_core_inner(
                 // resume.
                 let (structured, duration_ms) = match &meta {
                     Some(meta) => (
-                        nuo_protocol::ToolOutput::Subagent {
+                        nuo_tool::ToolOutput::Subagent {
                             summary: output.to_string(),
                             messages: Vec::new(),
-                            usage: nuo_protocol::TokenUsage::default(),
+                            usage: nuo_tool::TokenUsage::default(),
                             generation_ms: 0,
                             failed: meta.failed,
                             interrupted: meta.interrupted,
                         },
                         meta.duration_ms.unwrap_or(0),
                     ),
-                    None => (nuo_protocol::ToolOutput::text(output), 0),
+                    None => (nuo_tool::ToolOutput::text(output), 0),
                 };
                 if item.finish_tool_step(&step_id, output, structured, duration_ms) {
                     // Restore the subagent's nested transcript so its partial /
@@ -623,7 +624,7 @@ mod tests {
     use super::{
         merge_round_interrupt_rows, rebase_transcript_rounds, transcript_interrupts_from_records,
     };
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
     use nuo_view::model::document::TranscriptMessage;
 
     #[test]
@@ -646,8 +647,9 @@ mod tests {
     #[test]
     fn restores_interrupted_subagent_with_children_and_status() {
         use crate::shell::config::TuiConfig;
-        use nuo_protocol::message::SubagentMeta;
-        use nuo_protocol::{Message, ToolCall};
+        use nuo_tool::SubagentMeta;
+        use nuo_tool::{Message, ToolCall};
+
 
         let call = ToolCall {
             id: "call_9".to_string(),

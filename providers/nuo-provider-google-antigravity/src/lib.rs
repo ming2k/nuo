@@ -21,8 +21,9 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
-use nuo_provider::{ProviderError, ProviderErrorKind};
+use nuo_protocol::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
+use nuo_protocol::{ProviderError, ProviderErrorKind};
+
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
@@ -52,7 +53,7 @@ pub const GOOGLE_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis
 fn google_completion(
     response_json: &Value,
     signature_origin: &str,
-) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
+) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
     let root = response_json.get("response").unwrap_or(response_json);
     let mut message =
         response::message(response_json).map_err(|e| ProviderError::protocol("Google", e))?;
@@ -64,9 +65,9 @@ fn google_completion(
         signature_origin,
     );
     let artifacts = message.provider_meta.take();
-    Ok(nuo_provider::ProviderCompletion {
+    Ok(nuo_protocol::ProviderCompletion {
         message,
-        meta: nuo_provider::ProviderCompletionMeta {
+        meta: nuo_protocol::ProviderCompletionMeta {
             usage: response::usage(&root["usageMetadata"]),
             artifacts,
             continuation: None,
@@ -106,12 +107,12 @@ pub struct GoogleProvider {
     pub client: Client,
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
-    pub capabilities: nuo_provider::ModelCapabilities,
+    pub capabilities: nuo_protocol::ModelCapabilities,
     /// Channel-scoped reasoning-effort override. `None` leaves the model's
     /// server-default thinking level in place; `Some(e)` pins it, translated
     /// onto `thinkingConfig` (`thinkingLevel` for Gemini 3.x, a
     /// `thinkingBudget` bucket for Gemini 2.5) at request-build time.
-    pub reasoning_effort: Option<nuo_provider::Effort>,
+    pub reasoning_effort: Option<nuo_protocol::Effort>,
     /// Antigravity Google Cloud companion project ID (`cloudaicompanionProject`).
     /// When set, the provider routes requests in `v1internal` envelope shape with
     /// `Authorization: Bearer` authentication to the Antigravity backend.
@@ -127,7 +128,7 @@ pub struct GoogleProvider {
     /// cannot be disclosed and requests stop asking for it. See
     /// [`Self::note_thinking_rejected`].
     thinking_rejected: Arc<Mutex<bool>>,
-    pub dialect: nuo_provider::dialects::GoogleGenerateContentDialect,
+    pub dialect: nuo_protocol::dialects::GoogleGenerateContentDialect,
 }
 
 /// Canonical alias for the Google Gemini protocol provider.
@@ -153,7 +154,7 @@ impl GoogleProvider {
         base_url: &str,
         user_agent: &str,
     ) -> Self {
-        let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_protocol::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::from_static_key(
                 api_key,
@@ -168,17 +169,17 @@ impl GoogleProvider {
             project_id: None,
             prompt_cache: PromptCacheConfig::default(),
             thinking_rejected: Arc::new(Mutex::new(false)),
-            dialect: nuo_provider::dialects::GoogleGenerateContentDialect::GenerativeLanguage,
+            dialect: nuo_protocol::dialects::GoogleGenerateContentDialect::GenerativeLanguage,
         }
     }
 
     /// Build a provider with dynamic credentials.
     pub fn with_credentials(
-        credentials: std::sync::Arc<dyn nuo_provider::CredentialSource>,
+        credentials: std::sync::Arc<dyn nuo_protocol::CredentialSource>,
         model: String,
         base_url: &str,
     ) -> Self {
-        let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_protocol::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::with_credentials(
                 credentials,
@@ -192,7 +193,7 @@ impl GoogleProvider {
             project_id: None,
             prompt_cache: PromptCacheConfig::default(),
             thinking_rejected: Arc::new(Mutex::new(false)),
-            dialect: nuo_provider::dialects::GoogleGenerateContentDialect::GenerativeLanguage,
+            dialect: nuo_protocol::dialects::GoogleGenerateContentDialect::GenerativeLanguage,
         }
     }
 
@@ -218,7 +219,7 @@ impl GoogleProvider {
     /// Attach the effective provider-channel capability view.
     pub fn with_model_capabilities(
         mut self,
-        capabilities: nuo_provider::ModelCapabilities,
+        capabilities: nuo_protocol::ModelCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
         self
@@ -229,7 +230,7 @@ impl GoogleProvider {
     /// `effort_levels` at request-build time, then translated onto Google's
     /// `thinkingConfig` (`thinkingLevel` for Gemini 3.x, a `thinkingBudget`
     /// bucket for Gemini 2.5).
-    pub fn with_reasoning_effort(mut self, effort: Option<nuo_provider::Effort>) -> Self {
+    pub fn with_reasoning_effort(mut self, effort: Option<nuo_protocol::Effort>) -> Self {
         self.reasoning_effort = effort;
         self
     }
@@ -246,7 +247,7 @@ impl GoogleProvider {
 
     pub fn with_dialect(
         mut self,
-        dialect: nuo_provider::dialects::GoogleGenerateContentDialect,
+        dialect: nuo_protocol::dialects::GoogleGenerateContentDialect,
     ) -> Self {
         self.dialect = dialect;
         self
@@ -260,7 +261,7 @@ impl GoogleProvider {
 
     /// Whether this provider is configured for Google Antigravity `v1internal` protocol.
     pub fn is_antigravity(&self) -> bool {
-        self.dialect == nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity
+        self.dialect == nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity
     }
 
     /// The wire identity this channel currently addresses — the envelope's
@@ -306,10 +307,10 @@ impl GoogleProvider {
     async fn stream_chat_events_without_thinking(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let (response, shape) = self
             .send_google_request(request, &telemetry, true, true, None)
@@ -337,7 +338,7 @@ impl GoogleProvider {
     async fn send_google_request(
         &self,
         request: &ModelRequest,
-        telemetry: &nuo_provider::TransportTelemetry,
+        telemetry: &nuo_protocol::TransportTelemetry,
         is_stream: bool,
         omit_thinking: bool,
         timeout: Option<std::time::Duration>,
@@ -547,7 +548,7 @@ impl GoogleProvider {
                 );
             }
             Ok(ProviderStreamEvent::Completed(
-                nuo_provider::ProviderCompletionMeta {
+                nuo_protocol::ProviderCompletionMeta {
                     artifacts: (!artifacts.is_empty()).then_some(artifacts),
                     ..Default::default()
                 },
@@ -593,7 +594,7 @@ impl GoogleProvider {
     async fn chat_without_thinking(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         tracing::warn!(
             model = %self.endpoint.model,
             "upstream rejected thinkingConfig; retrying without disclosed thinking (chain withheld by upstream)"
@@ -601,7 +602,7 @@ impl GoogleProvider {
         let (response, shape) = self
             .send_google_request(
                 request,
-                &nuo_provider::TransportTelemetry::default(),
+                &nuo_protocol::TransportTelemetry::default(),
                 false,
                 true,
                 Some(self.client.request_timeout()),
@@ -645,7 +646,7 @@ impl GoogleProvider {
         is_stream: bool,
         omit_thinking: bool,
     ) -> (String, http::header::HeaderMap, nuo_provider::WireRequest) {
-        let auth = nuo_provider::ResolvedAuth::default();
+        let auth = nuo_protocol::ResolvedAuth::default();
         self.prepare_request_for_auth(request, is_stream, omit_thinking, &auth)
     }
 
@@ -654,7 +655,7 @@ impl GoogleProvider {
         request: &ModelRequest,
         is_stream: bool,
         omit_thinking: bool,
-        auth: &nuo_provider::ResolvedAuth,
+        auth: &nuo_protocol::ResolvedAuth,
     ) -> (String, http::header::HeaderMap, nuo_provider::WireRequest) {
         let key = auth.token.expose_secret();
         let is_claude = self.endpoint.model.starts_with("claude-");
@@ -746,7 +747,7 @@ impl GoogleProvider {
             // Cloud Code calls — the four-header set above is the whole story.
 
             let project = auth
-                .extension::<nuo_provider::auth::GoogleAuthMetadata>()
+                .extension::<nuo_protocol::auth::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str())
                 .or(self.project_id.as_deref())
                 .map(str::trim)
@@ -766,7 +767,7 @@ impl GoogleProvider {
                 url,
                 headers,
                 nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::GoogleGenerateContent,
+                    nuo_protocol::WireProtocol::GoogleGenerateContent,
                     wrapped_body,
                 ),
             )
@@ -799,7 +800,7 @@ impl GoogleProvider {
                 url,
                 headers,
                 nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::GoogleGenerateContent,
+                    nuo_protocol::WireProtocol::GoogleGenerateContent,
                     raw_body,
                 ),
             )
@@ -829,7 +830,7 @@ impl Provider for GoogleProvider {
     // matches the shared `Effort` tiers one-to-one, so the transcript stays
     // quiet rather than showing a translated label that could mislead.
 
-    fn model_capabilities(&self) -> nuo_provider::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_protocol::ModelCapabilities {
         self.capabilities.clone()
     }
     fn prompt_hints(&self) -> ProviderPromptHints {
@@ -849,12 +850,12 @@ impl Provider for GoogleProvider {
     async fn chat(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         let omit = self.thinking_was_rejected();
         let (response, shape) = self
             .send_google_request(
                 request,
-                &nuo_provider::TransportTelemetry::default(),
+                &nuo_protocol::TransportTelemetry::default(),
                 false,
                 omit,
                 Some(self.client.request_timeout()),
@@ -908,10 +909,10 @@ impl Provider for GoogleProvider {
     async fn stream_chat(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
         let (response, shape) = self
@@ -958,10 +959,10 @@ impl Provider for GoogleProvider {
     async fn stream_chat_events(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
         let (response, shape) = self
@@ -1011,7 +1012,7 @@ impl Provider for GoogleProvider {
 /// `fetchAvailableModels` snapshot may never have covered (offline session,
 /// seed-only connection). The live catalog is authoritative when it ran: its
 /// observed `wire_entities` ride `ModelCapabilities.effort_entities` and are
-/// consumed by [`nuo_provider::ModelCapabilities::wire_entity_resolution`]
+/// consumed by [`nuo_protocol::ModelCapabilities::wire_entity_resolution`]
 /// directly, with zero family-prefix matching. This table exists only so the
 /// offline floor behaves identically to the live surface; its rows cite their
 /// provenance and it is *data*, not inference.
@@ -1100,16 +1101,16 @@ static BASELINE_WIRE_FAMILIES: &[BaselineWireFamily] = &[
 /// Priority (ADR-0074, evidence over inference):
 /// 1. **Live observation** — `capabilities.effort_entities`, the account's
 ///    real `fetchAvailableModels` surface, via the typed
-///    [`nuo_provider::WireEntityResolution`] decision.
+///    [`nuo_protocol::WireEntityResolution`] decision.
 /// 2. **Compiled baseline** — `BASELINE_WIRE_ENTITIES`, matching the exact
 ///    family base id only (never a substring scan).
 /// 3. **Structural remaps / verbatim** — single named entities and pass-through.
 fn effective_antigravity_wire_model(
-    capabilities: &nuo_provider::ModelCapabilities,
+    capabilities: &nuo_protocol::ModelCapabilities,
     model: &str,
-    effort: Option<nuo_provider::Effort>,
+    effort: Option<nuo_protocol::Effort>,
 ) -> String {
-    use nuo_provider::WireEntityResolution;
+    use nuo_protocol::WireEntityResolution;
 
     // 1. Live observation first: the account's real wired surface. The
     //    account-default row is FIRST in the observed order the parser

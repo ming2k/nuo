@@ -21,7 +21,7 @@ pub struct CommandDoc {
 }
 
 impl CommandDoc {
-    pub fn from_spec(spec: &nuo_protocol::CommandSpec) -> Self {
+    pub fn from_spec(spec: &nuo_tool::CommandSpec) -> Self {
         Self {
             name: spec.name.clone(),
             summary: spec.summary.clone(),
@@ -87,22 +87,22 @@ impl Completion {
         }
     }
 
-    fn from_backend(input: &str, item: &nuo_protocol::InputCompletion) -> Option<Self> {
+    fn from_backend(input: &str, item: &nuo_tool::InputCompletion) -> Option<Self> {
         let replace_start = char_to_byte(input, item.replace_start)?;
         let replace_end = char_to_byte(input, item.replace_end)?;
         if replace_start > replace_end {
             return None;
         }
         let kind = match item.kind {
-            nuo_protocol::InputCompletionKind::Slash => CompletionItemKind::Slash,
-            nuo_protocol::InputCompletionKind::SlashAlias => CompletionItemKind::SlashAlias,
-            nuo_protocol::InputCompletionKind::Intent => CompletionItemKind::IntentSuggestion {
+            nuo_tool::InputCompletionKind::Slash => CompletionItemKind::Slash,
+            nuo_tool::InputCompletionKind::SlashAlias => CompletionItemKind::SlashAlias,
+            nuo_tool::InputCompletionKind::Intent => CompletionItemKind::IntentSuggestion {
                 matched_intent: String::new(),
                 reason: item.description.clone(),
             },
-            nuo_protocol::InputCompletionKind::PathFile => CompletionItemKind::PathFile,
-            nuo_protocol::InputCompletionKind::PathDir => CompletionItemKind::PathDir,
-            nuo_protocol::InputCompletionKind::PathExplicit => CompletionItemKind::PathExplicit,
+            nuo_tool::InputCompletionKind::PathFile => CompletionItemKind::PathFile,
+            nuo_tool::InputCompletionKind::PathDir => CompletionItemKind::PathDir,
+            nuo_tool::InputCompletionKind::PathExplicit => CompletionItemKind::PathExplicit,
         };
         Some(Self {
             label: item.label.clone(),
@@ -170,7 +170,7 @@ pub fn completion_anchor_x(
 
 pub fn resolved_slash_command_len(
     input: &str,
-    catalog: &nuo_protocol::CommandCatalog,
+    catalog: &nuo_tool::CommandCatalog,
 ) -> Option<usize> {
     if !input.starts_with('/') {
         return None;
@@ -184,7 +184,7 @@ pub fn resolved_slash_command_len(
 }
 
 pub(super) fn mention_range_at(input: &str, cursor_byte: usize) -> Option<(usize, usize)> {
-    nuo_protocol::mention::mention_range_at(input, cursor_byte)
+    nuo_tool::mention::mention_range_at(input, cursor_byte)
 }
 
 impl App {
@@ -235,7 +235,7 @@ impl App {
     /// Current completions translated into renderer-native byte edits.
     ///
     /// Completion is **one implementation, owned by the server**
-    /// (`nuo_server::input_completion`). This adapter only translates: the
+    /// (`nuo_server::runtime::input_completion`). This adapter only translates: the
     /// backend speaks Unicode-scalar offsets over the control plane, the TUI
     /// edits bytes.
     ///
@@ -251,7 +251,7 @@ impl App {
     pub fn completions(&self) -> Vec<Completion> {
         // Tier 1: synchronous `/` command matching, straight from the owner.
         if self.input.starts_with('/') {
-            let items = nuo_server::input_completion::complete_slash_items(
+            let items = nuo_server::runtime::input_completion::complete_slash_items(
                 &self.command_catalog,
                 &self.input,
                 self.byte_cursor(),
@@ -277,7 +277,7 @@ impl App {
                 // engine through its frontend-test adapter, so the engine under
                 // test is the one production uses (the cursor is the wire's
                 // scalar index, as over the control plane).
-                nuo_server::input_completion::complete_for_frontend_test(
+                nuo_server::runtime::input_completion::complete_for_frontend_test(
                     self.command_catalog.clone(),
                     self.cwd.clone(),
                     &self.input,
@@ -334,7 +334,7 @@ impl App {
         request_id: u64,
         input: String,
         cursor: usize,
-        items: Vec<nuo_protocol::InputCompletion>,
+        items: Vec<nuo_tool::InputCompletion>,
     ) {
         if request_id != self.completion_request_id
             || input != self.input

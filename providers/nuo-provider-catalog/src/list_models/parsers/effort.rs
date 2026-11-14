@@ -18,7 +18,7 @@ pub(crate) fn deepseek_accepted_efforts(advertised: &[String]) -> Vec<String> {
         }
     }
     accepted.sort_by_key(|level| {
-        nuo_provider::Effort::ORDER
+        nuo_protocol::Effort::ORDER
             .iter()
             .position(|rung| rung.as_str() == level)
             .unwrap_or(usize::MAX)

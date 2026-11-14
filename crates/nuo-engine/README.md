@@ -1,26 +1,40 @@
-# nuo-harness
+# nuo-engine
 
-Host execution harness, policy governor, and cognitive orchestration engine for Nuo (傩).
+Cognitive orchestration engine for Nuo (傩): the single streaming ReAct runtime,
+model-request assembly, causal compaction, and multi-agent interop layer.
 
 ## Overview
 
-In the Nuo architecture, `nuo-harness` is the runtime execution bridge between capability substrates (`nuo-host`, `acp`, `nuo-persistence`), the presentation/transport layer (`nuo-tui::client`, which owns client transport after ADR-0089), and the session daemon (`nuo`).
+In the Nuo architecture, `nuo-engine` sits between the zero-I/O domain
+(`nuo-protocol`), the capability contracts (`nuo-tool`, `nuo-provider`), and the
+application core (`nuo-server`). It owns the agent's mind and the policy that
+wraps it, not the product UI, the session daemon, or any concrete capability
+leaf.
 
-It embodies the core inspiration of Nuo (傩): in traditional Nuo rituals, the priest dons a Nuo mask to convey intent according to the image and persona embodied by the mask to commune with the divine; in engineering, `nuo-harness` uses an execution harness to employ different identities to communicate and collaborate with underlying intelligence safely.
+The crate name is `nuo-engine`. "Harness" is a role, not a crate identifier
+([ADR-0181](../../docs/adr/0181-cognitive-runtime-identity-nuo-engine-is-the-only-crate-name.md)).
 
-## Core Responsibilities
+## Subsystems
 
-- **Identity & Persona Projection**:
-  - Dynamically synthesizes system prompts with project context, tool documentation, and peer directories.
-  - Configures subagent presets (`explore`, `debug`, `skill`) via `spawn_agent` with scoped token budgets and private working memory.
-- **Safety Governance & Hazard Control**:
-  - Evaluates tool execution hazards (`RiskProfile`), enforcing interactive confirmation barriers (`human_broker`) for destructive commands or file modifications.
-  - Implements real-time loop detection (`stream_loop_detector`) and StreamGuard limits to halt runaway generations.
-- **Tool Scheduling & Dispatch**:
-  - Schedules and executes tools across decentralized capability providers (`nuo-host`, `acp`, `nuo-persistence`) with timeout envelopes and sandboxing.
-- **Cognitive Meta-Tools**:
-  - `ask_user`: Interactive structured questions for resolving ambiguity and seeking user authorization.
-  - `spawn_agent`: Spawns isolated exploration subagents with constrained budgets and scoped roles.
-  - `todo`: Manages actionable turn task lists.
-- **Context Hygiene & Causal Compaction**:
-  - Tracks token watermarks, summarizes intermediate rounds, and produces causal context projections to keep reasoning clean across multi-turn interactions.
+- `cognition/` — the `Agent`, the streaming ReAct loop, model-request assembly,
+  durable conversation context, causal compaction, skills, and interop
+  (subagents, human broker).
+- `orchestration/` — per-round policy: compaction gating, retries, round
+  lifecycle, session titles, and `/schedule`.
+- `dispatch/` — the tool execution pipeline and scheduler.
+- `runtime/` — the innermost substrate: host ports, execution environment,
+  hooks, message/time/retry leaves, and extensions.
+- `tools/` — only orchestration-native meta-tools: `ask_user`,
+  `recall_memory`, and `todo`.
+
+`nuo-guardrails` is a separate crate, not a `governance/` module of this one
+([ADR-0181](../../docs/adr/0181-cognitive-runtime-identity-nuo-engine-is-the-only-crate-name.md)).
+
+## Dependency posture
+
+`nuo-engine` depends on `nuo-protocol` (zero-I/O vocabulary), `nuo-persistence`
+(durable state), `nuo-model-routing`, and **`nuo-tool` only** among the tool
+crates. Concrete capability leaves (`nuo-tool-fs`, `nuo-tool-exec`,
+`nuo-tool-web`, `nuo-tool-ast`) are linked by the composition root
+(`nuo-server`), never by the cognition layer
+([ADR-0183](../../docs/adr/0183-composition-root-owns-capability-linkage.md)).

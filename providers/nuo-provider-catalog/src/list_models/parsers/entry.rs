@@ -1,7 +1,8 @@
 //! Entry-shape parsing shared by every protocol.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::{CatalogShape, ReasoningSupport};
+use nuo_protocol::{CatalogShape, ReasoningSupport};
+
 use serde_json::Value;
 
 use super::super::{DiscoveredModel, ModelListError};

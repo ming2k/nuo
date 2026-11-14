@@ -11,6 +11,7 @@ negative_knowledge: true
 # 0153. Effective Input Ceiling, Request-Projected Tool-Output Retention, and Ingest Image Normalization
 
 - Status: Accepted
+- Amended: [ADR-0182](0182-context-policy-is-configuration-and-phase-a-substrate-is-deleted.md) (the context policy is a compact configuration module)
 - Date: 2026-11-07
 - Deciders: Nuo Architecture Working Group
 - Consulted: Cognitive Runtime, Context Lifecycle, Host Capabilities, Performance Engineering

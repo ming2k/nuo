@@ -38,7 +38,9 @@
 use std::sync::Arc;
 
 use crate::model::Model;
-use crate::{BuiltinTool, Tool, ToolScope, ToolSelection, ToolSet};
+use crate::{CapabilityScope, ToolSelection, ToolSet};
+use nuo_tool::{BuiltinTool, Tool};
+
 
 /// Ceiling on what a subagent may do. There is no capability ladder — a tool is
 /// admitted purely by name. [`Tool::spawns_subagent`] and
@@ -92,13 +94,13 @@ impl ToolPolicy {
     }
 
     /// This policy's capability **name scope** for the pool resolver: `None`
-    /// [`allowed_tools`](Self::allowed_tools) → [`ToolScope::All`]; `Some(set)`
-    /// → [`ToolScope::Only`] the listed tools. The runtime hard rules
+    /// [`allowed_tools`](Self::allowed_tools) → [`CapabilityScope::All`]; `Some(set)`
+    /// → [`CapabilityScope::Only`] the listed tools. The runtime hard rules
     /// ([`admits_runtime`](Self::admits_runtime)) are layered on separately.
-    pub fn scope(&self) -> ToolScope {
+    pub fn scope(&self) -> CapabilityScope {
         match self.allowed_tools {
-            None => ToolScope::All,
-            Some(tools) => ToolScope::from_builtin(tools.iter().copied()),
+            None => CapabilityScope::All,
+            Some(tools) => CapabilityScope::from_builtin(tools.iter().copied()),
         }
     }
 }

@@ -16,7 +16,7 @@ impl RolesConfig {
     /// Absent file = no roles. A parse or validation error is logged and
     /// degrades to an empty registry rather than failing startup.
     pub fn load() -> Self {
-        let path = crate::paths::get().roles_file();
+        let path = nuo_host::paths::get().roles_file();
         match std::fs::read_to_string(&path) {
             Ok(raw) => match Self::from_toml_str(&raw) {
                 Ok(config) => config,
@@ -366,7 +366,7 @@ admit_mcp = ["internal_pg"]
         assert!(
             manifest
                 .builtin_tools()
-                .contains(&nuo_protocol::BuiltinTool::ExecuteCommand)
+                .contains(&nuo_tool::BuiltinTool::ExecuteCommand)
         );
         assert!(manifest.tools.contains(&"execute_command".to_string()));
     }

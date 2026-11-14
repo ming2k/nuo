@@ -3,7 +3,8 @@ use nuotc::{
     Frame, Rect, {Block as RtBlock, Paragraph}, {Line, Span}, {Modifier, Style},
 };
 
-use nuo_protocol::{PermissionRequest, UserQuestionRequest};
+use nuo_tool::{PermissionRequest, UserQuestionRequest};
+
 
 use crate::shell::render::Theme;
 use crate::shell::ui::ComponentTree;

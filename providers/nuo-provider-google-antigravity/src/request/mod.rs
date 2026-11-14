@@ -45,8 +45,8 @@ pub use self::url::{max_thinking_budget, stream_url, url};
 /// shape, if any.
 pub struct BodyInput<'a> {
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_provider::InstructionText>,
-    pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
+    pub instructions: Option<&'a nuo_protocol::InstructionText>,
+    pub tool_specs: Option<&'a [nuo_protocol::capability::ToolSpec]>,
     /// Stamp `generationConfig.thinkingConfig.includeThoughts`. The Google API
     /// only returns reasoning *text* when the request asks for it, and rejects
     /// the flag with HTTP 400 on models that do not think — so this MUST be
@@ -86,7 +86,7 @@ pub fn body_with_capabilities(
     model: &str,
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_provider::ModelCapabilities,
+    capabilities: &nuo_protocol::ModelCapabilities,
 ) -> Value {
     let (messages, _dropped_images) =
         nuo_provider::project_images_for_route(model, &messages, capabilities);

@@ -18,11 +18,11 @@ pub mod builtin;
 pub mod command;
 pub mod completion;
 pub mod context;
-pub mod descriptor;
 pub mod dynamic;
 pub mod effect;
 pub mod error;
 pub mod events;
+pub use events::*;
 pub mod guard;
 pub mod mcp;
 pub mod media;
@@ -53,7 +53,6 @@ pub use completion::{
     InputCompletion, InputCompletionKind,
 };
 pub use context::{ServiceMap, ServiceMapBuilder, ToolContext, ToolInvocation, ToolStreamSink};
-pub use descriptor::{ToolDescriptor, ToolDescriptorBuilder};
 pub use dynamic::DynamicTool;
 
 pub use effect::EffectClass;
@@ -64,7 +63,8 @@ pub use mcp::McpTool;
 pub use media::{ImageNormalizer, NormalizedImage};
 pub use mention::*;
 pub use message::{
-    ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall, ToolResult,
+    HookEventKind, ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall,
+    ToolResult,
 };
 pub use output::ToolOutput;
 pub use preview::PreviewResult;
@@ -79,7 +79,7 @@ pub use stream::{
 };
 pub use todos::{MAX_TODOS, TodoId, TodoItem, TodoList, TodoStatus, unix_now};
 pub use tokenizer::{StreamingCounter, Tokenizer, count_tokens, truncate_to_tokens};
-pub use tool_output::PatchOp;
+pub use tool_output::{PatchOp, WebSearchHit, normalize_carriage_returns, truncate_utf8};
 pub use usage::TokenUsage;
 pub use validation::validate_tool_arguments;
 pub use vfs::{
@@ -120,31 +120,6 @@ pub trait Tool: Send + Sync {
         self.parameters()
     }
 
-    /// Static metadata for this tool, as data (ADR-0008 `[INV-TOOL-09]`).
-    ///
-    /// The **canonical** source of a tool's identity, schema, risk, scopes, and
-    /// capability flags. During migration the default derives a descriptor from
-    /// the legacy per-method accessors, so tools that have not yet been
-    /// converted keep working unchanged; once a tool implements `descriptor`
-    /// directly, the other accessors delegate to it.
-    fn descriptor(&self) -> ToolDescriptor {
-        ToolDescriptor {
-            name: self.name().to_string(),
-            description: self.description().to_string(),
-            parameters_schema: self.parameters_schema(),
-            variant: self.variant().to_string(),
-            aliases: self.aliases().iter().map(|a| a.to_string()).collect(),
-            risk: self.risk_profile(),
-            effect: self.effect_class(),
-            scopes: self.scopes(),
-            requires_user: self.requires_user(),
-            requires_vision: self.requires_vision(),
-            spawns_subagent: self.spawns_subagent(),
-            affects_control_flow: self.affects_control_flow(),
-            available: self.is_available(),
-        }
-    }
-
     /// Declared capability and risk profile of the tool for policy reasoning.
     fn risk_profile(&self) -> RiskProfile {
         RiskProfile::ReadOnly
@@ -161,11 +136,9 @@ pub trait Tool: Send + Sync {
         }
     }
 
-    // ── Metadata surface (ADR-0008 §1: defaulted from `descriptor`) ──────────
-    // These give the leaf trait parity with the former rich harness trait so
-    // that harness tools can migrate to this one contract. Every method derives
-    // from `descriptor()` (or a runtime default), so implementors override only
-    // the descriptor.
+    // ── Metadata surface (ADR-0008 §1) ───────────────────────────────────────
+    // The trait accessors are the canonical metadata. `ToolSpec` is the
+    // provider-facing projection; there is no second descriptor object.
 
     /// Compatibility aliases that can resolve to this tool during dispatch.
     fn aliases(&self) -> &'static [&'static str] {

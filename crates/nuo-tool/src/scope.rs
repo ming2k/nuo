@@ -27,14 +27,13 @@ impl ToolScope {
 }
 
 /// What a tool call acts on, so the operation-scope gate can match it against
-/// the agent's granted scope. A tool reports this via its [`ToolDescriptor`] or
+/// the agent's granted scope. A tool reports this via its trait accessors or
 /// per-call refinement; each variant names a locatable target a tool may report.
 /// [`ScopeTarget::Unspecified`] is the default for tools with no locatable target.
 ///
 /// Lives in the tool leaf (ADR-0008 `[INV-TOOL-11]`): it is pure tool metadata
 /// with no dependency on any higher layer.
 ///
-/// [`ToolDescriptor`]: crate::descriptor::ToolDescriptor
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ScopeTarget {
     /// A filesystem path the tool writes or reads (e.g. `write_file`, `edit_text`).

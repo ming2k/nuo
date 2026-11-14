@@ -1,7 +1,7 @@
 //! Discovered model lists and fitted capabilities caching.
 use super::routes::FittedModelInfo;
-use crate::fsutil;
-use crate::paths;
+use nuo_host::fsutil;
+use nuo_host::paths;
 use nuo_protocol::RemoteModelMetadata;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

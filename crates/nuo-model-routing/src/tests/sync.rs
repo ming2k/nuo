@@ -24,7 +24,7 @@ async fn live_catalog_sync_writes_the_per_instance_cache() {
         &format!("{}/v1", server.url()),
         WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-lite"],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     let instances = Connections {
         connections: vec![Connection {
@@ -108,7 +108,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         &server.url().to_string(),
         WireProtocol::GoogleGenerateContent,
         &[],
-        nuo_provider::CatalogShape::GoogleCloudCode,
+        nuo_protocol::CatalogShape::GoogleCloudCode,
     );
     let mut conn = instance("agy-live", Some(provider_id));
     conn.auth = ConnectionAuth::negotiated("google-antigravity");
@@ -197,7 +197,7 @@ async fn single_source_endpoint_failure_records_failure_and_preserves_determinis
         &server.url(),
         WireProtocol::OpenAiChatCompletions,
         &["glm-4-plus"],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     let instances = Connections {
         connections: vec![Connection {
@@ -253,14 +253,14 @@ async fn connection_catalog_sync_never_touches_unrelated_connections() {
         &format!("{}/v1", selected_server.url()),
         WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash"],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     register_mock_provider(
         unrel_id,
         &format!("{}/v1", unrelated_server.url()),
         WireProtocol::OpenAiResponses,
         &["deepseek-v4-pro"],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     Connections {
         connections: vec![
@@ -322,7 +322,7 @@ async fn catalog_sync_failure_keeps_the_previous_subset_and_reports() {
         &format!("{}/v1", server.url()),
         WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash"],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     let instances = Connections {
         connections: vec![Connection {
@@ -360,7 +360,7 @@ async fn successful_empty_remote_catalog_clears_previous_models() {
         &format!("{}/v1", server.url()),
         WireProtocol::OpenAiResponses,
         &["deepseek-v4-flash"],
-        nuo_provider::CatalogShape::OpenAi,
+        nuo_protocol::CatalogShape::OpenAi,
     );
     // This connection is populated only by the remote catalog; drop the
     // helper's declared seed so an authoritative empty catalog is observable.

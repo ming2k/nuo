@@ -11,6 +11,7 @@ negative_knowledge: true
 # 0008. Single Tool Contract: Metadata-as-Data, Capabilities-via-Context
 
 - Status: Accepted
+- Amended: [ADR-0180](0180-single-ownership-of-shared-vocabulary.md) (the `ToolDescriptor` migration is retired; `ToolSpec` is the wire projection)
 - Date: 2026-10-03
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, and Interface Teams

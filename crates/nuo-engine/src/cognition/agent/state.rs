@@ -88,7 +88,7 @@ impl Agent {
 
         let mut toolset = toolset;
         let round_counter = Arc::new(std::sync::Mutex::new(0u64));
-        let todos = Arc::new(std::sync::Mutex::new(nuo_protocol::TodoList::default()));
+        let todos = Arc::new(std::sync::Mutex::new(nuo_tool::TodoList::default()));
         crate::tool_integration::install_agent_owned_tools(
             &mut toolset,
             Arc::clone(&todos),
@@ -149,7 +149,7 @@ impl Agent {
             tool_manager,
             todos,
             round_counter,
-            permissions: Arc::new(crate::permission_store::PermissionStore::new()),
+            permissions: Arc::new(nuo_guardrails::permission_store::PermissionStore::new()),
             additional_workspace_roots: Vec::new(),
             workspace_topology_cache: std::sync::Mutex::new(None),
             workspace_security: Arc::new(std::sync::Mutex::new(
@@ -171,11 +171,11 @@ impl Agent {
             images_suppressed: Arc::new(std::sync::RwLock::new(None)),
             hard_stop_turns: Arc::new(std::sync::Mutex::new(0)),
             trajectory_guard_config: Arc::new(std::sync::RwLock::new(
-                nuo_protocol::TrajectoryGuardConfig::default(),
+                nuo_tool::TrajectoryGuardConfig::default(),
             )),
-            interaction: Arc::new(crate::interaction::InteractionController::default()),
+            interaction: Arc::new(nuo_guardrails::interaction::InteractionController::default()),
             human_broker: crate::human_broker::HumanRequestBroker::new(),
-            bash_policy: std::sync::RwLock::new(crate::bash_policy::BashPolicy::default()),
+            bash_policy: std::sync::RwLock::new(nuo_guardrails::bash_policy::BashPolicy::default()),
 
             hooks: crate::runtime::hook_runner::HookRunner::new(),
             inbox_tx: std::sync::Mutex::new(None),
@@ -400,8 +400,8 @@ impl Agent {
     /// Holds the complete authority policy chain. Interaction-only behavior
     /// (`ask_user`, stdin, and missing-authority prompting) stays in
     /// `execute_tool`, outside the authority context by construction.
-    pub(crate) fn permission_chain(&self) -> crate::permission_policy::PermissionChain {
-        crate::permission_policy::PermissionChain::new(crate::permission_policy::default_chain())
+    pub(crate) fn permission_chain(&self) -> nuo_guardrails::permission_policy::PermissionChain {
+        nuo_guardrails::permission_policy::PermissionChain::new(nuo_guardrails::permission_policy::default_chain())
     }
 
     /// The workspace topology shown to the model, cached by root-manifest
@@ -632,7 +632,7 @@ impl Agent {
                     continue;
                 }
                 temporary_context.push(crate::runtime::message::hidden_user(
-                    nuo_protocol::InjectionKind::SystemReminder,
+                    nuo_tool::InjectionKind::SystemReminder,
                     bound_temporary_context(projection),
                 ));
             }
@@ -663,7 +663,7 @@ impl Agent {
                 && !projection.is_empty()
             {
                 temporary_context.push(crate::runtime::message::hidden_user(
-                    nuo_protocol::InjectionKind::SystemReminder,
+                    nuo_tool::InjectionKind::SystemReminder,
                     bound_temporary_context(projection),
                 ));
             }
@@ -836,7 +836,7 @@ impl Agent {
                 text.push_str(&req.instructions.transient);
             }
             debug_messages.push(Message::new(Role::System, text).with_origin(
-                nuo_protocol::InjectionOrigin::new(nuo_protocol::InjectionKind::SystemPrompt),
+                nuo_tool::InjectionOrigin::new(nuo_tool::InjectionKind::SystemPrompt),
             ));
         }
         debug_messages.extend(req.messages);
@@ -879,9 +879,9 @@ impl Agent {
     /// round, if any, keeps its already-built guard state.
     ///
     /// Wired from `[agent.trajectory_guard]` in `config.toml` at startup and forced to
-    /// [`nuo_protocol::TrajectoryGuardConfig::disabled`] on subagents and the review
+    /// [`nuo_tool::TrajectoryGuardConfig::disabled`] on subagents and the review
     /// diagnostic so they run unobstructed regardless of user settings.
-    pub fn set_trajectory_guard_config(&self, config: nuo_protocol::TrajectoryGuardConfig) {
+    pub fn set_trajectory_guard_config(&self, config: nuo_tool::TrajectoryGuardConfig) {
         *self
             .trajectory_guard_config
             .write()
@@ -890,7 +890,7 @@ impl Agent {
 
     /// Snapshot of the live trajectory-guard configuration. The turn boundary reads
     /// `enabled` to gate the pre-dispatch trajectory check.
-    pub fn trajectory_guard_config(&self) -> nuo_protocol::TrajectoryGuardConfig {
+    pub fn trajectory_guard_config(&self) -> nuo_tool::TrajectoryGuardConfig {
         *self
             .trajectory_guard_config
             .read()
@@ -917,7 +917,7 @@ impl Agent {
     /// Built-in dangerous-command rules remain compiled into the policy; config
     /// only supplies toggles and user-defined overrides/additions.
     pub fn set_bash_policy(&self, config: &nuo_persistence::config::BashPolicyConfig) {
-        let policy = crate::bash_policy::BashPolicy::from_config(config);
+        let policy = nuo_guardrails::bash_policy::BashPolicy::from_config(config);
         for error in policy.invalid_rules() {
             tracing::warn!(error = %error, "ignoring invalid bash policy rule");
         }
@@ -925,7 +925,7 @@ impl Agent {
     }
 
     /// Whether the model may supply stdin for a `bash` call. Read at the
-    /// dispatch site to decide the [`InputContract`](nuo_protocol::InputContract)
+    /// dispatch site to decide the [`InputContract`](nuo_tool::InputContract)
     /// and whether the bash schema exposes a `stdin` parameter.
     pub fn allow_model_stdin(&self) -> bool {
         self.interaction.allow_model_stdin()
@@ -943,7 +943,7 @@ impl Agent {
 
     /// Whether an interactive command should skip operator-input supervision
     /// and run sealed instead. Read at the command dispatch site to decide the
-    /// [`InputContract`](nuo_protocol::InputContract).
+    /// [`InputContract`](nuo_tool::InputContract).
     pub fn skip_interactive_input(&self) -> bool {
         self.interaction.skip_interactive_input()
     }
@@ -1367,18 +1367,18 @@ impl Agent {
 
     /// Current task list snapshot. Read by the harness to mirror into the
     /// session and by the TUI to render the sticky panel.
-    pub fn todos(&self) -> nuo_protocol::TodoList {
+    pub fn todos(&self) -> nuo_tool::TodoList {
         self.todos.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Replace the task list. Used by session-restore paths on resume.
-    pub fn set_todos(&self, todos: nuo_protocol::TodoList) {
+    pub fn set_todos(&self, todos: nuo_tool::TodoList) {
         *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = todos;
     }
 
     /// Drop the task list.
     pub fn clear_todos(&self) {
-        *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = nuo_protocol::TodoList::default();
+        *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = nuo_tool::TodoList::default();
     }
 
     /// Access the harness internal task pipeline for out-of-band typed execution.

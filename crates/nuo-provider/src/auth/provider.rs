@@ -12,7 +12,7 @@ use super::enricher::{OAuthTokenEnricher, StandardOAuthEnricher};
 use super::error::AuthError;
 use super::session::OAuthLoginPrompt;
 use super::token::TokenResponse;
-use crate::auth::ResolvedAuth;
+use nuo_protocol::auth::ResolvedAuth;
 use crate::credentials::{CredentialSession, TokenSet};
 use crate::transport::Http;
 use async_trait::async_trait;

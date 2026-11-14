@@ -41,7 +41,7 @@ pub struct HookContext {
 
 /// The payload for one fire. Tool events carry a name + a reduced view of the
 /// input/output — commands read JSON on stdin, not live Rust values, so the
-/// full [`crate::ToolOutput`] (which may embed a subagent transcript) is not
+/// full [`nuo_tool::ToolOutput`] (which may embed a subagent transcript) is not
 /// forwarded wholesale; its `to_text()` summary is.
 // Hook payloads are constructed once per fire and immediately serialized to
 // the hook process's stdin; boxing `PermissionRequest` would not reduce peak
@@ -98,12 +98,12 @@ pub enum HookEvent {
     /// only (see [`HookEventKind::PermissionRequest`]). Carries the full
     /// request so a notification hook can render "which tool / what scope".
     PermissionRequest {
-        request: crate::PermissionRequest,
+        request: nuo_tool::PermissionRequest,
     },
     /// The agent is about to block waiting for the user to answer an
     /// `ask_user` question. Observe-only (see [`HookEventKind::UserQuestion`]).
     UserQuestion {
-        request: crate::UserQuestionRequest,
+        request: nuo_tool::UserQuestionRequest,
     },
 }
 
@@ -210,7 +210,7 @@ pub trait Hook: Send + Sync {
     /// Describe the runtime authority required to fire this hook. Hooks that
     /// perform no external action may return `None`; command/network hooks
     /// must submit the same hazard metadata as an equivalent tool call.
-    fn permission_submission(&self, _ctx: &HookContext) -> Option<crate::ToolPermissionSubmission> {
+    fn permission_submission(&self, _ctx: &HookContext) -> Option<nuo_tool::ToolPermissionSubmission> {
         None
     }
     async fn fire(&self, ctx: &HookContext) -> HookOutcome;

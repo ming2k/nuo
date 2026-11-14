@@ -43,8 +43,9 @@ impl SqliteThreadStore {
 
     /// Open a database file and run the standard migrations.
     pub fn open(path: impl AsRef<std::path::Path>) -> rusqlite::Result<Self> {
+        let path = path.as_ref();
         let mut conn = Connection::open(path)?;
-        crate::db::migrations::initialize_connection_schema(&mut conn)?;
+        crate::db::migrations::initialize_connection_schema(&mut conn, Some(path))?;
         Ok(Self::new(conn))
     }
 
@@ -826,12 +827,12 @@ fn append_in_tx(
     })
 }
 
-fn role_to_sql(role: nuo_protocol::Role) -> &'static str {
+fn role_to_sql(role: nuo_tool::Role) -> &'static str {
     match role {
-        nuo_protocol::Role::User => "user",
-        nuo_protocol::Role::Assistant => "assistant",
-        nuo_protocol::Role::System => "system",
-        nuo_protocol::Role::Tool => "tool",
+        nuo_tool::Role::User => "user",
+        nuo_tool::Role::Assistant => "assistant",
+        nuo_tool::Role::System => "system",
+        nuo_tool::Role::Tool => "tool",
     }
 }
 

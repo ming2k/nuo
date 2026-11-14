@@ -64,10 +64,10 @@ fn traverse_node(
     let (kind_badge, label, detail) = match &node.kind {
         ThreadEntryKind::Message { message } => {
             let badge = match message.role {
-                nuo_protocol::Role::User => "USER",
-                nuo_protocol::Role::Assistant => "ASST",
-                nuo_protocol::Role::Tool => "TOOL",
-                nuo_protocol::Role::System => "SYS",
+                nuo_tool::Role::User => "USER",
+                nuo_tool::Role::Assistant => "ASST",
+                nuo_tool::Role::Tool => "TOOL",
+                nuo_tool::Role::System => "SYS",
             };
             let preview = message.content.lines().next().unwrap_or("").to_string();
             (badge, preview, format!("{} chars", message.content.len()))

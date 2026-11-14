@@ -2,12 +2,14 @@
 //! gateway over Chat Completions, authenticated with one API key.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::reasoning::ReasoningSupport;
-use nuo_provider::{Effort, Model};
+use nuo_protocol::reasoning::ReasoningSupport;
+use nuo_protocol::{Effort, Model};
+
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
-pub use nuo_provider::model_providers::OPENROUTER_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::OPENROUTER_BUILTIN_MODELS;
 
 const NEX_N25_EFFORTS: &[Effort] = &[Effort::None, Effort::Medium, Effort::High];
 
@@ -23,14 +25,14 @@ pub const MODELS: &[Model] = &[Model {
     vision: true,
     protocol: WireProtocol::OpenAiChatCompletions,
     effort_levels: NEX_N25_EFFORTS,
-    default_effort: Some(nuo_provider::Effort::High),
+    default_effort: Some(nuo_protocol::Effort::High),
     wire_entities: None,
 }];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::OpenRouter,
+    dialect: nuo_protocol::ProviderDialect::OpenRouter,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -44,7 +46,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: Some(nuo_provider::QuotaPort::OpenRouterKey),
     display_policy: nuo_provider::DisplayPolicy::Structural,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
 };
 
 #[cfg(test)]

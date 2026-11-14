@@ -419,19 +419,19 @@ impl Provider for DummyCustomProvider {
 /// [`nuo_persistence::connections::Connections`] store. Without an isolated
 /// `Dirs`, `save()` rewrites the developer's real
 /// `$XDG_STATE_HOME/nuo/connections.toml` and erases every connection they own.
-/// [`nuo_persistence::paths::TestDirsGuard`] holds the shared override lock and
+/// [`nuo_host::paths::TestDirsGuard`] holds the shared override lock and
 /// clears the roots on drop. The `TempDir` is returned so the roots outlive the
 /// guard's body.
-fn sandboxed_paths() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
+fn sandboxed_paths() -> (nuo_host::paths::TestDirsGuard, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let dirs = nuo_persistence::paths::Dirs {
+    let dirs = nuo_host::paths::Dirs {
         config_dir: tmp.path().join("config"),
         data_dir: tmp.path().join("data"),
         state_dir: tmp.path().join("state"),
         cache_dir: tmp.path().join("cache"),
         runtime_dir: None,
     };
-    (nuo_persistence::paths::TestDirsGuard::install(dirs), tmp)
+    (nuo_host::paths::TestDirsGuard::install(dirs), tmp)
 }
 
 #[tokio::test]
@@ -464,7 +464,7 @@ async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() 
 
     let mut round = agent.begin_streaming_round();
     // 600,000 prompt tokens * $0.10/1M = $0.06 -> exceeds $0.05 limit
-    round.set_token_usage_for_test(nuo_protocol::TokenUsage {
+    round.set_token_usage_for_test(nuo_tool::TokenUsage {
         prompt_tokens: 600_000,
         total_tokens: 600_000,
         ..Default::default()
@@ -516,16 +516,16 @@ impl Tool for PreviewableWriteTool {
     fn risk_profile(&self) -> nuo_tool::RiskProfile {
         nuo_tool::RiskProfile::IdempotentMutation
     }
-    fn scope_target(&self, _arguments: &str) -> nuo_protocol::ScopeTarget {
-        nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from(self.path))
+    fn scope_target(&self, _arguments: &str) -> nuo_tool::ScopeTarget {
+        nuo_tool::ScopeTarget::Path(std::path::PathBuf::from(self.path))
     }
-    fn accesses(&self, _arguments: &str) -> nuo_protocol::ToolAccesses {
-        nuo_protocol::ToolAccesses::write_file(self.path.to_string())
+    fn accesses(&self, _arguments: &str) -> nuo_tool::ToolAccesses {
+        nuo_tool::ToolAccesses::write_file(self.path.to_string())
     }
-    fn preview(&self, _arguments: &serde_json::Value) -> Option<nuo_protocol::PreviewResult> {
-        Some(nuo_protocol::PreviewResult {
+    fn preview(&self, _arguments: &serde_json::Value) -> Option<nuo_tool::PreviewResult> {
+        Some(nuo_tool::PreviewResult {
             path: self.path.to_string(),
-            op: nuo_protocol::PatchOp::Edit,
+            op: nuo_tool::PatchOp::Edit,
             old: self.before.to_string(),
             new: self.after.to_string(),
             start_line: 1,

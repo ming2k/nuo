@@ -595,7 +595,7 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
 
 #[test]
 fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
     use nuo_view::model::document::TranscriptMessage;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);

@@ -687,7 +687,7 @@ pub fn insert_usage_record_tx(
         .optional()?
         .flatten();
     let project = root
-        .map(|p| crate::paths::project_bucket_name(Path::new(&p)))
+        .map(|p| nuo_host::paths::project_bucket_name(Path::new(&p)))
         .unwrap_or_default();
     let at = if record.started_at_ms > 0 {
         record.started_at_ms

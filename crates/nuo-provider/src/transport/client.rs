@@ -115,7 +115,7 @@ mod owned {
     use super::super::diagnostic::{last_phase, phase_label};
     use super::super::error::TransportError;
     use super::super::request::RequestParts;
-    use super::super::telemetry::{TransportObservation, TransportTelemetry, TransportTimings};
+    use nuo_protocol::token_ledger::{TransportObservation, TransportTelemetry, TransportTimings};
     use super::{
         HttpResponse, Transport, TransportDiagnostic, attempt_error, diagnostic_from_snapshot,
         net_error,

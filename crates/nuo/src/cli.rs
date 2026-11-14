@@ -33,21 +33,12 @@ pub enum Mode {
     Thread(ThreadAction),
     /// Session server commands and lifecycle operations (`nuo server …`).
     Server(ServerAction),
-    /// Developer offline tools (`nuo dev storybook`).
-    Dev(DevAction),
     /// `nuo completions <shell>`.
     Completions(Shell),
     /// `--version` / `-V`.
     Version,
     /// `--help` / `-h` / `help [topic]`.
     Help(Option<String>),
-}
-
-/// `nuo dev …` offline developer tools (ADR-0073, ADR-0148)
-#[derive(Debug, Clone, PartialEq)]
-pub enum DevAction {
-    Storybook { watch: bool },
-    Export(PathBuf),
 }
 
 /// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061, ADR-0170)
@@ -627,30 +618,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let Some(cmd) = rest.first().cloned() else {
         return parse_interactive(args);
     };
-
-    if cmd == "dev" {
-        let extra = &rest[1..];
-        if extra.is_empty() || extra[0] == "storybook" || extra[0] == "ui" {
-            let watch = extra.iter().any(|arg| arg == "--watch" || arg == "-w");
-            return ok(Mode::Dev(DevAction::Storybook { watch }));
-        } else if extra[0] == "export" {
-            let out_dir = extra
-                .get(1)
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("target/storybook-snapshots"));
-            return ok(Mode::Dev(DevAction::Export(out_dir)));
-        } else if extra[0] == "census" || extra[0] == "check" {
-            return Err(
-                "'nuo dev check' and 'nuo dev census' were consolidated into 'cargo test -p nuo --test architecture_firewall'.\n\n  tip: run 'cargo test -p nuo --test architecture_firewall' to execute all architecture firewall gates."
-                    .into(),
-            );
-        } else {
-            return Err(
-                "unknown dev command. Available: `nuo dev storybook`, `nuo dev ui`, or `nuo dev export [dir]`"
-                    .into(),
-            );
-        }
-    }
 
     if cmd == "run" {
         return Err(
@@ -1654,21 +1621,4 @@ mod surface_tests {
         assert_eq!(tui.thread, Some(None));
     }
 
-    #[test]
-    fn dev_storybook_parses_with_and_without_watch() {
-        let plain = parse(&["dev", "storybook"]).unwrap();
-        assert_eq!(plain.mode, Mode::Dev(DevAction::Storybook { watch: false }));
-
-        let watched = parse(&["dev", "storybook", "--watch"]).unwrap();
-        assert_eq!(
-            watched.mode,
-            Mode::Dev(DevAction::Storybook { watch: true })
-        );
-
-        let watched_alias = parse(&["dev", "ui", "-w"]).unwrap();
-        assert_eq!(
-            watched_alias.mode,
-            Mode::Dev(DevAction::Storybook { watch: true })
-        );
-    }
 }

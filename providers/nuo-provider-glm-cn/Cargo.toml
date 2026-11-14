@@ -7,6 +7,7 @@ license.workspace = true
 description = "GLM Coding Plan CN provider channel for Nuo (Zhipu BigModel)"
 
 [dependencies]
+nuo-protocol = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-inference-wire = { workspace = true }
 inventory = { workspace = true }

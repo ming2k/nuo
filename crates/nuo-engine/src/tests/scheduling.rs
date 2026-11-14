@@ -118,7 +118,7 @@ async fn debug_trace_writes_one_file_per_chat() {
     // Off by default, and a call while off writes nothing.
     assert!(!proxy.debug_capture_enabled());
     proxy
-        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -131,14 +131,14 @@ async fn debug_trace_writes_one_file_per_chat() {
     proxy.set_debug_capture(true, dir.clone());
     assert!(proxy.debug_capture_enabled());
     proxy
-        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hello",
         )]))
         .await
         .unwrap();
     proxy
-        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "again",
         )]))
@@ -170,7 +170,7 @@ async fn debug_trace_writes_one_file_per_chat() {
     proxy.set_debug_capture(false, dir.clone());
     assert!(!proxy.debug_capture_enabled());
     proxy
-        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "after off",
         )]))
@@ -200,8 +200,8 @@ async fn debug_trace_aggregates_a_full_stream_into_one_file() {
     // aggregated record.
     let stream = proxy
         .stream_chat_events(
-            &nuo_provider::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
-            nuo_provider::TransportTelemetry::default(),
+            &nuo_protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .unwrap();
@@ -538,12 +538,12 @@ async fn scheduler_serializes_conflicting_writes() {
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        fn scope_target(&self, arguments: &str) -> nuo_protocol::ScopeTarget {
+        fn scope_target(&self, arguments: &str) -> nuo_tool::ScopeTarget {
             let path = serde_json::from_str::<serde_json::Value>(arguments)
                 .ok()
                 .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(str::to_string))
                 .unwrap_or_else(|| "/tmp/probe".to_string());
-            nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from(path))
+            nuo_tool::ScopeTarget::Path(std::path::PathBuf::from(path))
         }
         async fn call(&self, _arguments: &str) -> Result<String, String> {
             let prev = self.active.fetch_add(1, Ordering::SeqCst);

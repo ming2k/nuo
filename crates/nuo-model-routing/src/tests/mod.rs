@@ -22,7 +22,8 @@ use nuo_protocol::{
 };
 use nuo_provider::catalog::Transport;
 use nuo_provider::{CredentialStore, TokenSet};
-use nuo_provider::{DEEPSEEK_BUILTIN_MODELS, route_for_model};
+use nuo_protocol::model_providers::DEEPSEEK_BUILTIN_MODELS;
+use nuo_provider::route_for_model;
 
 use std::sync::Mutex;
 

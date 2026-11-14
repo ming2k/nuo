@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use super::sandbox_once;
 use nuo::UiBridge;
-use nuo::bootstrap::{self, BootstrapParams};
-use nuo::startup::ThreadStart;
+use nuo::composition::bootstrap::{self, BootstrapParams};
+use nuo::composition::startup::ThreadStart;
 use nuo_persistence::thread::ThreadSession;
 
 struct HeadlessProbe;
@@ -60,8 +60,8 @@ async fn unattended_posture_survives_process_death_and_reopen() {
 
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "mid-task when the server was killed",
         )])
         .await
@@ -88,8 +88,8 @@ async fn interactive_session_reopens_interactive() {
 
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "interactive session",
         )])
         .await
@@ -111,8 +111,8 @@ async fn unattended_off_after_on_persists_the_de_escalation() {
 
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "toggle history",
         )])
         .await

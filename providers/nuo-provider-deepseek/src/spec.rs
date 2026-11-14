@@ -41,18 +41,19 @@
 //! specification.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// The model ids the built-in `deepseek` provider seeds. Each id exists in the
 /// model registry and floats with the upstream latest.
-pub use nuo_provider::model_providers::DEEPSEEK_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::DEEPSEEK_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_provider::model::BaselineModels`]).
+/// [`nuo_protocol::model::BaselineModels`]).
 ///
 /// The seeded ids come first; the retired V4 Flash aliases follow so an older
 /// config keeps its capabilities without being offered to new users.
@@ -68,7 +69,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // DeepSeek V4 Pro — DeepSeek-V4-Pro-0813, the pure-text reasoning
@@ -82,7 +83,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // Retired V4 Flash generation. The name is still accepted upstream and is
@@ -97,7 +98,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // The retired experimental vision name, likewise served by V4.1 Flash.
@@ -110,17 +111,17 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
-    nuo_provider::PromptCacheSpec {
-        modes: &[nuo_provider::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_protocol::PromptCacheSpec {
+    nuo_protocol::PromptCacheSpec {
+        modes: &[nuo_protocol::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -134,7 +135,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::DeepSeek,
+    dialect: nuo_protocol::ProviderDialect::DeepSeek,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -148,7 +149,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: Some(nuo_provider::QuotaPort::DeepSeekBalance),
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
 };
 
 #[cfg(test)]
@@ -156,7 +157,7 @@ mod tests {
     use super::{DEEPSEEK_BUILTIN_MODELS, MODELS};
     use nuo_provider::effort_ladders;
 
-    fn model(id: &str) -> &'static nuo_provider::Model {
+    fn model(id: &str) -> &'static nuo_protocol::Model {
         MODELS
             .iter()
             .find(|model| model.id == id)
@@ -224,7 +225,7 @@ mod tests {
         }
         assert_eq!(
             effort_ladders::DEEPSEEK_NATIVE.first(),
-            Some(&nuo_provider::Effort::None),
+            Some(&nuo_protocol::Effort::None),
             "`none` is the thinking off switch and must survive the clamp"
         );
     }

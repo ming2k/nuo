@@ -5,8 +5,8 @@
 //! over the two. Entries are immutable and position-free facts; position lives
 //! in the per-session membership (seq). Projections never rewrite entries —
 //! they append a directive and, for compaction, one checkpoint entry.
-use crate::message::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall};
-use crate::todos::unix_now;
+use nuo_tool::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall};
+use nuo_tool::todos::unix_now;
 use serde::{Deserialize, Serialize};
 
 /// Unix-epoch milliseconds now.
@@ -180,7 +180,7 @@ pub struct CompactionMeta {
 pub struct StatePayload {
     /// The unified task-list mirror at the time of the entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub todos: Option<crate::todos::TodoList>,
+    pub todos: Option<nuo_tool::todos::TodoList>,
 }
 
 /// An immutable transcript fact. `seq` is the entry's position
@@ -218,7 +218,7 @@ impl TranscriptEntry {
     pub fn from_message(seq: u64, message: &Message) -> Self {
         let injection = message.origin.clone();
         let origin = match message.origin.as_ref().map(|o| o.kind) {
-            Some(crate::message::InjectionKind::CompactionCheckpoint) => {
+            Some(nuo_tool::InjectionKind::CompactionCheckpoint) => {
                 Some(EntryOrigin::Checkpoint)
             }
             Some(_) => Some(EntryOrigin::Harness),
@@ -255,7 +255,7 @@ impl TranscriptEntry {
     }
 
     /// A working-state snapshot entry (`state` kind). Never view content.
-    pub fn from_state(seq: u64, todos: Option<crate::todos::TodoList>) -> Self {
+    pub fn from_state(seq: u64, todos: Option<nuo_tool::todos::TodoList>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             seq,
@@ -445,7 +445,7 @@ impl Transcript {
 
     /// The current TodoList mirror, derived from the newest `state` entry
     /// carrying one.
-    pub fn derive_todos(&self) -> Option<crate::todos::TodoList> {
+    pub fn derive_todos(&self) -> Option<nuo_tool::todos::TodoList> {
         self.entries
             .iter()
             .rev()
@@ -528,7 +528,7 @@ impl Transcript {
                 && message
                     .origin
                     .as_ref()
-                    .is_some_and(|o| o.kind == crate::message::InjectionKind::ToolImage)
+                    .is_some_and(|o| o.kind == nuo_tool::InjectionKind::ToolImage)
             {
                 let mime = message
                     .images

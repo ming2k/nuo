@@ -1,5 +1,7 @@
 use super::*;
-use crate::{ObservationLifecycle, ObservationMetrics, Role};
+use crate::{ObservationLifecycle, ObservationMetrics};
+use nuo_tool::{Role};
+
 
 fn notice(text: &str) -> FactPayload {
     FactPayload::SystemNotice {

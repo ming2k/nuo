@@ -7,8 +7,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_provider::LoginMethod;
-use nuo_provider::ResolvedAuth;
+use nuo_protocol::LoginMethod;
+use nuo_protocol::ResolvedAuth;
 use nuo_provider::auth::AuthError;
 use nuo_provider::auth::TokenResponse;
 use nuo_provider::auth::{
@@ -445,7 +445,7 @@ impl OAuthTokenEnricher for AntigravityOAuthEnricher {
 
 fn project_metadata(tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
     if let Some(project) = tokens.get_attr("project_id") {
-        auth = auth.with_extension(nuo_provider::auth::GoogleAuthMetadata {
+        auth = auth.with_extension(nuo_protocol::auth::GoogleAuthMetadata {
             project_id: project.to_string(),
         });
     }

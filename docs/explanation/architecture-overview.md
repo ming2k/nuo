@@ -27,7 +27,7 @@ Because the server is the single source of truth for thread state, any number of
 Two boundaries carry most of the architectural weight:
 
 - **The terminal canvas substrate (`nuotc`)**: a retained-mode 2D canvas with differential, double-buffered rendering and a Flexbox layout solver. It is deliberately decoupled from all AI domain concepts (see [ADR-0003](../adr/0003-autonomous-terminal-canvas-substrate-nuotc.md)) so the terminal engine can be reasoned about without knowing what an agent is.
-- **The execution harness (`nuo-harness`)**: it outfits an agent with a role and prompts, enforces hazard controls and confirmation checkpoints, and detects loops. The harness is the *policy* layer; the model providers are the *transport* layer.
+- **The execution harness (`nuo-engine`)**: it outfits an agent with a role and prompts, enforces hazard controls and confirmation checkpoints, and detects loops. The harness is the *policy* layer; the model providers are the *transport* layer.
 
 ---
 

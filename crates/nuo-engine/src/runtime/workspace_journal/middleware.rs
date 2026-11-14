@@ -37,7 +37,7 @@
 
 use std::path::Path;
 
-use nuo_protocol::Tool;
+use nuo_tool::Tool;
 use nuo_tool::{EffectClass, ToolAccesses};
 
 use super::{

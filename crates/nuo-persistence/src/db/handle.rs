@@ -27,7 +27,7 @@ impl fmt::Debug for PersistenceHandle {
 
 /// Get or initialize the global shared [`PersistenceHandle`].
 pub fn get_persistence_handle() -> PersistenceHandle {
-    let dirs = crate::paths::get();
+    let dirs = nuo_host::paths::get();
     let db_path = dirs.db_file();
     let mut guard = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(handle) = guard.as_ref() {

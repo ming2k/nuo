@@ -1,10 +1,10 @@
 //! Model catalog discovery interfaces, query types, and update envelopes (ADR-0015).
 
-use crate::surface::CatalogShape;
+use nuo_protocol::surface::CatalogShape;
 use async_trait::async_trait;
 use nuo_host::SecretString;
 
-pub use crate::dialects::{
+pub use nuo_protocol::dialects::{
     AnthropicMessagesDialect, Channel, DiscoveredModel, GoogleInteractionsDialect, ModelListError,
     ProviderEntry, Transport, clean_model_display_name, format_model_display_name,
 };

@@ -6,11 +6,11 @@ pub enum GoogleThinking {
     /// `LOW`/`MEDIUM`/`HIGH` (via [`thinking_level_wire`]). Never
     /// `none`/`xhigh`/`max` (Gemini 3.x rejects them); the resolver clamps
     /// those down before constructing this variant.
-    Level(nuo_provider::Effort),
+    Level(nuo_protocol::Effort),
     /// `thinkingBudget` for a Gemini 2.5 model: a token count in the model's
     /// supported range. `0` disables thinking (Flash/Lite only — Pro's floor is
     /// `128`, so the resolver only emits `0` when the model's ladder allows
-    /// [`nuo_provider::Effort::None`]).
+    /// [`nuo_protocol::Effort::None`]).
     Budget(i64),
 }
 
@@ -28,8 +28,8 @@ pub enum GoogleThinking {
 /// `max_budget` is only consulted for the budget surface; pass any value for a
 /// level-only model.
 pub fn resolve_thinking(
-    effort: Option<nuo_provider::Effort>,
-    effort_levels: &[nuo_provider::EffortLevel],
+    effort: Option<nuo_protocol::Effort>,
+    effort_levels: &[nuo_protocol::EffortLevel],
     max_budget: u32,
 ) -> Option<GoogleThinking> {
     // A model that does not advertise a depth ladder has no thinking surface to
@@ -43,15 +43,15 @@ pub fn resolve_thinking(
     // Gemini's ladders are always compiled-in known rungs, so extract the known
     // subset for ranking; `Other` (a provider tier outside the vocabulary) has
     // no Gemini surface to map onto and is ignored here.
-    let known: Vec<nuo_provider::Effort> = effort_levels
+    let known: Vec<nuo_protocol::Effort> = effort_levels
         .iter()
-        .filter_map(nuo_provider::EffortLevel::as_known)
+        .filter_map(nuo_protocol::EffortLevel::as_known)
         .collect();
     let clamped = requested.clamp_to(&known);
     // Decide the surface from the ladder's deepest rung: the budget ladder tops
     // out at `max`, the level ladder at `high`. This keeps the model-specific
     // choice in one place and never inspects the free-form model id string.
-    let is_budget = known.contains(&nuo_provider::Effort::Max);
+    let is_budget = known.contains(&nuo_protocol::Effort::Max);
     Some(if is_budget {
         GoogleThinking::Budget(thinking_budget_wire(clamped, max_budget))
     } else {
@@ -59,7 +59,7 @@ pub fn resolve_thinking(
     })
 }
 
-/// Translate a clamped [`Effort`](nuo_provider::Effort) into a Gemini 2.5
+/// Translate a clamped [`Effort`](nuo_protocol::Effort) into a Gemini 2.5
 /// `thinkingBudget` integer — the form that surface accepts instead of an
 /// enum. The model's ceiling is `max_budget` (`gemini-2.5-flash` tops out at
 /// `24576`, `gemini-2.5-pro` at `32768`; see [`max_thinking_budget`]).
@@ -74,17 +74,17 @@ pub fn resolve_thinking(
 /// — and `max` differs from `high` only in intent: it names the cap
 /// explicitly).
 ///
-/// [`Effort::None`](nuo_provider::Effort::None) maps to `0`, the only way to
+/// [`Effort::None`](nuo_protocol::Effort::None) maps to `0`, the only way to
 /// turn thinking off — but Gemini 2.5 Pro rejects `0` (floor `128`), so the
 /// caller must only honor an off rung where the model's floor is actually `0`.
 ///
 /// This is provider-owned wire knowledge and lives here, beside
 /// [`thinking_level_wire`], rather than on the framework's shared
-/// [`Effort`](nuo_provider::Effort)
+/// [`Effort`](nuo_protocol::Effort)
 /// vocabulary: the bucket fractions are one surface's encoding, not a property
 /// of "reasoning depth" (ADR-0126).
-pub const fn thinking_budget_wire(effort: nuo_provider::Effort, max_budget: u32) -> i64 {
-    use nuo_provider::Effort;
+pub const fn thinking_budget_wire(effort: nuo_protocol::Effort, max_budget: u32) -> i64 {
+    use nuo_protocol::Effort;
     // `core::cmp::max` is not const-stable, so the `≥ 1` floor is spelled out.
     // It only matters for unrealistically small `max_budget` values, but keeps
     // the contract honest: a nonzero bucket never rounds down to "off".
@@ -106,11 +106,11 @@ pub const fn thinking_budget_wire(effort: nuo_provider::Effort, max_budget: u32)
 /// `agy` sending `thinkingLevel: "LOW"` on its title lane.
 pub(super) const THINKING_LEVELS: [&str; 3] = ["LOW", "MEDIUM", "HIGH"];
 
-/// Translate a clamped [`Effort`](nuo_provider::Effort) onto the
+/// Translate a clamped [`Effort`](nuo_protocol::Effort) onto the
 /// `thinkingLevel` string this surface accepts.
 ///
 /// This is provider-owned wire knowledge (ADR-0074/ADR-0113), and
-/// [`Effort::as_str`](nuo_provider::Effort::as_str) is the wrong value here for
+/// [`Effort::as_str`](nuo_protocol::Effort::as_str) is the wrong value here for
 /// two independent reasons:
 ///
 /// - **The enum is upper-case and case-sensitive.** `"high"` is not `HIGH`.
@@ -127,8 +127,8 @@ pub(super) const THINKING_LEVELS: [&str; 3] = ["LOW", "MEDIUM", "HIGH"];
 /// The deeper vocabulary rungs (`xhigh`/`max`/`ultra`) have no surface in this
 /// enum and clamp down to `HIGH`; [`resolve_thinking`] has already clamped
 /// against the model's declared ladder, so this is defense in depth.
-pub fn thinking_level_wire(effort: nuo_provider::Effort) -> &'static str {
-    use nuo_provider::Effort;
+pub fn thinking_level_wire(effort: nuo_protocol::Effort) -> &'static str {
+    use nuo_protocol::Effort;
     let wire = match effort {
         // Below this enum's floor — the shallowest accepted rung stands in.
         Effort::None | Effort::Minimal | Effort::Low => THINKING_LEVELS[0],

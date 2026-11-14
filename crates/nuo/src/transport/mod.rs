@@ -31,8 +31,8 @@ pub use nuo_protocol::{
     ServerEndpointsReport, ThreadInitOptions, Wire,
 };
 #[cfg(unix)]
-pub use nuo_server::serve_discovery::default_uds_path;
-pub use nuo_server::serve_discovery::{
+pub use nuo_server::transport::serve_discovery::default_uds_path;
+pub use nuo_server::transport::serve_discovery::{
     self as discovery, default_local_endpoint, global_discovery_path, global_lock_path,
     global_spawn_lock_path, instance_dir,
 };

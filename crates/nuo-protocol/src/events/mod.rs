@@ -2,7 +2,10 @@
 //! responses ([`AgentResponse`]), live agent events ([`AgentEvent`]), and the
 //! small data records they carry.
 
-pub(crate) use crate::{Availability, ImagePart, Message, ToolOutput, ToolStream, TrustDomain};
+pub(crate) use crate::{Availability, TrustDomain};
+
+pub(crate) use nuo_tool::{ImagePart, Message, ToolOutput, ToolStream};
+
 pub(crate) use serde::{Deserialize, Serialize};
 
 // Relocated to the tool leaf (`nuo_tool::events`) per ADR-0008 §3.

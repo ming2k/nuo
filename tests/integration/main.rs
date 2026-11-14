@@ -5,9 +5,8 @@
 //! per file. Shared helpers live in [`common`].
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-// Historical tests refer to `nuo_harness::`; keep the rename alias at the root
+// Historical tests refer to `nuo_engine::`; keep the rename alias at the root
 // so every moved module resolves it exactly as the old crate-root target did.
-extern crate nuo_engine as nuo_harness;
 
 #[path = "../common/mod.rs"]
 mod common;

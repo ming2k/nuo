@@ -1,5 +1,5 @@
 use super::*;
-use nuo_protocol::tool_output::ShellTermination;
+use nuo_tool::ShellTermination;
 use nuo_view::Theme;
 use nuo_view::tools::shell_output::OutputCoverage;
 use nuotc::Rect;

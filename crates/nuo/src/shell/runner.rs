@@ -564,7 +564,7 @@ pub async fn run_attached(
                 initial_messages: Vec::new(),
                 initial_commands: Vec::new(),
                 initial_round_count: 0,
-                command_catalog: nuo_protocol::CommandCatalog::default(),
+                command_catalog: nuo_tool::CommandCatalog::default(),
                 initial_round_interrupts: Vec::new(),
                 initial_phase,
                 initial_prompt: launch_prompt,

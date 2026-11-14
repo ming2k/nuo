@@ -163,7 +163,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
             let mut stream = provider
                 .stream_chat(
                     &ModelRequest::new(vec![]),
-                    nuo_provider::TransportTelemetry::default(),
+                    nuo_protocol::TransportTelemetry::default(),
                 )
                 .await
                 .unwrap();

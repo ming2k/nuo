@@ -46,21 +46,21 @@ pub struct ThreadMessageView {
     pub content: String,
 }
 
-fn role_str(role: nuo_protocol::Role) -> &'static str {
+fn role_str(role: nuo_tool::Role) -> &'static str {
     match role {
-        nuo_protocol::Role::User => "user",
-        nuo_protocol::Role::Assistant => "assistant",
-        nuo_protocol::Role::System => "system",
-        nuo_protocol::Role::Tool => "tool",
+        nuo_tool::Role::User => "user",
+        nuo_tool::Role::Assistant => "assistant",
+        nuo_tool::Role::System => "system",
+        nuo_tool::Role::Tool => "tool",
     }
 }
 
-fn role_from_str(role: &str) -> Option<nuo_protocol::Role> {
+fn role_from_str(role: &str) -> Option<nuo_tool::Role> {
     match role {
-        "user" => Some(nuo_protocol::Role::User),
-        "assistant" => Some(nuo_protocol::Role::Assistant),
-        "system" => Some(nuo_protocol::Role::System),
-        "tool" => Some(nuo_protocol::Role::Tool),
+        "user" => Some(nuo_tool::Role::User),
+        "assistant" => Some(nuo_tool::Role::Assistant),
+        "system" => Some(nuo_tool::Role::System),
+        "tool" => Some(nuo_tool::Role::Tool),
         _ => None,
     }
 }
@@ -291,7 +291,7 @@ struct FastSummaryProbe {
 
 #[derive(Deserialize)]
 struct FastMessageProbe {
-    role: nuo_protocol::Role,
+    role: nuo_tool::Role,
     #[serde(default)]
     content: String,
     #[serde(default)]
@@ -302,7 +302,7 @@ struct FastMessageProbe {
 
 #[derive(Deserialize)]
 struct FastOriginProbe {
-    kind: nuo_protocol::InjectionKind,
+    kind: nuo_tool::InjectionKind,
 }
 
 /// The **only** way to read the unified store.
@@ -754,7 +754,7 @@ fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
                 project: if root.is_empty() {
                     String::new()
                 } else {
-                    crate::paths::project_bucket_name(Path::new(&root))
+                    nuo_host::paths::project_bucket_name(Path::new(&root))
                 },
                 record,
             },

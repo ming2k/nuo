@@ -36,13 +36,14 @@
 //! See `docs/reference/openapi/opendesign.yml` for the gateway contract.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// Curated seed models offered by the OpenDesign Cloud API channel.
-pub use nuo_provider::model_providers::OPENDESIGN_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::OPENDESIGN_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 ///
@@ -62,7 +63,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // OpenDesign's slower tier of V4.1 Flash. The vendor has no such id; its
@@ -77,7 +78,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::ALL_EFFORTS_EXCEPT_ULTRA,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // Retired V4 Flash ids, still accepted upstream and served by
@@ -91,7 +92,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -103,7 +104,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -115,7 +116,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // Claude Haiku 5.5 — the gateway's id uses a dot. 1M context, 128K output,
@@ -129,7 +130,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::ALL_EFFORTS_EXCEPT_ULTRA,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // GPT-6 Luna — 1,050,000 total context (922K input + 128K output), image
@@ -143,7 +144,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::ALL_EFFORTS,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // GLM-5.3 Flash — shared id; the home baseline's GLM ladder is kept (see
@@ -157,7 +158,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // GLM-5.3 Flash-X — the higher-throughput GLM-5.3 variant, unique to this
@@ -171,7 +172,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // Kimi K2.7 Code — shared id; keep the home baseline's row so the global
@@ -186,7 +187,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // MiMo V2.6 — shared ids with the OpenCode Go rows.
@@ -199,7 +200,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -211,7 +212,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // MiniMax M3.1 Flash — always-thinking: the gateway rejects `none` and
@@ -225,7 +226,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::MINIMAL_TO_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     // Hunyuan H4 Preview — shared id; the home baseline's row is retained.
@@ -238,15 +239,15 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -263,13 +264,13 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Structural,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_provider::model::resolve;
+    use nuo_protocol::model::resolve;
 
     fn model(id: &str) -> &'static Model {
         MODELS
@@ -335,7 +336,7 @@ mod tests {
             model("minimax-m3.1-flash").effort_levels,
             effort_ladders::MINIMAL_TO_MAX
         );
-        assert!(!effort_ladders::MINIMAL_TO_MAX.contains(&nuo_provider::Effort::None));
+        assert!(!effort_ladders::MINIMAL_TO_MAX.contains(&nuo_protocol::Effort::None));
         assert_eq!(model("claude-haiku-5.5").context_window, 1_000_000);
         assert!(model("claude-haiku-5.5").vision);
         assert_eq!(model("gpt-6-luna").context_window, 1_050_000);

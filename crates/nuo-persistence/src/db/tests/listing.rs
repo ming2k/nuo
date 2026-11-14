@@ -74,7 +74,7 @@ fn role_scoped_switch_candidates_exclude_active() {
             updated_at: time,
             ..Default::default()
         };
-        let msg = nuo_protocol::Message::new(nuo_protocol::Role::User, format!("hello from {id}"));
+        let msg = nuo_tool::Message::new(nuo_tool::Role::User, format!("hello from {id}"));
         data.transcript
             .push(nuo_protocol::TranscriptEntry::from_message(0, &msg));
         data

@@ -22,12 +22,13 @@
 // pre-condition is the point, not a defect to handle gracefully.
 #![allow(clippy::expect_used, clippy::panic)]
 
-use nuo_provider::CatalogShape;
+use nuo_protocol::CatalogShape;
 use nuo_provider::CatalogSigning;
 use nuo_provider::auth::OAuthCredentialSource;
 use nuo_provider::catalog_root_for_connection;
 use nuo_provider::transport::{Http, Request};
-use nuo_provider::{ConnectionAuth, CredentialSource as _};
+use nuo_protocol::{ConnectionAuth, CredentialSource as _};
+
 use nuo_provider_catalog::models_endpoint_for;
 use nuo_provider_qoder::QoderCatalogSigning;
 use nuo_provider_qoder::oauth::stored_qoder_request_identity;

@@ -186,7 +186,7 @@ fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
     // Draft with text and pending attachments
     app.input = "in-flight prompt".to_string();
     app.cursor_position = 8;
-    let img = nuo_protocol::ImagePart {
+    let img = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "base64data".to_string(),
     };

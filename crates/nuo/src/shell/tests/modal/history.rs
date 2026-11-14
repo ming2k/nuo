@@ -13,7 +13,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
     app.input = "walked row".to_string();
     app.history_index = Some(0);
     app.draft_capsule.text = "half-typed draft in a".to_string();
-    app.pending_images = vec![nuo_protocol::ImagePart {
+    app.pending_images = vec![nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     }];
@@ -113,7 +113,7 @@ async fn inline_history_round_trip_keeps_staged_attachments() {
     app.current_session_id = "session-a".to_string();
     app.record_input_history("sent prompt".to_string(), Vec::new(), Vec::new());
 
-    let image = nuo_protocol::ImagePart {
+    let image = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -150,7 +150,7 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     app.draft_capsule.text = "stale draft".to_string();
     app.input = "whatever".to_string();
 
-    let image = nuo_protocol::ImagePart {
+    let image = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "img".to_string(),
     };

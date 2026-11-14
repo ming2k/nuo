@@ -70,7 +70,7 @@ fn declares_google_function_tools() {
     let body = body(
         vec![Message::new(Role::User, "list files")],
         test_body_input(
-            Some(&[nuo_provider::capability::ToolSpec {
+            Some(&[nuo_protocol::capability::ToolSpec {
                 name: "find_files".to_string(),
                 description: "List files".to_string(),
                 parameters: json!({

@@ -17,7 +17,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use nuo_persistence::paths;
+use nuo_host::paths;
 
 const INDEX_FILE: &str = "index.json";
 

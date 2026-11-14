@@ -511,9 +511,9 @@ fn copilot_metadata_preserves_picker_and_endpoint_facts() {
     assert_eq!(
         remote.effort_levels,
         Some(vec![
-            nuo_provider::EffortLevel::Known(nuo_provider::Effort::Low),
-            nuo_provider::EffortLevel::Known(nuo_provider::Effort::Medium),
-            nuo_provider::EffortLevel::Known(nuo_provider::Effort::High)
+            nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::Low),
+            nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::Medium),
+            nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::High)
         ])
     );
     assert_eq!(remote.thinking, Some(ReasoningSupport::Adaptive));

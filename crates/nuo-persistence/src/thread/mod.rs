@@ -17,10 +17,9 @@
 //! both stored authoritatively in SQLite. Every
 //! consumer-facing window is a pure derive; nothing derived is persisted.
 use crate::blobs::BlobStore;
-use crate::paths;
-use nuo_protocol::{
-    EntryPayload, InjectionKind, Message, Provider, Role, ThreadDetail, estimate_tokens,
-};
+use nuo_host::paths;
+use nuo_protocol::{EntryPayload, Provider, ThreadDetail, estimate_tokens};
+use nuo_tool::{InjectionKind, Message, Role};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -463,7 +462,7 @@ pub(crate) struct ThreadSessionState {
     pub(crate) defer_persist: bool,
     /// In-memory cache of projected messages, avoiding repetitive full-history
     /// projections on ReAct turn hot paths.
-    pub(crate) projected_cache: Option<Vec<nuo_protocol::Message>>,
+    pub(crate) projected_cache: Option<Vec<nuo_tool::Message>>,
 }
 
 impl ThreadSessionState {
@@ -477,7 +476,7 @@ impl ThreadSessionState {
     }
 
     #[inline]
-    pub(crate) fn get_or_project_messages(&mut self) -> &[nuo_protocol::Message] {
+    pub(crate) fn get_or_project_messages(&mut self) -> &[nuo_tool::Message] {
         if self.projected_cache.is_none() {
             self.projected_cache = Some(self.data.transcript.project_messages());
         }
@@ -490,7 +489,7 @@ impl ThreadSessionState {
     }
 
     #[inline]
-    pub(crate) fn append_to_projection_cache(&mut self, new_messages: &[nuo_protocol::Message]) {
+    pub(crate) fn append_to_projection_cache(&mut self, new_messages: &[nuo_tool::Message]) {
         if let Some(ref mut cache) = self.projected_cache {
             cache.extend_from_slice(new_messages);
         } else {
@@ -864,8 +863,8 @@ pub fn build_excerpt_summary(
         if remaining < 16 {
             break;
         }
-        let cost = nuo_protocol::tokenizer::count_tokens(content).min(EXCERPT_CAP_TOKENS)
-            + nuo_protocol::tokenizer::count_tokens(label)
+        let cost = nuo_tool::tokenizer::count_tokens(content).min(EXCERPT_CAP_TOKENS)
+            + nuo_tool::tokenizer::count_tokens(label)
             + 2;
         used += cost;
         chosen.push(index);
@@ -883,11 +882,11 @@ pub fn build_excerpt_summary(
             continue;
         };
         let content = message.content.trim();
-        let remaining = max_tokens.saturating_sub(nuo_protocol::tokenizer::count_tokens(&output));
+        let remaining = max_tokens.saturating_sub(nuo_tool::tokenizer::count_tokens(&output));
         if remaining < 16 {
             break;
         }
-        let excerpt = nuo_protocol::tokenizer::truncate_str_to_tokens(
+        let excerpt = nuo_tool::tokenizer::truncate_str_to_tokens(
             content,
             remaining.min(EXCERPT_CAP_TOKENS),
         );
@@ -901,7 +900,7 @@ pub fn build_excerpt_summary(
     if let Some(previous) = previous_summary.map(str::trim).filter(|s| !s.is_empty()) {
         let previous_budget = (max_tokens / 4).clamp(125, 1_000);
         let previous_excerpt =
-            nuo_protocol::tokenizer::truncate_str_to_tokens(previous, previous_budget);
+            nuo_tool::tokenizer::truncate_str_to_tokens(previous, previous_budget);
         format!("[Previous summary]\n{previous_excerpt}\n\n[Recent history]\n{history}")
     } else {
         history
@@ -1009,7 +1008,7 @@ pub fn serialize_for_summary(archived: &[Message], budget: usize) -> String {
             }
         }
         if message.role == Role::Tool {
-            body = nuo_protocol::tokenizer::truncate_str_to_tokens(
+            body = nuo_tool::tokenizer::truncate_str_to_tokens(
                 body.trim(),
                 SUMMARY_TOOL_OUTPUT_CAP_TOKENS,
             )
@@ -1038,7 +1037,7 @@ pub fn serialize_for_summary(archived: &[Message], budget: usize) -> String {
     }
 
     let joined = lines.join("\n\n");
-    if nuo_protocol::tokenizer::count_tokens(&joined) <= budget {
+    if nuo_tool::tokenizer::count_tokens(&joined) <= budget {
         return joined;
     }
 
@@ -1046,7 +1045,7 @@ pub fn serialize_for_summary(archived: &[Message], budget: usize) -> String {
     let mut kept: Vec<&String> = Vec::new();
     let mut total = 0usize;
     for line in lines.iter().rev() {
-        let cost = nuo_protocol::tokenizer::count_tokens(line) + 2;
+        let cost = nuo_tool::tokenizer::count_tokens(line) + 2;
         if total + cost > budget {
             break;
         }
@@ -1084,7 +1083,7 @@ fn serialize_subagent_transcript_for_summary(children: &[Message], budget: usize
             }
         }
         if message.role == Role::Tool {
-            body = nuo_protocol::tokenizer::truncate_str_to_tokens(
+            body = nuo_tool::tokenizer::truncate_str_to_tokens(
                 body.trim(),
                 SUMMARY_TOOL_OUTPUT_CAP_TOKENS,
             )
@@ -1107,12 +1106,12 @@ fn serialize_subagent_transcript_for_summary(children: &[Message], budget: usize
         lines.push(format!("  {label}: {body}"));
     }
     let joined = lines.join("\n");
-    if nuo_protocol::tokenizer::count_tokens(&joined) <= budget {
+    if nuo_tool::tokenizer::count_tokens(&joined) <= budget {
         joined
     } else {
         format!(
             "{}...[truncated]",
-            nuo_protocol::tokenizer::truncate_str_to_tokens(&joined, budget)
+            nuo_tool::tokenizer::truncate_str_to_tokens(&joined, budget)
         )
     }
 }
@@ -1252,11 +1251,11 @@ pub async fn run_compaction(
 
 /// Enforce the allocated checkpoint budget even when a summarizing provider
 /// ignores its requested length. Now a thin wrapper over the exact
-/// token-boundary cut ([`nuo_protocol::tokenizer::truncate_to_tokens`]);
+/// token-boundary cut ([`nuo_tool::tokenizer::truncate_to_tokens`]);
 /// the old binary search existed only because the budget round-tripped
 /// through characters (removed that).
 fn truncate_summary_to_token_budget(text: String, max_tokens: usize) -> String {
-    let (prefix, _) = nuo_protocol::tokenizer::truncate_to_tokens(&text, max_tokens);
+    let (prefix, _) = nuo_tool::tokenizer::truncate_to_tokens(&text, max_tokens);
     prefix.trim_end().to_string()
 }
 

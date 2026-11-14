@@ -1,7 +1,8 @@
 //! Copilot capability and endpoint policy parsing.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::{Availability, ReasoningSupport};
+use nuo_protocol::{Availability, ReasoningSupport};
+
 use serde_json::Value;
 
 use super::super::DiscoveredModel;

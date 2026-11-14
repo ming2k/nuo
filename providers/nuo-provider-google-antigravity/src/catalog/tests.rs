@@ -308,30 +308,30 @@ fn observes_wire_entities_from_live_rows() {
         legacy.wire_entities.as_deref(),
         Some(&["claude-sonnet-4-6".to_string()][..])
     );
-    let caps = nuo_provider::ModelCapabilities::for_channel(
+    let caps = nuo_protocol::ModelCapabilities::for_channel(
         "claude-sonnet-4-6",
         Some(&legacy.remote_metadata()),
     );
     assert!(matches!(
         caps.wire_entity_resolution("claude-sonnet-4-6"),
-        nuo_provider::WireEntityResolution::Verbatim
+        nuo_protocol::WireEntityResolution::Verbatim
     ));
 
     // Merge path: remote metadata → caps, verbatim for the bare-lead case.
     let meta = pick("gemini-3.8-flash").remote_metadata();
-    let caps = nuo_provider::ModelCapabilities::for_channel("gemini-3.8-flash", Some(&meta));
+    let caps = nuo_protocol::ModelCapabilities::for_channel("gemini-3.8-flash", Some(&meta));
     assert!(caps.effort_entities.is_empty() || caps.effort_entities[0] == "gemini-3.8-flash");
     let argon_meta = pick("gemini-4-argon").remote_metadata();
     let argon_caps =
-        nuo_provider::ModelCapabilities::for_channel("gemini-4-argon", Some(&argon_meta));
+        nuo_protocol::ModelCapabilities::for_channel("gemini-4-argon", Some(&argon_meta));
     assert_eq!(argon_caps.effort_entities.len(), 3);
     assert!(matches!(
         argon_caps.wire_entity_resolution("gemini-4-argon"),
-        nuo_provider::WireEntityResolution::PerLevel { .. }
+        nuo_protocol::WireEntityResolution::PerLevel { .. }
     ));
     assert!(matches!(
         argon_caps.wire_entity_resolution("gemini-4-argon-high"),
-        nuo_provider::WireEntityResolution::Verbatim
+        nuo_protocol::WireEntityResolution::Verbatim
     ));
 }
 

@@ -4,11 +4,11 @@
 //! *registry-wide* contract every `providers/*` crate must satisfy before the
 //! composition root may link it. It is intentionally table-driven: a new
 //! provider is covered the moment it is added to
-//! `nuo_server::provider_registry::MODEL_PROVIDER_SPECS`.
+//! `nuo_server::composition::provider_registry::MODEL_PROVIDER_SPECS`.
 
 use std::collections::BTreeSet;
 
-use nuo_server::provider_registry::MODEL_PROVIDER_SPECS;
+use nuo_server::composition::provider_registry::MODEL_PROVIDER_SPECS;
 
 #[test]
 fn provider_specs_are_unique_and_well_formed() {

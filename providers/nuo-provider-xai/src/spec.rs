@@ -2,18 +2,19 @@
 //! completions (SuperGrok OAuth or `XAI_API_KEY`).
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// xAI Grok models over OpenAI-compatible chat completions (SuperGrok OAuth or
 /// `XAI_API_KEY`).
-pub use nuo_provider::model_providers::XAI_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::XAI_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_provider::model::BaselineModels`]).
+/// [`nuo_protocol::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // xAI Grok (OpenAI-compatible; SuperGrok OAuth or XAI_API_KEY)
     Model {
@@ -25,7 +26,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -37,7 +38,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -49,7 +50,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -61,15 +62,15 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -83,5 +84,5 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
 };

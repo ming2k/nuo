@@ -14,10 +14,6 @@ nuo-inference-wire = { workspace = true }
 nuo-protocol = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
-nuo-tool-fs = { workspace = true }
-nuo-tool-exec = { workspace = true }
-nuo-tool-web = { workspace = true }
-nuo-tool-ast = { workspace = true }
 serde_yaml = { workspace = true }
 dirs = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
@@ -38,6 +34,12 @@ sha2 = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
+# Capability leaves are linked by the composition root in the shipped graph;
+# engine tests may construct them directly.
+nuo-tool-fs = { workspace = true }
+nuo-tool-exec = { workspace = true }
+nuo-tool-ast = { workspace = true }
+nuo-tool-web = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
 # `test-path-override` exposes `paths::TestDirsGuard` through the persistence

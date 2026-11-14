@@ -6,9 +6,9 @@ use super::*;
 fn resolve_thinking_level_for_gemini_3x() {
     // Gemini 3.x uses a level ladder; each rung maps to thinkingLevel,
     // clamping down from unsupported depths.
-    use nuo_provider::effort::Effort;
+    use nuo_protocol::effort::Effort;
     let gemini_level: &[Effort] = &[Effort::Minimal, Effort::Low, Effort::Medium, Effort::High];
-    let level: Vec<nuo_provider::EffortLevel> =
+    let level: Vec<nuo_protocol::EffortLevel> =
         gemini_level.iter().copied().map(Into::into).collect();
     assert_eq!(
         resolve_thinking(Some(Effort::High), &level, 0),
@@ -31,7 +31,7 @@ fn resolve_thinking_level_for_gemini_3x() {
 fn resolve_thinking_budget_for_gemini_2_5() {
     // Gemini 2.5 uses a budget ladder; rungs map to token buckets against
     // the model's max (Flash: 24576).
-    use nuo_provider::effort::Effort;
+    use nuo_protocol::effort::Effort;
     let gemini_budget: &[Effort] = &[
         Effort::Minimal,
         Effort::Low,
@@ -39,7 +39,7 @@ fn resolve_thinking_budget_for_gemini_2_5() {
         Effort::High,
         Effort::Max,
     ];
-    let budget: Vec<nuo_provider::EffortLevel> =
+    let budget: Vec<nuo_protocol::EffortLevel> =
         gemini_budget.iter().copied().map(Into::into).collect();
     assert_eq!(
         resolve_thinking(Some(Effort::Medium), &budget, 24576),
@@ -60,7 +60,7 @@ fn resolve_thinking_budget_for_gemini_2_5() {
 fn resolve_thinking_empty_ladder_is_no_override() {
     // A non-reasoning / unknown model (empty ladder) never stamps thinking.
     assert_eq!(
-        resolve_thinking(Some(nuo_provider::Effort::High), &[], 24576),
+        resolve_thinking(Some(nuo_protocol::Effort::High), &[], 24576),
         None
     );
 }
@@ -75,7 +75,7 @@ fn body_stamps_thinking_level_and_budget() {
         test_body_input(
             None,
             false,
-            Some(GoogleThinking::Level(nuo_provider::Effort::Medium)),
+            Some(GoogleThinking::Level(nuo_protocol::Effort::Medium)),
         ),
     );
     assert_eq!(
@@ -96,7 +96,7 @@ fn body_stamps_thinking_level_and_budget() {
 #[test]
 fn thinking_budget_wire_buckets_within_the_models_cap() {
     use super::thinking_budget_wire;
-    use nuo_provider::Effort;
+    use nuo_protocol::Effort;
 
     // Gemini 2.5 Flash: 0–24576. Each rung is a fraction of the cap, and
     // the bucket never escapes the model's ceiling.
@@ -118,7 +118,7 @@ fn thinking_budget_wire_buckets_within_the_models_cap() {
 #[test]
 fn thinking_level_wire_is_always_a_member_of_the_accepted_enum() {
     use crate::request::thinking::{THINKING_LEVELS, thinking_level_wire};
-    use nuo_provider::Effort;
+    use nuo_protocol::Effort;
 
     // The whole closed `Effort` vocabulary must map into the three accepted
     // values — never through `as_str()`, whose case and rung set differ.

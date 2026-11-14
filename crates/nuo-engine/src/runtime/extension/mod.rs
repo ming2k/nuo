@@ -140,8 +140,8 @@ mod tests {
         );
         agent.set_project_root(Some(dir.path().to_path_buf()));
 
-        let source_messages = vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        let source_messages = vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "Hello",
         )];
 

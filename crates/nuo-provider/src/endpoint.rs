@@ -6,7 +6,7 @@
 //! unique to its wire format.
 use std::sync::Arc;
 
-use crate::auth::{CredentialSource, ResolvedAuth, static_credential};
+use nuo_protocol::auth::{CredentialSource, ResolvedAuth, static_credential};
 use nuo_host::SecretString;
 
 /// The connection fields every provider shares.

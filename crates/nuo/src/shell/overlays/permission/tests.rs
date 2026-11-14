@@ -1,5 +1,6 @@
 use super::*;
-use nuo_protocol::{UserQuestion, UserQuestionOption};
+use nuo_tool::{UserQuestion, UserQuestionOption};
+
 
 #[test]
 fn question_modal_records_option_hit_boxes() {

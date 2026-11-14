@@ -6,8 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+nuo-tool = { workspace = true }
 nuo-protocol = { workspace = true }
-nuo-persistence = { workspace = true }
+nuo-host = { workspace = true }
 nuo-inference-wire = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

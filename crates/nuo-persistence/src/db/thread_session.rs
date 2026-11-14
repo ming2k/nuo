@@ -307,10 +307,10 @@ pub(crate) fn save_session_inner(
             INSERT INTO thread_policies (
                 thread_id, workspace_root, system_role, unattended, provider_pin,
                 disabled_tools_json, additional_roots_json, commands_json,
-                round_interrupts_json, retry_resolutions_json, retry_pending,
+                round_interrupts_json, retry_pending,
                 role_manifest, todos_json, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                      ?14 * 1000)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                      ?13 * 1000)
             ON CONFLICT(thread_id) DO UPDATE SET
                 workspace_root = excluded.workspace_root,
                 system_role = excluded.system_role,
@@ -320,7 +320,6 @@ pub(crate) fn save_session_inner(
                 additional_roots_json = excluded.additional_roots_json,
                 commands_json = excluded.commands_json,
                 round_interrupts_json = excluded.round_interrupts_json,
-                retry_resolutions_json = excluded.retry_resolutions_json,
                 retry_pending = excluded.retry_pending,
                 role_manifest = COALESCE(excluded.role_manifest, thread_policies.role_manifest),
                 todos_json = excluded.todos_json,
@@ -341,7 +340,6 @@ pub(crate) fn save_session_inner(
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                 serde_json::to_string(&data.round_interrupts)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                "[]",
                 data.retry_pending
                     .as_ref()
                     .and_then(|s| serde_json::to_string(s).ok()),
@@ -371,11 +369,6 @@ pub(crate) fn save_session_inner(
         // same transaction as the facts they describe, so recovery can
         // always resolve an unknown outcome by operation identity.
         let committed_revision = current_revision + 1;
-        conn.execute(
-            "INSERT INTO thread_revisions(thread_id, revision) VALUES(?1, ?2)
-             ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision",
-            params![data.id, committed_revision as i64],
-        )?;
         conn.execute(
             "UPDATE threads SET revision = ?2 WHERE id = ?1",
             params![data.id, committed_revision as i64],
@@ -537,7 +530,7 @@ pub(crate) fn load_session_full(
                    t.digest, t.digest_anchor, t.transcript_generation,
                    p.provider_pin, t.round_counter, p.unattended,
                    p.disabled_tools_json, p.commands_json, p.round_interrupts_json,
-                   p.retry_resolutions_json, p.retry_pending, t.checksum,
+                   p.retry_pending, t.checksum,
                    13, p.role_manifest
             FROM threads t
             LEFT JOIN thread_policies p ON p.thread_id = t.id
@@ -564,11 +557,10 @@ pub(crate) fn load_session_full(
                     row.get::<_, String>(15)?,
                     row.get::<_, String>(16)?,
                     row.get::<_, String>(17)?,
-                    row.get::<_, String>(18)?,
-                    row.get::<_, Option<String>>(19)?,
-                    row.get::<_, Option<i64>>(20)?,
-                    row.get::<_, i64>(21)?,
-                    row.get::<_, Option<String>>(22)?,
+                    row.get::<_, Option<String>>(18)?,
+                    row.get::<_, Option<i64>>(19)?,
+                    row.get::<_, i64>(20)?,
+                    row.get::<_, Option<String>>(21)?,
                 ))
             },
         )
@@ -592,7 +584,6 @@ pub(crate) fn load_session_full(
         disabled_tools,
         commands,
         round_interrupts,
-        _retry_resolutions,
         retry_pending,
         checksum,
         schema_version,
@@ -702,7 +693,7 @@ pub(crate) fn load_session_full(
             .and_then(|raw| serde_json::from_str(raw).ok()),
         unattended: unattended != 0,
     };
-    let todos: nuo_protocol::TodoList = conn
+    let todos: nuo_tool::TodoList = conn
         .query_row(
             "SELECT todos_json FROM thread_policies WHERE thread_id = ?1",
             params![session_id],

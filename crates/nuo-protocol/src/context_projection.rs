@@ -53,8 +53,8 @@ pub struct ContextProjectionCheckpoint {
 /// the kernel does not own storage (storage is host-owned).
 #[derive(Debug, Clone)]
 pub struct ContextProjectionResult {
-    pub model_window: Vec<crate::Message>,
-    pub archived_originals: Vec<crate::Message>,
+    pub model_window: Vec<nuo_tool::Message>,
+    pub archived_originals: Vec<nuo_tool::Message>,
     pub checkpoint: ContextProjectionCheckpoint,
 }
 

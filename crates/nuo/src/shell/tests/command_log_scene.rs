@@ -12,8 +12,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use nuo_protocol::ToolOutput;
-use nuo_protocol::tool_output::ShellTermination;
+use nuo_tool::ToolOutput;
+use nuo_tool::ShellTermination;
 use nuo_view::model::command_log::LogScope;
 use nuo_view::model::document::MessageKind;
 

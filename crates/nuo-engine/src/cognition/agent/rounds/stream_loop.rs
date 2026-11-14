@@ -17,13 +17,13 @@ impl Agent {
     #[allow(clippy::too_many_arguments)] // mirrors the two call sites' evidence set; bundling would obscure the channel symmetry
     pub(super) fn dispatch_stream_loop_candidate(
         &self,
-        detector: &mut crate::stream_loop_detector::StreamLoopDetector,
+        detector: &mut nuo_guardrails::stream_loop_detector::StreamLoopDetector,
         messages: &[Message],
         assistant_text: &str,
         reasoning_text: &str,
         tool_input: &str,
         channel: nuo_protocol::StreamLoopChannel,
-        pattern: crate::stream_loop_detector::DegeneratePattern,
+        pattern: nuo_guardrails::stream_loop_detector::DegeneratePattern,
         cleared_candidates: &std::collections::HashSet<String>,
         pending: &mut Option<PendingStreamLoopReview>,
     ) {
@@ -63,7 +63,7 @@ impl Agent {
         reasoning_text: &str,
         tool_input: &str,
         channel: nuo_protocol::StreamLoopChannel,
-        pattern: crate::stream_loop_detector::DegeneratePattern,
+        pattern: nuo_guardrails::stream_loop_detector::DegeneratePattern,
     ) -> PendingStreamLoopReview {
         let input = nuo_protocol::StreamLoopReviewInput {
             heuristic_candidate: pattern.description(),

@@ -471,10 +471,10 @@ impl Tool for SubagentTool {
 
     async fn call_structured_with_events<'a>(
         &self,
-        invocation: nuo_protocol::ToolInvocation<'a>,
-        on_event: Box<dyn FnMut(nuo_protocol::SubagentEvent) + Send + 'a>,
-        _on_stream: &mut (dyn FnMut(nuo_protocol::ToolStream) + Send + 'a),
-    ) -> Result<nuo_protocol::ToolOutput, String> {
+        invocation: nuo_tool::ToolInvocation<'a>,
+        on_event: Box<dyn FnMut(nuo_tool::SubagentEvent) + Send + 'a>,
+        _on_stream: &mut (dyn FnMut(nuo_tool::ToolStream) + Send + 'a),
+    ) -> Result<nuo_tool::ToolOutput, String> {
         let call_id = invocation.call_id;
         let arguments = invocation.arguments;
         // Run the subagent, streaming its lifecycle as SubagentEvents to the
@@ -508,7 +508,7 @@ impl Tool for SubagentTool {
         } else {
             outcome.final_content.trim().to_string()
         };
-        Ok(nuo_protocol::ToolOutput::Subagent {
+        Ok(nuo_tool::ToolOutput::Subagent {
             summary,
             messages: outcome.messages,
             usage: outcome.token_usage,
@@ -522,14 +522,14 @@ impl Tool for SubagentTool {
 /// Internal result of running a sub-agent. Bundles everything the parent
 /// harness needs to persist the nested transcript and account for real cost.
 pub struct SubagentOutcome {
-    messages: Vec<nuo_protocol::Message>,
-    token_usage: nuo_protocol::TokenUsage,
+    messages: Vec<nuo_tool::Message>,
+    token_usage: nuo_tool::TokenUsage,
     /// Final assistant content, mirrored for convenience so the parent doesn't
     /// have to scan `messages` for the last Assistant turn.
     final_content: String,
     /// Whether the subagent terminated abnormally (hit its turn cap,
     /// repeated-call guard, or a provider error). Drives the structured
-    /// `failed` flag on the returned [`nuo_protocol::ToolOutput::Subagent`]
+    /// `failed` flag on the returned [`nuo_tool::ToolOutput::Subagent`]
     /// instead of the old `summary.starts_with("Error")` text sniff.
     failed: bool,
     /// Whether the subagent was stopped by the parent before finishing (the turn

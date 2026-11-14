@@ -4,7 +4,7 @@
 //! the transcript is the authority, the window is a derive, projections are
 //! append-only directives, and fork shares facts by identity.
 use crate::thread::*;
-use nuo_protocol::{Message, Role, ToolCall};
+use nuo_tool::{Message, Role, ToolCall};
 use std::path::PathBuf;
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -464,9 +464,9 @@ async fn todos_round_trip_through_state_entries() {
     let dir = temp_dir("todos");
     let path = dir.join("session.json");
     let store = ThreadSession::for_path(path.clone());
-    let mut list = nuo_protocol::TodoList::default();
+    let mut list = nuo_tool::TodoList::default();
     list.reconcile(
-        &[("write schema".into(), nuo_protocol::TodoStatus::Pending)],
+        &[("write schema".into(), nuo_tool::TodoStatus::Pending)],
         0,
         0,
     );
@@ -890,7 +890,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
     let mut parent = assistant("delegating");
     parent.tool_calls = Some(vec![call.clone()]);
     let child_messages = vec![user("child task"), assistant("child done")];
-    let subagent_meta = nuo_protocol::message::SubagentMeta {
+    let subagent_meta = nuo_tool::message::SubagentMeta {
         description: Some("do the thing".into()),
         duration_ms: Some(1234),
         toolset_count: 3,
@@ -979,7 +979,7 @@ fn excerpt_summary_respects_token_budget() {
         .collect();
     let summary = build_excerpt_summary(&archived, 120, None);
     assert!(!summary.is_empty());
-    assert!(nuo_protocol::tokenizer::count_tokens(&summary) <= 120);
+    assert!(nuo_tool::tokenizer::count_tokens(&summary) <= 120);
 }
 
 #[tokio::test]

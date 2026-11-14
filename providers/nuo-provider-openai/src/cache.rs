@@ -1,7 +1,8 @@
 //! OpenAI prompt-cache request controls shared by Chat Completions and
 //! Responses encoders.
 
-use nuo_provider::{CacheRetention, PromptCacheMode, ResolvedCachePolicy};
+use nuo_protocol::{CacheRetention, PromptCacheMode, ResolvedCachePolicy};
+
 use serde_json::{Value, json};
 
 /// Stamp top-level OpenAI controls and, for explicit mode, one stable content

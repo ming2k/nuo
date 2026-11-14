@@ -7,7 +7,7 @@
 //! projection can name them without depending on the retired `SessionIR`.
 use serde::{Deserialize, Serialize};
 
-use crate::message::Message;
+use nuo_tool::Message;
 
 /// Physical metrics captured for a tool execution observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -72,7 +72,7 @@ impl ObservationLifecycle {
                 )
             }
         };
-        let mut msg = Message::new(crate::Role::Tool, content);
+        let mut msg = Message::new(nuo_tool::Role::Tool, content);
         msg.tool_call_id = Some(call_id.to_string());
         msg
     }

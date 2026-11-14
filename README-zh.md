@@ -12,7 +12,7 @@ Nuo 是一个基于 Rust 构建的高性能、模块化 AI 会话守护进程与
 
 - **语义终端界面**：基于 `nuo-tui` 与自研 `nuotc` 渲染引擎的终端界面，提供亚毫秒级差异化增量渲染、纯净防闪烁体验以及完美的 CJK 宽字符排版。
 - **会话守护进程 (`nuo`)**：跨项目托管多会话的轻量级后台进程，提供本地 IPC（Unix Domain Sockets）与 WebSocket 双控制面。
-- **执行 Harness (`nuo-harness`)**：为智能体动态装配身份与上下文，实施严格的操作风险管控（`RiskProfile`）、人类交互确认断点与实时死循环熔断。
+- **执行 Harness (`nuo-engine`)**：为智能体动态装配身份与上下文，实施严格的操作风险管控（`RiskProfile`）、人类交互确认断点与实时死循环熔断。
 - **多智能体协作协议 (ACP)**：原生实现 Agent Coordination Protocol，支持点对点任务委派（`agent://`）与多订阅者频道广播（`acp://`）。
 - **零开销工具体系**：纯粹的零 I/O 契约设计，支持编译期 JSON Schema 派生（`nuo-tool-derive`），并原生集成 MCP（Model Context Protocol）客户端与服务端。
 

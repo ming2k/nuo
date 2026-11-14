@@ -91,7 +91,7 @@ async fn golden_repeated_identical_tool_calls_run_without_hard_abort() {
         vec![Arc::new(tool)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::disabled());
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig::disabled());
 
     let (_events, outcome) = run_golden_round(&agent, "go", PermissionDecision::Reject).await;
 
@@ -120,11 +120,11 @@ async fn trajectory_guard_blocks_repeating_command_before_execution() {
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig {
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig {
         enabled: true,
         threshold: 3,
         cognitive_review: false,
-        ..nuo_protocol::TrajectoryGuardConfig::default()
+        ..nuo_tool::TrajectoryGuardConfig::default()
     });
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
@@ -195,11 +195,11 @@ async fn doom_block_is_surgical_across_files() {
         vec![Arc::new(reader), Arc::new(finder)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig {
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig {
         enabled: true,
         threshold: 3,
         cognitive_review: false,
-        ..nuo_protocol::TrajectoryGuardConfig::default()
+        ..nuo_tool::TrajectoryGuardConfig::default()
     });
 
     let mut messages = vec![Message::new(Role::User, "go")];
@@ -246,7 +246,7 @@ async fn trajectory_guard_suppressed_when_disabled() {
         ))],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::disabled());
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig::disabled());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "make test".to_string(),
@@ -292,7 +292,7 @@ async fn trajectory_guard_cognitive_arbitration_confirms_loop_and_blocks_surgica
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::cognitive());
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig::cognitive());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "cargo test".to_string(),
@@ -341,7 +341,7 @@ async fn trajectory_guard_cognitive_arbitration_acquits_and_escalates_ladder() {
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::cognitive());
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig::cognitive());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "cargo test".to_string(),
@@ -391,7 +391,7 @@ async fn trajectory_guard_fail_open_on_provider_error_and_escalates() {
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::cognitive());
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig::cognitive());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "cargo test".to_string(),
@@ -758,7 +758,7 @@ async fn unattended_preserves_schema_and_intercepts_ask_user_at_runtime() {
 async fn always_permission_persists_across_agents_for_same_project() {
     let tmp = std::env::temp_dir().join(format!("nuo-perms-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp).expect("create temp data dir");
-    let dirs = nuo_persistence::paths::Dirs {
+    let dirs = nuo_host::paths::Dirs {
         config_dir: tmp.join("config"),
         data_dir: tmp.join("data"),
         state_dir: tmp.join("state"),
@@ -859,7 +859,7 @@ async fn always_permission_persists_across_agents_for_same_project() {
 async fn agent_without_project_root_never_writes_permissions_file() {
     let tmp = std::env::temp_dir().join(format!("nuo-perms-noset-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp).expect("create temp data dir");
-    let dirs = nuo_persistence::paths::Dirs {
+    let dirs = nuo_host::paths::Dirs {
         config_dir: tmp.join("config"),
         data_dir: tmp.join("data"),
         state_dir: tmp.join("state"),

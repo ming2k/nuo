@@ -232,7 +232,7 @@ async fn test_history_search_stashes_and_restores_attachments_with_empty_text() 
 
     // Draft with only staged images/pastes and empty text
     app.input.clear();
-    let img = nuo_protocol::ImagePart {
+    let img = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };

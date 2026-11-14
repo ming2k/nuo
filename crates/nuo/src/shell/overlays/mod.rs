@@ -12,6 +12,7 @@
 //! - [`toast`] — copy / armed-action notice bubbles
 //! - [`common`] — shared helpers (time formatting, truncation, caret, glyphs)
 
+pub mod ask_user;
 pub mod command_log;
 pub mod command_palette;
 pub mod common;

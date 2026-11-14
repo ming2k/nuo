@@ -30,11 +30,11 @@ fn redesigned_components_render_without_panicking() {
                 thinking.set_reasoning_expanded(true);
                 let mut tool = TranscriptMessage::tool_step("call_1", "find_files", r#"{"path":"."}"#);
                 tool.set_tool_step_expanded(true);
-                tool.finish_tool_step("call_1", "file_a\nfile_b", nuo_protocol::ToolOutput::text("file_a\nfile_b"), 12);
+                tool.finish_tool_step("call_1", "file_a\nfile_b", nuo_tool::ToolOutput::text("file_a\nfile_b"), 12);
                 let messages = vec![
-                    TranscriptMessage::new(nuo_protocol::Role::User, "hi"),
+                    TranscriptMessage::new(nuo_tool::Role::User, "hi"),
                     TranscriptMessage::new(
-                        nuo_protocol::Role::Assistant,
+                        nuo_tool::Role::Assistant,
                         "Here is a table:\n\n| Tool | Count |\n| --- | ---: |\n| read | 1 |\n| webfetch | 250 |",
                     ),
                     thinking,
@@ -304,15 +304,15 @@ fn redesigned_components_render_without_panicking() {
         );
         let question_request = UserQuestionRequest {
             id: "q1".to_string(),
-            questions: vec![nuo_protocol::UserQuestion {
+            questions: vec![nuo_tool::UserQuestion {
                 header: Some("Style".to_string()),
                 question: "Which error handling crate?".to_string(),
                 options: vec![
-                    nuo_protocol::UserQuestionOption {
+                    nuo_tool::UserQuestionOption {
                         label: "anyhow (Recommended)".to_string(),
                         description: Some("Simple".to_string()),
                     },
-                    nuo_protocol::UserQuestionOption {
+                    nuo_tool::UserQuestionOption {
                         label: "thiserror".to_string(),
                         description: Some("Structured".to_string()),
                     },
@@ -935,7 +935,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
         let backoff: Option<&nuo_view::retry::RetryProgress> = None;
         let theme = Theme::default();
         let messages = vec![TranscriptMessage::new(
-            nuo_protocol::Role::Assistant,
+            nuo_tool::Role::Assistant,
             "A finished response above the footer.",
         )];
         let mut terminal = nuotc::TestTerminal::new(60, 20);
@@ -1008,7 +1008,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
 #[test]
 fn too_small_terminal_shows_notice_and_zeroed_render() {
     let theme = Theme::default();
-    let messages = vec![TranscriptMessage::new(nuo_protocol::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
 
     let mut terminal = nuotc::TestTerminal::new(20, 8);
     let mut render_opt: Option<TranscriptRender> = None;
@@ -1176,7 +1176,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
 fn nonempty_session_does_not_render_empty_state() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    let messages = vec![TranscriptMessage::new(nuo_protocol::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
 
     let mut render_opt: Option<TranscriptRender> = None;
     terminal.draw(|f| {
@@ -1482,7 +1482,7 @@ fn h1_underline_clamps_to_text_extent() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_protocol::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "# QQ_H1_TEST\n\nbody text here\n",
     )];
     terminal.draw(|f| {
@@ -1581,7 +1581,7 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
     let width = 60u16;
     let mut terminal = nuotc::TestTerminal::new(width, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_protocol::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "# Hello😀\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1665,7 +1665,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
     // wraps this ~95-char heading to ≥2 rows.
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     let messages = vec![TranscriptMessage::new(
-        nuo_protocol::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "# This is a very long heading that intentionally wraps to multiple rows for the underline-prefix test\n\nbody\n",
     )];
     terminal.draw(|f| {

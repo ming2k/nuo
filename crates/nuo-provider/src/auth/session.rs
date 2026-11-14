@@ -20,7 +20,7 @@ use super::enricher::{OAuthTokenEnricher, StandardOAuthEnricher, build_token_set
 use super::manual::parse_authorization_response;
 use super::provider::{OAuthProvider, oauth_provider};
 use super::token::TokenResponse;
-use crate::connection_auth::LoginMethod;
+use nuo_protocol::connection_auth::LoginMethod;
 use crate::credentials::{CredentialHost, CredentialStore, TokenSet};
 use crate::transport::Http;
 use futures::future::BoxFuture;

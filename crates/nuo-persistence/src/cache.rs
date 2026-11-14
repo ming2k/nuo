@@ -15,12 +15,12 @@
 
 use std::path::PathBuf;
 
-use crate::fsutil;
+use nuo_host::fsutil;
 
 /// A local file cache backed by an atomic-write file at `path`.
 ///
 /// Created from a cache path (typically resolved via
-/// [`paths::Dirs`](crate::paths::Dirs)). Callers fetch from a remote source,
+/// [`paths::Dirs`](nuo_host::paths::Dirs)). Callers fetch from a remote source,
 /// validate, then [`store`](Self::store) the payload; later
 /// [`load`](Self::load) returns the cached copy. A missing or corrupt file
 /// yields `None` — never an error — so the catalog falls back gracefully.

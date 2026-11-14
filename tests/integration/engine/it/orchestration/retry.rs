@@ -331,7 +331,7 @@ impl Provider for VisibleFailProvider {
 }
 
 #[async_trait]
-impl nuo_protocol::Tool for RetryReadTool {
+impl nuo_tool::Tool for RetryReadTool {
     fn name(&self) -> &str {
         "retry_read"
     }
@@ -472,7 +472,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
     let agent = Arc::new(Agent::new(
         Arc::new(TelemetryPublishingProvider(AtomicUsize::new(0))),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let ledger = nuo_protocol::TokenSourceLedger::shared();
     agent.install_token_ledger(ledger.clone());
@@ -507,7 +507,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -560,7 +560,7 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
     let agent = Arc::new(Agent::new(
         Arc::new(RetryOnceProvider(AtomicUsize::new(0))),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let ledger = nuo_protocol::TokenSourceLedger::shared();
     agent.install_token_ledger(ledger.clone());
@@ -595,7 +595,7 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

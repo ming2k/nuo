@@ -17,7 +17,7 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let structured = nuo_protocol::ToolOutput::Shell {
+    let structured = nuo_tool::ToolOutput::Shell {
         command: "cargo build".into(),
         stdout,
         stderr: String::new(),
@@ -25,7 +25,7 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
         exit: Some(1),
         truncated: false,
         truncated_note: None,
-        termination: nuo_protocol::tool_output::ShellTermination::Exited,
+        termination: nuo_tool::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
@@ -78,7 +78,7 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let structured = nuo_protocol::ToolOutput::Shell {
+    let structured = nuo_tool::ToolOutput::Shell {
         command: "cargo build".into(),
         stdout,
         stderr: String::new(),
@@ -86,7 +86,7 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
         exit: Some(0),
         truncated: false,
         truncated_note: None,
-        termination: nuo_protocol::tool_output::ShellTermination::Exited,
+        termination: nuo_tool::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();

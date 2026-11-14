@@ -7,6 +7,7 @@ license.workspace = true
 description = "OpenCode Zen relay provider channel for Nuo (ADR-0015, ADR-0079)"
 
 [dependencies]
+nuo-protocol = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-inference-wire = { workspace = true }
 inventory = { workspace = true }

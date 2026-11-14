@@ -6,7 +6,7 @@
 //! bytes) independently testable, and gives every provider one place to encode.
 use serde_json::Value;
 
-use crate::{ProviderError, ProviderErrorKind, WireProtocol};
+use nuo_protocol::{ProviderError, ProviderErrorKind, WireProtocol};
 
 /// A provider-shaped request body before serialization.
 #[derive(Debug, Clone)]

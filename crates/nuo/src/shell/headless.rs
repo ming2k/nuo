@@ -1,8 +1,7 @@
 use crate::shell::client::{self, AttachAction, Handshake};
-use nuo_protocol::{
-    AgentRequest, AgentResponse, PermissionDecision, PermissionRequest, RoundEvent,
-    UserQuestionRequest,
-};
+use nuo_protocol::{AgentRequest, AgentResponse, PermissionDecision, RoundEvent};
+use nuo_tool::{PermissionRequest, UserQuestionRequest};
+
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
@@ -181,11 +180,11 @@ pub async fn run_headless(
                 RoundEvent::ToolStream { id, stream } => {
                     if !json {
                         match stream {
-                            nuo_protocol::ToolStream::Stdout(text) => {
+                            nuo_tool::ToolStream::Stdout(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
-                            nuo_protocol::ToolStream::Stderr(text) => {
+                            nuo_tool::ToolStream::Stderr(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
@@ -218,10 +217,10 @@ pub async fn run_headless(
                     } else {
                         let is_error = matches!(
                             structured,
-                            nuo_protocol::ToolOutput::Error { .. }
-                                | nuo_protocol::ToolOutput::PermissionDenied { .. }
+                            nuo_tool::ToolOutput::Error { .. }
+                                | nuo_tool::ToolOutput::PermissionDenied { .. }
                         ) || match &structured {
-                            nuo_protocol::ToolOutput::Shell { exit, .. } => {
+                            nuo_tool::ToolOutput::Shell { exit, .. } => {
                                 exit.is_some_and(|code| code != 0)
                             }
                             _ => false,
@@ -353,7 +352,7 @@ pub async fn run_headless(
                         eprintln!(
                             "\n[{} — {}]",
                             progress.receipt_label(),
-                            nuo_harness::runtime::retry::public_retry_reason(&message),
+                            nuo_engine::runtime::retry::public_retry_reason(&message),
                         );
                         io::stderr().flush()?;
                     }

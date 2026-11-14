@@ -4,8 +4,8 @@ use nuo_tool::{Message, Role};
 /// Baseline capability view for tests that need to stamp an effort ladder:
 /// `GoogleProvider::new` derives capabilities from the registry, which the
 /// llm-client crate's tests see as the fallback (`effort_levels == []`).
-fn p_caps(model: &str) -> nuo_provider::ModelCapabilities {
-    nuo_provider::ModelCapabilities::for_channel(model, None)
+fn p_caps(model: &str) -> nuo_protocol::ModelCapabilities {
+    nuo_protocol::ModelCapabilities::for_channel(model, None)
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
             "https://daily-cloudcode-pa.googleapis.com",
             "ua",
         )
-        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
         assert_eq!(
@@ -88,11 +88,11 @@ fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
 
     // Test wire mapping when reasoning effort is selected on Gemini 3.8 Flash
     for effort in [
-        nuo_provider::Effort::Minimal,
-        nuo_provider::Effort::Low,
-        nuo_provider::Effort::Medium,
-        nuo_provider::Effort::High,
-        nuo_provider::Effort::Max,
+        nuo_protocol::Effort::Minimal,
+        nuo_protocol::Effort::Low,
+        nuo_protocol::Effort::Medium,
+        nuo_protocol::Effort::High,
+        nuo_protocol::Effort::Max,
     ] {
         let mut p = GoogleProvider::with_base_url_and_user_agent(
             "k".to_string(),
@@ -100,7 +100,7 @@ fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
             "https://daily-cloudcode-pa.googleapis.com",
             "ua",
         )
-        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         p.reasoning_effort = Some(effort);
         let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
@@ -115,7 +115,7 @@ fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
         "https://daily-cloudcode-pa.googleapis.com",
         "ua",
     )
-    .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+    .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
     .with_project_id("proj-1");
     let (_, _, body_claude) =
         p_claude.prepare_request(&ModelRequest::new(Vec::new()), false, false);
@@ -129,11 +129,11 @@ fn antigravity_envelope_preserves_canonical_antigravity_wire_ids() {
 #[test]
 fn antigravity_argon_routes_effort_to_registered_per_level_entity() {
     for (effort, expected) in [
-        (nuo_provider::Effort::Minimal, "gemini-4-argon-low"),
-        (nuo_provider::Effort::Low, "gemini-4-argon-low"),
-        (nuo_provider::Effort::Medium, "gemini-4-argon-medium"),
-        (nuo_provider::Effort::High, "gemini-4-argon-high"),
-        (nuo_provider::Effort::Max, "gemini-4-argon-high"),
+        (nuo_protocol::Effort::Minimal, "gemini-4-argon-low"),
+        (nuo_protocol::Effort::Low, "gemini-4-argon-low"),
+        (nuo_protocol::Effort::Medium, "gemini-4-argon-medium"),
+        (nuo_protocol::Effort::High, "gemini-4-argon-high"),
+        (nuo_protocol::Effort::Max, "gemini-4-argon-high"),
     ] {
         let mut p = GoogleProvider::with_base_url_and_user_agent(
             "k".to_string(),
@@ -141,7 +141,7 @@ fn antigravity_argon_routes_effort_to_registered_per_level_entity() {
             "https://daily-cloudcode-pa.googleapis.com",
             "ua",
         )
-        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         p.reasoning_effort = Some(effort);
         let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
@@ -158,7 +158,7 @@ fn antigravity_argon_routes_effort_to_registered_per_level_entity() {
         "https://daily-cloudcode-pa.googleapis.com",
         "ua",
     )
-    .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+    .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
     .with_project_id("proj-1");
     let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
     assert_eq!(body.body["model"], "gemini-4-argon-medium");
@@ -181,10 +181,10 @@ fn antigravity_claude_5_5_routes_observed_entities() {
     .map(|s| s.to_string())
     .collect();
     for (effort, expected) in [
-        (Some(nuo_provider::Effort::Low), "claude-opus-5-5-low"),
-        (Some(nuo_provider::Effort::Medium), "claude-opus-5-5-medium"),
-        (Some(nuo_provider::Effort::High), "claude-opus-5-5-high"),
-        (Some(nuo_provider::Effort::Max), "claude-opus-5-5-max"),
+        (Some(nuo_protocol::Effort::Low), "claude-opus-5-5-low"),
+        (Some(nuo_protocol::Effort::Medium), "claude-opus-5-5-medium"),
+        (Some(nuo_protocol::Effort::High), "claude-opus-5-5-high"),
+        (Some(nuo_protocol::Effort::Max), "claude-opus-5-5-max"),
     ] {
         let mut p = GoogleProvider::with_base_url_and_user_agent(
             "k".to_string(),
@@ -192,7 +192,7 @@ fn antigravity_claude_5_5_routes_observed_entities() {
             "https://daily-cloudcode-pa.googleapis.com",
             "ua",
         )
-        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         p.capabilities.effort_entities = observed.clone();
         p.reasoning_effort = effort;
@@ -212,12 +212,12 @@ fn antigravity_baseline_table_covers_the_offline_floor() {
     for (model, effort, expected) in [
         (
             "claude-opus-5-5",
-            Some(nuo_provider::Effort::High),
+            Some(nuo_protocol::Effort::High),
             "claude-opus-5-5-high",
         ),
         (
             "claude-sonnet-5-5",
-            Some(nuo_provider::Effort::Max),
+            Some(nuo_protocol::Effort::Max),
             "claude-sonnet-5-5-max",
         ),
         ("gemini-4-argon", None, "gemini-4-argon-medium"),
@@ -225,7 +225,7 @@ fn antigravity_baseline_table_covers_the_offline_floor() {
         ("claude-opus-4-6", None, "claude-opus-4-6-thinking"),
         (
             "claude-opus-4-6",
-            Some(nuo_provider::Effort::High),
+            Some(nuo_protocol::Effort::High),
             "claude-opus-4-6-thinking",
         ),
     ] {
@@ -235,7 +235,7 @@ fn antigravity_baseline_table_covers_the_offline_floor() {
             "https://daily-cloudcode-pa.googleapis.com",
             "ua",
         )
-        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         assert!(p.capabilities.effort_entities.is_empty());
         p.reasoning_effort = effort;
@@ -270,19 +270,19 @@ fn omit_thinking_strips_the_whole_thinking_surface() {
     // re-sending either would fail the retry identically.
     let capabilities = {
         let mut caps = p_caps("gemini-3.7-flash");
-        caps.thinking = nuo_provider::reasoning::ReasoningSupport::ReasoningContent;
+        caps.thinking = nuo_protocol::reasoning::ReasoningSupport::ReasoningContent;
         let levels = [
-            nuo_provider::Effort::Minimal,
-            nuo_provider::Effort::Low,
-            nuo_provider::Effort::Medium,
-            nuo_provider::Effort::High,
+            nuo_protocol::Effort::Minimal,
+            nuo_protocol::Effort::Low,
+            nuo_protocol::Effort::Medium,
+            nuo_protocol::Effort::High,
         ];
         caps.effort_levels = levels.iter().copied().map(Into::into).collect();
         caps
     };
     let p = GoogleProvider::new("k".to_string(), "gemini-3.7-flash".to_string())
         .with_model_capabilities(capabilities)
-        .with_reasoning_effort(Some(nuo_provider::Effort::High));
+        .with_reasoning_effort(Some(nuo_protocol::Effort::High));
     let (_, _, with) = p.prepare_request(&ModelRequest::new(Vec::new()), true, false);
     assert_eq!(
         with.body["generationConfig"]["thinkingConfig"]["includeThoughts"],
@@ -306,20 +306,20 @@ fn omit_thinking_is_orthogonal_to_non_antigravity_path() {
     // body; the downgrade applies there identically.
     let capabilities = {
         let mut caps = p_caps("gemini-2.5-pro");
-        caps.thinking = nuo_provider::reasoning::ReasoningSupport::ReasoningContent;
+        caps.thinking = nuo_protocol::reasoning::ReasoningSupport::ReasoningContent;
         let budget_levels = [
-            nuo_provider::Effort::Minimal,
-            nuo_provider::Effort::Low,
-            nuo_provider::Effort::Medium,
-            nuo_provider::Effort::High,
-            nuo_provider::Effort::Max,
+            nuo_protocol::Effort::Minimal,
+            nuo_protocol::Effort::Low,
+            nuo_protocol::Effort::Medium,
+            nuo_protocol::Effort::High,
+            nuo_protocol::Effort::Max,
         ];
         caps.effort_levels = budget_levels.iter().copied().map(Into::into).collect();
         caps
     };
     let p = GoogleProvider::new("k".to_string(), "gemini-2.5-pro".to_string())
         .with_model_capabilities(capabilities)
-        .with_reasoning_effort(Some(nuo_provider::Effort::High));
+        .with_reasoning_effort(Some(nuo_protocol::Effort::High));
     let (_, _, with) = p.prepare_request(&ModelRequest::new(Vec::new()), true, false);
     assert_eq!(
         with.body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
@@ -336,7 +336,7 @@ fn plain_api_key_travels_in_the_header() {
         "gemini-3-flash".to_string(),
         "https://generativelanguage.googleapis.com/v1beta",
     );
-    let auth = nuo_provider::ResolvedAuth::new("AIza-key");
+    let auth = nuo_protocol::ResolvedAuth::new("AIza-key");
     let (url, headers, _) =
         p.prepare_request_for_auth(&ModelRequest::new(Vec::new()), false, true, &auth);
     assert!(url.ends_with(":generateContent"), "{url}");
@@ -372,7 +372,7 @@ fn signature_origin_distinguishes_backends_not_just_models() {
         "https://daily-cloudcode-pa.googleapis.com",
         "ua",
     )
-    .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+    .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
     .with_project_id("proj-1");
     let relay = GoogleProvider::with_base_url_and_user_agent(
         "k".to_string(),
@@ -433,7 +433,7 @@ fn a_token_from_another_backend_is_not_replayed() {
         "https://daily-cloudcode-pa.googleapis.com",
         "ua",
     )
-    .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+    .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
     .with_project_id("proj-1");
     let (_, _, body) = p.prepare_request(&ModelRequest::new(messages), false, false);
     assert_eq!(
@@ -458,7 +458,7 @@ fn a_token_from_the_same_backend_replays() {
         "https://daily-cloudcode-pa.googleapis.com",
         "ua",
     )
-    .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+    .with_dialect(nuo_protocol::dialects::GoogleGenerateContentDialect::Antigravity)
     .with_project_id("proj-1");
     let mut provider_meta = serde_json::Map::new();
     provider_meta.insert(

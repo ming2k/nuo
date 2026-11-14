@@ -31,11 +31,11 @@ use nuo_view::tools::shell_output::{BashFold, OutputCoverage, ShellOutput};
 /// `state — cause` join form, because harness termination is the authentic fact
 /// that cannot be recovered from the child output stream alone.
 pub(crate) fn termination_footer(
-    term: nuo_protocol::tool_output::ShellTermination,
+    term: nuo_tool::ShellTermination,
     theme: &Theme,
     bg: Color,
 ) -> Option<(String, Style)> {
-    use nuo_protocol::tool_output::ShellTermination as T;
+    use nuo_tool::ShellTermination as T;
     let warn_style = Style::default().bg(bg).fg(theme.warn());
     let err_style = Style::default().bg(bg).fg(theme.err());
     // `state — cause` via the shared join token, so the separator/spacing can
@@ -55,10 +55,10 @@ pub(crate) fn termination_footer(
 
 /// Dynamic supervisor surface tint for Part 3 Harness Governance band (ADR-0070 → ADR-0093).
 fn harness_intervention_surface(
-    term: nuo_protocol::tool_output::ShellTermination,
+    term: nuo_tool::ShellTermination,
     theme: &Theme,
 ) -> Color {
-    use nuo_protocol::tool_output::ShellTermination as T;
+    use nuo_tool::ShellTermination as T;
     let tint = match term {
         T::Cancelled => theme.err(),
         _ => theme.warn(),
@@ -107,7 +107,7 @@ pub(crate) fn draw_command_content(
     mi: usize,
     block_idx: usize,
     content: &str,
-    structured: Option<&nuo_protocol::ToolOutput>,
+    structured: Option<&nuo_tool::ToolOutput>,
     command: &str,
     selection: &SelectionState,
     indent: usize,
@@ -298,7 +298,7 @@ impl<'t> CommandBodyCtx<'t> {
         let text = text.trim_end_matches(&['\r', '\n'][..]);
         let prompt_gap = " ".repeat(prompt_cols);
         for logical_line in text.split('\n') {
-            let logical_line = nuo_protocol::tool_output::normalize_carriage_returns(logical_line);
+            let logical_line = nuo_tool::normalize_carriage_returns(logical_line);
             let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
             for (wrap_idx, wl) in wrapped.iter().enumerate() {
                 let block_wl = WrappedLine {
@@ -785,7 +785,7 @@ pub(crate) fn emit_command_lines(
 ) -> usize {
     let text = text.trim_end_matches(&['\r', '\n'][..]);
     for logical_line in text.split('\n') {
-        let logical_line = nuo_protocol::tool_output::normalize_carriage_returns(logical_line);
+        let logical_line = nuo_tool::normalize_carriage_returns(logical_line);
         let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
         for wl in &wrapped {
             let block_wl = WrappedLine {
@@ -813,15 +813,15 @@ pub(crate) fn emit_command_lines(
 }
 
 /// Resolve the shell command for a `bash` step: prefer the structured
-/// [`ToolOutput::Shell`](nuo_protocol::ToolOutput) payload (set as soon as the
+/// [`ToolOutput::Shell`](nuo_tool::ToolOutput) payload (set as soon as the
 /// call starts, so it is available even while streaming), falling back to
 /// parsing the JSON arguments for legacy / restored sessions without a
 /// structured payload.
 pub(crate) fn command_for(
-    structured: Option<&nuo_protocol::ToolOutput>,
+    structured: Option<&nuo_tool::ToolOutput>,
     arguments: &str,
 ) -> String {
-    if let Some(nuo_protocol::ToolOutput::Shell { command, .. }) = structured
+    if let Some(nuo_tool::ToolOutput::Shell { command, .. }) = structured
         && !command.is_empty()
     {
         return command.clone();

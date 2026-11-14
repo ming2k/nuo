@@ -10,8 +10,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use nuo_host::SecretString;
-use nuo_provider::LoginMethod;
-use nuo_provider::ResolvedAuth;
+use nuo_protocol::LoginMethod;
+use nuo_protocol::ResolvedAuth;
 use nuo_provider::auth::AuthError;
 use nuo_provider::auth::TokenResponse;
 use nuo_provider::auth::{

@@ -10,7 +10,7 @@
 //! and resolves them at the end against whether native tool calls arrived. It
 //! performs no I/O.
 
-use nuo_provider::capability::ProviderStreamEvent;
+use nuo_protocol::capability::ProviderStreamEvent;
 use serde_json::Value;
 
 /// Sentinel tokens that wrap a tool call when a model mirrors it as text

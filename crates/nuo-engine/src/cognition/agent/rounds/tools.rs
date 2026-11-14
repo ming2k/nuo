@@ -103,14 +103,14 @@ impl Agent {
             // Pre-dispatch trajectory check, mirroring the native path: catch a repeat
             // *before* the text-fallback tool runs.
             let trajectory_action = if checkpoint_replay {
-                crate::guard::GuardAction::Continue
+                nuo_guardrails::guard::GuardAction::Continue
             } else {
                 state
                     .guards
                     .check_trajectory_ahead(&[(call.name.as_str(), call.arguments.as_str())])
             };
             let trajectory_message: Option<String> = match &trajectory_action {
-                crate::guard::GuardAction::Block { message, .. } => {
+                nuo_guardrails::guard::GuardAction::Block { message, .. } => {
                     tracing::warn!(
                         tool = %call.name,
                         args = %call.arguments,

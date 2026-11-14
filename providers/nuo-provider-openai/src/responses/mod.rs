@@ -15,8 +15,9 @@ mod tool_trace;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
-use nuo_provider::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
+use nuo_protocol::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
+use nuo_protocol::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
+
 use std::sync::{Arc, Mutex};
 
 use crate::chat_completions::request::COPILOT_CLIENT_HEADERS;
@@ -155,10 +156,10 @@ pub struct OpenAiResponsesProvider {
     pub reasoning_effort: Option<Effort>,
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
-    pub capabilities: nuo_provider::ModelCapabilities,
+    pub capabilities: nuo_protocol::ModelCapabilities,
     /// When `true`, attach ChatGPT Subscription headers (`originator: nuo` and
     /// `ChatGPT-Account-Id`).
-    pub dialect: nuo_provider::OpenAiResponsesDialect,
+    pub dialect: nuo_protocol::OpenAiResponsesDialect,
     /// Whether upstream persists response state and accepts
     /// `previous_response_id`. Stateless DeepSeek and subscription backends
     /// force this off.
@@ -178,13 +179,13 @@ impl OpenAiResponsesProvider {
         model: String,
         base_url: &str,
     ) -> Self {
-        let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_protocol::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::with_credentials(credentials, model, base_url, "chatgpt"),
             client: Client::new(),
             reasoning_effort: None,
             capabilities,
-            dialect: nuo_provider::OpenAiResponsesDialect::Standard,
+            dialect: nuo_protocol::OpenAiResponsesDialect::Standard,
             store: true,
             prompt_cache: PromptCacheConfig::default(),
         }
@@ -192,7 +193,7 @@ impl OpenAiResponsesProvider {
 
     /// Build a provider with static API key string.
     pub fn from_static_key(api_key: String, model: String, base_url: &str) -> Self {
-        Self::new(nuo_provider::static_credential(api_key), model, base_url)
+        Self::new(nuo_protocol::static_credential(api_key), model, base_url)
     }
 
     /// Build a provider with dynamic credentials.
@@ -227,15 +228,15 @@ impl OpenAiResponsesProvider {
     /// Attach the effective provider-channel capability view.
     pub fn with_model_capabilities(
         mut self,
-        capabilities: nuo_provider::ModelCapabilities,
+        capabilities: nuo_protocol::ModelCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
         self
     }
 
-    pub fn with_dialect(mut self, dialect: nuo_provider::OpenAiResponsesDialect) -> Self {
+    pub fn with_dialect(mut self, dialect: nuo_protocol::OpenAiResponsesDialect) -> Self {
         self.dialect = dialect;
-        if dialect != nuo_provider::OpenAiResponsesDialect::Standard {
+        if dialect != nuo_protocol::OpenAiResponsesDialect::Standard {
             self.store = false;
         }
         self
@@ -259,11 +260,11 @@ impl OpenAiResponsesProvider {
     /// Human-readable backend label for error messages and logs.
     fn label(&self) -> &'static str {
         match self.dialect {
-            nuo_provider::OpenAiResponsesDialect::Copilot => "Copilot",
-            nuo_provider::OpenAiResponsesDialect::DeepSeek => "DeepSeek",
-            nuo_provider::OpenAiResponsesDialect::ChatGpt => "ChatGPT",
-            nuo_provider::OpenAiResponsesDialect::Portable => "OpenAI Responses (portable)",
-            nuo_provider::OpenAiResponsesDialect::Standard => "OpenAI Responses",
+            nuo_protocol::OpenAiResponsesDialect::Copilot => "Copilot",
+            nuo_protocol::OpenAiResponsesDialect::DeepSeek => "DeepSeek",
+            nuo_protocol::OpenAiResponsesDialect::ChatGpt => "ChatGPT",
+            nuo_protocol::OpenAiResponsesDialect::Portable => "OpenAI Responses (portable)",
+            nuo_protocol::OpenAiResponsesDialect::Standard => "OpenAI Responses",
         }
     }
 
@@ -278,11 +279,11 @@ impl OpenAiResponsesProvider {
         let mut req = RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
             .header(http::header::USER_AGENT, self.endpoint.user_agent())
             .encoded(&encoded);
-        let copilot = self.dialect == nuo_provider::OpenAiResponsesDialect::Copilot;
-        let chatgpt = self.dialect == nuo_provider::OpenAiResponsesDialect::ChatGpt;
+        let copilot = self.dialect == nuo_protocol::OpenAiResponsesDialect::Copilot;
+        let chatgpt = self.dialect == nuo_protocol::OpenAiResponsesDialect::ChatGpt;
         let is_copilot_vision = copilot && request::has_input_image(&wire.body);
         let account_id = auth
-            .extension::<nuo_provider::ChatGptAuthMetadata>()
+            .extension::<nuo_protocol::ChatGptAuthMetadata>()
             .map(|m| m.account_id.as_str());
         for (name, value) in
             request::headers(auth.token.expose_secret(), account_id, copilot, chatgpt)
@@ -327,8 +328,8 @@ impl OpenAiResponsesProvider {
         &self,
         wire: &nuo_provider::WireRequest,
         is_stream: bool,
-        turn_context: &nuo_provider::capability::ProviderTurnContext,
-        telemetry: &nuo_provider::TransportTelemetry,
+        turn_context: &nuo_protocol::capability::ProviderTurnContext,
+        telemetry: &nuo_protocol::TransportTelemetry,
     ) -> Result<HttpResponse, ProviderError> {
         let auth = self
             .endpoint
@@ -336,7 +337,7 @@ impl OpenAiResponsesProvider {
             .await
             .map_err(|e| ProviderError::authentication(self.label(), e))?;
         let acct_id = auth
-            .extension::<nuo_provider::ChatGptAuthMetadata>()
+            .extension::<nuo_protocol::ChatGptAuthMetadata>()
             .map(|m| m.account_id.as_str());
         let mut turn_state = turn_context.slot(format!(
             "codex:{}:{}:{:?}",
@@ -365,7 +366,7 @@ impl OpenAiResponsesProvider {
                 .await
                 .map_err(|error| ProviderError::authentication(self.label(), error))?;
             let refreshed_acct = refreshed_auth
-                .extension::<nuo_provider::ChatGptAuthMetadata>()
+                .extension::<nuo_protocol::ChatGptAuthMetadata>()
                 .map(|m| m.account_id.as_str());
             if refreshed_acct != acct_id {
                 turn_state = turn_context.slot(format!(
@@ -389,7 +390,7 @@ impl OpenAiResponsesProvider {
         }
 
         let response = ensure_success(response, self.label(), Some(&self.endpoint.model)).await?;
-        if self.dialect == nuo_provider::OpenAiResponsesDialect::ChatGpt
+        if self.dialect == nuo_protocol::OpenAiResponsesDialect::ChatGpt
             && let Some(value) = response
                 .headers
                 .get("x-codex-turn-state")
@@ -436,9 +437,9 @@ impl OpenAiResponsesProvider {
     async fn collect_streaming_completion(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_provider::ProviderCompletion, ProviderError> {
+    ) -> Result<nuo_protocol::ProviderCompletion, ProviderError> {
         let mut stream = self
-            .stream_chat_events(request, nuo_provider::TransportTelemetry::default())
+            .stream_chat_events(request, nuo_protocol::TransportTelemetry::default())
             .await?;
         let mut streamed_usage = None;
         let mut completion_meta = None;
@@ -482,7 +483,7 @@ impl OpenAiResponsesProvider {
         let output = meta
             .artifacts
             .as_ref()
-            .and_then(|artifacts| artifacts.get(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
+            .and_then(|artifacts| artifacts.get(nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
             .filter(|output| output.as_array().is_some_and(|items| !items.is_empty()))
             .ok_or_else(|| {
                 ProviderError::protocol(
@@ -492,7 +493,7 @@ impl OpenAiResponsesProvider {
             })?;
         let message = response::message(output);
 
-        Ok(nuo_provider::ProviderCompletion { message, meta })
+        Ok(nuo_protocol::ProviderCompletion { message, meta })
     }
 }
 
@@ -514,12 +515,12 @@ impl Provider for OpenAiResponsesProvider {
         self.reasoning_effort
     }
 
-    fn model_capabilities(&self) -> nuo_provider::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_protocol::ModelCapabilities {
         self.capabilities.clone()
     }
 
-    fn route_fingerprint(&self) -> nuo_provider::RouteFingerprint {
-        nuo_provider::RouteFingerprint(format!(
+    fn route_fingerprint(&self) -> nuo_protocol::RouteFingerprint {
+        nuo_protocol::RouteFingerprint(format!(
             "openai-responses:{}:{}:{}",
             self.endpoint.base_url,
             self.endpoint.model,
@@ -527,11 +528,11 @@ impl Provider for OpenAiResponsesProvider {
         ))
     }
 
-    fn continuation_mode(&self) -> nuo_provider::ContinuationMode {
+    fn continuation_mode(&self) -> nuo_protocol::ContinuationMode {
         if self.store {
-            nuo_provider::ContinuationMode::RemoteStored
+            nuo_protocol::ContinuationMode::RemoteStored
         } else {
-            nuo_provider::ContinuationMode::OpaqueReplay
+            nuo_protocol::ContinuationMode::OpaqueReplay
         }
     }
 
@@ -559,18 +560,18 @@ impl Provider for OpenAiResponsesProvider {
     async fn chat(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
-        if self.dialect == nuo_provider::OpenAiResponsesDialect::ChatGpt {
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        if self.dialect == nuo_protocol::OpenAiResponsesDialect::ChatGpt {
             return self.collect_streaming_completion(request).await;
         }
         let label = self.label();
-        let transport_telemetry = nuo_provider::TransportTelemetry::default();
+        let transport_telemetry = nuo_protocol::TransportTelemetry::default();
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, false)?;
         let resp = self
             .send_request(
                 &nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::OpenAiResponses,
+                    nuo_protocol::WireProtocol::OpenAiResponses,
                     body.clone(),
                 ),
                 false,
@@ -598,20 +599,20 @@ impl Provider for OpenAiResponsesProvider {
         let output = serde_json::Value::Array(output.clone());
         let mut artifacts = serde_json::Map::new();
         artifacts.insert(
-            nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+            nuo_protocol::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
             output.clone(),
         );
         let continuation =
             value["id"]
                 .as_str()
-                .map(|response_id| nuo_provider::ContinuationCursor {
+                .map(|response_id| nuo_protocol::ContinuationCursor {
                     route: self.route_fingerprint(),
                     local_head: String::new(),
                     response_id: response_id.to_string(),
                 });
-        Ok(nuo_provider::ProviderCompletion {
+        Ok(nuo_protocol::ProviderCompletion {
             message: response::message(&output),
-            meta: nuo_provider::ProviderCompletionMeta {
+            meta: nuo_protocol::ProviderCompletionMeta {
                 usage: response::usage(&value["usage"]),
                 artifacts: Some(artifacts),
                 continuation,
@@ -622,10 +623,10 @@ impl Provider for OpenAiResponsesProvider {
     async fn stream_chat(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let label = self.label();
         let turn_context = Arc::clone(&request.turn_context);
@@ -633,7 +634,7 @@ impl Provider for OpenAiResponsesProvider {
         let resp = self
             .send_request(
                 &nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::OpenAiResponses,
+                    nuo_protocol::WireProtocol::OpenAiResponses,
                     body.clone(),
                 ),
                 true,
@@ -657,10 +658,10 @@ impl Provider for OpenAiResponsesProvider {
     async fn stream_chat_events(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let label = self.label();
         let turn_context = Arc::clone(&request.turn_context);
@@ -668,7 +669,7 @@ impl Provider for OpenAiResponsesProvider {
         let resp = self
             .send_request(
                 &nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::OpenAiResponses,
+                    nuo_protocol::WireProtocol::OpenAiResponses,
                     body.clone(),
                 ),
                 true,
@@ -696,10 +697,10 @@ impl Provider for OpenAiResponsesProvider {
                 if let ProviderStreamEvent::Completed(meta) = event
                     && let Some(artifacts) = meta.artifacts.as_mut()
                     && let Some(response_id) = artifacts
-                        .remove(nuo_provider::OPENAI_RESPONSE_ID_ARTIFACT_KEY)
+                        .remove(nuo_protocol::OPENAI_RESPONSE_ID_ARTIFACT_KEY)
                         .and_then(|value| value.as_str().map(str::to_string))
                 {
-                    meta.continuation = Some(nuo_provider::ContinuationCursor {
+                    meta.continuation = Some(nuo_protocol::ContinuationCursor {
                         route: route.clone(),
                         local_head: String::new(),
                         response_id,
@@ -726,8 +727,8 @@ mod stream_protocol_tests {
     use super::*;
 
     /// A throwaway handle for tests that assert on routing, not telemetry.
-    fn telemetry() -> nuo_provider::TransportTelemetry {
-        nuo_provider::TransportTelemetry::new()
+    fn telemetry() -> nuo_protocol::TransportTelemetry {
+        nuo_protocol::TransportTelemetry::new()
     }
 
     #[tokio::test]
@@ -739,9 +740,9 @@ mod stream_protocol_tests {
             "gpt-6-astra".into(),
             &server.url(),
         )
-        .with_dialect(nuo_provider::OpenAiResponsesDialect::ChatGpt)
+        .with_dialect(nuo_protocol::OpenAiResponsesDialect::ChatGpt)
         .with_session_id("session-astra");
-        let round = nuo_provider::capability::ProviderTurnContext::default();
+        let round = nuo_protocol::capability::ProviderTurnContext::default();
         let body = serde_json::json!({"model": "gpt-6-astra"});
 
         // First response establishes routing; later responses must not replace it.
@@ -765,7 +766,7 @@ mod stream_protocol_tests {
             provider
                 .send_request(
                     &nuo_provider::WireRequest::new(
-                        nuo_provider::WireProtocol::OpenAiResponses,
+                        nuo_protocol::WireProtocol::OpenAiResponses,
                         body.clone(),
                     ),
                     true,
@@ -786,9 +787,9 @@ mod stream_protocol_tests {
             .await;
         provider
             .send_request(
-                &nuo_provider::WireRequest::new(nuo_provider::WireProtocol::OpenAiResponses, body),
+                &nuo_provider::WireRequest::new(nuo_protocol::WireProtocol::OpenAiResponses, body),
                 true,
-                &nuo_provider::capability::ProviderTurnContext::default(),
+                &nuo_protocol::capability::ProviderTurnContext::default(),
                 &telemetry(),
             )
             .await
@@ -800,14 +801,14 @@ mod stream_protocol_tests {
     async fn chatgpt_routing_state_ignores_failed_responses_and_other_routes() {
         use mockito::{Matcher, Server};
         let mut server = Server::new_async().await;
-        let round = nuo_provider::capability::ProviderTurnContext::default();
+        let round = nuo_protocol::capability::ProviderTurnContext::default();
         let body = serde_json::json!({});
         for (dialect, status, expected) in [
-            (nuo_provider::OpenAiResponsesDialect::ChatGpt, 503, None),
-            (nuo_provider::OpenAiResponsesDialect::ChatGpt, 200, None),
-            (nuo_provider::OpenAiResponsesDialect::Standard, 200, None),
+            (nuo_protocol::OpenAiResponsesDialect::ChatGpt, 503, None),
+            (nuo_protocol::OpenAiResponsesDialect::ChatGpt, 200, None),
+            (nuo_protocol::OpenAiResponsesDialect::Standard, 200, None),
             (
-                nuo_provider::OpenAiResponsesDialect::ChatGpt,
+                nuo_protocol::OpenAiResponsesDialect::ChatGpt,
                 200,
                 Some("route-a"),
             ),
@@ -831,7 +832,7 @@ mod stream_protocol_tests {
             let response = provider
                 .send_request(
                     &nuo_provider::WireRequest::new(
-                        nuo_provider::WireProtocol::OpenAiResponses,
+                        nuo_protocol::WireProtocol::OpenAiResponses,
                         body.clone(),
                     ),
                     true,
@@ -856,7 +857,7 @@ mod stream_protocol_tests {
                 Box::pin(async {
                     Ok(
                         ResolvedAuth::new("old").with_extension(
-                            nuo_provider::ChatGptAuthMetadata {
+                            nuo_protocol::ChatGptAuthMetadata {
                                 account_id: "account-a".to_string(),
                             },
                         ),
@@ -867,7 +868,7 @@ mod stream_protocol_tests {
                 Box::pin(async {
                     Ok(
                         ResolvedAuth::new("new").with_extension(
-                            nuo_provider::ChatGptAuthMetadata {
+                            nuo_protocol::ChatGptAuthMetadata {
                                 account_id: self.0.to_string(),
                             },
                         ),
@@ -885,8 +886,8 @@ mod stream_protocol_tests {
                 "gpt-6-astra".into(),
                 &server.url(),
             )
-            .with_dialect(nuo_provider::OpenAiResponsesDialect::ChatGpt);
-            let round = nuo_provider::capability::ProviderTurnContext::default();
+            .with_dialect(nuo_protocol::OpenAiResponsesDialect::ChatGpt);
+            let round = nuo_protocol::capability::ProviderTurnContext::default();
             let body = serde_json::json!({});
             let warmup = server
                 .mock("POST", "/")
@@ -897,7 +898,7 @@ mod stream_protocol_tests {
             provider
                 .send_request(
                     &nuo_provider::WireRequest::new(
-                        nuo_provider::WireProtocol::OpenAiResponses,
+                        nuo_protocol::WireProtocol::OpenAiResponses,
                         body.clone(),
                     ),
                     true,
@@ -933,7 +934,7 @@ mod stream_protocol_tests {
             provider
                 .send_request(
                     &nuo_provider::WireRequest::new(
-                        nuo_provider::WireProtocol::OpenAiResponses,
+                        nuo_protocol::WireProtocol::OpenAiResponses,
                         body.clone(),
                     ),
                     true,
@@ -975,7 +976,7 @@ mod stream_protocol_tests {
             assert_eq!(error.status(), Some(503));
             assert!(matches!(
                 error.retry_disposition(),
-                nuo_provider::RetryDisposition::Retry { .. }
+                nuo_protocol::RetryDisposition::Retry { .. }
             ));
         }
     }
@@ -988,7 +989,7 @@ mod stream_protocol_tests {
         assert_eq!(error.status(), Some(429));
         assert_eq!(
             error.retry_disposition(),
-            nuo_provider::RetryDisposition::Retry {
+            nuo_protocol::RetryDisposition::Retry {
                 retry_after_ms: Some(11054)
             }
         );
@@ -1016,12 +1017,12 @@ mod stream_protocol_tests {
             "deepseek-v4-flash".to_string(),
             "https://api.deepseek.com/v1/responses",
         )
-        .with_dialect(nuo_provider::OpenAiResponsesDialect::DeepSeek);
+        .with_dialect(nuo_protocol::OpenAiResponsesDialect::DeepSeek);
 
         assert!(!provider.store);
         assert_eq!(
             provider.continuation_mode(),
-            nuo_provider::ContinuationMode::OpaqueReplay
+            nuo_protocol::ContinuationMode::OpaqueReplay
         );
     }
 
@@ -1032,7 +1033,7 @@ mod stream_protocol_tests {
             "deepseek/deepseek-v4-flash-fast".to_string(),
             "https://api.commandcode.ai/provider/v1/responses",
         )
-        .with_dialect(nuo_provider::OpenAiResponsesDialect::Standard);
+        .with_dialect(nuo_protocol::OpenAiResponsesDialect::Standard);
 
         assert!(!provider.supports_parallel_tool_calls());
 
@@ -1041,7 +1042,7 @@ mod stream_protocol_tests {
             "gpt-5".to_string(),
             "https://api.openai.com/v1/responses",
         )
-        .with_dialect(nuo_provider::OpenAiResponsesDialect::Standard);
+        .with_dialect(nuo_protocol::OpenAiResponsesDialect::Standard);
 
         assert!(gpt_provider.supports_parallel_tool_calls());
     }

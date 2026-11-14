@@ -763,7 +763,8 @@ fn fork_fact_for_target(
     path: &[&nuo_protocol::ThreadFact],
     target: ForkTarget,
 ) -> Result<nuo_protocol::FactId, String> {
-    use nuo_protocol::{FactPayload, Role};
+    use nuo_protocol::FactPayload;
+use nuo_tool::Role;
     let head = || {
         path.last()
             .map(|fact| fact.id.clone())
@@ -968,7 +969,7 @@ pub(crate) fn transcript_from_thread(thread: &nuo_protocol::Thread) -> nuo_proto
             } => {
                 let mut entry = TranscriptEntry::from_message(
                     seq,
-                    &Message::new(nuo_protocol::Role::System, summary.clone()),
+                    &Message::new(nuo_tool::Role::System, summary.clone()),
                 );
                 entry.id = fact.id.0.clone();
                 entry.created_at_ms = fact.timestamp_ms;
@@ -1004,7 +1005,7 @@ pub(crate) fn transcript_from_thread(thread: &nuo_protocol::Thread) -> nuo_proto
                 };
                 let mut entry = TranscriptEntry::from_message(
                     seq,
-                    &Message::new(nuo_protocol::Role::System, content),
+                    &Message::new(nuo_tool::Role::System, content),
                 );
                 entry.id = fact.id.0.clone();
                 entry.created_at_ms = fact.timestamp_ms;
@@ -1018,7 +1019,7 @@ pub(crate) fn transcript_from_thread(thread: &nuo_protocol::Thread) -> nuo_proto
                 let mut entry = TranscriptEntry::from_message(
                     seq,
                     &Message::new(
-                        nuo_protocol::Role::System,
+                        nuo_tool::Role::System,
                         format!("[System Notice from {source} ({notice_type})]: {content}"),
                     ),
                 );
@@ -1078,7 +1079,7 @@ pub(crate) fn thread_from_session_data(data: &ThreadData) -> nuo_protocol::Threa
                 let Some(message) = entry.to_message() else {
                     continue;
                 };
-                if message.role == nuo_protocol::Role::Tool {
+                if message.role == nuo_tool::Role::Tool {
                     let call_id = message.tool_call_id.clone().unwrap_or_default();
                     let tool_name = tool_names
                         .get(&call_id)

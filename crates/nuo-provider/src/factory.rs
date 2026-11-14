@@ -1,12 +1,12 @@
 //! Provider and credential construction factory ports (ADR-0015).
 
-use crate::auth::{CredentialSource, static_credential};
-use crate::connection_auth::ConnectionAuth;
-use crate::dialects::{Channel, ProviderDialect};
+use nuo_protocol::auth::{CredentialSource, static_credential};
+use nuo_protocol::connection_auth::ConnectionAuth;
+use nuo_protocol::dialects::{Channel, ProviderDialect};
 use nuo_host::SecretString;
 use std::sync::Arc;
 
-use crate::capability::Provider;
+use nuo_protocol::capability::Provider;
 use crate::credentials::CredentialHost;
 
 /// Factory port constructing concrete `Provider` and `CredentialSource` instances.

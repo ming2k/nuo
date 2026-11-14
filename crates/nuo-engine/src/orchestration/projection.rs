@@ -35,7 +35,7 @@ impl ContextProjectionSettings {
     /// policy's fallback window is substituted.
     /// Resolve settings from a modern versioned context policy.
     pub fn from_context_policy(
-        policy: &nuo_protocol::context_lifecycle::ContextPolicy,
+        policy: &nuo_protocol::context_policy::ContextPolicy,
         window_tokens: usize,
     ) -> Self {
         Self {

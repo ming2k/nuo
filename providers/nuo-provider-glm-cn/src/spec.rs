@@ -9,16 +9,17 @@
 //! §5), so folding it into the label is honest about what it is.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// Models served by the GLM Coding Plan endpoint, in display/activation
 /// order — the first entry is the initial active channel. `glm-5.3-flash`
 /// joined the plan alongside the flagship (native multimodal, 1M context,
 /// ~1/3 the credit burn), so it is offered ahead of the older flagships.
-pub use nuo_provider::model_providers::GLM_CN_MODELS;
+pub use nuo_protocol::model_providers::GLM_CN_MODELS;
 
 // GLM Coding Plan, domestic site — Zhipu BigModel
 // (open.bigmodel.cn/api/coding/paas/v4). A coding-agent membership endpoint
@@ -29,7 +30,7 @@ pub use nuo_provider::model_providers::GLM_CN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_provider::model::BaselineModels`]).
+/// [`nuo_protocol::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // GLM family (Zhipu / Z.AI / opencode-go)
     Model {
@@ -41,7 +42,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -59,7 +60,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -71,7 +72,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -83,7 +84,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -95,7 +96,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -107,7 +108,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -119,7 +120,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -131,19 +132,19 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
 pub const ZCODE_USER_AGENT: &str = "ZCode/3.5.3";
 pub const ZCODE_CLIENT_HEADERS: &[(&str, &str)] =
     &[("X-Title", "Z Code"), ("X-ZCode-Agent", "glm")];
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -163,14 +164,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
     models: GLM_CN_MODELS,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_provider::model::resolve;
+    use nuo_protocol::model::resolve;
 
     #[test]
     fn baseline_ids_are_unique() {

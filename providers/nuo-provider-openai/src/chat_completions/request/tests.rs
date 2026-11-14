@@ -7,21 +7,21 @@ fn body_of(messages: Vec<nuo_tool::Message>, input: BodyInput<'_>) -> Value {
 fn body_with_caps_of(
     messages: Vec<nuo_tool::Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_provider::ModelCapabilities,
+    capabilities: &nuo_protocol::ModelCapabilities,
 ) -> Value {
     body_with_capabilities(&messages, &[], input, capabilities)
 }
 use nuo_tool::ToolCall;
 
-static DEFAULT_CACHE_PLAN: nuo_provider::ResolvedCachePolicy =
-    nuo_provider::ResolvedCachePolicy::Unsupported;
+static DEFAULT_CACHE_PLAN: nuo_protocol::ResolvedCachePolicy =
+    nuo_protocol::ResolvedCachePolicy::Unsupported;
 
 fn test_body_input<'a>(
     model: &'a str,
     stream: bool,
-    tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
+    tool_specs: Option<&'a [nuo_protocol::capability::ToolSpec]>,
     reasoning_effort: Option<Effort>,
-    cache_plan: &'a nuo_provider::ResolvedCachePolicy,
+    cache_plan: &'a nuo_protocol::ResolvedCachePolicy,
 ) -> BodyInput<'a> {
     BodyInput {
         model,
@@ -36,12 +36,12 @@ fn test_body_input<'a>(
 
 /// Route capabilities with only the vision declaration varied, for the
 /// image-projection tests below.
-fn caps_with_vision(vision: Option<bool>) -> nuo_provider::ModelCapabilities {
-    nuo_provider::ModelCapabilities {
+fn caps_with_vision(vision: Option<bool>) -> nuo_protocol::ModelCapabilities {
+    nuo_protocol::ModelCapabilities {
         family: "test".into(),
         context_window: 200_000,
         max_output_tokens: None,
-        thinking: nuo_provider::ReasoningSupport::None,
+        thinking: nuo_protocol::ReasoningSupport::None,
         tool_call: true,
         vision,
         effort_levels: Vec::new(),
@@ -122,12 +122,12 @@ fn request_includes_reasoning_effort_when_configured() {
 
 /// The DeepSeek capability row this provider's chat surface can be pointed
 /// at: reasoning via `reasoning_content`, the full native ladder.
-fn deepseek_capabilities() -> nuo_provider::ModelCapabilities {
-    nuo_provider::ModelCapabilities {
+fn deepseek_capabilities() -> nuo_protocol::ModelCapabilities {
+    nuo_protocol::ModelCapabilities {
         family: "deepseek".into(),
         context_window: 1_000_000,
         max_output_tokens: None,
-        thinking: nuo_provider::ReasoningSupport::ReasoningContent,
+        thinking: nuo_protocol::ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: Some(true),
         effort_levels: vec![
@@ -301,11 +301,11 @@ fn openrouter_uses_unified_reasoning_and_replays_details() {
         tool_call_id: Some("call_1".into()),
         ..Message::new(Role::Tool, "")
     };
-    let capabilities = nuo_provider::ModelCapabilities {
+    let capabilities = nuo_protocol::ModelCapabilities {
         family: "nex".into(),
         context_window: 262_144,
         max_output_tokens: Some(235_929),
-        thinking: nuo_provider::ReasoningSupport::ReasoningContent,
+        thinking: nuo_protocol::ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: Some(true),
         effort_levels: vec![
@@ -355,8 +355,8 @@ fn openrouter_headers_include_app_attribution() {
 
 #[test]
 fn request_injects_prompt_cache_key_when_present() {
-    let cache_plan = nuo_provider::ResolvedCachePolicy::Enabled {
-        mode: nuo_provider::PromptCacheMode::Implicit,
+    let cache_plan = nuo_protocol::ResolvedCachePolicy::Enabled {
+        mode: nuo_protocol::PromptCacheMode::Implicit,
         retention: None,
         routing_key: Some("session-42".into()),
         max_breakpoints: None,

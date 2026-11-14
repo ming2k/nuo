@@ -317,83 +317,6 @@ impl std::fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-/// Stable classification of a tool failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[non_exhaustive]
-pub enum ToolErrorKind {
-    InvalidArguments,
-    Unavailable,
-    PermissionDenied,
-    Cancelled,
-    Execution,
-    Protocol,
-    Other,
-}
-
-/// A typed tool failure. Tool failures are terminal for one tool call and are
-/// rendered as structured [`nuo_tool::ToolOutput::Error`] values by the harness.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ToolError {
-    kind: ToolErrorKind,
-    message: String,
-    details: Option<String>,
-}
-
-impl ToolError {
-    pub fn new(kind: ToolErrorKind, message: impl Into<String>) -> Self {
-        Self {
-            kind,
-            message: message.into(),
-            details: None,
-        }
-    }
-
-    pub fn invalid_arguments(message: impl Into<String>) -> Self {
-        Self::new(ToolErrorKind::InvalidArguments, message)
-    }
-
-    pub fn execution(message: impl Into<String>) -> Self {
-        Self::new(ToolErrorKind::Execution, message)
-    }
-
-    pub fn with_details(mut self, details: impl Into<String>) -> Self {
-        self.details = Some(details.into());
-        self
-    }
-
-    pub const fn kind(&self) -> ToolErrorKind {
-        self.kind
-    }
-
-    pub fn message(&self) -> &str {
-        &self.message
-    }
-
-    pub fn details(&self) -> Option<&str> {
-        self.details.as_deref()
-    }
-}
-
-impl std::fmt::Display for ToolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for ToolError {}
-
-impl From<String> for ToolError {
-    fn from(message: String) -> Self {
-        Self::execution(message)
-    }
-}
-
-impl From<&str> for ToolError {
-    fn from(message: &str) -> Self {
-        Self::execution(message)
-    }
-}
-
 /// A typed harness error.
 ///
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,6 +351,7 @@ impl From<ProviderError> for HarnessError {
         Self::Provider(error)
     }
 }
+
 #[cfg(test)]
 mod request_refusal_tests {
     use super::*;

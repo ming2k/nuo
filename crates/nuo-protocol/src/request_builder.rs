@@ -12,7 +12,9 @@
 //! never enter the text blocks, so a provider cannot receive a duplicated tool
 //! declaration or a message rendered as prose.
 use crate::thread_view::RequestView;
-use crate::{Block, InstructionText, Message, ModelRequest, ToolSpec, render_blocks};
+use crate::{Block, InstructionText, ModelRequest, ToolSpec, render_blocks};
+use nuo_tool::{Message};
+
 
 /// Request-scoped inputs that are not conversation facts.
 ///
@@ -91,7 +93,9 @@ impl RequestBuilder {
 mod tests {
     use super::*;
     use crate::thread_view::RequestView;
-    use crate::{BlockRender, Role, ThreadRevision};
+    use crate::{BlockRender, ThreadRevision};
+    use nuo_tool::{Role};
+
 
     #[test]
     fn tools_and_messages_are_moved_once_and_never_rendered_as_text() {

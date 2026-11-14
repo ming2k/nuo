@@ -19,7 +19,7 @@
 //! the process ended, and what a copy of the whole log should contain. The
 //! scene renderer attaches type and paint; the keymap decides chords.
 
-use nuo_protocol::ToolOutput;
+use nuo_tool::ToolOutput;
 
 use super::layout::SemanticCursor;
 use crate::tools::shell_output::{OutputCoverage, ShellOutput, command_invocation};
@@ -246,7 +246,7 @@ mod tests {
             exit,
             truncated: false,
             truncated_note: None,
-            termination: nuo_protocol::tool_output::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         }
     }

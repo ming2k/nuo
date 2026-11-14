@@ -15,7 +15,7 @@ pub(crate) fn draw_web_search_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_protocol::ToolOutput>,
+    structured: Option<&nuo_tool::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -25,7 +25,7 @@ pub(crate) fn draw_web_search_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (query, _provider, hits, truncated) = match structured {
-        Some(nuo_protocol::ToolOutput::WebSearch {
+        Some(nuo_tool::ToolOutput::WebSearch {
             query,
             provider,
             results,
@@ -172,7 +172,7 @@ pub(crate) fn draw_web_article_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_protocol::ToolOutput>,
+    structured: Option<&nuo_tool::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -182,7 +182,7 @@ pub(crate) fn draw_web_article_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (url, title, _domain, markdown, reader, tokens, truncated) = match structured {
-        Some(nuo_protocol::ToolOutput::WebArticle {
+        Some(nuo_tool::ToolOutput::WebArticle {
             url,
             title,
             domain,
@@ -424,7 +424,7 @@ pub(crate) fn draw_web_article_content(
 pub(crate) fn parse_fallback_web_search(
     output: &str,
     arguments: &str,
-) -> (String, String, Vec<nuo_protocol::WebSearchHit>, bool) {
+) -> (String, String, Vec<nuo_tool::WebSearchHit>, bool) {
     let query = serde_json::from_str::<serde_json::Value>(arguments)
         .ok()
         .and_then(|v| {
@@ -459,7 +459,7 @@ pub(crate) fn parse_fallback_web_search(
         if is_numbered {
             if let (Some(title), Some(url)) = (current_title.take(), current_url.take()) {
                 let domain = extract_url_host(&url);
-                hits.push(nuo_protocol::WebSearchHit {
+                hits.push(nuo_tool::WebSearchHit {
                     title,
                     url,
                     domain,
@@ -484,7 +484,7 @@ pub(crate) fn parse_fallback_web_search(
 
     if let (Some(title), Some(url)) = (current_title, current_url) {
         let domain = extract_url_host(&url);
-        hits.push(nuo_protocol::WebSearchHit {
+        hits.push(nuo_tool::WebSearchHit {
             title,
             url,
             domain,
@@ -516,7 +516,7 @@ pub(crate) fn parse_fallback_web_article(
         cleaned = &cleaned[..idx];
     }
     let trimmed = cleaned.trim();
-    let tokens = nuo_protocol::tokenizer::count_tokens(trimmed);
+    let tokens = nuo_tool::tokenizer::count_tokens(trimmed);
     let truncated = output.contains("kept the first") || output.contains("truncated to fit");
     (
         url,

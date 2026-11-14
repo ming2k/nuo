@@ -41,6 +41,7 @@ nuo-tool = { workspace = true }
 nuo-tool-fs = { workspace = true }
 nuo-tool-exec = { workspace = true }
 nuo-tool-ast = { workspace = true }
+nuo-tool-web = { workspace = true }
 netune = { workspace = true }
 ignore = { workspace = true }
 async-trait = { workspace = true }

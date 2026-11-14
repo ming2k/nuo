@@ -8,6 +8,10 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+### Fixed
+
+- **Upgrading a pre-0.0.87 database no longer fails with `no such column: t.origin`.** Migration 36 called the runtime thread loader, which selects `threads.origin` (created later by migration 38) and decodes `FactPayload` rows that the migration itself is supposed to write, so every database with at least one session rolled back and stayed at schema v33. The migration now reads the legacy `entries` / `entry_memberships` transcript through a dedicated loader and projects it with `thread_from_session_data` before dropping the transcript tables.
+
 ## [0.0.87] - 2026-11-14
 
 ### Changed
@@ -20,7 +24,7 @@ the project adheres to the federated SemVer model described in
 
 ### Fixed
 
-- **Ghost built-ins and duplicate registrations are gone.** `use_skill`/`list_skills` are no longer `BuiltinTool` variants — they were implemented but never installed in any toolset, so the enum advertised capabilities the runtime could not produce. Their structs remain programmatic utilities (`/skills` uses `ListSkillsTool` directly), not model-facing tools. The persistence `recall_memory` implementation and the direct `code_query` insertion were removed in favor of the self-registered port/factory paths, so each capability has exactly one producer. `search_text` now emits structured `ToolOutput::Matches` instead of a formatted string, making the variant live ([ADR-0178](docs/adr/0178-one-capability-one-producer-and-no-ghost-builtins.md)).
+- **Ghost built-ins and duplicate registrations are gone.** `use_skill`/`list_skills` are no longer `BuiltinTool` variants — they were implemented but never installed in any toolset, so the enum advertised capabilities the runtime could not produce. Their structs remain programmatic utilities (`/skills` uses `ListSkillsTool` directly), not model-facing tools. The persistence `recall_memory` implementation and the direct `code_query` insertion were removed in favor of the self-registered port/factory paths, so each capability has exactly one producer. `search_text` now emits structured `ToolOutput::Matches` instead of a formatted string, making the variant live ([ADR-0179](docs/adr/0179-one-capability-one-producer-and-no-ghost-builtins.md)).
 - **Background sub-agent rejection no longer points at nonexistent `execute_command` modes.** The message now says only that the child runs inside the calling turn.
 
 ## [0.0.86] - 2026-11-13

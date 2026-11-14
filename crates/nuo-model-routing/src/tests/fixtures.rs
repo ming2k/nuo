@@ -4,7 +4,7 @@ use super::*;
 
 pub(crate) fn ensure_test_init() {
     TEST_INIT.call_once(|| {
-        nuo_server::provider_registry::init();
+        nuo_server::composition::provider_registry::init();
     });
 }
 
@@ -31,8 +31,8 @@ impl TestInputs {
             creds: creds.clone(),
             providers: nuo_persistence::model_providers::ModelProviders::load(),
             credentials: nuo_provider::CredentialHost::file_backed(
-                nuo_persistence::paths::get().auth_file(),
-                nuo_persistence::paths::get().state_dir.join("machine_id"),
+                nuo_host::paths::get().auth_file(),
+                nuo_host::paths::get().state_dir.join("machine_id"),
             ),
         }
     }
@@ -54,7 +54,7 @@ impl TestInputs {
 /// developer's real `auth.toml`.
 pub(crate) fn test_credential_store() -> std::sync::Arc<dyn CredentialStore> {
     std::sync::Arc::new(nuo_provider::FileCredentialStore::new(
-        nuo_persistence::paths::get().auth_file(),
+        nuo_host::paths::get().auth_file(),
     ))
 }
 
@@ -99,19 +99,19 @@ pub(crate) fn inputs_with_cache(cache: &RemoteCatalogCache) -> DerivationInputs<
 /// Sandbox the process-wide XDG roots for the duration of a test. Tests that
 /// write the instance store / credentials / catalog cache must bind the
 /// returned guard (and its `TempDir`) to `_sandbox` for the whole body;
-/// [`nuo_persistence::paths::TestDirsGuard`] holds the shared override lock and
+/// [`nuo_host::paths::TestDirsGuard`] holds the shared override lock and
 /// clears the roots on drop.
-pub(crate) fn sandboxed_paths() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
+pub(crate) fn sandboxed_paths() -> (nuo_host::paths::TestDirsGuard, tempfile::TempDir) {
     ensure_test_init();
     let tmp = tempfile::tempdir().expect("tempdir");
-    let dirs = nuo_persistence::paths::Dirs {
+    let dirs = nuo_host::paths::Dirs {
         config_dir: tmp.path().join("config"),
         data_dir: tmp.path().join("data"),
         state_dir: tmp.path().join("state"),
         cache_dir: tmp.path().join("cache"),
         runtime_dir: None,
     };
-    (nuo_persistence::paths::TestDirsGuard::install(dirs), tmp)
+    (nuo_host::paths::TestDirsGuard::install(dirs), tmp)
 }
 
 pub(crate) fn instance(name: &str, provider: Option<&str>) -> Connection {
@@ -128,7 +128,7 @@ pub(crate) fn register_mock_provider(
     base_url: &str,
     protocol: WireProtocol,
     models: &'static [&'static str],
-    catalog_protocol: nuo_provider::CatalogShape,
+    catalog_protocol: nuo_protocol::CatalogShape,
 ) {
     let mut store = nuo_persistence::model_providers::ModelProviders::load();
     store.set_provider(
@@ -139,7 +139,7 @@ pub(crate) fn register_mock_provider(
             default_protocol: Some(protocol),
             user_agent: None,
             headers: None,
-            catalog: Some(nuo_provider::RemoteCatalogSource::Endpoint(
+            catalog: Some(nuo_protocol::RemoteCatalogSource::Endpoint(
                 catalog_protocol,
             )),
             dialect: None,

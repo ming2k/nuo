@@ -19,12 +19,14 @@
 use std::sync::Arc;
 
 use futures::stream::{BoxStream, StreamExt};
-use nuo_protocol::{Message, ModelRequest, Provider, Role, async_trait};
+use nuo_protocol::{ModelRequest, Provider, async_trait};
+use nuo_tool::{Message, Role};
+
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use nuo_harness::Agent;
-use nuo_harness::orchestration::{
+use nuo_engine::Agent;
+use nuo_engine::orchestration::{
     ContextProjectionSettings, RoundContext, RoundInput, execute_round,
 };
 use nuo_persistence::thread::ThreadSession;
@@ -50,7 +52,7 @@ impl Provider for TestStreamProvider {
     async fn stream_chat(
         &self,
         _request: &ModelRequest,
-        _telemetry: nuo_provider::TransportTelemetry,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -78,7 +80,7 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
     let agent = Arc::new(Agent::new(
         Arc::new(TestStreamProvider),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
 
@@ -112,7 +114,7 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
             display_prompt: None,
             sent_at_ms: Some(sent_at_ms),
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

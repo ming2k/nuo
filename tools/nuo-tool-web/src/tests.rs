@@ -1,6 +1,6 @@
 use super::*;
 use crate::html::extract_html_title;
-use nuo_protocol::Tool;
+use nuo_tool::Tool;
 use sha2::{Digest, Sha256};
 
 #[test]

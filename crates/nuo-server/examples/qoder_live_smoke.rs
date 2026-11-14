@@ -7,8 +7,8 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use nuo_host::SecretString;
-use nuo_provider::Provider;
-use nuo_provider::ResolvedAuth;
+use nuo_protocol::Provider;
+use nuo_protocol::ResolvedAuth;
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
 use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 use nuo_tool::{Message, Role};
@@ -20,7 +20,7 @@ struct StoreSource {
     identity: QoderRequestIdentity,
 }
 
-impl nuo_provider::CredentialSource for StoreSource {
+impl nuo_protocol::CredentialSource for StoreSource {
     fn resolve_auth(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         let token = self.token.clone();
         let identity = self.identity.clone();
@@ -77,16 +77,16 @@ async fn main() {
         "qfmodel".to_string(),
         "https://api3.qoder.sh",
     )
-    .with_dialect(nuo_provider::OpenAiChatDialect::Qoder)
+    .with_dialect(nuo_protocol::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline());
 
     let stream = provider
         .stream_chat_events(
-            &nuo_provider::ModelRequest::new(vec![Message::new(
+            &nuo_protocol::ModelRequest::new(vec![Message::new(
                 Role::User,
                 "Reply with exactly: OK",
             )]),
-            nuo_provider::TransportTelemetry::default(),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .expect("stream opens");
@@ -97,11 +97,11 @@ async fn main() {
         let mut stream = stream;
         while let Some(event) = stream.next().await {
             match event {
-                Ok(nuo_provider::capability::ProviderStreamEvent::TextDelta(d)) => {
+                Ok(nuo_protocol::capability::ProviderStreamEvent::TextDelta(d)) => {
                     text.push_str(&d);
                     count += 1;
                 }
-                Ok(nuo_provider::capability::ProviderStreamEvent::ReasoningDelta(d)) => {
+                Ok(nuo_protocol::capability::ProviderStreamEvent::ReasoningDelta(d)) => {
                     count += 1;
                     let _ = d;
                 }

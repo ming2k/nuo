@@ -17,7 +17,7 @@ pub struct ThreadSnapshot {
     pub provider: String,
     pub model: String,
     #[serde(default)]
-    pub todos: Vec<crate::todos::TodoItem>,
+    pub todos: Vec<nuo_tool::todos::TodoItem>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_tokens: Option<ContextTokenSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -42,7 +42,7 @@ pub struct ThreadSnapshot {
     pub round_interrupts: Vec<RoundInterrupt>,
     /// Server-owned slash-command vocabulary for completion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command_catalog: Option<crate::CommandCatalog>,
+    pub command_catalog: Option<nuo_tool::CommandCatalog>,
     #[serde(default)]
     pub watermark_seq: u64,
 }
@@ -177,7 +177,7 @@ pub enum AgentEvent {
         /// The dispatch id, matching the `ToolCall` it describes.
         id: String,
         name: String,
-        preview: crate::preview::PreviewResult,
+        preview: nuo_tool::preview::PreviewResult,
     },
     ToolResult {
         id: String,
@@ -222,7 +222,7 @@ pub enum AgentEvent {
     },
     /// The task list changed (`todo` / `todo_update`). The TUI uses this to refresh the
     /// unified sticky panel above the input box.
-    TodosUpdated(crate::todos::TodoList),
+    TodosUpdated(nuo_tool::todos::TodoList),
     /// The unattended execution toggle changed (via `/unattended`).
     UnattendedChanged(bool),
     /// The workspace confinement toggle changed (via `/confinement`).

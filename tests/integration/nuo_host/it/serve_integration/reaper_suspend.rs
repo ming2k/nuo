@@ -53,8 +53,8 @@ async fn reaper_keeps_session_once_it_has_content() {
     // Give the session real content: this persists it, so it is user history
     // and must never be reaped no matter how idle.
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "hello",
         )])
         .await
@@ -74,8 +74,8 @@ async fn reaper_keeps_session_once_it_has_content() {
 async fn suspension_removes_idle_persisted_session() {
     let (dir, store) = fresh_empty_store("suspend");
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "hello",
         )])
         .await
@@ -101,8 +101,8 @@ async fn suspension_removes_idle_persisted_session() {
 async fn suspension_keeps_session_with_attached_client() {
     let (dir, store) = fresh_empty_store("suspend-attached");
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "hello",
         )])
         .await
@@ -124,8 +124,8 @@ async fn suspension_keeps_session_with_attached_client() {
 async fn suspension_deferred_by_recent_activity() {
     let (dir, store) = fresh_empty_store("suspend-active");
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "hello",
         )])
         .await

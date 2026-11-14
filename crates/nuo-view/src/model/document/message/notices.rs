@@ -4,7 +4,7 @@ use super::super::types::*;
 use super::{CompactedCardData, TranscriptMessage, next_message_id};
 use crate::model::interactive::InteractiveEntry;
 use crate::model::markdown::{parse_blocks, parse_blocks_verbatim};
-use nuo_protocol::Role;
+use nuo_tool::Role;
 
 impl TranscriptMessage {
     /// Whether this message is a notice with `Error` severity (indicating an
@@ -343,33 +343,33 @@ impl TranscriptMessage {
     /// carries the flattened `render_text()` form for copy fidelity and as
     /// the renderer's fallback, but the renderer never has to guess the
     /// split back out of it.
-    pub fn notice_from_core(notice: &nuo_protocol::AgentNotice) -> Self {
+    pub fn notice_from_core(notice: &nuo_tool::AgentNotice) -> Self {
         // Same sanitized boundary as `raw`: provider HTTP bodies commonly
         // carry CRLF, and a raw `\r` reaching the grid moves the physical
         // cursor while the retained grid believes it advanced.
         let origin = match notice.kind {
-            nuo_protocol::NoticeKind::CheckpointReplay => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::CheckpointReplay => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::TurnGuard,
             }),
-            nuo_protocol::NoticeKind::NudgeInjected => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::NudgeInjected => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::TurnGuard,
             }),
-            nuo_protocol::NoticeKind::ReviewAlert => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::ReviewAlert => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Review,
             }),
-            nuo_protocol::NoticeKind::TrustChanged => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::TrustChanged => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Trust,
             }),
-            nuo_protocol::NoticeKind::TrustFailure => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::TrustFailure => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Trust,
             }),
-            nuo_protocol::NoticeKind::CommandAck => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::CommandAck => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::CommandAck,
             }),
-            nuo_protocol::NoticeKind::ImageInputWithheld => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::ImageInputWithheld => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Images,
             }),
-            nuo_protocol::NoticeKind::Configuration => Some(NoticeOrigin::System {
+            nuo_tool::NoticeKind::Configuration => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Configuration,
             }),
         };

@@ -4,9 +4,9 @@ use super::*;
 
 #[test]
 fn registry_collects_all_self_registered_tools() {
-    let mut builder = ToolContextBuilder::new();
+    let mut builder = ToolFactoryContextBuilder::new();
     builder.provide(Arc::new(SkillRegistry::empty()));
-    builder.provide(nuo_harness::AgentIdentity::default());
+    builder.provide(nuo_engine::AgentIdentity::default());
     let ctx = builder.build();
     let mut collected = collect_toolset(&ctx);
     let sys_ctx = Arc::new(nuo_tool_fs::SystemToolContext::new("."));
@@ -19,17 +19,17 @@ fn registry_collects_all_self_registered_tools() {
     }
     let names: std::collections::HashSet<&str> = collected.capability_names().collect();
     for expected in [
-        nuo_protocol::BuiltinTool::ExecuteCommand,
-        nuo_protocol::BuiltinTool::Read,
-        nuo_protocol::BuiltinTool::WriteFile,
-        nuo_protocol::BuiltinTool::EditText,
-        nuo_protocol::BuiltinTool::SearchText,
-        nuo_protocol::BuiltinTool::FindFiles,
-        nuo_protocol::BuiltinTool::AskUser,
-        nuo_protocol::BuiltinTool::ReadUrl,
-        nuo_protocol::BuiltinTool::SearchWeb,
-        nuo_protocol::BuiltinTool::RecallMemory,
-        nuo_protocol::BuiltinTool::CodeQuery,
+        nuo_tool::BuiltinTool::ExecuteCommand,
+        nuo_tool::BuiltinTool::Read,
+        nuo_tool::BuiltinTool::WriteFile,
+        nuo_tool::BuiltinTool::EditText,
+        nuo_tool::BuiltinTool::SearchText,
+        nuo_tool::BuiltinTool::FindFiles,
+        nuo_tool::BuiltinTool::AskUser,
+        nuo_tool::BuiltinTool::ReadUrl,
+        nuo_tool::BuiltinTool::SearchWeb,
+        nuo_tool::BuiltinTool::RecallMemory,
+        nuo_tool::BuiltinTool::CodeQuery,
     ] {
         assert!(
             names.contains(expected.as_str()),
@@ -57,12 +57,12 @@ fn registry_collects_all_self_registered_tools() {
     let resolved_names: std::collections::HashSet<&str> =
         resolved.iter().map(|t| t.name()).collect();
     assert!(
-        resolved_names.contains(nuo_protocol::BuiltinTool::ExecuteCommand.as_str()),
+        resolved_names.contains(nuo_tool::BuiltinTool::ExecuteCommand.as_str()),
         "developer role failed to resolve execute_command from collected toolset"
     );
     // ADR-0064: pruned tools must never resolve for developer role
-    assert!(!resolved_names.contains(nuo_protocol::BuiltinTool::AskUser.as_str()));
-    assert!(!resolved_names.contains(nuo_protocol::BuiltinTool::Todo.as_str()));
+    assert!(!resolved_names.contains(nuo_tool::BuiltinTool::AskUser.as_str()));
+    assert!(!resolved_names.contains(nuo_tool::BuiltinTool::Todo.as_str()));
 
     // Role-to-ToolSet integration invariant: ops role must resolve execute_command and fs tools
     let ops = nuo_protocol::AgentRoleProfile::ops();
@@ -74,39 +74,39 @@ fn registry_collects_all_self_registered_tools() {
     let ops_resolved_names: std::collections::HashSet<&str> =
         ops_resolved.iter().map(|t| t.name()).collect();
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::ExecuteCommand.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::ExecuteCommand.as_str()),
         "ops role failed to resolve execute_command from collected toolset"
     );
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::Read.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::Read.as_str()),
         "ops role failed to resolve read from collected toolset"
     );
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::EditText.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::EditText.as_str()),
         "ops role failed to resolve edit_text from collected toolset"
     );
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::WriteFile.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::WriteFile.as_str()),
         "ops role failed to resolve write_file from collected toolset"
     );
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::FindFiles.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::FindFiles.as_str()),
         "ops role failed to resolve find_files from collected toolset"
     );
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::SearchText.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::SearchText.as_str()),
         "ops role failed to resolve search_text from collected toolset"
     );
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::ReadUrl.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::ReadUrl.as_str()),
         "ops role failed to resolve read_url from collected toolset"
     );
     assert!(
-        ops_resolved_names.contains(nuo_protocol::BuiltinTool::SearchWeb.as_str()),
+        ops_resolved_names.contains(nuo_tool::BuiltinTool::SearchWeb.as_str()),
         "ops role failed to resolve search_web from collected toolset"
     );
-    assert!(!ops_resolved_names.contains(nuo_protocol::BuiltinTool::AskUser.as_str()));
-    assert!(!ops_resolved_names.contains(nuo_protocol::BuiltinTool::Todo.as_str()));
+    assert!(!ops_resolved_names.contains(nuo_tool::BuiltinTool::AskUser.as_str()));
+    assert!(!ops_resolved_names.contains(nuo_tool::BuiltinTool::Todo.as_str()));
 
     // Role-to-ToolSet integration invariant: philosophist role must NOT resolve execute_command or fs tools
     let phil = nuo_protocol::AgentRoleProfile::philosophist();
@@ -117,10 +117,10 @@ fn registry_collects_all_self_registered_tools() {
     );
     let phil_resolved_names: std::collections::HashSet<&str> =
         phil_resolved.iter().map(|t| t.name()).collect();
-    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::ExecuteCommand.as_str()));
-    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::Read.as_str()));
-    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::EditText.as_str()));
-    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::WriteFile.as_str()));
-    assert!(phil_resolved_names.contains(nuo_protocol::BuiltinTool::ReadUrl.as_str()));
-    assert!(phil_resolved_names.contains(nuo_protocol::BuiltinTool::SearchWeb.as_str()));
+    assert!(!phil_resolved_names.contains(nuo_tool::BuiltinTool::ExecuteCommand.as_str()));
+    assert!(!phil_resolved_names.contains(nuo_tool::BuiltinTool::Read.as_str()));
+    assert!(!phil_resolved_names.contains(nuo_tool::BuiltinTool::EditText.as_str()));
+    assert!(!phil_resolved_names.contains(nuo_tool::BuiltinTool::WriteFile.as_str()));
+    assert!(phil_resolved_names.contains(nuo_tool::BuiltinTool::ReadUrl.as_str()));
+    assert!(phil_resolved_names.contains(nuo_tool::BuiltinTool::SearchWeb.as_str()));
 }

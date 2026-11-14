@@ -14,7 +14,7 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
     let agent = Arc::new(Agent::new(
         Arc::new(PartialToolRetryProvider(AtomicUsize::new(0))),
         vec![Arc::new(RetryReadTool(tool_calls.clone()))],
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -46,7 +46,7 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -86,7 +86,7 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
             requests: requests.clone(),
         }),
         vec![Arc::new(RetryReadTool(tool_calls.clone()))],
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -118,7 +118,7 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

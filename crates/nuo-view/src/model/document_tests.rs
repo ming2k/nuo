@@ -370,7 +370,7 @@ fn tool_step_collapses_and_restores_full_semantic_detail() {
     assert!(message.finish_tool_step(
         "call_1",
         "contents",
-        nuo_protocol::ToolOutput::text("contents"),
+        nuo_tool::ToolOutput::text("contents"),
         1234
     ));
     // Collapsed completed: summary + duration suffix.
@@ -414,7 +414,7 @@ fn subagent_started_event_labels_step_by_role() {
     assert_eq!(task.subagent_description(), "write the plan");
     assert_eq!(task.subagent_role(), None);
     assert!(task.push_subagent_event(
-        &nuo_protocol::SubagentEvent::Started {
+        &nuo_tool::SubagentEvent::Started {
             profile: "explore".to_string()
         },
         &no_overrides()
@@ -483,7 +483,7 @@ fn subagent_status_reflects_children_and_completion() {
     assert!(task.finish_tool_step(
         "call_9",
         "final answer",
-        nuo_protocol::ToolOutput::text("final answer"),
+        nuo_tool::ToolOutput::text("final answer"),
         1500
     ));
     assert!(
@@ -516,10 +516,10 @@ fn subagent_failed_status_reports_failure() {
     );
     // The subagent failure is now signalled by the structured `failed`
     // flag on `ToolOutput::Subagent`, not by an "Error:" text prefix.
-    let structured = nuo_protocol::ToolOutput::Subagent {
+    let structured = nuo_tool::ToolOutput::Subagent {
         summary: "Error: boom".into(),
         messages: Vec::new(),
-        usage: nuo_protocol::TokenUsage::default(),
+        usage: nuo_tool::TokenUsage::default(),
         generation_ms: 0,
         failed: true,
         interrupted: false,
@@ -554,7 +554,7 @@ fn subagent_peek_reports_awaiting_approval_while_parked() {
     // …but a parked permission request takes over the row: the subagent is
     // blocked on a human, not making progress.
     task.push_subagent_event(
-        &SubagentEvent::PermissionRequest(nuo_protocol::PermissionRequest {
+        &SubagentEvent::PermissionRequest(nuo_tool::PermissionRequest {
             id: "p1".into(),
             tool: "execute_command".into(),
             label: "Run rm".into(),
@@ -617,10 +617,10 @@ fn interrupted_subagent_status_reports_interrupted_not_failed() {
     // the partial work was preserved, so it must classify as Interrupted
     // — never as Failed (it did not error) and never as Ok (it did not
     // finish).
-    let structured = nuo_protocol::ToolOutput::Subagent {
+    let structured = nuo_tool::ToolOutput::Subagent {
         summary: "Interrupted: stopped by the user".into(),
         messages: Vec::new(),
-        usage: nuo_protocol::TokenUsage::default(),
+        usage: nuo_tool::TokenUsage::default(),
         generation_ms: 0,
         failed: false,
         interrupted: true,
@@ -649,7 +649,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
     // structured `ToolOutput::Shell { exit: Some(1) }`, `is_error()` now
     // drives the classification and the step correctly reads `Failed`.
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"false"}"#);
-    let structured = nuo_protocol::ToolOutput::Shell {
+    let structured = nuo_tool::ToolOutput::Shell {
         command: "false".into(),
         stdout: String::new(),
         stderr: "boom".into(),
@@ -657,7 +657,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
         exit: Some(1),
         truncated: false,
         truncated_note: None,
-        termination: nuo_protocol::tool_output::ShellTermination::Exited,
+        termination: nuo_tool::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
@@ -672,7 +672,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
 #[test]
 fn bash_success_is_classified_ok() {
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"true"}"#);
-    let structured = nuo_protocol::ToolOutput::Shell {
+    let structured = nuo_tool::ToolOutput::Shell {
         command: "true".into(),
         stdout: "ok\n".into(),
         stderr: String::new(),
@@ -680,7 +680,7 @@ fn bash_success_is_classified_ok() {
         exit: Some(0),
         truncated: false,
         truncated_note: None,
-        termination: nuo_protocol::tool_output::ShellTermination::Exited,
+        termination: nuo_tool::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
@@ -694,7 +694,8 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
     // tag each) so the live view renders arrival-ordered, stderr-tinted,
     // interleaved output — not the all-stdout-then-all-stderr degraded
     // band the empty-`lines` fallback forced.
-    use nuo_protocol::{ToolStream, tool_output::ShellStream};
+    use nuo_tool::{ToolStream, tool_output::ShellStream};
+
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"x"}"#);
     assert!(step.push_tool_stream("c", &ToolStream::Stdout("Compiling a\n".into())));
     assert!(step.push_tool_stream("c", &ToolStream::Stderr("warning: b\n".into())));
@@ -705,7 +706,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            nuo_protocol::ToolOutput::Shell { lines, .. } => lines,
+            nuo_tool::ToolOutput::Shell { lines, .. } => lines,
             _ => panic!("expected Shell"),
         },
         _ => panic!("expected ToolStep"),
@@ -728,7 +729,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            nuo_protocol::ToolOutput::Shell { stdout, stderr, .. } => {
+            nuo_tool::ToolOutput::Shell { stdout, stderr, .. } => {
                 assert!(stdout.contains("Compiling a"));
                 assert!(stdout.contains("Compiling c"));
                 assert!(stderr.contains("warning: b"));
@@ -757,7 +758,7 @@ fn cancel_tool_step_transitions_to_a_terminal_state() {
     assert!(!step.finish_tool_step(
         "call_1",
         "late result",
-        nuo_protocol::ToolOutput::text("late result"),
+        nuo_tool::ToolOutput::text("late result"),
         10
     ));
     assert!(!step.cancel_tool_step("call_1"));
@@ -822,7 +823,7 @@ fn cancel_all_running_is_a_defensive_sweep_that_skips_terminal_steps() {
     assert!(b.finish_tool_step(
         "b",
         "contents",
-        nuo_protocol::ToolOutput::text("contents"),
+        nuo_tool::ToolOutput::text("contents"),
         5
     ));
     assert_eq!(b.tool_step_status(), Some(ToolStepStatus::Ok));
@@ -867,11 +868,11 @@ fn notice_from_core_preserves_the_topic_and_detail_split() {
     // title/body detail) must survive the boundary into the transcript
     // model instead of being flattened to `raw` and re-parsed at render
     // time. `raw` still carries the flattened form for copy fidelity.
-    let core = nuo_protocol::AgentNotice::new(
-        nuo_protocol::NoticeKind::CheckpointReplay,
-        nuo_protocol::NoticeSeverity::Warning,
+    let core = nuo_tool::AgentNotice::new(
+        nuo_tool::NoticeKind::CheckpointReplay,
+        nuo_tool::NoticeSeverity::Warning,
         "Completed tool call not repeated",
-        nuo_protocol::NoticeSource::Harness,
+        nuo_tool::NoticeSource::Harness,
     )
     .with_body("The retried model request repeated a tool call that already completed.");
 
@@ -898,12 +899,12 @@ fn notice_topic_labels_cover_the_contract_vocabulary() {
     // Every wire `NoticeKind` maps to a predictable user-facing topic label;
     // the match must not grow stale as the contract evolves.
     for (kind, label) in [
-        (nuo_protocol::NoticeKind::CheckpointReplay, "replay"),
-        (nuo_protocol::NoticeKind::NudgeInjected, "turn guard"),
-        (nuo_protocol::NoticeKind::ReviewAlert, "review"),
-        (nuo_protocol::NoticeKind::TrustChanged, "trust"),
-        (nuo_protocol::NoticeKind::CommandAck, "command"),
-        (nuo_protocol::NoticeKind::ImageInputWithheld, "images"),
+        (nuo_tool::NoticeKind::CheckpointReplay, "replay"),
+        (nuo_tool::NoticeKind::NudgeInjected, "turn guard"),
+        (nuo_tool::NoticeKind::ReviewAlert, "review"),
+        (nuo_tool::NoticeKind::TrustChanged, "trust"),
+        (nuo_tool::NoticeKind::CommandAck, "command"),
+        (nuo_tool::NoticeKind::ImageInputWithheld, "images"),
     ] {
         assert_eq!(notice_topic_label(kind), label);
     }
@@ -1404,7 +1405,7 @@ fn announced_tool_step_advances_to_dispatch_and_tracks_input_bytes() {
     assert!(!summary.contains("receiving input"), "got: {summary}");
 
     // Output streaming then resolves by the same id.
-    assert!(step.push_tool_stream("call_9", &nuo_protocol::ToolStream::Stdout("x\n".into())));
+    assert!(step.push_tool_stream("call_9", &nuo_tool::ToolStream::Stdout("x\n".into())));
 }
 
 #[test]
@@ -1502,9 +1503,9 @@ fn announced_tool_step_advances_with_arguments_and_updates_summary() {
     assert!(step.finish_tool_step(
         "call_1",
         "Edited 'src/lib.rs' successfully",
-        nuo_protocol::ToolOutput::Patch {
+        nuo_tool::ToolOutput::Patch {
             path: "src/lib.rs".into(),
-            op: nuo_protocol::PatchOp::Edit,
+            op: nuo_tool::PatchOp::Edit,
             old: "foo".into(),
             new: "bar".into(),
             start_line: 1,
@@ -1611,9 +1612,9 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     assert!(step.finish_tool_step(
         "call_edit_1",
         "Updated auth",
-        nuo_protocol::ToolOutput::Patch {
+        nuo_tool::ToolOutput::Patch {
             path: "src/model/auth.rs".into(),
-            op: nuo_protocol::PatchOp::Edit,
+            op: nuo_tool::PatchOp::Edit,
             old: "let x = 1;".into(),
             new: "let x = 2;".into(),
             start_line: 1,

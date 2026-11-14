@@ -28,7 +28,7 @@ impl ThreadSession {
     }
 
     /// The current todo list, derived from the newest `state` entry.
-    pub async fn todos(&self) -> nuo_protocol::TodoList {
+    pub async fn todos(&self) -> nuo_tool::TodoList {
         self.state
             .lock()
             .await
@@ -40,7 +40,7 @@ impl ThreadSession {
 
     /// Mirror the agent's todo list into the transcript as a `state` entry
     /// (latest wins on derivation) and persist.
-    pub async fn set_todos(&self, todos: nuo_protocol::TodoList) -> Result<(), String> {
+    pub async fn set_todos(&self, todos: nuo_tool::TodoList) -> Result<(), String> {
         let (path, data, should_persist) = {
             let mut state = self.state.lock().await;
             state

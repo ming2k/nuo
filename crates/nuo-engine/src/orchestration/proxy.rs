@@ -328,7 +328,7 @@ fn write_capture(capture: &PendingCapture, items: &[serde_json::Value]) {
         "{stamp}_{seq:04}_{provider_slug}_{model_slug}.json",
         seq = capture.seq,
     ));
-    if let Err(error) = nuo_persistence::fsutil::atomic_write_bytes(&file, &bytes) {
+    if let Err(error) = nuo_host::fsutil::atomic_write_bytes(&file, &bytes) {
         tracing::warn!(%error, file = %file.display(), "network capture write failed");
     }
     prune_capture_dir(&capture.dir);

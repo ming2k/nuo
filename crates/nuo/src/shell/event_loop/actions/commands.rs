@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
-use nuo_protocol::{AgentRequest, Role};
+use nuo_protocol::{AgentRequest};
+
+use nuo_tool::{Role};
+
 
 use crate::shell::surfaces::{DialogKind, SceneKind, SheetKind};
 use crate::shell::{App, clipboard, clipboard_ops};
@@ -279,7 +282,7 @@ pub(crate) async fn handle_send_slash(
     let effect = app
         .command_catalog
         .effect_for(&format!("/{cmd_name}"), cmd_args.split_whitespace().next());
-    let stages_row = is_known && effect == nuo_protocol::CommandEffect::Mutation;
+    let stages_row = is_known && effect == nuo_tool::CommandEffect::Mutation;
 
     let is_new_session_cmd = cmd_name == "new"
         || (cmd_name == "session" && cmd_args.split_whitespace().next() == Some("new"));

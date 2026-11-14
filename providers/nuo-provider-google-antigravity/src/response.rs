@@ -5,7 +5,7 @@
 //! (`promptTokenCount` / `candidatesTokenCount` / `totalTokenCount`), and
 //! content lives in `candidates[0].content.parts[]` as either `text` or
 //! `functionCall`.
-use nuo_provider::capability::ProviderStreamEvent;
+use nuo_protocol::capability::ProviderStreamEvent;
 use nuo_tool::ToolCall;
 use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::{Map, Value};
@@ -153,7 +153,7 @@ pub(crate) fn usage(usage: &Value) -> Option<TokenUsage> {
     // Route cache-read accounting through the shared helper so the cache
     // policy is enforced in one place. Google hides the discount in
     // `cachedContentTokenCount`, which the helper reads.
-    let cache = nuo_provider::read_prompt_cache_usage(usage);
+    let cache = nuo_protocol::read_prompt_cache_usage(usage);
     match (prompt, completion, total) {
         (Some(p), Some(c), _) => Some(TokenUsage {
             prompt_tokens: p,
@@ -517,7 +517,7 @@ pub fn rejects_thinking_config(error: &str) -> bool {
 /// channel into chain-withholding for an unrelated fault. Taking the untouched
 /// `ProviderError` makes "classify the upstream text" the only thing a caller
 /// can express.
-pub fn rejects_thinking_config_error(err: &nuo_provider::ProviderError) -> bool {
+pub fn rejects_thinking_config_error(err: &nuo_protocol::ProviderError) -> bool {
     rejects_thinking_config(err.message())
 }
 
@@ -714,11 +714,11 @@ fn flatten_json(config: &str) -> String {
 /// [`rejects_thinking_config`]. Never decide a downgrade from it — use
 /// [`rejects_thinking_config_error`] on the untouched error first.
 pub fn clarify_error_with_shape(
-    err: nuo_provider::ProviderError,
+    err: nuo_protocol::ProviderError,
     model: &str,
     base_url: &str,
     shape: Option<&RequestShape>,
-) -> nuo_provider::ProviderError {
+) -> nuo_protocol::ProviderError {
     let server_delay = google_retry_after_ms(err.message());
     // A request refusal is the one class whose upstream body is routinely
     // content-free, so the sent shape is folded in as the error's detail. The

@@ -9,8 +9,8 @@ use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use nuo::monitor::MonitorTracker;
-use nuo::registry::{HostedThread, ThreadRegistry};
+use nuo::runtime::monitor::MonitorTracker;
+use nuo::runtime::registry::{HostedThread, ThreadRegistry};
 use nuo_persistence::thread::ThreadSession;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
@@ -112,7 +112,7 @@ async fn spawned_server_inherits_the_nuo_home_sandbox() {
     let deadline = Instant::now() + Duration::from_secs(15);
     let record = loop {
         if let Ok(bytes) = std::fs::read(&own_record)
-            && let Ok(record) = serde_json::from_slice::<nuo::serve_discovery::Discovery>(&bytes)
+            && let Ok(record) = serde_json::from_slice::<nuo_server::transport::serve_discovery::Discovery>(&bytes)
         {
             break record;
         }
@@ -188,8 +188,8 @@ async fn host_thread(
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_protocol::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: Instant::now(),
@@ -243,7 +243,7 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     assert_eq!(registry.session_count().await, 3);
 
     let mut handle =
-        nuo::serve::start_server(nuo::serve::ServeOptions::default(), registry.clone());
+        nuo_server::transport::serve::start_server(nuo_server::transport::serve::ServeOptions::default(), registry.clone());
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
     let _ = handle;
 
@@ -251,13 +251,13 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     // it is the process actually serving `port` from the in-process server.
     let instance_dir = home.join("nuo").join("instance");
     std::fs::create_dir_all(&instance_dir).unwrap();
-    let record = nuo::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: std::process::id(),
         port,
         token: None,
         project_root: project.display().to_string(),
         started_at: 0,
-        version: Some(nuo::serve::server_version().to_string()),
+        version: Some(nuo_server::transport::serve::server_version().to_string()),
         protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         ..Default::default()
     };
@@ -356,8 +356,8 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     );
     let dev_id = dev_store.id().await;
     dev_store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "developer history",
         )])
         .await
@@ -369,27 +369,27 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     );
     let coder_id = coder_store.id().await;
     coder_store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "coder history",
         )])
         .await
         .unwrap();
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
-    let mut handle = nuo::serve::start_server(nuo::serve::ServeOptions::default(), registry);
+    let mut handle = nuo_server::transport::serve::start_server(nuo_server::transport::serve::ServeOptions::default(), registry);
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
     let _ = handle;
 
     let instance_dir = home.join("nuo").join("instance");
     std::fs::create_dir_all(&instance_dir).unwrap();
-    let record = nuo::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: std::process::id(),
         port,
         token: None,
         project_root: project.display().to_string(),
         started_at: 0,
-        version: Some(nuo::serve::server_version().to_string()),
+        version: Some(nuo_server::transport::serve::server_version().to_string()),
         protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         ..Default::default()
     };
@@ -492,8 +492,8 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
         Some("developer".to_string()),
     ));
     store
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "keep me across stop",
         )])
         .await
@@ -504,19 +504,19 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
     assert_eq!(registry.session_count().await, 1);
 
     let mut handle =
-        nuo::serve::start_server(nuo::serve::ServeOptions::default(), registry.clone());
+        nuo_server::transport::serve::start_server(nuo_server::transport::serve::ServeOptions::default(), registry.clone());
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
     let _ = handle;
 
     let instance_dir = home.join("nuo").join("instance");
     std::fs::create_dir_all(&instance_dir).unwrap();
-    let record = nuo::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: std::process::id(),
         port,
         token: None,
         project_root: project.display().to_string(),
         started_at: 0,
-        version: Some(nuo::serve::server_version().to_string()),
+        version: Some(nuo_server::transport::serve::server_version().to_string()),
         protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         ..Default::default()
     };

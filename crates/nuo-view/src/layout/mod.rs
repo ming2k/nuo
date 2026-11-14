@@ -421,7 +421,7 @@ fn is_turn_component(message: &TranscriptMessage) -> bool {
     message.is_tool_step()
         || message.is_subagent_task()
         || message.is_reasoning()
-        || message.role == nuo_protocol::Role::Assistant
+        || message.role == nuo_tool::Role::Assistant
 }
 
 fn is_tool_like(message: &TranscriptMessage) -> bool {
@@ -791,7 +791,7 @@ pub trait TranscriptLayout {
 
 #[cfg(test)]
 mod tests {
-    use nuo_protocol::Role;
+    use nuo_tool::Role;
 
     use crate::model::document::UserMessageOrigin;
 

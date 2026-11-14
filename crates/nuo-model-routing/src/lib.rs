@@ -110,7 +110,7 @@ impl Stores {
 /// same host for the server's own flows; the duplication collapses when the
 /// catalog moves to the application plane (ADR-0081 §1).
 pub(crate) fn credential_host() -> CredentialHost {
-    let paths = nuo_persistence::paths::get();
+    let paths = nuo_host::paths::get();
     CredentialHost::file_backed(paths.auth_file(), paths.state_dir.join("machine_id"))
 }
 

@@ -99,7 +99,7 @@ pub(crate) fn draw_tool_result(
     name: &str,
     arguments: &str,
     output: &str,
-    structured: Option<&nuo_protocol::ToolOutput>,
+    structured: Option<&nuo_tool::ToolOutput>,
     diff_cache: &mut DiffCache,
     selection: &SelectionState,
     indent: usize,
@@ -114,8 +114,8 @@ pub(crate) fn draw_tool_result(
     if matches!(
         structured,
         Some(
-            nuo_protocol::ToolOutput::Error { .. }
-                | nuo_protocol::ToolOutput::PermissionDenied { .. }
+            nuo_tool::ToolOutput::Error { .. }
+                | nuo_tool::ToolOutput::PermissionDenied { .. }
         )
     ) {
         draw_tool_error(ctx, mi, block_idx, output, selection, indent, inner_w);
@@ -124,7 +124,7 @@ pub(crate) fn draw_tool_result(
 
     let kind = match nuo_view::tools::presenter_for(name).result_kind() {
         ResultKind::Auto => match structured {
-            Some(nuo_protocol::ToolOutput::Listing { .. }) => ResultKind::Listing,
+            Some(nuo_tool::ToolOutput::Listing { .. }) => ResultKind::Listing,
             _ => ResultKind::Code,
         },
         kind => kind,
@@ -153,13 +153,13 @@ pub(crate) fn draw_tool_result(
             // flattened `output` string with `start_line = 0` (slice-relative
             // 1-based numbering).
             let (raw_content, raw_start_line, explicit_lang) = match structured {
-                Some(nuo_protocol::ToolOutput::Code {
+                Some(nuo_tool::ToolOutput::Code {
                     text,
                     start_line,
                     lang,
                     ..
                 }) => (text.as_str(), *start_line, lang.as_deref()),
-                Some(nuo_protocol::ToolOutput::Patch {
+                Some(nuo_tool::ToolOutput::Patch {
                     new, start_line, ..
                 }) => (new.as_str(), *start_line, None),
                 _ => (output, 0, None),
@@ -210,7 +210,7 @@ pub(crate) fn draw_tool_result(
             // completed steps. Both paths are cached by stable message id and
             // exact source, so animation frames never repeat Myers/word diffing.
             let path_buf: Option<String> = match structured {
-                Some(nuo_protocol::ToolOutput::Patch { .. }) => None,
+                Some(nuo_tool::ToolOutput::Patch { .. }) => None,
                 _ => {
                     let map = if let Ok(serde_json::Value::Object(obj)) =
                         serde_json::from_str::<serde_json::Value>(arguments)
@@ -228,7 +228,7 @@ pub(crate) fn draw_tool_result(
                 }
             };
             let path_ref = match structured {
-                Some(nuo_protocol::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
+                Some(nuo_tool::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
                 _ => path_buf.as_deref(),
             };
             let lang = path_ref
@@ -236,7 +236,7 @@ pub(crate) fn draw_tool_result(
                 .unwrap_or(nuo_ui_primitives::syntax::Language::Plain);
 
             let hunks = match structured {
-                Some(nuo_protocol::ToolOutput::Patch {
+                Some(nuo_tool::ToolOutput::Patch {
                     old,
                     new,
                     start_line,
@@ -269,7 +269,7 @@ pub(crate) fn draw_tool_result(
                     }
                 }
             };
-            if let Some(nuo_protocol::ToolOutput::Patch { warnings, .. }) = structured {
+            if let Some(nuo_tool::ToolOutput::Patch { warnings, .. }) = structured {
                 for warning in warnings {
                     let text = format!("Warning: {warning}");
                     let bg = ctx.theme.code_surface();

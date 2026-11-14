@@ -2,7 +2,7 @@
 //! ambient harness facets. A **tool** is an extension with a model-callable
 //! surface; a **facet** is an extension with declared hook phases. Extensions
 //! are instantiated per session and are the sole capability unit.
-use crate::Tool;
+use nuo_tool::Tool;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;

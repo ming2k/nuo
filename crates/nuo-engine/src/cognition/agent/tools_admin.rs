@@ -29,7 +29,7 @@ impl Agent {
     pub(crate) fn set_project_root_with_dirs(
         &self,
         root: Option<std::path::PathBuf>,
-        dirs: &nuo_persistence::paths::Dirs,
+        dirs: &nuo_host::paths::Dirs,
     ) {
         self.permissions.set_project_root_with_dirs(root, dirs);
     }
@@ -48,7 +48,7 @@ impl Agent {
     /// must fail closed rather than recursively opening a permission prompt.
     pub fn is_permission_allowed(&self, tool: &str, scope: &str) -> bool {
         self.permissions
-            .is_allowed(&crate::permission_store::PermissionRule {
+            .is_allowed(&nuo_guardrails::permission_store::PermissionRule {
                 tool: tool.to_string(),
                 scope: scope.to_string(),
             })
@@ -227,9 +227,8 @@ impl Agent {
             .into_iter()
             .map(|(source, tool)| {
                 let name = tool.name();
-                let desc = tool.descriptor();
-                let params = serde_json::to_string_pretty(&desc.parameters_schema).ok();
-                let risk = match desc.risk {
+                let params = serde_json::to_string_pretty(&tool.parameters_schema()).ok();
+                let risk = match tool.risk_profile() {
                     nuo_tool::RiskProfile::ReadOnly => "read_only",
                     nuo_tool::RiskProfile::IdempotentMutation => "idempotent_mutation",
                     nuo_tool::RiskProfile::Destructive => "destructive",
@@ -243,8 +242,8 @@ impl Agent {
                     source,
                     parameters: params,
                     risk: Some(risk.to_string()),
-                    requires_user: desc.requires_user,
-                    requires_vision: desc.requires_vision,
+                    requires_user: tool.requires_user(),
+                    requires_vision: tool.requires_vision(),
                 }
             })
             .collect();

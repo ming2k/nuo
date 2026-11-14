@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 /// directory the first client spawned it from. The assembling bootstrap
 /// therefore registers the session's project root as a
 /// [`WorkspaceRoot`](nuo_protocol::WorkspaceRoot) service on the
-/// [`ToolContext`](nuo_protocol::ToolContext), and each path-taking tool
+/// [`ToolContext`](nuo_protocol::ToolFactoryContext), and each path-taking tool
 /// captures it at factory time into its `root` field.
 ///
 /// `None` (unit tests, a context built without the service) means "use the
@@ -19,7 +19,7 @@ pub(crate) type WorkspaceBase = Option<PathBuf>;
 /// Capture the workspace base from a tool-assembly context. Factories call
 /// this once at build time; the returned value is immutable for the tool's
 /// lifetime, matching the session whose bootstrap assembled it.
-pub(crate) fn workspace_base(ctx: &nuo_protocol::tool_registry::ToolContext) -> WorkspaceBase {
+pub(crate) fn workspace_base(ctx: &nuo_protocol::tool_registry::ToolFactoryContext) -> WorkspaceBase {
     ctx.workspace_root().map(Path::to_path_buf)
 }
 
@@ -137,7 +137,7 @@ impl nuo_protocol::execution::ExecutionEnvironment for SimpleExecutionEnvironmen
 /// Capture or synthesize an [`ExecutionEnvironment`](nuo_protocol::execution::ExecutionEnvironment)
 /// from the tool build context.
 pub(crate) fn execution_environment(
-    ctx: &nuo_protocol::tool_registry::ToolContext,
+    ctx: &nuo_protocol::tool_registry::ToolFactoryContext,
 ) -> std::sync::Arc<dyn nuo_protocol::execution::ExecutionEnvironment> {
     if let Some(env) =
         ctx.get::<std::sync::Arc<dyn nuo_protocol::execution::ExecutionEnvironment>>()

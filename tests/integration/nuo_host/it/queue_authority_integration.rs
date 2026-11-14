@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use super::sandbox_once;
 use nuo::UiBridge;
-use nuo::bootstrap::{self, BootstrapParams};
-use nuo::startup::ThreadStart;
+use nuo::composition::bootstrap::{self, BootstrapParams};
+use nuo::composition::startup::ThreadStart;
 use nuo_protocol::{AgentRequest, AgentResponse, RoundEvent};
 use tokio::sync::mpsc;
 

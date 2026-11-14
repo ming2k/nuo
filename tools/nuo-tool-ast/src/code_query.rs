@@ -25,7 +25,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_protocol::{ExecutionEnvironment, Tool, ToolAccesses, ToolOutput};
+use nuo_protocol::{ExecutionEnvironment};
+use nuo_tool::{Tool, ToolAccesses, ToolOutput};
+
 use nuo_tool::{BuiltinTool, ToolArgs};
 use serde::Deserialize;
 

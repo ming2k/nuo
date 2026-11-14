@@ -13,10 +13,10 @@ use std::sync::atomic::AtomicBool;
 
 use tokio::sync::mpsc;
 
-use nuo_protocol::{
-    AgentRequest, ConnectionAuth, ImagePart, LoopStatus, PermissionRequest, ProviderPickerSnapshot,
-    UserQuestionRequest,
-};
+use nuo_protocol::{AgentRequest, ConnectionAuth, LoopStatus, ProviderPickerSnapshot};
+
+use nuo_tool::{ImagePart, PermissionRequest, UserQuestionRequest};
+
 
 use crate::shell::chrome::tasks_bar::BackgroundTaskItem;
 use crate::shell::completion::CompletionItemKind;
@@ -462,9 +462,9 @@ pub struct App {
     /// **not** latch — Tab is meant to keep cycling path candidates.
     pub completion_dismissed: bool,
     /// Backend-owned slash-command vocabulary published by the server.
-    pub command_catalog: nuo_protocol::CommandCatalog,
+    pub command_catalog: nuo_tool::CommandCatalog,
     /// Latest race-checked completion rows returned by the server.
-    pub backend_completions: Vec<nuo_protocol::InputCompletion>,
+    pub backend_completions: Vec<nuo_tool::InputCompletion>,
     pub completion_response_input: Option<String>,
     pub completion_response_cursor: usize,
     pub completion_requested: Option<(String, usize)>,

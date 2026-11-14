@@ -7,7 +7,7 @@ impl SubagentTool {
         &self,
         call_id: Option<&str>,
         arguments: &str,
-        mut on_event: Box<dyn FnMut(nuo_protocol::SubagentEvent) + Send + 'a>,
+        mut on_event: Box<dyn FnMut(nuo_tool::SubagentEvent) + Send + 'a>,
     ) -> Result<SubagentOutcome, String> {
         let args: serde_json::Value =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -101,7 +101,7 @@ impl SubagentTool {
         // Announce the bound profile name first so the parent harness / TUI
         // can label this subagent by its role (explore / plan / verify / …)
         // rather than a generic "Subagent". Emitted before the child runs.
-        on_event(nuo_protocol::SubagentEvent::Started {
+        on_event(nuo_tool::SubagentEvent::Started {
             profile: profile.name.to_string(),
         });
 
@@ -225,7 +225,7 @@ impl SubagentTool {
         // read-loop guard's nudge (ADR-0034) so a short-lived, parent-supervised
         // subagent is never steered by it. The parent and `abort` remain its
         // backstops.
-        subagent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::disabled());
+        subagent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig::disabled());
         // Full-duplex (ADR-0029): install the child's steering inbox and lodge
         // its handle in the registry keyed by the parent tool-call id. Now any
         // permission / `ask_user` request the child surfaces travels *up* via
@@ -274,7 +274,7 @@ impl SubagentTool {
         // itself is the user message; `description` remains a required label
         // arg (validated above) for the parent / TUI.
         let mut messages = vec![crate::runtime::message::visible_user(
-            nuo_protocol::InjectionKind::SubagentTask,
+            nuo_tool::InjectionKind::SubagentTask,
             prompt,
         )];
         // The subagent runs under its own cancellation token. When the parent
@@ -343,7 +343,7 @@ impl SubagentTool {
             // (`visible_user` with `SubagentTask`), otherwise the first projection
             // would see a window it cannot map onto the transcript.
             let seed = vec![crate::runtime::message::visible_user(
-                nuo_protocol::InjectionKind::SubagentTask,
+                nuo_tool::InjectionKind::SubagentTask,
                 prompt,
             )];
             if let Err(error) = session
@@ -416,7 +416,7 @@ impl SubagentTool {
             let persist_session = std::sync::Arc::clone(session);
             let persist_agent = std::sync::Arc::clone(&subagent);
             subagent.set_turn_persist(std::sync::Arc::new(
-                move |messages: &[nuo_protocol::Message]| {
+                move |messages: &[nuo_tool::Message]| {
                     let session = std::sync::Arc::clone(&persist_session);
                     let agent = std::sync::Arc::clone(&persist_agent);
                     let snapshot = messages.to_vec();
@@ -492,7 +492,7 @@ impl SubagentTool {
                     // The child's setback is typed state, not prose: the
                     // parent renders `retry N in Xs` from these numbers, phrased
                     // by the same owner as the principal round's clause.
-                    on_event(nuo_protocol::SubagentEvent::RetryScheduled {
+                    on_event(nuo_tool::SubagentEvent::RetryScheduled {
                         attempt,
                         max_attempts: retry_limit,
                         delay_ms,
@@ -547,10 +547,10 @@ impl SubagentTool {
                 if matches!(error, nuo_protocol::HarnessError::Interrupted) {
                     let tool_calls = messages
                         .iter()
-                        .filter(|m| m.role == nuo_protocol::Role::Tool)
+                        .filter(|m| m.role == nuo_tool::Role::Tool)
                         .count();
                     let partial = messages.iter().rev().find_map(|m| {
-                        (m.role == nuo_protocol::Role::Assistant && !m.content.trim().is_empty())
+                        (m.role == nuo_tool::Role::Assistant && !m.content.trim().is_empty())
                             .then(|| m.content.trim().to_string())
                     });
                     let final_content = match partial {
@@ -570,7 +570,7 @@ impl SubagentTool {
                     );
                     return Ok(SubagentOutcome {
                         messages,
-                        token_usage: nuo_protocol::TokenUsage::default(),
+                        token_usage: nuo_tool::TokenUsage::default(),
                         final_content,
                         failed: false,
                         interrupted: true,
@@ -581,7 +581,7 @@ impl SubagentTool {
                 tracing::warn!(error = %error_string, "subagent failed; preserving partial transcript");
                 Ok(SubagentOutcome {
                     messages,
-                    token_usage: nuo_protocol::TokenUsage::default(),
+                    token_usage: nuo_tool::TokenUsage::default(),
                     final_content: format!("Error: {error_string}"),
                     failed: true,
                     interrupted: false,
@@ -595,7 +595,7 @@ impl SubagentTool {
         &self,
         call_id: Option<&str>,
         arguments: &str,
-        on_event: Box<dyn FnMut(nuo_protocol::SubagentEvent) + Send + 'a>,
+        on_event: Box<dyn FnMut(nuo_tool::SubagentEvent) + Send + 'a>,
     ) -> Result<String, String> {
         let outcome = self
             .run_subagent_outcome(call_id, arguments, on_event)
@@ -612,11 +612,11 @@ impl SubagentTool {
         event: nuo_protocol::AgentEvent,
         position: (u64, usize),
         origin: Option<&str>,
-        on_event: &mut dyn FnMut(nuo_protocol::SubagentEvent),
+        on_event: &mut dyn FnMut(nuo_tool::SubagentEvent),
     ) {
         match event {
             nuo_protocol::AgentEvent::Notice(notice) => {
-                on_event(nuo_protocol::SubagentEvent::Notice(notice));
+                on_event(nuo_tool::SubagentEvent::Notice(notice));
             }
             nuo_protocol::AgentEvent::ModelRequestStarted { turn, .. } => {
                 let status = if turn == 0 {
@@ -624,40 +624,40 @@ impl SubagentTool {
                 } else {
                     format!("waiting for model (turn {})", turn + 1)
                 };
-                on_event(nuo_protocol::SubagentEvent::Activity(status));
+                on_event(nuo_tool::SubagentEvent::Activity(status));
             }
             nuo_protocol::AgentEvent::AssistantDelta { delta, start } => {
                 if start {
-                    on_event(nuo_protocol::SubagentEvent::StreamStart {
+                    on_event(nuo_tool::SubagentEvent::StreamStart {
                         round: position.0,
                         turn: position.1,
                     });
                 }
-                on_event(nuo_protocol::SubagentEvent::StreamDelta(delta));
+                on_event(nuo_tool::SubagentEvent::StreamDelta(delta));
             }
             nuo_protocol::AgentEvent::AssistantEnd(content) => {
-                on_event(nuo_protocol::SubagentEvent::StreamEnd(content));
+                on_event(nuo_tool::SubagentEvent::StreamEnd(content));
             }
             // The subagent's reasoning chain, streamed live instead of surfacing
             // only after a session reload.
             nuo_protocol::AgentEvent::ReasoningDelta { delta, start } => {
                 if start {
-                    on_event(nuo_protocol::SubagentEvent::StreamReasoningStart {
+                    on_event(nuo_tool::SubagentEvent::StreamReasoningStart {
                         round: position.0,
                         turn: position.1,
                     });
                 }
-                on_event(nuo_protocol::SubagentEvent::StreamReasoningDelta(delta));
+                on_event(nuo_tool::SubagentEvent::StreamReasoningDelta(delta));
             }
             nuo_protocol::AgentEvent::ReasoningEnd(content) => {
-                on_event(nuo_protocol::SubagentEvent::StreamReasoningEnd(content));
+                on_event(nuo_tool::SubagentEvent::StreamReasoningEnd(content));
             }
             nuo_protocol::AgentEvent::ToolCall {
                 id,
                 name,
                 arguments,
             } => {
-                on_event(nuo_protocol::SubagentEvent::ToolCall {
+                on_event(nuo_tool::SubagentEvent::ToolCall {
                     id,
                     name,
                     arguments,
@@ -672,7 +672,7 @@ impl SubagentTool {
                 duration_ms,
                 ..
             } => {
-                on_event(nuo_protocol::SubagentEvent::ToolResult {
+                on_event(nuo_tool::SubagentEvent::ToolResult {
                     id,
                     name,
                     output,
@@ -685,20 +685,20 @@ impl SubagentTool {
                 if request.origin.is_none() {
                     request.origin = origin.map(str::to_string);
                 }
-                on_event(nuo_protocol::SubagentEvent::PermissionRequest(request));
+                on_event(nuo_tool::SubagentEvent::PermissionRequest(request));
             }
             // Same full-duplex contract as the permission arm above.
             nuo_protocol::AgentEvent::UserQuestionRequest(mut request) => {
                 if request.origin.is_none() {
                     request.origin = origin.map(str::to_string);
                 }
-                on_event(nuo_protocol::SubagentEvent::UserQuestionRequest(request));
+                on_event(nuo_tool::SubagentEvent::UserQuestionRequest(request));
             }
             // An interactive `bash` inside the subagent needs operator
             // stdin; forward the request up so the parent harness can surface
             // it, with the reply routed back down via `reply_input`.
             nuo_protocol::AgentEvent::StdinRequest(request) => {
-                on_event(nuo_protocol::SubagentEvent::StdinRequest(request));
+                on_event(nuo_tool::SubagentEvent::StdinRequest(request));
             }
             _ => {}
         }

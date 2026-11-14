@@ -4,12 +4,13 @@
 //! consults.
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::effort_ladders;
 use nuo_provider::spec::{ModelProviderSpec, PromptCachePolicy};
-use nuo_provider::{CatalogShape, RemoteCatalogSource};
+
 
 /// Per-model `max_tokens` for the Anthropic `/messages` surface. The Messages
 /// API requires `max_tokens`; capping the response at the model's registered
@@ -51,11 +52,11 @@ pub fn anthropic_model_max_tokens(model_id: &str) -> Option<u32> {
 /// so the same preset serves the official API or any Anthropic-compatible relay.
 /// Each id exists in the model registry, so its metadata (context window, output
 /// limit, capabilities) resolves there.
-pub use nuo_provider::model_providers::ANTHROPIC_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::ANTHROPIC_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_provider::model::BaselineModels`]).
+/// [`nuo_protocol::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Claude (Anthropic, via Anthropic-compatible relays)
     // Served over the Anthropic Messages wire format. Relays forward to
@@ -71,7 +72,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         // Opus 4.8 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -84,7 +85,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         // Sonnet 4.6 honors `max` but NOT `xhigh` (xhigh is Opus 4.8/4.7 only).
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -102,7 +103,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         // Fable 5 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -121,7 +122,7 @@ pub const MODELS: &[Model] = &[
         // Sonnet 5 honors the full range INCLUDING `xhigh` — the key difference
         // from Sonnet 4.6, which rejects `xhigh` (see CLAUDE_NO_XHIGH).
         effort_levels: effort_ladders::CLAUDE_FULL,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -136,25 +137,25 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
-pub fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
-    nuo_provider::PromptCacheSpec {
+pub fn prompt_cache_for_model(_: &str) -> nuo_protocol::PromptCacheSpec {
+    nuo_protocol::PromptCacheSpec {
         modes: &[
-            nuo_provider::PromptCacheMode::Automatic,
-            nuo_provider::PromptCacheMode::Explicit,
+            nuo_protocol::PromptCacheMode::Automatic,
+            nuo_protocol::PromptCacheMode::Explicit,
         ],
-        default_mode: Some(nuo_provider::PromptCacheMode::Automatic),
+        default_mode: Some(nuo_protocol::PromptCacheMode::Automatic),
         supported_retentions: &[
-            nuo_provider::CacheRetention::FiveMinutes,
-            nuo_provider::CacheRetention::OneHour,
+            nuo_protocol::CacheRetention::FiveMinutes,
+            nuo_protocol::CacheRetention::OneHour,
         ],
-        default_retention: Some(nuo_provider::CacheRetention::FiveMinutes),
+        default_retention: Some(nuo_protocol::CacheRetention::FiveMinutes),
         disable_supported: true,
         routing_key_supported: false,
         max_breakpoints: Some(4),
@@ -166,7 +167,7 @@ pub fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -180,7 +181,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
 };
 
 #[cfg(test)]

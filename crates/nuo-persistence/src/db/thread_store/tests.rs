@@ -1,5 +1,6 @@
 use super::*;
-use nuo_protocol::{BranchPolicy, FactContext, Message, Role};
+use nuo_protocol::{BranchPolicy, FactContext};
+use nuo_tool::{Message, Role};
 
 fn store() -> SqliteThreadStore {
     let conn = crate::db::migrations::open_in_memory_for_tests().expect("migrated db");

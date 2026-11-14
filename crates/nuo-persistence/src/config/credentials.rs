@@ -1,6 +1,6 @@
 //! Secret credentials storage, API keys, and web credentials resolution.
-use crate::fsutil;
-use crate::paths;
+use nuo_host::fsutil;
+use nuo_host::paths;
 use nuo_protocol::{SecretString, WebConfig, WebProviderAxis};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Provider API keys split out of `config.toml` into their own
-/// `credentials.toml` (written `rw-------` via [`crate::fsutil`]). This is the
+/// `credentials.toml` (written `rw-------` via [`nuo_host::fsutil`]). This is the
 /// **secret** half of provider configuration: `config.toml` holds the
 /// *behavior*, `providers.toml` the instance *declarations*, and this file the
 /// *keys* — so the other two files can be shared, screenshotted, or
@@ -170,7 +170,7 @@ impl Credentials {
     }
 
     /// Persist atomically with owner-only permissions (0600) via
-    /// [`crate::fsutil::atomic_write_bytes`].
+    /// [`nuo_host::fsutil::atomic_write_bytes`].
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let bytes = toml::to_string_pretty(self)?.into_bytes();
         fsutil::atomic_write_bytes(&Self::path(), &bytes)?;

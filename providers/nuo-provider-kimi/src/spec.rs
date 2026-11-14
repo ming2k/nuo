@@ -2,16 +2,17 @@
 //! Moonshot AI's Kimi Code coding platform (`api.kimi.com/coding/v1`).
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// Models served by Moonshot's Kimi Code endpoint, in display/activation
 /// order — the first entry is the initial active channel. `k3` is the
 /// platform's current flagship; `kimi-k2.7-code` remains as the previous
 /// pinned alias.
-pub use nuo_provider::model_providers::KIMI_CODE_MODELS;
+pub use nuo_protocol::model_providers::KIMI_CODE_MODELS;
 
 // Kimi Code — Moonshot AI's coding platform (api.kimi.com/coding/v1).
 // The platform pins the model id to the fixed `k3` alias (Kimi K3, 1M
@@ -26,7 +27,7 @@ pub use nuo_provider::model_providers::KIMI_CODE_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_provider::model::BaselineModels`]).
+/// [`nuo_protocol::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Kimi (Moonshot / opencode-go)
     Model {
@@ -47,7 +48,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -59,7 +60,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -71,7 +72,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -83,17 +84,17 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
-    nuo_provider::PromptCacheSpec {
-        modes: &[nuo_provider::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_protocol::PromptCacheSpec {
+    nuo_protocol::PromptCacheSpec {
+        modes: &[nuo_protocol::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -109,7 +110,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
 const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -124,6 +125,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: Some(nuo_provider::QuotaPort::KimiBalance),
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
     models: KIMI_CODE_MODELS,
 };

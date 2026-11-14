@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_protocol::Tool;
+use nuo_tool::Tool;
 use serde_json::json;
 
 use crate::runtime::host::{NoRoleMemory, RoleMemory};

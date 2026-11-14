@@ -23,8 +23,9 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
-use nuo_provider::{CredentialSource, ProviderError, ResolvedAuth};
+use nuo_protocol::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
+use nuo_protocol::{CredentialSource, ProviderError, ResolvedAuth};
+
 
 use crate::request::COPILOT_CLIENT_HEADERS;
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
@@ -42,8 +43,9 @@ pub use spec::*;
 // Re-export the model-capability enums so callers reaching them through the
 // provider crate keep a stable path. They live in `nuo-protocol` because they
 // are model capabilities, not transport details.
-pub use nuo_provider::effort::Effort;
-pub use nuo_provider::{ReasoningMode, ReasoningSupport};
+pub use nuo_protocol::effort::Effort;
+pub use nuo_protocol::{ReasoningMode, ReasoningSupport};
+
 pub use thinking::ThinkingConfig;
 
 /// Anthropic-compatible `/messages` provider.
@@ -62,10 +64,10 @@ pub struct AnthropicMessagesProvider {
     pub thinking: ThinkingConfig,
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
-    pub capabilities: nuo_provider::ModelCapabilities,
+    pub capabilities: nuo_protocol::ModelCapabilities,
     /// Use GitHub Copilot's bearer authentication and client headers for its
     /// `/v1/messages` adapter instead of stock Anthropic API-key headers.
-    pub dialect: nuo_provider::AnthropicMessagesDialect,
+    pub dialect: nuo_protocol::AnthropicMessagesDialect,
     /// Route-scoped prompt-cache capabilities, defaults, and affinity.
     pub prompt_cache: PromptCacheConfig,
 }
@@ -90,8 +92,8 @@ impl AnthropicMessagesProvider {
         user_agent: &str,
     ) -> Self {
         // Default the thinking/effort config to opt-in off (ADR-0046).
-        let thinking = ThinkingConfig::for_model(&nuo_provider::model::resolve(&model));
-        let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
+        let thinking = ThinkingConfig::for_model(&nuo_protocol::model::resolve(&model));
+        let capabilities = nuo_protocol::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::from_static_key(api_key, model, base_url, "anthropic")
                 .with_user_agent(user_agent),
@@ -99,7 +101,7 @@ impl AnthropicMessagesProvider {
             max_tokens: 8192,
             thinking,
             capabilities,
-            dialect: nuo_provider::AnthropicMessagesDialect::Standard,
+            dialect: nuo_protocol::AnthropicMessagesDialect::Standard,
             prompt_cache: PromptCacheConfig::default(),
         }
     }
@@ -110,15 +112,15 @@ impl AnthropicMessagesProvider {
         model: String,
         base_url: &str,
     ) -> Self {
-        let thinking = ThinkingConfig::for_model(&nuo_provider::model::resolve(&model));
-        let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
+        let thinking = ThinkingConfig::for_model(&nuo_protocol::model::resolve(&model));
+        let capabilities = nuo_protocol::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::with_credentials(credentials, model, base_url, "anthropic"),
             client: Client::new(),
             max_tokens: 8192,
             thinking,
             capabilities,
-            dialect: nuo_provider::AnthropicMessagesDialect::Standard,
+            dialect: nuo_protocol::AnthropicMessagesDialect::Standard,
             prompt_cache: PromptCacheConfig::default(),
         }
     }
@@ -150,7 +152,7 @@ impl AnthropicMessagesProvider {
     /// Attach the effective provider-channel capability view.
     pub fn with_model_capabilities(
         mut self,
-        capabilities: nuo_provider::ModelCapabilities,
+        capabilities: nuo_protocol::ModelCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
         self
@@ -169,13 +171,13 @@ impl AnthropicMessagesProvider {
     fn resolve_cache_plan(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_provider::ResolvedCachePolicy, ProviderError> {
+    ) -> Result<nuo_protocol::ResolvedCachePolicy, ProviderError> {
         self.prompt_cache
             .resolve(request)
             .map_err(|e| ProviderError::invalid_request("Anthropic", e))
     }
 
-    pub fn with_dialect(mut self, dialect: nuo_provider::AnthropicMessagesDialect) -> Self {
+    pub fn with_dialect(mut self, dialect: nuo_protocol::AnthropicMessagesDialect) -> Self {
         self.dialect = dialect;
         self
     }
@@ -191,7 +193,7 @@ impl AnthropicMessagesProvider {
         &self,
         wire: &nuo_provider::WireRequest,
         auth: &ResolvedAuth,
-    ) -> Result<RequestBuilder, nuo_provider::ProviderError> {
+    ) -> Result<RequestBuilder, nuo_protocol::ProviderError> {
         let encoded = wire.encode()?;
         let mut req = RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
             .header(http::header::USER_AGENT, self.endpoint.user_agent())
@@ -200,12 +202,12 @@ impl AnthropicMessagesProvider {
             auth.token.expose_secret(),
             &self.capabilities,
             self.thinking,
-            self.dialect == nuo_provider::AnthropicMessagesDialect::Copilot,
+            self.dialect == nuo_protocol::AnthropicMessagesDialect::Copilot,
         ) {
             req = req.header(name, value);
         }
         for (name, value) in self.endpoint.headers() {
-            if self.dialect != nuo_provider::AnthropicMessagesDialect::Copilot
+            if self.dialect != nuo_protocol::AnthropicMessagesDialect::Copilot
                 || !COPILOT_CLIENT_HEADERS.iter().any(|(k, _)| *k == name)
             {
                 req = req.header(name, value);
@@ -224,7 +226,7 @@ impl AnthropicMessagesProvider {
         &self,
         wire: &nuo_provider::WireRequest,
         is_stream: bool,
-        telemetry: &nuo_provider::TransportTelemetry,
+        telemetry: &nuo_protocol::TransportTelemetry,
     ) -> Result<HttpResponse, ProviderError> {
         // Prewarm races auth resolution: both are async, neither needs the
         // other, and the pool hit (or a fresh connection) is ready by the
@@ -296,7 +298,7 @@ impl Provider for AnthropicMessagesProvider {
         }
     }
 
-    fn model_capabilities(&self) -> nuo_provider::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_protocol::ModelCapabilities {
         self.capabilities.clone()
     }
 
@@ -317,7 +319,7 @@ impl Provider for AnthropicMessagesProvider {
     async fn chat(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         let cache_plan = self.resolve_cache_plan(request)?;
         let body = request::body_with_capabilities(
             &request.messages,
@@ -335,9 +337,9 @@ impl Provider for AnthropicMessagesProvider {
         );
 
         let wire =
-            nuo_provider::WireRequest::new(nuo_provider::WireProtocol::AnthropicMessages, body);
+            nuo_provider::WireRequest::new(nuo_protocol::WireProtocol::AnthropicMessages, body);
         let resp = self
-            .send_request(&wire, false, &nuo_provider::TransportTelemetry::default())
+            .send_request(&wire, false, &nuo_protocol::TransportTelemetry::default())
             .await?;
         let response_json: serde_json::Value = decode_response_json(resp, "Anthropic").await?;
 
@@ -353,9 +355,9 @@ impl Provider for AnthropicMessagesProvider {
             );
             map
         });
-        Ok(nuo_provider::ProviderCompletion {
+        Ok(nuo_protocol::ProviderCompletion {
             message: response::into_message(assembled),
-            meta: nuo_provider::ProviderCompletionMeta {
+            meta: nuo_protocol::ProviderCompletionMeta {
                 usage,
                 artifacts,
                 continuation: None,
@@ -366,10 +368,10 @@ impl Provider for AnthropicMessagesProvider {
     async fn stream_chat(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let cache_plan = self.resolve_cache_plan(request)?;
         let body = request::body_with_capabilities(
@@ -388,7 +390,7 @@ impl Provider for AnthropicMessagesProvider {
         );
 
         let wire =
-            nuo_provider::WireRequest::new(nuo_provider::WireProtocol::AnthropicMessages, body);
+            nuo_provider::WireRequest::new(nuo_protocol::WireProtocol::AnthropicMessages, body);
         let response = self.send_request(&wire, true, &telemetry).await?;
 
         // Reuse the shared SSE byte reassembly; each payload is one Anthropic
@@ -404,10 +406,10 @@ impl Provider for AnthropicMessagesProvider {
     async fn stream_chat_events(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let cache_plan = self.resolve_cache_plan(request)?;
         let body = request::body_with_capabilities(
@@ -426,7 +428,7 @@ impl Provider for AnthropicMessagesProvider {
         );
 
         let wire =
-            nuo_provider::WireRequest::new(nuo_provider::WireProtocol::AnthropicMessages, body);
+            nuo_provider::WireRequest::new(nuo_protocol::WireProtocol::AnthropicMessages, body);
         let response = self.send_request(&wire, true, &telemetry).await?;
 
         let sig_stash = signature::SignatureStash::shared();
@@ -437,7 +439,7 @@ impl Provider for AnthropicMessagesProvider {
         let mut usage_state = response::StreamUsage::default();
         let stream = nuo_provider::transport::sse::data_payloads(response, "Anthropic").flat_map(
             move |item| {
-                let events: Vec<Result<ProviderStreamEvent, nuo_provider::ProviderError>> =
+                let events: Vec<Result<ProviderStreamEvent, nuo_protocol::ProviderError>> =
                     match item {
                         Ok(payload) => {
                             // Parse-once discipline: each payload is
@@ -473,7 +475,7 @@ impl Provider for AnthropicMessagesProvider {
                 map
             });
             Ok(ProviderStreamEvent::Completed(
-                nuo_provider::ProviderCompletionMeta {
+                nuo_protocol::ProviderCompletionMeta {
                     artifacts,
                     ..Default::default()
                 },

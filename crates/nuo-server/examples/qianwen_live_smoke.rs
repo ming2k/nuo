@@ -10,9 +10,9 @@
 
 use async_trait::async_trait;
 use nuo_host::SecretString;
-use nuo_provider::Effort;
-use nuo_provider::Provider;
-use nuo_provider::capability::ProviderStreamEvent;
+use nuo_protocol::Effort;
+use nuo_protocol::Provider;
+use nuo_protocol::capability::ProviderStreamEvent;
 use nuo_tool::Tool;
 use nuo_tool::{Message, Role};
 
@@ -56,8 +56,8 @@ async fn main() {
     let model = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "qwen3.8-flash".to_string());
-    let baseline = nuo_provider::model::resolve(&model);
-    let spec = nuo_server::provider_registry::model_provider_spec("qianwen")
+    let baseline = nuo_protocol::model::resolve(&model);
+    let spec = nuo_server::composition::provider_registry::model_provider_spec("qianwen")
         .unwrap_or_else(|| panic!("built-in qianwen spec is registered"));
     let url = format!("{}/chat/completions", spec.root_url.trim_end_matches('/'));
     println!(
@@ -76,7 +76,7 @@ async fn main() {
         &url,
     )
     .with_id("qianwen-smoke".to_string())
-    .with_model_capabilities(nuo_provider::ModelCapabilities::for_channel(
+    .with_model_capabilities(nuo_protocol::ModelCapabilities::for_channel(
         baseline.id,
         None,
     ));
@@ -84,11 +84,11 @@ async fn main() {
     // Round 1: plain streaming text.
     let stream = provider
         .stream_chat_events(
-            &nuo_provider::ModelRequest::new(vec![Message::new(
+            &nuo_protocol::ModelRequest::new(vec![Message::new(
                 Role::User,
                 "Reply with exactly: OK",
             )]),
-            nuo_provider::TransportTelemetry::default(),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .expect("stream opens");
@@ -136,11 +136,11 @@ async fn main() {
     .with_reasoning_effort(Some(Effort::None));
     let stream = provider_off
         .stream_chat_events(
-            &nuo_provider::ModelRequest::new(vec![Message::new(
+            &nuo_protocol::ModelRequest::new(vec![Message::new(
                 Role::User,
                 "Reply with exactly: OK",
             )]),
-            nuo_provider::TransportTelemetry::default(),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .expect("off-stream opens");
@@ -161,7 +161,7 @@ async fn main() {
     );
 
     // Round 3: native tool calls — the harness requires them.
-    let request = nuo_provider::capability::ModelRequest::with_tools(
+    let request = nuo_protocol::capability::ModelRequest::with_tools(
         vec![Message::new(
             Role::User,
             "What is the weather in Beijing? Use the tool.",

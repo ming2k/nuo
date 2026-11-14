@@ -1,4 +1,4 @@
-use super::super::telemetry::{TransportObservation, TransportTelemetry};
+use nuo_protocol::token_ledger::{TransportObservation, TransportTelemetry};
 use super::*;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};

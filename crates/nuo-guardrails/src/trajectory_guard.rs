@@ -14,7 +14,8 @@
 //!    `NoLoop` and advances the ladder, avoiding deadlocks on infrastructure faults.
 use std::collections::{HashMap, VecDeque};
 
-use nuo_protocol::{BuiltinTool, TrajectoryGuardConfig};
+use nuo_tool::{BuiltinTool, TrajectoryGuardConfig};
+
 use serde_json::Value;
 
 use crate::guard::GuardAction;

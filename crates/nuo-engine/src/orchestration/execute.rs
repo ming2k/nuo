@@ -811,9 +811,9 @@ pub async fn execute_round(
         agent.clear_todos();
         let _ = tx.send(round_response(
             &session_id,
-            RoundEvent::TodosUpdated(nuo_protocol::TodoList::default()),
+            RoundEvent::TodosUpdated(nuo_tool::TodoList::default()),
         ));
-        if let Err(err) = session.set_todos(nuo_protocol::TodoList::default()).await {
+        if let Err(err) = session.set_todos(nuo_tool::TodoList::default()).await {
             tracing::warn!(error = %err, "could not clear todos");
         }
     } else {

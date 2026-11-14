@@ -31,7 +31,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 
-use nuo_protocol::Tool;
+use nuo_tool::Tool;
 
 use crate::dynamic_tools::DynamicToolRegistry;
 
@@ -72,7 +72,7 @@ pub(crate) struct ToolManager {
     /// across all sources.
     disabled: Arc<Mutex<HashSet<String>>>,
     /// In-memory hook-scoped disable mask (per RestorePoint).
-    scoped_disabled: Arc<Mutex<crate::governance::ScopedToolDisable>>,
+    scoped_disabled: Arc<Mutex<nuo_guardrails::ScopedToolDisable>>,
     /// Role-level admitted MCP patterns.
     admit_mcp: Arc<RwLock<Vec<String>>>,
 }
@@ -85,7 +85,7 @@ impl ToolManager {
         resolved: Arc<RwLock<Vec<Arc<dyn Tool>>>>,
         dynamic: Arc<DynamicToolRegistry>,
         disabled: Arc<Mutex<HashSet<String>>>,
-        scoped_disabled: Arc<Mutex<crate::governance::ScopedToolDisable>>,
+        scoped_disabled: Arc<Mutex<nuo_guardrails::ScopedToolDisable>>,
         admit_mcp: Arc<RwLock<Vec<String>>>,
     ) -> Self {
         Self {
@@ -217,8 +217,8 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use nuo_protocol::DynamicToolSink;
-    use nuo_protocol::ScopeTarget;
-    use nuo_protocol::ToolAccesses;
+    use nuo_tool::ScopeTarget;
+    use nuo_tool::ToolAccesses;
 
     /// Minimal tool stub for classification tests.
     struct StubTool {
@@ -274,7 +274,7 @@ mod tests {
         // Publish dynamic tools under a synthetic MCP source.
         dynamic.replace("mcp:test", dynamic_tools);
         let disabled = Arc::new(Mutex::new(disabled.iter().map(|s| s.to_string()).collect()));
-        let scoped = Arc::new(Mutex::new(crate::governance::ScopedToolDisable::default()));
+        let scoped = Arc::new(Mutex::new(nuo_guardrails::ScopedToolDisable::default()));
         let admit_mcp = Arc::new(RwLock::new(vec!["*".to_string()]));
         ToolManager::new(resolved, dynamic, disabled, scoped, admit_mcp)
     }

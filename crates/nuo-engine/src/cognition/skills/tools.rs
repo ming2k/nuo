@@ -1,7 +1,7 @@
 //! Tools for interacting with the skill registry.
 use super::{SkillRegistry, SkillScope};
 use async_trait::async_trait;
-use nuo_protocol::Tool;
+use nuo_tool::Tool;
 use serde_json::json;
 use std::sync::Arc;
 

@@ -6,16 +6,14 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::capability::{
+use nuo_protocol::capability::{
     ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
     ProviderTextStream,
 };
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
-use nuo_provider::{
-    CredentialSource, Effort, ModelCapabilities, ProviderCompletion, ProviderCompletionMeta,
-    ProviderError, RequestDelivery,
-};
+use nuo_protocol::{CredentialSource, Effort, ModelCapabilities, ProviderCompletion, ProviderCompletionMeta, ProviderError, RequestDelivery};
+
 use nuo_provider::{Endpoint, PromptCacheConfig};
 use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::json;
@@ -305,7 +303,7 @@ impl Provider for GoogleInteractionsProvider {
     async fn stream_chat(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<ProviderTextStream, ProviderError> {
         let events = self.stream_chat_events(request, telemetry).await?;
         let text_stream = events.filter_map(|ev| async move {
@@ -320,7 +318,7 @@ impl Provider for GoogleInteractionsProvider {
     async fn stream_chat_events(
         &self,
         request: &ModelRequest,
-        _telemetry: nuo_provider::TransportTelemetry,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<ProviderEventStream, ProviderError> {
         let response = self.send_interactions_request(request, true).await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
@@ -401,7 +399,7 @@ mod tests {
 
     #[test]
     fn google_interactions_provider_metadata() {
-        let creds = nuo_provider::static_credential("test-key");
+        let creds = nuo_protocol::static_credential("test-key");
         let provider = GoogleInteractionsProvider::new(
             creds,
             "gemini-3.8-flash".to_string(),

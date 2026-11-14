@@ -22,10 +22,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
-use nuo::registry::{HostedThread, ThreadRegistry};
-use nuo::serve::ServeExpose;
-use nuo::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
+use nuo::runtime::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
+use nuo::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_server::transport::serve::ServeExpose;
+use nuo::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::MonitorEvent;
 use tokio::sync::{Mutex, broadcast, mpsc};
@@ -47,7 +47,7 @@ use super::sandbox_once;
 #[test]
 fn nuo_home_redirects_the_server_footprint() {
     sandbox_once();
-    let dirs = nuo_persistence::paths::get();
+    let dirs = nuo_host::paths::get();
     let root = std::env::var("NUO_HOME").unwrap();
     let under_root = |p: &std::path::Path| p.starts_with(&root);
     for dir in [
@@ -69,10 +69,10 @@ fn nuo_home_redirects_the_server_footprint() {
     );
     // And the server-facing paths derive from the instance dir.
     for path in [
-        nuo::serve_discovery::global_discovery_path(),
-        nuo::serve_discovery::global_lock_path(),
+        nuo_server::transport::serve_discovery::global_discovery_path(),
+        nuo_server::transport::serve_discovery::global_lock_path(),
         #[cfg(unix)]
-        nuo::serve_discovery::default_uds_path(),
+        nuo_server::transport::serve_discovery::default_uds_path(),
     ] {
         assert!(under_root(&path), "{path:?} must follow the instance dir");
     }
@@ -110,7 +110,7 @@ async fn host_one(registry: &Arc<ThreadRegistry>, project: &str) -> String {
     let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
     let id = session.id().await;
     let id_ret = id.clone();
-    let tracker = Arc::new(Mutex::new(nuo::monitor::MonitorTracker::bootstrap(
+    let tracker = Arc::new(Mutex::new(nuo::runtime::monitor::MonitorTracker::bootstrap(
         nuo_protocol::MonitoredThread::empty(id),
         nuo_protocol::ThreadActivity::Idle,
     )));
@@ -130,8 +130,8 @@ async fn host_one(registry: &Arc<ThreadRegistry>, project: &str) -> String {
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_protocol::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
@@ -177,7 +177,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
         trigger_gate.request(ShutdownReason::ControlVerb, false);
     });
 
-    let outcome = nuo::host::run_with_registry(
+    let outcome = nuo::runtime::host::run_with_registry(
         test_identity(),
         options(tmp.path().join("a.sock"), 0),
         gate,
@@ -198,7 +198,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     }
     // The discovery advertisement is gone (the lease released it).
     assert!(
-        !nuo::serve_discovery::global_discovery_path().exists(),
+        !nuo_server::transport::serve_discovery::global_discovery_path().exists(),
         "discovery record must be removed on drain"
     );
     // The monitor bus saw the drain announcement and the session teardown.
@@ -229,7 +229,7 @@ async fn idle_exit_triggers_after_the_grace_period() {
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let gate = Arc::new(ShutdownGate::new());
     let _ = registry;
-    let outcome = nuo::host::run_with_gate(
+    let outcome = nuo::runtime::host::run_with_gate(
         test_identity(),
         options(tmp.path().join("b.sock"), 0),
         gate,
@@ -268,7 +268,7 @@ async fn escalation_skips_the_graceful_phases() {
     let run_gate = gate.clone();
     let run_probe = probe.clone();
     let run = tokio::spawn(async move {
-        nuo::host::run_with_registry(
+        nuo::runtime::host::run_with_registry(
             test_identity(),
             options(sock, 0),
             run_gate,
@@ -325,7 +325,7 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let _ = registry;
-    let outcome = nuo::host::run_with_gate(
+    let outcome = nuo::runtime::host::run_with_gate(
         test_identity(),
         options(tmp.path().join("d.sock"), taken),
         Arc::new(ShutdownGate::new()),
@@ -368,7 +368,7 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     ) {
         let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(512);
         let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
-        let tracker = Arc::new(Mutex::new(nuo::monitor::MonitorTracker::bootstrap(
+        let tracker = Arc::new(Mutex::new(nuo::runtime::monitor::MonitorTracker::bootstrap(
             nuo_protocol::MonitoredThread::empty(session.id().await),
             nuo_protocol::ThreadActivity::Idle,
         )));
@@ -388,8 +388,8 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
                 cancel: tokio_util::sync::CancellationToken::new(),
                 driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
                 tracker,
-                sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-                command_catalog: nuo_protocol::CommandCatalog::default(),
+                sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+                command_catalog: nuo_tool::CommandCatalog::default(),
                 initial_provider: "test-provider".into(),
                 initial_model: "test-model".into(),
                 created_at: std::time::Instant::now(),
@@ -404,8 +404,8 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     let plain_project = tmp.path().join("plain-project");
     let plain_session = Arc::new(ThreadSession::load_for_project(plain_project.clone()));
     plain_session
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "no schedule here",
         )])
         .await
@@ -438,7 +438,7 @@ async fn server_persists_when_interactive_client_disconnects() {
     let gate_run = gate.clone();
     let sock_clone = sock.clone();
     let run = tokio::spawn(async move {
-        nuo::host::run_with_registry(
+        nuo::runtime::host::run_with_registry(
             test_identity(),
             options(sock_clone, 0),
             gate_run,
@@ -532,7 +532,7 @@ async fn client_detach_spares_active_autonomous_work() {
     let gate_clone = gate.clone();
     let sock_clone = sock.clone();
     let run = tokio::spawn(async move {
-        nuo::host::run_with_registry(
+        nuo::runtime::host::run_with_registry(
             test_identity(),
             options(sock_clone, 0),
             gate_clone,
@@ -609,7 +609,7 @@ async fn conflicting_stale_socket_is_directly_replaced() {
         g1.request(ShutdownReason::ControlVerb, false);
     });
 
-    let outcome = nuo::host::run_with_registry(
+    let outcome = nuo::runtime::host::run_with_registry(
         test_identity(),
         options(sock.clone(), 0),
         gate,

@@ -4,7 +4,7 @@
 //! domain types: the assistant [`Message`] (with reasoning content and tool
 //! calls), the top-level `usage` object, and the per-chunk stream events.
 
-use nuo_provider::capability::ProviderStreamEvent;
+use nuo_protocol::capability::ProviderStreamEvent;
 use nuo_tool::ToolCall;
 use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::Value;
@@ -121,7 +121,7 @@ impl ReasoningDetailsAccumulator {
 /// hit rate and the cost is attributed correctly. `cache_creation_input_tokens`
 /// stays zero: OpenAI-style auto-caching has no separate write counter.
 pub fn usage(usage: &Value) -> Option<TokenUsage> {
-    let cache = nuo_provider::read_prompt_cache_usage(usage);
+    let cache = nuo_protocol::read_prompt_cache_usage(usage);
     let prompt = usage["prompt_tokens"].as_i64();
     let completion = usage["completion_tokens"].as_i64();
     let total = usage["total_tokens"].as_i64();

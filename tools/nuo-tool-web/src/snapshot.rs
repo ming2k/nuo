@@ -1,4 +1,4 @@
-use nuo_protocol::truncate_utf8;
+use nuo_tool::truncate_utf8;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

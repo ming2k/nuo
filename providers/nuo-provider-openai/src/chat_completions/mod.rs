@@ -14,8 +14,9 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
-use nuo_provider::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
+use nuo_protocol::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
+use nuo_protocol::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
+
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -40,14 +41,14 @@ pub struct OpenAiChatCompletionsProvider {
     pub prompt_cache: PromptCacheConfig,
     /// Channel-scoped capability view. A trusted remote catalogue overrides the
     /// static baseline only for this provider/model route.
-    pub capabilities: nuo_provider::ModelCapabilities,
+    pub capabilities: nuo_protocol::ModelCapabilities,
     /// When `true`, inject GitHub Copilot's required per-request headers
     /// (`x-initiator`, `Openai-Intent`, `X-GitHub-Api-Version`) in addition to
     /// the bearer. Flipped on by the catalog for Copilot OAuth channels that
     /// speak the chat-completions surface (the GPT-4o family and Copilot Free
     /// accounts, which do not have Responses-API access). Mirrors the same flag
     /// on [`OpenAiResponsesProvider`](crate::OpenAiResponsesProvider).
-    pub dialect: nuo_provider::OpenAiChatDialect,
+    pub dialect: nuo_protocol::OpenAiChatDialect,
     /// Pooled HTTP client reused across every request this provider makes.
     pub client: Client,
     /// Transport pipeline for request and stream transformation.
@@ -72,7 +73,7 @@ impl OpenAiChatCompletionsProvider {
         base_url: &str,
         user_agent: &str,
     ) -> Self {
-        let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_protocol::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::from_static_key(api_key, model, base_url, "openai")
                 .with_user_agent(user_agent),
@@ -80,7 +81,7 @@ impl OpenAiChatCompletionsProvider {
             reasoning_effort: None,
             prompt_cache: PromptCacheConfig::default(),
             capabilities,
-            dialect: nuo_provider::OpenAiChatDialect::Standard,
+            dialect: nuo_protocol::OpenAiChatDialect::Standard,
             pipeline: Arc::new(TransportPipeline::default()),
         }
     }
@@ -91,14 +92,14 @@ impl OpenAiChatCompletionsProvider {
         model: String,
         base_url: &str,
     ) -> Self {
-        let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
+        let capabilities = nuo_protocol::ModelCapabilities::for_channel(&model, None);
         Self {
             endpoint: Endpoint::with_credentials(credentials, model, base_url, "openai"),
             client: Client::new(),
             reasoning_effort: None,
             prompt_cache: PromptCacheConfig::default(),
             capabilities,
-            dialect: nuo_provider::OpenAiChatDialect::Standard,
+            dialect: nuo_protocol::OpenAiChatDialect::Standard,
             pipeline: Arc::new(TransportPipeline::default()),
         }
     }
@@ -142,13 +143,13 @@ impl OpenAiChatCompletionsProvider {
     /// Attach the effective provider-channel capability view.
     pub fn with_model_capabilities(
         mut self,
-        capabilities: nuo_provider::ModelCapabilities,
+        capabilities: nuo_protocol::ModelCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
         self
     }
 
-    pub fn with_dialect(mut self, dialect: nuo_provider::OpenAiChatDialect) -> Self {
+    pub fn with_dialect(mut self, dialect: nuo_protocol::OpenAiChatDialect) -> Self {
         self.dialect = dialect;
         // The default pass-through pipeline owns the plain wire's dialect-
         // attributed headers (Copilot client headers, OpenRouter attribution);
@@ -170,7 +171,7 @@ impl OpenAiChatCompletionsProvider {
     /// Declare the model's catalog provenance: the `source` the provider names
     /// (`system` / `custom`) and the presentation label. Both are wire-optional
     /// — only a dialect whose surface declares a matching
-    /// [`ModelCarrier`](nuo_provider::wire_surface::ModelCarrier) binding
+    /// [`ModelCarrier`](nuo_protocol::wire_surface::ModelCarrier) binding
     /// stamps them. The wire id remains the identity.
     pub fn with_catalog_provenance(
         mut self,
@@ -189,12 +190,12 @@ impl OpenAiChatCompletionsProvider {
     /// 400") is essential for diagnosing which backend rejected a request.
     fn label(&self) -> &'static str {
         match self.dialect {
-            nuo_provider::OpenAiChatDialect::Copilot => "Copilot",
-            nuo_provider::OpenAiChatDialect::OpenRouter => "OpenRouter",
-            nuo_provider::OpenAiChatDialect::Qoder => "Qoder",
-            nuo_provider::OpenAiChatDialect::DeepSeek => "DeepSeek",
-            nuo_provider::OpenAiChatDialect::CodeBuddy => "CodeBuddy",
-            nuo_provider::OpenAiChatDialect::Standard => "OpenAI",
+            nuo_protocol::OpenAiChatDialect::Copilot => "Copilot",
+            nuo_protocol::OpenAiChatDialect::OpenRouter => "OpenRouter",
+            nuo_protocol::OpenAiChatDialect::Qoder => "Qoder",
+            nuo_protocol::OpenAiChatDialect::DeepSeek => "DeepSeek",
+            nuo_protocol::OpenAiChatDialect::CodeBuddy => "CodeBuddy",
+            nuo_protocol::OpenAiChatDialect::Standard => "OpenAI",
         }
     }
 
@@ -213,14 +214,14 @@ impl OpenAiChatCompletionsProvider {
         let mut req = RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
             .header(http::header::USER_AGENT, self.endpoint.user_agent())
             .json(body);
-        let copilot = self.dialect == nuo_provider::OpenAiChatDialect::Copilot;
+        let copilot = self.dialect == nuo_protocol::OpenAiChatDialect::Copilot;
         // A CodeBuddy credential declares its wire lane via the typed
         // `WirePlacement` on the resolved auth (`Bearer` = OIDC login pair) —
         // the header shape (`Authorization: Bearer` vs `X-API-Key`) follows
         // from that placement, not from sniffing the token string.
         // Every other lane resolves as plain Bearer.
-        let codebuddy_lane = if self.dialect != nuo_provider::OpenAiChatDialect::CodeBuddy
-            || auth.placement == nuo_provider::WirePlacement::Bearer
+        let codebuddy_lane = if self.dialect != nuo_protocol::OpenAiChatDialect::CodeBuddy
+            || auth.placement == nuo_protocol::WirePlacement::Bearer
         {
             request::CodeBuddyAuthLane::Bearer
         } else {
@@ -252,7 +253,7 @@ impl OpenAiChatCompletionsProvider {
         &self,
         wire: &nuo_provider::WireRequest,
         is_stream: bool,
-        telemetry: &nuo_provider::TransportTelemetry,
+        telemetry: &nuo_protocol::TransportTelemetry,
     ) -> Result<HttpResponse, ProviderError> {
         let prewarm = self.client.prewarm(self.endpoint.base_url(), self.label());
         let auth_fut = self.endpoint.resolve_auth();
@@ -300,7 +301,7 @@ impl OpenAiChatCompletionsProvider {
         &self,
         wire: &nuo_provider::WireRequest,
         auth: &ResolvedAuth,
-        telemetry: &nuo_provider::TransportTelemetry,
+        telemetry: &nuo_protocol::TransportTelemetry,
     ) -> Result<RequestBuilder, ProviderError> {
         let plan = self
             .pipeline
@@ -340,7 +341,7 @@ impl Provider for OpenAiChatCompletionsProvider {
         self.reasoning_effort
     }
 
-    fn model_capabilities(&self) -> nuo_provider::ModelCapabilities {
+    fn model_capabilities(&self) -> nuo_protocol::ModelCapabilities {
         self.capabilities.clone()
     }
 
@@ -373,7 +374,7 @@ impl Provider for OpenAiChatCompletionsProvider {
     async fn chat(
         &self,
         request: &ModelRequest,
-    ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         let cache_plan = self
             .prompt_cache
             .resolve(request)
@@ -397,11 +398,11 @@ impl Provider for OpenAiChatCompletionsProvider {
         let resp = self
             .send_request(
                 &nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::OpenAiChatCompletions,
+                    nuo_protocol::WireProtocol::OpenAiChatCompletions,
                     body,
                 ),
                 false,
-                &nuo_provider::TransportTelemetry::default(),
+                &nuo_protocol::TransportTelemetry::default(),
             )
             .await?;
         let response_json: serde_json::Value = decode_response_json(resp, label).await?;
@@ -433,9 +434,9 @@ impl Provider for OpenAiChatCompletionsProvider {
             );
             emitted
         });
-        Ok(nuo_provider::ProviderCompletion {
+        Ok(nuo_protocol::ProviderCompletion {
             message,
-            meta: nuo_provider::ProviderCompletionMeta {
+            meta: nuo_protocol::ProviderCompletionMeta {
                 usage,
                 ..Default::default()
             },
@@ -445,10 +446,10 @@ impl Provider for OpenAiChatCompletionsProvider {
     async fn stream_chat(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let cache_plan = self
             .prompt_cache
@@ -472,7 +473,7 @@ impl Provider for OpenAiChatCompletionsProvider {
         let response = self
             .send_request(
                 &nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::OpenAiChatCompletions,
+                    nuo_protocol::WireProtocol::OpenAiChatCompletions,
                     body,
                 ),
                 true,
@@ -495,10 +496,10 @@ impl Provider for OpenAiChatCompletionsProvider {
     async fn stream_chat_events(
         &self,
         request: &ModelRequest,
-        telemetry: nuo_provider::TransportTelemetry,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
-        nuo_provider::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let cache_plan = self
             .prompt_cache
@@ -522,7 +523,7 @@ impl Provider for OpenAiChatCompletionsProvider {
         let response = self
             .send_request(
                 &nuo_provider::WireRequest::new(
-                    nuo_provider::WireProtocol::OpenAiChatCompletions,
+                    nuo_protocol::WireProtocol::OpenAiChatCompletions,
                     body,
                 ),
                 true,
@@ -541,7 +542,7 @@ impl Provider for OpenAiChatCompletionsProvider {
         let reasoning_details =
             Arc::new(Mutex::new(response::ReasoningDetailsAccumulator::default()));
         let reasoning_details_for_body = Arc::clone(&reasoning_details);
-        let collect_reasoning_details = self.dialect == nuo_provider::OpenAiChatDialect::OpenRouter;
+        let collect_reasoning_details = self.dialect == nuo_protocol::OpenAiChatDialect::OpenRouter;
         let pipeline = self.pipeline.clone();
         let label = self.label();
         let body = nuo_provider::transport::sse::data_payloads(response, label).map(move |item| {
@@ -614,7 +615,7 @@ impl Provider for OpenAiChatCompletionsProvider {
                 })
                 .flatten();
             events.push(Ok(ProviderStreamEvent::Completed(
-                nuo_provider::ProviderCompletionMeta {
+                nuo_protocol::ProviderCompletionMeta {
                     artifacts,
                     ..Default::default()
                 },
@@ -677,8 +678,8 @@ mod tests {
         let request = ModelRequest::with_tools(vec![Message::new(Role::User, "go")], tools);
         let messages = request.messages.clone();
         let tool_specs = request.tool_specs.clone();
-        static DEFAULT_CACHE_PLAN: nuo_provider::ResolvedCachePolicy =
-            nuo_provider::ResolvedCachePolicy::Unsupported;
+        static DEFAULT_CACHE_PLAN: nuo_protocol::ResolvedCachePolicy =
+            nuo_protocol::ResolvedCachePolicy::Unsupported;
         request::body(
             &messages,
             &[],
@@ -688,7 +689,7 @@ mod tests {
                 instructions: None,
                 tool_specs: Some(&tool_specs),
                 reasoning_effort: None,
-                dialect: nuo_provider::OpenAiChatDialect::Standard,
+                dialect: nuo_protocol::OpenAiChatDialect::Standard,
                 cache_plan: &DEFAULT_CACHE_PLAN,
             },
         )
@@ -740,7 +741,7 @@ mod tests {
         .with_id("opencode-go".to_string())
         .with_session_id("ses_wire_test_123");
 
-        let auth = nuo_provider::ResolvedAuth::new("test-token");
+        let auth = nuo_protocol::ResolvedAuth::new("test-token");
         let body = serde_json::json!({"model": "glm-5.2"});
         let req = provider
             .build_request_for_auth(&body, &auth)

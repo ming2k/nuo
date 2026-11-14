@@ -11,6 +11,7 @@ negative_knowledge: true
 # 0111. Elimination of scripts/ Directory and Consolidation of Workspace Governance into Native Rust
 
 - Status: Accepted
+- Amended: [ADR-0187](0187-documentation-governance-is-mechanical.md) (documentation checks are native Rust too)
 - Date: 2026-12-06
 - Deciders: Nuo Architecture Working Group
 - Amends: [ADR-0105](0105-presentation-linkage-mechanism-and-dependency-firewall.md), [ADR-0109](0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md)

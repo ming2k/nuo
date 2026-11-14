@@ -5,8 +5,9 @@
 //! results to relieve pressure while keeping the OpenAI `tool_call_id` chain
 //! intact. Compaction thresholds are derived from the active model's context
 //! window via [`CompactionPolicy`] / [`ContextBudget`].
-use crate::tokenizer;
-use crate::{Message, Role};
+use nuo_tool::tokenizer;
+use nuo_tool::{Message, Role};
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -410,7 +411,7 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
                 && !m
                     .origin
                     .as_ref()
-                    .is_some_and(|o| o.kind == crate::message::InjectionKind::ToolImage)
+                    .is_some_and(|o| o.kind == nuo_tool::InjectionKind::ToolImage)
         })
         .map(|(i, _)| i)
         .collect();
@@ -481,7 +482,7 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
         let has_companion_image = messages.get(i + 1).is_some_and(|m| {
             m.origin
                 .as_ref()
-                .is_some_and(|o| o.kind == crate::message::InjectionKind::ToolImage)
+                .is_some_and(|o| o.kind == nuo_tool::InjectionKind::ToolImage)
                 && m.images.is_some()
         });
         if has_companion_image {
@@ -567,7 +568,7 @@ fn apply_prune(
             && next_msg
                 .origin
                 .as_ref()
-                .is_some_and(|o| o.kind == crate::message::InjectionKind::ToolImage)
+                .is_some_and(|o| o.kind == nuo_tool::InjectionKind::ToolImage)
             && next_msg.images.is_some()
         {
             outcome.originals.push(next_msg.clone());

@@ -6,7 +6,7 @@
 //! the crate that reads `config.toml` — the schema is vocabulary, the file and
 //! its resolution are the host's.
 //!
-//! Same placement rule as [`crate::SkillsConfig`] and
+//! Same placement rule as [`nuo_tool::SkillsConfig`] and
 //! [`crate::model_providers::UserDeclaredProvider`]: several layers exchange the
 //! type, and the store is only one of them.
 //!

@@ -1,16 +1,16 @@
 ---
 id: ADR-0073
 title: "Offline Component Storybook and Hermetic Visual Regression Pipeline"
-status: accepted
+status: superseded
 date: 2026-11-15
 scope: tui/nuo-tui, ci/acceptance, devtools/storybook, test/visual-regression
-superseded_by: null
+superseded_by: ADR-0185
 negative_knowledge: true
 ---
 
 # 0073. Offline Component Storybook and Hermetic Visual Regression Pipeline
 
-- Status: Accepted
+- Status: Superseded by [ADR-0185](0185-storybook-retirement-and-single-presentation-path.md)
 - Date: 2026-11-15
 - Deciders: Nuo Architecture Working Group, TUI Presentation Team, Quality Engineering
 - Consulted: Interface, Usability, Runtime Teams

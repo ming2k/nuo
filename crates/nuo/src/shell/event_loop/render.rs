@@ -802,17 +802,17 @@ fn compose_frame(
                             + nuo_ui_primitives::design::COMPOSER_HINT_GAP_ROWS
                             + hint_rect.height,
                     );
-                    let props = crate::shell::declarative::ask_user::AskUserProps {
+                    let props = crate::shell::overlays::ask_user::AskUserProps {
                         request: qmodel.request().clone(),
                         queue_depth: app.pending_question_depth,
                         follow_highlight: app.question_modal_follow,
                         show_caret: overlay_owns_caret,
                     };
-                    let state = crate::shell::declarative::ask_user::AskUserState {
+                    let state = crate::shell::overlays::ask_user::AskUserState {
                         model: qmodel.clone(),
                         scroll: app.question_scroll,
                     };
-                    crate::shell::declarative::ask_user::AskUser::render_with_tree(
+                    crate::shell::overlays::ask_user::AskUser::render_with_tree(
                         &props,
                         &state,
                         f,

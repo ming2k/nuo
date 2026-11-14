@@ -11,7 +11,7 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
     let agent = Arc::new(Agent::new(
         Arc::new(InstantProvider),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
 
@@ -43,7 +43,7 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo::monitor::MonitorTracker;
-use nuo::registry::{HostedThread, ThreadRegistry};
-use nuo::serve::{self, AttachAction, Wire};
+use nuo::runtime::monitor::MonitorTracker;
+use nuo::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_server::transport::serve::{self, AttachAction, Wire};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
 use tokio::sync::{Mutex, broadcast, mpsc};
@@ -129,7 +129,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
 
     // Full handshake over the native endpoint: monitor one-shot (native framed).
     let stream = nuo_host::ipc::connect(&endpoint).await.unwrap();
-    let (mut wire_sink, mut wire_source) = nuo::wire_channel::native_framed_split(stream);
+    let (mut wire_sink, mut wire_source) = nuo_server::transport::wire_channel::native_framed_split(stream);
     let select = Wire::Select {
         version: None,
         action: AttachAction::Monitor(MonitorAction {
@@ -251,7 +251,7 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
 /// 4), so a client reading a stale record can refuse before speaking.
 #[test]
 fn global_record_carries_the_server_version() {
-    let record = nuo::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: 1,
         process_birth_token: None,
         port: 2,
@@ -267,7 +267,7 @@ fn global_record_carries_the_server_version() {
     };
     let json = serde_json::to_string(&record).unwrap();
     assert!(json.contains(serve::server_version()));
-    let back: nuo::serve_discovery::Discovery = serde_json::from_str(&json).unwrap();
+    let back: nuo_server::transport::serve_discovery::Discovery = serde_json::from_str(&json).unwrap();
     assert_eq!(back.version.as_deref(), Some(serve::server_version()));
 }
 
@@ -489,8 +489,8 @@ async fn control_suspend_session_parks_a_contentful_session() {
     let id = session.id().await;
     // Real content → the session persists, so it is suspendable.
     session
-        .replace_messages(vec![nuo_protocol::Message::new(
-            nuo_protocol::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "hello",
         )])
         .await
@@ -518,8 +518,8 @@ async fn control_suspend_session_parks_a_contentful_session() {
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_protocol::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),

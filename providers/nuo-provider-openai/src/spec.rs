@@ -2,10 +2,11 @@
 //! one key (`OPENAI_API_KEY`).
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// The model ids the built-in `openai` provider serves over the OpenAI
 /// chat-completions API, one key (`OPENAI_API_KEY`). Mirrors OpenAI's current
@@ -14,11 +15,11 @@ use nuo_provider::*;
 /// The legacy `gpt-4o`/`gpt-4o-mini` ids stay registered for existing
 /// configs but are no longer seeded for the official provider. Each id exists
 /// in the model registry.
-pub use nuo_provider::model_providers::OPENAI_BUILTIN_MODELS;
+pub use nuo_protocol::model_providers::OPENAI_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_provider::model::BaselineModels`]).
+/// [`nuo_protocol::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     Model {
         id: "gpt-6-astra",
@@ -29,7 +30,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT_6,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     // GPT-5.6 (OpenAI)
@@ -50,7 +51,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -62,7 +63,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -74,7 +75,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -86,7 +87,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     // GPT (OpenAI)
@@ -103,7 +104,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -115,7 +116,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -127,7 +128,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     // Legacy GPT-4o family — no longer in OpenAI's frontier chat lineup (it
@@ -142,7 +143,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -154,7 +155,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -166,7 +167,7 @@ pub const MODELS: &[Model] = &[
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -178,7 +179,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -190,7 +191,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -202,21 +203,21 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT,
-        default_effort: Some(nuo_provider::Effort::Medium),
+        default_effort: Some(nuo_protocol::Effort::Medium),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
-const OPENAI_GPT_56_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
+const OPENAI_GPT_56_CACHE: nuo_protocol::PromptCacheSpec = nuo_protocol::PromptCacheSpec {
     modes: &[
-        nuo_provider::PromptCacheMode::Implicit,
-        nuo_provider::PromptCacheMode::Explicit,
+        nuo_protocol::PromptCacheMode::Implicit,
+        nuo_protocol::PromptCacheMode::Explicit,
     ],
-    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
-    supported_retentions: &[nuo_provider::CacheRetention::ThirtyMinutes],
-    default_retention: Some(nuo_provider::CacheRetention::ThirtyMinutes),
+    default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
+    supported_retentions: &[nuo_protocol::CacheRetention::ThirtyMinutes],
+    default_retention: Some(nuo_protocol::CacheRetention::ThirtyMinutes),
     disable_supported: false,
     routing_key_supported: true,
     max_breakpoints: Some(4),
@@ -226,10 +227,10 @@ const OPENAI_GPT_56_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptC
     reports_misses: false,
 };
 
-const OPENAI_24H_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
-    modes: &[nuo_provider::PromptCacheMode::Implicit],
-    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
-    supported_retentions: &[nuo_provider::CacheRetention::TwentyFourHours],
+const OPENAI_24H_CACHE: nuo_protocol::PromptCacheSpec = nuo_protocol::PromptCacheSpec {
+    modes: &[nuo_protocol::PromptCacheMode::Implicit],
+    default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
+    supported_retentions: &[nuo_protocol::CacheRetention::TwentyFourHours],
     default_retention: None,
     disable_supported: false,
     routing_key_supported: true,
@@ -240,12 +241,12 @@ const OPENAI_24H_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCach
     reports_misses: false,
 };
 
-const OPENAI_LEGACY_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
-    modes: &[nuo_provider::PromptCacheMode::Implicit],
-    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+const OPENAI_LEGACY_CACHE: nuo_protocol::PromptCacheSpec = nuo_protocol::PromptCacheSpec {
+    modes: &[nuo_protocol::PromptCacheMode::Implicit],
+    default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
     supported_retentions: &[
-        nuo_provider::CacheRetention::InMemory,
-        nuo_provider::CacheRetention::TwentyFourHours,
+        nuo_protocol::CacheRetention::InMemory,
+        nuo_protocol::CacheRetention::TwentyFourHours,
     ],
     default_retention: None,
     disable_supported: false,
@@ -257,10 +258,10 @@ const OPENAI_LEGACY_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptC
     reports_misses: false,
 };
 
-const OPENAI_IN_MEMORY_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
-    modes: &[nuo_provider::PromptCacheMode::Implicit],
-    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
-    supported_retentions: &[nuo_provider::CacheRetention::InMemory],
+const OPENAI_IN_MEMORY_CACHE: nuo_protocol::PromptCacheSpec = nuo_protocol::PromptCacheSpec {
+    modes: &[nuo_protocol::PromptCacheMode::Implicit],
+    default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
+    supported_retentions: &[nuo_protocol::CacheRetention::InMemory],
     default_retention: None,
     disable_supported: false,
     routing_key_supported: true,
@@ -271,7 +272,7 @@ const OPENAI_IN_MEMORY_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::Prom
     reports_misses: false,
 };
 
-pub(super) fn prompt_cache_for_model(model: &str) -> nuo_provider::PromptCacheSpec {
+pub(super) fn prompt_cache_for_model(model: &str) -> nuo_protocol::PromptCacheSpec {
     if model == "gpt-5.6" || model.starts_with("gpt-5.6-") {
         OPENAI_GPT_56_CACHE
     } else if model == "gpt-5.5" || model.starts_with("gpt-5.5-") {
@@ -284,12 +285,12 @@ pub(super) fn prompt_cache_for_model(model: &str) -> nuo_provider::PromptCacheSp
     } else if matches!(model, "gpt-4o" | "gpt-4o-mini" | "gpt-5.3-codex-spark") {
         OPENAI_IN_MEMORY_CACHE
     } else {
-        nuo_provider::PromptCacheSpec::UNSUPPORTED
+        nuo_protocol::PromptCacheSpec::UNSUPPORTED
     }
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    dialect: nuo_protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -303,5 +304,5 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stored,
+    responses_state: nuo_protocol::ResponsesState::Stored,
 };

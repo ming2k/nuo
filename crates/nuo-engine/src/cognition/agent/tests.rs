@@ -6,7 +6,7 @@ use super::{
 #[test]
 fn missing_command_authority_has_runtime_only_guidance() {
     let command = "pwd; ls -la".to_string();
-    let request = nuo_protocol::PermissionRequest {
+    let request = nuo_tool::PermissionRequest {
         id: String::new(),
         tool: "execute_command".to_string(),
         label: "run command".to_string(),
@@ -16,16 +16,16 @@ fn missing_command_authority_has_runtime_only_guidance() {
         elevation: false,
         one_off: false,
         origin: None,
-        hazard: Some(nuo_protocol::HazardLevel::CommandExecution),
-        submission: Some(nuo_protocol::ToolPermissionSubmission {
-            hazard_level: nuo_protocol::HazardLevel::CommandExecution,
+        hazard: Some(nuo_tool::HazardLevel::CommandExecution),
+        submission: Some(nuo_tool::ToolPermissionSubmission {
+            hazard_level: nuo_tool::HazardLevel::CommandExecution,
             label: "run command".to_string(),
             description: String::new(),
             scope: command.clone(),
-            payload: nuo_protocol::ToolPermissionPayload::Command {
+            payload: nuo_tool::ToolPermissionPayload::Command {
                 command: command.clone(),
                 cwd: None,
-                kill_spec: nuo_protocol::ProcessKillSpec {
+                kill_spec: nuo_tool::ProcessKillSpec {
                     command: "pwd".to_string(),
                     process_group_killable: true,
                     pkill_target: "pkill -f pwd".to_string(),
@@ -46,8 +46,8 @@ fn missing_command_authority_has_runtime_only_guidance() {
     assert!(!output.contains("/trust"));
 }
 
-fn tool_call(id: &str, arguments: &str) -> nuo_protocol::ToolCall {
-    nuo_protocol::ToolCall {
+fn tool_call(id: &str, arguments: &str) -> nuo_tool::ToolCall {
+    nuo_tool::ToolCall {
         id: id.to_string(),
         name: "write_file".to_string(),
         arguments: arguments.to_string(),
@@ -273,7 +273,7 @@ async fn skip_interactive_input_seals_without_input_request() {
     let contract = agent.decide_command_input(r#"{"command":"sudo ls /root"}"#);
     assert_eq!(
         contract,
-        nuo_protocol::InputContract::Sealed,
+        nuo_tool::InputContract::Sealed,
         "input must be sealed under skip_interactive_input"
     );
     assert!(
@@ -298,7 +298,7 @@ async fn interactive_input_path_supervises_when_opt_out_is_off() {
         == nuo_host::supervised::InputSupervision::Supervised
     {
         match contract {
-            nuo_protocol::InputContract::Supervised {
+            nuo_tool::InputContract::Supervised {
                 expectation: Some(exp),
             } => {
                 assert!(exp.secret, "sudo expectation must be masked");
@@ -308,7 +308,7 @@ async fn interactive_input_path_supervises_when_opt_out_is_off() {
     } else {
         // A platform without full supervision must fall back to Sealed —
         // never induce interactivity it cannot service.
-        assert_eq!(contract, nuo_protocol::InputContract::Sealed);
+        assert_eq!(contract, nuo_tool::InputContract::Sealed);
     }
 }
 
@@ -353,12 +353,12 @@ async fn non_supervised_platform_never_dispatches_supervised() {
         {
             assert_eq!(
                 contract,
-                nuo_protocol::InputContract::Sealed,
+                nuo_tool::InputContract::Sealed,
                 "non-Supervised platform must seal '{command}'"
             );
         } else {
             assert!(
-                matches!(contract, nuo_protocol::InputContract::Supervised { .. }),
+                matches!(contract, nuo_tool::InputContract::Supervised { .. }),
                 "Supervised platform must supervise '{command}', got {contract:?}"
             );
         }

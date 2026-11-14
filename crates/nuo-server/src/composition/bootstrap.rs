@@ -1,0 +1,1454 @@
+//! The shared session-harness factory for every frontend binary (ADR-0037
+//! Step 6).
+//!
+//! [`assemble`] performs the full session startup that used to live inline in
+//! the `nuo` binary's `main`: channel creation, custom-command discovery,
+//! config load + migrations, persisted model catalogs, store opens,
+//! the repeat scheduler, provider/skills/toolset wiring, `SubagentTool` layering,
+//! agent construction, MCP background connect, pursuit/todo/session-state
+//! restore, and finally [`ThreadDriver`] construction — in the exact order
+//! the original `main` did, with the same background spawns.
+//!
+//! The crate stays application-neutral (ADR-0054): the caller supplies the
+//! [`AgentIdentity`], the [`AgentRoleProfile`], and the [`UiBridge`] as
+//! parameters. Nothing here names a product.
+//!
+//! `ThreadStart::Version`, `ThreadStart::Doctor`, `ThreadStart::Attach`, and
+//! `ThreadStart::Showcase` are **not** handled here: they are purely local
+//! (or client-side) short-circuits and must be dispatched by the caller
+//! before invoking [`assemble`].
+use nuo_engine::orchestration::{ProxyProvider, round_response};
+use nuo_engine::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, SubagentTool};
+use nuo_protocol::{AgentRequest, AgentResponse, Provider, RoundEvent, SubAgentProfile, ToolFactoryContextBuilder, ToolSet, collect_toolset};
+use nuo_tool::{AgentNotice, NoticeKind, NoticeSeverity, NoticeSource};
+
+
+use crate::runtime::mcp::{McpCatalog, McpRuntime};
+use nuo_engine::cognition::skills::SkillRegistry;
+use nuo_persistence::{
+    config::Config, connection_usage, thread::ThreadSession,
+    workspace_security::WorkspaceSecurityStore,
+};
+
+use crate::composition::startup::ThreadStart;
+use nuo_host::paths;
+use crate::{ThreadDriver, UiBridge};
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::RwLock;
+use tokio::sync::mpsc;
+
+/// Total wall-clock budget for the ThreadStart hook group during assembly.
+/// Hooks are external processes with a per-hook timeout of their own; this
+/// outer bound keeps `SessionPhase::Ready` bounded even when several hooks are
+/// configured (ADR-0133).
+const SESSION_START_HOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Everything a frontend binary must supply to assemble a session harness.
+///
+/// The identity and master are the *only* application-specific inputs; all
+/// other behavior is shared across frontends.
+pub struct BootstrapParams {
+    /// The agent's identity (name + mission), bound at construction.
+    pub identity: AgentIdentity,
+    /// The declarative agent preset profile (ADR-0053), applied after
+    /// construction and before the `[agent]` config overlay.
+    pub preset: AgentRoleProfile,
+    /// The frontend's clipboard/UI bridge (used by `/export`).
+    pub ui: Arc<dyn UiBridge>,
+    /// How the session begins (only the assembly-relevant
+    /// shapes exist here; one-shot CLI modes never reach the harness).
+    pub startup: ThreadStart,
+    /// `--project` override: the workspace binding. `None` = workspace-free.
+    pub project_root: Option<PathBuf>,
+    /// The role staffing this session, if any. Recorded on
+    /// the session as metadata; `None` for the default coding principal.
+    pub role: Option<String>,
+    /// `--unattended` at start (unattended execution): auto-approve tool permissions.
+    pub unattended: bool,
+    /// Workspace filesystem confinement (default true). False (`--no-confinement`) bypasses confinement.
+    pub confined: bool,
+    /// The human-channel accountant this session reports into.
+    /// Attach/detach on the WS layer ORs client postures into it; the
+    /// harness's posture gate reads it before parking a human request.
+    /// `None` on one-shot CLI paths that never attach.
+    pub human_channel: Option<Arc<nuo_protocol::human_request::HumanChannelAccountant>>,
+    /// Session-lifetime cancellation token: passed through to the
+    /// background `/schedule` scheduler so it stops when the harness is torn
+    /// down (suspension, kill, server drain) instead of ticking forever.
+    /// `None` = process-lifetime scheduling (single-session frontends).
+    pub teardown_token: Option<tokio_util::sync::CancellationToken>,
+    /// Server-wide authoritative configuration shared across all hosted sessions.
+    pub shared_config: Option<crate::SharedConfig>,
+    /// Server-wide authoritative connection usage shared across all hosted sessions.
+    pub shared_provider_usage: Option<crate::SharedConnectionUsage>,
+    /// Optional readiness-stage sink (ADR-0133). The hosted-session builder
+    /// uses it to publish [`nuo_protocol::ThreadPhase::Preparing`] transitions
+    /// while local assembly runs. Tests and in-process frontends pass `None`.
+    pub phase_sink: Option<PhaseSink>,
+}
+
+/// Callback invoked whenever assembly enters a bounded local preparation
+/// stage. The implementation MUST be non-blocking: it only updates a phase
+/// cell and broadcasts a frame.
+pub type PhaseSink = Arc<dyn Fn(nuo_protocol::PrepareStage) + Send + Sync>;
+
+/// The assembled session harness: the driver (ready to `run`), the frontend
+/// ends of the request/response channels, and the values the frontend needs
+/// to start its UI and wind the session down.
+pub struct Bootstrap {
+    /// The session driver, fully wired. The caller moves it into a task
+    /// (`tokio::spawn(driver.run())`).
+    pub driver: ThreadDriver,
+    /// The frontend's request sender (the driver holds the receiver).
+    pub req_tx: mpsc::Sender<AgentRequest>,
+    /// The frontend's response receiver (the driver holds the sender).
+    pub resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
+    /// An `Arc` handle on the primary agent so the caller can fire
+    /// SessionEnd hooks after its UI returns — the driver task
+    /// owns the agent by then.
+    pub agent_for_session_end: Arc<Agent>,
+    /// The primary session store, shared with the driver.
+    pub session: Arc<ThreadSession>,
+    /// Shared token-source ledger, shared with the driver; the frontend reads
+    /// it for the token-source report.
+    pub token_ledger: Arc<nuo_protocol::TokenSourceLedger>,
+    /// The provider name the UI should display at startup.
+    pub initial_provider_name: String,
+    /// The model name the UI should display at startup.
+    pub initial_model_name: String,
+    /// Complete server-owned command/completion vocabulary for this session.
+    pub command_catalog: nuo_tool::CommandCatalog,
+    /// The primary agent (same `Arc` as `agent_for_session_end`), exposed so
+    /// the registry can publish session-scoped tools onto it.
+    pub agent: Arc<Agent>,
+    /// The workspace-authority store assembled for this session's project
+    /// root. The registry carries it on the hosted entry so the WS attach path
+    /// can detect an unconfigured workspace and push the trust decision to the
+    /// attaching client. Bootstrap itself no longer emits the trust question
+    /// over `resp_rx` (see `assemble`): the
+    /// broadcast channel does not exist yet at that point, so the event
+    /// reached nobody. Attach-time replay in `serve.rs` is the delivery
+    /// mechanism instead.
+    pub security: Arc<WorkspaceSecurityStore>,
+    /// Live additional-roots handle sharing state with the execution
+    /// environment. `/trust` grant/revoke and `/settings reload` recompute
+    /// the admitted set through it — effective on the next tool call.
+    pub shared_additional_roots: nuo_protocol::SharedAdditionalRoots,
+    /// Live handle for toggling session-level workspace confinement.
+    pub shared_confinement: nuo_protocol::SharedConfinement,
+}
+
+/// Ensure the four XDG application roots exist. Best-effort.
+pub fn ensure_app_roots() {
+    let dirs = paths::get();
+    for dir in [
+        &dirs.config_dir,
+        &dirs.data_dir,
+        &dirs.state_dir,
+        &dirs.cache_dir,
+    ] {
+        if let Err(error) = std::fs::create_dir_all(dir) {
+            tracing::warn!(?error, dir = %dir.display(), "bootstrap: could not create app dir");
+        }
+    }
+}
+
+/// Assemble one live session harness. See the module docs for the contract.
+///
+/// The ordering and background-spawn behavior are identical to the original
+/// inline `main`: live catalog sync, skill catalog
+/// refresh, MCP connect/refresh, and the schedule scheduler (which holds a
+/// `req_tx` clone) all run in the background so they never delay the first
+/// frame.
+#[allow(clippy::too_many_lines)]
+pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std::error::Error>> {
+    // In-process/one-shot entry point: claim the store exactly as the hosted
+    // path does, then assemble. The hosted path (`registry::claim`) creates
+    // the store *before* the handshake and passes it to
+    // [`assemble_with_store`], so the store open is not on the Welcome path.
+    let workspace = params
+        .project_root
+        .as_ref()
+        .map(nuo_protocol::WorkspaceBinding::new);
+    let session = Arc::new(ThreadSession::for_workspace(workspace, params.role.clone()));
+    assemble_with_store(session, params).await
+}
+
+/// Assemble a session harness over an already-claimed store.
+///
+/// `[INV-ATTACH-03]` (ADR-0133): this runs *after* `Wire::Welcome` on the
+/// hosted path. Nothing here may be a prerequisite of the handshake. The
+/// `phase_sink` publishes bounded local preparation stages; network work is
+/// either lazy (credentials) or backgrounded (remote skills, MCP, catalog).
+pub async fn assemble_with_store(
+    session: Arc<ThreadSession>,
+    params: BootstrapParams,
+) -> Result<Bootstrap, Box<dyn std::error::Error>> {
+    let mut assembler = Assembler::new(session, params).await?;
+    let skills_registry = assembler.wire_skills().await;
+    let stores = assembler.open_stores(&skills_registry);
+    let built = assembler.build_agent(&skills_registry, stores).await;
+    let mcp = assembler.connect_mcp(&built).await;
+    assembler.restore_runtime(&built).await;
+    Ok(assembler.finish(built, mcp).await)
+}
+
+/// Values produced by the store stage and consumed while building the agent.
+struct StoreWiring {
+    workspace_security: Arc<WorkspaceSecurityStore>,
+    security_snapshot: nuo_protocol::WorkspaceSecuritySnapshot,
+    additional_roots: Vec<PathBuf>,
+    resolved_additional: nuo_persistence::config::ResolvedAdditionalRoots,
+    websearch_shared: nuo_protocol::SharedWebConfig,
+    shared_additional_roots: nuo_protocol::SharedAdditionalRoots,
+    shared_confinement: nuo_protocol::SharedConfinement,
+    background_jobs: crate::runtime::background_jobs::BackgroundJobManager,
+    agent_kernel_host: nuo_engine::KernelHost,
+    toolset: ToolSet,
+}
+
+/// The assembled agent layer and the handles the driver still needs.
+struct BuiltHarness {
+    agent: Arc<Agent>,
+    subagent_registry: Arc<nuo_engine::SubagentRegistry>,
+    subagent_tool_handle: Arc<SubagentTool>,
+    skills_registry: Arc<SkillRegistry>,
+    workspace_security: Arc<WorkspaceSecurityStore>,
+    shared_additional_roots: nuo_protocol::SharedAdditionalRoots,
+    shared_confinement: nuo_protocol::SharedConfinement,
+    websearch_shared: nuo_protocol::SharedWebConfig,
+    background_jobs: crate::runtime::background_jobs::BackgroundJobManager,
+}
+
+/// MCP runtime and command vocabulary produced by the MCP stage.
+struct McpWiring {
+    mcp_runtime: Arc<McpRuntime>,
+    command_catalog: nuo_tool::CommandCatalog,
+}
+
+/// Assembly context threaded through the bootstrap stages.
+///
+/// The struct carries only inputs, channels, and the session-wide mutable
+/// configuration; each stage's derived values flow to the next stage
+/// explicitly so the ordering stays visible in [`assemble_with_store`].
+struct Assembler {
+    session: Arc<ThreadSession>,
+    identity: AgentIdentity,
+    preset: AgentRoleProfile,
+    ui: Arc<dyn UiBridge>,
+    startup: ThreadStart,
+    workspace_root: Option<PathBuf>,
+    role: Option<String>,
+    unattended_at_start: bool,
+    confined_at_start: bool,
+    human_channel: Option<Arc<nuo_protocol::human_request::HumanChannelAccountant>>,
+    shared_config: crate::SharedConfig,
+    shared_provider_usage: crate::SharedConnectionUsage,
+    phase_sink: Option<PhaseSink>,
+    req_tx: mpsc::Sender<AgentRequest>,
+    req_rx: mpsc::Receiver<AgentRequest>,
+    resp_tx: mpsc::UnboundedSender<AgentResponse>,
+    resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
+    config: Config,
+    open_picker_on_start: bool,
+    provider_holder: Arc<RwLock<Arc<dyn Provider>>>,
+    agent_provider: Arc<ProxyProvider>,
+}
+
+impl Assembler {
+    /// Publish a bounded preparation stage when the caller supplied a sink.
+    fn publish_stage(sink: Option<&PhaseSink>, stage: nuo_protocol::PrepareStage) {
+        if let Some(sink) = sink {
+            sink(stage);
+        }
+    }
+
+    /// Stage 1: channels, configuration/migrations, and the initial provider.
+    async fn new(
+        session: Arc<ThreadSession>,
+        params: BootstrapParams,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        crate::composition::provider_registry::init();
+        nuo_persistence::db::get_persistence_handle().ensure_ready()?;
+        let BootstrapParams {
+            identity,
+            preset,
+            ui,
+            startup,
+            project_root: project_override,
+            role,
+            unattended: unattended_at_start,
+            confined: confined_at_start,
+            human_channel,
+            teardown_token: _,
+            shared_config,
+            shared_provider_usage,
+            phase_sink,
+        } = params;
+        Self::publish_stage(phase_sink.as_ref(), nuo_protocol::PrepareStage::Thread);
+        debug_assert!(
+            matches!(
+                startup,
+                ThreadStart::Fresh
+                    | ThreadStart::FreshWithPrompt(_)
+                    | ThreadStart::Resume(_)
+                    | ThreadStart::Picker
+            ),
+            "assemble only handles Fresh/FreshWithPrompt/Resume/Picker; other modes must short-circuit in the caller"
+        );
+
+        // First-run friendliness: this harness opens stores eagerly (the session
+        // store and embedding index under data_dir) and does not create their
+        // parent dirs first — on a developer's machine those dirs usually already
+        // exist from prior runs, but any binary may be started into a fresh XDG
+        // root (wrappers, CI, sandboxes, a spawned session server). Create the
+        // four app roots up front, BEFORE any store opens; best-effort,
+        // everything deeper stays lazy as in production.
+        {
+            let dirs = paths::get();
+            for dir in [
+                &dirs.config_dir,
+                &dirs.data_dir,
+                &dirs.state_dir,
+                &dirs.cache_dir,
+            ] {
+                if let Err(error) = std::fs::create_dir_all(dir) {
+                    tracing::warn!(?error, dir = %dir.display(), "bootstrap: could not create app dir");
+                }
+            }
+        }
+
+        /// Bound capacity for inbound session requests to prevent unbounded memory growth.
+        const SESSION_REQUEST_CAPACITY: usize = 512;
+        let (req_tx, req_rx) = mpsc::channel::<AgentRequest>(SESSION_REQUEST_CAPACITY);
+        let (resp_tx, resp_rx) = mpsc::unbounded_channel::<AgentResponse>();
+
+        let shared_config =
+            shared_config.unwrap_or_else(|| Arc::new(tokio::sync::RwLock::new(Config::load())));
+        let shared_provider_usage = shared_provider_usage.unwrap_or_else(|| {
+            Arc::new(tokio::sync::RwLock::new(
+                connection_usage::ConnectionUsage::load(),
+            ))
+        });
+
+        let mut config = shared_config.read().await.clone();
+        // Overlay persisted fitted-model metadata onto model resolution, so ids a
+        // trusted provider advertised (but the static registry does not know)
+        // resolve with their real capabilities from the very first request.
+        nuo_model_routing::sync_fitted_model_registry();
+
+        // Startup is read-only for the remote catalog. The persisted
+        // per-connection `RemoteCatalogCache` plus the compiled baseline/seed are the
+        // source of truth for the first frame; no network sync or scheduled
+        // refresh runs here. A refresh happens only on explicit user action
+        // (`AgentRequest::RefreshProviderModels`) or a connection lifecycle event.
+
+        // A session's partition is its workspace: `--project`/cwd when present, or
+        // `None` for a workspace-free persona. `persona` is recorded on
+        // the session as metadata (which principal staffed it), used for `--resume`.
+        let workspace_root: Option<PathBuf> = project_override;
+
+        // Initialize Agent logic. The provider is resolved through the model
+        // catalog (`build_provider_for`), the single source of truth for the
+        // env-var-then-config resolution rules shared with runtime switching. See
+        // `docs/adr/0015-dependency-inversion-architecture-for-model-providers.md`.
+
+        // The pre-0018 per-project exclusive lock is gone — the
+        // unified server owns every session and the CLI flag was dead (parsed,
+        // discarded). Sessions still pin their own `sessions/<id>.{json,jsonl}`
+        // (ADR-0018), so concurrency is safe without a project-wide lock.
+
+        // Session loading honors the startup mode. The store was claimed before the
+        // handshake (ADR-0133); only a resume needs to open durable data, and it
+        // does so here — after Welcome, inside the visible `Loading`/`Preparing`
+        // phase.
+        let open_picker_on_start = match &startup {
+            ThreadStart::Fresh | ThreadStart::FreshWithPrompt(_) => false,
+            ThreadStart::Picker => true,
+            ThreadStart::Resume(id) => {
+                session.resume(Some(id.as_str())).await?;
+                false
+            }
+        };
+
+        // Background `/schedule` scheduler, bound to THIS session. Every 30s it prunes
+        // expired jobs and fires any that are due, dispatching each prompt as a
+        // normal `AgentRequest::Chat` round. Drives both recurring cron jobs and
+        // one-shot (countdown / absolute-time) jobs. Jobs are session-scoped state
+        // now, so a resumed session's schedule is already loaded above and the
+        // scheduler runs against it from the first tick. Supervised: a panic in
+        // the tick loop restarts with backoff instead of silently killing every
+        // scheduled job in the session.
+        //
+        // Teardown token: the registry passes the hosted session's
+        // cancellation token, so suspension/kill stops the tick with the harness.
+        // Before this the task leaked past teardown and ticked against a dead
+        // channel forever. `None` (a plain process-lifetime scheduler) remains
+        // available for single-session frontends that tear down with the process.
+        // C6: overlay the session's provider/model pin onto the effective config
+        // before building the initial provider. A session that previously ran
+        // `/models` reopens on its own provider instead of the global default,
+        // so one session's choice never bleeds into another. Done after the session
+        // is loaded (and, for resume, after `resume` swapped in its data).
+        if let Some(selection) = session.provider_selection().await {
+            config.default_connection = selection.connection.clone();
+            if let Some(model) = selection.model {
+                config.default_model = Some(model);
+            }
+        }
+
+        // The catalog returns `None` when no real channel resolves (empty config or
+        // an unknown default). Install the explicit `NoProvider` sentinel so the
+        // holder type is satisfied; the chat dispatch refuses up-front with a
+        // user-facing notification while this sentinel is live.
+        let provider_id = nuo_model_routing::default_provider_id(&config);
+        // `[INV-ATTACH-03]` (ADR-0133): credentials are lazy. `build_provider_for`
+        // constructs a route, it does not authenticate; the first request resolves
+        // (and single-flights) the token. Eagerly refreshing here put a network
+        // round-trip in front of `Ready` and, before ADR-0133, in front of Welcome.
+        Self::publish_stage(phase_sink.as_ref(), nuo_protocol::PrepareStage::Provider);
+        let session_id = session.id().await;
+        let initial_provider: Arc<dyn Provider> = nuo_model_routing::build_provider_for_model(
+            &config,
+            provider_id,
+            config.default_model.as_deref(),
+            Some(&session_id),
+        )
+        .or_else(|| nuo_model_routing::build_provider_for(&config, provider_id))
+        .unwrap_or_else(|| Arc::new(nuo_engine::NoProvider));
+
+        let provider_holder = Arc::new(RwLock::new(initial_provider));
+        let agent_provider = Arc::new(ProxyProvider::new(provider_holder.clone()));
+
+        Ok(Self {
+            session,
+            identity,
+            preset,
+            ui,
+            startup,
+            workspace_root,
+            role,
+            unattended_at_start,
+            confined_at_start,
+            human_channel,
+            shared_config,
+            shared_provider_usage,
+            phase_sink,
+            req_tx,
+            req_rx,
+            resp_tx,
+            resp_rx,
+            config,
+            open_picker_on_start,
+            provider_holder,
+            agent_provider,
+        })
+    }
+
+    /// Stage 2: shared skills registry, its background refresh, and admission
+    /// notices for project skills that shadow another scope.
+    async fn wire_skills(&self) -> Arc<SkillRegistry> {
+        // Shared skills registry for the skill tools and session context. Discover
+        // and load all available skills immediately on session assembly,
+        // then spawn a reactive filesystem watcher so subsequent disk mutations
+        // automatically hot-reload in place without requiring manual `/trust`.
+        //
+        // Pin the session's project root into the skills config so the
+        // project-local sources (`.nuo/skills`, `skills`) resolve from this
+        // session's project — not the server process's cwd, which under the
+        // unified server belongs to whichever client first spawned it.
+        let mut skills_config = self.config.skills.clone();
+        skills_config.project_root = self.workspace_root.clone();
+        skills_config.role = self.role.clone();
+        // Readiness is local-only: discover local/role/project skill roots now, and
+        // let the network-backed remote repositories refresh behind the running
+        // session. A remote outage must never delay `Ready` (ADR-0133).
+        Self::publish_stage(self.phase_sink.as_ref(), nuo_protocol::PrepareStage::Skills);
+        let skills_registry = Arc::new(SkillRegistry::load_local(&skills_config).await);
+        {
+            let remote_registry = Arc::clone(&skills_registry);
+            tokio::spawn(async move {
+                remote_registry.reload().await;
+            });
+        }
+        // A content-admitted `.nuo/skills/<name>/SKILL.md` wins over a same-named
+        // user or remote skill by priority. Surface every newly observed shadow so
+        // that prompt injection cannot hide behind normal precedence. Install the
+        // sink before background refresh so startup, `/skills reload`, and
+        // `/trust` reports through the same path.
+        {
+            let resp_tx_for_shadows = self.resp_tx.clone();
+            let session_id_for_shadows = self.session.id().await;
+            skills_registry.set_shadow_sink(Some(Arc::new(move |shadowed| {
+                for shadow in shadowed {
+                    let _ = resp_tx_for_shadows.send(round_response(
+                        &session_id_for_shadows,
+                        RoundEvent::Notice(
+                            AgentNotice::trust_changed(format!(
+                                "Project skill '{}' overrides the {}-scope skill of the same name",
+                                shadow.name, shadow.overridden_scope
+                            ))
+                            .with_body(format!(
+                                "Loading {} instead. Project-local skills win by priority; \
+                                 if this is unexpected, inspect the project's skills directories \
+                                 (.nuo/skills, skills) or run `/trust deny skills` to refuse them \
+                                 until they change.",
+                                shadow.winner_source.display()
+                            )),
+                        ),
+                    ));
+                }
+            })));
+        }
+        skills_registry.spawn_reactive_watcher();
+        skills_registry
+    }
+
+    /// Stage 3: workspace security, additional roots, execution environment,
+    /// web config, background jobs, the kernel host, and the toolset context.
+    fn open_stores(&mut self, skills_registry: &Arc<SkillRegistry>) -> StoreWiring {
+        // Built-in tools self-register via `inventory` (most tools carry a
+        // `register_tool!` submission at its definition site) and are collected
+        // here from a single opaque context. Tools that need runtime state (the web
+        // tools' search config, the shared skill registry, the embedding index +
+        // session store) pull it out of the context by type — see
+        // `nuo_protocol::tool_registry`. Stateful/meta tools that genuinely depend on the
+        // *rest* of the toolset (the subagent dispatch `task`) cannot
+        // self-register and are assembled explicitly below. MCP tools are
+        // discovered at runtime and published directly to the master Agent;
+        // they are not part of this static capability set.
+        // Spatial admission resolves global and trusted project-declared roots.
+        let workspace_security = Arc::new(WorkspaceSecurityStore::load());
+        let mut security_snapshot = match &self.workspace_root {
+            Some(root) => workspace_security.snapshot(root),
+            None => nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free"),
+        };
+        security_snapshot.user_assets =
+            crate::handlers::handlers_slash::security_ops::compute_user_assets_trust();
+        let mut additional_roots: Vec<std::path::PathBuf> = Vec::new();
+        let resolved_additional = match &self.workspace_root {
+            Some(root) => {
+                if security_snapshot.ex_workspace.is_trusted() {
+                    self.config
+                        .merge_project_additional_roots(Config::load_project_additional_roots(root));
+                }
+                let resolved = self
+                    .config
+                    .resolve_workspace_additional_roots_detailed(root)
+                    .unwrap_or_default();
+                additional_roots = resolved.admitted.clone();
+                resolved
+            }
+            None => nuo_persistence::config::ResolvedAdditionalRoots::default(),
+        };
+        for (raw, reason) in &resolved_additional.skipped {
+            tracing::warn!(
+                root = %raw,
+                %reason,
+                "additional workspace root skipped"
+            );
+        }
+        // Hot-updatable `[web]` handle: the web tools receive the same handle via
+        // the tool context, and `UpdateWebSearchConfig` atomically replaces its
+        // resolved snapshot. Changes reach the next call without a toolset rebuild.
+        let resolved_web = nuo_persistence::config::resolve_web_config(
+            &self.config.web,
+            &nuo_persistence::config::Credentials::load(),
+        );
+        let websearch_shared = nuo_protocol::SharedWebConfig::new(resolved_web.runtime);
+        let (execution_env, shared_additional_roots, shared_confinement): (
+            Arc<dyn nuo_protocol::ExecutionEnvironment>,
+            nuo_protocol::SharedAdditionalRoots,
+            nuo_protocol::SharedConfinement,
+        ) = match &self.workspace_root {
+            Some(root) => {
+                let env = Arc::new(
+                    nuo_engine::runtime::execution::WorkspaceExecutionEnvironment::with_additional_roots(
+                        root.clone(),
+                        additional_roots.clone(),
+                    ),
+                );
+                let additional = env.shared_additional_roots();
+                let confinement = env.shared_confinement();
+                (
+                    env as Arc<dyn nuo_protocol::ExecutionEnvironment>,
+                    additional,
+                    confinement,
+                )
+            }
+            None => {
+                // Workspace-free sessions (such as ops or custom unconfined roles) operate
+                // against the host environment using current_dir as the baseline directory.
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let env = Arc::new(
+                    nuo_engine::runtime::execution::WorkspaceExecutionEnvironment::with_additional_roots(
+                        cwd,
+                        additional_roots.clone(),
+                    ),
+                );
+                let additional = env.shared_additional_roots();
+                let confinement = env.shared_confinement();
+                (
+                    env as Arc<dyn nuo_protocol::ExecutionEnvironment>,
+                    additional,
+                    confinement,
+                )
+            }
+        };
+        let background_jobs = crate::runtime::background_jobs::BackgroundJobManager::new();
+
+        // One host for the whole assembly: the agent and the tool context share it,
+        // so both see the same declared roles, the same path policy, and the same
+        // dialogue memory.
+        let agent_kernel_host =
+            crate::composition::kernel_host::kernel_host(self.workspace_root.clone());
+        let tool_ctx = {
+            let mut builder = ToolFactoryContextBuilder::new();
+            builder.provide(websearch_shared.clone());
+            builder.provide(websearch_shared.get());
+            builder.provide(skills_registry.clone());
+            // The host's dialogue memory reaches the recall tool as a service
+            // the tool holds the port, the product decides where the
+            // memory lives. The same host the agent is built with, so there is one
+            // memory per process rather than one per construction site.
+            builder.provide(nuo_engine::tools::RecallMemoryService::new(
+                agent_kernel_host.memory_arc(),
+            ));
+            builder.provide(self.session.clone());
+            builder.provide(execution_env.clone());
+            // The session's workspace root: when bound to a project workspace,
+            // every workspace-relative tool operation anchors here instead of the
+            // server process's cwd. Under the unified server one process hosts sessions
+            // for many projects, so the process cwd is whichever directory the first
+            // client spawned it from. For workspace-free sessions (e.g. ops, philosophist),
+            // no WorkspaceRoot is provided to signal the absence of a project boundary.
+            if let Some(root) = &self.workspace_root {
+                builder.provide(nuo_protocol::WorkspaceRoot(root.clone()));
+                builder.provide(nuo_protocol::WorkspaceRoots::new(
+                    root.clone(),
+                    additional_roots.clone(),
+                ));
+            }
+            builder.provide(shared_additional_roots.clone());
+            builder.provide(shared_confinement.clone());
+            builder.build()
+        };
+        let toolset: ToolSet = collect_toolset(&tool_ctx);
+
+        StoreWiring {
+            workspace_security,
+            security_snapshot,
+            additional_roots,
+            resolved_additional,
+            websearch_shared,
+            shared_additional_roots,
+            shared_confinement,
+            background_jobs,
+            agent_kernel_host,
+            toolset,
+        }
+    }
+
+    /// Stage 4: layer the subagent tool into the static capability set and
+    /// construct the primary agent.
+    async fn build_agent(
+        &mut self,
+        skills_registry: &Arc<SkillRegistry>,
+        stores: StoreWiring,
+    ) -> BuiltHarness {
+        let StoreWiring {
+            workspace_security,
+            security_snapshot,
+            additional_roots,
+            resolved_additional,
+            websearch_shared,
+            shared_additional_roots,
+            shared_confinement,
+            background_jobs,
+            agent_kernel_host,
+            toolset,
+        } = stores;
+        let mut toolset = toolset;
+        let current_session_id = self.session.id().await;
+        let offstream_reg = crate::runtime::offstream::build_offstream_registry(
+            &current_session_id,
+            self.session.blob_store().clone(),
+        );
+
+        // Official native capability tool suite (ADR-0013, ADR-0070 → ADR-0093 VFS projection).
+        // Workspace-bound sessions anchor to their project root. Workspace-free sessions
+        // (such as ops or unconfined system administration) anchor baseline tools to the
+        // current working directory, granting full host operational capabilities while
+        // delegating scope admission strictly to each role's declarative tool policy.
+        let effective_tool_root = self
+            .workspace_root
+            .clone()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+        let sys_ctx = Arc::new(
+            nuo_tool_fs::SystemToolContext::new(effective_tool_root.clone())
+                .with_vfs_resolver(offstream_reg.clone())
+                .with_image_normalizer(Arc::new(nuo_host::image::HostImageNormalizer)),
+        );
+        for tool in nuo_tool_fs::create_fs_tools(sys_ctx) {
+            toolset.upsert(tool);
+        }
+        let exec_ctx = Arc::new(nuo_tool_exec::ExecToolContext::new(effective_tool_root));
+        for tool in nuo_tool_exec::create_exec_tools(exec_ctx) {
+            toolset.upsert(tool);
+        }
+        // `code_query` and `recall_memory` are self-registered (`register_tool!`)
+        // and already collected above. Direct insertion here would shadow the
+        // factory-built instances with a second implementation of the same
+        // `(name, variant)` — the duplicate-registration defect this audit removes.
+        // MCP tools are discovered after Agent construction and published through
+        // its connector-neutral dynamic-tool sink. The MCP runtime owns protocol
+        // and connection state; the agent owns advertisement and dispatch.
+        // SubagentTool gets the static capability set (excluding itself) so spawned
+        // subagents cannot recurse and inherit the live provider. Dynamic connector
+        // sources are master-only unless a future policy explicitly delegates
+        // them. It binds the SubAgentProfile::EXPLORE profile (read-only / non-interactive /
+        // non-recursive).
+        let subagent_tool = Arc::new(SubagentTool::new(
+            self.agent_provider.clone(),
+            toolset.clone(),
+            &SubAgentProfile::EXPLORE,
+        ));
+        // Subagents resolve relative write-grants against the session's project
+        // root, not the server process's cwd.
+        subagent_tool.set_workspace_root(self.workspace_root.clone());
+        // Subagents inherit the session's connection retry configuration.
+        subagent_tool.bind_retry_policy(
+            self.config.connection_retry_max_attempts,
+            self.config.connection_retry_base_ms,
+            self.config.connection_retry_max_ms,
+        );
+        // Full-duplex (ADR-0029): capture the subagent tool's subagent registry so the
+        // request loop can route a user's permission / ask_user reply down into the
+        // specific live child that surfaced the request (looked up by the parent
+        // tool-call id the frontend tags onto the reply). Captured before
+        // `subagent_tool` is layered into the capability set.
+        let subagent_registry = subagent_tool.registry();
+        // Keep a typed handle so we can bind the parent's variant selection into the
+        // subagent tool once the agent (which owns that selection) exists. The same
+        // underlying `Arc<SubagentTool>` is what gets layered into the toolset.
+        let subagent_tool_handle = subagent_tool.clone();
+        toolset.insert(subagent_tool);
+
+        // ADR-0070 (superseded by ADR-0093): recall_context is abolished. All offstream artifacts (subagents,
+        // visual artifacts, compacted history) are projected via VFS into `read`.
+
+        let mut agent = Agent::builder_from_toolset(
+            self.agent_provider.clone(),
+            toolset,
+            self.identity.clone(),
+        )
+        .with_host(agent_kernel_host)
+        .with_skills((**skills_registry).clone())
+        .build();
+        // Surface the admitted additional roots to the model: the
+        // system prompt tells it cross-project paths are legal instead of letting
+        // it discover the widened boundary through trial and error.
+        agent.set_additional_workspace_roots(additional_roots.clone());
+        agent.bind_shared_confinement(shared_confinement.clone());
+        let agent = Arc::new(agent);
+        // Override axis (model): subagents are agents on the same model, so they
+        // inherit the parent's tool-variant selection. The profile still owns the
+        // orthogonal scope axis.
+        subagent_tool_handle.bind_variant_selection(agent.variant_selection_handle());
+        subagent_tool_handle.bind_user_instructions(agent.user_instructions_handle());
+        subagent_tool_handle.bind_project_instructions(agent.project_instructions_handle());
+        subagent_tool_handle.bind_instruction_provider_kind(agent.instruction_provider_kind_handle());
+        subagent_tool_handle.bind_workspace_security(agent.workspace_security_handle());
+        subagent_tool_handle.bind_execution_policy(agent.execution_policy());
+        // Every subagent opens its own session beneath this one, so its transcript is
+        // durable while it runs and the mid-turn projection gate has a real target.
+        // Without this a child ran session-free: no crash recovery, and no way for
+        // pruning/compaction to reach a round that has no inner boundary.
+        //
+        // The relief closure is supplied here because the gate lives in
+        // `orchestration`, above `cognition` (`[INV-HARNESS-04]`); the dispatch layer
+        // only knows *that* a child needs relief, not what it is made of.
+        let subagent_context_policy = self.config.context.clone();
+        subagent_tool_handle.bind_session(
+            Arc::clone(&self.session),
+            Arc::new(move |child: &Agent, child_session: Arc<ThreadSession>| {
+                let window = child.provider.model_capabilities().context_window;
+                let budget = subagent_context_policy.resolve_budget(window);
+                child.set_context_prune_threshold(budget.prune_threshold_tokens);
+                let policy = subagent_context_policy.clone();
+                child.set_context_projection_gate(Some(Arc::new(
+                    nuo_engine::PruningProjectionGate::new(
+                        child_session,
+                        Arc::new(move || {
+                            nuo_engine::orchestration::ContextProjectionSettings::from_context_policy(
+                                &policy, window,
+                            )
+                        }),
+                        child.token_weights_handle(),
+                    ),
+                )));
+            }),
+        );
+        // Subagents inherit the session's live human channel.
+        if let Some(accountant) = self.human_channel.as_ref() {
+            subagent_tool_handle.bind_human_channel(Arc::clone(accountant));
+        }
+        // Wire the per-project "always allow" allowlist so prior `Always`
+        // approvals survive across sessions in this project. Best-effort: a
+        // missing or unreadable permissions.json just means we re-prompt.
+        agent.set_project_root(self.workspace_root.clone());
+        // Workspace effect journal (ADR-0125): bracket every mutating tool call with
+        // capture and completion, writing through this session's own single-writer
+        // door. Installed here rather than at agent construction because the port is
+        // bound to a *session*: a subagent with no session of its own gets no port and
+        // journals nothing, which is correct — its effects belong to its parent's
+        // round.
+        if self.workspace_root.is_some() {
+            let _journal = crate::runtime::workspace_journal::install(
+                agent.as_ref(),
+                self.session.persistence().clone(),
+                self.session.blob_store().clone(),
+            );
+        }
+        // Seed declarative permission rules from `[permissions]` config so default
+        // policies are data-driven. Runtime "Always" decisions still write to
+        // permissions.json; these config rules re-apply on every start.
+        agent.seed_permissions_from_config(&self.config.permissions.allow);
+        // Asset trust, filesystem boundaries, and runtime execution grants are
+        // independent axes. Opening a path grants none of them.
+        // `.nuo/config.toml` may declare `[mcp.*]` servers (which execute
+        // processes) and `[[hooks]]` entries (which run shell commands at lifecycle
+        // points); its `.nuo/skills` and `.nuo/commands` trees inject
+        // project-authored prompt text (skills can also shadow the user's own
+        // same-named skills by priority). Loading those automatically from a
+        // cloned or vendored working tree is the same class of hazard as an npm
+        // `postinstall` script or a git hook: a malicious repo must not gain code
+        // execution — or prompt injection, which for an agent holding tools is
+        // execution-by-proxy — merely because the user opened it. Every concrete
+        // domain loads only after its own exact content has been
+        // explicitly trusted. Global config is user-authored and trusted
+        // unconditionally.
+        agent.set_workspace_security(security_snapshot.clone());
+        if let Some(root) = &self.workspace_root {
+            let project_mcp = Config::load_project_mcp(root);
+            let project_hooks = Config::load_project_hooks(root);
+            if security_snapshot.mcp.is_trusted() && !project_mcp.is_empty() {
+                self.config.merge_project_mcp(project_mcp);
+            }
+            if security_snapshot.hooks.is_trusted() && !project_hooks.is_empty() {
+                self.config.merge_project_hooks(project_hooks);
+            }
+            if security_snapshot.instructions.is_trusted() {
+                match crate::product::project::load_project_rules(root) {
+                    Ok(rules) => agent.set_project_rules(rules),
+                    Err(error) => tracing::warn!(%error, "trusted project rules could not be loaded"),
+                }
+                match crate::product::project::load_project_instructions(root) {
+                    Ok(instructions) => agent.set_project_instructions(instructions),
+                    Err(error) => {
+                        tracing::error!(
+                            %error,
+                            "trusted project instructions could not be loaded; continuing without them"
+                        );
+                        let _ = self.resp_tx.send(round_response(
+                            &self.session.id().await,
+                            RoundEvent::Notice(
+                                AgentNotice::new(
+                                    NoticeKind::Configuration,
+                                    NoticeSeverity::Error,
+                                    "Project instructions could not be loaded",
+                                    NoticeSource::Harness,
+                                )
+                                .with_body(error),
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        if !resolved_additional.skipped.is_empty() {
+            let details = resolved_additional
+                .skipped
+                .iter()
+                .map(|(p, r)| format!("`{p}` ({r})"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = self.resp_tx.send(round_response(
+                &self.session.id().await,
+                RoundEvent::Notice(
+                    AgentNotice::new(
+                        NoticeKind::ReviewAlert,
+                        NoticeSeverity::Warning,
+                        "Some additional workspace roots could not be loaded",
+                        NoticeSource::Harness,
+                    )
+                    .with_body(format!("Skipped roots: {details}")),
+                ),
+            ));
+        }
+
+        BuiltHarness {
+            agent,
+            subagent_registry,
+            subagent_tool_handle,
+            skills_registry: Arc::clone(skills_registry),
+            workspace_security,
+            shared_additional_roots,
+            shared_confinement,
+            websearch_shared,
+            background_jobs,
+        }
+    }
+
+    /// Stage 5: attestation/trust verifiers, background MCP connect and refresh,
+    /// config watching, and the startup posture notices.
+    async fn connect_mcp(&self, built: &BuiltHarness) -> McpWiring {
+        let command_catalog = crate::composition::startup::command_catalog(&[]);
+        // Wire universal asset attestation verifier into nuo-mcp.
+        let attestation_ledger = nuo_persistence::AssetAttestationLedger::load();
+        let ledger_for_mcp = attestation_ledger.clone();
+        crate::runtime::mcp::set_attestation_verifier(Arc::new(move |locator, spec| {
+            ledger_for_mcp.is_trusted(locator, spec)
+        }));
+
+        // Wire workspace security trust verifier into nuo-mcp so MCP server
+        // connections can verify sandbox trust without depending on nuo-persistence.
+        let ws_security_for_mcp = built.workspace_security.clone();
+        crate::runtime::mcp::set_trust_verifier(Arc::new(move |root| {
+            ws_security_for_mcp
+                .snapshot(root)
+                .is_trusted(nuo_protocol::TrustDomain::Mcp)
+        }));
+        // Connect every configured MCP server in the BACKGROUND so a slow/unreachable
+        // server (8s connect timeout each) never delays the first frame. The
+        // runtime is ready immediately with every enabled server in `Connecting`;
+        // a spawned task performs the real concurrent connects and seeds the
+        // agent's dynamic tool sink as each comes online. The frontend's status
+        // snapshot reflects this transient state, and the periodic McpCatalog
+        // refresh keeps it live thereafter.
+        let mcp_runtime = Arc::new(McpRuntime::start_background(
+            self.config.mcp.clone(),
+            built.agent.dynamic_tool_sink(),
+        ));
+        let mcp_runtime_for_bg = Arc::clone(&mcp_runtime);
+        tokio::spawn(async move {
+            mcp_runtime_for_bg.refresh_all().await;
+        });
+        nuo_engine::dynamic::spawn_refresh(McpCatalog::new(mcp_runtime.clone()));
+
+        // Kernel-driven reactive configuration watcher for MCP hot-updates.
+        spawn_mcp_config_watcher(
+            Arc::clone(&mcp_runtime),
+            self.workspace_root.clone(),
+            Arc::clone(&built.workspace_security),
+            self.resp_tx.clone(),
+            self.session.id().await,
+        );
+        if self.unattended_at_start {
+            built.agent.set_unattended(true);
+            if let Err(error) = self.session.set_unattended(true).await {
+                tracing::warn!(
+                    error = %error,
+                    "could not persist --unattended startup posture"
+                );
+            }
+            let _ = self.resp_tx.send(round_response(
+                &self.session.id().await,
+                RoundEvent::UnattendedChanged(true),
+            ));
+            let _ = self.resp_tx.send(round_response(
+                &self.session.id().await,
+                RoundEvent::Notice(
+                    AgentNotice::new(
+                        nuo_tool::NoticeKind::CommandAck,
+                        nuo_tool::NoticeSeverity::Info,
+                        "Unattended mode ON",
+                        nuo_tool::NoticeSource::Harness,
+                    )
+                    .with_body(
+                        "All tool permissions are auto-approved this session.\n\
+                         Use `/unattended off` to return to interactive mode.",
+                    ),
+                ),
+            ));
+        }
+        if !self.confined_at_start {
+            built.shared_confinement.set_confined(false);
+            let _ = self.resp_tx.send(round_response(
+                &self.session.id().await,
+                RoundEvent::ConfinementChanged(false),
+            ));
+            let _ = self.resp_tx.send(round_response(
+                &self.session.id().await,
+                RoundEvent::Notice(
+                    AgentNotice::new(
+                        nuo_tool::NoticeKind::CommandAck,
+                        nuo_tool::NoticeSeverity::Warning,
+                        "Workspace Confinement OFF",
+                        nuo_tool::NoticeSource::Harness,
+                    )
+                    .with_body(
+                        "Tools may access and edit any file on the host system.\n\
+                         Use `/confinement on` to restore workspace confinement.",
+                    ),
+                ),
+            ));
+        }
+
+        McpWiring {
+            mcp_runtime,
+            command_catalog,
+        }
+    }
+
+    /// Stage 6: agent policy/preset application, context projection, and the
+    /// session-scoped runtime restore (skipped for the picker carrier).
+    async fn restore_runtime(&self, built: &BuiltHarness) {
+        let agent = built.agent.as_ref();
+
+        // The authoritative usage telemetry lives in shared_provider_usage.
+        // Read the current state for startup model resolution without redundant disk I/O.
+
+        // `nuo attach` (no id) opens the sessions picker at startup instead of
+        // loading any session: no transcript, todos, or ThreadStart hooks should
+        // run against the throwaway fresh session — the real session is restored
+        // only once the user picks one from the picker (`/session open`). Fresh and
+        // `nuo attach <id>` loads eagerly as before.
+        let is_picker = matches!(self.startup, ThreadStart::Picker);
+
+        // Mid-turn context projection: when pruning is enabled, install the gate that
+        // relieves pressure between ReAct turns. Without it, `project_context_if_needed`
+        // took its `let Some(gate) = gate else { return }` early return on every turn —
+        // so a long single round had no relief valve, and neither did a subagent (which
+        // runs one round to completion and never reaches `execute_round`'s pre-round
+        // prune or compaction).
+        if self.config.context.lightweight_degradation_enabled {
+            crate::composition::agent_setup::reseed_context_policy(agent, &self.config);
+            // The settings closure resolves the window from the *live* provider each
+            // time the gate runs, so a `/model` switch needs no re-install.
+            let config_for_settings = self.config.clone();
+            let agent_for_settings = Arc::clone(&built.agent);
+            crate::composition::agent_setup::install_projection_gate(
+                agent,
+                &self.session,
+                &self.config,
+                Arc::new(move || {
+                    nuo_engine::orchestration::ContextProjectionSettings::from_context_policy(
+                        &config_for_settings.context,
+                        crate::composition::agent_setup::active_context_window(&agent_for_settings),
+                    )
+                }),
+            );
+        }
+
+        // Seed per-model tool-variant selection for the startup model. Each listed
+        // capability is realized by its chosen variant in the schemas sent to the
+        // provider; re-seeded on provider/model switch.
+        crate::composition::agent_setup::reseed_tool_variants(agent, &self.config);
+        crate::composition::agent_setup::reseed_instructions(agent, &self.config);
+
+        // Bind the caller-supplied agent preset (ADR-0053). Identity was
+        // supplied to the constructor above (immutable past build); this applies
+        // the profile's capability scope, operation boundary, runtime knobs, and
+        // attended flag in one call. The profile makes the role declarative.
+        agent.apply_preset(&self.preset);
+
+        // Wire the `[agent]` config table (or legacy `[master]`): the opt-in hard-stop
+        // budget, the model-supplied-stdin toggle, the interactive-input-panel opt-out,
+        // and the anti-anchoring nudge config. All default to sensible values
+        // when the table is absent, so this is a no-op for the common case.
+        // These run *after* the profile binding so per-installation config wins.
+        // Bind the human-channel posture source. With an accountant
+        // the agent reads the OR of attached clients (live). Without one
+        // (one-shot CLI paths that never attach) the static posture from the
+        // startup flags applies — headless no-TTY bootstraps Autonomous.
+        if let Some(accountant) = self.human_channel.clone() {
+            agent.set_human_channel_accountant(accountant);
+        } else {
+            // One-shot paths: a TUI bootstrap is interactive by construction;
+            // headless (`-p` runs, remote automation) declares Autonomous.
+            agent.set_human_posture(nuo_protocol::human_request::HumanChannelPosture::Interactive);
+        }
+        agent.set_hard_stop_turns(self.config.agent.hard_stop_turns);
+        agent.set_trajectory_guard_config(self.config.agent.trajectory_guard);
+        agent.set_allow_model_stdin(self.config.agent.allow_model_stdin);
+        agent.set_skip_interactive_input(self.config.agent.skip_interactive_input);
+        agent.set_autonomous_fallback_policy(self.config.agent.ask_user_fallback);
+        // Bash safety is action-based and independent from project-extension trust.
+        // Workspace authority is enforced by the permission chain; unconditional
+        // destructive denies and explicit high-risk confirmations remain here.
+        agent.set_bash_policy(&self.config.bash_policy);
+
+        // Lifecycle event hooks: each `[[hooks]]` entry runs a shell
+        // command at one lifecycle point (PreToolUse / PostToolUse / Stop / …).
+        agent.set_hooks(crate::runtime::hooks::build_hook_registry(
+            &self.config.hooks,
+            &built.agent,
+        ));
+
+        // Tie the agent to this session/thread.
+        let thread_id = self.session.id().await;
+        agent.set_thread_id(&thread_id);
+
+        // Restore the session-scoped runtime state and fire ThreadStart hooks.
+        // Skipped entirely in Picker mode: the bootstrap session is a throwaway
+        // fresh one, and the user has not chosen a session yet. The full restore
+        // (todos + disabled tools + round counter + the delegated flag + ThreadStart
+        // hooks) runs when a real session is opened from the picker — see
+        // `handlers_slash`'s `restore_session_runtime`.
+        if !is_picker {
+            // Restore the unified task list so resume re-shows the sticky panel with
+            // the same items (and identity) the model last persisted. An empty list
+            // is the "no active task list" state and needs no restore.
+            let persisted_todos = self.session.todos().await;
+            if !persisted_todos.is_empty() {
+                agent.set_todos(persisted_todos);
+            }
+
+            // Restore the remaining session-scoped runtime state (ADR-0048 Phase 2):
+            // the orthogonal tool mask and round counter.
+            agent.restore_disabled_tools(self.session.disabled_tools().await);
+            agent.restore_round_count(self.session.round_counter().await);
+
+            // Restore the session-scoped unattended posture. This is
+            // the server-restart recovery path: a session that died unattended
+            // reopens unattended — attach, lazy-resume, and boot rehost all flow
+            // through here. `--unattended` ran earlier and may already have set
+            // the flag live; the store read is idempotent either way (same
+            // value, and `set_unattended` on the store is a no-op guard), but the
+            // explicit flag above wins when both apply, matching the user's most
+            // recent explicit intent.
+            let persisted_unattended = self.session.unattended().await;
+            if persisted_unattended && !agent.unattended() {
+                agent.set_unattended(true);
+                let restored_session_id = self.session.id().await;
+                tracing::info!(
+                    session = %restored_session_id,
+                    "restored unattended-mode posture from session store"
+                );
+            }
+
+            // ThreadStart hooks: inject setup context before the first
+            // round. Resume vs fresh start is surfaced so a hook can branch.
+            // A hook is an external process; it runs after Welcome, inside the
+            // visible `Preparing{Hooks}` phase, and is bounded as a startup group so
+            // one hung script cannot hold `Ready` for an unbounded time (ADR-0133).
+            {
+                let source = match &self.startup {
+                    ThreadStart::Resume(_) => nuo_protocol::HookStartSource::Resume,
+                    _ => nuo_protocol::HookStartSource::Startup,
+                };
+                Self::publish_stage(
+                    self.phase_sink.as_ref(),
+                    nuo_protocol::PrepareStage::Hooks,
+                );
+                let mut messages = self.session.model_window().await;
+                let before_len = messages.len();
+                match tokio::time::timeout(
+                    SESSION_START_HOOK_BUDGET,
+                    agent.fire_session_start(source, &mut messages),
+                )
+                .await
+                {
+                    Ok(()) => {}
+                    Err(_) => tracing::warn!(
+                        budget = ?SESSION_START_HOOK_BUDGET,
+                        "ThreadStart hooks exceeded the startup budget; continuing without waiting"
+                    ),
+                }
+                // Persist the hook-injected setup context through the single write
+                // path so the session stays the source of truth (ADR-0048).
+                if messages.len() > before_len
+                    && let Err(err) = self.session.append_turn(&messages).await
+                {
+                    tracing::warn!(error = %err, "failed to persist ThreadStart hook context");
+                }
+            }
+        }
+    }
+
+    /// Stage 7: shared runtime handles, the [`ThreadDriver`], and the frontend
+    /// [`Bootstrap`] surface.
+    async fn finish(self, built: BuiltHarness, mcp: McpWiring) -> Bootstrap {
+        let BuiltHarness {
+            agent,
+            subagent_registry,
+            subagent_tool_handle,
+            skills_registry,
+            workspace_security,
+            shared_additional_roots,
+            shared_confinement,
+            websearch_shared,
+            background_jobs,
+        } = built;
+        let McpWiring {
+            mcp_runtime,
+            command_catalog,
+        } = mcp;
+        // Load per-model usage telemetry (recency signal for the picker,
+        // ADR-0002 phase 2). Moved into the agent task so both the startup
+        // activation and runtime switches record through one instance.
+        let provider_usage = self.shared_provider_usage.read().await.clone();
+
+        // Primary round lifecycle: at most one active round, superseded by the
+        // next begin (replaces the old token-slot + generation-counter pair).
+        let lifecycle = Arc::new(RoundLifecycle::new());
+        let req_tx_for_commands = self.req_tx.clone();
+        // Initial values for the frontend
+        let initial_provider_name =
+            nuo_model_routing::default_provider_id(&self.config).to_string();
+        let initial_model_name = nuo_model_routing::resolved_model_name_with_usage(
+            &self.config,
+            &initial_provider_name,
+            &provider_usage,
+        )
+        .unwrap_or_default();
+
+        // Keep an Arc handle for the caller so SessionEnd hooks can
+        // fire after its UI returns — the driver below moves `agent`.
+        let agent_for_session_end = Arc::clone(&agent);
+        // Shared token-source ledger: the agent books each turn's token usage
+        // (reported vs. estimated) into it, and the frontend reads it for the
+        // token-source report.
+        let token_ledger = nuo_protocol::TokenSourceLedger::shared();
+        // Durable cross-session usage mirror: every terminal settle is
+        // forwarded into the day-partitioned store under `data/usage/` — a
+        // sibling of `projects/`, so session cleanup can never touch it.
+        token_ledger.install_usage_sink(Arc::new(
+            nuo_persistence::usage_stats::UsageStatsStore::new(),
+        ));
+        if let Some(root) = &self.workspace_root {
+            token_ledger.set_usage_project(nuo_host::paths::project_bucket_name(root));
+        }
+        subagent_tool_handle.bind_accounting(
+            token_ledger.clone(),
+            agent.thread_id_handle(),
+            agent.round_counter_handle(),
+        );
+
+        let driver = ThreadDriver {
+            req_rx: self.req_rx,
+            tx: self.resp_tx,
+            req_tx: req_tx_for_commands,
+            agent,
+            session: Arc::clone(&self.session),
+            config: self.shared_config,
+            provider_usage: self.shared_provider_usage,
+            provider_holder: Arc::clone(&self.provider_holder),
+            skills_registry,
+            subagent_registry,
+            mcp_runtime,
+            workspace_security: Arc::clone(&workspace_security),
+            shared_additional_roots: shared_additional_roots.clone(),
+            shared_confinement: shared_confinement.clone(),
+            command_catalog: command_catalog.clone(),
+            lifecycle,
+            project_root: self.workspace_root.clone(),
+            startup: self.startup,
+            open_picker_on_start: self.open_picker_on_start,
+            ui: self.ui,
+            token_ledger: token_ledger.clone(),
+            extra_commands: Arc::new(crate::handlers::slash_handler::SlashCommandRegistry::new()),
+            websearch_shared,
+            background_jobs,
+        };
+
+        Bootstrap {
+            driver,
+            req_tx: self.req_tx,
+            resp_rx: self.resp_rx,
+            agent_for_session_end: Arc::clone(&agent_for_session_end),
+            session: self.session,
+            token_ledger,
+            initial_provider_name,
+            initial_model_name,
+            command_catalog,
+            agent: agent_for_session_end,
+            security: workspace_security,
+            shared_additional_roots,
+            shared_confinement,
+        }
+    }
+}
+
+/// Asynchronous inotify-backed filesystem watcher for automatic MCP hot-updates.
+fn spawn_mcp_config_watcher(
+    mcp_runtime: Arc<McpRuntime>,
+    workspace_root: Option<PathBuf>,
+    workspace_security: Arc<WorkspaceSecurityStore>,
+    resp_tx: mpsc::UnboundedSender<AgentResponse>,
+    session_id: String,
+) {
+    let workspace_root = workspace_root.map(|r| r.canonicalize().unwrap_or(r));
+
+    let mut watcher = match nuo_host::FsWatcher::new(nuo_host::FsWatcher::DEFAULT_DEBOUNCE) {
+        Ok(w) => w,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not initialize MCP config filesystem watcher");
+            return;
+        }
+    };
+
+    // 1. Watch user config directory
+    let user_config_file = nuo_host::paths::get().config_file();
+    let canon_user_config = user_config_file.canonicalize().ok();
+    if let Some(user_config_dir) = user_config_file.parent()
+        && user_config_dir.exists()
+    {
+        let _ = watcher.watch(user_config_dir, false);
+    }
+
+    // 2. Watch workspace directory and .nuo directory
+    if let Some(ref root) = workspace_root {
+        if root.exists() {
+            let _ = watcher.watch(root, false);
+        }
+        let workspace_nuo_dir = root.join(".nuo");
+        if workspace_nuo_dir.exists() {
+            let _ = watcher.watch(&workspace_nuo_dir, false);
+        }
+    }
+
+    let mut events_rx = watcher.subscribe();
+
+    tokio::spawn(async move {
+        let mut watcher = watcher;
+        while let Ok(event) = events_rx.recv().await {
+            // Dynamic watch attachment: if .nuo was just created, start watching it.
+            if let Some(ref root) = workspace_root {
+                let ws_nuo = root.join(".nuo");
+                let canon_nuo = root
+                    .canonicalize()
+                    .unwrap_or_else(|_| root.clone())
+                    .join(".nuo");
+                if event.paths.iter().any(|p| {
+                    p == &ws_nuo
+                        || p == &canon_nuo
+                        || p.canonicalize().ok().as_ref() == Some(&canon_nuo)
+                }) && ws_nuo.exists()
+                {
+                    let _ = watcher.watch(&ws_nuo, false);
+                }
+            }
+
+            let is_user_config = event.paths.iter().any(|p| {
+                p == &user_config_file
+                    || canon_user_config.as_ref().is_some_and(|c| p == c)
+                    || p.canonicalize().ok().as_ref() == canon_user_config.as_ref()
+            });
+
+            let is_workspace_event = workspace_root.as_ref().is_some_and(|root| {
+                let ws_config = root.join(".nuo/config.toml");
+                let ws_mcp = root.join(".nuo/mcp.json");
+                let canon_root = root.canonicalize().unwrap_or_else(|_| root.clone());
+                let canon_ws_config = canon_root.join(".nuo/config.toml");
+                let canon_ws_mcp = canon_root.join(".nuo/mcp.json");
+
+                event.paths.iter().any(|p| {
+                    if p == &user_config_file || canon_user_config.as_ref().is_some_and(|c| p == c)
+                    {
+                        return false;
+                    }
+                    if p == &ws_config
+                        || p == &ws_mcp
+                        || p == &canon_ws_config
+                        || p == &canon_ws_mcp
+                    {
+                        return true;
+                    }
+                    let canon_p = p.canonicalize().unwrap_or_else(|_| p.clone());
+                    if canon_p == canon_ws_config || canon_p == canon_ws_mcp {
+                        return true;
+                    }
+                    let is_target_file = p
+                        .file_name()
+                        .is_some_and(|n| n == "config.toml" || n == "mcp.json");
+                    let is_in_nuo = p
+                        .parent()
+                        .is_some_and(|parent| parent.file_name().is_some_and(|d| d == ".nuo"));
+                    is_target_file
+                        && is_in_nuo
+                        && (p.starts_with(root)
+                            || p.starts_with(&canon_root)
+                            || canon_p.starts_with(root)
+                            || canon_p.starts_with(&canon_root))
+                })
+            });
+
+            if !is_user_config && !is_workspace_event {
+                continue;
+            }
+
+            let project_mcp = workspace_root
+                .as_ref()
+                .map(|root| Config::load_project_mcp(root))
+                .unwrap_or_default();
+            let has_project_mcp = !project_mcp.is_empty();
+
+            // If a workspace file changed but the workspace has no MCP declarations,
+            // this event doesn't affect MCP unless the user-level config was also touched.
+            if is_workspace_event && !has_project_mcp && !is_user_config {
+                continue;
+            }
+
+            // Check workspace trust for workspace-level config
+            let mcp_trust = workspace_root
+                .as_ref()
+                .map(|root| workspace_security.snapshot(root).mcp)
+                .unwrap_or(nuo_protocol::WorkspaceTrustState::Trusted);
+
+            if is_workspace_event && has_project_mcp && mcp_trust.needs_review() {
+                let _ = resp_tx.send(round_response(
+                    &session_id,
+                    RoundEvent::Notice(
+                        AgentNotice::new(
+                            nuo_tool::NoticeKind::TrustChanged,
+                            nuo_tool::NoticeSeverity::Warning,
+                            "Workspace MCP configuration changed",
+                            nuo_tool::NoticeSource::Harness,
+                        )
+                        .with_body(
+                            "Untrusted workspace MCP configuration detected. Run `/trust mcp` to \
+                             review and enable, or `/trust deny mcp` to refuse it until the \
+                             configuration changes.",
+                        ),
+                    ),
+                ));
+                continue;
+            }
+
+            // Reload configuration and reconfigure MCP runtime
+            let mut effective = Config::load();
+            if mcp_trust.is_trusted() && has_project_mcp {
+                effective.merge_project_mcp(project_mcp);
+            }
+
+            let report = mcp_runtime.reconfigure(effective.mcp).await;
+            let connected_count = report.connected.iter().filter(|(_, ok)| *ok).count();
+            let removed_count = report.removed.len();
+
+            if connected_count > 0 || removed_count > 0 {
+                let _ = resp_tx.send(round_response(
+                    &session_id,
+                    RoundEvent::Notice(
+                        AgentNotice::new(
+                            nuo_tool::NoticeKind::CommandAck,
+                            nuo_tool::NoticeSeverity::Info,
+                            "MCP configuration reloaded",
+                            nuo_tool::NoticeSource::Harness,
+                        )
+                        .with_body(format!(
+                            "Hot-reload complete: {connected_count} connected, {removed_count} removed."
+                        )),
+                    ),
+                ));
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests;

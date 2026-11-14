@@ -95,7 +95,7 @@ impl PermissionStore {
     }
 
     // Pending-request parking moved to the human-request broker
-    // (`nuo_harness::human_broker`): one owner for permission /
+    // (`nuo_engine::human_broker`): one owner for permission /
     // ask_user / interactive-input oneshots, uniform exactly-once
     // settlement, per-kind metrics. The store keeps only rules + the delegated flag.
 
@@ -238,7 +238,7 @@ impl PermissionStore {
     /// is itself persisted, so this holds across restarts. Re-approving the
     /// rule later (`add_always`) clears the revocation and lets the seed apply
     /// again.
-    pub fn seed_from_config(&self, rules: &[nuo_persistence::config::PermissionRuleConfig]) {
+    pub fn seed_from_config(&self, rules: &[nuo_protocol::policy_config::PermissionRuleConfig]) {
         let mut state = poison_lock(&self.state);
         let mut added = 0;
         let mut skipped_revoked = 0;
@@ -279,7 +279,7 @@ impl PermissionStore {
     /// allowlist, and load any rules already on disk into the in-memory set.
     /// Pass `None` to disable persistence (subagents and most tests do this).
     pub fn set_project_root(&self, root: Option<std::path::PathBuf>) {
-        self.set_project_root_with_dirs(root, &nuo_persistence::paths::get());
+        self.set_project_root_with_dirs(root, &nuo_host::paths::get());
     }
 
     /// Bind a project using an explicit path capability.
@@ -291,7 +291,7 @@ impl PermissionStore {
     pub fn set_project_root_with_dirs(
         &self,
         root: Option<std::path::PathBuf>,
-        dirs: &nuo_persistence::paths::Dirs,
+        dirs: &nuo_host::paths::Dirs,
     ) {
         let target = root.map(|project_root| PermissionPersistence {
             file: dirs.project_permissions(&project_root),
@@ -369,7 +369,7 @@ impl PermissionStore {
                 revoked,
             }
         };
-        if let Err(e) = nuo_persistence::fsutil::atomic_write_json(&path, &snapshot) {
+        if let Err(e) = nuo_host::fsutil::atomic_write_json(&path, &snapshot) {
             tracing::warn!(
                 path = %path.display(),
                 error = %e,
@@ -389,7 +389,7 @@ impl Default for PermissionStore {
 mod tests {
 
     use super::*;
-    use nuo_persistence::config::PermissionRuleConfig;
+    use nuo_protocol::policy_config::PermissionRuleConfig;
 
     /// A unique temp directory for a test, with no external `tempfile` dep.
     /// Cleaned up (best-effort) on drop.
@@ -566,7 +566,7 @@ mod tests {
         // The revoked set round-trips through the on-disk file: revoke, persist,
         // reload into a fresh store, and the seed still skips the rule.
         let tmp = ScratchDir::new();
-        let dirs = nuo_persistence::paths::Dirs {
+        let dirs = nuo_host::paths::Dirs {
             config_dir: tmp.path().join("config"),
             data_dir: tmp.path().join("data"),
             state_dir: tmp.path().join("state"),

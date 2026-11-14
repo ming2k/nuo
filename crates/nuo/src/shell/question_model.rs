@@ -34,7 +34,8 @@
 //! both the final model *and* the emitted effects, then render each
 //! intermediate state to a snapshot. That is the "see the interaction" debug
 //! loop the old inline arms made impossible.
-use nuo_protocol::{UserQuestion, UserQuestionRequest};
+use nuo_tool::{UserQuestion, UserQuestionRequest};
+
 
 /// The "Other" free-text option label emitted in a reply when the user
 /// selected the synthetic "Other" row but left its text field blank — matches

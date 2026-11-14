@@ -119,7 +119,7 @@ pub(super) fn render_dialog(
                 crate::shell::render::ContextUsageProps {
                     snapshot: app.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: nuo_protocol::count_tokens(&app.input),
+                    draft_content_tokens: nuo_tool::count_tokens(&app.input),
                     draft_tokens: nuo_protocol::estimate_draft_tokens(&app.input),
                 },
                 loading,
@@ -143,7 +143,7 @@ pub(super) fn render_dialog(
                 crate::shell::render::ContextUsageProps {
                     snapshot: app.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: nuo_protocol::count_tokens(&app.input),
+                    draft_content_tokens: nuo_tool::count_tokens(&app.input),
                     draft_tokens: nuo_protocol::estimate_draft_tokens(&app.input),
                 },
                 d.index

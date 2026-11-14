@@ -804,7 +804,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
     for i in 0..20 {
         app.messages
             .push(nuo_view::model::document::TranscriptMessage::new(
-                nuo_protocol::Role::Assistant,
+                nuo_tool::Role::Assistant,
                 format!("turn {i}"),
             ));
     }
@@ -887,7 +887,7 @@ fn the_conversation_stays_visible_when_notice_arrives() {
     for i in 0..20 {
         app.messages
             .push(nuo_view::model::document::TranscriptMessage::new(
-                nuo_protocol::Role::Assistant,
+                nuo_tool::Role::Assistant,
                 format!("visible-turn-{i}"),
             ));
     }

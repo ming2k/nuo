@@ -937,7 +937,7 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
     for i in 0..DELTAS {
         streamed.push_str(&format!("delta {i} of the interrupted stream. "));
     }
-    let expected = nuo_protocol::tokenizer::Tokenizer::new().count(&streamed) as i64;
+    let expected = nuo_tool::tokenizer::Tokenizer::new().count(&streamed) as i64;
     assert_eq!(
         record.completion_tokens, expected,
         "the estimate must be the exact whole-stream count, not a running-total sum"
@@ -1064,9 +1064,9 @@ async fn reasoning_only_response_is_accepted_not_treated_as_empty() {
         Vec::new(),
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig {
+    agent.set_trajectory_guard_config(nuo_tool::TrajectoryGuardConfig {
         enabled: true,
-        ..nuo_protocol::TrajectoryGuardConfig::default()
+        ..nuo_tool::TrajectoryGuardConfig::default()
     });
 
     let mut messages = vec![Message::new(Role::User, "go")];

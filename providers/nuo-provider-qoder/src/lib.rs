@@ -22,15 +22,15 @@ pub use usage::*;
 pub use wire::*;
 
 use nuo_inference_wire::WireProtocol;
-use nuo_provider::model::Model;
-use nuo_provider::reasoning::ReasoningSupport;
+use nuo_protocol::model::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
 use nuo_provider::spec::{ModelProviderSpec, RemoteCatalogSource};
 use serde_json::Value;
 
 /// The offline seed ids, owned by `nuo_inference_wire` so the TUI template and the
 /// registry cannot disagree about them (the convention every other curated
 /// provider follows).
-pub use nuo_provider::model_providers::QODER_MODELS;
+pub use nuo_protocol::model_providers::QODER_MODELS;
 
 /// Baseline capability metadata for the seeded models.
 ///
@@ -48,7 +48,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -60,15 +60,15 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
-        default_effort: Some(nuo_provider::Effort::High),
+        default_effort: Some(nuo_protocol::Effort::High),
         wire_entities: None,
     },
 ];
 
-inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Qoder,
+    dialect: nuo_protocol::ProviderDialect::Qoder,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -78,10 +78,10 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     user_agent: None,
     default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::OpenAiChatCompletions,
-    catalog_source: RemoteCatalogSource::Endpoint(nuo_provider::surface::CatalogShape::SceneMap),
+    catalog_source: RemoteCatalogSource::Endpoint(nuo_protocol::surface::CatalogShape::SceneMap),
     quota: Some(nuo_provider::QuotaPort::Qoder),
     display_policy: nuo_provider::DisplayPolicy::Native,
-    responses_state: nuo_provider::ResponsesState::Stateless,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
     models: QODER_MODELS,
 };
 
@@ -190,7 +190,7 @@ impl nuo_provider::CatalogSigning for QoderCatalogSigning {
 /// `enable:true` on a paid plan must not surface as a selectable model, because
 /// selecting it hands model choice to the server and invalidates every
 /// capability nuo fitted for the channel.
-pub fn parse_scene_catalog(json: &Value, scene: &str) -> Vec<nuo_provider::DiscoveredModel> {
+pub fn parse_scene_catalog(json: &Value, scene: &str) -> Vec<nuo_protocol::DiscoveredModel> {
     let Some(scenes) = json.as_object() else {
         return Vec::new();
     };
@@ -249,7 +249,7 @@ fn disabled_reason(entry: &Value) -> Option<String> {
 fn discovered_from_scene_entry(
     entry: &Value,
     scene: &str,
-) -> Option<nuo_provider::DiscoveredModel> {
+) -> Option<nuo_protocol::DiscoveredModel> {
     let key = entry.get("key").and_then(Value::as_str)?.trim();
     if key.is_empty() || surface::is_function_switch(key, scene) {
         return None;
@@ -261,13 +261,13 @@ fn discovered_from_scene_entry(
     // `None` otherwise — no surface may invent one.
     let reason = disabled_reason(entry);
     let availability = match entry.get("enable") {
-        Some(Value::Bool(true)) => Some(nuo_provider::Availability::usable()),
-        Some(Value::Bool(false)) => Some(nuo_provider::Availability::locked(reason)),
+        Some(Value::Bool(true)) => Some(nuo_protocol::Availability::usable()),
+        Some(Value::Bool(false)) => Some(nuo_protocol::Availability::locked(reason)),
         Some(Value::Number(number)) => {
             if number.as_i64().unwrap_or(0) != 0 {
-                Some(nuo_provider::Availability::usable())
+                Some(nuo_protocol::Availability::usable())
             } else {
-                Some(nuo_provider::Availability::locked(reason))
+                Some(nuo_protocol::Availability::locked(reason))
             }
         }
         _ => None,
@@ -290,7 +290,7 @@ fn discovered_from_scene_entry(
         .and_then(|enabled| enabled.get("efforts"))
         .and_then(Value::as_object)
         .map(|efforts| efforts.keys().cloned().collect());
-    Some(nuo_provider::DiscoveredModel {
+    Some(nuo_protocol::DiscoveredModel {
         id: key.to_string(),
         availability,
         advertised: None,
@@ -303,7 +303,7 @@ fn discovered_from_scene_entry(
         name: entry
             .get("display_name")
             .and_then(Value::as_str)
-            .map(nuo_provider::clean_model_display_name),
+            .map(nuo_protocol::clean_model_display_name),
         context_window,
         max_output_tokens: None,
         reasoning: entry.get("is_reasoning").and_then(Value::as_bool),
@@ -398,20 +398,20 @@ mod tests {
         };
         assert_eq!(
             by_id("qmodel_38max").availability,
-            Some(nuo_provider::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         );
         // A locked entry the payload gives no reason for stays reasonless: no
         // surface may invent one.
         assert_eq!(
             by_id("gmodel").availability,
-            Some(nuo_provider::Availability::locked(None))
+            Some(nuo_protocol::Availability::locked(None))
         );
         // A locked entry the payload *does* explain carries the provider's own
         // key verbatim — never resolved against the vendor's text table
         // (`[INV-AVAIL-03]`).
         assert_eq!(
             by_id("kmodel").availability,
-            Some(nuo_provider::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "codeSafeModelReason".to_string()
             )))
         );

@@ -2,7 +2,8 @@
 use super::super::helpers::*;
 use super::super::types::*;
 use super::TranscriptMessage;
-use nuo_protocol::{Role, SubagentEvent};
+use nuo_tool::{Role, SubagentEvent};
+
 
 impl TranscriptMessage {
     /// Append a subagent event as a nested child of this tool step.
@@ -191,7 +192,7 @@ impl TranscriptMessage {
                     child.finish_tool_step(
                         id,
                         output.clone(),
-                        nuo_protocol::ToolOutput::text(output.clone()),
+                        nuo_tool::ToolOutput::text(output.clone()),
                         *duration_ms,
                     );
                     if let Some(status) = child.tool_step_status() {
@@ -204,7 +205,7 @@ impl TranscriptMessage {
                     msg.finish_tool_step(
                         id,
                         output.clone(),
-                        nuo_protocol::ToolOutput::text(output.clone()),
+                        nuo_tool::ToolOutput::text(output.clone()),
                         *duration_ms,
                     );
                     if let Some(status) = msg.tool_step_status() {
@@ -458,7 +459,7 @@ impl TranscriptMessage {
             return None;
         }
         let source: &str = match structured.as_deref() {
-            Some(nuo_protocol::ToolOutput::Subagent { summary, .. }) => summary,
+            Some(nuo_tool::ToolOutput::Subagent { summary, .. }) => summary,
             _ => output.as_deref()?,
         };
         let conclusion = source

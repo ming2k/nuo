@@ -31,11 +31,13 @@ use futures::stream::{self, BoxStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use nuo_harness::{
+use nuo_engine::{
     Agent, AgentEvent, AgentOp, Message, Provider, ProviderStreamEvent, Role, SubagentEvent,
     SubagentTool,
 };
-use nuo_protocol::{PermissionDecision, SubAgentProfile, Tool, ToolOutput, ToolPolicy};
+use nuo_protocol::{PermissionDecision, SubAgentProfile, ToolPolicy};
+use nuo_tool::{Tool, ToolOutput};
+
 
 /// `stream_chat` emits "done" with no tool calls (the default
 /// `stream_chat_events` wraps it into one `TextDelta`). Used by the inject
@@ -76,7 +78,7 @@ async fn inject_user_message_lands_in_transcript() {
     let agent = Arc::new(Agent::new(
         Arc::new(IdleProvider),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let handle = agent.install_inbox();
 
@@ -113,8 +115,8 @@ impl Tool for BrokerGatedTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    fn scope_target(&self, _arguments: &str) -> nuo_protocol::ScopeTarget {
-        nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from("/tmp/gated"))
+    fn scope_target(&self, _arguments: &str) -> nuo_tool::ScopeTarget {
+        nuo_tool::ScopeTarget::Path(std::path::PathBuf::from("/tmp/gated"))
     }
     async fn call(&self, _arguments: &str) -> Result<String, String> {
         self.0.fetch_add(1, Ordering::SeqCst);
@@ -137,11 +139,11 @@ async fn handle_reply_permission_unblocks_parked_write_tool() {
     let agent = Arc::new(Agent::new(
         Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
         vec![Arc::new(BrokerGatedTool(Arc::clone(&ran)))],
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let handle = agent.install_inbox();
 
-    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<nuo_protocol::PermissionRequest>();
+    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<nuo_tool::PermissionRequest>();
     let run_agent = Arc::clone(&agent);
     let task = tokio::spawn(async move {
         let mut messages = vec![Message::new(Role::User, "run the write tool")];
@@ -188,7 +190,7 @@ async fn handle_reply_is_noop_after_agent_dropped() {
     let agent = Arc::new(Agent::new(
         Arc::new(IdleProvider),
         Vec::new(),
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let handle = agent.install_inbox();
     drop(agent);
@@ -290,7 +292,7 @@ async fn streaming_loop_fires_permission_broker_direct() {
     let agent = Arc::new(Agent::new(
         Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
         vec![Arc::new(BrokerGatedTool(Arc::clone(&ran))) as Arc<dyn Tool>],
-        nuo_harness::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     agent.set_unattended(false);
 
@@ -342,12 +344,12 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
     let (evt_tx, mut evt_rx) = mpsc::unbounded_channel::<SubagentEvent>();
     let tool = Arc::clone(&subagent_tool);
     let task = tokio::spawn(async move {
-        let mut on_stream = |_: nuo_harness::ToolStream| ();
+        let mut on_stream = |_: nuo_engine::ToolStream| ();
         tool.call_structured_with_events(
-            nuo_protocol::ToolInvocation {
+            nuo_tool::ToolInvocation {
                 call_id: "parent_call_7",
                 arguments: r#"{"description":"d","prompt":"run the write tool"}"#,
-                input: nuo_protocol::InputContract::default(),
+                input: nuo_tool::InputContract::default(),
                 input_handler: None,
             },
             Box::new(move |e| {
@@ -410,7 +412,7 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
 /// keeps this test about the session, not the gate (which has its own coverage).
 #[tokio::test]
 async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
-    use nuo_harness::Agent;
+    use nuo_engine::Agent;
     use nuo_persistence::thread::ThreadSession;
 
     let dir = std::env::temp_dir().join(format!("nuo-sub-dispatch-{}", uuid::Uuid::new_v4()));
@@ -419,8 +421,8 @@ async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
     // The parent must be durable: the child's row references it.
     parent
         .commit_turn(nuo_persistence::thread::CommitTurn {
-            messages: &[nuo_protocol::Message::new(
-                nuo_protocol::Role::User,
+            messages: &[nuo_tool::Message::new(
+                nuo_tool::Role::User,
                 "parent question",
             )],
             basis: nuo_persistence::thread::CommitBasis::Appended,
@@ -457,13 +459,13 @@ async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
     );
 
     let tool = Arc::clone(&subagent_tool);
-    let mut on_stream = |_: nuo_harness::ToolStream| ();
+    let mut on_stream = |_: nuo_engine::ToolStream| ();
     let task = tokio::spawn(async move {
         tool.call_structured_with_events(
-            nuo_protocol::ToolInvocation {
+            nuo_tool::ToolInvocation {
                 call_id: "parent_call_session",
                 arguments: r#"{"description":"d","prompt":"do a thing"}"#,
-                input: nuo_protocol::InputContract::default(),
+                input: nuo_tool::InputContract::default(),
                 input_handler: None,
             },
             Box::new(|_| {}),

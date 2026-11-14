@@ -13,14 +13,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use nuo_protocol::{SubAgentProfile, Tool};
+use nuo_protocol::{SubAgentProfile};
+
+use nuo_tool::{Tool};
+
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::cognition::agent::Agent;
 
 /// Canonical tool name for spawning a delegated child agent.
-pub const SPAWN_AGENT_TOOL_NAME: &str = nuo_protocol::BuiltinTool::SpawnAgent.as_str();
+pub const SPAWN_AGENT_TOOL_NAME: &str = nuo_tool::BuiltinTool::SpawnAgent.as_str();
 
 /// The roles a **model-facing** dispatch tool may request, in the order the
 /// schema advertises them.

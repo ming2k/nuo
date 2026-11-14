@@ -1,5 +1,5 @@
 use super::*;
-use crate::ToolCall;
+use nuo_tool::ToolCall;
 
 fn call(id: &str, name: &str, args: &str) -> ToolCall {
     ToolCall {
@@ -327,7 +327,7 @@ fn semantic_json_ignores_transport_syntax_but_keeps_domain_content() {
 #[test]
 fn message_estimate_treats_empty_content_and_empty_arguments_as_framing_only() {
     let mut message = Message::new(Role::Assistant, "");
-    message.tool_calls = Some(vec![crate::ToolCall {
+    message.tool_calls = Some(vec![nuo_tool::ToolCall {
         id: "call_1".into(),
         name: String::new(),
         arguments: "{}".into(),
@@ -427,12 +427,12 @@ fn companion_tool_image_is_evicted_on_prune() {
     let call1 = call("c1", "read", "{\"path\":\"screenshot.png\"}");
     let tool_msg = Message::tool_result(&call1, "[image: image/png]");
     let companion = Message::new(Role::User, "Image from screenshot")
-        .with_images(vec![crate::ImagePart {
+        .with_images(vec![nuo_tool::ImagePart {
             mime: "image/png".into(),
             data: "very_large_base64_data".into(),
         }])
-        .with_origin(crate::InjectionOrigin::new(
-            crate::message::InjectionKind::ToolImage,
+        .with_origin(nuo_tool::InjectionOrigin::new(
+            nuo_tool::InjectionKind::ToolImage,
         ));
     let mut messages = vec![
         assistant_with_call("c1", "read", "{\"path\":\"screenshot.png\"}"),
@@ -449,7 +449,7 @@ fn companion_tool_image_is_evicted_on_prune() {
 #[test]
 fn user_uploaded_image_is_evicted_with_artifact_invoice() {
     let user_msg =
-        Message::new(Role::User, "User prompt with visual").with_images(vec![crate::ImagePart {
+        Message::new(Role::User, "User prompt with visual").with_images(vec![nuo_tool::ImagePart {
             mime: "image/png".into(),
             data: "very_large_base64_data".into(),
         }]);

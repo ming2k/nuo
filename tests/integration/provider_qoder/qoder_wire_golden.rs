@@ -15,7 +15,8 @@
 // field is the most useful failure mode here.
 
 use nuo_host::SecretString;
-use nuo_provider::{ResolvedAuth, TransportTelemetry};
+use nuo_protocol::{ResolvedAuth, TransportTelemetry};
+
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
 use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 
@@ -26,7 +27,7 @@ struct StaticOAuthSource {
     identity: QoderRequestIdentity,
 }
 
-impl nuo_provider::CredentialSource for StaticOAuthSource {
+impl nuo_protocol::CredentialSource for StaticOAuthSource {
     fn resolve_auth(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         Box::pin(
             async move { Ok(ResolvedAuth::new(self.token).with_extension(self.identity.clone())) },
@@ -60,7 +61,7 @@ fn qoder_wire_provider() -> OpenAiChatCompletionsProvider {
         "qfmodel".to_string(),
         "https://api2.qoder.sh",
     )
-    .with_dialect(nuo_provider::OpenAiChatDialect::Qoder)
+    .with_dialect(nuo_protocol::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline())
 }
 
@@ -79,7 +80,7 @@ fn planned_request(
     provider
         .execute_plan(
             &nuo_provider::WireRequest::new(
-                nuo_provider::WireProtocol::OpenAiChatCompletions,
+                nuo_protocol::WireProtocol::OpenAiChatCompletions,
                 qoder_body(),
             ),
             auth,
@@ -241,17 +242,17 @@ fn qoder_golden_wire_body_is_the_qoderencoded_agent_chat_envelope() {
 /// `low`/`medium`/`xhigh` on `qfmodel`). This mirrors that so the tests below
 /// exercise the *production* chain — catalog metadata → flat body →
 /// envelope — rather than a hand-written body that skips the gate.
-fn catalog_capabilities(model: &str) -> nuo_provider::ModelCapabilities {
-    let remote = nuo_provider::RemoteModelMetadata {
+fn catalog_capabilities(model: &str) -> nuo_protocol::ModelCapabilities {
+    let remote = nuo_protocol::RemoteModelMetadata {
         effort_levels: Some(
             ["low", "medium", "xhigh"]
                 .iter()
-                .map(|level| nuo_provider::EffortLevel::parse(level))
+                .map(|level| nuo_protocol::EffortLevel::parse(level))
                 .collect(),
         ),
         ..Default::default()
     };
-    nuo_provider::ModelCapabilities::for_channel(model, Some(&remote))
+    nuo_protocol::ModelCapabilities::for_channel(model, Some(&remote))
 }
 
 /// Build the flat chat-completions body the way production does, then plan it
@@ -261,7 +262,7 @@ fn envelope_for(body: &serde_json::Value) -> serde_json::Value {
     let req = qoder_wire_provider()
         .execute_plan(
             &nuo_provider::WireRequest::new(
-                nuo_provider::WireProtocol::OpenAiChatCompletions,
+                nuo_protocol::WireProtocol::OpenAiChatCompletions,
                 body.clone(),
             ),
             &auth,
@@ -292,9 +293,9 @@ fn qoder_golden_wire_projects_the_requested_effort_into_parameters() {
             stream: true,
             instructions: None,
             tool_specs: None,
-            reasoning_effort: Some(nuo_provider::Effort::Xhigh),
-            dialect: nuo_provider::OpenAiChatDialect::Qoder,
-            cache_plan: &nuo_provider::ResolvedCachePolicy::Unsupported,
+            reasoning_effort: Some(nuo_protocol::Effort::Xhigh),
+            dialect: nuo_protocol::OpenAiChatDialect::Qoder,
+            cache_plan: &nuo_protocol::ResolvedCachePolicy::Unsupported,
         },
         &catalog_capabilities("qfmodel"),
     );
@@ -331,7 +332,7 @@ fn qoder_golden_wire_projects_effort_none_as_reasoning_off() {
 /// states `max_tokens`.
 #[test]
 fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
-    let offline = nuo_provider::ModelCapabilities::for_channel("qfmodel", None);
+    let offline = nuo_protocol::ModelCapabilities::for_channel("qfmodel", None);
     assert!(
         offline.effort_levels.is_empty(),
         "the baseline declares no ladder; this test is about the offline path"
@@ -344,9 +345,9 @@ fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
             stream: true,
             instructions: None,
             tool_specs: None,
-            reasoning_effort: Some(nuo_provider::Effort::Xhigh),
-            dialect: nuo_provider::OpenAiChatDialect::Qoder,
-            cache_plan: &nuo_provider::ResolvedCachePolicy::Unsupported,
+            reasoning_effort: Some(nuo_protocol::Effort::Xhigh),
+            dialect: nuo_protocol::OpenAiChatDialect::Qoder,
+            cache_plan: &nuo_protocol::ResolvedCachePolicy::Unsupported,
         },
         &offline,
     );
@@ -397,7 +398,7 @@ fn standard_dialect_golden_wire_is_the_plain_chat_completions_wire() {
     let req = provider
         .execute_plan(
             &nuo_provider::WireRequest::new(
-                nuo_provider::WireProtocol::OpenAiChatCompletions,
+                nuo_protocol::WireProtocol::OpenAiChatCompletions,
                 body,
             ),
             &auth,

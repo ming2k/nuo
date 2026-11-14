@@ -151,7 +151,7 @@ fn assistant_parts(
 ///
 /// # This is NOT the authority for this policy
 ///
-/// The authoritative scrub is `nuo_harness::dispatch::tool_call::
+/// The authoritative scrub is `nuo_engine::dispatch::tool_call::
 /// strip_fallback_invocation_markup`, which runs when a fallback invocation is
 /// promoted to a native `ToolCall` and is a strict **superset** of this function
 /// (same balanced-brace walk, plus ChatML/Hermes sentinel tokens and embedded

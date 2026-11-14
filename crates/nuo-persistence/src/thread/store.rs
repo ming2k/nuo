@@ -532,7 +532,7 @@ impl ThreadSession {
                 .project()
                 .into_iter()
                 .rev()
-                .find(|(_, m)| m.role == nuo_protocol::Role::User && !m.hidden)
+                .find(|(_, m)| m.role == nuo_tool::Role::User && !m.hidden)
                 .map(|(_, m)| truncate_preview(&m.content, 64))
                 .unwrap_or_else(|| "(empty session)".to_string()),
         };
@@ -730,7 +730,7 @@ impl ThreadSession {
 #[cfg(test)]
 mod subagent_store_tests {
     use super::*;
-    use nuo_protocol::{Message, Role};
+    use nuo_tool::{Message, Role};
 
     impl ThreadSession {
         /// Test-only: does this store's own engine see a subagent row?

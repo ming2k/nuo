@@ -40,10 +40,9 @@
 //! not asked about again until the bytes change. The session then continues on
 //! the chat surface — the gate also opens for content that changed mid-session,
 //! where quitting the terminal would be an absurd answer.
-use nuo_protocol::{
-    TrustDomain, UserQuestion, UserQuestionOption, UserQuestionRequest, WorkspaceSecuritySnapshot,
-    WorkspaceTrustState,
-};
+use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+
 
 /// Request id marking the synthesized trust-gate question. Recognized by the
 /// reply path (`super::event_loop`) and never sent to the server as a

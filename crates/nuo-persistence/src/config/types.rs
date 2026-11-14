@@ -1,6 +1,12 @@
 //! Agent, permission, workspace, server, and hook configuration schema.
-use nuo_protocol::{HookEventKind, TrajectoryGuardConfig, VariantSelection};
+use nuo_protocol::VariantSelection;
+use nuo_tool::{HookEventKind, TrajectoryGuardConfig};
 use serde::{Deserialize, Serialize};
+
+pub use nuo_protocol::policy_config::{
+    BashPolicyActionConfig, BashPolicyConfig, BashPolicyMatcherConfig, BashPolicyRuleConfig,
+    PermissionRuleConfig,
+};
 use std::collections::HashMap;
 
 pub const THINKING_KEY: &str = "thinking";
@@ -127,108 +133,6 @@ pub struct ResolvedAdditionalRoots {
     pub admitted: Vec<std::path::PathBuf>,
     /// Configured entries that could not be admitted, with the failure reason.
     pub skipped: Vec<(String, String)>,
-}
-
-/// Safety policy for model-issued `bash` commands. Built-in dangerous-command
-/// rules are compiled into the agent so the config only contains user choices:
-/// toggles and project-local overrides/additions.
-///
-/// ```toml
-/// [bash_policy]
-/// enabled = true
-///
-/// [[bash_policy.rules]]
-/// name = "deny git reset hard"
-/// match = "regex"
-/// pattern = '(?i)\bgit\s+reset\s+--hard\b'
-/// action = "deny"
-/// reason = "This project never allows git reset --hard from the agent."
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct BashPolicyConfig {
-    /// Master switch for the bash policy guard. Defaults to `true` so dangerous
-    /// built-in commands are protected even when the user has broadly allowed
-    /// the `bash` tool.
-    pub enabled: bool,
-    /// Whether an explicit user `allow` rule may override a compiled-in `deny`
-    /// rule. Defaults to `false`; user `allow` rules can still override
-    /// compiled-in `confirm` rules.
-    pub allow_user_override_builtin_deny: bool,
-    /// Project/user-defined rules. Evaluated before built-in `confirm` rules,
-    /// but built-in `deny` rules remain a hard floor unless
-    /// `allow_user_override_builtin_deny` is set.
-    pub rules: Vec<BashPolicyRuleConfig>,
-}
-
-impl Default for BashPolicyConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            allow_user_override_builtin_deny: false,
-            rules: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct BashPolicyRuleConfig {
-    /// Human-readable rule name shown in policy decisions.
-    pub name: String,
-    /// Matcher type. TOML uses `match = "regex"`; `matcher` is accepted as an
-    /// alias for callers that avoid the keyword-like field name.
-    #[serde(rename = "match", alias = "matcher")]
-    pub matcher: BashPolicyMatcherConfig,
-    /// Pattern consumed by the selected matcher.
-    pub pattern: String,
-    /// Decision to apply when this rule matches.
-    pub action: BashPolicyActionConfig,
-    /// Optional user-facing explanation.
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BashPolicyMatcherConfig {
-    /// Rust `regex` matched against the full shell command string.
-    #[default]
-    Regex,
-    /// Case-sensitive substring match against the full command string.
-    Contains,
-    /// Case-sensitive prefix match after trimming leading whitespace.
-    StartsWith,
-    /// Match the leading program name (after leading env assignments), e.g.
-    /// `git`, `cargo`, `kubectl`.
-    Program,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BashPolicyActionConfig {
-    /// Let the command proceed to the normal permission broker.
-    Allow,
-    /// Require a one-off human confirmation, ignoring any broad `bash *` allow.
-    Confirm,
-    /// Refuse the command before spawning a shell.
-    #[default]
-    Deny,
-}
-
-/// One declarative permission rule from `[permissions]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PermissionRuleConfig {
-    /// Tool name (e.g. `"execute_command"`, `"read"`, `"mcp__fs__read"`).
-    pub tool: String,
-    /// Permission scope. `"*"` matches every call to the tool. Any other value
-    /// must match the call's scope *exactly* (e.g. a full path, or the exact
-    /// command string for `bash`) — there is no prefix/substring matching.
-    #[serde(default = "default_scope")]
-    pub scope: String,
-}
-
-fn default_scope() -> String {
-    "*".to_string()
 }
 
 /// Server lifecycle configuration, deserialized from the `[server]` table of

@@ -13,11 +13,12 @@
 //! (ADR-0046). A request only carries a `thinking` object when the user has
 //! turned it on for that model.
 
-use nuo_provider::{Effort, reasoning::ReasoningSupport};
+use nuo_protocol::{Effort, reasoning::ReasoningSupport};
+
 
 /// Re-export the on/off enum so callers reaching it through this module keep a
 /// stable path.
-pub use nuo_provider::ReasoningMode;
+pub use nuo_protocol::ReasoningMode;
 
 /// Resolved thinking/effort configuration for an Anthropic Messages provider.
 ///
@@ -42,7 +43,7 @@ pub struct ThinkingConfig {
 impl ThinkingConfig {
     /// The default configuration for a model: **thinking off, no explicit
     /// effort**. Extended thinking is opt-in (ADR-0046).
-    pub fn for_model(_model: &nuo_provider::Model) -> Self {
+    pub fn for_model(_model: &nuo_protocol::Model) -> Self {
         Self::default()
     }
 
@@ -62,7 +63,7 @@ impl ThinkingConfig {
     }
 
     /// Resolve this config against a concrete model's `effort_levels` (the
-    /// open [`nuo_provider::EffortLevel`] ladder, which may carry provider-advertised tiers
+    /// open [`nuo_protocol::EffortLevel`] ladder, which may carry provider-advertised tiers
     /// the vocabulary does not name), returning a new config whose explicit
     /// effort (if any) is clamped to the model's supported levels. The mode and
     /// the effort's explicit/implicit distinction are honored unchanged. An
@@ -74,14 +75,14 @@ impl ThinkingConfig {
     /// the open ladder; provider-advertised `Other` tiers are not eligible
     /// ranking targets for a known request (their depth is unknowable), though
     /// an exact-name passthrough is honored via [`Effort::clamp_to_levels`].
-    pub(super) fn resolve_for(self, effort_levels: &[nuo_provider::EffortLevel]) -> Self {
+    pub(super) fn resolve_for(self, effort_levels: &[nuo_protocol::EffortLevel]) -> Self {
         if effort_levels.is_empty() {
             return self;
         }
         // Clamp a known request against the known rungs of the open ladder.
         let known: Vec<Effort> = effort_levels
             .iter()
-            .filter_map(nuo_provider::EffortLevel::as_known)
+            .filter_map(nuo_protocol::EffortLevel::as_known)
             .collect();
         Self {
             mode: self.mode,

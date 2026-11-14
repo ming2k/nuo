@@ -8,8 +8,8 @@ use nuo_protocol::model::ModelScopeConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::fsutil;
-use crate::paths;
+use nuo_host::fsutil;
+use nuo_host::paths;
 
 pub use nuo_protocol::model_providers::UserDeclaredProvider;
 

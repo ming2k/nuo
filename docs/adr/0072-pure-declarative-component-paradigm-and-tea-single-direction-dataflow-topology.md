@@ -1,16 +1,16 @@
 ---
 id: ADR-0072
 title: "Pure Declarative Component Paradigm and TEA Single-Direction Dataflow Topology"
-status: accepted
+status: superseded
 date: 2026-11-15
 scope: tui/nuo-tui, tui/architecture, tui/components, tui/lifecycle
-superseded_by: null
+superseded_by: ADR-0185
 negative_knowledge: true
 ---
 
 # 0072. Pure Declarative Component Paradigm and TEA Single-Direction Dataflow Topology
 
-- Status: Accepted
+- Status: Superseded by [ADR-0185](0185-storybook-retirement-and-single-presentation-path.md)
 - Date: 2026-11-15
 - Deciders: Nuo Architecture Working Group, TUI Presentation Team, Interface Architecture Team
 - Consulted: Runtime, Usability, Protocol Teams

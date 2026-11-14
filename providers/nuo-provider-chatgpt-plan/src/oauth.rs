@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use nuo_provider::LoginMethod;
-use nuo_provider::ResolvedAuth;
+use nuo_protocol::LoginMethod;
+use nuo_protocol::ResolvedAuth;
 use nuo_provider::auth::AuthError;
 use nuo_provider::auth::TokenResponse;
 use nuo_provider::auth::{
@@ -145,7 +145,7 @@ fn project_metadata(tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
                 .and_then(chatgpt_account_id)
         });
     if let Some(acct) = account_id {
-        auth = auth.with_extension(nuo_provider::auth::ChatGptAuthMetadata { account_id: acct });
+        auth = auth.with_extension(nuo_protocol::auth::ChatGptAuthMetadata { account_id: acct });
     }
     auth
 }
@@ -266,7 +266,7 @@ mod tests {
         let resolved = provider.project_metadata(&tokens, ResolvedAuth::new(tokens.access.clone()));
         assert_eq!(
             resolved
-                .extension::<nuo_provider::auth::ChatGptAuthMetadata>()
+                .extension::<nuo_protocol::auth::ChatGptAuthMetadata>()
                 .map(|m| m.account_id.as_str()),
             Some("org-xyz789")
         );
