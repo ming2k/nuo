@@ -6,6 +6,13 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.91] - 2026-11-16
+
+### Changed
+
+- Updated `netune` and `netune-trace` dependencies to `v0.0.32` (`netune-tls` driver slice panic fix, TLS 1.2/1.3 hardening, typed connect/resolve errors).
+- Consolidated effort/protocol capability configuration, provider request handling, tool-fs/tool pipeline surfaces, and notice/diff overlay tests.
+
 ## [0.0.89] - 2026-11-15
 
 ### Changed
