@@ -18,6 +18,7 @@ pub mod command_palette;
 pub mod common;
 pub mod dashboard;
 pub mod dialog_keys;
+pub mod diff_viewer;
 pub mod help;
 pub mod history;
 pub mod mcp;
@@ -55,6 +56,10 @@ pub use command_log::{
 pub(crate) use command_palette::draw_command_palette;
 pub use dashboard::DashboardRects;
 pub use dialog_keys::draw_dialog_keys;
+pub use diff_viewer::{
+    DiffFileEntry, DiffLineKind, DiffSceneProps, DiffSceneRects, DiffViewerLine, DiffViewerState,
+    build_diff_lines, draw_diff_scene,
+};
 pub use help::{HelpActionKind, draw_help_modal};
 pub use history::draw_history_panel;
 pub use mcp::draw_mcp_modal;

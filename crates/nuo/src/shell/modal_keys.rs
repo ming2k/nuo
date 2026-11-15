@@ -83,7 +83,7 @@ fn has_body_scroll(overlay: Option<OverlaySurface>, scene: SceneKind) -> bool {
     } else {
         matches!(
             scene,
-            SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+            SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
         )
     }
 }
@@ -457,10 +457,10 @@ pub(crate) fn resolve_modal_key(
             },
             OverlaySurface::Sheet(SheetKind::ProviderPreset) => match c {
                 'b' => Some(InputAction::SelectPresetWithOauthMethod {
-                    method: nuo_protocol::LoginMethod::Browser,
+                    method: protocol::LoginMethod::Browser,
                 }),
                 'd' => Some(InputAction::SelectPresetWithOauthMethod {
-                    method: nuo_protocol::LoginMethod::Device,
+                    method: protocol::LoginMethod::Device,
                 }),
                 _ => None,
             },

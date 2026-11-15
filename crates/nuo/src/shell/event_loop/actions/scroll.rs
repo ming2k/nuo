@@ -35,7 +35,7 @@ pub(crate) fn scroll_tick(app: &mut App, down: bool) {
 }
 
 pub(crate) fn scroll_transcript_page(app: &mut App, down: bool) {
-    let step = app.transcript.view_height.saturating_sub(1).max(1);
+    let step = app.transcript.view_height.saturating_sub(1).max(1) as usize;
     app.transcript.pin_summary_line = None;
     if down {
         app.transcript.scroll = app

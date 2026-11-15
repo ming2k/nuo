@@ -2,7 +2,7 @@
 
 use super::lifecycle::MONITOR_FIRST_FRAME_TIMEOUT;
 use super::*;
-use nuo_protocol::MonitorAction;
+use protocol::MonitorAction;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 
@@ -11,7 +11,7 @@ pub async fn monitor_stream(
     action: MonitorAction,
 ) -> Result<tokio::sync::mpsc::UnboundedReceiver<MonitorEvent>, String> {
     if let Some(endpoint) = info.effective_local_endpoint()
-        && let Ok(stream) = nuo_host::ipc::connect(&endpoint).await
+        && let Ok(stream) = host::ipc::connect(&endpoint).await
     {
         let (sink, source) = native_framed_split(stream);
         return finish_monitor((sink, source), action, "local IPC").await;

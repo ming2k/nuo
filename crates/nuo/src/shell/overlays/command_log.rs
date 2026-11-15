@@ -28,7 +28,7 @@
 //! Rows are registered on the layout map as real text regions, so the ordinary
 //! drag-and-copy path works without a scene-specific implementation. `y` copies
 //! the whole visible slice through
-//! [`CommandLog::copy_text`](nuo_view::model::command_log::CommandLog::copy_text),
+//! [`CommandLog::copy_text`](view::model::command_log::CommandLog::copy_text),
 //! the same derivation the receipt toast is built from.
 
 use nuotc::{Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect, Span, Style};
@@ -37,11 +37,11 @@ use unicode_width::UnicodeWidthStr;
 use crate::shell::disclosure::renderers::base::truncate_to_width;
 use crate::shell::render::{Theme, draw_scene_bar, draw_tab_bar};
 use crate::shell::view_header::{TabBarNavRects, TabBarProps, ViewHints};
-use nuo_ui_primitives::design::{COPY_LOG_KEY, JOIN_CAUSE, LOG_SCOPE_KEY};
-use nuo_ui_primitives::primitives::viewport_rect;
-use nuo_view::model::command_log::CommandLog;
-use nuo_view::model::layout::{BlockRegion, LayoutMap};
-use nuo_view::text_layout::padded_tail;
+use ui_primitives::design::{COPY_LOG_KEY, JOIN_CAUSE, LOG_SCOPE_KEY};
+use ui_primitives::primitives::viewport_rect;
+use view::model::command_log::CommandLog;
+use view::model::layout::{BlockRegion, LayoutMap};
+use view::text_layout::padded_tail;
 
 /// The scene's fixed vertical chrome outside the body: the two head rows, the
 /// rule under them, and the footer band. Stated once so the body height — and
@@ -262,7 +262,7 @@ fn log_context(log: Option<&CommandLog>) -> String {
     }
     // The slice was narrowed by `h`: say so, because the row count alone would
     // read as "this is the whole log".
-    if log.scope != nuo_view::model::command_log::LogScope::Full {
+    if log.scope != view::model::command_log::LogScope::Full {
         context.push_str(JOIN_CAUSE);
         context.push_str(log.scope.label());
     }
@@ -337,8 +337,8 @@ fn draw_log_footer(
         verbs.push((
             LOG_SCOPE_KEY,
             match log.scope {
-                nuo_view::model::command_log::LogScope::Full => "hidden only",
-                nuo_view::model::command_log::LogScope::HiddenOnly => "full log",
+                view::model::command_log::LogScope::Full => "hidden only",
+                view::model::command_log::LogScope::HiddenOnly => "full log",
             },
         ));
     }

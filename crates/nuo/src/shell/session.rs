@@ -87,7 +87,7 @@ pub struct SceneKeys {
     pub focus: crate::shell::focus::FocusPlane,
     /// The highlighted entry, when the transcript plane holds an entry
     /// highlight. `None` on the composer plane and while browsing.
-    pub entry_focus: Option<nuo_view::model::layout::InteractiveTarget>,
+    pub entry_focus: Option<view::model::layout::InteractiveTarget>,
     /// The width the composer lays its text out at, i.e. the grid the caret's
     /// ↑/↓ walk (see [`crate::shell::composer_grid::TextGrid`]). `0` before the
     /// first frame has published a composer rect, in which case the grid falls
@@ -395,6 +395,7 @@ pub(crate) fn resolve_scene_key_motion(
         // The log scene has no composer and no caret, so the motion handle is
         // not part of its contract.
         crate::shell::surfaces::SceneKind::CommandLog => resolve_command_log_key_motion(key, keys),
+        crate::shell::surfaces::SceneKind::Diff => resolve_diff_key_motion(key, keys),
         _ => None,
     }
 }
@@ -436,6 +437,33 @@ pub(crate) fn resolve_command_log_key_motion(
         KeyCode::End | KeyCode::Char('G') => Some(InputAction::ScrollBottom),
         KeyCode::Char('y') => Some(InputAction::CommandLogCopy),
         KeyCode::Char('h') => Some(InputAction::CommandLogToggleScope),
+        _ => None,
+    }
+}
+
+pub(crate) fn resolve_diff_key_motion(
+    key: crate::shell::keymap::Key,
+    keys: &SceneKeys,
+) -> Option<InputAction> {
+    use crate::shell::keymap::SurfaceVerb;
+    let ov = &keys.surface_overrides;
+    if ov.matches(key, SurfaceVerb::SceneHistoryBack) {
+        return Some(InputAction::TabHistoryBack);
+    }
+    if ov.matches(key, SurfaceVerb::SceneHistoryForward) {
+        return Some(InputAction::TabHistoryForward);
+    }
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => Some(InputAction::SceneBack),
+        KeyCode::Up | KeyCode::Char('k') => Some(InputAction::ScrollUp),
+        KeyCode::Down | KeyCode::Char('j') => Some(InputAction::ScrollDown),
+        KeyCode::PageUp => Some(InputAction::ScrollPageUp),
+        KeyCode::PageDown | KeyCode::Char(' ') => Some(InputAction::ScrollPageDown),
+        KeyCode::Home | KeyCode::Char('g') => Some(InputAction::ScrollTop),
+        KeyCode::End | KeyCode::Char('G') => Some(InputAction::ScrollBottom),
+        KeyCode::Char('n') => Some(InputAction::DiffNextFile),
+        KeyCode::Char('p') => Some(InputAction::DiffPrevFile),
+        KeyCode::Char('r') => Some(InputAction::DiffToggleReviewed),
         _ => None,
     }
 }

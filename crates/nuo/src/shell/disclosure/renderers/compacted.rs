@@ -6,10 +6,10 @@ use nuotc::{
 use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::{MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx};
 use crate::shell::render::{REASONING_TRACE_BLOCK_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT};
-use nuo_view::message_body::draw_message_body;
-use nuo_view::model::document::{CompactedCardData, TranscriptMessage};
-use nuo_view::model::layout::{BlockRegion, COMPACTED_CARD_BLOCK_IDX};
-use nuo_view::model::selection::{CellDragInfo, SelectionState};
+use view::message_body::draw_message_body;
+use view::model::document::{CompactedCardData, TranscriptMessage};
+use view::model::layout::{BlockRegion, COMPACTED_CARD_BLOCK_IDX};
+use view::model::selection::{CellDragInfo, SelectionState};
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_compacted_card(

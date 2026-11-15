@@ -1,8 +1,8 @@
 //! Semantic Color Purity and Anti-Drift Governance Firewall (ADR-0147 `[INV-TUI-COLOR-01]`).
 //!
 //! Enforces:
-//!   - Presentation code in `crates/nuo/src/shell`, `crates/nuo-view/src`, and
-//!     `crates/nuo-ui-primitives/src/components` must never write hardcoded color
+//!   - Presentation code in `crates/nuo/src/shell`, `crates/view/src`, and
+//!     `crates/ui-primitives/src/components` must never write hardcoded color
 //!     literals (`Color::Rgb`, `Color::White`, `Color::Red`, etc.).
 //!   - All visual styling must resolve through `Theme` semantic tokens.
 //!   - Only `Color::Reset` (attribute clear) and pattern extraction are permitted.
@@ -25,8 +25,8 @@ pub struct ColorPurityViolation {
 pub fn check_color_purity(root: &Path) -> Result<(), String> {
     let scan_dirs = [
         root.join("crates/nuo/src/shell"),
-        root.join("crates/nuo-view/src"),
-        root.join("crates/nuo-ui-primitives/src/components"),
+        root.join("crates/view/src"),
+        root.join("crates/ui-primitives/src/components"),
     ];
 
     // Forbidden color constructors and literal tokens (excluding Color::Reset)

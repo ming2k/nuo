@@ -1,9 +1,9 @@
 //! Round, stream and steer event handling.
 
-use nuo_protocol::RoundEvent;
-use nuo_tool::Role;
-use nuo_view::model::document::{TranscriptMessage, UserMessageOrigin};
-use nuo_view::phase::Phase;
+use protocol::RoundEvent;
+use tool::Role;
+use view::model::document::{TranscriptMessage, UserMessageOrigin};
+use view::phase::Phase;
 
 use crate::shell::{event_loop, stream_discard_edit, transcript_turn};
 
@@ -18,17 +18,13 @@ impl TranslatorState {
     /// transcript (a result with no matching row becomes a fallback insert).
     /// Drop every frame addressed to a session this buffer has switched away
     /// from.
-    pub(super) async fn handle_round(
-        &mut self,
-        session_id: String,
-        scope: nuo_protocol::RoundScope,
-    ) {
+    pub(super) async fn handle_round(&mut self, session_id: String, scope: protocol::RoundScope) {
         if !self.session_gate.accepts(&session_id) {
             return;
         }
         let (event, turn_context) = match scope {
-            nuo_protocol::RoundScope::Turn { context, event } => (event, Some(context)),
-            nuo_protocol::RoundScope::Session { event } => (event, None),
+            protocol::RoundScope::Turn { context, event } => (event, Some(context)),
+            protocol::RoundScope::Session { event } => (event, None),
         };
         // A turn-scoped event always carries its context; a
         // session-scoped event cannot claim one. There is no
@@ -159,11 +155,11 @@ impl TranslatorState {
                     .as_ref()
                     .and_then(|progress| progress.faults().last().cloned());
                 let record = match (record.detail, last_fault) {
-                    (None, Some(fault)) => nuo_protocol::RoundInterrupt {
-                        detail: Some(nuo_view::model::notice_text::display_text(&fault)),
+                    (None, Some(fault)) => protocol::RoundInterrupt {
+                        detail: Some(view::model::notice_text::display_text(&fault)),
                         ..record
                     },
-                    (detail, _) => nuo_protocol::RoundInterrupt { detail, ..record },
+                    (detail, _) => protocol::RoundInterrupt { detail, ..record },
                 };
                 self.retry_progress = None;
                 self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundEnded)
@@ -190,7 +186,7 @@ impl TranslatorState {
                     message.turn = Some(turn);
                 }
                 self.transcript(E::Append {
-                    class: nuo_protocol::EventClass::Dialogue,
+                    class: protocol::EventClass::Dialogue,
                     message,
                 })
                 .await;
@@ -402,7 +398,7 @@ impl TranslatorState {
                 // full chain: gate at message creation. Unrecognized
                 // ids default to disclosed — only known
                 // `ReasoningSummary` models are gated.
-                let hidden_chain = !nuo_protocol::model_by_id(&self.current_model)
+                let hidden_chain = !protocol::model_by_id(&self.current_model)
                     .map(|m| m.thinking.chain_disclosed())
                     .unwrap_or(true);
                 if hidden_chain {
@@ -474,7 +470,7 @@ impl TranslatorState {
                 )
                 .with_sent_at_ms(now_ms());
                 self.transcript(E::Append {
-                    class: nuo_protocol::EventClass::TurnOutcome,
+                    class: protocol::EventClass::TurnOutcome,
                     message,
                 })
                 .await;
@@ -531,8 +527,8 @@ impl TranslatorState {
                 admitted.turn = Some(transcript_turn(context.turn));
                 // In-round provenance: the renderer draws it as
                 // a one-body-row interjection (ADR-0137).
-                admitted = admitted
-                    .with_origin_tags(vec![nuo_view::model::document::SteerOriginTag::InRound]);
+                admitted =
+                    admitted.with_origin_tags(vec![view::model::document::SteerOriginTag::InRound]);
                 self.transcript(E::InsertAdmittedSeam { message: admitted })
                     .await;
                 self.mutations
@@ -620,9 +616,8 @@ impl TranslatorState {
                 admitted.origin = UserMessageOrigin::FollowUp;
                 // A follow-up opens its own round, so it keeps
                 // full round-panel weight.
-                admitted = admitted.with_origin_tags(vec![
-                    nuo_view::model::document::SteerOriginTag::RoundOpening,
-                ]);
+                admitted = admitted
+                    .with_origin_tags(vec![view::model::document::SteerOriginTag::RoundOpening]);
                 self.transcript(E::InsertAdmittedSeam { message: admitted })
                     .await;
                 self.mutations

@@ -1,7 +1,7 @@
 //! Focused-entry key dispatch — the shell side of transcript interaction.
 //!
 //! Transcript entries declare their *content* capabilities in
-//! [`nuo_view::model::interactive::InteractiveEntry`], which is pure. Deciding what
+//! [`view::model::interactive::InteractiveEntry`], which is pure. Deciding what
 //! a key press means is an input concern, so the dispatch lives here in the
 //! shell layer and the model stays free of the terminal driver
 //! ([INV-ARCH-UI-ZERO-IO], ADR-0053).
@@ -9,8 +9,8 @@
 use crate::shell::keymap::{KeyCode, KeyModifiers};
 
 use crate::shell::keymap::Key;
-use nuo_view::model::document::TranscriptMessage;
-use nuo_view::model::interactive::{EntryKeyOutcome, InteractiveEntry};
+use view::model::document::TranscriptMessage;
+use view::model::interactive::{EntryKeyOutcome, InteractiveEntry};
 
 /// Dispatch a key event to the stack-top focused transcript entry.
 pub(crate) fn handle_focused_entry_key(
@@ -44,8 +44,8 @@ pub(crate) fn handle_focused_entry_key(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_tool::Role;
-    use nuo_view::model::interactive::InteractiveEntry;
+    use tool::Role;
+    use view::model::interactive::InteractiveEntry;
 
     fn space(modifiers: KeyModifiers) -> Key {
         Key {

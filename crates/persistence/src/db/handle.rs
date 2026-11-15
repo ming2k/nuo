@@ -1,0 +1,1069 @@
+//! `PersistenceHandle`: the public front door and every typed verb (0231).
+//! The struct and its observability types live in `db.rs`.
+use super::actor::run_supervisor;
+use super::*;
+
+/// Summary of unified storage maintenance operations (ADR-0090).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StorageMaintenanceReport {
+    pub reclaimed_entries: usize,
+    pub reclaimed_blobs: usize,
+    pub reclaimed_blob_bytes: u64,
+    /// Pre-images whose retention window elapsed this pass. Their journal rows
+    /// survive as evidence; only their bytes became reclaimable.
+    pub expired_preimages: usize,
+    pub created_backup: Option<PathBuf>,
+    pub pruned_backups: usize,
+}
+
+impl fmt::Debug for PersistenceHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PersistenceHandle")
+            .field("db_path", &self.db_path)
+            .field("health", &self.health.borrow())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Get or initialize the global shared [`PersistenceHandle`].
+pub fn get_persistence_handle() -> PersistenceHandle {
+    let dirs = host::paths::get();
+    let db_path = dirs.db_file();
+    let mut guard = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(handle) = guard.as_ref()
+        && handle.db_path == db_path
+        && handle.startup_error.is_none()
+    {
+        return handle.clone();
+    }
+    let blobs = Some(BlobStore::new(dirs.blobs_dir()));
+    let handle = PersistenceHandle::spawn(db_path, blobs);
+    if handle.startup_error.is_none() {
+        *guard = Some(handle.clone());
+    }
+    handle
+}
+
+impl PersistenceHandle {
+    /// Start the supervised persistence actor.
+    ///
+    /// The supervisor runs as a task on the current Tokio runtime when one
+    /// is active, otherwise on a dedicated single-thread runtime of its own,
+    /// so construction stays valid from sync contexts (library callers,
+    /// tests).
+    #[allow(clippy::expect_used)]
+    pub fn spawn(db_path: PathBuf, blob_store: Option<BlobStore>) -> Self {
+        let identity = database_identity(&db_path);
+        let db_path = identity.as_ref().cloned().unwrap_or(db_path);
+        let mut registry = OWNERS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        registry.retain(|_, entry| entry.lease.strong_count() > 0);
+        if let Some(owner) = registry.get(&db_path) {
+            if let Some(supervisor) = owner.supervisor.upgrade() {
+                return Self {
+                    supervisor,
+                    health: owner.health.clone(),
+                    db_path,
+                    blob_store: owner.blob_store.clone(),
+                    startup_error: None,
+                    readers: owner.readers.clone(),
+                    reader_ages: owner.reader_ages.clone(),
+                    reader_open_failures: owner.reader_open_failures.clone(),
+                    rebuild_requested: owner.rebuild_requested.clone(),
+                };
+            }
+            // A previous local owner is draining accepted commands. Do not
+            // race its last transaction or release its lease prematurely.
+            let started = Instant::now();
+            while owner.lease.strong_count() > 0 && started.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        let (supervisor, front_rx) = mpsc::channel::<PersistenceCommand>(256);
+        let (health_tx, health_rx) = watch::channel(WriterHealth::Healthy);
+        let path = db_path.clone();
+        let blobs = blob_store.clone();
+        // Initialization owns its thread: no Tokio worker is needed to make
+        // progress while a synchronous constructor waits for readiness.
+        let opened = std::thread::spawn(move || {
+            identity?;
+            let lease = Arc::new(host::lock::ProcessLock::acquire_with_timeout(
+                &path.with_extension("db.owner.lock"),
+                Duration::from_millis(2000),
+            )?);
+            let engine = DatabaseEngine::open(&path, blobs).map_err(|e| e.to_string())?;
+            Ok::<_, String>((engine, lease))
+        })
+        .join()
+        .unwrap_or_else(|_| Err("database initialization panicked".into()));
+        let readers = Arc::new(tokio::sync::Semaphore::new(READER_POOL_CAPACITY));
+        let reader_ages = Arc::new(ReaderAges::default());
+        let reader_open_failures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let rebuild_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let startup_error = match opened {
+            Ok((engine, lease)) => {
+                registry.insert(
+                    db_path.clone(),
+                    RegisteredOwner {
+                        supervisor: supervisor.downgrade(),
+                        health: health_rx.clone(),
+                        blob_store: blob_store.clone(),
+                        readers: readers.clone(),
+                        reader_ages: reader_ages.clone(),
+                        reader_open_failures: reader_open_failures.clone(),
+                        rebuild_requested: rebuild_requested.clone(),
+                        lease: Arc::downgrade(&lease),
+                    },
+                );
+                let run = run_supervisor(
+                    front_rx,
+                    db_path.clone(),
+                    blob_store.clone(),
+                    health_tx,
+                    lease,
+                    Some(engine),
+                    reader_ages.clone(),
+                );
+                std::thread::Builder::new()
+                    .name("nuo-persistence-supervisor".into())
+                    .spawn(move || {
+                        let runtime = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .expect("failed to build persistence supervisor runtime");
+                        runtime.block_on(run);
+                    })
+                    .expect("failed to spawn persistence supervisor thread");
+                None
+            }
+            Err(error) => {
+                let _ = health_tx.send(WriterHealth::Down {
+                    attempt: 0,
+                    since_ms: unix_ms(),
+                    error: error.clone(),
+                });
+                drop(front_rx);
+                Some(Arc::from(error))
+            }
+        };
+        Self {
+            supervisor,
+            health: health_rx,
+            db_path,
+            blob_store,
+            startup_error,
+            readers,
+            reader_ages,
+            reader_open_failures,
+            rebuild_requested,
+        }
+    }
+
+    /// Startup must succeed before a server admits work.
+    pub fn ensure_ready(&self) -> std::result::Result<(), String> {
+        match &self.startup_error {
+            Some(error) => Err(error.to_string()),
+            None => Ok(()),
+        }
+    }
+
+    /// The current writer health snapshot (D4).
+    pub fn health(&self) -> WriterHealth {
+        self.health.borrow().clone()
+    }
+
+    /// Subscribe to writer health transitions (D4): the server
+    /// folds these into the monitor stream; frontends render degradation.
+    pub fn subscribe_health(&self) -> watch::Receiver<WriterHealth> {
+        self.health.clone()
+    }
+
+    /// The database file path.
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
+    }
+
+    /// Asynchronously save a session in SQLite, returning the committed
+    /// session revision (D3). The `guard` carries an optional
+    /// idempotency identity and revision precondition; a replay returns the
+    /// original revision without re-applying.
+    pub(crate) async fn save_session(
+        &self,
+        data: crate::thread::ThreadData,
+        full: bool,
+        usage_upserts: Vec<protocol::RequestUsageRecord>,
+        guard: CommitGuard,
+    ) -> Result<u64, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::SaveSession {
+                data: Box::new(data),
+                full,
+                usage_upserts,
+                guard,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Synchronously save a session on a blocking thread (always a full
+    /// rewrite: the blocking callers write fresh or rebuilt state).
+    pub(crate) fn save_session_blocking(
+        &self,
+        data: crate::thread::ThreadData,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::SaveSession {
+                data: Box::new(data),
+                full: true,
+                usage_upserts: Vec::new(),
+                guard: CommitGuard::default(),
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
+        .map(|_| ())
+    }
+
+    /// Asynchronously upsert a session record.
+    pub async fn upsert_session(&self, record: ThreadRecord) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::UpsertSession {
+                record,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Non-blocking fire-and-forget session upsert to avoid blocking synchronous writers.
+    pub fn try_upsert_session(&self, record: ThreadRecord) {
+        let (ack_tx, _) = oneshot::channel();
+        if let Err(error) = self.supervisor.try_send(PersistenceCommand::UpsertSession {
+            record,
+            ack: ack_tx,
+        }) {
+            warn!(error = %error, "dropped fire-and-forget session upsert: writer unavailable");
+        }
+    }
+
+    /// Asynchronously delete a session record.
+    pub async fn delete_session(&self, session_id: String) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::DeleteSession {
+                session_id,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Asynchronously rename a session.
+    pub async fn rename_session(
+        &self,
+        session_id: String,
+        title: Option<String>,
+        manual: bool,
+    ) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::RenameSession {
+                session_id,
+                title,
+                manual,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Append a write-ahead workspace effect, returning its journal id
+    /// (ADR-0125).
+    ///
+    /// Called *before* the mutating tool runs. This is deliberately a blocking
+    /// `send().await` on the writer ack rather than a fire-and-forget: a
+    /// pre-image that is not durable is a pre-image that does not exist, and the
+    /// point of the write-ahead row is that it survives the crash that follows
+    /// the mutation. If the journal cannot be written the caller must **not**
+    /// perform the mutation — an unrecorded reversible write would be silently
+    /// irreversible.
+    pub async fn append_workspace_effect(
+        &self,
+        effect: crate::workspace_effects::NewOwnedEffect,
+    ) -> Result<i64, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::AppendWorkspaceEffect {
+                effect: Box::new(effect),
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Append a workspace effect that needs no recovery point, returning its
+    /// journal id. Used for shell, network, and process effects, whose value is
+    /// the receipt rather than the ability to restore.
+    pub async fn append_completed_workspace_effect(
+        &self,
+        effect: crate::workspace_effects::NewOwnedEffect,
+        completed_at_ms: u64,
+    ) -> Result<i64, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::AppendCompletedWorkspaceEffect {
+                effect: Box::new(effect),
+                completed_at_ms,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Complete a write-ahead effect with its post-image. `Ok(false)` means the
+    /// row was already completed or does not exist.
+    pub async fn complete_workspace_effect(
+        &self,
+        effect_id: i64,
+        after_hash: Option<String>,
+        completed_at_ms: u64,
+    ) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::CompleteWorkspaceEffect {
+                effect_id,
+                after_hash,
+                completed_at_ms,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Stamp a journal row as reversed. `Ok(false)` means another caller
+    /// already reversed it.
+    pub async fn mark_workspace_effect_reversed(
+        &self,
+        effect_id: i64,
+        reversed_at_ms: u64,
+        note: Option<String>,
+    ) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::MarkWorkspaceEffectReversed {
+                effect_id,
+                reversed_at_ms,
+                note,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Read a thread's whole journal in observation order.
+    pub async fn list_workspace_effects(
+        &self,
+        thread_id: String,
+    ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::ListWorkspaceEffects {
+                thread_id,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Expire pre-images older than `older_than_ms`, returning how many rows were
+    /// newly expired. Their bytes leave the collector's live set on the next sweep;
+    /// the journal rows keep their observation (ADR-0125 `INV-EFFECT-05`).
+    pub async fn expire_preimages(
+        &self,
+        older_than_ms: u64,
+        now_ms: u64,
+    ) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::ExpirePreimages {
+                older_than_ms,
+                now_ms,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Blocking variant of [`Self::expire_preimages`], for the maintenance pass
+    /// which runs on a dedicated blocking thread (never on an async worker).
+    pub fn expire_preimages_blocking(
+        &self,
+        older_than_ms: u64,
+        now_ms: u64,
+    ) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::ExpirePreimages {
+                older_than_ms,
+                now_ms,
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
+    }
+
+    /// Read the newest confirmed, not-yet-reversed reversible effects, newest
+    /// first.
+    pub async fn undoable_workspace_effects(
+        &self,
+        thread_id: String,
+        limit: u32,
+    ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::UndoableWorkspaceEffects {
+                thread_id,
+                limit,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Asynchronously insert a request-projection record. Awaits the
+    /// writer ack for callers that need the durable write confirmed (tests,
+    /// tooling); the request hot path uses
+    /// [`Self::try_record_request_projection`] instead.
+    pub async fn record_request_projection(
+        &self,
+        session_id: String,
+        record: protocol::RequestProjection,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::RecordRequestProjection {
+                session_id,
+                record,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Non-blocking fire-and-forget request-projection insert. Used
+    /// on the model-request hot path: forensic persistence must never block
+    /// dispatch. A dropped archive write is logged, not surfaced as a round
+    /// failure.
+    pub fn try_record_request_projection(
+        &self,
+        session_id: String,
+        record: protocol::RequestProjection,
+    ) {
+        let (ack_tx, _) = oneshot::channel();
+        if let Err(error) = self
+            .supervisor
+            .try_send(PersistenceCommand::RecordRequestProjection {
+                session_id,
+                record,
+                ack: ack_tx,
+            })
+        {
+            warn!(error = %error, "dropped fire-and-forget request projection: writer unavailable");
+        }
+    }
+
+    pub(crate) fn catch_up_usage(&self) -> Result<usize, PersistenceError> {
+        let (ack, rx) = oneshot::channel();
+        self.run_blocking(PersistenceCommand::ProjectUsage { ack }, rx)
+    }
+
+    pub async fn record_attempts(
+        &self,
+        entries: Vec<protocol::usage_stats::UsageStatRecord>,
+    ) -> Result<(), PersistenceError> {
+        let (ack, rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::RecordUsageStats {
+                entries,
+                ack: Some(ack),
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    pub(crate) fn record_usage_stats_blocking(
+        &self,
+        entries: Vec<protocol::usage_stats::UsageStatRecord>,
+    ) -> Result<(), PersistenceError> {
+        let (ack, rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::RecordUsageStats {
+                entries,
+                ack: Some(ack),
+            },
+            rx,
+        )
+    }
+
+    /// Asynchronously set a key-value entry.
+    pub async fn set_kv(&self, key: String, value: String) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::SetKV {
+                key,
+                value,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Synchronously set a key-value entry.
+    pub fn set_kv_blocking(&self, key: String, value: String) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::SetKV {
+                key,
+                value,
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
+    }
+
+    /// Asynchronously set a JSON-serializable value in the key-value store.
+    pub async fn set_json<T: serde::Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+    ) -> Result<(), PersistenceError> {
+        let serialized =
+            serde_json::to_string(value).map_err(|e| PersistenceError::Encode(e.to_string()))?;
+        self.set_kv(key.to_string(), serialized).await
+    }
+
+    /// Synchronously set a JSON-serializable value in the key-value store.
+    pub fn set_json_blocking<T: serde::Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+    ) -> Result<(), PersistenceError> {
+        let serialized =
+            serde_json::to_string(value).map_err(|e| PersistenceError::Encode(e.to_string()))?;
+        self.set_kv_blocking(key.to_string(), serialized)
+    }
+
+    /// Asynchronously delete a key-value entry.
+    pub async fn delete_kv(&self, key: String) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::DeleteKV { key, ack: ack_tx })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Asynchronously record an input history entry (fire-and-forget).
+    pub fn try_record_input_history(&self, entry: protocol::HistoryEntry, dedup: bool) {
+        if let Err(error) = self
+            .supervisor
+            .try_send(PersistenceCommand::RecordInputHistory {
+                entry,
+                dedup,
+                ack: None,
+            })
+        {
+            warn!(error = %error, "dropped fire-and-forget input history entry: writer unavailable");
+        }
+    }
+
+    /// Record an input history entry, waiting for single-writer SQLite actor confirmation.
+    pub fn record_input_history_blocking(
+        &self,
+        entry: protocol::HistoryEntry,
+        dedup: bool,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::RecordInputHistory {
+                entry,
+                dedup,
+                ack: Some(ack_tx),
+            },
+            ack_rx,
+        )
+    }
+
+    /// Save multiple input history entries synchronously, waiting for SQLite actor confirmation.
+    pub fn save_input_history_blocking(
+        &self,
+        entries: Vec<protocol::HistoryEntry>,
+        dedup: bool,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::SaveInputHistory {
+                entries,
+                dedup,
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
+    }
+
+    /// Clear all input history entries from SQLite.
+    pub fn clear_input_history_blocking(&self) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::ClearInputHistory { ack: ack_tx },
+            ack_rx,
+        )
+    }
+
+    /// Best-effort asynchronous delete of an input history record by text and timestamp.
+    pub fn try_delete_input_history_entry(&self, text: String, created_at_ms: u64) {
+        if let Err(error) = self
+            .supervisor
+            .try_send(PersistenceCommand::DeleteInputHistoryEntry {
+                text,
+                created_at_ms,
+                ack: None,
+            })
+        {
+            warn!(error = %error, "dropped fire-and-forget input history delete: writer unavailable");
+        }
+    }
+
+    /// Synchronously delete an input history entry by text and timestamp.
+    pub fn delete_input_history_entry_blocking(
+        &self,
+        text: &str,
+        created_at_ms: u64,
+    ) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::DeleteInputHistoryEntry {
+                text: text.to_string(),
+                created_at_ms,
+                ack: Some(ack_tx),
+            },
+            ack_rx,
+        )
+    }
+
+    /// Open a reader against this handle's database.
+    ///
+    /// Check whether this handle encountered single-writer lock contention on startup (INV-PERSIST-LOCK-01).
+    pub fn is_lock_contention(&self) -> bool {
+        self.startup_error
+            .as_deref()
+            .map(|e| {
+                e.contains("could not acquire advisory lock")
+                    || e.contains("timed out waiting for process lock")
+                    || e.contains("Resource temporarily unavailable")
+            })
+            .unwrap_or(false)
+    }
+
+    /// This is the **only** way to obtain a connection snapshot: the engine
+    /// type is crate-private, so a caller cannot open one on a path of its own
+    /// choosing. Reads never need the actor — WAL readers run concurrently
+    /// with the writer — so this returns immediately instead of queueing
+    /// behind a slow write.
+    pub fn reader(&self) -> Result<DbReader> {
+        if let Some(error) = &self.startup_error {
+            // When another process already holds the single-writer advisory lock (e.g. background server),
+            // this process cannot become the supervisor, but SQLite WAL mode safely allows concurrent read-only queries.
+            if !self.is_lock_contention() {
+                return Err(rusqlite::Error::InvalidParameterName(error.to_string()));
+            }
+        }
+        let permit = self.readers.clone().try_acquire_owned().map_err(|_| {
+            rusqlite::Error::InvalidParameterName("database reader capacity exhausted".into())
+        })?;
+        // The whole construction sequence is wedge-sensitive: against a
+        // missing `-wal`/`-shm` pair, the open itself succeeds and the first
+        // access that attaches the WAL index fails. Every fallible step is
+        // therefore inside one scope so any failure counts toward the
+        // rebuild threshold (and drops the permit with it).
+        let outcome = (|| {
+            let conn = Connection::open_with_flags(
+                &self.db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )?;
+            conn.pragma_update(None, "query_only", true)?;
+            conn.busy_timeout(Duration::from_millis(250))?;
+            let version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+            if version != CURRENT_DB_VERSION {
+                return Err(rusqlite::Error::InvalidParameterName(format!(
+                    "reader schema mismatch: {version}"
+                )));
+            }
+            conn.execute_batch("BEGIN DEFERRED")?;
+            // Register only after every fallible step: an error must not leak a
+            // registration whose guard was never constructed.
+            let reader_ages = self.reader_ages.clone();
+            let age = ReaderAgeGuard {
+                id: reader_ages.register(),
+                reader_ages,
+            };
+            Ok(DbReader {
+                engine: DatabaseEngine {
+                    conn,
+                    blob_store: self.blob_store.clone(),
+                },
+                db_path: self.db_path.clone(),
+                _permit: Some(permit),
+                _age: Some(age),
+            })
+        })();
+        match outcome {
+            Ok(reader) => {
+                // A successful open ends any wedge episode the failures were
+                // counting.
+                self.reader_open_failures
+                    .store(0, std::sync::atomic::Ordering::SeqCst);
+                self.rebuild_requested
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                Ok(reader)
+            }
+            Err(error) => {
+                self.note_reader_open_failure(&error);
+                Err(error)
+            }
+        }
+    }
+
+    /// Execute a scoped read closure against a fresh [`DbReader`].
+    ///
+    /// Guarantees that the reader permit and snapshot transaction are dropped
+    /// immediately upon closure return, preventing long-running read transactions
+    /// from accidentally pinning the WAL log across async suspensions.
+    pub fn with_reader<T, F>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&DbReader) -> Result<T>,
+    {
+        let reader = self.reader()?;
+        f(&reader)
+    }
+
+    /// Count one failed fresh-reader open and, past the bounded threshold,
+    /// ask the supervisor to rebuild the engine.
+    ///
+    /// The wedge this heals: the on-disk `-wal`/`-shm` pair removed under a
+    /// live writer. The writer keeps serving into the unlinked inode, but
+    /// every *new* read-only open fails, and nothing else in the system can
+    /// detect that state — the writer health stays `Healthy`. A rebuild is
+    /// the only cure, and its clean engine close is safe: SQLite checkpoints
+    /// the still-valid deleted WAL back into the main database before the
+    /// fresh generation opens a new `-wal`/`-shm`.
+    ///
+    /// Bounded by construction: the counter only advances on open failures,
+    /// a CAS latch admits exactly one rebuild request per wedge episode, and
+    /// the next successful open resets both. Non-owner handles (another
+    /// process sharing the WAL) never request a rebuild — there is no engine
+    /// here to rebuild, and the owner process runs its own detector.
+    fn note_reader_open_failure(&self, error: &rusqlite::Error) {
+        if self.startup_error.is_some() {
+            return;
+        }
+        let failures = self
+            .reader_open_failures
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        if failures < READER_REBUILD_FAILURE_THRESHOLD {
+            return;
+        }
+        if self
+            .rebuild_requested
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_err()
+        {
+            return; // a rebuild is already in flight for this episode.
+        }
+        let (ack_tx, ack_rx) = oneshot::channel();
+        match self
+            .supervisor
+            .try_send(PersistenceCommand::RebuildEngine { ack: ack_tx })
+        {
+            Ok(()) => {
+                warn!(
+                    db_path = %self.db_path.display(),
+                    failures,
+                    error = %error,
+                    "fresh reader opens keep failing; requesting persistence engine rebuild"
+                );
+                // Fire-and-forget: `reader()` is synchronous and must not
+                // block on the rebuild. The ack is dropped — the supervisor
+                // performs the rebuild regardless, and the next reader open
+                // (this caller's retry, or the next security snapshot) is
+                // the success probe that clears the latch.
+                drop(ack_rx);
+            }
+            Err(send_error) => {
+                // Supervisor gone or front channel saturated: clear the
+                // latch so a later failure can retry the request instead
+                // of latching a wedge forever.
+                self.rebuild_requested
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                warn!(
+                    db_path = %self.db_path.display(),
+                    error = %send_error,
+                    "could not deliver the engine rebuild request"
+                );
+            }
+        }
+    }
+
+    /// Persist a full thread aggregate through the single writer.
+    pub async fn save_thread_aggregate(
+        &self,
+        thread: protocol::Thread,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::SaveThreadAggregate {
+                thread: Box::new(thread),
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Create an online hot backup snapshot of the database using SQLite's `VACUUM INTO`.
+    ///
+    /// The backup is written to `target_path` in a defragmented, standalone,
+    /// consistent state while concurrent readers continue uninterrupted.
+    pub async fn create_backup(&self, target_path: PathBuf) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::CreateBackup {
+                target_path,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Synchronous/blocking variant of [`Self::create_backup`].
+    pub fn create_backup_blocking(&self, target_path: PathBuf) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::CreateBackup {
+                target_path,
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
+    }
+
+    /// Create a rolling online hot backup with automatic retention pruning (ADR-0090).
+    pub fn create_rolling_backup_blocking(
+        &self,
+        backups_dir: PathBuf,
+        retention_limit: usize,
+    ) -> Result<super::backup::BackupMetadata, String> {
+        let manager = super::backup::BackupManager::new(backups_dir);
+        manager.create_rolling_backup(self, retention_limit)
+    }
+
+    /// A storage-observability snapshot (D7): WAL size, active reader
+    /// count, and the oldest reader snapshot's age. A large WAL or an old
+    /// reader is the pressure that blocks checkpoint reclamation.
+    pub fn storage_metrics(&self) -> StorageMetrics {
+        let size = |path: &Path| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let wal_path = PathBuf::from(format!("{}-wal", self.db_path.display()));
+        StorageMetrics {
+            main_bytes: size(&self.db_path),
+            wal_bytes: size(&wal_path),
+            active_readers: self.reader_ages.active(),
+            reader_capacity: READER_POOL_CAPACITY,
+            oldest_reader_ms: self
+                .reader_ages
+                .oldest_age()
+                .map(|age| age.as_millis() as u64),
+        }
+    }
+
+    /// Synchronously delete a key-value entry on a blocking thread.
+    pub fn delete_kv_blocking(&self, key: String) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(PersistenceCommand::DeleteKV { key, ack: ack_tx }, ack_rx)
+    }
+
+    /// Reclaim transcript entries no session references: the
+    /// periodic storage-maintenance sweep. Routed through the actor so the
+    /// DELETE serializes with every other write.
+    pub async fn collect_entry_garbage(&self) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::CollectEntryGarbage { ack: ack_tx })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Synchronous [`Self::collect_entry_garbage`] for a blocking maintenance
+    /// pass.
+    pub fn collect_entry_garbage_blocking(&self) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::CollectEntryGarbage { ack: ack_tx },
+            ack_rx,
+        )
+    }
+
+    /// Asynchronously optimize internal indexes and statistics via `PRAGMA optimize`.
+    pub async fn optimize(&self) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::Optimize { ack: ack_tx })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Synchronously optimize internal indexes and statistics on a blocking thread.
+    pub fn optimize_blocking(&self) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(PersistenceCommand::Optimize { ack: ack_tx }, ack_rx)
+    }
+
+    /// Unified storage maintenance (ADR-0090):
+    /// 1. Reclaims orphaned fact entries from SQLite.
+    /// 2. Sweeps unreferenced CAS blobs.
+    /// 3. Generates rolling atomic hot backup and prunes excess snapshots.
+    /// 4. Optimizes SQLite internal indexes.
+    pub fn perform_storage_maintenance_blocking(
+        &self,
+        retention_limit: usize,
+    ) -> Result<StorageMaintenanceReport, PersistenceError> {
+        let mut report = StorageMaintenanceReport::default();
+
+        // 1. Reclaim zero-reference fact entries
+        let entries = self.collect_entry_garbage_blocking().unwrap_or(0);
+        report.reclaimed_entries = entries;
+
+        // 2. Expire pre-images past the retention window, *then* sweep the CAS.
+        //
+        // Order is load-bearing: the sweep's live set is derived from the journal,
+        // so expiring first is what makes an aged-out pre-image actually
+        // reclaimable. Sweeping first would keep every pre-image alive forever,
+        // because nothing would ever remove it from the live set.
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let window_ms = crate::workspace_effects::DEFAULT_PREIMAGE_RETENTION_DAYS
+            .saturating_mul(24 * 60 * 60 * 1000);
+        match self.expire_preimages_blocking(now_ms.saturating_sub(window_ms), now_ms) {
+            Ok(expired) => report.expired_preimages = expired,
+            Err(error) => {
+                tracing::warn!(%error, "pre-image retention sweep failed; keeping all pre-images");
+            }
+        }
+
+        // 3. CAS blob sweep against reader snapshot
+        if let Some(ref blob_store) = self.blob_store {
+            let (blob_count, blob_bytes) = match self.reader().and_then(|r| r.live_blob_hashes()) {
+                Ok(live) => blob_store.retain_only(&live),
+                Err(error) => {
+                    tracing::warn!(%error, "blob garbage collection failed during maintenance; skipping");
+                    (0, 0)
+                }
+            };
+            report.reclaimed_blobs = blob_count;
+            report.reclaimed_blob_bytes = blob_bytes;
+        }
+
+        // 3. Online hot rolling backup
+        let backup_dir = super::backup::BackupManager::default_dir();
+        let backup_mgr = super::backup::BackupManager::new(backup_dir);
+        match backup_mgr.create_rolling_backup(self, retention_limit) {
+            Ok(meta) => {
+                report.created_backup = Some(meta.path);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "rolling hot backup failed during maintenance");
+            }
+        }
+
+        // 4. Prune excess snapshots
+        if let Ok(pruned) = backup_mgr.prune_excess_backups(retention_limit) {
+            report.pruned_backups = pruned;
+        }
+
+        // 5. Run PRAGMA optimize
+        let _ = self.optimize_blocking();
+
+        Ok(report)
+    }
+
+    /// The one blocking bridge for every synchronous verb.
+    ///
+    /// On a **multi-thread runtime** `block_in_place` is preferred: it parks
+    /// this worker and hands its core back, so the runtime keeps making
+    /// progress and no thread is spawned. On a **current-thread runtime** there
+    /// is no other worker that could drive the supervisor, so the wait must
+    /// move off this thread entirely: `spawn` + `join`.
+    ///
+    /// That second branch is only deadlock-free *because*
+    /// [`PersistenceHandle::spawn`] guarantees the supervisor owns a thread of
+    /// its own whenever the caller's runtime is current-thread — the two
+    /// decisions are coupled and must move together. (The previous version of
+    /// this bridge took the thread path only for `!MultiThread` but left the
+    /// supervisor as a task on that same current-thread runtime, so the `join`
+    /// blocked the only thread that could ever serve the ack: every sync verb
+    /// deadlocked under `#[tokio::test]`.)
+    fn run_blocking<T: Send + 'static>(
+        &self,
+        command: PersistenceCommand,
+        ack_rx: oneshot::Receiver<Result<T, PersistenceError>>,
+    ) -> Result<T, PersistenceError> {
+        let supervisor = self.supervisor.clone();
+        let run = move || {
+            supervisor
+                .blocking_send(command)
+                .map_err(|_| PersistenceError::WriterDown)?;
+            ack_rx
+                .blocking_recv()
+                .map_err(|_| PersistenceError::WriterDown)?
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(run)
+            }
+            _ => std::thread::spawn(run).join().map_err(|_| {
+                PersistenceError::Poisoned("persistence blocking bridge panicked".into())
+            })?,
+        }
+    }
+}

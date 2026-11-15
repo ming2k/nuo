@@ -674,15 +674,15 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
-        app.surfaces.websearch_config = Some(nuo_protocol::WebSearchConfigView {
+        app.surfaces.websearch_config = Some(protocol::WebSearchConfigView {
             revision: 42,
-            provider: nuo_protocol::WebSearchProvider::Exa,
-            reader: nuo_protocol::WebReaderProvider::Disabled,
+            provider: protocol::WebSearchProvider::Exa,
+            reader: protocol::WebReaderProvider::Disabled,
             timeout_secs: 20,
             searxng_url: None,
-            search_credential: nuo_protocol::WebCredentialStatus::Stored,
-            reader_credential: nuo_protocol::WebCredentialStatus::NotRequired,
-            capabilities: nuo_protocol::web_provider_capabilities(),
+            search_credential: protocol::WebCredentialStatus::Stored,
+            reader_credential: protocol::WebCredentialStatus::NotRequired,
+            capabilities: protocol::web_provider_capabilities(),
         });
 
         // 1. Open dropdown
@@ -690,7 +690,7 @@ mod transcript_scroll_tests {
             "exa",
             app.surfaces.websearch_config.as_ref(),
         );
-        let anchor = nuo_ui_primitives::components::dropdown::DropdownAnchor::center_screen();
+        let anchor = ui_primitives::components::dropdown::DropdownAnchor::center_screen();
         app.surfaces.config_dropdown = Some((dropdown, anchor.clone()));
         assert!(app.surfaces.config_dropdown.is_some());
 
@@ -820,7 +820,7 @@ mod transcript_scroll_tests {
             .expect("antigravity preset exists");
 
         app.open_preset_chooser();
-        app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
+        app.begin_oauth_add(antigravity, protocol::LoginMethod::Browser);
         assert!(app.transcript.focus.is_composer());
 
         // Mount the OAuth overlay area in UI so pointer target falls within overlay

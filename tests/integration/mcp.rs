@@ -2,8 +2,8 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_mcp::McpClient;
-use nuo_mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
+use mcp::McpClient;
+use mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
 use serde_json::json;
 
 #[test]
@@ -57,7 +57,7 @@ done
     assert_eq!(native_tools.len(), 1);
     assert_eq!(native_tools[0].name(), "test_tool");
 
-    let ctx = nuo_tool::ToolContext::default();
+    let ctx = tool::ToolContext::default();
     let out = native_tools[0].execute(&ctx, json!({})).await.unwrap();
     assert_eq!(out.content(), "hello from mcp");
     assert!(!out.is_error());
@@ -67,9 +67,9 @@ done
 
 #[tokio::test]
 async fn test_mcp_server_request_handling_and_tool_export() {
-    use nuo_mcp::McpServer;
-    use nuo_tool::DynamicTool;
+    use mcp::McpServer;
     use std::sync::Arc;
+    use tool::DynamicTool;
 
     let server = McpServer::new("nous-export-server", "1.0.0");
     let calc_tool = DynamicTool::new(

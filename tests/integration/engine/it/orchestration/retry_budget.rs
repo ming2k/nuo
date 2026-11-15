@@ -14,7 +14,7 @@ async fn turn_exhaustion_message_explains_retry_budget() {
     let agent = Arc::new(Agent::new(
         Arc::new(AlwaysRetryableProvider),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -27,7 +27,7 @@ async fn turn_exhaustion_message_explains_retry_budget() {
             session,
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                budget: protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -46,7 +46,7 @@ async fn turn_exhaustion_message_explains_retry_budget() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -88,7 +88,7 @@ async fn mid_stream_failures_consume_only_the_restart_budget() {
     let agent = Arc::new(Agent::new(
         Arc::new(VisibleFailProvider(attempts.clone())),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -101,7 +101,7 @@ async fn mid_stream_failures_consume_only_the_restart_budget() {
             session,
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                budget: protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -119,7 +119,7 @@ async fn mid_stream_failures_consume_only_the_restart_budget() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -224,36 +224,33 @@ struct FailThenSucceedProvider {
 impl Provider for FailThenSucceedProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         self.requests
             .lock()
@@ -263,9 +260,9 @@ impl Provider for FailThenSucceedProvider {
             // Terminal: `parse_retryable_error` finds no envelope, so the
             // harness surfaces it and (with) arms the resume point.
             Ok(Box::pin(stream::iter(vec![Err(
-                nuo_protocol::ProviderError::new(
+                protocol::ProviderError::new(
                     "mock",
-                    nuo_protocol::ProviderErrorKind::Other,
+                    protocol::ProviderErrorKind::Other,
                     "terminal: model refused the request",
                 ),
             )])))
@@ -273,7 +270,7 @@ impl Provider for FailThenSucceedProvider {
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("recovered".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ])))
         }
@@ -298,7 +295,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
             requests: requests.clone(),
         }),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -310,7 +307,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
         session: Arc::clone(&session),
         projection: ContextProjectionSettings {
             request_overhead_tokens: 0,
-            budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+            budget: protocol::CompactionPolicy::default().resolve(100_000),
             preserve_rounds: 6,
             summarize: false,
             prune: false,
@@ -333,7 +330,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -355,7 +352,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
     let round_before = session.round_counter().await;
     execute_round(
         context(tx),
-        RoundInput::resume(nuo_protocol::RetryPoint {
+        RoundInput::resume(protocol::RetryPoint {
             round: point.round,
             turns_committed: point.turns_committed,
             history_watermark: point.history_watermark,

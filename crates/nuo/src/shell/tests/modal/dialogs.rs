@@ -350,18 +350,18 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
 
     app.surfaces.provider_picker = ProviderPickerSnapshot {
         default_id: "openai".to_string(),
-        rows: vec![nuo_protocol::ProviderPickerRow {
+        rows: vec![protocol::ProviderPickerRow {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
             model: "gpt-5.5".to_string(),
             models: vec!["gpt-5.5".to_string(), "gpt-5-mini".to_string()],
             model_info: vec![
-                nuo_protocol::ProviderModelInfo {
+                protocol::ProviderModelInfo {
                     model: "gpt-5.5".to_string(),
                     protocol: "openai".to_string(),
                     ..Default::default()
                 },
-                nuo_protocol::ProviderModelInfo {
+                protocol::ProviderModelInfo {
                     model: "gpt-5-mini".to_string(),
                     protocol: "openai".to_string(),
                     ..Default::default()
@@ -500,7 +500,7 @@ fn startup_picker_flag_governs_sessions_modal_quit_and_resets_on_open() {
 /// whole list. This pins those invariants.
 #[test]
 fn resolve_scroll_follows_selection_and_clamps_to_max_scroll() {
-    use nuo_ui_primitives::primitives::{SCROLL_EDGE_MARGIN, resolve_scroll};
+    use ui_primitives::primitives::{SCROLL_EDGE_MARGIN, resolve_scroll};
 
     // 100 rows, 10 visible → max_scroll is 90. A selection at row 50 with a
     // top-anchored scroll of 0 must pull the viewport down so row 50 is in
@@ -543,7 +543,7 @@ fn resolve_scroll_follows_selection_and_clamps_to_max_scroll() {
 /// terminal — the expand/collapse flicker.
 #[test]
 fn disclosure_toggle_latches_scroll_settle() {
-    use nuo_view::model::document::TranscriptMessage;
+    use view::model::document::TranscriptMessage;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     // The settle path only runs when the auto-scroll behavior is enabled
@@ -595,7 +595,7 @@ fn disclosure_toggle_latches_scroll_settle() {
 /// an in-progress read.
 #[test]
 fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
-    use nuo_view::model::document::TranscriptMessage;
+    use view::model::document::TranscriptMessage;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     assert!(
@@ -634,8 +634,8 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
 
 #[test]
 fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
-    use nuo_tool::Role;
-    use nuo_view::model::document::TranscriptMessage;
+    use tool::Role;
+    use view::model::document::TranscriptMessage;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let mut messages = vec![
@@ -680,11 +680,7 @@ fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
     } else {
         app.transcript
             .pin_summary_line
-            .map(|line| {
-                app.transcript
-                    .max_scroll
-                    .max(line.min(u16::MAX as usize) as u16)
-            })
+            .map(|line| app.transcript.max_scroll.max(line))
             .unwrap_or(app.transcript.max_scroll)
     };
     assert_eq!(
@@ -703,11 +699,7 @@ fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
     } else {
         app.transcript
             .pin_summary_line
-            .map(|line| {
-                app.transcript
-                    .max_scroll
-                    .max(line.min(u16::MAX as usize) as u16)
-            })
+            .map(|line| app.transcript.max_scroll.max(line))
             .unwrap_or(app.transcript.max_scroll)
     };
     assert_eq!(
@@ -742,16 +734,8 @@ fn adopt_caret_head_and_tail_break_selection() {
 
     // Range selection: head is the release point, tail is the anchor point.
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            1,
-        ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            4,
-        ),
+        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 1),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 4),
     };
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Head));
     assert_eq!(
@@ -762,16 +746,8 @@ fn adopt_caret_head_and_tail_break_selection() {
 
     // Backward drag: anchor is 4, head is 1 (mouse released at 1).
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            4,
-        ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            1,
-        ),
+        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 4),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 1),
     };
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Head));
     assert_eq!(

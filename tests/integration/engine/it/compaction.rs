@@ -15,12 +15,12 @@
 
 use std::sync::Arc;
 
-use nuo_engine::cognition::compaction::{CausalCompactor, CompactionCutMode};
-use nuo_engine::orchestration::{ContextProjectionSettings, compact_round_history};
-use nuo_engine::{Agent, AgentIdentity};
-use nuo_persistence::thread::CommitBasis;
-use nuo_persistence::thread::{CommitTurn, ThreadSession};
-use nuo_tool::{Message, Role};
+use engine::cognition::compaction::{CausalCompactor, CompactionCutMode};
+use engine::orchestration::{ContextProjectionSettings, compact_round_history};
+use engine::{Agent, AgentIdentity};
+use persistence::thread::CommitBasis;
+use persistence::thread::{CommitTurn, ThreadSession};
+use tool::{Message, Role};
 
 fn sandbox(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("nuo-{tag}-{}", uuid::Uuid::new_v4()));
@@ -97,10 +97,10 @@ async fn compaction_engages_on_a_session_built_from_plain_rounds() {
 
     let mut history = session.model_window().await;
     history.push(Message::new(Role::User, "THE-NEWEST-PROMPT"));
-    let tokens_before = nuo_protocol::pressure::estimate_tokens(&history);
+    let tokens_before = protocol::pressure::estimate_tokens(&history);
 
     let mut settings =
-        ContextProjectionSettings::from_policy(&nuo_protocol::CompactionPolicy::default(), 200_000);
+        ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), 200_000);
     // Derive the budget from the measured window rather than hard-coding a scale:
     // compacting to half the current size is what the production trigger does.
     settings.budget.target_tokens = (tokens_before / 2).max(64);
@@ -142,7 +142,7 @@ async fn compaction_engages_on_a_session_built_from_plain_rounds() {
     //    `execute_round`; this asserts the number it compares against.
     settings.budget.compaction_threshold_tokens = tokens_before.saturating_sub(1);
     let projected = session.model_window().await;
-    let projected_tokens = nuo_protocol::pressure::estimate_tokens(&projected);
+    let projected_tokens = protocol::pressure::estimate_tokens(&projected);
     assert!(
         projected_tokens < tokens_before,
         "the recorded projection did not shrink the window"
@@ -169,7 +169,7 @@ async fn an_impossible_target_reports_insufficiency() {
 
     let mut history = session.model_window().await;
     let mut settings =
-        ContextProjectionSettings::from_policy(&nuo_protocol::CompactionPolicy::default(), 200_000);
+        ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), 200_000);
     // A gate far below a single message: the tool-call-safe cut must keep the
     // newest node, which alone exceeds it.
     settings.budget.compaction_threshold_tokens = 10;
@@ -203,9 +203,9 @@ async fn a_fold_stops_at_the_horizon() {
     commit_rounds(&session, 8).await;
 
     let mut history = session.model_window().await;
-    let full_tokens = nuo_protocol::pressure::estimate_tokens(&history);
+    let full_tokens = protocol::pressure::estimate_tokens(&history);
     let mut settings =
-        ContextProjectionSettings::from_policy(&nuo_protocol::CompactionPolicy::default(), 200_000);
+        ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), 200_000);
     settings.budget.target_tokens = (full_tokens / 2).max(64);
     compact_round_history(&mut history, &session, &settings, None, Vec::new())
         .await
@@ -216,10 +216,9 @@ async fn a_fold_stops_at_the_horizon() {
     // branch is [horizon, kept tail…], never the archived prefix.
     let mut thread = session.thread().await;
     let branch = thread.state.active_branch.clone();
-    let window = nuo_protocol::ThreadWindow::from_thread(&thread, &branch, usize::MAX).unwrap();
-    let active_tokens = nuo_protocol::pressure::estimate_tokens(
-        &nuo_protocol::RequestView::from_window(&window).messages,
-    );
+    let window = protocol::ThreadWindow::from_thread(&thread, &branch, usize::MAX).unwrap();
+    let active_tokens =
+        protocol::pressure::estimate_tokens(&protocol::RequestView::from_window(&window).messages);
     assert!(active_tokens < full_tokens);
     let between = active_tokens + (full_tokens - active_tokens) / 2;
     let outcome = CausalCompactor::compact_thread(
@@ -228,6 +227,7 @@ async fn a_fold_stops_at_the_horizon() {
         None,
         CompactionCutMode::TargetTokens(between),
         Vec::new(),
+        None,
         0,
     )
     .await
@@ -252,14 +252,12 @@ async fn a_fold_survives_reopening_the_session() {
         let session = ThreadSession::for_path(path.clone());
         commit_rounds(&session, 8).await;
         let committed = session.model_window().await;
-        let committed_tokens = nuo_protocol::pressure::estimate_tokens(&committed);
+        let committed_tokens = protocol::pressure::estimate_tokens(&committed);
         let mut history = committed;
         history.push(Message::new(Role::User, "THE-NEWEST-PROMPT"));
-        let tokens_before = nuo_protocol::pressure::estimate_tokens(&history);
-        let mut settings = ContextProjectionSettings::from_policy(
-            &nuo_protocol::CompactionPolicy::default(),
-            200_000,
-        );
+        let tokens_before = protocol::pressure::estimate_tokens(&history);
+        let mut settings =
+            ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), 200_000);
         settings.budget.target_tokens = (tokens_before / 2).max(64);
         compact_round_history(&mut history, &session, &settings, None, Vec::new())
             .await
@@ -271,7 +269,7 @@ async fn a_fold_survives_reopening_the_session() {
         // the full transcript and paid for the same summarization again.
         let projected = session.model_window().await;
         assert!(
-            nuo_protocol::pressure::estimate_tokens(&projected) < committed_tokens,
+            protocol::pressure::estimate_tokens(&projected) < committed_tokens,
             "the recorded projection did not shrink the transcript window"
         );
         assert!(
@@ -286,7 +284,7 @@ async fn a_fold_survives_reopening_the_session() {
     // Reopen: a brand-new store over the same file.
     let reopened = ThreadSession::for_path(path);
     let window = reopened.model_window().await;
-    let window_tokens = nuo_protocol::pressure::estimate_tokens(&window);
+    let window_tokens = protocol::pressure::estimate_tokens(&window);
     assert!(
         window_tokens < committed_tokens,
         "a reopen reloaded the unfolded transcript ({window_tokens} vs {committed_tokens})"
@@ -302,10 +300,10 @@ async fn a_fold_survives_reopening_the_session() {
         "the horizon did not survive the reopen"
     );
     let window =
-        nuo_protocol::ThreadWindow::from_thread(&thread, &thread.state.active_branch, usize::MAX)
+        protocol::ThreadWindow::from_thread(&thread, &thread.state.active_branch, usize::MAX)
             .unwrap();
-    let folded = nuo_protocol::RequestView::from_window(&window).messages;
-    let folded_tokens = nuo_protocol::pressure::estimate_tokens(&folded);
+    let folded = protocol::RequestView::from_window(&window).messages;
+    let folded_tokens = protocol::pressure::estimate_tokens(&folded);
     assert!(
         folded_tokens < tokens_before,
         "the reopened session un-folded: {folded_tokens} tokens vs {tokens_before} before"
@@ -360,7 +358,7 @@ async fn an_aggressive_fold_never_drops_the_admitted_prompt() {
     history.push(Message::new(Role::User, "THE-ADMITTED-PROMPT"));
 
     let mut settings =
-        ContextProjectionSettings::from_policy(&nuo_protocol::CompactionPolicy::default(), 200_000);
+        ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), 200_000);
     // A target far below the window: this is the fold that eats the tail.
     settings.budget.target_tokens = 1;
 
@@ -392,14 +390,14 @@ async fn an_aggressive_fold_never_drops_the_admitted_prompt() {
 /// reaches `execute_round`'s pre-round prune or compaction.
 #[tokio::test]
 async fn the_mid_turn_gate_prunes_a_pressurised_window() {
-    use nuo_engine::PruningProjectionGate;
-    use nuo_engine::cognition::context_projection::ContextProjectionGate;
+    use engine::PruningProjectionGate;
+    use engine::cognition::context_projection::ContextProjectionGate;
 
     let (dir, path) = sandbox("gate-prunes");
     let session = Arc::new(ThreadSession::for_path(path));
 
     // A committed round carrying a large tool result.
-    let call = nuo_tool::ToolCall::new("c1", "execute_command", "{}");
+    let call = tool::ToolCall::new("c1", "execute_command", "{}");
     let mut assistant = Message::new(Role::Assistant, "running");
     assistant.tool_calls = Some(vec![call.clone()]);
     let big = "FAILED: test_x\nAssertionError\n".repeat(600);
@@ -423,10 +421,10 @@ async fn the_mid_turn_gate_prunes_a_pressurised_window() {
         .unwrap();
 
     let window = session.model_window().await;
-    let tokens_before = nuo_protocol::pressure::estimate_tokens(&window);
+    let tokens_before = protocol::pressure::estimate_tokens(&window);
     let settings = ContextProjectionSettings {
         request_overhead_tokens: 0,
-        budget: nuo_protocol::CompactionPolicy::default().resolve(20_000),
+        budget: protocol::CompactionPolicy::default().resolve(20_000),
         preserve_rounds: 6,
         summarize: false,
         prune: true,
@@ -436,14 +434,15 @@ async fn the_mid_turn_gate_prunes_a_pressurised_window() {
     let gate = PruningProjectionGate::new(
         Arc::clone(&session),
         Arc::new(move || settings_for_gate.clone()),
-        Arc::new(nuo_protocol::MessageTokenWeights::new()),
+        Arc::new(protocol::MessageTokenWeights::new()),
+        None,
     );
     let projected = gate
         .project_context(window.clone())
         .await
         .expect("the gate must engage on a pressurised window");
 
-    let tokens_after = nuo_protocol::pressure::estimate_tokens(&projected);
+    let tokens_after = protocol::pressure::estimate_tokens(&projected);
     assert!(
         tokens_after < tokens_before,
         "the gate returned a window that did not shrink: {tokens_before} -> {tokens_after}"
@@ -477,7 +476,7 @@ async fn the_mid_turn_gate_prunes_a_pressurised_window() {
 /// rewrites durable history.
 #[tokio::test]
 async fn an_untranslatable_projection_never_rewrites_history() {
-    use nuo_persistence::thread::{
+    use persistence::thread::{
         ContextProjectionCheckpoint, ContextProjectionKind, ContextProjectionResult,
     };
 
@@ -525,7 +524,7 @@ async fn an_untranslatable_projection_never_rewrites_history() {
 /// check reads a missing gate as "nothing to do").
 #[tokio::test]
 async fn a_subagent_gets_a_session_and_a_projection_gate() {
-    use nuo_engine::PruningProjectionGate;
+    use engine::PruningProjectionGate;
 
     let (dir, path) = sandbox("subagent-relief");
     let session = Arc::new(ThreadSession::for_path(path));
@@ -538,7 +537,7 @@ async fn a_subagent_gets_a_session_and_a_projection_gate() {
     let child_store = Arc::new(child_store);
 
     let child = Agent::new(
-        Arc::new(nuo_engine::NoProvider),
+        Arc::new(engine::NoProvider),
         Vec::new(),
         AgentIdentity::default(),
     );
@@ -549,17 +548,15 @@ async fn a_subagent_gets_a_session_and_a_projection_gate() {
 
     // What the composition root does for every spawned child.
     let window = child.provider.model_capabilities().context_window;
-    let budget = nuo_protocol::CompactionPolicy::default().resolve(window);
+    let budget = protocol::CompactionPolicy::default().resolve(window);
     child.set_context_prune_threshold(budget.prune_threshold_tokens);
     child.set_context_projection_gate(Some(Arc::new(PruningProjectionGate::new(
         Arc::clone(&child_store),
         Arc::new(move || {
-            ContextProjectionSettings::from_policy(
-                &nuo_protocol::CompactionPolicy::default(),
-                window,
-            )
+            ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), window)
         }),
         child.token_weights_handle(),
+        Some(child.provider.clone()),
     ))));
 
     assert!(

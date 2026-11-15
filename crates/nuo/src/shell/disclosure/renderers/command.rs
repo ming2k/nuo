@@ -7,12 +7,12 @@ use unicode_width::UnicodeWidthStr;
 use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::RenderCtx;
 use crate::shell::render::TRANSCRIPT_BODY_LEADING_INDENT;
-use nuo_ui_primitives::design::TURN_HEADER_BODY_GAP_ROWS;
-use nuo_view::message_body::draw_message_body;
-use nuo_view::model::document::{CommandPhase, TranscriptMessage};
-use nuo_view::model::layout::{BlockRegion, COMMAND_RESULT_BLOCK_IDX};
-use nuo_view::model::selection::{CellDragInfo, SelectionState};
-use nuo_view::text_layout::wrap_text;
+use ui_primitives::design::TURN_HEADER_BODY_GAP_ROWS;
+use view::message_body::draw_message_body;
+use view::model::document::{CommandPhase, TranscriptMessage};
+use view::model::layout::{BlockRegion, COMMAND_RESULT_BLOCK_IDX};
+use view::model::selection::{CellDragInfo, SelectionState};
+use view::text_layout::wrap_text;
 
 pub fn draw_command_result(
     ctx: &mut RenderCtx<'_, '_>,
@@ -50,7 +50,7 @@ pub fn draw_command_result(
         return;
     }
 
-    let time_label = msg.sent_at_ms.map(nuo_ui_primitives::time::sent_time_label);
+    let time_label = msg.sent_at_ms.map(ui_primitives::time::sent_time_label);
 
     // One component in two lifecycle states, deliberately
     // *not* an expandable step: the invocation and its reply are a single

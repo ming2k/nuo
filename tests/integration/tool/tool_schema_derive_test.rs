@@ -2,9 +2,9 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_tool::{ToolArgs, ToolSchema};
 use serde::Deserialize;
 use serde_json::json;
+use tool::{ToolArgs, ToolSchema};
 
 #[allow(dead_code)]
 #[derive(ToolSchema)]

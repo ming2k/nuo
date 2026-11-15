@@ -1,11 +1,11 @@
 //! Shared test fixtures, render harnesses, and grid extraction utilities
 //! for transcript and tool-step snapshot assertions.
 
-use nuo_view::model::document::{MessageKind, TranscriptMessage};
-use nuo_view::model::interactive::InteractiveEntry;
-use nuo_view::model::layout::LayoutMap;
-use nuo_view::model::selection::SelectionState;
 use nuotc::Rect;
+use view::model::document::{MessageKind, TranscriptMessage};
+use view::model::interactive::InteractiveEntry;
+use view::model::layout::LayoutMap;
+use view::model::selection::SelectionState;
 
 use crate::shell::disclosure::draw_tool_step;
 use crate::shell::render::Theme;
@@ -24,7 +24,7 @@ pub(crate) fn tool_step(
     output: Option<&str>,
     expanded: bool,
 ) -> TranscriptMessage {
-    use nuo_view::model::interactive::InteractiveEntry;
+    use view::model::interactive::InteractiveEntry;
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);
     if let MessageKind::ToolStep {
         output: out,
@@ -34,7 +34,7 @@ pub(crate) fn tool_step(
     {
         *out = output.map(str::to_string);
         if output.is_some() {
-            *status = nuo_view::model::document::ToolStepStatus::Ok;
+            *status = view::model::document::ToolStepStatus::Ok;
         }
     }
     m.pin_expanded(expanded);
@@ -46,10 +46,10 @@ pub(crate) fn tool_step(
 pub(crate) fn tool_step_structured(
     name: &str,
     arguments: &str,
-    structured: nuo_tool::ToolOutput,
+    structured: tool::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
-    use nuo_view::model::interactive::InteractiveEntry;
+    use view::model::interactive::InteractiveEntry;
     let text = structured.to_text();
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);
     m.finish_tool_step("call_test", text, structured, 0);
@@ -64,7 +64,7 @@ pub(crate) fn tool_step_structured(
 pub(crate) fn tool_step_streaming(
     name: &str,
     arguments: &str,
-    structured: nuo_tool::ToolOutput,
+    structured: tool::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);
@@ -139,7 +139,7 @@ pub(crate) fn render_grid_with_map(
         let area: Rect = f.area();
         let selection = SelectionState::default();
         let theme = Theme::default();
-        let mut diff_cache = nuo_view::tools::DiffCache::default();
+        let mut diff_cache = view::tools::DiffCache::default();
         let mut skip_rows = 0usize;
         let mut current_y = area.y;
         let mut content_lines = 0usize;
@@ -286,13 +286,13 @@ pub(crate) fn render_transcript_frame(
     messages: &[TranscriptMessage],
     width: u16,
     height: u16,
-    scroll: u16,
+    scroll: usize,
     height_cache: Option<&mut crate::shell::render::HeightCache>,
 ) -> RenderedTranscript {
     use crate::shell::render::{
         EmptyStateGuidance, QueueBarProps, Theme, TranscriptProps, draw_transcript,
     };
-    use nuo_view::model::layout::LayoutMap;
+    use view::model::layout::LayoutMap;
 
     let theme = Theme::default();
     let selection = SelectionState::default();
@@ -334,7 +334,7 @@ pub(crate) fn render_transcript_frame(
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
+                layout: view::layout::Strategy::default(),
                 height_cache,
             },
         ));

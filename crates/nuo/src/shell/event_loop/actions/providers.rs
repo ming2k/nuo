@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use tokio::sync::mpsc;
 
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::clipboard;
@@ -248,7 +248,7 @@ pub(super) fn handle_provider_action(
                 let ranked = app.models_flat_filtered();
                 if let Some(row) = ranked.get(app.active_index()).or_else(|| ranked.first()) {
                     app.send_intent(AgentRequest::ExcludeModel {
-                        scope: nuo_protocol::model::ModelTargetScope::Connection(
+                        scope: protocol::model::ModelTargetScope::Connection(
                             row.provider_id.clone(),
                         ),
                         model_id: row.model.clone(),

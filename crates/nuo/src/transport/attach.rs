@@ -3,7 +3,7 @@
 use super::current_posture;
 use super::lifecycle::ATTACH_ACK_TIMEOUT;
 use super::*;
-use nuo_protocol::ThreadOverview;
+use protocol::ThreadOverview;
 
 /// A failed attach.
 ///
@@ -38,13 +38,13 @@ impl AttachError {
     /// Whether the target session provably no longer exists
     /// (`ERR_SESSION_GONE`). The tab naming it must be retired.
     pub fn is_session_gone(&self) -> bool {
-        self.code() == Some(nuo_protocol::ERR_SESSION_GONE)
+        self.code() == Some(protocol::ERR_SESSION_GONE)
     }
 
     /// Whether the target session exists durably but could not be assembled
     /// (`ERR_SESSION_UNRESUMABLE`). The tab must be kept — its history is real.
     pub fn is_session_unresumable(&self) -> bool {
-        self.code() == Some(nuo_protocol::ERR_SESSION_UNRESUMABLE)
+        self.code() == Some(protocol::ERR_SESSION_UNRESUMABLE)
     }
 }
 
@@ -66,7 +66,7 @@ impl From<AttachError> for String {
 
 struct Welcome {
     session_id: String,
-    phase: nuo_protocol::ThreadPhase,
+    phase: protocol::ThreadPhase,
 }
 
 enum Reply {
@@ -100,14 +100,14 @@ pub enum Handshake {
         /// Readiness at the moment of the handshake. Informational only:
         /// `[INV-ATTACH-04]` (ADR-0133) makes the *post-snapshot*
         /// `AgentResponse::ThreadPhase(Ready)` the gate for input.
-        phase: nuo_protocol::ThreadPhase,
+        phase: protocol::ThreadPhase,
     },
     Pick(Vec<ThreadOverview>),
 }
 
 pub async fn connect(info: &ServerInfo, action: AttachAction) -> AttachResult {
     if let Some(endpoint) = info.effective_local_endpoint()
-        && let Ok(stream) = nuo_host::ipc::connect(&endpoint).await
+        && let Ok(stream) = host::ipc::connect(&endpoint).await
     {
         let (sink, source) = native_framed_split(stream);
         return finish_handshake((sink, source), action).await;

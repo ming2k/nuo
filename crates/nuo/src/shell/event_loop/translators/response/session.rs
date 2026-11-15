@@ -2,7 +2,7 @@
 
 use std::sync::atomic::Ordering;
 
-use nuo_protocol::{AgentResponse, RoundEvent};
+use protocol::{AgentResponse, RoundEvent};
 
 use crate::shell::event_loop;
 use crate::shell::transcript::{
@@ -53,7 +53,7 @@ impl TranslatorState {
                 self.live_session = session_id.clone();
                 self.mutations.send(M::TokenReport(None)).await;
                 self.mutations
-                    .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
+                    .send(M::SessionTree(protocol::ThreadTree::default()))
                     .await;
             }
             AgentResponse::ConversationReplaced {
@@ -100,7 +100,7 @@ impl TranslatorState {
                 self.live_session = session_id;
                 self.mutations.send(M::TokenReport(None)).await;
                 self.mutations
-                    .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
+                    .send(M::SessionTree(protocol::ThreadTree::default()))
                     .await;
             }
             AgentResponse::ThreadSnapshot(snapshot) => {
@@ -281,7 +281,7 @@ impl TranslatorState {
                 {
                     self.harness.workspace_security = snapshot.workspace_security.clone();
                     let gate_needed = !self.trust_gate_dismissed.load(Ordering::SeqCst)
-                        && nuo_view::trust_gate::gate_request(&self.harness.workspace_security)
+                        && view::trust_gate::gate_request(&self.harness.workspace_security)
                             .is_some();
                     if gate_needed {
                         self.mutations

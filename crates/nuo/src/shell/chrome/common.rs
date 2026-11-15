@@ -20,7 +20,7 @@ pub const SPINNER_PHASES: usize = 12;
 /// (`|`, `/`, `-`, `\`).
 pub fn spinner_glyph(
     glyphs: &nuotc::GlyphSet,
-    elevation: nuo_ui_primitives::elevation::ElevationArchetype,
+    elevation: ui_primitives::elevation::ElevationArchetype,
     liveness: Liveness,
     phase: usize,
 ) -> &'static str {
@@ -115,7 +115,7 @@ pub fn format_elapsed(d: Duration) -> String {
 
 /// Abbreviate an absolute path to its native `~`-relative form.
 pub fn tilde_home(path: &std::path::Path) -> String {
-    nuo_ui_primitives::components::path::tilde_shorten(path)
+    ui_primitives::components::path::tilde_shorten(path)
 }
 
 /// Truncate `s` to at most `max` display cells, keeping its head.
@@ -125,10 +125,10 @@ pub fn tilde_home(path: &std::path::Path) -> String {
 /// (ADR-0152 `[INV-TEXT-OVERFLOW-01]`); this alias exists only to keep the
 /// caller's vocabulary.
 pub(crate) fn truncate_for_bar(s: &str, max: usize) -> String {
-    nuo_ui_primitives::components::overflow::fit(
+    ui_primitives::components::overflow::fit(
         s,
         max,
-        nuo_ui_primitives::components::overflow::Overflow::End,
+        ui_primitives::components::overflow::Overflow::End,
     )
     .text
 }

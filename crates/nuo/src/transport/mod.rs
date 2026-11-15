@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
-use nuo_protocol::{
+use protocol::{
     AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitoredTask, MonitoredThread,
     ThreadOverview, WireFrame,
 };
@@ -21,18 +21,18 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_util::codec::Framed;
 
-pub use nuo_protocol::discovery::{Discovery, ServerInfo};
-pub use nuo_protocol::version::{
+pub use protocol::discovery::{Discovery, ServerInfo};
+pub use protocol::version::{
     ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, VersionRelation, compare_versions,
     protocol_accepts, protocol_mismatch, version_mismatch,
 };
-pub use nuo_protocol::{
+pub use protocol::{
     AttachAction, ControlRequest, MIN_PROTOCOL_VERSION, NativeWireCodec, PROTOCOL_VERSION,
     ServerEndpointsReport, ThreadInitOptions, Wire,
 };
 #[cfg(unix)]
-pub use nuo_server::transport::serve_discovery::default_uds_path;
-pub use nuo_server::transport::serve_discovery::{
+pub use server::transport::serve_discovery::default_uds_path;
+pub use server::transport::serve_discovery::{
     self as discovery, default_local_endpoint, global_discovery_path, global_lock_path,
     global_spawn_lock_path, instance_dir,
 };
@@ -55,7 +55,7 @@ fn init_tracing_for(
     if level.eq_ignore_ascii_case("off") {
         return None;
     }
-    let dir = nuo_host::paths::get().log_dir();
+    let dir = host::paths::get().log_dir();
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
@@ -119,10 +119,10 @@ where
                 // payload is reported per frame and the socket stays usable
                 // [ADR-0136]. `Err` remains reserved for the socket itself.
                 Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
-                    Some(Ok(nuo_protocol::decode_wire_payload(text.as_bytes())))
+                    Some(Ok(protocol::decode_wire_payload(text.as_bytes())))
                 }
                 Ok(tokio_tungstenite::tungstenite::Message::Binary(bin)) => {
-                    Some(Ok(nuo_protocol::decode_wire_payload(&bin)))
+                    Some(Ok(protocol::decode_wire_payload(&bin)))
                 }
                 Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => None,
                 Ok(_) => None,

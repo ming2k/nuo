@@ -10,15 +10,15 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::shell::keymap::{AppContext, Availability, CommandCategory, CommandId, DangerLevel};
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::list::row_style;
-use nuo_ui_primitives::design::INPUT_PROMPT_PREFIX;
-use nuo_ui_primitives::fuzzy::fuzzy_match;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::components::list::row_style;
+use ui_primitives::design::INPUT_PROMPT_PREFIX;
+use ui_primitives::fuzzy::fuzzy_match;
+use ui_primitives::primitives::{
     FixedModalSpec, FooterHint, modal_area, modal_frame, modal_header, render_modal_footer,
 };
-use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
-use nuo_view::model::layout::LayoutMap;
-use nuo_view::model::selection::SelectionState;
+use view::components::selectable_body::{SelectableRow, render_selectable_body};
+use view::model::layout::LayoutMap;
+use view::model::selection::SelectionState;
 
 /// One selectable entry in the Command Palette list.
 #[derive(Debug, Clone)]

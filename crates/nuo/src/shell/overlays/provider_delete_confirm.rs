@@ -18,8 +18,8 @@ use nuotc::{
 };
 
 use crate::shell::render::Theme;
-use nuo_ui_primitives::primitives::Recess;
-use nuo_ui_primitives::primitives::{centered_rect_h, modal_frame, recess_backdrop};
+use ui_primitives::primitives::Recess;
+use ui_primitives::primitives::{centered_rect_h, modal_frame, recess_backdrop};
 
 /// Which button in the confirm overlay holds keyboard focus. Mirrors
 /// `crate::shell::app::ProviderDeleteChoice`.

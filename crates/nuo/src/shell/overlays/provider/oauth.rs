@@ -5,13 +5,13 @@ use nuotc::{
 };
 
 use crate::shell::render::Theme;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, content_modal_area, content_modal_probe, hierarchical_breadcrumb,
     modal_chrome_rows, modal_frame, modal_header_parts, render_modal_footer,
 };
-use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
-use nuo_view::model::layout::LayoutMap;
-use nuo_view::model::selection::SelectionState;
+use view::components::selectable_body::{SelectableRow, render_selectable_body};
+use view::model::layout::LayoutMap;
+use view::model::selection::SelectionState;
 
 /// Draw the OAuth-in-progress sheet: instruction, URL, optional user code, status.
 #[allow(clippy::too_many_arguments)]

@@ -86,7 +86,7 @@ fn restored_assistant_components_share_their_round_and_turn() {
 
 #[test]
 fn restored_user_message_origin_inferred_from_shape() {
-    use nuo_view::model::document::UserMessageOrigin;
+    use view::model::document::UserMessageOrigin;
     // A genuine chat prompt: no display_content, no leading `!`.
     let chat = transcript_message_from_core(Message::new(Role::User, "fix the bug")).unwrap();
     assert_eq!(chat.origin, UserMessageOrigin::Chat);
@@ -111,11 +111,10 @@ fn restored_user_message_origin_inferred_from_shape() {
 
 #[test]
 fn restored_user_insert_keeps_mid_round_origin_without_opening_a_turn() {
-    use nuo_view::model::document::UserMessageOrigin;
+    use view::model::document::UserMessageOrigin;
     let first = Message::new(Role::Assistant, "first answer");
-    let inserted = Message::new(Role::User, "one more constraint").with_origin(
-        nuo_tool::InjectionOrigin::new(nuo_tool::InjectionKind::UserSteer),
-    );
+    let inserted = Message::new(Role::User, "one more constraint")
+        .with_origin(tool::InjectionOrigin::new(tool::InjectionKind::UserSteer));
     let second = Message::new(Role::Assistant, "revised answer");
 
     let restored =
@@ -135,7 +134,7 @@ fn restored_command_echo_origin_from_durable_provenance() {
     // FIRST (ahead of the shape heuristic), so an echo whose text lacks the
     // `display_content` / `!` shape signals is still classified as a
     // non-driving command, never as the round's driving prompt.
-    use nuo_view::model::document::UserMessageOrigin;
+    use view::model::document::UserMessageOrigin;
 
     // A slash echo: content is the literal `/cmd`, no display_content. The
     // shape heuristic alone would misread this (no display_content → fall to
@@ -162,8 +161,8 @@ fn restored_command_echo_origin_from_durable_provenance() {
 /// dropped from the dialogue before merge; the ledger row keeps the record.
 #[test]
 fn restored_slash_echoes_fold_into_command_components() {
-    use nuo_tool::Role;
-    use nuo_view::model::document::UserMessageOrigin;
+    use tool::Role;
+    use view::model::document::UserMessageOrigin;
 
     let restored = transcript_messages_from_core(
         vec![

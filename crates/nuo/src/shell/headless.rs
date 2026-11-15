@@ -1,6 +1,6 @@
 use crate::shell::client::{self, AttachAction, Handshake};
-use nuo_protocol::{AgentRequest, AgentResponse, PermissionDecision, RoundEvent};
-use nuo_tool::{PermissionRequest, UserQuestionRequest};
+use protocol::{AgentRequest, AgentResponse, PermissionDecision, RoundEvent};
+use tool::{PermissionRequest, UserQuestionRequest};
 
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
@@ -61,9 +61,9 @@ pub async fn run_headless(
     // this client fabricate answers below (the old `options.first()` bug).
     {
         client::set_posture(if io::stderr().is_terminal() {
-            nuo_protocol::human_request::HumanChannelPosture::Interactive
+            protocol::human_request::HumanChannelPosture::Interactive
         } else {
-            nuo_protocol::human_request::HumanChannelPosture::Autonomous
+            protocol::human_request::HumanChannelPosture::Autonomous
         });
     }
     let init_options = client::ThreadInitOptions::new(unattended, confined)
@@ -107,7 +107,7 @@ pub async fn run_headless(
             }
             AgentResponse::ThreadPhase(update) => {
                 match &update.phase {
-                    nuo_protocol::ThreadPhase::Ready if !prompt_sent => {
+                    protocol::ThreadPhase::Ready if !prompt_sent => {
                         if json {
                             let init_event = serde_json::json!({
                                 "type": "session_init",
@@ -128,7 +128,7 @@ pub async fn run_headless(
                         )?;
                         prompt_sent = true;
                     }
-                    nuo_protocol::ThreadPhase::Failed { message, .. } => {
+                    protocol::ThreadPhase::Failed { message, .. } => {
                         return Err(message.clone().into());
                     }
                     _ => {}
@@ -180,11 +180,11 @@ pub async fn run_headless(
                 RoundEvent::ToolStream { id, stream } => {
                     if !json {
                         match stream {
-                            nuo_tool::ToolStream::Stdout(text) => {
+                            tool::ToolStream::Stdout(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
-                            nuo_tool::ToolStream::Stderr(text) => {
+                            tool::ToolStream::Stderr(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
@@ -217,10 +217,10 @@ pub async fn run_headless(
                     } else {
                         let is_error = matches!(
                             structured,
-                            nuo_tool::ToolOutput::Error { .. }
-                                | nuo_tool::ToolOutput::PermissionDenied { .. }
+                            tool::ToolOutput::Error { .. }
+                                | tool::ToolOutput::PermissionDenied { .. }
                         ) || match &structured {
-                            nuo_tool::ToolOutput::Shell { exit, .. } => {
+                            tool::ToolOutput::Shell { exit, .. } => {
                                 exit.is_some_and(|code| code != 0)
                             }
                             _ => false,
@@ -339,7 +339,7 @@ pub async fn run_headless(
                         // `attempt - 1` here would be a second attempt-ordinal
                         // paint site — the exact split (`retry 5/29` beside
                         // `retry 6/30`) this type exists to close.
-                        let progress = nuo_view::retry::RetryProgress::scheduled(
+                        let progress = view::retry::RetryProgress::scheduled(
                             attempt,
                             max_attempts,
                             std::time::Instant::now(),
@@ -352,7 +352,7 @@ pub async fn run_headless(
                         eprintln!(
                             "\n[{} — {}]",
                             progress.receipt_label(),
-                            nuo_engine::runtime::retry::public_retry_reason(&message),
+                            engine::runtime::retry::public_retry_reason(&message),
                         );
                         io::stderr().flush()?;
                     }

@@ -1,0 +1,614 @@
+//! Google Antigravity CodeAssist quota and usage fetcher.
+//!
+//! Query endpoint: `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
+
+use protocol::{
+    PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,
+    UsageMetric,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::spec_antigravity::{ANTIGRAVITY_TLS_PROFILE_UNARY, ANTIGRAVITY_USER_AGENT};
+
+use crate::oauth::ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL;
+
+/// Individual Antigravity model/feature quota bucket (QuotaSummaryBucket in internal proto).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AntigravityQuotaBucket {
+    #[serde(default, alias = "bucketId")]
+    pub bucket_id: String,
+    #[serde(default, alias = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub window: Option<String>,
+    #[serde(default, alias = "remainingFraction")]
+    pub remaining_fraction: Option<f32>,
+    #[serde(default, alias = "remainingAmount")]
+    pub remaining_amount: Option<i64>,
+    #[serde(default)]
+    pub disabled: Option<bool>,
+    #[serde(default, alias = "resetTime")]
+    pub reset_time: Option<String>,
+}
+
+/// Logical grouping of Antigravity quota buckets (QuotaSummaryGroup in internal proto).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AntigravityQuotaGroup {
+    #[serde(default, alias = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub buckets: Vec<AntigravityQuotaBucket>,
+}
+
+/// Full Antigravity user quota summary (RetrieveUserQuotaSummaryResponse in internal proto).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AntigravityQuotaSummaryResponse {
+    #[serde(default)]
+    pub buckets: Vec<AntigravityQuotaBucket>,
+    #[serde(default)]
+    pub groups: Vec<AntigravityQuotaGroup>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+pub struct AntigravityUsageFetcher;
+
+impl AntigravityUsageFetcher {
+    pub fn matches(&self, provider: &str, base_url: &str) -> bool {
+        provider == "google-antigravity" || base_url.contains("cloudcode-pa.googleapis.com")
+    }
+
+    pub async fn fetch_usage(
+        &self,
+        client: &provider::transport::Http,
+        base_url: &str,
+        api_key: &str,
+    ) -> Result<ProviderUsage, String> {
+        self.fetch_usage_with_project(client, base_url, api_key, None)
+            .await
+    }
+
+    pub async fn fetch_usage_with_project(
+        &self,
+        client: &provider::transport::Http,
+        base_url: &str,
+        api_key: &str,
+        project: Option<&str>,
+    ) -> Result<ProviderUsage, String> {
+        let endpoint = if base_url.contains("cloudcode-pa.googleapis.com") {
+            let base = base_url.trim_end_matches('/');
+            let base = base.strip_suffix("/v1internal").unwrap_or(base);
+            format!("{base}/v1internal:retrieveUserQuotaSummary")
+        } else {
+            ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL.to_string()
+        };
+
+        let effective_project = project
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("aicode-consumers");
+        let req_body = serde_json::json!({
+            "project": effective_project
+        });
+
+        let request = provider::transport::Request::new(netune::Method::POST, &endpoint)
+            .header("authorization", format!("Bearer {api_key}"))
+            .header("user-agent", ANTIGRAVITY_USER_AGENT)
+            .json(&req_body)
+            .tls_profile(ANTIGRAVITY_TLS_PROFILE_UNARY);
+        let resp = client
+            .send(request)
+            .await
+            .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+        if !resp.is_success() {
+            return Err(format!("HTTP {}: {}", resp.status, resp.body));
+        }
+
+        let body: AntigravityQuotaSummaryResponse = serde_json::from_str(&resp.body)
+            .map_err(|e| format!("Failed to parse Antigravity quota response: {e}"))?;
+
+        parse_antigravity_quota(body)
+    }
+}
+
+/// Retrieve user quota summary from the Google Antigravity CodeAssist backend.
+///
+/// Relocated verbatim (ADR-0027 §4) from `nuo-provider-adapters`' OAuth token
+/// module, where it was an orphan with no counterpart in the `providers/` tree.
+pub async fn retrieve_antigravity_quota_summary(
+    client: &provider::transport::Http,
+    access_token: &str,
+    project: Option<&str>,
+) -> Result<AntigravityQuotaSummaryResponse, provider::auth::AuthError> {
+    let effective_project = project
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("aicode-consumers");
+    let req_body = serde_json::json!({
+        "project": effective_project
+    });
+
+    let request = provider::transport::Request::new(
+        netune::Method::POST,
+        ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL,
+    )
+    .header("authorization", format!("Bearer {access_token}"))
+    .header("user-agent", ANTIGRAVITY_USER_AGENT)
+    .json(&req_body)
+    .tls_profile(ANTIGRAVITY_TLS_PROFILE_UNARY);
+    let resp = client.send(request).await.map_err(|e| {
+        provider::auth::AuthError::Transport(format!("retrieveUserQuotaSummary failed: {e}"))
+    })?;
+
+    if resp.is_success() {
+        serde_json::from_str::<AntigravityQuotaSummaryResponse>(&resp.body).map_err(|e| {
+            provider::auth::AuthError::Decode(format!("retrieveUserQuotaSummary parse failed: {e}"))
+        })
+    } else {
+        Err(provider::auth::AuthError::TokenEndpoint {
+            status: resp.status.as_u16(),
+            body: resp.body,
+        })
+    }
+}
+
+pub(crate) fn parse_antigravity_quota(
+    body: AntigravityQuotaSummaryResponse,
+) -> Result<ProviderUsage, String> {
+    let (plan, description) = match body.description {
+        Some(desc) => {
+            let trimmed = desc.trim().to_string();
+            if trimmed.len() <= 45
+                && !trimmed.contains('\n')
+                && !trimmed.contains("Within each group")
+            {
+                (Some(trimmed), None)
+            } else {
+                (None, Some(trimmed))
+            }
+        }
+        None => (None, None),
+    };
+
+    let mut all_grouped_buckets = Vec::new();
+    for bucket in body.buckets {
+        all_grouped_buckets.push((None::<String>, bucket));
+    }
+    for group in body.groups {
+        let group_name = group
+            .display_name
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| group.description.filter(|s| !s.trim().is_empty()));
+        for bucket in group.buckets {
+            all_grouped_buckets.push((group_name.clone(), bucket));
+        }
+    }
+
+    if all_grouped_buckets.is_empty() {
+        return Ok(ProviderUsage {
+            plan,
+            description,
+            quota: Some(ProviderQuotaData::Periodic(PeriodicQuota::default())),
+            primary_balance: Some("100%".to_string()),
+            metrics: Vec::new(),
+            model_rules: Vec::new(),
+            updated_at_ms: now_epoch_ms(),
+        });
+    }
+
+    let mut metrics = Vec::new();
+    let mut quota_buckets = Vec::new();
+    let mut model_rules = Vec::new();
+    let mut min_remaining_fraction: Option<f32> = None;
+
+    for (group_name, bucket) in all_grouped_buckets {
+        let label = bucket
+            .display_name
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or(bucket.bucket_id.clone());
+
+        let window_kind = bucket.window.as_deref().map(|w| {
+            let upper = w.to_ascii_uppercase();
+            if upper.contains("5H") {
+                QuotaWindowKind::Rolling5Hour
+            } else if upper.contains("DAY") || upper.contains("24H") {
+                QuotaWindowKind::Daily
+            } else if upper.contains("WEEK") || upper.contains("7D") {
+                QuotaWindowKind::Weekly
+            } else if upper.contains("MONTH") || upper.contains("30D") {
+                QuotaWindowKind::Monthly
+            } else {
+                QuotaWindowKind::Custom
+            }
+        });
+
+        let reset_at_ms = bucket.reset_time.as_deref().and_then(|rt| {
+            chrono::DateTime::parse_from_rfc3339(rt)
+                .map(|dt| dt.timestamp_millis() as u64)
+                .ok()
+        });
+
+        let used_fraction = if let Some(frac) = bucket.remaining_fraction {
+            min_remaining_fraction = Some(min_remaining_fraction.map_or(frac, |m| m.min(frac)));
+            (1.0 - frac).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let is_exhausted = used_fraction >= 0.999
+            || bucket.disabled.unwrap_or(false)
+            || (bucket.remaining_amount == Some(0) && bucket.remaining_fraction.is_none());
+
+        if is_exhausted {
+            let lower_id = bucket.bucket_id.to_ascii_lowercase();
+            let lower_label = label.to_ascii_lowercase();
+            let lower_group = group_name.as_deref().unwrap_or("").to_ascii_lowercase();
+
+            let patterns: Vec<&str> = if lower_id.starts_with("3p")
+                || (lower_group.contains("claude") && lower_group.contains("gpt"))
+            {
+                vec!["claude-*", "gpt-*"]
+            } else if lower_group.contains("claude")
+                || lower_id.contains("claude")
+                || lower_label.contains("claude")
+            {
+                vec!["claude-*"]
+            } else if lower_group.contains("gemini")
+                || lower_group.contains("chat")
+                || lower_id.contains("gemini")
+                || lower_label.contains("gemini")
+            {
+                vec!["gemini-*"]
+            } else {
+                vec![bucket.bucket_id.as_str()]
+            };
+
+            let status_label = match window_kind {
+                Some(QuotaWindowKind::Rolling5Hour) => "disabled: 5h limit",
+                Some(QuotaWindowKind::Daily) => "disabled: daily quota",
+                Some(QuotaWindowKind::Weekly) => "disabled: weekly quota",
+                _ => "disabled: quota",
+            };
+
+            let reason = match window_kind {
+                Some(QuotaWindowKind::Rolling5Hour) => format!(
+                    "5h rolling quota limit reached for {}",
+                    group_name.as_deref().unwrap_or(&label)
+                ),
+                _ => format!(
+                    "Quota limit reached for {}",
+                    group_name.as_deref().unwrap_or(&label)
+                ),
+            };
+
+            for pattern in patterns {
+                model_rules.push(protocol::ModelAvailabilityRule {
+                    pattern: pattern.to_string(),
+                    availability: protocol::Availability::disabled(
+                        status_label,
+                        Some(reason.clone()),
+                        reset_at_ms,
+                    ),
+                });
+            }
+        }
+
+        let value_str = if let Some(frac) = bucket.remaining_fraction {
+            let pct = (frac * 100.0).round() as u32;
+            if let Some(reset) = bucket
+                .reset_time
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                format!("{pct}% (Resets: {reset})")
+            } else {
+                format!("{pct}%")
+            }
+        } else if let Some(amt) = bucket.remaining_amount {
+            if let Some(reset) = bucket
+                .reset_time
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                format!("{amt} (Resets: {reset})")
+            } else {
+                format!("{amt}")
+            }
+        } else if bucket.disabled.unwrap_or(false) {
+            "Disabled".to_string()
+        } else {
+            "Available".to_string()
+        };
+
+        let metric_label = match &group_name {
+            Some(g) => format!("{g} · {label}"),
+            None => label.clone(),
+        };
+
+        quota_buckets.push(QuotaWindowBucket {
+            window: window_kind,
+            label,
+            group: group_name,
+            used_fraction,
+            used_amount: None,
+            total_limit: None,
+            unit: bucket.window.clone(),
+            reset_at_ms,
+            reset_time_str: bucket.reset_time.clone(),
+        });
+
+        metrics.push(UsageMetric {
+            label: metric_label,
+            value: value_str,
+            unit: bucket.window,
+        });
+    }
+
+    let primary_balance = min_remaining_fraction
+        .map(|frac| {
+            let pct = (frac * 100.0).round() as u32;
+            format!("{pct}% Quota")
+        })
+        .or_else(|| Some("Active".to_string()));
+
+    Ok(ProviderUsage {
+        plan,
+        description,
+        quota: Some(ProviderQuotaData::Periodic(PeriodicQuota {
+            buckets: quota_buckets,
+        })),
+        primary_balance,
+        metrics,
+        model_rules,
+        updated_at_ms: now_epoch_ms(),
+    })
+}
+
+/// Evaluate model availability for Google Antigravity based on evaluated quota rules.
+pub fn evaluate_antigravity_quota_availability(
+    usage: &ProviderUsage,
+    model_id: &str,
+) -> Option<protocol::Availability> {
+    for rule in &usage.model_rules {
+        if protocol::simple_glob_matches(&rule.pattern, model_id) {
+            return Some(rule.availability.clone());
+        }
+    }
+    None
+}
+
+fn now_epoch_ms() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_antigravity_quota_response_json() {
+        let json = r#"{
+            "description": "Google One AI Premium Tier",
+            "groups": [
+                {
+                    "displayName": "Chat Models",
+                    "buckets": [
+                        {
+                            "bucketId": "gemini-3.7-flash",
+                            "displayName": "Gemini 3.7 Flash",
+                            "window": "DAY",
+                            "remainingFraction": 0.85,
+                            "resetTime": "2026-09-01T12:00:00Z"
+                        },
+                        {
+                            "bucketId": "gemini-3.1-pro",
+                            "displayName": "Gemini 3.1 Pro",
+                            "window": "5h",
+                            "remainingFraction": 0.60
+                        }
+                    ]
+                }
+            ]
+        }"#;
+
+        let parsed: AntigravityQuotaSummaryResponse = serde_json::from_str(json).unwrap();
+        let usage = parse_antigravity_quota(parsed).unwrap();
+
+        assert_eq!(usage.plan.as_deref(), Some("Google One AI Premium Tier"));
+        assert_eq!(usage.primary_balance.as_deref(), Some("60% Quota"));
+        assert_eq!(usage.metrics.len(), 2);
+        assert_eq!(usage.metrics[0].label, "Chat Models · Gemini 3.7 Flash");
+        assert_eq!(usage.metrics[0].value, "85% (Resets: 2026-09-01T12:00:00Z)");
+        assert_eq!(usage.metrics[0].unit.as_deref(), Some("DAY"));
+
+        if let Some(ProviderQuotaData::Periodic(periodic)) = usage.quota {
+            assert_eq!(periodic.buckets.len(), 2);
+            assert_eq!(periodic.buckets[0].group.as_deref(), Some("Chat Models"));
+            assert_eq!(periodic.buckets[0].window, Some(QuotaWindowKind::Daily));
+            assert!((periodic.buckets[0].used_fraction - 0.15).abs() < 0.001);
+            assert_eq!(
+                periodic.buckets[1].window,
+                Some(QuotaWindowKind::Rolling5Hour)
+            );
+            assert_eq!(periodic.buckets[1].group.as_deref(), Some("Chat Models"));
+            assert!((periodic.buckets[1].used_fraction - 0.40).abs() < 0.001);
+        } else {
+            panic!("Expected Periodic quota data");
+        }
+    }
+
+    #[test]
+    fn parses_multi_group_antigravity_quota_with_long_policy_description() {
+        let json = r#"{
+            "description": "Within each group, models share a weekly limit and a 5-hour limit. Quota is consumed proportionally to the cost of the tokens.",
+            "groups": [
+                {
+                    "displayName": "Claude Models",
+                    "buckets": [
+                        {
+                            "bucketId": "claude-weekly",
+                            "displayName": "Weekly Limit Remaining",
+                            "window": "WEEKLY",
+                            "remainingFraction": 0.01,
+                            "resetTime": "2026-04-10T19:50:00Z"
+                        },
+                        {
+                            "bucketId": "claude-5h",
+                            "displayName": "Five Hour Limit Remaining",
+                            "window": "5h",
+                            "remainingFraction": 0.54,
+                            "resetTime": "2026-04-07T15:00:00Z"
+                        }
+                    ]
+                },
+                {
+                    "displayName": "Chat Models (Gemini)",
+                    "buckets": [
+                        {
+                            "bucketId": "gemini-weekly",
+                            "displayName": "Weekly Limit Remaining",
+                            "window": "WEEKLY",
+                            "remainingFraction": 1.0,
+                            "resetTime": "2026-04-14T11:44:00Z"
+                        },
+                        {
+                            "bucketId": "gemini-5h",
+                            "displayName": "Five Hour Limit Remaining",
+                            "window": "5h",
+                            "remainingFraction": 1.0,
+                            "resetTime": "2026-04-07T16:44:00Z"
+                        }
+                    ]
+                }
+            ]
+        }"#;
+
+        let parsed: AntigravityQuotaSummaryResponse = serde_json::from_str(json).unwrap();
+        let usage = parse_antigravity_quota(parsed).unwrap();
+
+        assert_eq!(usage.plan, None);
+        assert!(
+            usage
+                .description
+                .as_deref()
+                .unwrap()
+                .starts_with("Within each group")
+        );
+        assert_eq!(usage.primary_balance.as_deref(), Some("1% Quota"));
+        assert_eq!(usage.metrics.len(), 4);
+        assert_eq!(
+            usage.metrics[0].label,
+            "Claude Models · Weekly Limit Remaining"
+        );
+        assert_eq!(
+            usage.metrics[2].label,
+            "Chat Models (Gemini) · Weekly Limit Remaining"
+        );
+
+        if let Some(ProviderQuotaData::Periodic(periodic)) = usage.quota {
+            assert_eq!(periodic.buckets.len(), 4);
+            assert_eq!(periodic.buckets[0].group.as_deref(), Some("Claude Models"));
+            assert_eq!(
+                periodic.buckets[2].group.as_deref(),
+                Some("Chat Models (Gemini)")
+            );
+        } else {
+            panic!("Expected Periodic quota data");
+        }
+    }
+
+    #[test]
+    fn evaluates_quota_availability_for_exhausted_5h_limit() {
+        let resp = AntigravityQuotaSummaryResponse {
+            buckets: vec![
+                AntigravityQuotaBucket {
+                    bucket_id: "claude-5h".to_string(),
+                    display_name: Some("Five Hour Limit Remaining".to_string()),
+                    window: Some("5h".to_string()),
+                    remaining_fraction: Some(0.0),
+                    reset_time: Some("2026-04-07T15:00:00Z".to_string()),
+                    ..Default::default()
+                },
+                AntigravityQuotaBucket {
+                    bucket_id: "gemini-5h".to_string(),
+                    display_name: Some("Five Hour Limit Remaining".to_string()),
+                    window: Some("5h".to_string()),
+                    remaining_fraction: Some(0.8),
+                    reset_time: Some("2026-04-07T16:00:00Z".to_string()),
+                    ..Default::default()
+                },
+            ],
+            groups: vec![],
+            description: None,
+        };
+
+        let usage = parse_antigravity_quota(resp).unwrap();
+        assert_eq!(usage.model_rules.len(), 1);
+        assert_eq!(usage.model_rules[0].pattern, "claude-*");
+
+        // Claude model must be marked disabled with 5h limit
+        let claude_avail =
+            evaluate_antigravity_quota_availability(&usage, "claude-3-7-sonnet").unwrap();
+        assert!(!claude_avail.is_usable());
+        assert_eq!(claude_avail.display_status(), Some("disabled: 5h limit"));
+        assert!(
+            claude_avail
+                .reason
+                .as_deref()
+                .unwrap()
+                .contains("5h rolling quota limit reached")
+        );
+        assert!(claude_avail.resets_at_ms.is_some());
+
+        // Gemini model is not exhausted, so availability must be None
+        let gemini_avail = evaluate_antigravity_quota_availability(&usage, "gemini-2.5-pro");
+        assert_eq!(gemini_avail, None);
+    }
+
+    #[test]
+    fn evaluates_quota_availability_for_3p_group_and_disabled_flag() {
+        let resp = AntigravityQuotaSummaryResponse {
+            buckets: vec![],
+            groups: vec![AntigravityQuotaGroup {
+                display_name: Some("Claude and GPT models".to_string()),
+                description: Some(
+                    "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS".to_string(),
+                ),
+                buckets: vec![AntigravityQuotaBucket {
+                    bucket_id: "3p-5h".to_string(),
+                    display_name: Some("Five Hour Limit Remaining".to_string()),
+                    window: Some("5h".to_string()),
+                    remaining_fraction: None,
+                    disabled: Some(true),
+                    reset_time: Some("2026-10-14T09:23:10Z".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            description: None,
+        };
+
+        let usage = parse_antigravity_quota(resp).unwrap();
+        // Both claude-* and gpt-* rules should be generated
+        assert_eq!(usage.model_rules.len(), 2);
+        assert_eq!(usage.model_rules[0].pattern, "claude-*");
+        assert_eq!(usage.model_rules[1].pattern, "gpt-*");
+
+        let claude_avail =
+            evaluate_antigravity_quota_availability(&usage, "claude-sonnet-4-6").unwrap();
+        assert!(!claude_avail.is_usable());
+        assert_eq!(claude_avail.display_status(), Some("disabled: 5h limit"));
+
+        let gpt_avail =
+            evaluate_antigravity_quota_availability(&usage, "gpt-oss-120b-medium").unwrap();
+        assert!(!gpt_avail.is_usable());
+        assert_eq!(gpt_avail.display_status(), Some("disabled: 5h limit"));
+    }
+}

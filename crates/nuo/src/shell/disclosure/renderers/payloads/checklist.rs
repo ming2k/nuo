@@ -4,8 +4,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
 use crate::shell::disclosure::renderers::payloads::listing::draw_listing_content;
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::{
+use view::model::selection::SelectionState;
+use view::text_layout::{
     WrappedLine, block_selection_range, line_selection, line_spans, padded_tail, wrap_text,
 };
 

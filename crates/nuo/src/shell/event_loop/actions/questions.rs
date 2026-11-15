@@ -3,8 +3,8 @@ use super::modals::{apply_pre_attach_decision, handle_permission_submit, questio
 use crate::shell::App;
 use crate::shell::event_loop::runtime::UiRuntime;
 use crate::shell::input::InputAction;
-use nuo_protocol::{AgentRequest, PermissionDecision};
-use nuo_tool::PermissionRequest;
+use protocol::{AgentRequest, PermissionDecision};
+use tool::PermissionRequest;
 
 pub(super) async fn handle_question_action(
     app: &mut App,

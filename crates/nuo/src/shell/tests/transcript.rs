@@ -9,8 +9,8 @@ use super::*;
 fn turn_event(event: RoundEvent) -> AgentResponse {
     AgentResponse::Round {
         thread_id: "thread".to_string(),
-        scope: nuo_protocol::RoundScope::Turn {
-            context: nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000),
+        scope: protocol::RoundScope::Turn {
+            context: protocol::TurnContext::new(1, 0, 1_700_000_000_000),
             event,
         },
     }
@@ -21,7 +21,7 @@ fn only_high_frequency_stream_updates_are_coalesced() {
     let stream_delta = turn_event(RoundEvent::StreamDelta("hello".to_string()));
     let tool_stream = turn_event(RoundEvent::ToolStream {
         id: "call".to_string(),
-        stream: nuo_tool::ToolStream::Stdout("line\n".to_string()),
+        stream: tool::ToolStream::Stdout("line\n".to_string()),
     });
     let stream_start = turn_event(RoundEvent::StreamStart);
     let stream_end = turn_event(RoundEvent::StreamEnd("done".to_string()));
@@ -92,15 +92,15 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
     // restores as a distinct, non-conversational command row carrying the
     // typed result as its expandable body.
     let commands = vec![
-        nuo_protocol::CommandRecord::new("search", "foo").with_result(
-            nuo_protocol::CommandResult::Search {
+        protocol::CommandRecord::new("search", "foo").with_result(
+            protocol::CommandResult::Search {
                 query: "foo".to_string(),
                 hits: vec![],
             },
         ),
         // A result-less record (legacy fold / command without result): the
         // invocation still restores, with an empty expandable body.
-        nuo_protocol::CommandRecord::new("compact", ""),
+        protocol::CommandRecord::new("compact", ""),
     ];
     let restored = transcript_commands_from_ledger(commands);
     assert_eq!(restored.len(), 2);
@@ -118,11 +118,7 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
         Some("No relevant history found.")
     );
     assert_eq!(search.round, None, "a command is not a thread turn");
-    assert_ne!(
-        search.role,
-        nuo_tool::Role::Assistant,
-        "never assistant prose"
-    );
+    assert_ne!(search.role, tool::Role::Assistant, "never assistant prose");
 
     let compact = &restored[1];
     assert!(compact.is_command_result());
@@ -135,13 +131,13 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
 
 #[test]
 fn command_error_settles_pending_command_in_place() {
-    use nuo_view::model::document::{CommandPhase, TranscriptMessage};
+    use view::model::document::{CommandPhase, TranscriptMessage};
 
     let mut message = TranscriptMessage::pending_command("trust", "workspace");
     assert_eq!(message.command_result_phase(), Some(CommandPhase::Pending));
     assert_eq!(message.command_result_text(), None);
 
-    let settled = message.settle_command_result(nuo_protocol::CommandResult::Error {
+    let settled = message.settle_command_result(protocol::CommandResult::Error {
         message: "Unknown /trust subcommand 'workspace'.".to_string(),
         detail: None,
     });
@@ -162,31 +158,31 @@ fn command_error_settles_pending_command_in_place() {
 #[test]
 fn command_rows_merge_at_their_turn_seams_on_restore() {
     use crate::shell::transcript::merge_command_rows;
-    use nuo_tool::Role;
-    use nuo_view::model::document::TranscriptMessage;
+    use tool::Role;
+    use view::model::document::TranscriptMessage;
 
     // Dialogue: two rounds, timestamps 1000 and 3000.
     let dialogue = vec![
         TranscriptMessage::new(Role::User, "first prompt")
             .with_sent_at_ms(1000)
-            .with_origin(nuo_view::model::document::UserMessageOrigin::Chat),
+            .with_origin(view::model::document::UserMessageOrigin::Chat),
         TranscriptMessage::new(Role::Assistant, "first reply"),
         TranscriptMessage::new(Role::User, "second prompt")
             .with_sent_at_ms(3000)
-            .with_origin(nuo_view::model::document::UserMessageOrigin::Chat),
+            .with_origin(view::model::document::UserMessageOrigin::Chat),
         TranscriptMessage::new(Role::Assistant, "second reply"),
     ];
     // Ledger: one command run between the rounds (2000), one after the last
     // (4000). Rebuild stamps each row with the record's timestamp.
     let commands = crate::shell::transcript::transcript_commands_from_ledger(vec![
-        nuo_protocol::CommandRecord::new("compact", "")
-            .with_result(nuo_protocol::CommandResult::Ack {
+        protocol::CommandRecord::new("compact", "")
+            .with_result(protocol::CommandResult::Ack {
                 title: "Compacted".to_string(),
                 detail: None,
             })
             .with_timestamp(2000),
-        nuo_protocol::CommandRecord::new("new", "")
-            .with_result(nuo_protocol::CommandResult::Text(
+        protocol::CommandRecord::new("new", "")
+            .with_result(protocol::CommandResult::Text(
                 "Started new session: c3".to_string(),
             ))
             .with_timestamp(4000),
@@ -213,15 +209,15 @@ fn command_rows_merge_at_their_turn_seams_on_restore() {
 #[test]
 fn command_rows_tail_when_dialogue_has_no_timestamps() {
     use crate::shell::transcript::merge_command_rows;
-    use nuo_tool::Role;
-    use nuo_view::model::document::TranscriptMessage;
+    use tool::Role;
+    use view::model::document::TranscriptMessage;
 
     let dialogue = vec![
         TranscriptMessage::new(Role::User, "prompt"),
         TranscriptMessage::new(Role::Assistant, "reply"),
     ];
     let commands = crate::shell::transcript::transcript_commands_from_ledger(vec![
-        nuo_protocol::CommandRecord::new("compact", "").with_timestamp(123),
+        protocol::CommandRecord::new("compact", "").with_timestamp(123),
     ]);
 
     let merged = merge_command_rows(dialogue, commands);
@@ -233,11 +229,11 @@ fn command_rows_tail_when_dialogue_has_no_timestamps() {
 fn command_result_message_expands_and_round_trips_display() {
     // The command block's collapsed header is the invocation; expansion
     // reveals the typed result body. Pinning is respected (user toggle wins).
-    use nuo_view::model::document::TranscriptMessage;
+    use view::model::document::TranscriptMessage;
     let mut message = TranscriptMessage::command_result(
         "permissions",
         "",
-        Some(nuo_protocol::CommandResult::PermissionList {
+        Some(protocol::CommandResult::PermissionList {
             allowed: vec!["execute_command".to_string()],
         }),
     );
@@ -263,7 +259,7 @@ fn command_result_message_expands_and_round_trips_display() {
 /// reply is never a truncated fragment.
 #[test]
 fn command_row_layout_classifies_by_result_shape() {
-    use nuo_view::model::document::{CommandRowLayout, TranscriptMessage};
+    use view::model::document::{CommandRowLayout, TranscriptMessage};
 
     // No result (legacy fold / command without result) → Plain.
     let plain_cmd = TranscriptMessage::command_result("compact", "", None);
@@ -277,7 +273,7 @@ fn command_row_layout_classifies_by_result_shape() {
     let fresh = TranscriptMessage::command_result(
         "new",
         "",
-        Some(nuo_protocol::CommandResult::Text(
+        Some(protocol::CommandResult::Text(
             "Started new session: a1b2c3".to_string(),
         )),
     );
@@ -294,7 +290,7 @@ fn command_row_layout_classifies_by_result_shape() {
     let permissions = TranscriptMessage::command_result(
         "permissions",
         "",
-        Some(nuo_protocol::CommandResult::PermissionList {
+        Some(protocol::CommandResult::PermissionList {
             allowed: vec!["execute_command".to_string(), "edit_text".to_string()],
         }),
     );
@@ -307,7 +303,7 @@ fn command_row_layout_classifies_by_result_shape() {
 
 #[test]
 fn tool_activity_is_semantic_and_loop_progress_is_preserved() {
-    use nuo_view::phase::{Phase, ToolVerb};
+    use view::phase::{Phase, ToolVerb};
     assert_eq!(
         event_loop::tool_verb_for("search_text"),
         ToolVerb::Searching
@@ -338,7 +334,7 @@ fn queued_dispatch_carries_text_and_images() {
         state: QueuedDispatchState::Waiting,
         text: "hello".to_string(),
         queued_at_ms: Some(0),
-        images: vec![nuo_tool::ImagePart {
+        images: vec![tool::ImagePart {
             mime: "image/png".to_string(),
             data: "base64".to_string(),
         }],
@@ -513,8 +509,7 @@ fn render_frame_computes_max_scroll_for_overflowing_transcript() {
         app.transcript.max_scroll,
         app.transcript
             .content_lines
-            .saturating_sub(app.transcript.view_height as usize)
-            .min(u16::MAX as usize) as u16,
+            .saturating_sub(app.transcript.view_height as usize),
         "max_scroll must equal content_lines - view_height"
     );
 }
@@ -526,12 +521,12 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
     app.link.tx = tx;
     app.session.current_session_id = "session-a".to_string();
     app.session.running_sessions.insert("session-a".to_string());
-    app.session.phase = Some(nuo_view::phase::Phase::Queued);
+    app.session.phase = Some(view::phase::Phase::Queued);
     app.session.round_started_at = Some(std::time::Instant::now());
 
     // User prompt is sending in transcript
-    let prompt = nuo_view::model::document::TranscriptMessage::new(
-        nuo_tool::Role::User,
+    let prompt = view::model::document::TranscriptMessage::new(
+        tool::Role::User,
         "write a fibonacci function",
     )
     .sending();
@@ -547,7 +542,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // Verify interrupt request was sent to agent
     let req = rx.try_recv().expect("must send interrupt request");
-    assert!(matches!(req, nuo_protocol::AgentRequest::Interrupt));
+    assert!(matches!(req, protocol::AgentRequest::Interrupt));
 
     // UI state is immediately cleared (not blocked)
     assert!(!app.session.running_sessions.contains("session-a"));
@@ -557,7 +552,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
     assert_eq!(app.transcript.messages.len(), 1);
     assert_eq!(
         app.transcript.messages[0].delivery,
-        nuo_view::model::document::DeliveryStatus::Cancelled,
+        view::model::document::DeliveryStatus::Cancelled,
         "prompt status must transition to Cancelled"
     );
 
@@ -577,8 +572,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     let prompt =
-        nuo_view::model::document::TranscriptMessage::new(nuo_tool::Role::User, "calculate pi")
-            .sending();
+        view::model::document::TranscriptMessage::new(tool::Role::User, "calculate pi").sending();
     app.transcript.messages.push(prompt);
 
     // The producer parks the round in the transport-wait phase and publishes
@@ -603,8 +597,8 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     // The interrupt's detail carries the last fault, one line — the producer
     // puts it there (see the `RoundInterrupted` arm of the translator), so the
     // anchor is self-explanatory without a second row.
-    let record = nuo_protocol::RoundInterrupt {
-        reason: nuo_protocol::RoundInterruptReason::User,
+    let record = protocol::RoundInterrupt {
+        reason: protocol::RoundInterruptReason::User,
         round: Some(1),
         at_ms: 1_234_567,
         detail: Some("Google HTTP 503 Service Unavailable: No capacity available for model".into()),
@@ -625,7 +619,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     );
     assert_eq!(
         app.transcript.messages[0].delivery,
-        nuo_view::model::document::DeliveryStatus::Cancelled
+        view::model::document::DeliveryStatus::Cancelled
     );
 
     let anchor = &app.transcript.messages[1];
@@ -652,29 +646,27 @@ async fn tool_result_does_not_forge_reasoning_phase() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(Some(nuo_view::phase::Phase::Tool(
-            nuo_view::phase::ToolVerb::Running,
+        crate::shell::event_loop::AppMutation::SetPhase(Some(view::phase::Phase::Tool(
+            view::phase::ToolVerb::Running,
         ))),
     );
     assert_eq!(
         app.session.phase,
-        Some(nuo_view::phase::Phase::Tool(
-            nuo_view::phase::ToolVerb::Running
-        ))
+        Some(view::phase::Phase::Tool(view::phase::ToolVerb::Running))
     );
 
     // After tool finishes, phase transitions to Preparing, NEVER Reasoning ("thinking")
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(Some(nuo_view::phase::Phase::Preparing)),
+        crate::shell::event_loop::AppMutation::SetPhase(Some(view::phase::Phase::Preparing)),
     );
     assert_ne!(
         app.session.phase,
-        Some(nuo_view::phase::Phase::Reasoning),
+        Some(view::phase::Phase::Reasoning),
         "tool completion must not set thinking/reasoning phase"
     );
-    assert_eq!(app.session.phase, Some(nuo_view::phase::Phase::Preparing));
+    assert_eq!(app.session.phase, Some(view::phase::Phase::Preparing));
     assert_eq!(
         app.session.phase.as_ref().unwrap().label(),
         "preparing context"
@@ -700,7 +692,7 @@ fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
 
     // Steer / queued prompt at the bottom
     let queued = TranscriptMessage::new(Role::User, "Queued follow-up / steer")
-        .with_origin(nuo_view::model::document::UserMessageOrigin::Steer);
+        .with_origin(view::model::document::UserMessageOrigin::Steer);
     messages.push(queued);
     app.transcript.messages = messages;
 
@@ -807,7 +799,7 @@ fn busy_enter_steer_is_staged_out_of_thread() {
 fn retracting_a_pending_call_removes_the_provisional_row() {
     use crate::shell::event_loop::apply::apply_transcript;
     use crate::shell::event_loop::mutations::TranscriptEdit;
-    use nuo_view::model::document::ToolStepStatus;
+    use view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
     app.transcript.messages.push(
@@ -922,7 +914,7 @@ fn a_duplicate_announcement_does_not_insert_a_second_step() {
 fn retraction_after_dispatch_leaves_the_dispatched_step() {
     use crate::shell::event_loop::apply::apply_transcript;
     use crate::shell::event_loop::mutations::TranscriptEdit;
-    use nuo_view::model::document::ToolStepStatus;
+    use view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
     let announce = TranscriptMessage::tool_step_announced("call_1", "edit_text")
@@ -966,7 +958,7 @@ fn retraction_after_dispatch_leaves_the_dispatched_step() {
 fn a_settled_round_retracts_every_ingesting_step() {
     use crate::shell::event_loop::apply::apply_transcript;
     use crate::shell::event_loop::mutations::TranscriptEdit;
-    use nuo_view::model::document::ToolStepStatus;
+    use view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
     app.transcript.messages.push(
@@ -1016,7 +1008,7 @@ mod command_reply_filing {
     use super::*;
 
     use crate::shell::app::notice_catalog::{ClientNotice, RenderedNotice};
-    use nuo_tool::CommandEffect;
+    use tool::CommandEffect;
 
     /// Render the receipt a reading produces, exactly as the event arm does.
     fn receipt(invocation: &str, body: &str, failed: bool) -> RenderedNotice {
@@ -1080,7 +1072,7 @@ mod command_reply_filing {
             &mut app,
             crate::shell::event_loop::mutations::TranscriptEdit::SettleCommandResult {
                 invocation: "/unattended on".to_string(),
-                result: nuo_protocol::CommandResult::Ack {
+                result: protocol::CommandResult::Ack {
                     title: "Unattended mode ON".to_string(),
                     detail: None,
                 },
@@ -1116,13 +1108,10 @@ mod command_reply_filing {
     fn a_failed_reading_is_a_fault_receipt() {
         let ok = receipt("/diff", "3 files changed", false);
         let failed = receipt("/diff", "could not read the workspace journal", true);
-        assert_eq!(
-            ok.severity(),
-            nuo_view::model::document::NoticeSeverity::Info
-        );
+        assert_eq!(ok.severity(), view::model::document::NoticeSeverity::Info);
         assert_eq!(
             failed.severity(),
-            nuo_view::model::document::NoticeSeverity::Error,
+            view::model::document::NoticeSeverity::Error,
             "a reading that could not be produced is a fault, not information"
         );
     }
@@ -1150,7 +1139,7 @@ mod command_reply_filing {
     /// withdrawal is pinned below.
     #[test]
     fn an_unknown_name_is_staged_and_a_known_reading_is_not() {
-        let catalog = nuo_server::composition::startup::command_catalog(&[]);
+        let catalog = server::composition::startup::command_catalog(&[]);
 
         // A reading is not staged.
         assert_eq!(
@@ -1174,7 +1163,7 @@ mod command_reply_filing {
         // An *empty* catalog — the pre-attach state — stages everything, which is
         // exactly why the withdrawal below has to exist.
         assert_eq!(
-            nuo_tool::CommandCatalog::default().effect_for("/usage", None),
+            tool::CommandCatalog::default().effect_for("/usage", None),
             CommandEffect::Mutation,
             "an empty catalog cannot know, so it predicts an act"
         );
@@ -1220,7 +1209,7 @@ mod command_reply_filing {
                 .messages
                 .iter()
                 .all(|m| m.command_result_phase()
-                    != Some(nuo_view::model::document::CommandPhase::Pending)),
+                    != Some(view::model::document::CommandPhase::Pending)),
             "no pending row survives, so `CancelPendingCommands` has nothing to mark cancelled"
         );
     }
@@ -1301,7 +1290,7 @@ mod command_reply_filing {
     #[tokio::test]
     async fn unknown_slash_command_never_stages_and_surfaces_error_headline() {
         let mut app = new_app_for_relay_tests();
-        app.composer.command_catalog = nuo_server::composition::startup::command_catalog(&[]);
+        app.composer.command_catalog = server::composition::startup::command_catalog(&[]);
         let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
         let session = crate::shell::HookStartSource::Remote {
             session_id: "test-session".to_string(),
@@ -1322,7 +1311,7 @@ mod command_reply_filing {
         );
 
         // When the server answers with UnknownCommand:
-        let result = nuo_protocol::CommandResult::UnknownCommand {
+        let result = protocol::CommandResult::UnknownCommand {
             name: "/modles".to_string(),
             suggestion: Some("/models".to_string()),
         };
@@ -1335,7 +1324,7 @@ mod command_reply_filing {
 
         assert_eq!(
             rendered.severity(),
-            nuo_view::model::document::NoticeSeverity::Error
+            view::model::document::NoticeSeverity::Error
         );
         assert!(
             rendered
@@ -1348,7 +1337,7 @@ mod command_reply_filing {
         app.record_notice(rendered);
         assert_eq!(
             app.surfaces.notice_toast_severity,
-            nuo_view::model::document::NoticeSeverity::Error
+            view::model::document::NoticeSeverity::Error
         );
         assert!(
             app.surfaces
@@ -1360,4 +1349,62 @@ mod command_reply_filing {
             "notice toast is armed for display"
         );
     }
+}
+
+#[test]
+fn keyboard_selection_spans_whole_messages_and_extends_upward() {
+    let mut app = new_app_for_relay_tests();
+    app.transcript.messages = vec![
+        TranscriptMessage::new(Role::User, "first"),
+        TranscriptMessage::new(Role::Assistant, "second"),
+        TranscriptMessage::new(Role::User, "third"),
+    ];
+    app.transcript.focus = crate::shell::focus::Focus::browsing();
+
+    app.select_transcript_messages(1);
+    match app.transcript.selection {
+        SelectionState::Range { anchor, head } => {
+            assert_eq!((anchor.message_idx, head.message_idx), (2, 2));
+            assert!(head.byte_offset > 0, "the head covers the message body");
+        }
+        other => panic!("expected a message range, got {other:?}"),
+    }
+
+    app.select_transcript_messages(-1);
+    match app.transcript.selection {
+        SelectionState::Range { anchor, head } => {
+            assert_eq!((anchor.message_idx, head.message_idx), (1, 2));
+        }
+        other => panic!("expected an extended range, got {other:?}"),
+    }
+}
+
+#[test]
+fn transcript_search_finds_and_steps_through_matches() {
+    let mut app = new_app_for_relay_tests();
+    app.transcript.messages = vec![
+        TranscriptMessage::new(Role::User, "alpha request"),
+        TranscriptMessage::new(Role::Assistant, "beta response"),
+        TranscriptMessage::new(Role::User, "Alpha follow-up"),
+    ];
+
+    app.open_transcript_search();
+    assert!(app.transcript.search.active);
+    for c in "alpha".chars() {
+        app.push_transcript_search_char(c);
+    }
+    assert_eq!(app.transcript.search.matches, vec![0, 2]);
+    assert_eq!(app.transcript.search.current, 1);
+
+    app.step_transcript_search(false);
+    assert_eq!(app.transcript.search.current, 0);
+    match app.transcript.selection {
+        SelectionState::Range { anchor, .. } => assert_eq!(anchor.message_idx, 0),
+        other => panic!("expected selection on matched message, got {other:?}"),
+    }
+
+    app.step_transcript_search(true);
+    assert_eq!(app.transcript.search.current, 1);
+    app.close_transcript_search();
+    assert!(!app.transcript.search.active);
 }

@@ -3,8 +3,8 @@
 use nuotc::Frame;
 
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::toast::{ToastBubble, ToastKind};
-use nuo_view::model::document::NoticeSeverity;
+use ui_primitives::components::toast::{ToastBubble, ToastKind};
+use view::model::document::NoticeSeverity;
 
 pub fn draw_armed_toast(frame: &mut Frame, message: &str, theme: &Theme) {
     ToastBubble {

@@ -13,22 +13,22 @@
 //! modal; only lifecycle state is colored. A light bar chart of the last two
 //! weeks of daily totals heads the body so daily shape is legible at a
 //! glance.
-use nuo_protocol::RequestUsageStatus;
-use nuo_protocol::usage_stats::{UsageStatRecord, UsageStatsReport};
 use nuotc::{
     Frame, Style, {Line, Span},
 };
+use protocol::RequestUsageStatus;
+use protocol::usage_stats::{UsageStatRecord, UsageStatsReport};
 
 use super::common::placeholder;
 use crate::shell::render::Theme;
-use nuo_ui_primitives::design::MODAL_INNER_H_PADDING;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::design::MODAL_INNER_H_PADDING;
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, HeaderPart, content_modal_area, content_modal_probe, keyvocab,
     modal_chrome_rows, modal_frame, modal_header_parts, render_modal_footer,
 };
-use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
-use nuo_view::model::layout::LayoutMap;
-use nuo_view::model::selection::SelectionState;
+use view::components::selectable_body::{SelectableRow, render_selectable_body};
+use view::model::layout::LayoutMap;
+use view::model::selection::SelectionState;
 
 /// How many daily rows the bar chart covers (two weeks, newest at the right).
 const CHART_DAYS: usize = 14;
@@ -215,7 +215,7 @@ fn kv_line(key: &str, value: &str, value_style: Style, theme: &Theme) -> Line<'s
 /// right). Each day renders as a `█`-repeat scaled to the window's max; days
 /// with no usage render a dim `-` placeholder so gaps stay legible.
 fn daily_chart(report: &UsageStatsReport, body_width: usize, theme: &Theme) -> Line<'static> {
-    let newest: Vec<&nuo_protocol::usage_stats::UsageDayTotals> =
+    let newest: Vec<&protocol::usage_stats::UsageDayTotals> =
         report.days.iter().rev().take(CHART_DAYS).collect();
     let max = newest
         .iter()
@@ -257,7 +257,7 @@ fn daily_chart(report: &UsageStatsReport, body_width: usize, theme: &Theme) -> L
 
 /// The daily table, newest day first.
 fn daily_table(report: &UsageStatsReport, body: &mut Vec<Line<'static>>, theme: &Theme) {
-    let days: Vec<&nuo_protocol::usage_stats::UsageDayTotals> = report.days.iter().rev().collect();
+    let days: Vec<&protocol::usage_stats::UsageDayTotals> = report.days.iter().rev().collect();
     // Column widths sized to content.
     let mut tokens_w = "Tokens".len();
     let mut io_w = "In / Out".len();
@@ -434,7 +434,7 @@ fn event_log(report: &UsageStatsReport, body: &mut Vec<Line<'static>>, theme: &T
         } else {
             "—".to_string()
         };
-        let tokens = if event.record.source == nuo_protocol::RequestUsageSource::Estimated {
+        let tokens = if event.record.source == protocol::RequestUsageSource::Estimated {
             format!("~{tokens}")
         } else {
             tokens
@@ -515,10 +515,10 @@ fn pct(part: i64, whole: i64) -> String {
 /// Table labels are prose, so the substrate's `End` overflow applies
 /// (ADR-0152 `[INV-TEXT-OVERFLOW-01]`); this alias keeps the local vocabulary.
 fn truncate(text: &str, max_width: usize) -> String {
-    nuo_ui_primitives::components::overflow::fit(
+    ui_primitives::components::overflow::fit(
         text,
         max_width,
-        nuo_ui_primitives::components::overflow::Overflow::End,
+        ui_primitives::components::overflow::Overflow::End,
     )
     .text
 }
@@ -526,10 +526,8 @@ fn truncate(text: &str, max_width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::usage_stats::{
-        UsageDayTotals, UsageModelRow, UsageModelTotals, UsageStatRecord,
-    };
-    use nuo_protocol::{RequestUsageKey, RequestUsageRecord, RequestUsageSource};
+    use protocol::usage_stats::{UsageDayTotals, UsageModelRow, UsageModelTotals, UsageStatRecord};
+    use protocol::{RequestUsageKey, RequestUsageRecord, RequestUsageSource};
 
     fn sample_report() -> UsageStatsReport {
         let record = |total: i64| UsageStatRecord {

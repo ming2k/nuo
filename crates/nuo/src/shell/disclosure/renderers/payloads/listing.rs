@@ -4,9 +4,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
 use crate::shell::disclosure::renderers::payloads::summary::{draw_title_band, plural};
-use nuo_ui_primitives::theme::ListingClass;
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::{
+use ui_primitives::theme::ListingClass;
+use view::model::selection::SelectionState;
+use view::text_layout::{
     WrappedLine, block_selection_range, line_selection, line_spans, padded_tail, wrap_text,
 };
 
@@ -100,7 +100,7 @@ pub(crate) fn draw_listing_content(
             Some(dir) => {
                 if current_dir != Some(dir) {
                     current_dir = Some(dir);
-                    let normalized = nuo_ui_primitives::components::path::PathView::from_str(dir)
+                    let normalized = ui_primitives::components::path::PathView::from_str(dir)
                         .maybe_base_dir(ctx.workspace_root)
                         .format_text();
                     draw_title_band(
@@ -120,7 +120,7 @@ pub(crate) fn draw_listing_content(
         }
         let display = match dir {
             Some(_) => leaf.to_string(),
-            None => nuo_ui_primitives::components::path::PathView::from_str(raw)
+            None => ui_primitives::components::path::PathView::from_str(raw)
                 .maybe_base_dir(ctx.workspace_root)
                 .format_text(),
         };

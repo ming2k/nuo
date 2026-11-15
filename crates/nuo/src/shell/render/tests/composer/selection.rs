@@ -8,7 +8,7 @@ use super::*;
 
 #[test]
 fn composer_cjk_selection_covers_full_width_glyphs() {
-    use nuo_view::model::layout::SemanticCursor;
+    use view::model::layout::SemanticCursor;
     let theme = Theme::default();
     let interior_bg = theme.input_surface();
     let sel_bg = theme.selected();
@@ -43,7 +43,7 @@ fn composer_cjk_selection_covers_full_width_glyphs() {
         );
     });
     let g = terminal.buffer();
-    let y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     // Cols: 0='›', 1=gap, 2-7='中文测'(sel), 8+=panel tail.
     for (col, label, expect_sel) in [
         (2usize, "中 head", true),
@@ -74,7 +74,7 @@ fn composer_cjk_selection_covers_full_width_glyphs() {
 
 #[test]
 fn composer_two_cjk_select_all_has_no_extra_glyph_or_tail_highlight() {
-    use nuo_view::model::layout::SemanticCursor;
+    use view::model::layout::SemanticCursor;
 
     let theme = Theme::default();
     let sel_bg = theme.selected();
@@ -108,7 +108,7 @@ fn composer_two_cjk_select_all_has_no_extra_glyph_or_tail_highlight() {
         );
     });
 
-    let y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let buffer = terminal.buffer();
     let interior_bg = theme.input_surface();
 
@@ -186,7 +186,7 @@ fn composer_input_range_highlights_exact_characters() {
         );
     });
 
-    let y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let buffer = terminal.buffer();
     // Col 0: '›', Col 1: gap, Col 2: 'h' (selected), Col 3: 'e' (unselected)
     assert_eq!(
@@ -256,7 +256,7 @@ fn composer_collapsed_click_highlights_nothing_drag_highlights_cleanly() {
     let sel_bg = theme.selected();
     let input = "中文测";
     let rect = Rect::new(0, 0, 20, 4);
-    let text_row = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let text_row = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
 
     // Record input regions so cursor_at can resolve real drag positions.
     let mut layout_map = LayoutMap::new();
@@ -283,7 +283,7 @@ fn composer_collapsed_click_highlights_nothing_drag_highlights_cleanly() {
             crate::shell::composer_hints::ComposerHints::default(),
         );
     });
-    let prefix = nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16;
+    let prefix = ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16;
     let anchor = layout_map
         .cursor_at(rect.x + prefix, rect.y + text_row)
         .unwrap();

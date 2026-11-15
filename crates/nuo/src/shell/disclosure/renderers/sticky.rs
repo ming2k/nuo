@@ -7,16 +7,16 @@ use super::payloads::tool_summary_line;
 use super::reasoning::reasoning_summary_line;
 use crate::shell::render::{StickyInfo, Theme};
 
-pub use nuo_view::layout::StickyAnchor;
+pub use view::layout::StickyAnchor;
 
 pub fn draw_sticky_anchor_if_needed(
     frame: &mut Frame,
     transcript_area: Rect,
     sticky_anchors: &[StickyAnchor],
-    scroll: u16,
+    scroll: usize,
     theme: &Theme,
 ) -> Option<StickyInfo> {
-    let first_visible = scroll as usize;
+    let first_visible = scroll;
     let anchor = sticky_anchors
         .iter()
         .find(|c| c.summary_line < first_visible && c.body_end_line > first_visible)?;

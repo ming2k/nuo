@@ -1,0 +1,32 @@
+[package]
+name = "provider-catalog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Live remote model-catalog discovery (CatalogDiscovery / CatalogParser) for Nuo provider channels"
+
+# Dependency set derived from the imports of `nuo-provider-adapters/src/list_models.rs`
+# (see the `crate::...` sites called out below). `cargo check` is authoritative.
+[dependencies]
+protocol = { workspace = true }
+# The CatalogDiscovery port, RemoteCatalog* envelopes, CatalogShape, DiscoveredModel.
+provider = { workspace = true }
+# Http transport, NUO_USER_AGENT, Request builder, netune Method.
+inference-wire = { workspace = true }
+
+# list_models.rs:330 — `crate::protocol::anthropic::request::ANTHROPIC_VERSION`.
+# NOT optional: the Anthropic catalog parser stamps this version header.
+provider-anthropic = { workspace = true }
+# list_models.rs:387 — `crate::registry::qoder::parse_scene_catalog`.
+provider-qoder = { workspace = true }
+# ADR-0068: Google Antigravity catalog parsing owned by its provider crate
+provider-google-antigravity = { workspace = true }
+
+http = { workspace = true }
+serde_json = { workspace = true }
+netune = { workspace = true }
+
+[lints]
+workspace = true

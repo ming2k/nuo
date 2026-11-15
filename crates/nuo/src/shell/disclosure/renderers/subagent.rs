@@ -8,10 +8,10 @@ use unicode_width::UnicodeWidthStr;
 use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::{RenderCtx, truncate_to_width};
 use crate::shell::render::STEP_MIN_WIDTH;
-use nuo_view::model::document::TranscriptMessage;
-use nuo_view::model::layout::BlockRegion;
-use nuo_view::text_layout::{padded_tail, wrap_text};
-use nuo_view::tools::ToolStatus;
+use view::model::document::TranscriptMessage;
+use view::model::layout::BlockRegion;
+use view::text_layout::{padded_tail, wrap_text};
+use view::tools::ToolStatus;
 
 pub fn draw_subagent_inline_step(
     ctx: &mut RenderCtx<'_, '_>,

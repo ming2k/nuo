@@ -56,7 +56,7 @@ async fn control_outcome_with_timeout(
     let action = AttachAction::Control(request);
 
     if let Some(endpoint) = info.effective_local_endpoint()
-        && let Ok(stream) = nuo_host::ipc::connect(&endpoint).await
+        && let Ok(stream) = host::ipc::connect(&endpoint).await
     {
         let (sink, source) = native_framed_split(stream);
         return finish_control((sink, source), action, timeout).await;

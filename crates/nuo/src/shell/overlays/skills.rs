@@ -12,7 +12,7 @@ use nuotc::{
 
 use super::common::{placeholder, selectable_row};
 use crate::shell::render::Theme;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, SCROLL_EDGE_MARGIN, content_modal_area, content_modal_probe,
     keyvocab, modal_chrome_rows, modal_frame, modal_header, render_body, render_modal_footer,
 };
@@ -25,7 +25,7 @@ use nuo_ui_primitives::primitives::{
 /// consistent with the clamped body height.
 pub fn draw_skills_modal(
     frame: &mut Frame,
-    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
+    session_context: Option<&protocol::ThreadContextSnapshot>,
     modal_index: usize,
     expanded: Option<usize>,
     scroll: &mut usize,
@@ -34,7 +34,7 @@ pub fn draw_skills_modal(
     let geometry = ContentModalSpec::SKILLS;
     let probe = content_modal_probe(frame, geometry);
     let body_w = (probe.width as usize)
-        .saturating_sub(2 * nuo_ui_primitives::design::MODAL_INNER_H_PADDING as usize)
+        .saturating_sub(2 * ui_primitives::design::MODAL_INNER_H_PADDING as usize)
         .max(20);
 
     // Body: the skill list with optional detail expansion
@@ -118,8 +118,7 @@ pub fn draw_skills_modal(
                     format!(
                         "{}{}",
                         detail_indent,
-                        meta_parts
-                            .join(&" ".repeat(nuo_ui_primitives::design::JOIN_ENUMERATE_COLS))
+                        meta_parts.join(&" ".repeat(ui_primitives::design::JOIN_ENUMERATE_COLS))
                     ),
                     muted,
                 )));
@@ -146,7 +145,7 @@ pub fn draw_skills_modal(
         f.body,
         body,
         scroll,
-        nuo_ui_primitives::primitives::BodyRenderOptions::new(follow, SCROLL_EDGE_MARGIN, false),
+        ui_primitives::primitives::BodyRenderOptions::new(follow, SCROLL_EDGE_MARGIN, false),
         theme,
     );
 

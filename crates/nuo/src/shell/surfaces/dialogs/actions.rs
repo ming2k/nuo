@@ -265,12 +265,12 @@ pub(super) fn handle_dialog_click(
             } else {
                 10
             };
-            let (start, _) = nuo_ui_primitives::primitives::resolve_scroll(
+            let (start, _) = ui_primitives::primitives::resolve_scroll(
                 &mut e.scroll,
                 visible,
                 projected.len(),
                 if e.follow { Some(e.index) } else { None },
-                nuo_ui_primitives::primitives::SCROLL_EDGE_MARGIN,
+                ui_primitives::primitives::SCROLL_EDGE_MARGIN,
             );
             let target_idx = start + visual_row;
             if target_idx < projected.len() {
@@ -288,7 +288,7 @@ pub(super) fn handle_dialog_click(
                             target_title.as_deref(),
                         );
                         if is_empty {
-                            app.send_intent(nuo_protocol::AgentRequest::DeleteThread {
+                            app.send_intent(protocol::AgentRequest::DeleteThread {
                                 id: viewed_session_id.to_string(),
                             });
                             let active_idx = app.surfaces.surfaces.active_tab_index();
@@ -337,11 +337,9 @@ pub(super) fn handle_dialog_click(
                 return DialogOutcome::Consumed;
             }
             let models = app.models_flat_filtered();
-            let (geometry, _) = nuo_view::providers::models_body_lines(&models);
+            let (geometry, _) = view::providers::models_body_lines(&models);
             let target_line = e.scroll + visual_row;
-            if let Some(nuo_view::providers::ModelBodyLine::Row(row_idx)) =
-                geometry.get(target_line)
-            {
+            if let Some(view::providers::ModelBodyLine::Row(row_idx)) = geometry.get(target_line) {
                 if let Some(rm) = models.get(*row_idx)
                     && !rm.usable
                 {

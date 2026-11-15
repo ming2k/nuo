@@ -5,7 +5,7 @@
 
 //! End-to-end session-persistence round-trip.
 //!
-//! Inline unit tests inside `nuo-harness` and `nuo-persistence` cover each half
+//! Inline unit tests inside `nuo-harness` and `persistence` cover each half
 //! of this flow in isolation. The purpose of this file is to verify the seam
 //! between them composes correctly: a turn driven against a fresh on-disk
 //! `ThreadSession` (via `execute_round`) must leave enough state on disk that a
@@ -19,17 +19,15 @@
 use std::sync::Arc;
 
 use futures::stream::{BoxStream, StreamExt};
-use nuo_protocol::{ModelRequest, Provider, async_trait};
-use nuo_tool::{Message, Role};
+use protocol::{ModelRequest, Provider, async_trait};
+use tool::{Message, Role};
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use nuo_engine::Agent;
-use nuo_engine::orchestration::{
-    ContextProjectionSettings, RoundContext, RoundInput, execute_round,
-};
-use nuo_persistence::thread::ThreadSession;
+use engine::Agent;
+use engine::orchestration::{ContextProjectionSettings, RoundContext, RoundInput, execute_round};
+use persistence::thread::ThreadSession;
 
 /// Concatenation of the chunks emitted by [`TestStreamProvider::stream_chat`].
 const MOCK_REPLY: &str = "This is a streaming mock response from nuo!";
@@ -42,8 +40,8 @@ impl Provider for TestStreamProvider {
     async fn chat(
         &self,
         _request: &ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Ok(protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             MOCK_REPLY,
         )))
@@ -52,11 +50,9 @@ impl Provider for TestStreamProvider {
     async fn stream_chat(
         &self,
         _request: &ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
-    > {
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
+    {
         let chunks = [
             "This ",
             "is ",
@@ -80,7 +76,7 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
     let agent = Arc::new(Agent::new(
         Arc::new(TestStreamProvider),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
 
@@ -95,7 +91,7 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
             session_id: session.id().await,
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                budget: protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -114,7 +110,7 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
             display_prompt: None,
             sent_at_ms: Some(sent_at_ms),
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

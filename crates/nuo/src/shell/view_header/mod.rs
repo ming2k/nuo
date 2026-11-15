@@ -34,7 +34,7 @@ use unicode_width::UnicodeWidthStr;
 use super::{
     CONTEXT_BAR_WORKSPACE_MIN_COLS, JOIN_ENUMERATE_COLS, STEP_MIN_WIDTH, TRANSCRIPT_H_INSET, Theme,
 };
-use nuo_ui_primitives::components::path::{PathFormatStrategy, PathStyle, PathView};
+use ui_primitives::components::path::{PathFormatStrategy, PathStyle, PathView};
 
 /// Canonical scene identifier alias for header presentation (ADR-0042).
 pub(crate) type ViewKind = crate::shell::surfaces::SceneKind;

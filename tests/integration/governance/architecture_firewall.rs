@@ -48,7 +48,7 @@ fn test_inv_compaction_is_transcript_owned() {
     // branch horizon moves in the same commit. The path must not grow a second
     // durable write through the retired `SessionIR` APIs.
     let root = nuo::dev::find_workspace_root();
-    let path = root.join("crates/nuo-engine/src/orchestration/compaction.rs");
+    let path = root.join("crates/engine/src/orchestration/compaction.rs");
     let source = std::fs::read_to_string(&path).expect("read orchestration source");
     let start = source
         .find("pub async fn compact_round_history_with_mode")

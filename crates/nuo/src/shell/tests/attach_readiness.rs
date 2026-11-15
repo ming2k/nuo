@@ -7,7 +7,7 @@
 use super::new_app_for_relay_tests;
 use crate::shell::event_loop::AppMutation as M;
 
-fn apply_phase(app: &mut crate::shell::app::App, phase: nuo_protocol::ThreadPhase) {
+fn apply_phase(app: &mut crate::shell::app::App, phase: protocol::ThreadPhase) {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let _ = crate::shell::event_loop::apply::apply(app, &runtime, M::SessionPhase(phase));
 }
@@ -15,12 +15,12 @@ fn apply_phase(app: &mut crate::shell::app::App, phase: nuo_protocol::ThreadPhas
 #[test]
 fn client_queues_until_ready_then_flushes() {
     let mut app = new_app_for_relay_tests();
-    app.session.session_phase = nuo_protocol::ThreadPhase::Preparing {
-        stage: nuo_protocol::PrepareStage::Skills,
+    app.session.session_phase = protocol::ThreadPhase::Preparing {
+        stage: protocol::PrepareStage::Skills,
     };
     app.composer
         .pending_prompts
-        .push(nuo_protocol::AgentRequest::Prompt {
+        .push(protocol::AgentRequest::Prompt {
             text: "hello".to_string(),
             images: Vec::new(),
             sent_at_ms: None,
@@ -28,13 +28,13 @@ fn client_queues_until_ready_then_flushes() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     app.link.tx = tx;
 
-    apply_phase(&mut app, nuo_protocol::ThreadPhase::Ready);
+    apply_phase(&mut app, protocol::ThreadPhase::Ready);
 
-    assert_eq!(app.session.session_phase, nuo_protocol::ThreadPhase::Ready);
+    assert_eq!(app.session.session_phase, protocol::ThreadPhase::Ready);
     assert!(app.composer.pending_prompts.is_empty());
     assert!(matches!(
         rx.try_recv(),
-        Ok(nuo_protocol::AgentRequest::Prompt { text, .. }) if text == "hello"
+        Ok(protocol::AgentRequest::Prompt { text, .. }) if text == "hello"
     ));
 }
 
@@ -45,8 +45,8 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
 
     apply_phase(
         &mut app,
-        nuo_protocol::ThreadPhase::Failed {
-            code: Some(nuo_protocol::ERR_SESSION_UNRESUMABLE.to_string()),
+        protocol::ThreadPhase::Failed {
+            code: Some(protocol::ERR_SESSION_UNRESUMABLE.to_string()),
             message: "could not load".to_string(),
         },
     );
@@ -54,7 +54,7 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
     assert!(app.session.switching_session.is_none());
     assert!(matches!(
         app.session.session_phase,
-        nuo_protocol::ThreadPhase::Failed { .. }
+        protocol::ThreadPhase::Failed { .. }
     ));
     assert!(
         !app.link
@@ -83,19 +83,19 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
 fn ready_re_reads_the_authoritative_queue() {
     let mut app = new_app_for_relay_tests();
     app.session.current_session_id = "s1".to_string();
-    app.session.session_phase = nuo_protocol::ThreadPhase::Preparing {
-        stage: nuo_protocol::PrepareStage::Skills,
+    app.session.session_phase = protocol::ThreadPhase::Preparing {
+        stage: protocol::PrepareStage::Skills,
     };
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     app.link.tx = tx;
 
-    apply_phase(&mut app, nuo_protocol::ThreadPhase::Ready);
+    apply_phase(&mut app, protocol::ThreadPhase::Ready);
 
     let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
     assert!(
         sent.iter().any(|request| matches!(
             request,
-            nuo_protocol::AgentRequest::QueueSnapshot { thread_id } if thread_id == "s1"
+            protocol::AgentRequest::QueueSnapshot { thread_id } if thread_id == "s1"
         )),
         "arriving on a thread must ask the driver what it already holds: {sent:?}"
     );

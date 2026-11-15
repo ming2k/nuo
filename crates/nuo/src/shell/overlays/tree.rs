@@ -1,18 +1,16 @@
 //! Interactive Thread Tree (DAG) visualization and navigation overlay.
 
-use nuo_protocol::{ThreadEntry, ThreadEntryKind, ThreadTree};
 use nuotc::{
     Frame, Rect, Style, {Line, Span},
 };
+use protocol::{ThreadEntry, ThreadEntryKind, ThreadTree};
 use unicode_width::UnicodeWidthStr;
 
 use super::common::{placeholder, relative_time_at, truncate_ellipsis};
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::list::{
-    SelectableListPage, draw_selectable_list_page, row_style,
-};
-use nuo_ui_primitives::components::modal::{ModalHeader, modal_body_width};
-use nuo_ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
+use ui_primitives::components::list::{SelectableListPage, draw_selectable_list_page, row_style};
+use ui_primitives::components::modal::{ModalHeader, modal_body_width};
+use ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
 
 /// A flattened display row for the visual tree representation.
 #[derive(Debug, Clone)]
@@ -64,10 +62,10 @@ fn traverse_node(
     let (kind_badge, label, detail) = match &node.kind {
         ThreadEntryKind::Message { message } => {
             let badge = match message.role {
-                nuo_tool::Role::User => "USER",
-                nuo_tool::Role::Assistant => "ASST",
-                nuo_tool::Role::Tool => "TOOL",
-                nuo_tool::Role::System => "SYS",
+                tool::Role::User => "USER",
+                tool::Role::Assistant => "ASST",
+                tool::Role::Tool => "TOOL",
+                tool::Role::System => "SYS",
             };
             let preview = message.content.lines().next().unwrap_or("").to_string();
             (badge, preview, format!("{} chars", message.content.len()))

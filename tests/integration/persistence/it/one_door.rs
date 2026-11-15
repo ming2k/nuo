@@ -21,11 +21,11 @@
 use std::path::{Path, PathBuf};
 
 /// The one module allowed to name the engine or a raw `rusqlite` handle.
-const THE_DOOR: &str = "crates/nuo-persistence/src/db.rs";
+const THE_DOOR: &str = "crates/persistence/src/db.rs";
 
-/// Child modules of the door (`src/db/*.rs`): still inside `nuo-persistence::db`,
+/// Child modules of the door (`src/db/*.rs`): still inside `persistence::db`,
 /// so the boundary is unchanged when `db.rs` is split into a directory.
-const THE_DOOR_DIR: &str = "crates/nuo-persistence/src/db/";
+const THE_DOOR_DIR: &str = "crates/persistence/src/db/";
 
 /// This guard names the forbidden patterns, so it exempts itself.
 const THE_GUARD: &str = "tests/integration/persistence/it/one_door.rs";
@@ -71,7 +71,7 @@ fn is_exempt(path: &Path, root: &Path) -> bool {
     rel == THE_DOOR
         || rel.starts_with(THE_DOOR_DIR)
         || rel == THE_GUARD
-        || rel == "crates/nuo-persistence/src/role_memory.rs" // Isolated role-scoped SQLite store
+        || rel == "crates/persistence/src/role_memory.rs" // Isolated role-scoped SQLite store
 }
 
 /// Concatenated source of the door module: `db.rs` plus every `src/db/*.rs`
@@ -80,7 +80,7 @@ fn is_exempt(path: &Path, root: &Path) -> bool {
 fn door_text() -> String {
     let root = workspace_root();
     let mut text = std::fs::read_to_string(root.join(THE_DOOR)).expect("the door exists");
-    let dir = root.join("crates/nuo-persistence/src/db");
+    let dir = root.join("crates/persistence/src/db");
     if let Ok(entries) = std::fs::read_dir(&dir) {
         let mut paths: Vec<PathBuf> = entries
             .flatten()
@@ -199,7 +199,7 @@ fn the_door_exposes_exactly_two_ways_in() {
 /// `join` waits on the one thread that could ever serve the ack. The pair must
 /// be fixed together; this test fails if either half drifts back.
 fn a_sync_write_round_trips() {
-    use nuo_persistence::db::PersistenceHandle;
+    use persistence::db::PersistenceHandle;
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let handle = PersistenceHandle::spawn(tmp.path().join("nuo.db"), None);
@@ -210,7 +210,7 @@ fn a_sync_write_round_trips() {
         .expect("set_kv_blocking must not deadlock");
     handle
         .save_input_history_blocking(
-            vec![nuo_protocol::HistoryEntry {
+            vec![protocol::HistoryEntry {
                 text: "probe".to_string(),
                 session_id: None,
                 workspace: None,

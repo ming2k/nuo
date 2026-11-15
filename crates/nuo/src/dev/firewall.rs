@@ -4,10 +4,10 @@
 //! (ADR-0005, ADR-0058, ADR-0103, ADR-0105, ADR-0106, ADR-0107, ADR-0109, ADR-0111).
 //!
 //! Rule summary:
-//!   R1: Server purity — `nuo-server` must never depend on presentation/terminal substrates.
+//!   R1: Server purity — `server` must never depend on presentation/terminal substrates.
 //!   R2: Anti-inversion & retired crate isolation.
-//!   R3: Zero-IO presentation substrate (`nuo-ui-primitives`, `nuo-view`).
-//!   R4: UI primitives purity (`nuo-ui-primitives` does not depend on `nuo-view`).
+//!   R3: Zero-IO presentation substrate (`ui-primitives`, `view`).
+//!   R4: UI primitives purity (`ui-primitives` does not depend on `view`).
 //!   R5: Pure tiered workspace topology (`[INV-ARCH-TIER-01]`).
 //!   Lean: Lean CLI link gate (`[INV-ARCH-CLI-LEAN-LINK]`).
 
@@ -17,12 +17,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use walkdir::WalkDir;
 
-const TIERS: &[&str] = &["crates", "providers", "tools"];
-const SANCTIONED_MEMBERS: &[&str] = &["crates/*", "tools/*", "providers/*"];
+const TIERS: &[&str] = &["crates"];
+const SANCTIONED_MEMBERS: &[&str] = &["crates/*"];
 const HOST_PATH: &str = "crates/nuo/Cargo.toml";
 
 const TERMINAL_SUBSTRATE: &[&str] = &["nuotc", "crossterm"];
-const PRESENTATION_CRATES: &[&str] = &["nuo-ui-primitives", "nuo-view"];
+const PRESENTATION_CRATES: &[&str] = &["ui-primitives", "view"];
 const RETIRED_CRATES: &[&str] = &[
     "nuo-client",
     "nuo-egress",
@@ -40,13 +40,13 @@ const UI_FORBIDDEN: &[&str] = &[
     "arboard",           // clipboard
     "libc",              // raw OS calls (terminal/process)
     "dirs",              // filesystem layout
-    "nuo-host",          // daemon process supervision
-    "nuo-server",        // headless runtime
+    "host",              // daemon process supervision
+    "server",            // headless runtime
     "nuo-harness",       // execution engine (legacy)
-    "nuo-engine",        // execution engine
-    "nuo-guardrails",    // guardrails & policy
-    "nuo-provider",      // provider registry
-    "nuo-mcp",           // MCP client
+    "engine",            // execution engine
+    "guardrails",        // guardrails & policy
+    "provider",          // provider registry
+    "mcp",               // MCP client
 ];
 
 #[derive(Debug, Clone)]
@@ -189,7 +189,7 @@ pub fn check_tier_violations(root: &Path) -> (Vec<String>, Vec<PathBuf>) {
             }
 
             let tier = parts[0];
-            let crate_dir = parts[1];
+            let _crate_dir = parts[1];
 
             if !TIERS.contains(&tier) {
                 problems.push(format!(
@@ -197,24 +197,6 @@ pub fn check_tier_violations(root: &Path) -> (Vec<String>, Vec<PathBuf>) {
                     TIERS.join(" | ")
                 ));
                 continue;
-            }
-
-            if tier == "crates" {
-                if crate_dir != "nuo" && !crate_dir.starts_with("nuo-") {
-                    problems.push(format!(
-                        "R5: crate directory 'crates/{crate_dir}' must be 'nuo' (host binary) or carry prefix 'nuo-' ([INV-ARCH-TIER-01])"
-                    ));
-                }
-            } else if tier == "providers" {
-                if !crate_dir.starts_with("nuo-provider-") {
-                    problems.push(format!(
-                        "R5: crate directory '{tier}/{crate_dir}' must carry the tier namespace prefix 'nuo-provider-' ([INV-ARCH-TIER-01])"
-                    ));
-                }
-            } else if tier == "tools" && !crate_dir.starts_with("nuo-tool-") {
-                problems.push(format!(
-                    "R5: crate directory '{tier}/{crate_dir}' must carry the tier namespace prefix 'nuo-tool-' ([INV-ARCH-TIER-01])"
-                ));
             }
 
             crate_manifests.push(full_path.to_path_buf());
@@ -263,7 +245,7 @@ pub fn check_presentation_firewall(root: &Path) -> Result<(), String> {
         let deps: HashSet<&str> = info.shipped_deps.iter().map(|s| s.as_str()).collect();
 
         // R1: Server purity
-        if name == "nuo-server" {
+        if name == "server" {
             let mut bad_deps: Vec<&str> = deps
                 .intersection(&terminal_substrate)
                 .chain(deps.intersection(&presentation_crates))
@@ -273,7 +255,7 @@ pub fn check_presentation_firewall(root: &Path) -> Result<(), String> {
             bad_deps.sort();
             for bad in bad_deps {
                 problems.push(format!(
-                    "R1: nuo-server ({}) depends on presentation substrate '{bad}' (server purity)",
+                    "R1: server ({}) depends on presentation substrate '{bad}' (server purity)",
                     info.rel_path
                 ));
             }
@@ -332,11 +314,11 @@ pub fn check_presentation_firewall(root: &Path) -> Result<(), String> {
     }
 
     // R4: Check primitives purity
-    if let Some(primitives) = manifests.get("nuo-ui-primitives")
-        && primitives.shipped_deps.contains("nuo-view")
+    if let Some(primitives) = manifests.get("ui-primitives")
+        && primitives.shipped_deps.contains("view")
     {
         problems.push(format!(
-                "R4: nuo-ui-primitives ({}) depends on domain views 'nuo-view' ([INV-ARCH-UI-PRIMITIVES-PURITY])",
+                "R4: ui-primitives ({}) depends on domain views 'view' ([INV-ARCH-UI-PRIMITIVES-PURITY])",
                 primitives.rel_path
             ));
     }
@@ -345,7 +327,7 @@ pub fn check_presentation_firewall(root: &Path) -> Result<(), String> {
     for retired in RETIRED_CRATES {
         if manifests.contains_key(*retired) {
             problems.push(format!(
-                "R2: crates/{retired} is retired and must not be present in the workspace (superseded by nuo-ui-primitives, nuo-view, and nuo::shell)"
+                "R2: crates/{retired} is retired and must not be present in the workspace (superseded by ui-primitives, view, and nuo::shell)"
             ));
         }
     }
@@ -377,8 +359,8 @@ pub fn check_lean_cli_link(root: &Path) -> Result<(), String> {
     let forbidden = [
         "nuotc",
         "crossterm",
-        "nuo-ui-primitives",
-        "nuo-view",
+        "ui-primitives",
+        "view",
         "nuo-present",
         "nuo-ui",
         "nuo-shell",

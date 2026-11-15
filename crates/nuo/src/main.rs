@@ -22,7 +22,7 @@ use std::path::PathBuf;
 const WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    nuo_server::composition::provider_registry::init();
+    server::composition::provider_registry::init();
     #[cfg(feature = "interactive")]
     nuo::shell::runner::ensure_dev_environment();
     let is_server_mode = std::env::args().any(|arg| arg == "server");

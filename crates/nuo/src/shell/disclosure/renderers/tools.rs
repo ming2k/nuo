@@ -23,11 +23,11 @@ use crate::shell::render::{
     STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS,
     TOOL_STEP_CHILDREN_GAP_ROWS,
 };
-use nuo_view::message_body::draw_message_body;
-use nuo_view::model::document::TranscriptMessage;
-use nuo_view::model::selection::{CellDragInfo, SelectionState};
-use nuo_view::text_layout::{padded_tail, wrap_text};
-use nuo_view::tools::{ArgLayout, DiffCache, ToolStatus};
+use view::message_body::draw_message_body;
+use view::model::document::TranscriptMessage;
+use view::model::selection::{CellDragInfo, SelectionState};
+use view::text_layout::{padded_tail, wrap_text};
+use view::tools::{ArgLayout, DiffCache, ToolStatus};
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_tool_step(
@@ -78,7 +78,7 @@ pub fn draw_tool_step(
     let interaction = Interaction::from_hover_focused(hovered, focused);
     // Keyboard ownership is *not* resolved here (ADR-0145, amended): the pane
     // wash and the entry marker are painted once each by
-    // `nuo_view::focus_plane`, so this row renders identically whichever plane
+    // `view::focus_plane`, so this row renders identically whichever plane
     // holds the keyboard. That is what lets the summary keep the tone this call
     // resolved for the page — the earlier full-width focus band had to invert a
     // running step's in-flight hue and a collapsed step's muted rung, which is
@@ -163,7 +163,7 @@ pub fn draw_tool_step(
         {
             draw_blank_rows(ctx, pad, TOOL_STEP_BODY_TOP_GAP_ROWS);
 
-            if let nuo_view::model::document::MessageKind::ToolStep {
+            if let view::model::document::MessageKind::ToolStep {
                 name,
                 arguments,
                 output,
@@ -176,10 +176,10 @@ pub fn draw_tool_step(
                 // key names are self-describing, and the result block below
                 // carries its own `code_bg` so the two stay visually distinct.
                 if matches!(
-                    nuo_view::tools::presenter_for(name).arg_layout(),
+                    view::tools::presenter_for(name).arg_layout(),
                     ArgLayout::KeyValue
                 ) {
-                    let kv = nuo_view::model::document::parse_arguments_kv(arguments);
+                    let kv = view::model::document::parse_arguments_kv(arguments);
                     if !kv.is_empty() {
                         let kv_style = Style::default().bg(surface).fg(ctx.theme.muted());
                         let wrap_w = inner_w.max(1);
@@ -205,8 +205,8 @@ pub fn draw_tool_step(
                 let is_command = name.as_str() == "execute_command";
                 let has_structured = structured.is_some();
                 let is_diff = matches!(
-                    nuo_view::tools::presenter_for(name).result_kind(),
-                    nuo_view::tools::ResultKind::Diff
+                    view::tools::presenter_for(name).result_kind(),
+                    view::tools::ResultKind::Diff
                 ) && !msg.tool_step_status().is_some_and(|s| s.is_ingesting())
                     && !arguments.trim().is_empty();
                 if has_output || is_command || has_structured || is_diff {
@@ -233,7 +233,7 @@ pub fn draw_tool_step(
         }
 
         // Nested subagent children
-        if let nuo_view::model::document::MessageKind::ToolStep { children, .. } = &msg.kind {
+        if let view::model::document::MessageKind::ToolStep { children, .. } = &msg.kind {
             if !children.is_empty() {
                 draw_blank_rows(ctx, pad, TOOL_STEP_CHILDREN_GAP_ROWS);
             }
@@ -314,7 +314,7 @@ fn draw_child_tool_step(
         let _ = ctx.paint(line);
     }
 
-    if let nuo_view::model::document::MessageKind::ToolStep {
+    if let view::model::document::MessageKind::ToolStep {
         output: Some(output),
         ..
     } = &child.kind

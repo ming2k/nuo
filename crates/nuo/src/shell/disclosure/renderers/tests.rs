@@ -1,9 +1,9 @@
 use super::base::truncate_to_width;
 use super::payloads::{semantic_tool_summary_line, tool_summary_line};
-use nuo_ui_primitives::components::inline_layout::SemanticLine;
-use nuo_ui_primitives::components::path::PathView;
-use nuo_ui_primitives::theme::Theme;
 use nuotc::{Color, Style};
+use ui_primitives::components::inline_layout::SemanticLine;
+use ui_primitives::components::path::PathView;
+use ui_primitives::theme::Theme;
 
 #[test]
 fn truncate_to_width_stops_at_newline() {
@@ -80,7 +80,7 @@ fn semantic_tool_summary_line_preserves_suffix_under_tight_budget() {
 #[test]
 fn project_frags_to_wrapped_preserves_highlights_across_soft_wraps() {
     use super::payloads::project_frags_to_wrapped;
-    use nuo_view::tools::DiffFrag;
+    use view::tools::DiffFrag;
 
     // Line: "let x = very_long_changed_identifier_value;"
     // frags:
@@ -119,8 +119,8 @@ fn project_frags_to_wrapped_preserves_highlights_across_soft_wraps() {
 #[test]
 fn project_syntax_diff_frags_merges_syntax_and_diff_layers() {
     use super::payloads::project_syntax_diff_frags;
-    use nuo_ui_primitives::syntax::{Language, SyntaxKind, tokenize_line};
-    use nuo_view::tools::DiffFrag;
+    use ui_primitives::syntax::{Language, SyntaxKind, tokenize_line};
+    use view::tools::DiffFrag;
 
     // Line: "let count = 10;" -> modified "10" to "20"
     let full = "let count = 20;\n";
@@ -155,8 +155,8 @@ fn project_syntax_diff_frags_merges_syntax_and_diff_layers() {
 
 #[test]
 fn test_diff_renderer_applies_syntax_colors_to_code() {
-    use nuo_ui_primitives::syntax::SyntaxKind;
-    use nuo_ui_primitives::theme::Theme;
+    use ui_primitives::syntax::SyntaxKind;
+    use ui_primitives::theme::Theme;
 
     let theme = Theme::default();
     let kw_color = theme.syntax_color(SyntaxKind::Keyword);
@@ -171,7 +171,7 @@ fn test_diff_renderer_applies_syntax_colors_to_code() {
 #[test]
 fn project_syntax_slice_splits_code_block_tokens() {
     use super::payloads::project_syntax_slice;
-    use nuo_ui_primitives::syntax::{Language, SyntaxKind, tokenize_line};
+    use ui_primitives::syntax::{Language, SyntaxKind, tokenize_line};
 
     let line = "pub fn add(a: i32, b: i32) -> i32 {\n";
     let tokens = tokenize_line(line, Language::Rust);

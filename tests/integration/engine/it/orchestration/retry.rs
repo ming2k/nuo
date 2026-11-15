@@ -9,9 +9,9 @@ struct MockProvider;
 impl Provider for MockProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Ok(protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "Hello! I am a mock AI. How can I help you today?",
         )))
@@ -19,18 +19,18 @@ impl Provider for MockProvider {
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 }
 
 /// Most built-in tools self-register via `inventory` across the nuo-harness
-/// and nuo-persistence crates. This test guards the one real
+/// and persistence crates. This test guards the one real
 /// risk of that approach — that a crate's `inventory::submit!` nodes get
 /// dropped by the linker — by asserting the assembled set contains every
 /// expected built-in tool name.
@@ -47,43 +47,40 @@ pub(super) struct RetryReadTool(pub(super) Arc<AtomicUsize>);
 impl Provider for RetryOnceProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("partial".to_string())),
-                Err(nuo_protocol::ProviderError::new(
+                Err(protocol::ProviderError::new(
                     "mock",
-                    nuo_protocol::ProviderErrorKind::RateLimited,
+                    protocol::ProviderErrorKind::RateLimited,
                     "rate limited",
                 )
                 .retryable(Some(1))),
@@ -92,7 +89,7 @@ impl Provider for RetryOnceProvider {
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("done".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ])))
         }
@@ -103,36 +100,33 @@ impl Provider for RetryOnceProvider {
 impl Provider for PartialToolRetryProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
             Ok(Box::pin(stream::iter(vec![
@@ -142,9 +136,9 @@ impl Provider for PartialToolRetryProvider {
                     name: Some("retry_read".to_string()),
                     arguments: "{".to_string(),
                 }),
-                Err(nuo_protocol::ProviderError::new(
+                Err(protocol::ProviderError::new(
                     "mock",
-                    nuo_protocol::ProviderErrorKind::Transport,
+                    protocol::ProviderErrorKind::Transport,
                     "stream dropped",
                 )
                 .retryable(None)),
@@ -153,7 +147,7 @@ impl Provider for PartialToolRetryProvider {
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("done".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ])))
         }
@@ -164,36 +158,33 @@ impl Provider for PartialToolRetryProvider {
 impl Provider for ToolThenRetryProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         self.requests
             .lock()
@@ -209,13 +200,13 @@ impl Provider for ToolThenRetryProvider {
                     arguments: "{}".to_string(),
                 }),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ]))),
             1 => Ok(Box::pin(stream::iter(vec![Err(
-                nuo_protocol::ProviderError::new(
+                protocol::ProviderError::new(
                     "mock",
-                    nuo_protocol::ProviderErrorKind::Unavailable,
+                    protocol::ProviderErrorKind::Unavailable,
                     "upstream unavailable",
                 )
                 .retryable(None),
@@ -223,7 +214,7 @@ impl Provider for ToolThenRetryProvider {
             _ => Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("done".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ]))),
         }
@@ -234,43 +225,40 @@ impl Provider for ToolThenRetryProvider {
 impl Provider for AlwaysRetryableProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         // Every request fails with a retryable error so the turn exhausts
         // its retry budget without ever touching a tool.
         Ok(Box::pin(stream::iter(vec![Err(
-            nuo_protocol::ProviderError::new(
+            protocol::ProviderError::new(
                 "openai",
-                nuo_protocol::ProviderErrorKind::RateLimited,
+                protocol::ProviderErrorKind::RateLimited,
                 "OpenAI HTTP 429 Too Many Requests",
             )
             .retryable(None),
@@ -286,43 +274,40 @@ pub(crate) struct VisibleFailProvider(pub(crate) Arc<AtomicUsize>);
 impl Provider for VisibleFailProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(Box::pin(stream::iter(vec![
             Ok(ProviderStreamEvent::TextDelta("partial answer".to_string())),
-            Err(nuo_protocol::ProviderError::new(
+            Err(protocol::ProviderError::new(
                 "mock",
-                nuo_protocol::ProviderErrorKind::RateLimited,
+                protocol::ProviderErrorKind::RateLimited,
                 "mid-stream rate limit",
             )
             .retryable(None)),
@@ -331,7 +316,7 @@ impl Provider for VisibleFailProvider {
 }
 
 #[async_trait]
-impl nuo_tool::Tool for RetryReadTool {
+impl tool::Tool for RetryReadTool {
     fn name(&self) -> &str {
         "retry_read"
     }
@@ -356,7 +341,7 @@ async fn proxy_provider_does_not_block_the_async_runtime() {
     let proxy = ProxyProvider::new(holder);
 
     let response = proxy
-        .chat(&nuo_protocol::ModelRequest::new(Vec::new()))
+        .chat(&protocol::ModelRequest::new(Vec::new()))
         .await
         .unwrap();
 
@@ -365,12 +350,12 @@ async fn proxy_provider_does_not_block_the_async_runtime() {
 
 #[test]
 fn context_overflow_detection() {
-    let err = nuo_protocol::ProviderError::new(
+    let err = protocol::ProviderError::new(
         "mock",
-        nuo_protocol::ProviderErrorKind::ContextOverflow,
+        protocol::ProviderErrorKind::ContextOverflow,
         "context exceeded",
     );
-    assert_eq!(err.kind(), nuo_protocol::ProviderErrorKind::ContextOverflow);
+    assert_eq!(err.kind(), protocol::ProviderErrorKind::ContextOverflow);
 }
 
 /// Stands in for the transport: publishes known timings into whatever handle
@@ -383,41 +368,38 @@ struct TelemetryPublishingProvider(AtomicUsize);
 impl Provider for TelemetryPublishingProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         // What the owned transport does: fill the handle it was handed, without
         // ever asking whose attempt it was serving.
         let cold = self.0.fetch_add(1, Ordering::SeqCst) == 0;
-        _telemetry.publish(nuo_protocol::TransportTimings {
+        _telemetry.publish(protocol::TransportTimings {
             dns_us: cold.then_some(12_000),
             tls_us: cold.then_some(90_000),
             tcp_us: Some(if cold { 40_000 } else { 7_000 }),
@@ -427,9 +409,9 @@ impl Provider for TelemetryPublishingProvider {
             rtt_us: Some(42_000),
             retransmits: if cold { 3 } else { 0 },
             observation: if cold {
-                nuo_protocol::TransportObservation::ColdConnection
+                protocol::TransportObservation::ColdConnection
             } else {
-                nuo_protocol::TransportObservation::PooledConnection
+                protocol::TransportObservation::PooledConnection
             },
             dispatch_at: Some(std::time::Instant::now()),
         });
@@ -437,9 +419,9 @@ impl Provider for TelemetryPublishingProvider {
         if cold {
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("partial".to_string())),
-                Err(nuo_protocol::ProviderError::new(
+                Err(protocol::ProviderError::new(
                     "mock",
-                    nuo_protocol::ProviderErrorKind::RateLimited,
+                    protocol::ProviderErrorKind::RateLimited,
                     "rate limited",
                 )
                 .retryable(Some(1))),
@@ -448,7 +430,7 @@ impl Provider for TelemetryPublishingProvider {
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::TextDelta("done".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ])))
         }
@@ -472,9 +454,9 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
     let agent = Arc::new(Agent::new(
         Arc::new(TelemetryPublishingProvider(AtomicUsize::new(0))),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
-    let ledger = nuo_protocol::TokenSourceLedger::shared();
+    let ledger = protocol::TokenSourceLedger::shared();
     agent.install_token_ledger(ledger.clone());
     let (tx, mut rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -488,7 +470,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
             session: session.clone(),
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                budget: protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -507,7 +489,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -522,7 +504,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
         .expect("the first attempt must keep its telemetry");
     assert_eq!(
         first.observation,
-        nuo_protocol::TransportObservation::ColdConnection,
+        protocol::TransportObservation::ColdConnection,
         "the retry must not overwrite the first attempt's regime"
     );
     assert_eq!(first.tcp_us, Some(40_000));
@@ -543,7 +525,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
         .expect("the retry must keep its own telemetry");
     assert_eq!(
         second.observation,
-        nuo_protocol::TransportObservation::PooledConnection
+        protocol::TransportObservation::PooledConnection
     );
     assert_eq!(second.tcp_us, Some(7_000), "the retry's own TCP phase");
     assert_eq!(second.retransmits, 0, "the retry's own socket sample");
@@ -560,9 +542,9 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
     let agent = Arc::new(Agent::new(
         Arc::new(RetryOnceProvider(AtomicUsize::new(0))),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
-    let ledger = nuo_protocol::TokenSourceLedger::shared();
+    let ledger = protocol::TokenSourceLedger::shared();
     agent.install_token_ledger(ledger.clone());
     let (tx, mut rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -576,7 +558,7 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
             session: session.clone(),
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                budget: protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -595,7 +577,7 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -656,12 +638,9 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
     let attempts = ledger.records_for_session(&session_id);
     assert_eq!(attempts.len(), 2);
     assert_eq!(attempts[0].key.attempt, 1);
-    assert_eq!(attempts[0].status, nuo_protocol::RequestUsageStatus::Failed);
+    assert_eq!(attempts[0].status, protocol::RequestUsageStatus::Failed);
     assert_eq!(attempts[1].key.attempt, 2);
-    assert_eq!(
-        attempts[1].status,
-        nuo_protocol::RequestUsageStatus::Completed
-    );
+    assert_eq!(attempts[1].status, protocol::RequestUsageStatus::Completed);
     assert_eq!(session.request_usage_records().await, attempts);
     let _ = std::fs::remove_dir_all(directory);
 }

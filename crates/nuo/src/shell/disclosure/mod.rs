@@ -19,7 +19,7 @@
 //! 1. **Lifecycle** — the underlying operation's run state (Running /
 //!    Completed / Failed / Denied / Cancelled). Drives the semantic *accent*
 //!    (hue). This axis is **kind-specific** and therefore not unified here:
-//!    tool steps carry it via [`nuo_view::tools::ToolStatus`] (5 states),
+//!    tool steps carry it via [`view::tools::ToolStatus`] (5 states),
 //!    reasoning traces via a simple running-bool (2 states). The renderer
 //!    resolves it to an accent color and passes that in. See
 //!    [`summary_text_color`].
@@ -32,19 +32,19 @@
 //!    Shared by every kind.
 //!
 //! The presentation contract is three **composable channels**, joined in
-//! [`nuo_view::disclosure::summary_text_color`]:
+//! [`view::disclosure::summary_text_color`]:
 //!
 //! - **accent** (hue) — from Lifecycle. A non-completed lifecycle stays
 //!   visibly accented even when the step is collapsed and idle, because a
 //!   failure/denial must never hide. `Completed` (and reasoning, whose
 //!   lifecycle only affects its marker) yield no accent.
 //! - **weight** (luminance) — from Disclosure alone, via
-//!   [`nuo_view::disclosure::summary_weight`]. Expanded → the primary foreground; collapsed →
+//!   [`view::disclosure::summary_weight`]. Expanded → the primary foreground; collapsed →
 //!   muted. Interaction is deliberately **not** a rung on this ladder
 //!   under the old `muted < hover < fg` model the affordance was
 //!   structurally dimmer than the active state, so the hover cue always lost
 //!   the salience contest it existed to win.
-//! - **affordance** (hue) — from Interaction, via [`nuo_view::disclosure::Interaction::color`]
+//! - **affordance** (hue) — from Interaction, via [`view::disclosure::Interaction::color`]
 //!   and the theme's affordance token. Hover/focus tint the summary toward the
 //!   affordance hue — "look here, this is interactive" is a channel orthogonal
 //!   to "this is open", so a transient cue can never be out-shone by the state
@@ -55,9 +55,9 @@
 //! reads identically on plain, accented, and open summaries without ever
 //! changing their brightness ordering.
 pub(crate) mod renderers;
-pub use nuo_view::disclosure::{Disclosure, Interaction, summary_text_color};
 #[allow(unused_imports)]
 pub use renderers::{
     StickyAnchor, draw_command_result, draw_compacted_card, draw_reasoning_trace,
     draw_sticky_anchor_if_needed, draw_subagent_inline_step, draw_tool_step,
 };
+pub use view::disclosure::{Disclosure, Interaction, summary_text_color};

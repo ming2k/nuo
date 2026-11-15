@@ -3,8 +3,8 @@ use nuotc::{Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
-use nuo_view::text_layout::{padded_tail, wrap_text};
-use nuo_view::tools::{DiffHunk, DiffOp};
+use view::text_layout::{padded_tail, wrap_text};
+use view::tools::{DiffHunk, DiffOp};
 
 /// Locate the 1-based start line of an edit (`old` or `new` snippet) within the specific file.
 pub(crate) fn find_start_line_in_file(
@@ -86,7 +86,7 @@ pub(crate) fn extract_diff_strings_for_tool(name: &str, arguments: &str) -> (Str
     {
         obj
     } else {
-        nuo_view::tools::parse_streaming_arguments(arguments)
+        view::tools::parse_streaming_arguments(arguments)
     };
     if map.is_empty() {
         return (String::new(), String::new());
@@ -127,7 +127,7 @@ pub(crate) fn draw_diff_content(
     hunks: &[DiffHunk],
     indent: usize,
     inner_w: usize,
-    lang: nuo_ui_primitives::syntax::Language,
+    lang: ui_primitives::syntax::Language,
 ) {
     if hunks.is_empty() {
         return;
@@ -199,7 +199,7 @@ pub(crate) fn draw_diff_content(
 
             let full = line.text();
             let wrapped = nonempty_wrapped(wrap_text(&full, text_w));
-            let syntax_spans = nuo_ui_primitives::syntax::tokenize_line(&full, lang);
+            let syntax_spans = ui_primitives::syntax::tokenize_line(&full, lang);
 
             let (first_old, first_new) = match line.op {
                 DiffOp::Context => (fmt_no(line.old_no, gutter_w), fmt_no(line.new_no, gutter_w)),
@@ -246,7 +246,7 @@ pub(crate) fn draw_diff_content(
                 );
                 if !projected.is_empty() {
                     for slice in projected {
-                        let token_fg = if lang == nuo_ui_primitives::syntax::Language::Plain {
+                        let token_fg = if lang == ui_primitives::syntax::Language::Plain {
                             base_fg
                         } else {
                             ctx.theme.syntax_color(slice.kind)
@@ -256,7 +256,7 @@ pub(crate) fn draw_diff_content(
                         if slice.changed {
                             style = style.add_modifier(Modifier::BOLD);
                         }
-                        if slice.kind == nuo_ui_primitives::syntax::SyntaxKind::Comment {
+                        if slice.kind == ui_primitives::syntax::SyntaxKind::Comment {
                             style = style.add_modifier(Modifier::ITALIC);
                         }
                         spans.push(Span::styled(slice.text.to_string(), style));
@@ -287,7 +287,7 @@ fn fmt_no(no: Option<usize>, width: usize) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HighlightedSlice<'a> {
     pub text: &'a str,
-    pub kind: nuo_ui_primitives::syntax::SyntaxKind,
+    pub kind: ui_primitives::syntax::SyntaxKind,
     pub changed: bool,
 }
 
@@ -301,8 +301,8 @@ pub(crate) struct HighlightedSlice<'a> {
 /// Ensures both layers blend seamlessly without degradation across wrapped continuation rows.
 pub(crate) fn project_syntax_diff_frags<'a>(
     full: &'a str,
-    frags: &[nuo_view::tools::DiffFrag],
-    syntax_spans: &[nuo_ui_primitives::syntax::SyntaxSpan],
+    frags: &[view::tools::DiffFrag],
+    syntax_spans: &[ui_primitives::syntax::SyntaxSpan],
     start_byte: usize,
     end_byte: usize,
 ) -> Vec<HighlightedSlice<'a>> {
@@ -370,7 +370,7 @@ pub(crate) fn project_syntax_diff_frags<'a>(
             .iter()
             .find(|s| s.start_byte <= seg_start && seg_start < s.end_byte)
             .map(|s| s.kind)
-            .unwrap_or(nuo_ui_primitives::syntax::SyntaxKind::Plain);
+            .unwrap_or(ui_primitives::syntax::SyntaxKind::Plain);
 
         result.push(HighlightedSlice {
             text: clean,
@@ -387,7 +387,7 @@ pub(crate) fn project_syntax_diff_frags<'a>(
 #[cfg(test)]
 pub(crate) fn project_frags_to_wrapped<'a>(
     full: &'a str,
-    frags: &'a [nuo_view::tools::DiffFrag],
+    frags: &'a [view::tools::DiffFrag],
     start_byte: usize,
     end_byte: usize,
 ) -> Vec<(&'a str, bool)> {
@@ -399,57 +399,4 @@ pub(crate) fn project_frags_to_wrapped<'a>(
 }
 
 /// Project syntax tokens onto a wrapped slice of text covering `start_byte..end_byte`.
-pub(crate) fn project_syntax_slice<'a>(
-    full: &'a str,
-    syntax_spans: &[nuo_ui_primitives::syntax::SyntaxSpan],
-    start_byte: usize,
-    end_byte: usize,
-) -> Vec<(&'a str, nuo_ui_primitives::syntax::SyntaxKind)> {
-    let mut result = Vec::new();
-    if start_byte >= end_byte || full.is_empty() {
-        return result;
-    }
-
-    let mut points = Vec::with_capacity(syntax_spans.len() * 2 + 2);
-    points.push(start_byte);
-    points.push(end_byte);
-
-    for span in syntax_spans {
-        if span.start_byte > start_byte && span.start_byte < end_byte {
-            points.push(span.start_byte);
-        }
-        if span.end_byte > start_byte && span.end_byte < end_byte {
-            points.push(span.end_byte);
-        }
-    }
-
-    points.sort_unstable();
-    points.dedup();
-
-    for pair in points.windows(2) {
-        let seg_start = pair[0];
-        let seg_end = pair[1];
-        if seg_start >= seg_end
-            || !full.is_char_boundary(seg_start)
-            || !full.is_char_boundary(seg_end)
-        {
-            continue;
-        }
-
-        let slice = &full[seg_start..seg_end];
-        let clean = slice.trim_end_matches('\n').trim_end_matches('\r');
-        if clean.is_empty() {
-            continue;
-        }
-
-        let kind = syntax_spans
-            .iter()
-            .find(|s| s.start_byte <= seg_start && seg_start < s.end_byte)
-            .map(|s| s.kind)
-            .unwrap_or(nuo_ui_primitives::syntax::SyntaxKind::Plain);
-
-        result.push((clean, kind));
-    }
-
-    result
-}
+pub(crate) use ui_primitives::syntax::project_syntax_slice;

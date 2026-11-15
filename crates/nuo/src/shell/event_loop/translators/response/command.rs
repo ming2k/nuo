@@ -1,7 +1,7 @@
 //! Typed slash-command result handling.
 
-use nuo_protocol::RoundEvent;
-use nuo_view::model::document::TranscriptMessage;
+use protocol::RoundEvent;
+use view::model::document::TranscriptMessage;
 
 use super::{E, M, TranslatorState, now_ms};
 
@@ -42,10 +42,10 @@ impl TranslatorState {
                 // top-right notice toast and restore the user's draft.
                 let is_failure = matches!(
                     result,
-                    nuo_protocol::CommandResult::Error { .. }
-                        | nuo_protocol::CommandResult::UnknownCommand { .. }
+                    protocol::CommandResult::Error { .. }
+                        | protocol::CommandResult::UnknownCommand { .. }
                 );
-                if is_failure || effect == nuo_tool::CommandEffect::Reading {
+                if is_failure || effect == tool::CommandEffect::Reading {
                     self.transcript(E::WithdrawStagedCommand {
                         invocation: invocation.clone(),
                         restore_draft: is_failure,

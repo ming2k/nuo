@@ -12,6 +12,8 @@ negative_knowledge: true
 
 - Status: Accepted
 - Date: 2026-11-13
+- Amended: [ADR-0193](0193-pdf-reads-are-bounded-text-extraction-through-a-host-document-seam.md)
+  (the PDF gap becomes bounded host text extraction)
 - Deciders: Nuo Architecture Working Group
 - Consulted: Tool Runtime, Filesystem Tools, Context Lifecycle, Presentation, Security
 - Supersedes: the split `read_text` / `read_image` model-facing read surface, and the
@@ -139,6 +141,11 @@ until the harness has a document capability (a model capability axis plus a
 parser/extractor policy). Sending raw PDF bytes to a Chat-Completions tool
 message is not a valid fallback, and silently decoding it as UTF-8 is worse.
 
+> **Amended by [ADR-0193](0193-pdf-reads-are-bounded-text-extraction-through-a-host-document-seam.md):**
+> the document capability is local, bounded text extraction behind an injected
+> host extractor. `read` now returns extracted text; the prohibition on raw PDF
+> bytes and provider passthrough remains.
+
 ### 6. The VFS channel survives
 
 Spool files, artifacts, and compacted-history projections already resolve
@@ -178,6 +185,8 @@ server concern and is not forced through the filesystem path.
   deprecation window.
 - PDF remains a named gap with an explicit error, not a silent misdecode.
   Closing it requires a document capability decision, not another read alias.
+  (Closed by [ADR-0193](0193-pdf-reads-are-bounded-text-extraction-through-a-host-document-seam.md)
+  for text-layer PDFs; scanned and encrypted documents remain named failures.)
 
 ## Negative Knowledge
 

@@ -1,9 +1,9 @@
 use super::common::{draw_picker_search_row, place_picker_search_cursor};
 use super::*;
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::columns::{ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
-use nuo_ui_primitives::components::row::{GROUP_GAP, GUTTER};
 use nuotc::Rect;
+use ui_primitives::components::columns::{ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
+use ui_primitives::components::row::{GROUP_GAP, GUTTER};
 use unicode_width::UnicodeWidthStr;
 
 /// Render the whole frame buffer back to a single string (rows joined by

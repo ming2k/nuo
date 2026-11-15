@@ -4,7 +4,7 @@ use super::*;
 /// using the ladder the server shipped on the picker snapshot, not one
 /// re-derived client-side.
 ///
-/// The TUI binary links `nuo-protocol` (which owns the `inventory` registry
+/// The TUI binary links `protocol` (which owns the `inventory` registry
 /// slot) but **not** `nuo-providers` (which owns the baseline tables that fill
 /// it). So `resolve_model` returns an empty ladder in the real binary, and
 /// reading it here collapsed the effort control to its value-only fallback —
@@ -24,18 +24,18 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
     let model = "relay-only-reasoner-unregistered";
     let levels = vec!["low".to_string(), "high".to_string(), "max".to_string()];
     assert!(
-        nuo_protocol::resolve_model(model).effort_levels.is_empty(),
+        protocol::resolve_model(model).effort_levels.is_empty(),
         "precondition: the static registry must not know this id"
     );
 
     app.surfaces.provider_picker = ProviderPickerSnapshot {
         default_id: "relay".to_string(),
-        rows: vec![nuo_protocol::ProviderPickerRow {
+        rows: vec![protocol::ProviderPickerRow {
             id: "relay".to_string(),
             name: "Relay".to_string(),
             model: model.to_string(),
             models: vec![model.to_string()],
-            model_info: vec![nuo_protocol::ProviderModelInfo {
+            model_info: vec![protocol::ProviderModelInfo {
                 model: model.to_string(),
                 protocol: "openai".to_string(),
                 effort: Some("high".to_string()),

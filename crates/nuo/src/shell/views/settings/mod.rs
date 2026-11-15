@@ -20,17 +20,17 @@ pub mod web;
 
 pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown};
 
-use nuo_ui_primitives::ColorSchemeConfig;
 use nuotc::{
     Block as RtBlock, Color, Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect,
     Span, Style, Wrap,
 };
+use ui_primitives::ColorSchemeConfig;
 
 use crate::shell::render::Theme;
 use crate::shell::view_header::{
     TabBarNavRects, TabBarProps, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
 };
-use nuo_ui_primitives::primitives::{
+use ui_primitives::primitives::{
     ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll,
 };
 /// Width of the left navigation pane (its outer rect, before inner padding).
@@ -97,7 +97,7 @@ impl ConfigCategory {
     pub fn detail_item_count(
         self,
         ws_path: Option<&std::path::Path>,
-        websearch: Option<&nuo_protocol::WebSearchConfigView>,
+        websearch: Option<&protocol::WebSearchConfigView>,
         profile: &nuotc::TerminalProfile,
     ) -> usize {
         match self {
@@ -201,7 +201,7 @@ pub struct SettingsProps<'a> {
     pub focus: ConfigFocus,
     pub color_scheme: &'a str,
     pub custom_color_scheme: &'a ColorSchemeConfig,
-    pub websearch: Option<&'a nuo_protocol::WebSearchConfigView>,
+    pub websearch: Option<&'a protocol::WebSearchConfigView>,
     pub workspace: &'a str,
     pub category_scroll: &'a mut usize,
     pub detail_scroll: &'a mut usize,
@@ -649,7 +649,7 @@ mod tests {
         );
         assert_eq!(
             components::item_count(),
-            nuo_view::tools::TOOL_COMPONENTS
+            view::tools::TOOL_COMPONENTS
                 .iter()
                 .filter(|c| c.has_inline_body)
                 .count()

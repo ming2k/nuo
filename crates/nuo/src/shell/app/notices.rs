@@ -53,8 +53,8 @@
 //! 10 s ceiling. The log outlives all of it, so erring long costs the user a
 //! few seconds of a corner bubble, while erring short costs them the message.
 
-use nuo_view::model::document::NoticeSeverity;
-use nuo_view::model::log::{LineStatus, SurfaceLine};
+use view::model::document::NoticeSeverity;
+use view::model::log::{LineStatus, SurfaceLine};
 
 use crate::shell::app::App;
 use crate::shell::app::notice_catalog::{ClientNotice, ClientTopic, RenderedNotice};
@@ -228,7 +228,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_view::model::log::LineStatus;
+    use view::model::log::LineStatus;
 
     /// Build the funnel payload directly for a synthetic disclosure, the way a
     /// catalog entry renders. Tests that exercise the funnel's *residency*

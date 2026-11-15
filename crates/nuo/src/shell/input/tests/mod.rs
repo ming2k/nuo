@@ -163,7 +163,7 @@ fn key_with_focus(code: KeyCode) -> InputAction {
         &SheetKeys::default(),
         &SceneKeys {
             focus: crate::shell::focus::FocusPlane::Transcript,
-            entry_focus: Some(nuo_view::model::layout::InteractiveTarget::tool_step(0)),
+            entry_focus: Some(view::model::layout::InteractiveTarget::tool_step(0)),
             ..Default::default()
         },
         &mut drag,
@@ -589,3 +589,42 @@ mod navigation;
 mod paste_escape;
 mod sheet_modal_arbitration;
 mod submit;
+
+#[test]
+fn shift_arrows_select_messages_only_on_the_transcript_plane() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let transcript = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::SHIFT,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch {
+            focus: crate::shell::focus::FocusPlane::Transcript,
+            ..Default::default()
+        },
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(transcript, InputAction::SelectMessages { delta: 1 });
+
+    let composer = route_event(
+        Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::SHIFT,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_ne!(composer, InputAction::SelectMessages { delta: 1 });
+}

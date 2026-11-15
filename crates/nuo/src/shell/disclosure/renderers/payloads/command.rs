@@ -5,15 +5,15 @@ use unicode_width::UnicodeWidthStr;
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
 use crate::shell::disclosure::renderers::payloads::summary::draw_blank_rows;
 use crate::shell::render::Theme;
-use nuo_ui_primitives::design::{
+use ui_primitives::design::{
     BASH_FOLD_INSET_COLS, BASH_FOLD_SIGNATURE_MIN_COLS, COPY_LOG_KEY, JOIN_CAUSE, VIEW_LOG_KEY,
 };
-use nuo_view::model::layout::{BlockRegion, TOOL_FOLD_BLOCK_IDX, TOOL_FOLD_COPY_BLOCK_IDX};
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::{
+use view::model::layout::{BlockRegion, TOOL_FOLD_BLOCK_IDX, TOOL_FOLD_COPY_BLOCK_IDX};
+use view::model::selection::SelectionState;
+use view::text_layout::{
     WrappedLine, block_selection_range, line_selection, line_spans, padded_tail, wrap_text,
 };
-use nuo_view::tools::shell_output::{BashFold, OutputCoverage, ShellOutput};
+use view::tools::shell_output::{BashFold, OutputCoverage, ShellOutput};
 
 /// Resolve a shell step's `ShellTermination` into a themed footer
 /// `(text, style)`, or `None` for a healthy `Exited` run (which carries no
@@ -31,11 +31,11 @@ use nuo_view::tools::shell_output::{BashFold, OutputCoverage, ShellOutput};
 /// `state — cause` join form, because harness termination is the authentic fact
 /// that cannot be recovered from the child output stream alone.
 pub(crate) fn termination_footer(
-    term: nuo_tool::ShellTermination,
+    term: tool::ShellTermination,
     theme: &Theme,
     bg: Color,
 ) -> Option<(String, Style)> {
-    use nuo_tool::ShellTermination as T;
+    use tool::ShellTermination as T;
     let warn_style = Style::default().bg(bg).fg(theme.warn());
     let err_style = Style::default().bg(bg).fg(theme.err());
     // `state — cause` via the shared join token, so the separator/spacing can
@@ -54,14 +54,14 @@ pub(crate) fn termination_footer(
 }
 
 /// Dynamic supervisor surface tint for Part 3 Harness Governance band (ADR-0070 → ADR-0093).
-fn harness_intervention_surface(term: nuo_tool::ShellTermination, theme: &Theme) -> Color {
-    use nuo_tool::ShellTermination as T;
+fn harness_intervention_surface(term: tool::ShellTermination, theme: &Theme) -> Color {
+    use tool::ShellTermination as T;
     let tint = match term {
         T::Cancelled => theme.err(),
         _ => theme.warn(),
     };
     match theme.code_surface() {
-        Color::Rgb(..) => nuo_ui_primitives::theme::mix(theme.code_surface(), tint, 0.12),
+        Color::Rgb(..) => ui_primitives::theme::mix(theme.code_surface(), tint, 0.12),
         _ => theme.code_surface(),
     }
 }
@@ -89,7 +89,7 @@ fn exit_code_explanation(code: i32) -> &'static str {
 /// exit and coverage footers. Output rows have no line-number gutter.
 ///
 /// Everything below the prompt is derived by
-/// [`nuo_view::tools::shell_output::ShellOutput`]: in-band markers
+/// [`view::tools::shell_output::ShellOutput`]: in-band markers
 /// (`STDOUT:`, `Exit N`, the harness notes, offload envelopes) are stripped and
 /// the facts they carried are re-materialized in the footers, so a restored
 /// flat text and a live structured payload paint the same shape. `revealed`
@@ -104,7 +104,7 @@ pub(crate) fn draw_command_content(
     mi: usize,
     block_idx: usize,
     content: &str,
-    structured: Option<&nuo_tool::ToolOutput>,
+    structured: Option<&tool::ToolOutput>,
     command: &str,
     selection: &SelectionState,
     indent: usize,
@@ -150,7 +150,7 @@ pub(crate) fn draw_command_content(
     }
 
     // ADR-0115: one derivation for the rows, the outcome, and what each
-    // audience holds — the same `nuo-view` derivation the activation ladder
+    // audience holds — the same `view` derivation the activation ladder
     // consults, so the fold can only ever hide what activation can reveal.
     let view = ShellOutput::derive(content, structured);
 
@@ -233,7 +233,7 @@ pub(crate) fn draw_command_content(
 const PROMPT_COLS: u16 = 2;
 /// The command block's **invocation** block index. Block 1 is the output body —
 /// the same two-block shape
-/// [`TranscriptMessage::refresh_tool_step`](nuo_view::model::document::TranscriptMessage)
+/// [`TranscriptMessage::refresh_tool_step`](view::model::document::TranscriptMessage)
 /// stores, so a region's byte offsets index the string a selection slices.
 const COMMAND_INVOCATION_BLOCK: usize = 0;
 /// The command block's **output body** block index (the rows below the prompt).
@@ -295,7 +295,7 @@ impl<'t> CommandBodyCtx<'t> {
         let text = text.trim_end_matches(&['\r', '\n'][..]);
         let prompt_gap = " ".repeat(prompt_cols);
         for logical_line in text.split('\n') {
-            let logical_line = nuo_tool::normalize_carriage_returns(logical_line);
+            let logical_line = tool::normalize_carriage_returns(logical_line);
             let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
             for (wrap_idx, wl) in wrapped.iter().enumerate() {
                 let block_wl = WrappedLine {
@@ -749,11 +749,11 @@ pub(crate) fn fold_signature_for_budget(signature: &str, budget: usize) -> Optio
 
 /// First salient failure signature among the folded rows, if any.
 ///
-/// Shares `nuo-tool`'s scanner with the model-facing fold so the human and the
+/// Shares `tool`'s scanner with the model-facing fold so the human and the
 /// model are pointed at the same line.
 pub(crate) fn first_salient_signature(hidden_rows: &[String]) -> Option<String> {
     let omitted = hidden_rows.join("\n");
-    nuo_tool::vfs::extract_salient_signatures(&omitted, 1)
+    tool::vfs::extract_salient_signatures(&omitted, 1)
         .into_iter()
         .next()
         .map(|(_, signature)| signature)
@@ -782,7 +782,7 @@ pub(crate) fn emit_command_lines(
 ) -> usize {
     let text = text.trim_end_matches(&['\r', '\n'][..]);
     for logical_line in text.split('\n') {
-        let logical_line = nuo_tool::normalize_carriage_returns(logical_line);
+        let logical_line = tool::normalize_carriage_returns(logical_line);
         let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
         for wl in &wrapped {
             let block_wl = WrappedLine {
@@ -810,17 +810,17 @@ pub(crate) fn emit_command_lines(
 }
 
 /// Resolve the shell command for a `bash` step: prefer the structured
-/// [`ToolOutput::Shell`](nuo_tool::ToolOutput) payload (set as soon as the
+/// [`ToolOutput::Shell`](tool::ToolOutput) payload (set as soon as the
 /// call starts, so it is available even while streaming), falling back to
 /// parsing the JSON arguments for legacy / restored sessions without a
 /// structured payload.
-pub(crate) fn command_for(structured: Option<&nuo_tool::ToolOutput>, arguments: &str) -> String {
-    if let Some(nuo_tool::ToolOutput::Shell { command, .. }) = structured
+pub(crate) fn command_for(structured: Option<&tool::ToolOutput>, arguments: &str) -> String {
+    if let Some(tool::ToolOutput::Shell { command, .. }) = structured
         && !command.is_empty()
     {
         return command.clone();
     }
-    nuo_view::model::document::parse_arguments_kv(arguments)
+    view::model::document::parse_arguments_kv(arguments)
         .iter()
         .find(|(k, _)| k == "command")
         .map(|(_, v)| v.clone())

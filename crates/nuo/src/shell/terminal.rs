@@ -58,7 +58,11 @@ pub(super) fn enter_terminal(profile: &nuotc::TerminalProfile) -> io::Result<()>
         MOUSE_CAPTURE_ENABLED.store(true, Ordering::Relaxed);
     }
 
-    if profile.supports_color() && execute!(stdout, EnableBracketedPaste).is_ok() {
+    // Pasting is a text-input capability, not a color capability. Gating this
+    // on `supports_color()` meant `NO_COLOR` terminals delivered a multi-line
+    // paste as individual key events — Enter sent partial messages. Decode
+    // paste brackets whenever the terminal accepts the mode request.
+    if execute!(stdout, EnableBracketedPaste).is_ok() {
         BRACKETED_PASTE_ENABLED.store(true, Ordering::Relaxed);
     }
 

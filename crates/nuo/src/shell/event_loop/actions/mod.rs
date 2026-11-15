@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicUsize;
 use nuotc::Terminal;
 use tokio::sync::mpsc;
 
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::clipboard;
@@ -17,7 +17,7 @@ use crate::shell::clipboard_ops;
 use crate::shell::input;
 use crate::shell::render;
 use crate::shell::surfaces::{DialogKind, SceneKind};
-use nuo_view::model::selection::SelectionState;
+use view::model::selection::SelectionState;
 
 use super::runtime::UiRuntime;
 use super::sync::show_local_toast;
@@ -373,6 +373,13 @@ fn classify_action(action: &input::InputAction) -> ActionFamily {
         | input::InputAction::FocusPrevTarget
         | input::InputAction::ToggleFocusPlane
         | input::InputAction::ActivateFocusedTarget
+        | input::InputAction::SelectMessages { .. }
+        | input::InputAction::OpenTranscriptSearch
+        | input::InputAction::CloseTranscriptSearch
+        | input::InputAction::TranscriptSearchChar(_)
+        | input::InputAction::TranscriptSearchBackspace
+        | input::InputAction::TranscriptSearchNext
+        | input::InputAction::TranscriptSearchPrev
         | input::InputAction::FocusedTargetKey(_) => ActionFamily::Navigation,
         input::InputAction::CloseModal
         | input::InputAction::OpenHelp
@@ -422,6 +429,10 @@ fn classify_action(action: &input::InputAction) -> ActionFamily {
         | input::InputAction::CopyFocusedTarget
         | input::InputAction::CommandLogCopy
         | input::InputAction::CommandLogToggleScope
+        | input::InputAction::OpenDiffViewer
+        | input::InputAction::DiffNextFile
+        | input::InputAction::DiffPrevFile
+        | input::InputAction::DiffToggleReviewed
         | input::InputAction::CopyFocusedDiagnostic => ActionFamily::Clipboard,
         input::InputAction::OpenNotices
         | input::InputAction::NoticesSelect { .. }
@@ -714,7 +725,7 @@ fn handle_provider_config_action(
                     });
                 if let Some(id) = id {
                     if let Some(detail) = app.surfaces.connection_detail.as_mut() {
-                        detail.usage = nuo_protocol::ConnectionUsageState::Fetching;
+                        detail.usage = protocol::ConnectionUsageState::Fetching;
                     }
                     show_local_toast(
                         app,
@@ -1122,6 +1133,27 @@ fn handle_navigation_focus_action(
             app.transcript.selection = SelectionState::None;
             app.transcript.drag.cancel();
         }
+        input::InputAction::SelectMessages { delta } => {
+            app.select_transcript_messages(delta);
+        }
+        input::InputAction::OpenTranscriptSearch => {
+            app.open_transcript_search();
+        }
+        input::InputAction::CloseTranscriptSearch => {
+            app.close_transcript_search();
+        }
+        input::InputAction::TranscriptSearchChar(c) => {
+            app.push_transcript_search_char(c);
+        }
+        input::InputAction::TranscriptSearchBackspace => {
+            app.pop_transcript_search_char();
+        }
+        input::InputAction::TranscriptSearchNext => {
+            app.step_transcript_search(true);
+        }
+        input::InputAction::TranscriptSearchPrev => {
+            app.step_transcript_search(false);
+        }
         input::InputAction::ActivateFocusedTarget => {
             // Stack-top focus dispatch: delegate to the focused component's own
             // interactive key handler (Enter activates: expand/collapse, subagent zoom, etc.).
@@ -1223,7 +1255,7 @@ fn handle_telemetry_usage_action(
                 let idx = app.active_index();
                 if let Some(entry) = snap.entries.get(idx) {
                     let conn_name = entry.name.clone();
-                    app.send_intent(nuo_protocol::AgentRequest::SwitchConnection {
+                    app.send_intent(protocol::AgentRequest::SwitchConnection {
                         provider: conn_name.clone(),
                         model: String::new(),
                         api_key: None,
@@ -1250,7 +1282,7 @@ fn handle_telemetry_usage_action(
                 .provider_quotas
                 .as_ref()
                 .and_then(|q| q.provider_filter.clone());
-            app.send_intent(nuo_protocol::AgentRequest::QueryProviderQuotas {
+            app.send_intent(protocol::AgentRequest::QueryProviderQuotas {
                 provider: filter,
                 force_refresh: true,
             });
@@ -1575,6 +1607,24 @@ fn handle_clipboard_export_action(
                 // top rather than clamping into the middle: the reader just asked
                 // to see a different slice, and the first row of it is the answer.
                 app.surfaces.command_log_scroll = 0;
+            }
+        }
+        input::InputAction::OpenDiffViewer => {
+            app.open_diff_scene();
+        }
+        input::InputAction::DiffNextFile => {
+            if let Some(diff) = app.transcript.diff_viewer.as_mut() {
+                diff.select_next_file();
+            }
+        }
+        input::InputAction::DiffPrevFile => {
+            if let Some(diff) = app.transcript.diff_viewer.as_mut() {
+                diff.select_prev_file();
+            }
+        }
+        input::InputAction::DiffToggleReviewed => {
+            if let Some(diff) = app.transcript.diff_viewer.as_mut() {
+                diff.toggle_reviewed();
             }
         }
         input::InputAction::CopyFocusedDiagnostic => {

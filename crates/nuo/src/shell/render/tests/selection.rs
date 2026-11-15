@@ -9,7 +9,7 @@ use super::*;
 #[test]
 fn virtual_index_selects_only_chunks_intersecting_the_viewport() {
     let messages = (0..4)
-        .map(|i| TranscriptMessage::new(nuo_tool::Role::Assistant, format!("m{i}")))
+        .map(|i| TranscriptMessage::new(tool::Role::Assistant, format!("m{i}")))
         .collect::<Vec<_>>();
     let mut cache = HeightCache::default();
     cache.prepare(80);
@@ -20,7 +20,7 @@ fn virtual_index_selects_only_chunks_intersecting_the_viewport() {
     }
 
     let window = cache
-        .virtual_window(&messages, nuo_view::layout::Strategy::TurnBand, 6, 3)
+        .virtual_window(&messages, view::layout::Strategy::TurnBand, 6, 3)
         .expect("all message heights are cached");
     assert_eq!(window.message_start, 1);
     assert_eq!(window.message_end, 2);
@@ -43,7 +43,7 @@ fn virtual_index_uses_segmented_same_turn_geometry() {
     }
 
     let window = cache
-        .virtual_window(&messages, nuo_view::layout::Strategy::TurnBand, 0, 20)
+        .virtual_window(&messages, view::layout::Strategy::TurnBand, 0, 20)
         .expect("all message heights are cached");
     assert_eq!(window.message_start, 0);
     assert_eq!(window.message_end, 3);
@@ -59,13 +59,12 @@ fn virtual_index_prefix_skips_settled_history_during_streaming_tail() {
     let mut messages = Vec::new();
     for i in 0..5 {
         messages.push(TranscriptMessage::new(
-            nuo_tool::Role::User,
+            tool::Role::User,
             format!("user prompt {i}"),
         ));
     }
     // 6th message is actively streaming (not in HeightCache)
-    let streaming_tail =
-        TranscriptMessage::new(nuo_tool::Role::Assistant, "streaming in progress...");
+    let streaming_tail = TranscriptMessage::new(tool::Role::Assistant, "streaming in progress...");
     messages.push(streaming_tail);
 
     let mut cache = HeightCache::default();
@@ -77,7 +76,7 @@ fn virtual_index_prefix_skips_settled_history_during_streaming_tail() {
 
     // When scrolled to the bottom (viewing the streaming tail), settled history must be skipped in O(1).
     let window = cache
-        .virtual_window(&messages, nuo_view::layout::Strategy::TurnBand, 100, 20)
+        .virtual_window(&messages, view::layout::Strategy::TurnBand, 100, 20)
         .expect("prefix virtual index must resolve even with live unmeasured tail");
 
     assert_eq!(window.message_start, 5, "must skip all 5 settled messages");
@@ -87,7 +86,7 @@ fn virtual_index_prefix_skips_settled_history_during_streaming_tail() {
 
 #[test]
 fn line_selection_intersects_wrapped_lines() {
-    use nuo_view::model::layout::SemanticCursor;
+    use view::model::layout::SemanticCursor;
     let sel = SelectionState::Range {
         anchor: SemanticCursor::new(0, 0, 2),
         head: SemanticCursor::new(0, 0, 8),
@@ -121,7 +120,7 @@ fn line_selection_intersects_wrapped_lines() {
 
 #[test]
 fn block_selection_covers_middle_blocks_fully() {
-    use nuo_view::model::layout::SemanticCursor;
+    use view::model::layout::SemanticCursor;
     let sel = SelectionState::Range {
         anchor: SemanticCursor::new(0, 0, 3),
         head: SemanticCursor::new(0, 2, 1),
@@ -135,7 +134,7 @@ fn block_selection_covers_middle_blocks_fully() {
 
 #[test]
 fn line_selection_does_not_bleed_into_next_line_at_exact_boundary() {
-    use nuo_view::model::layout::SemanticCursor;
+    use view::model::layout::SemanticCursor;
     // Selection covers bytes 2..5 (exactly to the end of the first line).
     let sel = SelectionState::Range {
         anchor: SemanticCursor::new(0, 0, 2),
@@ -162,8 +161,8 @@ fn line_selection_does_not_bleed_into_next_line_at_exact_boundary() {
 #[test]
 fn extract_selection_text_extracts_modal_document_selections() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use nuo_view::model::layout::{BlockRegion, LayoutMap, MODAL_DOC_MSG_IDX, SemanticCursor};
     use nuotc::Rect;
+    use view::model::layout::{BlockRegion, LayoutMap, MODAL_DOC_MSG_IDX, SemanticCursor};
 
     let mut layout_map = LayoutMap::new();
     layout_map.push(BlockRegion {
@@ -205,7 +204,7 @@ fn extract_selection_text_extracts_modal_document_selections() {
 fn paint_transcript(
     messages: &[TranscriptMessage],
     selection: &SelectionState,
-) -> nuo_view::model::layout::LayoutMap {
+) -> view::model::layout::LayoutMap {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     let mut layout_map = LayoutMap::new();
@@ -244,7 +243,7 @@ fn paint_transcript(
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
+                layout: view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -259,8 +258,8 @@ fn paint_transcript(
 /// "no text" and a whole-block select resolved to an empty slice.
 #[test]
 fn a_notice_body_is_drag_selectable_end_to_end() {
-    use nuo_view::model::document::NoticeSeverity;
-    use nuo_view::model::layout::SemanticCursor;
+    use view::model::document::NoticeSeverity;
+    use view::model::layout::SemanticCursor;
 
     let raw = "OpenAI HTTP 429 Too Many Requests: rate limited\n{\"error\":{\"code\":\"1305\"}}";
     let msg = TranscriptMessage::notice(NoticeSeverity::Error, raw);
@@ -273,7 +272,7 @@ fn a_notice_body_is_drag_selectable_end_to_end() {
     let head = layout_map
         .regions()
         .iter()
-        .find(|r| r.block_idx == nuo_view::model::layout::NOTICE_BLOCK_IDX)
+        .find(|r| r.block_idx == view::model::layout::NOTICE_BLOCK_IDX)
         .expect("the entry head is registered so clicks resolve the entry");
     assert!(
         !head.is_text_region(),
@@ -324,7 +323,7 @@ fn a_notice_body_is_drag_selectable_end_to_end() {
 /// where the entry's text lives.
 #[test]
 fn a_notice_whole_block_selection_copies_real_text() {
-    use nuo_view::model::document::NoticeSeverity;
+    use view::model::document::NoticeSeverity;
 
     let raw = "Claude HTTP 500 Server Error\nDetails:\nhost unreachable";
     let msg = TranscriptMessage::notice(NoticeSeverity::Error, raw);
@@ -357,8 +356,8 @@ fn a_notice_whole_block_selection_copies_real_text() {
 #[test]
 fn a_notice_head_focuses_the_entry_while_its_body_starts_a_drag() {
     use crate::shell::interaction::{ClickTarget, classify_click};
-    use nuo_view::model::document::NoticeSeverity;
-    use nuo_view::model::layout::NOTICE_BLOCK_IDX;
+    use view::model::document::NoticeSeverity;
+    use view::model::layout::NOTICE_BLOCK_IDX;
 
     let msg = TranscriptMessage::notice(
         NoticeSeverity::Error,

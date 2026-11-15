@@ -26,7 +26,7 @@
 
 use crate::shell::render::INPUT_MSG_IDX;
 use crate::shell::step_interaction::{self, StepKind};
-use nuo_view::model::layout::{
+use view::model::layout::{
     LayoutMap, SemanticCursor, TOOL_FOLD_BLOCK_IDX, TOOL_FOLD_COPY_BLOCK_IDX, TableCellSegment,
 };
 
@@ -180,10 +180,8 @@ pub fn classify_click(layout_map: &LayoutMap, x: u16, y: u16) -> ClickTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_view::model::layout::{
-        BlockRegion, LayoutMap, LinkHit, TableCellHit, TableCellSegment,
-    };
     use nuotc::Rect;
+    use view::model::layout::{BlockRegion, LayoutMap, LinkHit, TableCellHit, TableCellSegment};
 
     fn push_region(map: &mut LayoutMap, text: &str, msg_idx: usize, block_idx: usize, y: u16) {
         map.push(BlockRegion {
@@ -228,7 +226,7 @@ mod tests {
 
     #[test]
     fn step_summary_when_block_idx_is_sentinel() {
-        use nuo_view::model::layout::TOOL_STEP_BLOCK_IDX;
+        use view::model::layout::TOOL_STEP_BLOCK_IDX;
         let mut map = LayoutMap::new();
         push_region(&mut map, "[bash] $ echo hi", 3, TOOL_STEP_BLOCK_IDX, 5);
         assert_eq!(
@@ -272,7 +270,7 @@ mod tests {
 
     #[test]
     fn priority_input_box_beats_step_summary() {
-        use nuo_view::model::layout::TOOL_STEP_BLOCK_IDX;
+        use view::model::layout::TOOL_STEP_BLOCK_IDX;
         let mut map = LayoutMap::new();
         // Both a step-summary sentinel AND input sentinel on the same region.
         // Input box must win (checked first).
@@ -285,7 +283,7 @@ mod tests {
 
     #[test]
     fn priority_step_summary_beats_table_cell() {
-        use nuo_view::model::layout::TOOL_STEP_BLOCK_IDX;
+        use view::model::layout::TOOL_STEP_BLOCK_IDX;
         let mut map = LayoutMap::new();
         push_region(&mut map, "step", 0, TOOL_STEP_BLOCK_IDX, 0);
         map.push_table_cell_hit(TableCellHit {

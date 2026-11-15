@@ -7,13 +7,13 @@
 //! `App` and maintains the two bookkeeping facts the render loop consumes —
 //! the height-cache invalidation and the "transcript changed" flag that
 //! drives bottom-follow scrolling.
-use nuo_tool::Role;
+use tool::Role;
 
 use crate::shell::app::App;
 use crate::shell::event_loop::mutations::{AppMutation, ChromeEdit, TranscriptEdit};
 use crate::shell::event_loop::runtime::UiRuntime;
-use nuo_view::model::document::{MessageKind, TranscriptMessage};
-use nuo_view::phase::Phase;
+use view::model::document::{MessageKind, TranscriptMessage};
+use view::phase::Phase;
 
 /// Height-cache bookkeeping deferred until the document borrow is dropped.
 enum PostEdit {
@@ -286,7 +286,7 @@ fn apply_chrome_mutation(app: &mut App, session_id: &str, edit: ChromeEdit) -> b
 fn apply_harness_snapshot(
     app: &mut App,
     runtime: &UiRuntime,
-    snapshot: nuo_protocol::HarnessSnapshot,
+    snapshot: protocol::HarnessSnapshot,
 ) -> bool {
     app.session.loop_status = snapshot.loop_status;
     app.session.unattended = snapshot.unattended;
@@ -307,8 +307,7 @@ fn apply_harness_snapshot(
     // the per-run gate so a subsequent periodic republish cannot re-mount
     // within this run.
     if let Some(pa) = app.surfaces.pre_attach.as_mut() {
-        let gate_needed =
-            nuo_view::trust_gate::gate_request(&snapshot.workspace_security).is_some();
+        let gate_needed = view::trust_gate::gate_request(&snapshot.workspace_security).is_some();
         if !gate_needed {
             tracing::info!("nuo: clearing PreAttach interstitial (workspace review resolved)");
             app.surfaces.pre_attach = None;
@@ -332,12 +331,12 @@ fn apply_harness_snapshot(
 
 /// Apply a server-attested readiness transition, flushing queued prompts and
 /// disclosing a post-Welcome failure as a notice rather than a death.
-fn apply_session_phase(app: &mut App, phase: nuo_protocol::ThreadPhase) -> bool {
+fn apply_session_phase(app: &mut App, phase: protocol::ThreadPhase) -> bool {
     let failed = match &phase {
-        nuo_protocol::ThreadPhase::Failed { message, .. } => Some(message.clone()),
+        protocol::ThreadPhase::Failed { message, .. } => Some(message.clone()),
         _ => None,
     };
-    let ready = phase == nuo_protocol::ThreadPhase::Ready;
+    let ready = phase == protocol::ThreadPhase::Ready;
     app.session.session_phase = phase;
     if ready {
         app.session.switching_session = None;
@@ -351,7 +350,7 @@ fn apply_session_phase(app: &mut App, phase: nuo_protocol::ThreadPhase) -> bool 
         // projection stays empty while items sit queued and ship at the
         // next boundary — the user is shown "nothing pending" and then
         // gets prompt they did not see coming.
-        let _ = app.send_intent(nuo_protocol::AgentRequest::QueueSnapshot {
+        let _ = app.send_intent(protocol::AgentRequest::QueueSnapshot {
             thread_id: app.session.current_session_id.clone(),
         });
     }
@@ -400,7 +399,7 @@ fn apply_phase(app: &mut App, phase: Option<Phase>) -> bool {
 
 fn apply_queue_permission(
     app: &mut App,
-    request: nuo_tool::PermissionRequest,
+    request: tool::PermissionRequest,
     parent_call_id: Option<String>,
 ) -> bool {
     if let Some(parent) = parent_call_id {
@@ -414,7 +413,7 @@ fn apply_queue_permission(
 
 fn apply_queue_question(
     app: &mut App,
-    request: nuo_tool::UserQuestionRequest,
+    request: tool::UserQuestionRequest,
     parent_call_id: Option<String>,
 ) -> bool {
     if let Some(parent) = parent_call_id {
@@ -588,7 +587,7 @@ fn apply_dispatch_queued(app: &mut App, session_id: String, input_id: String) ->
 fn apply_queue_snapshot(
     app: &mut App,
     session_id: String,
-    items: Vec<nuo_protocol::QueuedMessage>,
+    items: Vec<protocol::QueuedMessage>,
     paused: bool,
 ) -> bool {
     // Authoritative replace **of the rows the server owns**, preserving
@@ -663,7 +662,7 @@ fn apply_queue_snapshot(
 
 /// Replace the persisted prompt history, scrubbing legacy slash invocations
 /// when command recording is disabled.
-fn apply_input_history(app: &mut App, rows: Vec<nuo_protocol::HistoryEntry>) -> bool {
+fn apply_input_history(app: &mut App, rows: Vec<protocol::HistoryEntry>) -> bool {
     app.composer.input_history = if app.composer.input_history_record_commands {
         rows
     } else {
@@ -682,7 +681,7 @@ fn apply_route_settings(
     app: &mut App,
     provider_id: String,
     model: String,
-    overrides: Option<nuo_protocol::model::CapabilityOverrides>,
+    overrides: Option<protocol::model::CapabilityOverrides>,
 ) -> bool {
     // Prefill only if the editor is still open on the same route —
     // the answer is async, the operator may have moved on.
@@ -697,7 +696,7 @@ fn apply_route_settings(
     }
 }
 
-fn apply_provider_picker(app: &mut App, snapshot: nuo_protocol::ProviderPickerSnapshot) -> bool {
+fn apply_provider_picker(app: &mut App, snapshot: protocol::ProviderPickerSnapshot) -> bool {
     app.surfaces.provider_picker = snapshot;
     app.surfaces
         .surfaces
@@ -712,7 +711,7 @@ fn apply_provider_picker(app: &mut App, snapshot: nuo_protocol::ProviderPickerSn
 
 /// Replace the thread overview, carrying through authentic titles and
 /// clamping the cursor to the new list.
-fn apply_sessions_overview(app: &mut App, sessions: Vec<nuo_protocol::ThreadOverview>) -> bool {
+fn apply_sessions_overview(app: &mut App, sessions: Vec<protocol::ThreadOverview>) -> bool {
     for s in &sessions {
         if let Some(ref t) = s.title {
             let trimmed = t.trim();
@@ -743,7 +742,7 @@ fn apply_sessions_overview(app: &mut App, sessions: Vec<nuo_protocol::ThreadOver
     true
 }
 
-fn apply_session_detail(app: &mut App, detail: nuo_protocol::ThreadDetail) -> bool {
+fn apply_session_detail(app: &mut App, detail: protocol::ThreadDetail) -> bool {
     if let Some(ref t) = detail.title {
         let trimmed = t.trim();
         if !trimmed.is_empty() {
@@ -761,7 +760,7 @@ fn apply_session_detail(app: &mut App, detail: nuo_protocol::ThreadDetail) -> bo
     true
 }
 
-fn apply_connection_detail(app: &mut App, detail: nuo_protocol::ConnectionDetail) -> bool {
+fn apply_connection_detail(app: &mut App, detail: protocol::ConnectionDetail) -> bool {
     let same_id = app.surfaces.connection_detail.as_ref().map(|c| &c.name) == Some(&detail.name);
     app.surfaces.connection_detail = Some(detail);
     if !same_id {
@@ -773,7 +772,7 @@ fn apply_connection_detail(app: &mut App, detail: nuo_protocol::ConnectionDetail
     true
 }
 
-fn apply_host_sessions(app: &mut App, rows: Vec<nuo_protocol::MonitoredThread>) -> bool {
+fn apply_host_sessions(app: &mut App, rows: Vec<protocol::MonitoredThread>) -> bool {
     for row in &rows {
         if let Some(ref t) = row.title {
             let trimmed = t.trim();
@@ -786,7 +785,7 @@ fn apply_host_sessions(app: &mut App, rows: Vec<nuo_protocol::MonitoredThread>) 
     true
 }
 
-fn apply_server_endpoints(app: &mut App, report: nuo_protocol::ServerEndpointsReport) -> bool {
+fn apply_server_endpoints(app: &mut App, report: protocol::ServerEndpointsReport) -> bool {
     let d = app
         .surfaces
         .surfaces
@@ -839,13 +838,13 @@ fn apply_pre_attach_attestation_error(app: &mut App, message: String) -> bool {
     true
 }
 
-fn apply_usage_stats(app: &mut App, report: nuo_protocol::usage_stats::UsageStatsReport) -> bool {
+fn apply_usage_stats(app: &mut App, report: protocol::usage_stats::UsageStatsReport) -> bool {
     app.telemetry.usage_stats = Some(report);
     app.telemetry.usage_loading = false;
     true
 }
 
-fn apply_provider_quotas(app: &mut App, snapshot: nuo_protocol::ProviderQuotaSnapshot) -> bool {
+fn apply_provider_quotas(app: &mut App, snapshot: protocol::ProviderQuotaSnapshot) -> bool {
     for entry in &snapshot.entries {
         app.telemetry
             .connection_usages
@@ -879,7 +878,7 @@ fn apply_link_lost(app: &mut App, reason: String) -> bool {
     // after a window that previously closed with no explanation at all.
     app.link.link_down = true;
     app.link.relink_requested = true;
-    nuo_host::diagnostics::record_event(
+    host::diagnostics::record_event(
         "client",
         "link_lost",
         &format!("session server link lost: {reason}"),
@@ -1403,7 +1402,7 @@ fn apply_retract_pending_tool_steps(
 fn apply_tool_preview(
     messages: &mut [TranscriptMessage],
     id: String,
-    preview: nuo_tool::PreviewResult,
+    preview: tool::PreviewResult,
     apply: &mut TranscriptApply,
 ) {
     // Match by call id: the announcement (or the up-front `ToolCall`
@@ -1450,7 +1449,7 @@ fn apply_tool_result(
     id: String,
     name: String,
     output: String,
-    structured: nuo_tool::ToolOutput,
+    structured: tool::ToolOutput,
     duration_ms: u64,
     fallback: Option<TranscriptMessage>,
     apply: &mut TranscriptApply,
@@ -1522,7 +1521,7 @@ fn apply_tool_cancel(
 fn apply_tool_stream(
     messages: &mut [TranscriptMessage],
     id: String,
-    stream: nuo_tool::ToolStream,
+    stream: tool::ToolStream,
     apply: &mut TranscriptApply,
 ) {
     if !messages
@@ -1537,7 +1536,7 @@ fn apply_tool_stream(
 fn apply_subagent_event(
     messages: &mut [TranscriptMessage],
     parent_call_id: String,
-    event: nuo_tool::SubagentEvent,
+    event: tool::SubagentEvent,
     apply: &mut TranscriptApply,
 ) {
     if !messages
@@ -1553,7 +1552,7 @@ fn apply_subagent_event(
 fn apply_settle_command_result(
     messages: &mut Vec<TranscriptMessage>,
     invocation: String,
-    result: nuo_protocol::CommandResult,
+    result: protocol::CommandResult,
     fallback: Option<TranscriptMessage>,
     apply: &mut TranscriptApply,
 ) {
@@ -1561,15 +1560,14 @@ fn apply_settle_command_result(
     // A rejected command name is the one command result that gives
     // the user something back: nothing was dispatched, so the draft
     // is still theirs. Hold it for the post-borrow restore below.
-    if let nuo_protocol::CommandResult::UnknownCommand { .. } = &result {
+    if let protocol::CommandResult::UnknownCommand { .. } = &result {
         apply.rejected_invocation = Some(invocation.clone());
     }
     let mut settled_id: Option<u64> = None;
     if let Some(message) = messages.iter_mut().rev().find(|message| {
         message.is_command_result()
             && message.raw == invocation
-            && message.command_result_phase()
-                == Some(nuo_view::model::document::CommandPhase::Pending)
+            && message.command_result_phase() == Some(view::model::document::CommandPhase::Pending)
     }) {
         message.settle_command_result(result.clone());
         settled_id = Some(message.id);
@@ -1584,7 +1582,7 @@ fn apply_settle_command_result(
     }
 }
 
-fn apply_interrupted(messages: &mut Vec<TranscriptMessage>, record: nuo_protocol::RoundInterrupt) {
+fn apply_interrupted(messages: &mut Vec<TranscriptMessage>, record: protocol::RoundInterrupt) {
     // The interrupt used to *rewrite* the trailing provider-retry
     // entry into a permanent notice here — a second responsibility
     // hidden inside a variant named `Interrupted`, bypassing the
@@ -1616,14 +1614,14 @@ fn apply_cancel_last_user_prompt(messages: &mut [TranscriptMessage]) {
 
 fn apply_append(
     messages: &mut Vec<TranscriptMessage>,
-    class: nuo_protocol::EventClass,
+    class: protocol::EventClass,
     message: TranscriptMessage,
 ) {
     // The single admission gate. A row whose class is not dialogue
     // or turn structure is refused here rather than silently
     // becoming part of the conversation: operations belong to the
     // durable ledger, telemetry to chrome, and receipts/notices to
-    // a surface layer (`nuo_view::model::layer`).
+    // a surface layer (`view::model::layer`).
     if class.admits_dialogue() || class.admits_anchor() {
         messages.push(message);
     } else {
@@ -1652,8 +1650,7 @@ fn apply_withdraw_staged_command(
     let before = messages.len();
     messages.retain(|message| {
         !(message.raw == invocation
-            && message.command_result_phase()
-                == Some(nuo_view::model::document::CommandPhase::Pending))
+            && message.command_result_phase() == Some(view::model::document::CommandPhase::Pending))
     });
     if messages.len() != before {
         // Every following row shifted a line; the layout cache is keyed
@@ -1673,8 +1670,8 @@ fn apply_stamp_turn_prompt(messages: &mut [TranscriptMessage], round: u64) {
     // admission; stamp its latest unpositioned driving prompt.
     if let Some(prompt) = messages.iter_mut().rev().find(|message| {
         message.role == Role::User
-            && (message.origin == nuo_view::model::document::UserMessageOrigin::Chat
-                || message.origin == nuo_view::model::document::UserMessageOrigin::FollowUp)
+            && (message.origin == view::model::document::UserMessageOrigin::Chat
+                || message.origin == view::model::document::UserMessageOrigin::FollowUp)
             && (message.round.is_none() || message.is_sending())
     }) {
         prompt.round = Some(round);
@@ -1768,6 +1765,9 @@ fn apply_chrome(app: &mut App, session_id: &str, edit: ChromeEdit) {
             chrome.round_started_at = None;
         }
         ChromeEdit::TurnPerformance(performance) => {
+            if let Some(cost) = performance.cost_nano_usd {
+                chrome.session_cost_nano_usd = chrome.session_cost_nano_usd.saturating_add(cost);
+            }
             chrome.last_turn_performance = Some(*performance);
         }
     }

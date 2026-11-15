@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::stream::{self, BoxStream};
-use nuo_engine::{
+use engine::{
     Agent, AgentIdentity, Block, InstructionContext, InstructionRegistryError, InstructionSection,
     Message, Provider, Role,
 };
+use futures::stream::{self, BoxStream};
 
 struct IdleProvider;
 
@@ -16,9 +16,9 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Ok(protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
@@ -26,12 +26,10 @@ impl Provider for IdleProvider {
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
-    > {
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
+    {
         Ok(Box::pin(stream::once(async { Ok("done".to_owned()) })))
     }
 }
@@ -51,7 +49,7 @@ impl InstructionSection for ProductPolicy {
     }
 }
 
-fn builder() -> nuo_engine::AgentBuilder {
+fn builder() -> engine::AgentBuilder {
     Agent::builder(Arc::new(IdleProvider), Vec::new(), AgentIdentity::default())
 }
 
@@ -93,16 +91,22 @@ fn embedding_configuration_errors_are_structured() {
 }
 
 #[test]
-fn default_prompt_is_free_of_nanny_prompting() {
+fn default_prompt_carries_the_coding_baseline() {
     let agent = builder().build();
     let mut messages = vec![Message::new(Role::User, "test prompt")];
     agent.prepare_request_messages_debug(&mut messages);
 
-    // Shipped default builder has no identity, project rules, or tools, so it
-    // renders no system message: zero prompt clutter and zero attention theft.
+    // A bare session still gets the working contract: tool discipline,
+    // verification, and the todo rule are not optional identity decoration.
+    let system = messages
+        .iter()
+        .find(|message| message.role == Role::System)
+        .expect("default request must carry the coding baseline");
+    assert!(system.content.contains("Working Contract"));
+    assert!(system.content.contains("verify it"));
     assert!(
-        messages.iter().all(|message| message.role != Role::System),
-        "default request must not synthesize a system prompt"
+        !system.content.contains("You are Nuo"),
+        "identity remains opt-in; the baseline is not an identity override"
     );
 }
 
@@ -121,7 +125,7 @@ fn embedding_can_order_sections_semantically() {
         .unwrap()
         .order_instruction_section(
             "embedding.first",
-            nuo_engine::InstructionOrder::Before("embedding.second"),
+            engine::InstructionOrder::Before("embedding.second"),
         )
         .unwrap()
         .build();
@@ -140,9 +144,9 @@ fn embedding_can_order_sections_semantically() {
 
 #[test]
 fn user_instructions_are_rendered_dynamically() {
-    let instruction = |text: &str| nuo_protocol::ScopedInstruction {
+    let instruction = |text: &str| protocol::ScopedInstruction {
         id: "user:0".to_string(),
-        source: nuo_protocol::InstructionSource::User,
+        source: protocol::InstructionSource::User,
         ordinal: 0,
         selector: Default::default(),
         text: text.to_string(),
@@ -179,19 +183,19 @@ fn user_instructions_are_rendered_dynamically() {
 
 #[test]
 fn subagent_inherits_parent_user_instructions() {
-    let instruction = nuo_protocol::ScopedInstruction {
+    let instruction = protocol::ScopedInstruction {
         id: "user:0".to_string(),
-        source: nuo_protocol::InstructionSource::User,
+        source: protocol::InstructionSource::User,
         ordinal: 0,
         selector: Default::default(),
         text: "Inherited user instruction from parent.".to_string(),
     };
     let parent = builder().with_user_instructions(vec![instruction]).build();
 
-    let tool = nuo_engine::SubagentTool::new(
+    let tool = engine::SubagentTool::new(
         Arc::new(IdleProvider),
-        nuo_protocol::ToolSet::from_tools(Vec::new()),
-        &nuo_protocol::SubAgentProfile::EXPLORE,
+        protocol::ToolSet::from_tools(Vec::new()),
+        &protocol::SubAgentProfile::EXPLORE,
     );
     tool.bind_user_instructions(parent.user_instructions_handle());
 
@@ -214,38 +218,38 @@ fn subagent_inherits_parent_user_instructions() {
 fn subagent_inherits_parent_project_instructions_and_provider_kind() {
     let parent = builder().build();
     parent.set_project_instructions(vec![
-        nuo_protocol::ScopedInstruction {
+        protocol::ScopedInstruction {
             id: ".nuo/instructions/global.md".to_string(),
-            source: nuo_protocol::InstructionSource::Project,
+            source: protocol::InstructionSource::Project,
             ordinal: 0,
             selector: Default::default(),
             text: "Global project rule.".to_string(),
         },
-        nuo_protocol::ScopedInstruction {
+        protocol::ScopedInstruction {
             id: ".nuo/instructions/explore.md".to_string(),
-            source: nuo_protocol::InstructionSource::Project,
+            source: protocol::InstructionSource::Project,
             ordinal: 1,
-            selector: nuo_protocol::InstructionSelector {
+            selector: protocol::InstructionSelector {
                 role: Some("explore".to_string()),
                 ..Default::default()
             },
             text: "Explore role rule.".to_string(),
         },
-        nuo_protocol::ScopedInstruction {
+        protocol::ScopedInstruction {
             id: ".nuo/instructions/provider.md".to_string(),
-            source: nuo_protocol::InstructionSource::Project,
+            source: protocol::InstructionSource::Project,
             ordinal: 2,
-            selector: nuo_protocol::InstructionSelector {
+            selector: protocol::InstructionSelector {
                 provider: Some("commandcode-goat".to_string()),
                 ..Default::default()
             },
             text: "Provider rule.".to_string(),
         },
-        nuo_protocol::ScopedInstruction {
+        protocol::ScopedInstruction {
             id: ".nuo/instructions/reviewer.md".to_string(),
-            source: nuo_protocol::InstructionSource::Project,
+            source: protocol::InstructionSource::Project,
             ordinal: 3,
-            selector: nuo_protocol::InstructionSelector {
+            selector: protocol::InstructionSelector {
                 role: Some("reviewer".to_string()),
                 ..Default::default()
             },
@@ -273,7 +277,7 @@ fn subagent_inherits_parent_project_instructions_and_provider_kind() {
 
 #[test]
 fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
-    let reg = nuo_engine::default_instruction_registry();
+    let reg = engine::default_instruction_registry();
 
     // 1. Channel without parallel tool calls and without code_query:
     let ctx_no_parallel = InstructionContext {
@@ -283,7 +287,7 @@ fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
         ..Default::default()
     };
     let regions1 = reg.build_regions(&ctx_no_parallel).unwrap();
-    let rendered1 = nuo_protocol::render_blocks(&regions1.fixed);
+    let rendered1 = protocol::render_blocks(&regions1.fixed);
     assert!(rendered1.contains("Workspace"));
     assert!(rendered1.contains("crates/*"));
     assert!(!rendered1.contains("Batch independent inspection"));
@@ -297,7 +301,7 @@ fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
         ..Default::default()
     };
     let regions2 = reg.build_regions(&ctx_full).unwrap();
-    let rendered2 = nuo_protocol::render_blocks(&regions2.fixed);
+    let rendered2 = protocol::render_blocks(&regions2.fixed);
     assert!(rendered2.contains("Workspace"));
     assert!(rendered2.contains("Batch independent inspection and file examination operations"));
     assert!(rendered2.contains("Prefer structural AST queries (`code_query` outline/symbol)"));

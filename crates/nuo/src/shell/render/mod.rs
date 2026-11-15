@@ -25,46 +25,43 @@ pub(crate) use crate::shell::view_header::{
 };
 #[allow(unused_imports)]
 pub use crate::shell::views::settings::*;
-pub(crate) use nuo_ui_primitives::design::{
-    ACTIVITY_STRIP_ROWS, CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH,
-    COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT, COMPOSER_PROMPT_PREFIX_COLS,
-    COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS, FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS,
-    MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS, PAGE_HEADER_ROWS,
-    REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS, STEP_MIN_WIDTH,
-    TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS, TOOL_STEP_CHILDREN_GAP_ROWS,
-    TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
+#[cfg(test)]
+use nuotc::{prohibited_line_end, prohibited_line_start};
+pub(crate) use ui_primitives::design::{
+    ACTIVITY_STRIP_ROWS, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
+    COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
+    FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS,
+    PAGE_HEADER_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS,
+    STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS,
+    TOOL_STEP_CHILDREN_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
 };
-pub use nuo_ui_primitives::primitives::recess_backdrop;
-use nuo_ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
+pub use ui_primitives::primitives::recess_backdrop;
+use ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
 #[allow(unused_imports)]
-pub use nuo_ui_primitives::theme::{COLOR_SCHEMES, Theme};
+pub use ui_primitives::theme::{COLOR_SCHEMES, Theme};
 /// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057 → ADR-0104).
 /// Re-exported so the app shell selects the variant and the renderer paints it.
-pub use nuo_view::empty_state::EmptyStateGuidance;
+pub use view::empty_state::EmptyStateGuidance;
 /// Parse a raw logo file into clamped display lines for the empty-state hero.
 /// Re-exported so the startup loader and the renderer share one clamp rule.
-pub use nuo_view::empty_state::parse_logo;
+pub use view::empty_state::parse_logo;
 /// Which peer plane owns the keyboard (ADR-0145). Re-exported so the shell
 /// projects its own `Focus` onto the renderer's paint-time enum at the props
 /// boundary instead of the presentation crate depending on the shell's
 /// interaction state machine.
-pub use nuo_view::focus_plane::FocusPlane;
-use nuo_view::footer_stack;
-pub(crate) use nuo_view::footer_stack::{
-    FooterRow, FooterRowId, PlacedFooter, rect_of as footer_rect,
-};
+pub use view::focus_plane::FocusPlane;
+use view::footer_stack;
+pub(crate) use view::footer_stack::{FooterRow, FooterRowId, PlacedFooter, rect_of as footer_rect};
 /// Transcript arrangement strategy (`turn_band`).
-pub(crate) use nuo_view::layout;
+pub(crate) use view::layout;
 #[cfg(test)]
-use nuo_view::text_layout::WrappedLine;
+use view::text_layout::WrappedLine;
 #[cfg(test)]
-use nuo_view::text_layout::{block_selection_range, line_selection};
-use nuo_view::tools::DiffCache;
-#[cfg(test)]
-use nuotc::{prohibited_line_end, prohibited_line_start};
+use view::text_layout::{block_selection_range, line_selection};
+use view::tools::DiffCache;
 // Modules referenced by their bare name within this file.
 use crate::shell::composer_grid::TextGrid;
-use nuo_view::empty_state;
+use view::empty_state;
 
 use nuotc::{
     Alignment, Block as RtBlock, Constraint, Direction, Frame, Layout, Line, Paragraph, Rect, Span,
@@ -72,11 +69,11 @@ use nuotc::{
 };
 
 #[cfg(test)]
-use nuo_tool::{PermissionRequest, UserQuestionRequest};
+use tool::{PermissionRequest, UserQuestionRequest};
 
-use nuo_view::model::document::TranscriptMessage;
-use nuo_view::model::layout::{InteractiveTarget, LayoutMap};
-use nuo_view::model::selection::{CellDragInfo, SelectionState};
+use view::model::document::TranscriptMessage;
+use view::model::layout::{InteractiveTarget, LayoutMap};
+use view::model::selection::{CellDragInfo, SelectionState};
 
 /// Inner rect of a transcript-area region after reserving the uniform
 /// [`TRANSCRIPT_H_INSET`] left+right `app_bg` gutters. This is the **single
@@ -163,7 +160,7 @@ pub(crate) fn draw_too_small(frame: &mut Frame, theme: &Theme) {
 
 pub struct TranscriptProps<'a> {
     pub messages: &'a [TranscriptMessage],
-    pub scroll: u16,
+    pub scroll: usize,
     pub selection: &'a SelectionState,
     pub cell_selection: Option<&'a CellDragInfo>,
     /// Transient running status shown in a thin bar above the input box.
@@ -174,7 +171,7 @@ pub struct TranscriptProps<'a> {
     /// status label — the typed state, so the renderer can choose the full
     /// `retry 1 in 4s` or the compact `retry 1` form without re-parsing a
     /// sentence. First casualty under width pressure.
-    pub backoff: Option<&'a nuo_view::retry::RetryProgress>,
+    pub backoff: Option<&'a view::retry::RetryProgress>,
     /// Whether a tool permission request is awaiting the user's decision. When
     /// true the activity bar is forced visible even if the loop has gone idle,
     /// and its label reads as a permission state so the live status surface
@@ -278,10 +275,10 @@ pub struct TranscriptProps<'a> {
 }
 
 /// Caches each transcript message's fully-laid-out height (in rows), keyed by
-pub use nuo_view::layout::{HeightCache, StickyAnchor};
+pub use view::layout::{HeightCache, StickyAnchor};
 
 #[allow(unused_imports)]
-pub use nuo_view::text_layout::{BlockWrapCache, PreparedCode};
+pub use view::text_layout::{BlockWrapCache, PreparedCode};
 
 /// Page-header context for the TaskInspection scene (shown when zoomed into a task).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -522,7 +519,7 @@ struct TranscriptWindow {
     content_lines: usize,
     skip_rows: usize,
     virtual_total_lines: Option<usize>,
-    anchor_lookup: Option<nuo_view::model::layout::ScrollAnchor>,
+    anchor_lookup: Option<view::model::layout::ScrollAnchor>,
 }
 
 /// Inputs for the height-cached, layout-strategy-driven transcript pass.
@@ -532,7 +529,7 @@ struct TranscriptStreamDraw<'a, 'f> {
     band: Rect,
     messages: &'a [TranscriptMessage],
     strategy: layout::Strategy,
-    scroll: u16,
+    scroll: usize,
     height_cache: &'a mut HeightCache,
     selection: &'a SelectionState,
     cell_selection: Option<&'a CellDragInfo>,
@@ -554,7 +551,7 @@ struct TranscriptStreamResult {
 struct ActivityStripRow<'a, 'p> {
     plan: &'a FooterPlan,
     activity: &'a str,
-    backoff: Option<&'a nuo_view::retry::RetryProgress>,
+    backoff: Option<&'a view::retry::RetryProgress>,
     awaiting_permission: bool,
     queue_bar: &'a QueueBarProps<'p>,
     tasks_bar: &'a TasksBarProps<'p>,
@@ -761,7 +758,7 @@ fn begin_transcript_window(
     messages: &[TranscriptMessage],
     strategy: layout::Strategy,
     band: Rect,
-    scroll: u16,
+    scroll: usize,
 ) -> TranscriptWindow {
     height_cache.prepare(band.width);
     let anchor_lookup = height_cache.pending_anchor();
@@ -769,13 +766,13 @@ fn begin_transcript_window(
         message_start: 0,
         message_end: messages.len(),
         content_lines: 0,
-        skip_rows: scroll as usize,
+        skip_rows: scroll,
         virtual_total_lines: None,
         anchor_lookup,
     };
     if anchor_lookup.is_none()
         && let Some(virtual_window) =
-            height_cache.virtual_window(messages, strategy, scroll as usize, band.height)
+            height_cache.virtual_window(messages, strategy, scroll, band.height)
     {
         window.message_start = virtual_window.message_start;
         window.message_end = virtual_window.message_end;
@@ -828,7 +825,7 @@ fn draw_transcript_stream(draw: TranscriptStreamDraw<'_, '_>) -> TranscriptStrea
         message_start: window.message_start,
         message_end: window.message_end,
         virtual_total_lines: window.virtual_total_lines,
-        viewport_top: scroll as usize,
+        viewport_top: scroll,
         anchor_lookup: window.anchor_lookup,
         anchor_capture: None,
         anchor_resolved_line: None,
@@ -953,15 +950,9 @@ fn draw_pane_focus_cues(
     focused_entry: Option<InteractiveTarget>,
     base_theme: &Theme,
 ) {
-    nuo_view::focus_plane::draw_pane_focus(frame, transcript_area, band, focus_plane, base_theme);
+    view::focus_plane::draw_pane_focus(frame, transcript_area, band, focus_plane, base_theme);
     if let Some(header) = focused_entry.and_then(|target| layout_map.entry_header_rect(target)) {
-        nuo_view::focus_plane::draw_entry_marker(
-            frame,
-            transcript_area,
-            band,
-            header.y,
-            base_theme,
-        );
+        view::focus_plane::draw_entry_marker(frame, transcript_area, band, header.y, base_theme);
     }
 }
 
@@ -1128,7 +1119,7 @@ pub fn draw_transcript(
     // so the derivation would report no headroom and the pane would fall back to the
     // gutter cue on top of an already-lifted page. Two values, two distinct meanings.
     let base_theme: &Theme = theme;
-    let transcript_theme = nuo_view::focus_plane::transcript_theme(theme, focus_plane);
+    let transcript_theme = view::focus_plane::transcript_theme(theme, focus_plane);
     let theme: &Theme = &transcript_theme;
     // The frame-wide background above was painted with the *unlifted* page, so the
     // pane's own rect has to be repainted at the lifted tone before anything draws
@@ -1213,6 +1204,14 @@ pub fn draw_transcript(
             transcript_area.width,
             transcript_area.height,
         ));
+        draw_transcript_scrollbar(
+            frame,
+            transcript_area,
+            content_lines,
+            scroll,
+            focus_plane,
+            theme,
+        );
     }
 
     // The footer stacks, from top to bottom: a permanent blank separator, the
@@ -1305,6 +1304,41 @@ pub fn draw_transcript(
         tab_help_rect: tab.help_rect,
         scene_bar_rect: head_band.scene,
         scene_nav_rects: scene,
+    }
+}
+
+fn draw_transcript_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    content_lines: usize,
+    scroll: usize,
+    focus_plane: FocusPlane,
+    theme: &Theme,
+) {
+    let track_h = area.height as usize;
+    if content_lines <= track_h || area.width < 3 || track_h < 2 {
+        return;
+    }
+    let max_scroll = content_lines.saturating_sub(track_h);
+    let effective_scroll = scroll.min(max_scroll);
+    let thumb_h = ((track_h * track_h) / content_lines).clamp(1, track_h);
+    let thumb_top = effective_scroll
+        .saturating_mul(track_h - thumb_h)
+        .checked_div(max_scroll)
+        .unwrap_or(0);
+    let x = area.x + area.width - 1;
+    let thumb_bg = if focus_plane.is_transcript() {
+        theme.pane_marker_fg
+    } else {
+        theme.muted()
+    };
+    for row in thumb_top..(thumb_top + thumb_h) {
+        let y = area.y + row as u16;
+        let cell_rect = Rect::new(x, y, 1, 1);
+        frame.render_widget(
+            &mut Paragraph::new(Line::from(Span::styled(" ", Style::default().bg(thumb_bg)))),
+            cell_rect,
+        );
     }
 }
 

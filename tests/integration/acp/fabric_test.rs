@@ -2,7 +2,7 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_acp::*;
+use acp::*;
 use std::time::Duration;
 
 fn manifest(uri: &str, name: &str, description: &str) -> AgentManifest {
@@ -282,7 +282,7 @@ async fn timeout_releases_the_pending_subscription() {
 
 #[tokio::test]
 async fn channel_publish_is_recorded_for_every_subscriber() {
-    use nuo_acp::{ChannelId, SubscriptionMode};
+    use acp::{ChannelId, SubscriptionMode};
 
     let room = Fabric::new("squad");
     let sender = manifest("agent://local/sender", "Sender", "Posts notices");

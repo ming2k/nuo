@@ -7,7 +7,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;
-use nuo_ui_primitives::primitives::contrast_fg;
+use ui_primitives::primitives::contrast_fg;
 /// Compact relative time for space-constrained surfaces (e.g. the sessions
 /// picker's meta column): `now` / `3m` / `2h` / `5d` / `3w` — no "ago" suffix.
 /// Takes a caller-supplied `now` (seconds since the epoch) so a renderer can
@@ -45,7 +45,7 @@ pub fn one_line(s: &str) -> String {
 
 /// Truncate prose to fit `max` display columns, keeping its head.
 ///
-/// A thin alias over [`fit`](nuo_ui_primitives::components::overflow::fit) for
+/// A thin alias over [`fit`](ui_primitives::components::overflow::fit) for
 /// the many call sites whose field is prose — a session title, a description, a
 /// key hint. It exists so those sites read as "this is prose", and so that any
 /// field whose meaning lives at its *tail* is forced to name a different
@@ -55,10 +55,10 @@ pub fn one_line(s: &str) -> String {
 /// A field that is an identity — a path, a wire id, a hash — must call `fit`
 /// with `Start`/`Middle` instead.
 pub fn truncate_ellipsis(s: &str, max: usize) -> String {
-    nuo_ui_primitives::components::overflow::fit(
+    ui_primitives::components::overflow::fit(
         s,
         max,
-        nuo_ui_primitives::components::overflow::Overflow::End,
+        ui_primitives::components::overflow::Overflow::End,
     )
     .text
 }

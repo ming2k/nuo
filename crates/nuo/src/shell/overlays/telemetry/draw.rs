@@ -4,8 +4,8 @@
 //! - `draw_thread_stats_modal` — Thread Stats (/stats)
 //! - `draw_session_trace_modal` — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
 
-use nuo_protocol::TokenSourceReport;
 use nuotc::{Frame, Rect};
+use protocol::TokenSourceReport;
 
 use super::super::common::placeholder;
 use super::attempt::build_attempt_inspector_body;
@@ -13,15 +13,15 @@ use super::model::*;
 use super::overview::build_overview_body;
 use super::tables::{build_rounds_table, build_turns_table};
 use crate::shell::render::Theme;
-use nuo_ui_primitives::design::MODAL_INNER_H_PADDING;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::design::MODAL_INNER_H_PADDING;
+use ui_primitives::primitives::{
     BodyRenderOptions, ContentModalSpec, FooterHint, HeaderPart, breadcrumb_parts,
     content_modal_area, content_modal_probe, hierarchical_breadcrumb, keyvocab, modal_chrome_rows,
     modal_frame, modal_header_parts, render_body, render_modal_footer,
 };
-use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
-use nuo_view::model::layout::LayoutMap;
-use nuo_view::model::selection::SelectionState;
+use view::components::selectable_body::{SelectableRow, render_selectable_body};
+use view::model::layout::LayoutMap;
+use view::model::selection::SelectionState;
 
 /// Draw the Thread Stats modal (context window utilization, token accounting).
 #[allow(clippy::too_many_arguments)]

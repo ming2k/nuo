@@ -58,13 +58,13 @@ fn publish_setback(
             app,
             runtime,
             crate::shell::event_loop::AppMutation::SetPhase(Some(
-                nuo_view::phase::Phase::AwaitingModel,
+                view::phase::Phase::AwaitingModel,
             )),
         );
     }
 }
 
-fn set_phase(app: &mut App, runtime: &UiRuntime, phase: Option<nuo_view::phase::Phase>) {
+fn set_phase(app: &mut App, runtime: &UiRuntime, phase: Option<view::phase::Phase>) {
     crate::shell::event_loop::apply::apply(
         app,
         runtime,
@@ -117,7 +117,7 @@ fn a_second_retry_replaces_the_clause_and_keeps_it_alive() {
     let viewed = app.viewed_chrome();
     let clause = viewed.transport_setback.expect("still backing off");
     assert_eq!(clause.attempt(), 3, "the newest setback wins");
-    assert_eq!(viewed.phase, Some(nuo_view::phase::Phase::AwaitingModel));
+    assert_eq!(viewed.phase, Some(view::phase::Phase::AwaitingModel));
 }
 
 /// The reported bug, at its narrowest: the stream started (the retried request
@@ -133,7 +133,7 @@ fn a_started_stream_retires_the_clause() {
 
     // `RoundEvent::StreamStart`: the primary mirror's phase fact, plus the
     // session-scoped chrome edit.
-    set_phase(&mut app, &runtime, Some(nuo_view::phase::Phase::Answering));
+    set_phase(&mut app, &runtime, Some(view::phase::Phase::Answering));
     chrome_edit(
         &mut app,
         &runtime,
@@ -142,7 +142,7 @@ fn a_started_stream_retires_the_clause() {
     );
 
     let viewed = app.viewed_chrome();
-    assert_eq!(viewed.phase, Some(nuo_view::phase::Phase::Answering));
+    assert_eq!(viewed.phase, Some(view::phase::Phase::Answering));
     assert!(
         viewed.transport_setback.is_none(),
         "a successful stream is evidence the retried request landed"
@@ -157,20 +157,15 @@ fn a_started_stream_retires_the_clause() {
 /// tool work, a one-shot `Text` payload, and the round's end.
 #[test]
 fn every_progress_fact_retires_the_clause() {
-    let cases: Vec<(&str, Option<nuo_view::phase::Phase>)> = vec![
-        ("answering (delta)", Some(nuo_view::phase::Phase::Answering)),
-        ("thinking", Some(nuo_view::phase::Phase::Reasoning)),
+    let cases: Vec<(&str, Option<view::phase::Phase>)> = vec![
+        ("answering (delta)", Some(view::phase::Phase::Answering)),
+        ("thinking", Some(view::phase::Phase::Reasoning)),
         (
             "tool work",
-            Some(nuo_view::phase::Phase::Tool(
-                nuo_view::phase::ToolVerb::Running,
-            )),
+            Some(view::phase::Phase::Tool(view::phase::ToolVerb::Running)),
         ),
-        ("finalizing", Some(nuo_view::phase::Phase::Finalizing)),
-        (
-            "awaiting the user",
-            Some(nuo_view::phase::Phase::AwaitingUser),
-        ),
+        ("finalizing", Some(view::phase::Phase::Finalizing)),
+        ("awaiting the user", Some(view::phase::Phase::AwaitingUser)),
         ("idle", None),
     ];
 
@@ -205,15 +200,15 @@ fn a_one_shot_text_payload_retires_the_clause() {
         &runtime,
         "s1",
         crate::shell::event_loop::mutations::ChromeEdit::PhaseOnly(Some(
-            nuo_view::phase::Phase::Answering,
+            view::phase::Phase::Answering,
         )),
     );
-    set_phase(&mut app, &runtime, Some(nuo_view::phase::Phase::Answering));
+    set_phase(&mut app, &runtime, Some(view::phase::Phase::Answering));
 
     assert!(!app.has_live_transport_setback());
     assert_eq!(
         app.viewed_chrome().phase,
-        Some(nuo_view::phase::Phase::Answering)
+        Some(view::phase::Phase::Answering)
     );
 }
 
@@ -319,9 +314,7 @@ fn one_retry_episode_feeds_the_clause_and_the_receipt_from_one_state() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(Some(
-            nuo_view::phase::Phase::AwaitingModel,
-        )),
+        crate::shell::event_loop::AppMutation::SetPhase(Some(view::phase::Phase::AwaitingModel)),
     );
 
     let clause = app

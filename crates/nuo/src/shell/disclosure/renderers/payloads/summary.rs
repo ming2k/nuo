@@ -6,9 +6,9 @@ use crate::shell::disclosure::renderers::base::{
     MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx, nonempty_wrapped, truncate_to_width,
 };
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::inline_layout::SemanticLine;
-use nuo_view::model::layout::BlockRegion;
-use nuo_view::text_layout::{WrappedLine, line_selection, line_spans, padded_tail, wrap_text};
+use ui_primitives::components::inline_layout::SemanticLine;
+use view::model::layout::BlockRegion;
+use view::text_layout::{WrappedLine, line_selection, line_spans, padded_tail, wrap_text};
 
 /// Build the summary line for a tool/subagent step: an optional expand marker
 /// followed by the summary text, padded to `full_width`.
@@ -54,7 +54,7 @@ pub(crate) fn tool_summary_line(
 ///
 /// `bg` is the row's surface — the page tone. Keyboard ownership is **not**
 /// expressed here (ADR-0145, amended): the pane wash and the entry marker are
-/// painted once each by `nuo_view::focus_plane`, so a summary line is the same
+/// painted once each by `view::focus_plane`, so a summary line is the same
 /// line whether or not the keyboard is on it. That is what keeps the disclosure
 /// and lifecycle tones the caller resolved intact.
 #[allow(clippy::too_many_arguments)]

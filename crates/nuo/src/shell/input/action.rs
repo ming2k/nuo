@@ -116,7 +116,7 @@ pub enum InputAction {
     /// The preset chooser exposes `b` for browser PKCE and `d` for device
     /// authorization when the client registration supports them.
     SelectPresetWithOauthMethod {
-        method: nuo_protocol::LoginMethod,
+        method: protocol::LoginMethod,
     },
     /// Cancel the preset chooser and return to the Connections list.
     CancelPresetChooser,
@@ -341,6 +341,23 @@ pub enum InputAction {
     ScrollTop,
     /// Scroll to the very bottom and re-engage auto-follow.
     ScrollBottom,
+    /// Extend a keyboard message selection by `delta` messages. Positive
+    /// selects toward newer content, negative toward older.
+    SelectMessages {
+        delta: isize,
+    },
+    /// Open or focus the `Ctrl+F` transcript search bar.
+    OpenTranscriptSearch,
+    /// Close the `Ctrl+F` transcript search bar.
+    CloseTranscriptSearch,
+    /// Append a character to the transcript search query.
+    TranscriptSearchChar(char),
+    /// Delete the last character from the transcript search query.
+    TranscriptSearchBackspace,
+    /// Jump to the next transcript search match.
+    TranscriptSearchNext,
+    /// Jump to the previous transcript search match.
+    TranscriptSearchPrev,
     /// Copy current selection.
     CopySelection,
     /// Plain Ctrl+C: copy selection, clear input, or arm quit. It never
@@ -382,6 +399,14 @@ pub enum InputAction {
     /// Flip the command-log scene between the full log and the rows the
     /// transcript's fold hid (`h`).
     CommandLogToggleScope,
+    /// Open the fullscreen diff viewer scene (`SceneKind::Diff`).
+    OpenDiffViewer,
+    /// Select the next changed file in the diff viewer (`n`).
+    DiffNextFile,
+    /// Select the previous changed file in the diff viewer (`p`).
+    DiffPrevFile,
+    /// Toggle the reviewed flag on the current file in the diff viewer (`r`).
+    DiffToggleReviewed,
     /// Send a key event to the focused transcript target at stack top.
     FocusedTargetKey(crate::shell::keymap::Key),
     /// Copy the content of the currently focused target (`y` or `c` while a step is focused).

@@ -3,8 +3,8 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
-use nuo_view::model::layout::{LayoutMap, SemanticCursor};
-use nuo_view::model::selection::SelectionDrag;
+use view::model::layout::{LayoutMap, SemanticCursor};
+use view::model::selection::SelectionDrag;
 
 use super::InputAction;
 use super::readline::{
@@ -50,6 +50,8 @@ pub struct Dispatch {
     /// session-scoped dialog), which means the router has to be told about it
     /// explicitly or its keys would fall through to the transcript.
     pub notice_viewer_open: bool,
+    /// Whether the `Ctrl+F` transcript search bar is active.
+    pub transcript_searching: bool,
 }
 
 /// Classify one terminal event into the keyboard family resolved by the
@@ -200,6 +202,7 @@ fn scrolls_own_body(
             crate::shell::surfaces::SceneKind::Dashboard
                 | crate::shell::surfaces::SceneKind::Settings
                 | crate::shell::surfaces::SceneKind::CommandLog
+                | crate::shell::surfaces::SceneKind::Diff
         )
     }
 }
@@ -376,6 +379,68 @@ fn route_key_event(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputAction 
     // them — the operator always has a force-quit path.
     if router.dispatch.pre_attach {
         return pre_attach_action(key.code);
+    }
+
+    // Ctrl+F opens/focuses transcript search in the Thread scene when no
+    // overlay or sheet is active.
+    if router.dispatch.overlay.is_none()
+        && router.dispatch.sheet.is_none()
+        && router.dispatch.scene == crate::shell::surfaces::SceneKind::Thread
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('f' | 'F'))
+    {
+        return InputAction::OpenTranscriptSearch;
+    }
+
+    // F4 opens the fullscreen diff viewer when no overlay or sheet is active.
+    if router.dispatch.overlay.is_none()
+        && router.dispatch.sheet.is_none()
+        && matches!(
+            router.dispatch.scene,
+            crate::shell::surfaces::SceneKind::Thread | crate::shell::surfaces::SceneKind::Subagent
+        )
+        && key.modifiers.is_empty()
+        && key.code == KeyCode::F(4)
+    {
+        return InputAction::OpenDiffViewer;
+    }
+
+    // While the transcript search bar is active, it owns printable keys,
+    // Backspace, Enter/Up/Down/F3 match navigation, and Esc to close.
+    if router.dispatch.transcript_searching
+        && router.dispatch.overlay.is_none()
+        && router.dispatch.sheet.is_none()
+    {
+        return match key.code {
+            KeyCode::Esc => InputAction::CloseTranscriptSearch,
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                InputAction::TranscriptSearchPrev
+            }
+            KeyCode::Enter | KeyCode::Down | KeyCode::F(3) => InputAction::TranscriptSearchNext,
+            KeyCode::Up => InputAction::TranscriptSearchPrev,
+            KeyCode::Backspace => InputAction::TranscriptSearchBackspace,
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                InputAction::TranscriptSearchChar(c)
+            }
+            _ => InputAction::None,
+        };
+    }
+
+    // Keyboard range selection owns Shift+↑/↓ on the transcript plane. It
+    // must run before the Conversation scheme, which maps the same chords to
+    // prompt-history navigation.
+    if router.dispatch.focus == crate::shell::focus::FocusPlane::Transcript
+        && key.modifiers.contains(KeyModifiers::SHIFT)
+    {
+        match key.code {
+            KeyCode::Up => return InputAction::SelectMessages { delta: -1 },
+            KeyCode::Down => return InputAction::SelectMessages { delta: 1 },
+            _ => {}
+        }
     }
 
     // Surface Dispatch
@@ -956,7 +1021,7 @@ fn text_input_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputActio
                 // on the returned `Backspace` action, which drops
                 // the orphaned entry from `pending_images` /
                 // `pending_text_pastes` and relabels survivors.
-                if let Some((start, end)) = nuo_view::composer_attachments::chip_range_for_backspace(
+                if let Some((start, end)) = view::composer_attachments::chip_range_for_backspace(
                     router.input,
                     *router.cursor_position,
                 ) {
@@ -986,7 +1051,7 @@ fn text_input_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputActio
             if edits_input_field(&router.dispatch, router.modal_keys)
                 && *router.cursor_position < router.input.len()
             {
-                if let Some((start, end)) = nuo_view::composer_attachments::chip_range_for_delete(
+                if let Some((start, end)) = view::composer_attachments::chip_range_for_delete(
                     router.input,
                     *router.cursor_position,
                 ) {
@@ -1050,6 +1115,15 @@ fn text_input_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputActio
 /// Navigation keys: modal body paging, transcript paging, and Home/End's
 /// dual role (scroll the transcript or move the caret to a line edge).
 fn navigation_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputAction {
+    if router.dispatch.focus == crate::shell::focus::FocusPlane::Transcript
+        && key.modifiers.contains(KeyModifiers::SHIFT)
+    {
+        match key.code {
+            KeyCode::Up => return InputAction::SelectMessages { delta: -1 },
+            KeyCode::Down => return InputAction::SelectMessages { delta: 1 },
+            _ => {}
+        }
+    }
     match key.code {
         // The entry walk (`Ctrl+P` / `Ctrl+N`, and bare ↑/↓ once an
         // entry is highlighted) is a chat-surface chord, resolved by
@@ -1213,7 +1287,7 @@ pub fn resolve_block(layout_map: &LayoutMap, x: u16, y: u16) -> Option<(usize, u
         && rect.y <= y
         && y < rect.y + rect.height
     {
-        return Some((nuo_view::model::layout::INPUT_MSG_IDX, 0));
+        return Some((view::model::layout::INPUT_MSG_IDX, 0));
     }
     None
 }

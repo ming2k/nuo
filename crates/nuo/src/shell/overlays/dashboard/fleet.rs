@@ -271,7 +271,7 @@ pub(crate) fn draw_fleet_table(
         frame.render_widget(&mut Paragraph::new(line), cell);
     }
 
-    nuo_ui_primitives::primitives::draw_scrollbar(
+    ui_primitives::primitives::draw_scrollbar(
         frame,
         rows_rect,
         start_row,
@@ -313,7 +313,7 @@ pub(crate) fn draw_thread_dossier(
 pub(crate) fn draw_model_usage_view(
     frame: &mut Frame,
     area: Rect,
-    report: Option<&nuo_protocol::usage_stats::UsageStatsReport>,
+    report: Option<&protocol::usage_stats::UsageStatsReport>,
     loading: bool,
     scroll: usize,
     theme: &Theme,
@@ -405,7 +405,7 @@ pub(crate) fn render_scrollable(
     let (_, max_scroll) = resolve_scroll(scroll, visible, lines.len(), follow, SCROLL_EDGE_MARGIN);
     let mut para = Paragraph::new(lines).scroll(*scroll as u16, 0);
     frame.render_widget(&mut para, body);
-    nuo_ui_primitives::primitives::draw_scrollbar(frame, body, *scroll, max_scroll, theme);
+    ui_primitives::primitives::draw_scrollbar(frame, body, *scroll, max_scroll, theme);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -432,7 +432,7 @@ pub(crate) fn render_footer(
 
     let bg = theme.body();
     let fill = Style::default().bg(bg);
-    let key_style = nuo_ui_primitives::components::keycap::keycap_style(theme).bg(bg);
+    let key_style = ui_primitives::components::keycap::keycap_style(theme).bg(bg);
     let hint_style = fill.fg(theme.keycap_label());
     let width = rect.width as usize;
 
@@ -539,7 +539,7 @@ pub(crate) fn render_footer(
             ("u", "threads fleet"),
             ("↑/↓", "scroll"),
             ("Esc", "close"),
-            ("C-x", "menu"),
+            (ui_primitives::chord::Key::CTRL_SHIFT_P.display(), "menu"),
         ]
     } else {
         match focus {
@@ -555,7 +555,7 @@ pub(crate) fn render_footer(
                 ("s", "suspend"),
                 ("u", "model usage"),
                 ("/", "filter"),
-                ("C-x", "menu"),
+                (ui_primitives::chord::Key::CTRL_SHIFT_P.display(), "menu"),
             ],
             DashboardFocus::Detail => vec![
                 ("↑/↓", "scroll"),
@@ -564,7 +564,7 @@ pub(crate) fn render_footer(
                 ("n", "new thread"),
                 ("a", "attach"),
                 ("u", "model usage"),
-                ("C-x", "menu"),
+                (ui_primitives::chord::Key::CTRL_SHIFT_P.display(), "menu"),
             ],
         }
     };

@@ -13,9 +13,9 @@
 // integration tests).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use nuo_protocol::{WebConfig, WebReaderProvider, WebRuntimeConfig};
-use nuo_tool::Tool;
-use nuo_tool_web::{WebReaderTool, WebSearchTool};
+use protocol::{WebConfig, WebReaderProvider, WebRuntimeConfig};
+use tool::Tool;
+use tool_web::{WebReaderTool, WebSearchTool};
 
 /// Shape a config mirroring the developer workstation: direct access, Exa
 /// one selected search provider plus the independently selected Jina reader.

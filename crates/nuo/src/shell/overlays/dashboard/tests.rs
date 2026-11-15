@@ -97,7 +97,7 @@ fn row(id: &str, created_at: u64, project_root: &str, status: ThreadActivity) ->
         project_root: project_root.into(),
         role: "developer".into(),
         parent_id: None,
-        origin: nuo_protocol::ThreadOrigin::Trunk,
+        origin: protocol::ThreadOrigin::Trunk,
         digest: None,
     }
 }
@@ -212,7 +212,7 @@ fn dock_card_states_lineage_as_a_back_reference() {
     let now = 1_000u64;
 
     let mut trunk = row("t", 1, "/work/main", ThreadActivity::Running);
-    trunk.origin = nuo_protocol::ThreadOrigin::Trunk;
+    trunk.origin = protocol::ThreadOrigin::Trunk;
     let entries = dock_entries(std::slice::from_ref(&trunk));
     let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -225,7 +225,7 @@ fn dock_card_states_lineage_as_a_back_reference() {
     let trunk_row = row("t", 1, "/work/main", ThreadActivity::Running);
     let mut fork = row("a", 2, "/work/main", ThreadActivity::Running);
     fork.parent_id = Some("t".into());
-    fork.origin = nuo_protocol::ThreadOrigin::Subagent;
+    fork.origin = protocol::ThreadOrigin::Subagent;
     let rows = vec![trunk_row, fork];
     let entries = dock_entries(&rows);
     let fork_entry = entries.iter().find(|e| e.row.id == "a").expect("fork card");
@@ -239,7 +239,7 @@ fn dock_card_states_lineage_as_a_back_reference() {
     // A child whose parent is not in the dock still states the lineage.
     let mut orphan = row("f", 3, "/work/main", ThreadActivity::Idle);
     orphan.parent_id = Some("absent".into());
-    orphan.origin = nuo_protocol::ThreadOrigin::Subagent;
+    orphan.origin = protocol::ThreadOrigin::Subagent;
     let entries = dock_entries(std::slice::from_ref(&orphan));
     let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -478,7 +478,7 @@ fn empty_input_is_never_a_dispatch() {
 fn session_detail_lines_renders_cognitive_digest_intent_and_milestones() {
     let theme = Theme::default();
     let mut r = row("s-123", 1000, "/work/nuo", ThreadActivity::Running);
-    r.digest = Some(nuo_protocol::ThreadDigest {
+    r.digest = Some(protocol::ThreadDigest {
         title: "Refactor Auth Middleware".to_string(),
         intent: "Rewrite token validator to support ECDSA signatures.".to_string(),
         history: vec![
@@ -559,8 +559,8 @@ fn responsive_layout_tier_splits_wide_and_compact() {
 
 #[test]
 fn responsive_layout_tier_adapts_to_elevation_archetype() {
-    use nuo_ui_primitives::elevation::ElevationArchetype;
     use nuotc::Rect;
+    use ui_primitives::elevation::ElevationArchetype;
     let rect_90 = Rect::new(0, 0, 90, 24);
     // Under Chromatic (TrueColor), 90 columns has 0 cost -> 90 effective -> Wide
     assert_eq!(
@@ -589,7 +589,7 @@ fn thread_display_title_prioritizes_authentic_title_over_digest_and_overview() {
     r.overview = "first prompt text".to_string();
     assert_eq!(thread_display_title(&r), "first prompt text");
 
-    r.digest = Some(nuo_protocol::ThreadDigest {
+    r.digest = Some(protocol::ThreadDigest {
         title: "Digest Mission Title".to_string(),
         intent: "fix bug".to_string(),
         history: Vec::new(),

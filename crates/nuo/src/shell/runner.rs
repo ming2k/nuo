@@ -44,7 +44,7 @@ pub fn ensure_dev_environment() {
         unsafe {
             std::env::set_var("NUO_HOME", &dev_home);
         }
-        let _ = nuo_host::paths::set_default(nuo_host::paths::Dirs::system());
+        let _ = host::paths::set_default(host::paths::Dirs::system());
     }
 
     // 2. Point NUO_BIN at the local source-built nuo, building it if not yet present.
@@ -279,14 +279,14 @@ pub async fn run_dashboard(
     let raw_root = project_override
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let project_root = nuo_host::paths::find_project_root(&raw_root);
+    let project_root = host::paths::find_project_root(&raw_root);
     let info = client::ensure_server(&project_root).await?;
     if !client::versions_compatible(&info) {
         return Err(client::incompatibility_error(&info).into());
     }
     let mut rx = client::monitor_stream(
         &info,
-        nuo_protocol::MonitorAction {
+        protocol::MonitorAction {
             watch: false,
             include_idle: true,
         },
@@ -294,7 +294,7 @@ pub async fn run_dashboard(
     .await
     .map_err(|e| format!("could not read the server's session list: {e}"))?;
     let snapshot = match rx.recv().await {
-        Some(nuo_protocol::MonitorEvent::Snapshot(snap)) => snap,
+        Some(protocol::MonitorEvent::Snapshot(snap)) => snap,
         Some(_) => return Err("server monitor stream opened without a snapshot".into()),
         None => return Err("server closed the monitor stream".into()),
     };
@@ -375,7 +375,7 @@ pub async fn run_attached(
             let raw_root = project_override
                 .clone()
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-            let project_root = nuo_host::paths::find_project_root(&raw_root);
+            let project_root = host::paths::find_project_root(&raw_root);
             // A spawn can take a few seconds; the alternate screen is not up
             // yet, so one honest line beats a silent blank terminal.
             eprintln!("nuo: connecting to the session server…");
@@ -564,7 +564,7 @@ pub async fn run_attached(
                 initial_messages: Vec::new(),
                 initial_commands: Vec::new(),
                 initial_round_count: 0,
-                command_catalog: nuo_tool::CommandCatalog::default(),
+                command_catalog: tool::CommandCatalog::default(),
                 initial_round_interrupts: Vec::new(),
                 initial_phase,
                 initial_prompt: launch_prompt,
@@ -584,7 +584,7 @@ pub async fn run_attached(
         .await?;
         preserved_tabs = outcome.tabs;
         preserved_tab_history = outcome.tab_history;
-        if let Err(error) = exit_tx.send(nuo_protocol::AgentRequest::RecordInputHistory {
+        if let Err(error) = exit_tx.send(protocol::AgentRequest::RecordInputHistory {
             entries: outcome.history,
             dedup: base_config.input_history.dedup,
         }) {
@@ -622,7 +622,7 @@ pub async fn run_attached(
                 let raw_root = project_override.clone().unwrap_or_else(|| {
                     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
                 });
-                let project_root = nuo_host::paths::find_project_root(&raw_root);
+                let project_root = host::paths::find_project_root(&raw_root);
                 match client::ensure_server_explicit(&project_root, explicit_port).await {
                     Ok(info) if client::versions_compatible(&info) => {
                         target_server = client::ClientTarget::Local(info);

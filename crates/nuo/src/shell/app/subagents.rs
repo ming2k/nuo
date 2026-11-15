@@ -98,13 +98,12 @@ impl App {
             .unwrap_or(0);
         let prev_region = self.transcript.ui.document.first_region_for_message(mi);
         let summary_screen_y = prev_region.map(|r| r.rect.y);
-        let msg_line_index = summary_screen_y.map(|y| {
-            self.transcript.scroll as usize + (y.saturating_sub(transcript_top_y) as usize)
-        });
+        let msg_line_index = summary_screen_y
+            .map(|y| self.transcript.scroll + (y.saturating_sub(transcript_top_y) as usize));
 
         let toggled =
             resolve_focused_mut(messages, &self.transcript.focus_stack, mi).and_then(|message| {
-                use nuo_view::model::interactive::InteractiveEntry;
+                use view::model::interactive::InteractiveEntry;
                 if message.toggle_expanded() {
                     message.is_expanded()
                 } else {
@@ -129,7 +128,7 @@ impl App {
         if !self.transcript.expand_auto_scroll {
             if !newly_expanded && pinned_to_top {
                 if let Some(summary_line) = sticky_summary_line {
-                    self.transcript.scroll = summary_line.min(u16::MAX as usize) as u16;
+                    self.transcript.scroll = summary_line;
                     self.transcript.pin_summary_line = Some(summary_line);
                 }
             } else {
@@ -148,20 +147,19 @@ impl App {
             {
                 let rel_y = y.saturating_sub(transcript_top_y);
                 if rel_y > 1 {
-                    self.transcript.scroll =
-                        line_idx.saturating_sub(1).min(u16::MAX as usize) as u16;
+                    self.transcript.scroll = line_idx.saturating_sub(1);
                 }
             }
             self.transcript.pin_summary_line = None;
         } else if pinned_to_top {
             if let Some(summary_line) = sticky_summary_line {
-                self.transcript.scroll = summary_line.min(u16::MAX as usize) as u16;
+                self.transcript.scroll = summary_line;
                 self.transcript.pin_summary_line = Some(summary_line);
             }
         } else if let Some(line_idx) = msg_line_index {
             // If collapsing a step that was scrolled above the viewport, keep the collapsed summary visible
-            if line_idx < self.transcript.scroll as usize {
-                self.transcript.scroll = line_idx.min(u16::MAX as usize) as u16;
+            if line_idx < self.transcript.scroll {
+                self.transcript.scroll = line_idx;
                 self.transcript.pin_summary_line = Some(line_idx);
             } else {
                 self.transcript.pin_summary_line = None;
@@ -185,8 +183,8 @@ impl App {
     pub(crate) fn dispatch_focused_target_key(
         &mut self,
         key: crate::shell::keymap::Key,
-    ) -> nuo_view::model::interactive::EntryKeyOutcome {
-        use nuo_view::model::interactive::EntryKeyOutcome;
+    ) -> view::model::interactive::EntryKeyOutcome {
+        use view::model::interactive::EntryKeyOutcome;
         let Some(target) = self.transcript.focus.entry() else {
             return EntryKeyOutcome::Unhandled;
         };
@@ -225,8 +223,8 @@ impl App {
     }
 
     pub(crate) fn visible_interactive_targets(&self) -> Vec<InteractiveTarget> {
-        use nuo_view::model::interactive::InteractiveEntry;
-        use nuo_view::model::layout::InteractiveTargetKind;
+        use view::model::interactive::InteractiveEntry;
+        use view::model::layout::InteractiveTargetKind;
         let mut targets = self.transcript.ui.document.interactive_targets();
         if let Some(message_idx) = self.transcript.sticky_step
             && let Some(message) = self.focused_messages().get(message_idx)
@@ -418,6 +416,147 @@ impl App {
                 }
             })
             .unwrap_or(&[])
+    }
+
+    /// Extend or start a keyboard selection over whole transcript messages.
+    ///
+    /// The anchor is the focused entry when one exists, otherwise the newest
+    /// message. `Shift+↑`/`Shift+↓` move the head one message; `Ctrl+C` then
+    /// uses the same copy resolution as a mouse range.
+    pub fn select_transcript_messages(&mut self, delta: isize) {
+        let messages = self.focused_messages();
+        let count = messages.len();
+        if count == 0 {
+            return;
+        }
+        let (anchor_msg, head_msg) = match self.transcript.selection {
+            SelectionState::Range { anchor, head } => (anchor.message_idx, head.message_idx),
+            SelectionState::Block { message_idx, .. }
+            | SelectionState::TableCell { message_idx, .. } => (message_idx, message_idx),
+            _ => {
+                let base = self
+                    .transcript
+                    .focus
+                    .entry()
+                    .map(|target| target.message_idx)
+                    .unwrap_or(count - 1)
+                    .min(count - 1);
+                (base, base)
+            }
+        };
+        let head = (head_msg as isize + delta).clamp(0, count as isize - 1) as usize;
+        let start = anchor_msg.min(head).min(count - 1);
+        let end = anchor_msg.max(head).min(count - 1);
+        let last_block = messages[end].blocks.len().saturating_sub(1);
+        let end_len = messages[end]
+            .blocks
+            .get(last_block)
+            .map(|block| block.raw_text().len())
+            .unwrap_or(0);
+        self.transcript.selection = SelectionState::Range {
+            anchor: view::model::layout::SemanticCursor::new(start, 0, 0),
+            head: view::model::layout::SemanticCursor::new(end, last_block, end_len),
+        };
+        self.transcript.drag.cancel();
+    }
+
+    pub fn open_transcript_search(&mut self) {
+        self.transcript.search.active = true;
+        self.recompute_transcript_search();
+    }
+
+    pub fn close_transcript_search(&mut self) {
+        self.transcript.search.active = false;
+    }
+
+    pub fn push_transcript_search_char(&mut self, c: char) {
+        self.transcript.search.query.push(c);
+        self.recompute_transcript_search();
+        self.jump_to_transcript_match();
+    }
+
+    pub fn pop_transcript_search_char(&mut self) {
+        self.transcript.search.query.pop();
+        self.recompute_transcript_search();
+        self.jump_to_transcript_match();
+    }
+
+    pub fn step_transcript_search(&mut self, forward: bool) {
+        let len = self.transcript.search.matches.len();
+        if len == 0 {
+            return;
+        }
+        self.transcript.search.current = if forward {
+            (self.transcript.search.current + 1) % len
+        } else if self.transcript.search.current == 0 {
+            len - 1
+        } else {
+            self.transcript.search.current - 1
+        };
+        self.jump_to_transcript_match();
+    }
+
+    fn recompute_transcript_search(&mut self) {
+        let q = self.transcript.search.query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            self.transcript.search.matches.clear();
+            self.transcript.search.current = 0;
+            return;
+        }
+        let matches: Vec<usize> = self
+            .focused_messages()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, msg)| {
+                let raw_hit = msg.raw.to_ascii_lowercase().contains(&q);
+                let block_hit = !raw_hit
+                    && msg
+                        .blocks
+                        .iter()
+                        .any(|b| b.raw_text().to_ascii_lowercase().contains(&q));
+                (raw_hit || block_hit).then_some(idx)
+            })
+            .collect();
+        self.transcript.search.matches = matches;
+        if self.transcript.search.matches.is_empty() {
+            self.transcript.search.current = 0;
+        } else {
+            self.transcript.search.current = self.transcript.search.matches.len() - 1;
+        }
+    }
+
+    fn jump_to_transcript_match(&mut self) {
+        let Some(&msg_idx) = self
+            .transcript
+            .search
+            .matches
+            .get(self.transcript.search.current)
+        else {
+            return;
+        };
+        let messages = self.focused_messages();
+        let Some(msg) = messages.get(msg_idx) else {
+            return;
+        };
+        let last_block = msg.blocks.len().saturating_sub(1);
+        let end_len = msg
+            .blocks
+            .get(last_block)
+            .map(|b| b.raw_text().len())
+            .unwrap_or(0);
+        let mut approx_offset = 0usize;
+        for m in messages.iter().take(msg_idx) {
+            let lines = m.raw.lines().count().max(2);
+            approx_offset = approx_offset.saturating_add(lines + 2);
+        }
+        self.transcript.selection = SelectionState::Range {
+            anchor: view::model::layout::SemanticCursor::new(msg_idx, 0, 0),
+            head: view::model::layout::SemanticCursor::new(msg_idx, last_block, end_len),
+        };
+        self.transcript.drag.cancel();
+        self.transcript.scroll = approx_offset.min(self.transcript.max_scroll);
+        self.transcript.follow_bottom = false;
+        self.transcript.pin_summary_line = None;
     }
 
     /// Zoom into a subagent task's child messages. The zoom frame (call id +

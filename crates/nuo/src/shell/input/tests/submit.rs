@@ -113,7 +113,7 @@ fn enter_with_workspace_view_commands_routes_directly_to_workspace_actions() {
 #[test]
 fn enter_with_unrecognised_slash_command_stays_a_slash_command() {
     // The router is **not** the command authority. It cannot be: the built-in
-    // vocabulary is compiled into `nuo-server`, and an embedding adds more
+    // vocabulary is compiled into `server`, and an embedding adds more
     // through `SlashCommandRegistry`. So a `/`-prefixed draft is emitted as
     // `SendSlash` even when this frontend has never heard of the name, and the
     // server's dispatcher answers with a typed `CommandResult::UnknownCommand`.

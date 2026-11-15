@@ -21,9 +21,9 @@ pub use sgr::{Feed, SgrLeakGuard};
 #[cfg(test)]
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 #[cfg(test)]
-use nuo_view::model::layout::{LayoutMap, SemanticCursor};
+use view::model::layout::{LayoutMap, SemanticCursor};
 #[cfg(test)]
-use nuo_view::model::selection::SelectionDrag;
+use view::model::selection::SelectionDrag;
 #[cfg(test)]
 mod tests;
 

@@ -47,8 +47,8 @@ Every crate in the repository belongs strictly to one of two operational version
 │  • crates/nuo-provider (provider specs & auth)         │
 │  • crates/nuo-model-routing (catalog pipeline)         │
 │  • crates/nuo-mcp (Model Context Protocol transport)   │
-│  • providers/* (model provider channel adapters)       │
-│  • tools/* (decoupled capability tools)                │
+│  • crates/nuo-provider-* (model provider adapters)     │
+│  • crates/nuo-tool-* (decoupled capability tools)      │
 │  ➜ Versioning: Unified Workspace Lockstep              │
 │  ➜ Manifest: Declares `version.workspace = true`       │
 └────────────────────────────────────────────────────────┘
@@ -75,8 +75,8 @@ Every crate in the repository belongs strictly to one of two operational version
 | **`nuo-provider`** | **Cluster B** | Model provider specification, OAuth & transport | `version.workspace = true` | crates.io package |
 | **`nuo-model-routing`** | **Cluster B** | Single model-catalog pipeline (derive, picker, sync) ([ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)) | `version.workspace = true` | crates.io package |
 | **`nuo-mcp`** | **Cluster B** | Model Context Protocol client & server transport | `version.workspace = true` | crates.io package |
-| **`providers/*`** | **Cluster B** | Provider channel adapters (Anthropic, OpenAI, etc.) | `version.workspace = true` | crates.io package |
-| **`tools/*`** | **Cluster B** | Capability tools (`fs`, `exec`, `web`, `ast`) | `version.workspace = true` | crates.io package |
+| **`crates/nuo-provider-*`** | **Cluster B** | Provider channel adapters (Anthropic, OpenAI, etc.) | `version.workspace = true` | crates.io package |
+| **`crates/nuo-tool-*`** | **Cluster B** | Capability tools (`fs`, `exec`, `web`, `ast`) | `version.workspace = true` | crates.io package |
 
 ---
 
@@ -172,15 +172,14 @@ When releasing a new milestone of the Nuo product and workspace:
 ## 5. Architectural Redlines & Invariants
 
 ### 1. In-Tree Crates Are Self-Contained (`[INV-WS-01]`)
-- In-house crates within `crates/*`, `providers/*`, and `tools/*` must never reference relative paths outside the workspace repository root (`../`).
+- In-house crates within `crates/*` must never reference relative paths outside the workspace repository root (`../`).
 - A clean checkout must compile and test in a sandboxed CI runner without external sibling directories.
 
-### 2. Pure Tiered Workspace Topology (`[INV-ARCH-TIER-01]`, ADR-0109)
-- All crates reside uniformly in one of exactly three flat tiers:
-  - `crates/*` — Layers 1–4 core platform crates, including the host binary `crates/nuo`.
-  - `providers/nuo-provider-*` — Provider channel adapters.
-  - `tools/nuo-tool-*` — Tool plugins.
-- No production crate resides directly at the workspace root. The sole root package is the dev-only `nuo-tests` test host; the three production tiers remain `crates/*`, `providers/*`, and `tools/*`. Enforced mechanically by the nextest `governance::architecture_firewall` suite.
+### 2. Flat `crates/*` Workspace Topology (`[INV-ARCH-TIER-01]`)
+- All production crates reside uniformly under `crates/*`:
+  - `crates/nuo` — Host binary.
+  - `crates/nuo-*` — Core platform crates, provider adapters (`nuo-provider-*`), and tool plugins (`nuo-tool-*`).
+- No production crate resides directly at the workspace root. The sole root package is the dev-only `nuo-tests` test host; all production crates reside in `crates/*`. Enforced mechanically by the nextest `governance::architecture_firewall` suite.
 
 ### 3. Unified Lockstep Invariant (`[INV-VER-01]`)
 - Host suite crates (`nuo`, `nuo-server`, `nuo-engine`, `nuo-guardrails`, `nuo-protocol`, `nuo-ui-primitives`, `nuo-view`, etc.) must **never** declare independent version numbers; they inherit `version.workspace = true` to prevent diamond dependency resolution failures and version drift.

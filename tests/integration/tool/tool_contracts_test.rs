@@ -2,13 +2,13 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_tool::{
-    AlwaysApprove, ApprovalDecision, ApprovalHandler, DynamicTool, McpTool, RiskProfile, Tool,
-    ToolCallRequest, ToolContext, ToolError, ToolRegistry,
-};
 use serde_json::json;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+use tool::{
+    AlwaysApprove, ApprovalDecision, ApprovalHandler, DynamicTool, McpTool, RiskProfile, Tool,
+    ToolCallRequest, ToolContext, ToolError, ToolRegistry,
+};
 
 #[tokio::test]
 async fn dynamic_tool_basic_execution() {

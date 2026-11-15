@@ -82,7 +82,7 @@ fn input_box_grows_with_wrapped_content() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme,
-                    layout: nuo_view::layout::Strategy::default(),
+                    layout: view::layout::Strategy::default(),
                     height_cache: None,
                 },
             );

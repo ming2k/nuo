@@ -12,8 +12,8 @@ use crate::shell::app::state::{
     ComposerState, HumanState, LinkState, ProviderEditorState, SessionState, SurfacesState,
     TelemetryState, TranscriptState,
 };
-use nuo_protocol::{AgentResponse, LoopStatus, RoundEvent};
-use nuo_tool::{Message, Role, ToolCall};
+use protocol::{AgentResponse, LoopStatus, RoundEvent};
+use tool::{Message, Role, ToolCall};
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -31,17 +31,17 @@ use crate::shell::render::Theme;
 use crate::shell::transcript::{
     finalize_streaming_reasoning, transcript_message_from_core, transcript_messages_from_core,
 };
-use nuo_protocol::{AgentRequest, ProviderPickerSnapshot};
-use nuo_view::model::layout::InteractiveTarget;
-use nuo_view::model::selection::{SelectionDrag, SelectionState};
+use protocol::{AgentRequest, ProviderPickerSnapshot};
+use view::model::layout::InteractiveTarget;
+use view::model::selection::{SelectionDrag, SelectionState};
 
 use std::collections::HashMap;
 
 /// The vocabulary fixture is the **server's** catalog — the same publication a
 /// real client receives during attach. A test-local copy was what let the TUI's
 /// popup advertise `/delegate` and lose `/quotas` without any test noticing.
-fn test_command_catalog() -> nuo_tool::CommandCatalog {
-    nuo_server::composition::startup::command_catalog(&[])
+fn test_command_catalog() -> tool::CommandCatalog {
+    server::composition::startup::command_catalog(&[])
 }
 
 fn thread_with_subagents() -> Vec<TranscriptMessage> {
@@ -104,13 +104,13 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         session: SessionState {
             queue_exit_session: None,
             session_chrome: std::collections::HashMap::new(),
-            session_tree: nuo_protocol::ThreadTree::default(),
+            session_tree: protocol::ThreadTree::default(),
             session_detail: None,
             current_provider: "mock".to_string(),
             current_model: "mock".to_string(),
             cwd: cwd.clone(),
             current_session_id: "test-session".to_string(),
-            session_phase: nuo_protocol::ThreadPhase::Ready,
+            session_phase: protocol::ThreadPhase::Ready,
             current_workspace: String::new(),
             current_role: None,
             session_context: None,
@@ -120,7 +120,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             provider_retry: None,
             persistence_health: None,
             live_session_id: "session-test".to_string(),
-            workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
+            workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
             tui_config: crate::shell::config::TuiConfig::default(),
             unattended: false,
             confined: true,
@@ -134,6 +134,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             running_sessions: std::collections::HashSet::new(),
         },
         transcript: TranscriptState {
+            diff_viewer: None,
             messages: Vec::new(),
             layout_height_cache: Default::default(),
             scroll: 0,
@@ -148,6 +149,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             pin_summary_line: None,
             scroll_settle_pending: false,
             focus_stack: Vec::new(),
+            search: crate::shell::app::state::TranscriptSearchState::default(),
             transcript_changed_pending: false,
             reasoning_default_expanded: false,
             host_console_log: Vec::new(),
@@ -182,7 +184,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             backend_completion_signal: None,
             input_history: Vec::new(),
             history_index: None,
-            draft_capsule: nuo_view::composer_mode::DraftCapsule::default(),
+            draft_capsule: view::composer_mode::DraftCapsule::default(),
             history_attachments: std::collections::HashMap::new(),
             history_attachments_order: std::collections::VecDeque::new(),
             session_history_backfill: Vec::new(),
@@ -254,7 +256,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             switch_to_prompt: None,
             startup_overlay: crate::shell::StartupOverlay::None,
             color_scheme: "zen".to_string(),
-            custom_color_scheme: nuo_ui_primitives::ColorSchemeConfig::default(),
+            custom_color_scheme: ui_primitives::ColorSchemeConfig::default(),
             click_outside_dismiss: false,
             key_overrides: crate::shell::keymap::GlobalOverrides::default(),
             surface_overrides: crate::shell::keymap::SurfaceOverrides::default(),
@@ -344,21 +346,21 @@ fn new_test_channel() -> mpsc::UnboundedSender<AgentRequest> {
     tx
 }
 
-fn openai_template() -> &'static nuo_view::providers::ConnectionTemplate {
+fn openai_template() -> &'static view::providers::ConnectionTemplate {
     crate::PROVIDER_PRESETS
         .iter()
         .find(|t| t.id == "openai")
         .expect("openai template")
 }
 
-fn anthropic_template() -> &'static nuo_view::providers::ConnectionTemplate {
+fn anthropic_template() -> &'static view::providers::ConnectionTemplate {
     crate::PROVIDER_PRESETS
         .iter()
         .find(|t| t.id == "anthropic")
         .expect("anthropic template")
 }
 
-fn antigravity_template() -> &'static nuo_view::providers::ConnectionTemplate {
+fn antigravity_template() -> &'static view::providers::ConnectionTemplate {
     crate::PROVIDER_PRESETS
         .iter()
         .find(|t| t.id == "google-antigravity")
@@ -391,10 +393,10 @@ fn prompt_tail(messages: &[TranscriptMessage]) -> Vec<(String, bool, u64)> {
         .collect()
 }
 
-pub(crate) fn overview_row(id: &str) -> nuo_protocol::ThreadOverview {
-    nuo_protocol::ThreadOverview {
+pub(crate) fn overview_row(id: &str) -> protocol::ThreadOverview {
+    protocol::ThreadOverview {
         parent_id: None,
-        origin: nuo_protocol::ThreadOrigin::Trunk,
+        origin: protocol::ThreadOrigin::Trunk,
         id: id.to_string(),
         title: None,
         overview: format!("overview-{id}"),
@@ -435,15 +437,15 @@ fn relay_probe(
 }
 
 fn console_host_rows(app: &mut App) {
-    let row = |id: &str, created: u64| nuo_protocol::MonitoredThread {
+    let row = |id: &str, created: u64| protocol::MonitoredThread {
         id: id.to_string(),
         title: None,
         overview: String::new(),
         created_at: created,
         updated_at: created,
         message_count: 1,
-        hosting: nuo_protocol::ThreadHosting::Hosted,
-        status: nuo_protocol::ThreadActivity::Idle,
+        hosting: protocol::ThreadHosting::Hosted,
+        status: protocol::ThreadActivity::Idle,
         round: 1,
         turn: None,
         output_tokens: 0,
@@ -455,7 +457,7 @@ fn console_host_rows(app: &mut App) {
         project_root: "/tmp/proj".to_string(),
         role: "developer".to_string(),
         parent_id: None,
-        origin: nuo_protocol::ThreadOrigin::Trunk,
+        origin: protocol::ThreadOrigin::Trunk,
         digest: None,
     };
     app.session.host_sessions = vec![row("aaa", 100), row("bbb", 200)];

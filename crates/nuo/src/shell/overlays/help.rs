@@ -16,8 +16,8 @@ use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
 use crate::shell::keymap::{CommandId, GlobalOverrides, SurfaceOverrides, SurfaceVerb};
 use crate::shell::render::Theme;
 use crate::shell::surfaces::SceneKind;
-use nuo_ui_primitives::elevation::modal_frame;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::elevation::modal_frame;
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, content_modal_area, modal_header, render_body,
     render_modal_footer,
 };
@@ -236,6 +236,13 @@ pub fn build_help_entries(
             b.row("↑/↓, j/k", "Scroll the log", None);
             b.row("Esc, q", "Back to the transcript", None);
         }
+        SceneKind::Diff => {
+            b.header("Diff Viewer");
+            b.row("n / p", "Next / previous changed file", None);
+            b.row("r", "Toggle reviewed marker on current file", None);
+            b.row("↑/↓, j/k", "Scroll the diff", None);
+            b.row("Esc, q", "Back to the transcript", None);
+        }
     }
     b.separator();
 
@@ -355,7 +362,7 @@ pub fn draw_help_modal(
         f.body,
         body_lines,
         scroll,
-        nuo_ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
+        ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
         theme,
     );
 

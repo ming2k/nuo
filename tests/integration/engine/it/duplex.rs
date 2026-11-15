@@ -31,12 +31,12 @@ use futures::stream::{self, BoxStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use nuo_engine::{
+use engine::{
     Agent, AgentEvent, AgentOp, Message, Provider, ProviderStreamEvent, Role, SubagentEvent,
     SubagentTool,
 };
-use nuo_protocol::{PermissionDecision, SubAgentProfile, ToolPolicy};
-use nuo_tool::{Tool, ToolOutput};
+use protocol::{PermissionDecision, SubAgentProfile, ToolPolicy};
+use tool::{Tool, ToolOutput};
 
 /// `stream_chat` emits "done" with no tool calls (the default
 /// `stream_chat_events` wraps it into one `TextDelta`). Used by the inject
@@ -47,21 +47,19 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Ok(protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
     }
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
-    > {
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
+    {
         Ok(Box::pin(stream::once(async { Ok("done".to_string()) })))
     }
 }
@@ -77,7 +75,7 @@ async fn inject_user_message_lands_in_transcript() {
     let agent = Arc::new(Agent::new(
         Arc::new(IdleProvider),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let handle = agent.install_inbox();
 
@@ -114,8 +112,8 @@ impl Tool for BrokerGatedTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    fn scope_target(&self, _arguments: &str) -> nuo_tool::ScopeTarget {
-        nuo_tool::ScopeTarget::Path(std::path::PathBuf::from("/tmp/gated"))
+    fn scope_target(&self, _arguments: &str) -> tool::ScopeTarget {
+        tool::ScopeTarget::Path(std::path::PathBuf::from("/tmp/gated"))
     }
     async fn call(&self, _arguments: &str) -> Result<String, String> {
         self.0.fetch_add(1, Ordering::SeqCst);
@@ -138,11 +136,11 @@ async fn handle_reply_permission_unblocks_parked_write_tool() {
     let agent = Arc::new(Agent::new(
         Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
         vec![Arc::new(BrokerGatedTool(Arc::clone(&ran)))],
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let handle = agent.install_inbox();
 
-    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<nuo_tool::PermissionRequest>();
+    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<tool::PermissionRequest>();
     let run_agent = Arc::clone(&agent);
     let task = tokio::spawn(async move {
         let mut messages = vec![Message::new(Role::User, "run the write tool")];
@@ -189,7 +187,7 @@ async fn handle_reply_is_noop_after_agent_dropped() {
     let agent = Arc::new(Agent::new(
         Arc::new(IdleProvider),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let handle = agent.install_inbox();
     drop(agent);
@@ -214,31 +212,29 @@ struct StreamWriteCallProvider(AtomicUsize);
 impl Provider for StreamWriteCallProvider {
     async fn chat(
         &self,
-        _: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
     async fn stream_chat(
         &self,
-        _: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
-    ) -> Result<
-        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
-    > {
+        _: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
+    {
         Ok(Box::pin(stream::empty()))
     }
     async fn stream_chat_events(
         &self,
-        _: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         let round = self.0.fetch_add(1, Ordering::SeqCst);
         let events = if round == 0 {
@@ -250,14 +246,14 @@ impl Provider for StreamWriteCallProvider {
                     arguments: "{}".to_string(),
                 }),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ]
         } else {
             vec![
                 Ok(ProviderStreamEvent::TextDelta("done".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_protocol::ProviderCompletionMeta::default(),
+                    protocol::ProviderCompletionMeta::default(),
                 )),
             ]
         };
@@ -291,7 +287,7 @@ async fn streaming_loop_fires_permission_broker_direct() {
     let agent = Arc::new(Agent::new(
         Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
         vec![Arc::new(BrokerGatedTool(Arc::clone(&ran))) as Arc<dyn Tool>],
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     agent.set_unattended(false);
 
@@ -333,7 +329,7 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
     let ran = Arc::new(AtomicUsize::new(0));
     let subagent_tool = Arc::new(SubagentTool::new(
         Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
-        nuo_protocol::ToolSet::from_tools([
+        protocol::ToolSet::from_tools([
             Arc::new(BrokerGatedTool(Arc::clone(&ran))) as Arc<dyn Tool>
         ]),
         &INTERACTIVE,
@@ -343,12 +339,12 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
     let (evt_tx, mut evt_rx) = mpsc::unbounded_channel::<SubagentEvent>();
     let tool = Arc::clone(&subagent_tool);
     let task = tokio::spawn(async move {
-        let mut on_stream = |_: nuo_engine::ToolStream| ();
+        let mut on_stream = |_: engine::ToolStream| ();
         tool.call_structured_with_events(
-            nuo_tool::ToolInvocation {
+            tool::ToolInvocation {
                 call_id: "parent_call_7",
                 arguments: r#"{"description":"d","prompt":"run the write tool"}"#,
-                input: nuo_tool::InputContract::default(),
+                input: tool::InputContract::default(),
                 input_handler: None,
             },
             Box::new(move |e| {
@@ -411,20 +407,17 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
 /// keeps this test about the session, not the gate (which has its own coverage).
 #[tokio::test]
 async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
-    use nuo_engine::Agent;
-    use nuo_persistence::thread::ThreadSession;
+    use engine::Agent;
+    use persistence::thread::ThreadSession;
 
     let dir = std::env::temp_dir().join(format!("nuo-sub-dispatch-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let parent = Arc::new(ThreadSession::for_path(dir.join("session.json")));
     // The parent must be durable: the child's row references it.
     parent
-        .commit_turn(nuo_persistence::thread::CommitTurn {
-            messages: &[nuo_tool::Message::new(
-                nuo_tool::Role::User,
-                "parent question",
-            )],
-            basis: nuo_persistence::thread::CommitBasis::Appended,
+        .commit_turn(persistence::thread::CommitTurn {
+            messages: &[tool::Message::new(tool::Role::User, "parent question")],
+            basis: persistence::thread::CommitBasis::Appended,
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,
@@ -438,8 +431,8 @@ async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
 
     let subagent_tool = Arc::new(SubagentTool::new(
         Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
-        nuo_protocol::ToolSet::from_tools([
-            Arc::new(BrokerGatedTool(Arc::new(AtomicUsize::new(0)))) as Arc<dyn Tool>,
+        protocol::ToolSet::from_tools([
+            Arc::new(BrokerGatedTool(Arc::new(AtomicUsize::new(0)))) as Arc<dyn Tool>
         ]),
         &INTERACTIVE,
     ));
@@ -458,13 +451,13 @@ async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
     );
 
     let tool = Arc::clone(&subagent_tool);
-    let mut on_stream = |_: nuo_engine::ToolStream| ();
+    let mut on_stream = |_: engine::ToolStream| ();
     let task = tokio::spawn(async move {
         tool.call_structured_with_events(
-            nuo_tool::ToolInvocation {
+            tool::ToolInvocation {
                 call_id: "parent_call_session",
                 arguments: r#"{"description":"d","prompt":"do a thing"}"#,
-                input: nuo_tool::InputContract::default(),
+                input: tool::InputContract::default(),
                 input_handler: None,
             },
             Box::new(|_| {}),

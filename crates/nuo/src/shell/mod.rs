@@ -6,7 +6,7 @@
 //!
 //! Layer structure:
 //! - The in-house grid engine (`nuotc`) — a retained cell grid with dirty tracking and a back/front diff.
-//! - The view and component tree — painting `nuo_protocol` domain types into the engine grid:
+//! - The view and component tree — painting `protocol` domain types into the engine grid:
 //!   `model`, `render`, `components`, `overlays`, `tools`, `disclosure`, `layout`,
 //!   `declarative` (ADR-0072), `theme`, `design`, `chrome`, `composer`, `primitives`.
 //! - The interactive application runtime: application state ([`app`]), input mapping ([`input`]),
@@ -22,7 +22,7 @@
 // registry-lookup tests (model search, vision gate) resolve baselines through
 // it (`[INV-PROV-09]` linkage).
 #[cfg(test)]
-extern crate nuo_server;
+extern crate server;
 
 pub mod app;
 pub mod browser;
@@ -66,17 +66,17 @@ pub mod views;
 pub use app::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
 pub use completion::CompletionKind;
 pub use focus::{Focus, FocusPlane, TranscriptFocus};
-pub use nuo_ui_primitives::design::*;
-pub use nuo_ui_primitives::{
+pub use pre_attach::{PreAttachDecision, PreAttachSignal, PreAttachState};
+pub use ui_primitives::design::*;
+pub use ui_primitives::{
     Theme, chord, design, elevation, fuzzy, key, keyvocab, primitives, syntax, theme, time,
 };
-pub use nuo_view::phase::Phase;
-pub use nuo_view::providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
-pub use nuo_view::{
+pub use view::phase::Phase;
+pub use view::providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
+pub use view::{
     disclosure_config, empty_state, footer_stack, layout, markdown_table, message_body, model,
     notice, phase, providers, text_layout, tools, trust_gate,
 };
-pub use pre_attach::{PreAttachDecision, PreAttachSignal, PreAttachState};
 
 /// Test support: flatten a rendered grid into one string per row.
 #[cfg(test)]
@@ -95,23 +95,23 @@ use crate::shell::app::state::{
     ComposerState, HumanState, LinkState, ProviderEditorState, SessionState, SurfacesState,
     TelemetryState, TranscriptState,
 };
-use nuo_protocol::{AgentRequest, AgentResponse, LoopStatus, ProviderPickerSnapshot, RoundEvent};
+use protocol::{AgentRequest, AgentResponse, LoopStatus, ProviderPickerSnapshot, RoundEvent};
 
-use nuo_tool::{Message, Role};
+use tool::{Message, Role};
 
 use nuotc::{Backend, Terminal};
 use std::{collections::HashMap, error::Error, io, sync::Arc, sync::atomic::AtomicBool};
 use tokio::sync::{Mutex, mpsc};
 
-use nuo_view::model::document::{DeliveryStatus, MessageKind, TranscriptMessage};
-#[cfg(test)]
-use nuo_view::model::document::{NoticeSeverity, UserMessageOrigin};
-use nuo_view::model::selection::{SelectionDrag, SelectionState};
 pub use transcript::{finalize_streaming_reasoning, rebase_transcript_rounds};
 use transcript::{
     merge_command_rows, merge_round_interrupt_rows, transcript_commands_from_ledger,
     transcript_interrupts_from_records, transcript_messages_from_core,
 };
+use view::model::document::{DeliveryStatus, MessageKind, TranscriptMessage};
+#[cfg(test)]
+use view::model::document::{NoticeSeverity, UserMessageOrigin};
+use view::model::selection::{SelectionDrag, SelectionState};
 
 /// Where the session this TUI drives lives. All sessions in the unified
 /// server model are remote (server-hosted).
@@ -224,6 +224,11 @@ fn pre_attach_initial() -> Option<PreAttachState> {
     }
 }
 
+/// The minimum interval between content frames while a model response is
+/// streaming. Animation keeps its own 100ms heartbeat; text is allowed to
+/// repaint at up to 60Hz without turning every provider delta into a frame.
+pub(crate) const STREAM_FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
 /// remain immediate so the UI never feels unresponsive at a state boundary.
 pub(crate) fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
     matches!(
@@ -236,8 +241,8 @@ pub(crate) fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
                     | RoundEvent::ToolStream { .. }
                     | RoundEvent::ToolInputProgress { .. }
                     | RoundEvent::SubagentStep {
-                        event: nuo_tool::SubagentEvent::StreamDelta(_)
-                            | nuo_tool::SubagentEvent::StreamReasoningDelta(_),
+                        event: tool::SubagentEvent::StreamDelta(_)
+                            | tool::SubagentEvent::StreamReasoningDelta(_),
                         ..
                     }
             )
@@ -247,16 +252,16 @@ pub(crate) fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
 pub struct TuiLaunchConfig {
     pub initial_provider: String,
     pub initial_model: String,
-    pub input_history: Vec<nuo_protocol::HistoryEntry>,
+    pub input_history: Vec<protocol::HistoryEntry>,
     pub initial_messages: Vec<Message>,
-    pub initial_commands: Vec<nuo_protocol::CommandRecord>,
+    pub initial_commands: Vec<protocol::CommandRecord>,
     pub initial_round_count: u64,
-    pub command_catalog: nuo_tool::CommandCatalog,
-    pub initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
+    pub command_catalog: tool::CommandCatalog,
+    pub initial_round_interrupts: Vec<protocol::RoundInterrupt>,
     pub tui_config: config::TuiConfig,
     pub input_history_config: config::InputHistoryConfig,
     pub session: HookStartSource,
-    pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
     pub initial_tabs: Option<Vec<crate::shell::surfaces::ClientTab>>,
     pub initial_tab_history: Option<Vec<crate::shell::surfaces::TabKind>>,
@@ -273,7 +278,7 @@ pub struct TuiLaunchConfig {
     /// Server-attested readiness at attach time (ADR-0133). `Ready` is only
     /// authoritative when the snapshot has also been applied; the client gates
     /// input on the transition, not on this initial value.
-    pub initial_phase: nuo_protocol::ThreadPhase,
+    pub initial_phase: protocol::ThreadPhase,
     /// Opening prompt (`-p`) dispatched on the `Ready` transition rather than
     /// at handshake time (ADR-0133).
     pub initial_prompt: Option<String>,
@@ -359,10 +364,10 @@ pub(crate) fn stream_discard_edit(
     }
 }
 
-fn pending_prompts(initial_prompt: Option<String>) -> Vec<nuo_protocol::AgentRequest> {
+fn pending_prompts(initial_prompt: Option<String>) -> Vec<protocol::AgentRequest> {
     initial_prompt
         .map(|text| {
-            vec![nuo_protocol::AgentRequest::Prompt {
+            vec![protocol::AgentRequest::Prompt {
                 text,
                 images: Vec::new(),
                 sent_at_ms: None,
@@ -373,11 +378,11 @@ fn pending_prompts(initial_prompt: Option<String>) -> Vec<nuo_protocol::AgentReq
 
 fn restore_transcript(
     initial_messages: Vec<Message>,
-    initial_commands: Vec<nuo_protocol::CommandRecord>,
-    initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
+    initial_commands: Vec<protocol::CommandRecord>,
+    initial_round_interrupts: Vec<protocol::RoundInterrupt>,
     initial_round_count: u64,
     tui_config: &config::TuiConfig,
-) -> Vec<nuo_view::model::document::TranscriptMessage> {
+) -> Vec<view::model::document::TranscriptMessage> {
     let mut restored = transcript_messages_from_core(initial_messages, tui_config);
     restored = merge_command_rows(restored, transcript_commands_from_ledger(initial_commands));
     restored = merge_round_interrupt_rows(
@@ -471,16 +476,16 @@ struct AppBoot<'a> {
     live_session_init: &'a String,
     initial_provider: String,
     initial_model: String,
-    session_phase_init: nuo_protocol::ThreadPhase,
+    session_phase_init: protocol::ThreadPhase,
     restored: Vec<TranscriptMessage>,
     tui_config: Arc<config::TuiConfig>,
-    command_catalog: nuo_tool::CommandCatalog,
-    initial_pending_prompts: Vec<nuo_protocol::AgentRequest>,
-    input_history: Vec<nuo_protocol::HistoryEntry>,
+    command_catalog: tool::CommandCatalog,
+    initial_pending_prompts: Vec<protocol::AgentRequest>,
+    input_history: Vec<protocol::HistoryEntry>,
     input_history_config: config::InputHistoryConfig,
     startup_overlay: StartupOverlay,
     profile: nuotc::TerminalProfile,
-    token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
+    token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
     tx: mpsc::UnboundedSender<AgentRequest>,
     should_quit: Arc<AtomicBool>,
 }
@@ -495,9 +500,9 @@ fn build_app(boot: AppBoot<'_>) -> App {
         session: SessionState {
             queue_exit_session: None,
             session_chrome: std::collections::HashMap::new(),
-            session_tree: nuo_protocol::ThreadTree::default(),
+            session_tree: protocol::ThreadTree::default(),
             live_session_id: boot.live_session_init.clone(),
-            workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
+            workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
             tui_config: (*boot.tui_config).clone(),
             session_detail: None,
             current_provider: boot.initial_provider,
@@ -505,7 +510,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
             cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             current_session_id: "test-session".to_string(),
             session_phase: boot.session_phase_init.clone(),
-            switching_session: (boot.session_phase_init != nuo_protocol::ThreadPhase::Ready)
+            switching_session: (boot.session_phase_init != protocol::ThreadPhase::Ready)
                 .then(|| boot.live_session_init.clone()),
             current_workspace: String::new(),
             current_role: None,
@@ -527,7 +532,8 @@ fn build_app(boot: AppBoot<'_>) -> App {
         },
         transcript: TranscriptState {
             command_log: None,
-            logs: nuo_view::model::log::SurfaceLogs::new(),
+            diff_viewer: None,
+            logs: view::model::log::SurfaceLogs::new(),
             messages: boot.restored,
             layout_height_cache: Default::default(),
             scroll: 0,
@@ -541,6 +547,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
             pin_summary_line: None,
             scroll_settle_pending: false,
             focus_stack: Vec::new(),
+            search: crate::shell::app::state::TranscriptSearchState::default(),
             transcript_changed_pending: false,
             reasoning_default_expanded: crate::shell::config::reasoning_default_expanded(
                 &boot.tui_config,
@@ -588,7 +595,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
                     .collect()
             },
             history_index: None,
-            draft_capsule: nuo_view::composer_mode::DraftCapsule::default(),
+            draft_capsule: view::composer_mode::DraftCapsule::default(),
             history_attachments: std::collections::HashMap::new(),
             history_attachments_order: std::collections::VecDeque::new(),
             session_history_backfill: Vec::new(),
@@ -693,7 +700,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
             notice_toast_until: None,
             notice_toast_message: String::new(),
             notice_toast_topic: String::new(),
-            notice_toast_severity: nuo_view::model::document::NoticeSeverity::Info,
+            notice_toast_severity: view::model::document::NoticeSeverity::Info,
             ctrl_c_armed_until: None,
             esc_armed_until: None,
             pending_provider_delete: None,
@@ -725,11 +732,11 @@ fn build_app(boot: AppBoot<'_>) -> App {
             custom_field: 0,
             custom_fields: Vec::new(),
             custom_protocol_wire: String::new(),
-            custom_budget: nuo_protocol::ConnectionBudget::default(),
+            custom_budget: protocol::ConnectionBudget::default(),
             custom_models: Vec::new(),
             custom_url_hint: String::new(),
             custom_user_agent: None,
-            custom_auth: nuo_protocol::ConnectionAuth::Static,
+            custom_auth: protocol::ConnectionAuth::Static,
             custom_provider_id: None,
             awaiting_oauth_add: false,
             oauth_pending_message: String::new(),
@@ -956,7 +963,7 @@ pub(crate) async fn run_tui_with_input(
 /// when the user picked a session in the `/host` panel — the server session
 /// to switch to (the caller re-attaches).
 pub struct TuiOutcome {
-    pub history: Vec<nuo_protocol::HistoryEntry>,
+    pub history: Vec<protocol::HistoryEntry>,
     pub switch_to: Option<String>,
     pub switch_to_new: bool,
     pub switch_to_new_prompt: Option<String>,
@@ -1057,7 +1064,7 @@ pub(crate) fn append_stream_text_delta(
 mod streaming_appends_tests {
     //! Identity-addressed streaming appends.
     use super::*;
-    use nuo_view::model::document::MessageKind;
+    use view::model::document::MessageKind;
 
     fn reasoning_entry(round: u64, turn: u64, content: &str) -> TranscriptMessage {
         let mut m = TranscriptMessage::reasoning(content);
@@ -1130,7 +1137,7 @@ mod streaming_appends_tests {
 
     #[test]
     fn text_delta_appends_across_an_intervening_command_entry() {
-        use nuo_tool::Role;
+        use tool::Role;
         let mut text = TranscriptMessage::new(Role::Assistant, "hello ");
         text.round = Some(3);
         text.turn = Some(1);
@@ -1153,7 +1160,7 @@ mod streaming_appends_tests {
 /// clamped to the empty-state bounding box. Best-effort: a missing or unreadable
 /// file returns `None`, leaving the built-in wordmark in place.
 fn load_user_logo() -> Option<Vec<String>> {
-    let path = nuo_host::paths::get().logo_file();
+    let path = host::paths::get().logo_file();
     let content = std::fs::read_to_string(&path).ok()?;
     // Re-use the renderer's parser so the clamp stays defined in one place.
     // The parser already strips CRLF/trailing blanks and truncates to the box.

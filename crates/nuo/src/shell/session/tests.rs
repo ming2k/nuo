@@ -27,7 +27,7 @@ fn ctx(mode: Mode, tune: impl FnOnce(&mut SceneKeys)) -> SceneKeys {
         Mode::Running => c.is_responding = true,
         Mode::FocusedTarget => {
             c.focus = crate::shell::focus::FocusPlane::Transcript;
-            c.entry_focus = Some(nuo_view::model::layout::InteractiveTarget::tool_step(0));
+            c.entry_focus = Some(view::model::layout::InteractiveTarget::tool_step(0));
         }
         Mode::Browsing => {
             c.focus = crate::shell::focus::FocusPlane::Transcript;
@@ -72,7 +72,7 @@ fn resolves_end_to_end(
 ) -> (InputAction, String) {
     let mut input = seed.to_string();
     let mut cursor = input.chars().count();
-    let mut drag = nuo_view::model::selection::SelectionDrag::default();
+    let mut drag = view::model::selection::SelectionDrag::default();
     let keys = ctx(mode, tune);
     let action = crate::shell::input::route_event_motion(
         Event::Key(crate::shell::input::keystroke::event_from_chord(key)),
@@ -95,7 +95,7 @@ fn resolves_end_to_end(
 fn process(scene: SceneKind, code: KeyCode, modifiers: KeyModifiers, mode: Mode) -> InputAction {
     let mut input = String::new();
     let mut cursor = 0;
-    let mut drag = nuo_view::model::selection::SelectionDrag::default();
+    let mut drag = view::model::selection::SelectionDrag::default();
     let keys = ctx(mode, |_| {});
     let dispatch = crate::shell::input::Dispatch {
         scene,
@@ -796,7 +796,7 @@ fn subagent_and_side_never_exit_on_esc_and_keep_their_navigation() {
             Key::ESC,
             &ctx(Mode::Subagent, |c| {
                 c.focus = crate::shell::focus::FocusPlane::Transcript;
-                c.entry_focus = Some(nuo_view::model::layout::InteractiveTarget::tool_step(0));
+                c.entry_focus = Some(view::model::layout::InteractiveTarget::tool_step(0));
             }),
             &mut String::new(),
             &mut 0
@@ -1013,7 +1013,7 @@ fn central_match_no_longer_owns_chat_enter_on_settings() {
     // surface's send path — the draft must never be shipped from Settings.
     let mut input = String::from("draft");
     let mut cursor = 5;
-    let mut drag = nuo_view::model::selection::SelectionDrag::default();
+    let mut drag = view::model::selection::SelectionDrag::default();
     let action = route_event_motion(
         Event::Key(KeyEvent {
             code: crossterm::event::KeyCode::Enter,

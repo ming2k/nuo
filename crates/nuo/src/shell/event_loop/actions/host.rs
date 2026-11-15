@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::input::InputAction;

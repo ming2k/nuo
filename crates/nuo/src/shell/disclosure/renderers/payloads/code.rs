@@ -1,13 +1,12 @@
 //! Code content renderer and normalization.
-use nuotc::{Color, Line, Modifier, Span, Style};
+use nuotc::{Color, Line, Span, Style};
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
-use crate::shell::disclosure::renderers::payloads::diff::project_syntax_slice;
-use crate::shell::render::{CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH};
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::{
-    CodeGutterParams, WrappedLine, block_selection_range, code_gutter_line, line_selection,
-    padded_tail, wrap_text,
+use ui_primitives::design::{CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH};
+use view::model::selection::SelectionState;
+use view::text_layout::{
+    CodeGutterParams, WrappedLine, block_selection_range, code_gutter_line,
+    code_gutter_line_syntax, line_selection, padded_tail, wrap_text,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -18,7 +17,7 @@ pub(crate) fn draw_code_content(
     content: &str,
     start_line: usize,
     language: Option<&str>,
-    syntax_lang: nuo_ui_primitives::syntax::Language,
+    syntax_lang: ui_primitives::syntax::Language,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -64,8 +63,8 @@ pub(crate) fn draw_code_content(
 
     for (line_idx, (line_start_byte, logical_line)) in logical_lines.iter().enumerate() {
         let wrapped = nonempty_wrapped(wrap_text(logical_line, wrap_width));
-        let syntax_spans = if parsed_lang != nuo_ui_primitives::syntax::Language::Plain {
-            nuo_ui_primitives::syntax::tokenize_line(logical_line, parsed_lang)
+        let syntax_spans = if parsed_lang != ui_primitives::syntax::Language::Plain {
+            ui_primitives::syntax::tokenize_line(logical_line, parsed_lang)
         } else {
             Vec::new()
         };
@@ -83,7 +82,7 @@ pub(crate) fn draw_code_content(
                 end_byte: line_start_byte + wl.end_byte,
             };
 
-            let line = if parsed_lang == nuo_ui_primitives::syntax::Language::Plain {
+            let line = if parsed_lang == ui_primitives::syntax::Language::Plain {
                 code_gutter_line(CodeGutterParams {
                     left_bar: Color::Reset,
                     left_indent,
@@ -337,67 +336,4 @@ pub(crate) fn normalize_code_content(
         start_line: resolved_start_line.max(1),
         detected_path,
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn code_gutter_line_syntax(
-    left_indent: usize,
-    gutter: &str,
-    gutter_gap: usize,
-    code_bg: Color,
-    gutter_fg: Color,
-    full_line: &str,
-    syntax_spans: &[nuo_ui_primitives::syntax::SyntaxSpan],
-    start_byte: usize,
-    end_byte: usize,
-    _selected: Option<(usize, usize)>,
-    _selected_bg: Color,
-    full_width: usize,
-    theme: &nuo_view::Theme,
-) -> Line<'static> {
-    let mut spans = Vec::new();
-    let prefix = left_indent + 1 + gutter.len() + gutter_gap;
-
-    spans.push(Span::styled(
-        " ".repeat(left_indent),
-        Style::default().bg(code_bg),
-    ));
-    spans.push(Span::styled(" ", Style::default().bg(code_bg)));
-    spans.push(Span::styled(
-        gutter.to_string(),
-        Style::default().bg(code_bg).fg(gutter_fg),
-    ));
-    spans.push(Span::styled(
-        " ".repeat(gutter_gap),
-        Style::default().bg(code_bg),
-    ));
-
-    let projected = project_syntax_slice(full_line, syntax_spans, start_byte, end_byte);
-
-    for (token_text, kind) in projected {
-        let token_fg = theme.syntax_color(kind);
-        let mut style = Style::default().bg(code_bg).fg(token_fg);
-        if kind == nuo_ui_primitives::syntax::SyntaxKind::Comment {
-            style = style.add_modifier(Modifier::ITALIC);
-        }
-        spans.push(Span::styled(token_text.to_string(), style));
-    }
-
-    let row_slice_len = if end_byte >= start_byte
-        && full_line.is_char_boundary(start_byte)
-        && full_line.is_char_boundary(end_byte)
-    {
-        full_line[start_byte..end_byte]
-            .trim_end_matches('\n')
-            .trim_end_matches('\r')
-            .len()
-    } else {
-        0
-    };
-    let used = prefix + row_slice_len;
-    spans.push(Span::styled(
-        padded_tail(full_width, used),
-        Style::default().bg(code_bg),
-    ));
-    Line::from(spans)
 }

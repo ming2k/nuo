@@ -5,11 +5,11 @@
 //! polluting conversation transcripts.
 
 use crate::shell::render::Theme;
-use nuo_ui_primitives::primitives::{
+use nuotc::{Frame, Line, Rect, Span, Style};
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, content_modal_area, keyvocab, modal_chrome_rows, modal_frame,
     modal_header, render_body, render_modal_footer,
 };
-use nuotc::{Frame, Line, Rect, Span, Style};
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_port_modal(
@@ -119,7 +119,7 @@ pub fn draw_port_modal(
         f.body,
         body,
         &mut scroll,
-        nuo_ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
+        ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
         theme,
     );
 

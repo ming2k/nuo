@@ -10,9 +10,9 @@ use nuotc::{
     Color, Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };
 
-use nuo_view::composer_attachments::{ChipKind, ChipMatch, iter_chips};
-use nuo_view::model::layout::{BlockRegion, LayoutMap};
-use nuo_view::model::selection::SelectionState;
+use view::composer_attachments::{ChipKind, ChipMatch, iter_chips};
+use view::model::layout::{BlockRegion, LayoutMap};
+use view::model::selection::SelectionState;
 
 use super::Theme;
 use super::composer_grid::TextGrid;
@@ -220,7 +220,7 @@ pub struct ComposerText<'a> {
 
 /// Special message_idx for the live input box in the layout map, so semantic
 /// selection / copy works on input text just like transcript messages.
-pub use nuo_view::model::layout::INPUT_MSG_IDX;
+pub use view::model::layout::INPUT_MSG_IDX;
 
 /// Display width of the composer's text area inside a box of `full_width`
 /// columns (the total minus the left prompt prefix and right padding).
@@ -1037,7 +1037,7 @@ impl ComposerPaint<'_> {
             // to guarantee non-destructive discovery without layout clipping.
             let space_for_left = available.saturating_sub(prefix_w + target_right_w + 3);
             let overflow_affordance =
-                nuo_ui_primitives::components::keycap::KeyAffordance::new("F1", "more");
+                ui_primitives::components::keycap::KeyAffordance::new("F1", "more");
             let overflow_w = overflow_affordance.width();
             if space_for_left >= overflow_w {
                 let [k, l] = overflow_affordance.render_spans(self.theme, self.panel_bg);

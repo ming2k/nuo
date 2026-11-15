@@ -62,7 +62,7 @@ async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
 
     // Handshake: the snapshot, which must arrive as the first frame.
     let snapshot = Wire::Monitor {
-        event: MonitorEvent::Snapshot(nuo_protocol::monitor::MonitorSnapshot {
+        event: MonitorEvent::Snapshot(protocol::monitor::MonitorSnapshot {
             project_root: "/tmp/nuo-monitor-test".to_string(),
             server_started_at: 0,
             threads: Vec::new(),
@@ -219,10 +219,10 @@ async fn discover_never_parks_the_worker() {
 #[test]
 fn attach_refusal_preserves_code() {
     let gone = AttachError {
-        code: Some(nuo_protocol::ERR_SESSION_GONE.to_string()),
+        code: Some(protocol::ERR_SESSION_GONE.to_string()),
         message: "server rejected the attach: session 'x' no longer exists".to_string(),
     };
-    assert_eq!(gone.code(), Some(nuo_protocol::ERR_SESSION_GONE));
+    assert_eq!(gone.code(), Some(protocol::ERR_SESSION_GONE));
     assert!(gone.is_session_gone());
     assert!(
         !gone.is_session_unresumable(),
@@ -230,7 +230,7 @@ fn attach_refusal_preserves_code() {
     );
 
     let unresumable = AttachError {
-        code: Some(nuo_protocol::ERR_SESSION_UNRESUMABLE.to_string()),
+        code: Some(protocol::ERR_SESSION_UNRESUMABLE.to_string()),
         message: "server rejected the attach: could not resume session x: boom".to_string(),
     };
     assert!(unresumable.is_session_unresumable());
@@ -249,7 +249,7 @@ fn attach_refusal_preserves_code() {
     // `Display` stays human prose — a caller must never parse the code back
     // out of the rendered message.
     assert_eq!(gone.to_string(), gone.message);
-    assert!(!gone.to_string().contains(nuo_protocol::ERR_SESSION_GONE));
+    assert!(!gone.to_string().contains(protocol::ERR_SESSION_GONE));
 }
 
 /// An attach refusal's wire code round-trips through the frame the client
@@ -258,13 +258,13 @@ fn attach_refusal_preserves_code() {
 fn wire_error_frame_carries_the_refusal_code() {
     let frame = Wire::Error {
         message: "session 'abc' no longer exists".to_string(),
-        code: Some(nuo_protocol::ERR_SESSION_GONE.to_string()),
+        code: Some(protocol::ERR_SESSION_GONE.to_string()),
     };
     let json = serde_json::to_string(&frame).unwrap();
     let back: Wire = serde_json::from_str(&json).unwrap();
     match back {
         Wire::Error { code, .. } => {
-            assert_eq!(code.as_deref(), Some(nuo_protocol::ERR_SESSION_GONE));
+            assert_eq!(code.as_deref(), Some(protocol::ERR_SESSION_GONE));
         }
         other => panic!("expected an Error frame, got {other:?}"),
     }
@@ -469,7 +469,7 @@ async fn stop_handles_already_dead_process_and_cleans_up() {
 
 #[tokio::test]
 async fn stop_refuses_a_recycled_pid_identity() {
-    let identity = nuo_host::process::process_identity(std::process::id()).unwrap();
+    let identity = host::process::process_identity(std::process::id()).unwrap();
     let info = ServerInfo {
         pid: identity.pid,
         process_birth_token: Some(identity.birth_token.wrapping_add(1)),
@@ -528,7 +528,7 @@ async fn an_unmodelled_frame_after_welcome_does_not_end_the_attachment() {
 
         let welcome = serde_json::to_vec(&Wire::Welcome {
             thread_id: "thread-drifted".to_string(),
-            phase: nuo_protocol::ThreadPhase::Binding,
+            phase: protocol::ThreadPhase::Binding,
         })
         .unwrap();
         let mut out = Vec::new();

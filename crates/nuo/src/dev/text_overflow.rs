@@ -7,11 +7,11 @@
 //!   ellipsis. A private implementation is how two surfaces come to disagree
 //!   about how a string is shortened — one keeping the head of a wire id and the
 //!   other its tail. The one implementation is
-//!   `nuo_ui_primitives::components::overflow`.
+//!   `ui_primitives::components::overflow`.
 //! - **`[INV-ROW-GRID-01]`** No renderer may size a column by percentage
 //!   arithmetic. That is how a long model name came to starve the connection
 //!   column: the cap was computed per column with nothing reconciling the sum.
-//!   Columns are resolved by `nuo_ui_primitives::components::columns`.
+//!   Columns are resolved by `ui_primitives::components::columns`.
 //!
 //! The rule is deliberately *narrow*: it fires on an ellipsis built inside a
 //! function whose job is to shorten text, not on every ellipsis in the tree. A
@@ -37,7 +37,7 @@ pub struct OverflowViolation {
 pub fn check_text_overflow(root: &Path) -> Result<(), String> {
     let scan_dirs = [
         root.join("crates/nuo/src/shell"),
-        root.join("crates/nuo-view/src"),
+        root.join("crates/view/src"),
     ];
 
     // A hand-built ellipsis: appending the marker by hand, or formatting it in.
@@ -142,10 +142,10 @@ pub fn check_text_overflow(root: &Path) -> Result<(), String> {
         "Text Overflow / Column Budget Firewall Violations (ADR-0152):\n\
          [INV-TEXT-OVERFLOW-01] A truncation helper must not build its own \
          ellipsis. Route through \
-         `nuo_ui_primitives::components::overflow` (`fit`, `fit_with`, \
+         `ui_primitives::components::overflow` (`fit`, `fit_with`, \
          `fit_line`) and let it place the marker.\n\
          [INV-ROW-GRID-01] Column widths must come from \
-         `nuo_ui_primitives::components::columns` (`Grid::solve`), never from \
+         `ui_primitives::components::columns` (`Grid::solve`), never from \
          percentage arithmetic inside a renderer.\n\n",
     );
     for v in violations {

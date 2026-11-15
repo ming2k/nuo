@@ -78,7 +78,7 @@ pub(super) fn draw_appearance_detail(
         };
         let mut label_style = Style::default().add_modifier(Modifier::BOLD);
         if banded
-            && props.theme.elevation == nuo_ui_primitives::elevation::ElevationArchetype::Structured
+            && props.theme.elevation == ui_primitives::elevation::ElevationArchetype::Structured
         {
             label_style = label_style.add_modifier(Modifier::REVERSE);
         }
@@ -90,7 +90,7 @@ pub(super) fn draw_appearance_detail(
             Style::default()
                 .fg(
                     if props.theme.elevation
-                        == nuo_ui_primitives::elevation::ElevationArchetype::Structured
+                        == ui_primitives::elevation::ElevationArchetype::Structured
                     {
                         Color::Reset
                     } else {
@@ -209,12 +209,12 @@ pub(super) fn draw_appearance_detail(
         let desc_fg = if banded {
             props.theme.band_text(
                 band,
-                nuo_ui_primitives::theme::mix(props.theme.muted(), props.theme.dim(), 0.4),
+                ui_primitives::theme::mix(props.theme.muted(), props.theme.dim(), 0.4),
             )
         } else {
             props.theme.muted()
         };
-        let wrapped = nuo_view::text_layout::wrap_text(&preset.description, body_width);
+        let wrapped = view::text_layout::wrap_text(&preset.description, body_width);
         for segment in &wrapped {
             let mut spans = vec![Span::styled(
                 segment.text.clone(),
@@ -265,8 +265,8 @@ pub(super) fn draw_appearance_detail(
 fn draw_live_specimen_gallery(
     frame: &mut Frame,
     rect: Rect,
-    active_theme: &nuo_ui_primitives::theme::Theme,
-    candidate: &nuo_ui_primitives::theme::Theme,
+    active_theme: &ui_primitives::theme::Theme,
+    candidate: &ui_primitives::theme::Theme,
     label: &str,
 ) {
     if rect.width < 24 || rect.height < 8 {
@@ -426,8 +426,8 @@ fn draw_live_specimen_gallery(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_ui_primitives::theme::Theme;
     use nuotc::TestTerminal;
+    use ui_primitives::theme::Theme;
 
     #[test]
     fn test_appearance_item_count() {

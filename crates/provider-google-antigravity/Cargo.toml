@@ -1,0 +1,31 @@
+[package]
+name = "provider-google-antigravity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Google Gemini API and Google Antigravity (CloudCode) OAuth provider for Nuo"
+
+[dependencies]
+provider = { workspace = true }
+inference-wire = { workspace = true }
+tool = { workspace = true }
+protocol = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+netune = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+inventory = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+http = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

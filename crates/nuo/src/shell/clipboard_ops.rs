@@ -8,12 +8,12 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use nuo_tool::ImagePart;
+use tool::ImagePart;
 
 use crate::shell::App;
 use crate::shell::clipboard::{self, ClipboardRead, CopyOutcome};
 use crate::shell::surfaces::{DialogKind, OverlaySurface, SceneKind, SheetKind};
-use nuo_view::composer_attachments::{image_chip, paste_chip, paste_line_count, should_chip_paste};
+use view::composer_attachments::{image_chip, paste_chip, paste_line_count, should_chip_paste};
 
 /// Which layer, if any, **declared** whether the active route takes images.
 /// `None` = undeclared: the client must not gate on it.
@@ -360,7 +360,7 @@ fn read_image_file(path: &std::path::Path) -> Option<(Vec<u8>, String)> {
     if data.is_empty() {
         return None;
     }
-    if let Some(normalized) = nuo_host::image::normalize_image(&data, &mime) {
+    if let Some(normalized) = host::image::normalize_image(&data, &mime) {
         return Some((normalized.data, normalized.mime));
     }
     Some((data, mime))

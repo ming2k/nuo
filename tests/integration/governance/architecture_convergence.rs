@@ -1,4 +1,4 @@
-//! Architecture convergence gates (ADR-0180 through ADR-0188).
+//! Architecture convergence gates (ADR-0180 through ADR-0193).
 //!
 //! These checks make the one-time convergence non-optional: one owner per
 //! vocabulary, no compatibility facades, no capability linkage in the engine,
@@ -22,7 +22,7 @@ fn workspace_root() -> PathBuf {
 
 fn tier_crates(root: &Path) -> Vec<PathBuf> {
     let mut crates = Vec::new();
-    for tier in ["crates", "tools", "providers"] {
+    for tier in ["crates"] {
         let tier_root = root.join(tier);
         let Ok(entries) = fs::read_dir(&tier_root) else {
             continue;
@@ -196,8 +196,6 @@ fn no_retired_engine_alias() {
     let mut hits = Vec::new();
     for path in rust_files(&root.join("crates"))
         .into_iter()
-        .chain(rust_files(&root.join("tools")))
-        .chain(rust_files(&root.join("providers")))
         .chain(rust_files(&root.join("tests")))
         .filter(|path| !path.ends_with("architecture_convergence.rs"))
     {
@@ -208,38 +206,46 @@ fn no_retired_engine_alias() {
     }
     assert!(
         hits.is_empty(),
-        "`nuo_harness` is retired; import `nuo_engine` ([INV-ENGINE-01], ADR-0181): {hits:?}"
+        "`nuo_harness` is retired; import `engine` ([INV-ENGINE-01], ADR-0181): {hits:?}"
     );
 }
 
 #[test]
+fn filesystem_tools_have_no_document_parser_edge() {
+    let root = workspace_root();
+    for manifest in ["crates/tool-fs/Cargo.toml", "crates/tool/Cargo.toml"] {
+        let source = fs::read_to_string(root.join(manifest)).expect("read manifest");
+        assert!(
+            !source.contains("pdf-extract") && !source.contains("lopdf"),
+            "{manifest} must not link a document parser; the host owns extraction \
+             ([INV-PDF-05], ADR-0193)"
+        );
+    }
+}
+
+#[test]
 fn guardrails_has_no_persistence_edge() {
-    let manifest = fs::read_to_string(workspace_root().join("crates/nuo-guardrails/Cargo.toml"))
+    let manifest = fs::read_to_string(workspace_root().join("crates/guardrails/Cargo.toml"))
         .expect("read guardrails manifest");
     assert!(
-        !manifest.contains("nuo-persistence"),
-        "nuo-guardrails must not depend on nuo-persistence ([INV-GUARD-01], ADR-0188)"
+        !manifest.contains("persistence"),
+        "guardrails must not depend on persistence ([INV-GUARD-01], ADR-0188)"
     );
 }
 
 #[test]
 fn engine_has_no_capability_leaf_edge() {
-    let manifest = fs::read_to_string(workspace_root().join("crates/nuo-engine/Cargo.toml"))
+    let manifest = fs::read_to_string(workspace_root().join("crates/engine/Cargo.toml"))
         .expect("read engine manifest");
     let manifest: toml::Table = toml::from_str(&manifest).expect("parse engine manifest");
     let deps = manifest
         .get("dependencies")
         .and_then(|value| value.as_table())
         .expect("engine [dependencies]");
-    for forbidden in [
-        "nuo-tool-fs",
-        "nuo-tool-exec",
-        "nuo-tool-web",
-        "nuo-tool-ast",
-    ] {
+    for forbidden in ["tool-fs", "tool-exec", "tool-web", "tool-ast"] {
         assert!(
             !deps.contains_key(forbidden),
-            "nuo-engine must not link {forbidden}; the composition root owns capability linkage \
+            "engine must not link {forbidden}; the composition root owns capability linkage \
              ([INV-ARCH-TOOL-LINK-01], ADR-0183)"
         );
     }
@@ -259,7 +265,7 @@ fn storybook_is_retired() {
     );
     let mut extra_status = Vec::new();
     for path in rust_files(&root.join("crates")) {
-        if path.ends_with("nuo-view/src/tools/mod.rs") {
+        if path.ends_with("view/src/tools/mod.rs") {
             continue;
         }
         let source = fs::read_to_string(&path).unwrap_or_default();
@@ -269,14 +275,14 @@ fn storybook_is_retired() {
     }
     assert!(
         extra_status.is_empty(),
-        "one `ToolStatus` lives in nuo-view::tools ([INV-TUI-SINGLE-RENDER-01], ADR-0185): \
+        "one `ToolStatus` lives in view::tools ([INV-TUI-SINGLE-RENDER-01], ADR-0185): \
          {extra_status:?}"
     );
 }
 
 #[test]
 fn server_root_is_grouped() {
-    let root = workspace_root().join("crates/nuo-server/src");
+    let root = workspace_root().join("crates/server/src");
     let mut root_files = Vec::new();
     for entry in fs::read_dir(&root).expect("read server src") {
         let entry = entry.expect("dir entry");

@@ -8,15 +8,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
-use nuo_tool::Role;
+use tool::Role;
 
 use crate::shell::surfaces::{DialogKind, SceneKind, SheetKind};
 use crate::shell::{App, clipboard, clipboard_ops};
-use nuo_view::composer_attachments;
-use nuo_view::model::document::{DeliveryStatus, TranscriptMessage};
-use nuo_view::model::selection::SelectionState;
+use view::composer_attachments;
+use view::model::document::{DeliveryStatus, TranscriptMessage};
+use view::model::selection::SelectionState;
 
 use super::super::runtime::{UiRuntime, now_epoch_ms};
 use super::super::sync::show_local_toast;
@@ -73,7 +73,7 @@ pub(super) async fn handle_send_chat(
         // `[INV-ATTACH-04]` (ADR-0133): a turn must not be submitted before the
         // server attests `Ready`. Queue it locally (the server also buffers
         // defensively) and flush on the transition.
-        if app.session.session_phase != nuo_protocol::ThreadPhase::Ready {
+        if app.session.session_phase != protocol::ThreadPhase::Ready {
             let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
             let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());
             app.record_input_history(text.clone(), images.clone(), text_pastes);
@@ -118,7 +118,7 @@ pub(super) async fn handle_send_chat(
                         });
                     app.send_intent(AgentRequest::Steer {
                         thread_id: viewed_session_id.to_string(),
-                        message: nuo_protocol::QueuedMessage {
+                        message: protocol::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),
@@ -155,7 +155,7 @@ pub(super) async fn handle_send_chat(
                     app.transcript.pin_summary_line = None;
                     app.send_intent(AgentRequest::FollowUp {
                         thread_id: viewed_session_id.to_string(),
-                        message: nuo_protocol::QueuedMessage {
+                        message: protocol::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),
@@ -183,7 +183,7 @@ pub(super) async fn handle_send_chat(
             // A new dispatch opens a new attempt window: `Queued` is not
             // the transport-wait phase, so this also retires any setback
             // clause left over from an earlier round.
-            app.set_phase(Some(nuo_view::phase::Phase::Queued));
+            app.set_phase(Some(view::phase::Phase::Queued));
             app.session
                 .running_sessions
                 .insert(viewed_session_id.to_string());
@@ -290,7 +290,7 @@ pub(crate) async fn handle_send_slash(
         .composer
         .command_catalog
         .effect_for(&format!("/{cmd_name}"), cmd_args.split_whitespace().next());
-    let stages_row = is_known && effect == nuo_tool::CommandEffect::Mutation;
+    let stages_row = is_known && effect == tool::CommandEffect::Mutation;
 
     let is_new_session_cmd = cmd_name == "new"
         || (cmd_name == "session" && cmd_args.split_whitespace().next() == Some("new"));

@@ -1,7 +1,7 @@
 //! Session overview, thread switching, port palette, and view switcher actions.
 use std::sync::atomic::Ordering;
 
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::clipboard_ops;
@@ -335,7 +335,7 @@ pub(super) async fn handle_session_action(
                 is_responding: is_busy,
                 has_selection: !matches!(
                     app.transcript.selection,
-                    nuo_view::model::selection::SelectionState::None
+                    view::model::selection::SelectionState::None
                 ),
                 has_running_task: is_busy,
                 has_notices: !!app.has_notices(),

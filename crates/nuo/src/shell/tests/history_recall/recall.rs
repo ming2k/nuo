@@ -47,7 +47,7 @@ fn recall_queued_restores_staged_images() {
     // Enter) come back alongside the text so the user can re-edit and
     // resend without losing the attachment.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let image = nuo_tool::ImagePart {
+    let image = tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -80,12 +80,12 @@ async fn history_recall_restores_staged_images_and_pastes() {
     app.session.current_session_id = "session-a".to_string();
     app.session.current_workspace = "~/p".to_string();
 
-    let image = nuo_tool::ImagePart {
+    let image = tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
-    let chip = nuo_view::composer_attachments::image_chip(1, 3);
-    let paste = nuo_view::composer_attachments::paste_chip(1, 2, 11);
+    let chip = view::composer_attachments::image_chip(1, 3);
+    let paste = view::composer_attachments::paste_chip(1, 2, 11);
     let text = format!("describe this {chip} then {paste}");
     app.record_input_history(text.clone(), vec![image.clone()], vec!["big paste".into()]);
 
@@ -130,7 +130,7 @@ async fn history_recall_clears_staged_attachments_for_plain_entries() {
     app.session.current_workspace = "~/p".to_string();
     app.record_input_history("plain prompt".to_string(), Vec::new(), Vec::new());
 
-    let image = nuo_tool::ImagePart {
+    let image = tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -154,7 +154,7 @@ async fn history_recall_clears_staged_attachments_for_plain_entries() {
 fn history_draft_round_trip_keeps_attachments() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let draft = "my in-progress draft".to_string();
-    let image = nuo_tool::ImagePart {
+    let image = tool::ImagePart {
         mime: "image/png".to_string(),
         data: "draft-img".to_string(),
     };
@@ -183,7 +183,7 @@ async fn history_attachment_cache_is_capped() {
     for i in 0..40 {
         app.record_input_history(
             format!("prompt {i}"),
-            vec![nuo_tool::ImagePart {
+            vec![tool::ImagePart {
                 mime: "image/png".to_string(),
                 data: format!("img-{i}"),
             }],
@@ -404,8 +404,8 @@ async fn test_app_does_not_touch_disk_history() {
         .filter(|req| {
             matches!(
                 req,
-                nuo_protocol::AgentRequest::RecordInputHistory { .. }
-                    | nuo_protocol::AgentRequest::DeleteInputHistoryEntry { .. }
+                protocol::AgentRequest::RecordInputHistory { .. }
+                    | protocol::AgentRequest::DeleteInputHistoryEntry { .. }
             )
         })
         .collect();
@@ -526,7 +526,7 @@ async fn esc_cancels_history_recall_and_restores_draft() {
 #[test]
 fn recall_queued_adopts_content_as_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let image = nuo_tool::ImagePart {
+    let image = tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };

@@ -49,7 +49,7 @@
 //! honoured (resolved relative to the declaring file's directory, or for an
 //! inline `mod x { … }` tree relative to that inline module's directory), so
 //! the two legitimate `#[path]` uses in the workspace
-//! (`nuo-view/src/components/notice.rs`, `nuo-view/src/model/document.rs`) are
+//! (`view/src/components/notice.rs`, `view/src/model/document.rs`) are
 //! followed rather than flagged.
 //!
 //! ## Non-goals
@@ -66,8 +66,8 @@ use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
 
-/// Tier roots that hold crates (`[INV-ARCH-TIER-01]`, ADR-0109/0111).
-const TIERS: &[&str] = &["crates", "providers", "tools"];
+/// Tier roots that hold crates (`[INV-ARCH-TIER-01]`).
+const TIERS: &[&str] = &["crates"];
 
 /// One `mod` declaration found in a source file.
 #[derive(Debug, Clone, PartialEq, Eq)]

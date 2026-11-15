@@ -18,17 +18,17 @@ pub(crate) fn spawn_monitor_translator(runtime: &event_loop::UiRuntime) {
         let Some(info) = client::discover(&project_root).await else {
             return;
         };
-        let action = nuo_protocol::MonitorAction {
+        let action = protocol::MonitorAction {
             watch: true,
             include_idle: true,
         };
         let Ok(mut rx) = client::monitor_stream(&info, action).await else {
             return;
         };
-        let mut rows: Vec<nuo_protocol::MonitoredThread> = Vec::new();
+        let mut rows: Vec<protocol::MonitoredThread> = Vec::new();
         while let Some(event) = rx.recv().await {
             match event {
-                nuo_protocol::MonitorEvent::Snapshot(snap) => {
+                protocol::MonitorEvent::Snapshot(snap) => {
                     rows = snap.threads;
                     mutations
                         .send(event_loop::AppMutation::PersistenceHealth(
@@ -36,20 +36,20 @@ pub(crate) fn spawn_monitor_translator(runtime: &event_loop::UiRuntime) {
                         ))
                         .await;
                 }
-                nuo_protocol::MonitorEvent::ThreadAdded(row)
-                | nuo_protocol::MonitorEvent::ThreadUpdated(row) => {
+                protocol::MonitorEvent::ThreadAdded(row)
+                | protocol::MonitorEvent::ThreadUpdated(row) => {
                     client::upsert_session_row(&mut rows, row);
                 }
-                nuo_protocol::MonitorEvent::ThreadRemoved { thread_id } => {
+                protocol::MonitorEvent::ThreadRemoved { thread_id } => {
                     rows.retain(|r| r.id != thread_id);
                 }
                 // Server-level task diffs: the dashboard's
                 // task section is folded in a later phase.
-                nuo_protocol::MonitorEvent::TaskUpdated(_) => {}
-                nuo_protocol::MonitorEvent::TaskRemoved { .. } => {}
+                protocol::MonitorEvent::TaskUpdated(_) => {}
+                protocol::MonitorEvent::TaskRemoved { .. } => {}
                 // Durability-health transitions (D4): a degraded
                 // state retains the visible banner; Healthy clears it.
-                nuo_protocol::MonitorEvent::PersistenceHealth(health) => {
+                protocol::MonitorEvent::PersistenceHealth(health) => {
                     mutations
                         .send(event_loop::AppMutation::PersistenceHealth(
                             (!health.is_healthy()).then_some(health),
@@ -59,7 +59,7 @@ pub(crate) fn spawn_monitor_translator(runtime: &event_loop::UiRuntime) {
                 // The server began its graceful shutdown: the
                 // stream closes right after; the next server interaction
                 // re-discovers or re-spawns.
-                nuo_protocol::MonitorEvent::ServerDraining => {}
+                protocol::MonitorEvent::ServerDraining => {}
             }
             mutations
                 .send(event_loop::AppMutation::HostSessions(rows.clone()))

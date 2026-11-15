@@ -1,6 +1,6 @@
 //! Turn-band and user-round header metadata: the `HH:MM` send time.
 //!
-//! Both header kinds are a two-tone [`MetaStrip`](nuo_ui_primitives::components::meta_strip::MetaStrip):
+//! Both header kinds are a two-tone [`MetaStrip`](ui_primitives::components::meta_strip::MetaStrip):
 //! an info-tone anchor (`round N` / `turn N`) plus a right-aligned muted
 //! timestamp. The timestamp is *not* chrome the renderer may invent — it reads
 //! [`TranscriptMessage::sent_at_ms`], which is the entry's own record of when it
@@ -18,7 +18,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use nuo_ui_primitives::time::sent_time_label;
+use ui_primitives::time::sent_time_label;
 
 /// The same renderer the transcript uses, exposing rows as strings.
 fn grid_of(messages: &[TranscriptMessage], width: u16, height: u16) -> String {
@@ -47,7 +47,7 @@ fn header_row<'a>(grid: &'a str, anchor: &str) -> &'a str {
 /// `finish_tool_step` produces in production (so the step renders its result
 /// rather than a bare invocation).
 fn finished_step(name: &str, arguments: &str, text: &str) -> TranscriptMessage {
-    let structured = nuo_tool::ToolOutput::Code {
+    let structured = tool::ToolOutput::Code {
         lang: None,
         text: text.to_string(),
         start_line: 1,
@@ -63,7 +63,7 @@ const EPOCH_MS: u64 = 1_700_000_000_000;
 
 #[test]
 fn user_round_header_paints_its_send_time() {
-    let message = TranscriptMessage::new(nuo_tool::Role::User, "hello there")
+    let message = TranscriptMessage::new(tool::Role::User, "hello there")
         .with_round(1)
         .with_sent_at_ms(EPOCH_MS);
     let grid = grid_of(&[message], 72, 12);
@@ -139,7 +139,7 @@ fn every_component_of_one_turn_shares_the_same_time() {
     let step = stamp(step);
 
     let text = stamp(
-        TranscriptMessage::new(nuo_tool::Role::Assistant, "done")
+        TranscriptMessage::new(tool::Role::Assistant, "done")
             .with_attribution("anthropic", "claude-sonnet"),
     );
 
@@ -198,8 +198,8 @@ fn a_running_step_does_not_share_its_turn_headers_hue() {
         "execute_command",
         r#"{"command":"cargo test"}"#,
     );
-    if let nuo_view::model::document::MessageKind::ToolStep { status, .. } = &mut running.kind {
-        *status = nuo_view::model::document::ToolStepStatus::Executing;
+    if let view::model::document::MessageKind::ToolStep { status, .. } = &mut running.kind {
+        *status = view::model::document::ToolStepStatus::Executing;
     }
     running.turn = Some(1);
     running.model = Some("claude-sonnet".into());

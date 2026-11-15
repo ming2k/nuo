@@ -2,10 +2,10 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_tool::{CommandTool, RiskProfile, ShellKind, Tool, ToolContext, ToolError};
 use serde_json::json;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use tool::{CommandTool, RiskProfile, ShellKind, Tool, ToolContext, ToolError};
 
 #[tokio::test]
 async fn command_tool_contract_metadata() {

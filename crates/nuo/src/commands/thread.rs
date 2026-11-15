@@ -14,7 +14,7 @@
 
 use crate::cli::ThreadAction;
 use nuo::transport as client;
-use nuo_protocol::{MonitoredThread, ThreadFilter, ThreadRemovalReport, WorkspaceFilter};
+use protocol::{MonitoredThread, ThreadFilter, ThreadRemovalReport, WorkspaceFilter};
 use std::path::PathBuf;
 
 #[cfg(feature = "interactive")]
@@ -50,7 +50,7 @@ pub async fn run(
     let raw_root = project_override
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let project_root = nuo_host::paths::find_project_root(&raw_root);
+    let project_root = host::paths::find_project_root(&raw_root);
     // Stored bindings are created from the session store's canonical project
     // root; resolve the query side the same way so a symlinked cwd does not
     // silently produce an empty scope.
@@ -227,7 +227,7 @@ fn resolve_scope_filter(
     if global {
         if let Some(role) = role {
             let (role, _) =
-                nuo_persistence::roles::resolve_role_workspace(Some(role), Some(project_root))?;
+                persistence::roles::resolve_role_workspace(Some(role), Some(project_root))?;
             return Ok(ThreadFilter {
                 role: Some(role),
                 workspace: WorkspaceFilter::Any,
@@ -253,17 +253,17 @@ fn resolve_scope_filter(
         );
     }
 
-    let (role, policy) = nuo_persistence::roles::resolve_role_workspace(role, Some(project_root))?;
-    if explicit_project && matches!(policy, nuo_persistence::roles::RoleWorkspace::Unbound) {
+    let (role, policy) = persistence::roles::resolve_role_workspace(role, Some(project_root))?;
+    if explicit_project && matches!(policy, persistence::roles::RoleWorkspace::Unbound) {
         return Err(format!("role '{role}' is workspace-free; --project is not applicable").into());
     }
     let workspace = match (workspace, &policy) {
-        (Some(_), nuo_persistence::roles::RoleWorkspace::Unbound) => {
+        (Some(_), persistence::roles::RoleWorkspace::Unbound) => {
             return Err(
                 format!("role '{role}' is workspace-free; --workspace is not applicable").into(),
             );
         }
-        (Some(selected), nuo_persistence::roles::RoleWorkspace::Fixed(fixed)) => {
+        (Some(selected), persistence::roles::RoleWorkspace::Fixed(fixed)) => {
             let selected = normalize_workspace_arg(selected);
             let fixed_canon = std::fs::canonicalize(fixed).unwrap_or_else(|_| fixed.to_path_buf());
             if selected != fixed_canon && selected.as_path() != fixed.as_path() {
@@ -277,14 +277,14 @@ fn resolve_scope_filter(
             // stored at birth.
             WorkspaceFilter::Path(fixed.clone())
         }
-        (Some(selected), nuo_persistence::roles::RoleWorkspace::Inherit) => {
+        (Some(selected), persistence::roles::RoleWorkspace::Inherit) => {
             WorkspaceFilter::Path(normalize_workspace_arg(selected))
         }
-        (None, nuo_persistence::roles::RoleWorkspace::Unbound) => WorkspaceFilter::Unbound,
-        (None, nuo_persistence::roles::RoleWorkspace::Fixed(fixed)) => {
+        (None, persistence::roles::RoleWorkspace::Unbound) => WorkspaceFilter::Unbound,
+        (None, persistence::roles::RoleWorkspace::Fixed(fixed)) => {
             WorkspaceFilter::Path(fixed.clone())
         }
-        (None, nuo_persistence::roles::RoleWorkspace::Inherit) => {
+        (None, persistence::roles::RoleWorkspace::Inherit) => {
             WorkspaceFilter::Path(project_root.to_path_buf())
         }
     };
@@ -305,8 +305,8 @@ fn single_id_role_guard(
         return Ok(None);
     };
     let (role, policy) =
-        nuo_persistence::roles::resolve_role_workspace(Some(role), Some(project_root))?;
-    if explicit_project && matches!(policy, nuo_persistence::roles::RoleWorkspace::Unbound) {
+        persistence::roles::resolve_role_workspace(Some(role), Some(project_root))?;
+    if explicit_project && matches!(policy, persistence::roles::RoleWorkspace::Unbound) {
         return Err(format!("role '{role}' is workspace-free; --project is not applicable").into());
     }
     Ok(Some(ThreadFilter {
@@ -527,7 +527,7 @@ pub fn format_threads_table(sessions: &[MonitoredThread], filter: &ThreadFilter)
         if !lane.is_empty() {
             title.push_str(&lane);
         }
-        if row.origin == nuo_protocol::ThreadOrigin::Subagent {
+        if row.origin == protocol::ThreadOrigin::Subagent {
             title.push_str("⑂ ");
         }
         if let Some(parent) = row.parent_id.as_deref()
@@ -601,7 +601,7 @@ fn fmt_relative(updated_epoch_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::{ThreadActivity, ThreadHosting, ThreadOrigin};
+    use protocol::{ThreadActivity, ThreadHosting, ThreadOrigin};
 
     fn test_filter() -> ThreadFilter {
         ThreadFilter {

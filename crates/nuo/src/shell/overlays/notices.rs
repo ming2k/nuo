@@ -27,12 +27,12 @@ use unicode_width::UnicodeWidthStr;
 use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
 use crate::shell::surfaces::NoticesDialog;
-use nuo_ui_primitives::elevation::modal_frame;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::elevation::modal_frame;
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, content_modal_area_in, keyvocab, modal_header,
     render_modal_footer,
 };
-use nuo_view::model::log::{LineStatus, SurfaceLine};
+use view::model::log::{LineStatus, SurfaceLine};
 
 /// How many rows `text` occupies when wrapped to `width` columns.
 pub fn wrapped_row_count(text: &str, width: usize) -> usize {
@@ -133,7 +133,7 @@ pub fn draw_notices_modal(
             };
             let band = theme.severity_band(accent, marker);
 
-            let time = nuo_ui_primitives::time::sent_time_label(notice.at_ms);
+            let time = ui_primitives::time::sent_time_label(notice.at_ms);
             let topic = notice.label.as_deref().unwrap_or("system");
 
             let select_indicator = if is_sel { "▌ " } else { "  " };
@@ -294,10 +294,10 @@ pub fn one_line(text: &str) -> String {
 /// truncation implementation in this module — a local copy is how two surfaces
 /// come to disagree about how a string is shortened.
 pub fn truncate_ellipsis(text: &str, max: usize) -> String {
-    nuo_ui_primitives::components::overflow::fit(
+    ui_primitives::components::overflow::fit(
         text,
         max,
-        nuo_ui_primitives::components::overflow::Overflow::End,
+        ui_primitives::components::overflow::Overflow::End,
     )
     .text
 }
@@ -474,7 +474,7 @@ mod tests {
             glyphs: nuotc::ASCII_GLYPHS,
             ..Theme::from_color_scheme(
                 "monochrome",
-                &nuo_ui_primitives::color_scheme::ColorSchemeConfig::default(),
+                &ui_primitives::color_scheme::ColorSchemeConfig::default(),
             )
         };
         assert!(!theme.severity_is_color_distinguishable());

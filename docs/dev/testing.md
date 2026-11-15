@@ -44,9 +44,9 @@ the real binary is an E2E test. Put it where its dependencies say it belongs.
 | **L3 E2E** | Root `tests/e2e/main.rs` + modules | The freshly built binary, real UDS/WS, real SQLite, `nuo-test-support::MockProvider` | Shared `NUO_HOME`, live providers, process-global `env::set_var` | tens of seconds |
 | **L0 Governance** | `tests/integration/governance/`, per-crate `layering.rs` folded into the same entry | Source/manifest scans, AST, `cargo tree` | Business behaviour | milliseconds |
 
-The production workspace remains multi-crate: `crates/*`, `providers/*`, and
-`tools/*` are unchanged. The root package `nuo-tests` is a **dev-only test host**
-that exists solely to compile external tests into two binaries.
+The production workspace remains multi-crate under `crates/*`. The root package
+`nuo-tests` is a **dev-only test host** that exists solely to compile external
+tests into two binaries.
 
 ---
 

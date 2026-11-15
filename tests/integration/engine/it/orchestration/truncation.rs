@@ -11,36 +11,33 @@ struct ReasoningThenTruncatedProvider(Arc<AtomicUsize>);
 impl Provider for ReasoningThenTruncatedProvider {
     async fn chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-        Err(nuo_protocol::ProviderError::new(
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
             "mock",
-            nuo_protocol::ProviderErrorKind::Other,
+            protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: &nuo_protocol::ModelRequest,
-        _telemetry: nuo_protocol::TransportTelemetry,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<
-            'static,
-            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
-        >,
-        nuo_protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
     > {
         let attempt = self.0.fetch_add(1, Ordering::SeqCst);
 
@@ -55,9 +52,9 @@ impl Provider for ReasoningThenTruncatedProvider {
                 Ok(ProviderStreamEvent::TextDelta(
                     "attempt one answer".to_string(),
                 )),
-                Err(nuo_protocol::ProviderError::new(
+                Err(protocol::ProviderError::new(
                     "mock",
-                    nuo_protocol::ProviderErrorKind::Transport,
+                    protocol::ProviderErrorKind::Transport,
                     "connection reset mid-stream",
                 )
                 .retryable(None)),
@@ -72,7 +69,7 @@ impl Provider for ReasoningThenTruncatedProvider {
                 "attempt two answer".to_string(),
             )),
             Ok(ProviderStreamEvent::Completed(
-                nuo_protocol::ProviderCompletionMeta::default(),
+                protocol::ProviderCompletionMeta::default(),
             )),
         ])))
     }
@@ -106,7 +103,7 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
     let agent = Arc::new(Agent::new(
         Arc::new(ReasoningThenTruncatedProvider(attempts.clone())),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -119,7 +116,7 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
             session: session.clone(),
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                budget: protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -137,7 +134,7 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await;
@@ -154,14 +151,12 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
 
     // Collect the turn context and event in arrival order. The context is the
     // authoritative position; no `TurnStarted` replay is involved.
-    let events: Vec<(Option<nuo_protocol::TurnContext>, RoundEvent)> =
+    let events: Vec<(Option<protocol::TurnContext>, RoundEvent)> =
         std::iter::from_fn(|| rx.try_recv().ok())
             .filter_map(|response| match response {
                 AgentResponse::Round { scope, .. } => match scope {
-                    nuo_protocol::RoundScope::Turn { context, event } => {
-                        Some((Some(context), event))
-                    }
-                    nuo_protocol::RoundScope::Session { event } => Some((None, event)),
+                    protocol::RoundScope::Turn { context, event } => Some((Some(context), event)),
+                    protocol::RoundScope::Session { event } => Some((None, event)),
                 },
                 _ => None,
             })

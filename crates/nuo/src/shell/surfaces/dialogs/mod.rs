@@ -21,9 +21,9 @@ use nuotc::{Frame, Rect};
 use crate::shell::input::InputAction;
 use crate::shell::render::Theme;
 use crate::shell::surfaces::{DialogKind, DialogScope};
-use nuo_ui_primitives::primitives::{ContentModalSpec, FixedModalSpec, ModalSpec};
-use nuo_view::model::layout::LayoutMap;
-use nuo_view::model::selection::SelectionState;
+use ui_primitives::primitives::{ContentModalSpec, FixedModalSpec, ModalSpec};
+use view::model::layout::LayoutMap;
+use view::model::selection::SelectionState;
 
 /// An embedded single-line text field owned by a dialog. Replaces the old
 /// practice of borrowing the thread composer line for a dialog's

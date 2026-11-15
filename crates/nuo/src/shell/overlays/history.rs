@@ -14,17 +14,15 @@
 //! line was redundant noise and was removed. `Enter` inserts the focused entry
 //! into the composer.
 
-use nuo_protocol::HistoryEntry;
 use nuotc::{
     Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };
+use protocol::HistoryEntry;
 
 use super::common::truncate_ellipsis;
 use crate::shell::render::Theme;
-use nuo_ui_primitives::fuzzy::FuzzyMatch;
-use nuo_ui_primitives::primitives::{
-    ElevationContainer, SCROLL_EDGE_MARGIN, contrast_fg, render_body,
-};
+use ui_primitives::fuzzy::FuzzyMatch;
+use ui_primitives::primitives::{ElevationContainer, SCROLL_EDGE_MARGIN, contrast_fg, render_body};
 
 /// Maximum number of rows the dropdown reserves vertically. Capped so a long
 /// history stays scannable — a Ctrl+R picker is a glance surface, not a full
@@ -165,11 +163,7 @@ pub fn draw_history_panel(
             body_rect,
             body,
             scroll,
-            nuo_ui_primitives::primitives::BodyRenderOptions::new(
-                follow,
-                SCROLL_EDGE_MARGIN,
-                false,
-            ),
+            ui_primitives::primitives::BodyRenderOptions::new(follow, SCROLL_EDGE_MARGIN, false),
             theme,
         );
     }

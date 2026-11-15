@@ -1,8 +1,8 @@
 //! Clipboard integration: OSC52 terminal sequences + system clipboard.
 //!
-//! Delegates low-level cross-platform clipboard interactions to [`nuo_host::clipboard`].
+//! Delegates low-level cross-platform clipboard interactions to [`host::clipboard`].
 
-pub use nuo_host::clipboard::{
+pub use host::clipboard::{
     ClipboardRead, CopyOutcome, PlatformClipboard, base64_encode_bytes, file_uri_to_path,
     parse_gnome_copied_files, parse_uri_list, paste_text_as_file_paths, write_osc52,
 };

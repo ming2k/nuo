@@ -4,6 +4,7 @@ pub(crate) mod checklist;
 pub(crate) mod code;
 pub(crate) mod command;
 pub(crate) mod diff;
+pub(crate) mod image;
 pub(crate) mod listing;
 pub(crate) mod matches;
 pub(crate) mod question;
@@ -23,6 +24,7 @@ pub(crate) use diff::{
     draw_diff_content, extract_diff_strings_for_tool, find_start_line_in_file,
     project_syntax_diff_frags, project_syntax_slice,
 };
+pub(crate) use image::draw_image_content;
 pub(crate) use listing::draw_listing_content;
 pub(crate) use matches::draw_matches_content;
 pub(crate) use question::draw_questions_content;
@@ -47,10 +49,10 @@ pub(crate) use listing::{parse_listing_header, split_dir_leaf};
 pub(crate) use matches::{is_matches_header, literal_query, segment_matches};
 
 use crate::shell::disclosure::renderers::base::RenderCtx;
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::block_selection_range;
-use nuo_view::tools::{DiffCache, ResultKind};
 use nuotc::{Modifier, Style};
+use view::model::selection::SelectionState;
+use view::text_layout::block_selection_range;
+use view::tools::{DiffCache, ResultKind};
 
 /// Render an explicit tool failure as error text on the shared code surface.
 /// It deliberately has no line-number gutter: these rows describe the failed
@@ -99,7 +101,7 @@ pub(crate) fn draw_tool_result(
     name: &str,
     arguments: &str,
     output: &str,
-    structured: Option<&nuo_tool::ToolOutput>,
+    structured: Option<&tool::ToolOutput>,
     diff_cache: &mut DiffCache,
     selection: &SelectionState,
     indent: usize,
@@ -113,15 +115,16 @@ pub(crate) fn draw_tool_result(
     // that never reached disk and hide the actionable failure message.
     if matches!(
         structured,
-        Some(nuo_tool::ToolOutput::Error { .. } | nuo_tool::ToolOutput::PermissionDenied { .. })
+        Some(tool::ToolOutput::Error { .. } | tool::ToolOutput::PermissionDenied { .. })
     ) {
         draw_tool_error(ctx, mi, block_idx, output, selection, indent, inner_w);
         return;
     }
 
-    let kind = match nuo_view::tools::presenter_for(name).result_kind() {
+    let kind = match view::tools::presenter_for(name).result_kind() {
         ResultKind::Auto => match structured {
-            Some(nuo_tool::ToolOutput::Listing { .. }) => ResultKind::Listing,
+            Some(tool::ToolOutput::Listing { .. }) => ResultKind::Listing,
+            Some(tool::ToolOutput::Image { .. }) => ResultKind::Image,
             _ => ResultKind::Code,
         },
         kind => kind,
@@ -132,6 +135,9 @@ pub(crate) fn draw_tool_result(
         }
         ResultKind::Matches => draw_matches_content(
             ctx, mi, block_idx, output, arguments, selection, indent, inner_w,
+        ),
+        ResultKind::Image => draw_image_content(
+            ctx, mi, block_idx, output, structured, selection, indent, inner_w,
         ),
         ResultKind::Command => {
             let command = command_for(structured, arguments);
@@ -150,13 +156,13 @@ pub(crate) fn draw_tool_result(
             // flattened `output` string with `start_line = 0` (slice-relative
             // 1-based numbering).
             let (raw_content, raw_start_line, explicit_lang) = match structured {
-                Some(nuo_tool::ToolOutput::Code {
+                Some(tool::ToolOutput::Code {
                     text,
                     start_line,
                     lang,
                     ..
                 }) => (text.as_str(), *start_line, lang.as_deref()),
-                Some(nuo_tool::ToolOutput::Patch {
+                Some(tool::ToolOutput::Patch {
                     new, start_line, ..
                 }) => (new.as_str(), *start_line, None),
                 _ => (output, 0, None),
@@ -176,17 +182,17 @@ pub(crate) fn draw_tool_result(
                         .or_else(|| v.get("filename"))
                         .or_else(|| v.get("file"))
                         .and_then(|p| p.as_str())
-                        .map(nuo_ui_primitives::syntax::Language::from_path)
+                        .map(ui_primitives::syntax::Language::from_path)
                 })
                 .or_else(|| {
                     normalized
                         .detected_path
                         .as_deref()
-                        .map(nuo_ui_primitives::syntax::Language::from_path)
+                        .map(ui_primitives::syntax::Language::from_path)
                 });
             let syntax_lang = path_lang
-                .or_else(|| explicit_lang.map(nuo_ui_primitives::syntax::Language::from_path))
-                .unwrap_or(nuo_ui_primitives::syntax::Language::Plain);
+                .or_else(|| explicit_lang.map(ui_primitives::syntax::Language::from_path))
+                .unwrap_or(ui_primitives::syntax::Language::Plain);
 
             draw_code_content(
                 ctx,
@@ -207,14 +213,14 @@ pub(crate) fn draw_tool_result(
             // completed steps. Both paths are cached by stable message id and
             // exact source, so animation frames never repeat Myers/word diffing.
             let path_buf: Option<String> = match structured {
-                Some(nuo_tool::ToolOutput::Patch { .. }) => None,
+                Some(tool::ToolOutput::Patch { .. }) => None,
                 _ => {
                     let map = if let Ok(serde_json::Value::Object(obj)) =
                         serde_json::from_str::<serde_json::Value>(arguments)
                     {
                         obj
                     } else {
-                        nuo_view::tools::parse_streaming_arguments(arguments)
+                        view::tools::parse_streaming_arguments(arguments)
                     };
                     map.get("path")
                         .or_else(|| map.get("file_path"))
@@ -225,15 +231,15 @@ pub(crate) fn draw_tool_result(
                 }
             };
             let path_ref = match structured {
-                Some(nuo_tool::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
+                Some(tool::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
                 _ => path_buf.as_deref(),
             };
             let lang = path_ref
-                .map(nuo_ui_primitives::syntax::Language::from_path)
-                .unwrap_or(nuo_ui_primitives::syntax::Language::Plain);
+                .map(ui_primitives::syntax::Language::from_path)
+                .unwrap_or(ui_primitives::syntax::Language::Plain);
 
             let hunks = match structured {
-                Some(nuo_tool::ToolOutput::Patch {
+                Some(tool::ToolOutput::Patch {
                     old,
                     new,
                     start_line,
@@ -264,7 +270,7 @@ pub(crate) fn draw_tool_result(
                     }
                 }
             };
-            if let Some(nuo_tool::ToolOutput::Patch { warnings, .. }) = structured {
+            if let Some(tool::ToolOutput::Patch { warnings, .. }) = structured {
                 for warning in warnings {
                     let text = format!("Warning: {warning}");
                     let bg = ctx.theme.code_surface();
@@ -291,7 +297,7 @@ pub(crate) fn draw_tool_result(
                     output,
                     1,
                     None,
-                    nuo_ui_primitives::syntax::Language::Plain,
+                    ui_primitives::syntax::Language::Plain,
                     selection,
                     indent,
                     inner_w,

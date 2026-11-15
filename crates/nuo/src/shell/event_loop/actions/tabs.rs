@@ -3,8 +3,8 @@ use super::ActionFlow;
 use super::navigation::enter_scene;
 use crate::shell::App;
 use crate::shell::event_loop::runtime::UiRuntime;
-use nuo_view::model::selection::SelectionState;
 use std::sync::atomic::Ordering;
+use view::model::selection::SelectionState;
 
 pub(crate) fn activate_tab_at_index(
     app: &mut App,

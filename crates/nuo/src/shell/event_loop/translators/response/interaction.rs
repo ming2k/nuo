@@ -1,7 +1,7 @@
 //! Human-in-the-loop and subagent event handling.
 
-use nuo_protocol::RoundEvent;
-use nuo_view::phase::Phase;
+use protocol::RoundEvent;
+use view::phase::Phase;
 
 use super::{E, M, TranslatorState};
 
@@ -18,7 +18,7 @@ impl TranslatorState {
                 // under this `parent_call_id`; the reply is tagged
                 // for down-routing into the child.
                 match &event {
-                    nuo_tool::SubagentEvent::PermissionRequest(req) => {
+                    tool::SubagentEvent::PermissionRequest(req) => {
                         self.mutations
                             .send(M::QueuePermission {
                                 request: req.clone(),
@@ -31,7 +31,7 @@ impl TranslatorState {
                             .await;
                         self.mutations.send(M::SetResponding(true)).await;
                     }
-                    nuo_tool::SubagentEvent::UserQuestionRequest(req) => {
+                    tool::SubagentEvent::UserQuestionRequest(req) => {
                         self.mutations
                             .send(M::QueueQuestion {
                                 request: req.clone(),

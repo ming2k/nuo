@@ -11,7 +11,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     // tiebreaker.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let mk = |text: &str, sid: &str, ts: u64| {
-        nuo_protocol::HistoryEntry::new(
+        protocol::HistoryEntry::new(
             text.to_string(),
             Some(sid.to_string()),
             Some("~/p".to_string()),
@@ -89,22 +89,18 @@ fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
 #[test]
 fn history_insert_clears_search_query_buffer_and_places_entry() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.composer
-        .input_history
-        .push(nuo_protocol::HistoryEntry::new(
-            "history row 1".to_string(),
-            Some("s1".to_string()),
-            None,
-            100,
-        ));
-    app.composer
-        .input_history
-        .push(nuo_protocol::HistoryEntry::new(
-            "history row 2".to_string(),
-            Some("s1".to_string()),
-            None,
-            200,
-        ));
+    app.composer.input_history.push(protocol::HistoryEntry::new(
+        "history row 1".to_string(),
+        Some("s1".to_string()),
+        None,
+        100,
+    ));
+    app.composer.input_history.push(protocol::HistoryEntry::new(
+        "history row 2".to_string(),
+        Some("s1".to_string()),
+        None,
+        200,
+    ));
 
     app.composer.input = "draft before search".to_string();
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
@@ -143,28 +139,28 @@ fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() 
 
     app.composer.input_history = vec![
         // Scattered acronym initials across sentence: "all dogs run in the park" (ts: newest!)
-        nuo_protocol::HistoryEntry::new(
+        protocol::HistoryEntry::new(
             "all dogs run in the park".into(),
             Some("other-session".into()),
             None,
             base_time + 5 * hour_ms,
         ),
         // Exact whole word "adr", but typed 4 hours ago in other session
-        nuo_protocol::HistoryEntry::new(
+        protocol::HistoryEntry::new(
             "let's write the adr".into(),
             Some("other-session".into()),
             None,
             base_time + hour_ms,
         ),
         // Word prefix "adroit approach"
-        nuo_protocol::HistoryEntry::new(
+        protocol::HistoryEntry::new(
             "adroit approach to problems".into(),
             Some("other-session".into()),
             None,
             base_time + 2 * hour_ms,
         ),
         // Exact whole word "adr" typed recently in CURRENT session
-        nuo_protocol::HistoryEntry::new(
+        protocol::HistoryEntry::new(
             "review the adr now".into(),
             Some("live-session".into()),
             None,

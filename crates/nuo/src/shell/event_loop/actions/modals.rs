@@ -6,7 +6,7 @@
 #![allow(clippy::items_after_test_module)]
 use std::sync::atomic::Ordering;
 
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::event_loop::runtime::UiRuntime;
@@ -28,10 +28,10 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
         let protocol = app
             .provider_editor
             .custom_protocol_wire
-            .parse::<nuo_protocol::WireProtocol>()
+            .parse::<protocol::WireProtocol>()
             .expect("provider editor must carry a registered wire protocol");
         let base_url = app.provider_editor.custom_base_url.trim().to_string();
-        let api_key = nuo_protocol::SecretString::from(app.provider_editor.custom_token.trim());
+        let api_key = protocol::SecretString::from(app.provider_editor.custom_token.trim());
         if let Some(key) = app.provider_editor.custom_edit_id.clone() {
             // Edit mode: update meta (models stay managed in
             // the Models picker). A name is still required.
@@ -57,7 +57,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                             .map(|r| r.provider.clone())
                     })
                     .unwrap_or_default();
-                let is_custom = provider == nuo_view::providers::CUSTOM_TEMPLATE.id;
+                let is_custom = provider == view::providers::CUSTOM_TEMPLATE.id;
                 // Only a custom provider owns its wire/endpoint; a curated
                 // provider derives both from its spec.
                 let base_url = app
@@ -140,7 +140,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     .custom_provider_id
                     .take()
                     .unwrap_or_default();
-                let is_custom = provider == nuo_view::providers::CUSTOM_TEMPLATE.id;
+                let is_custom = provider == view::providers::CUSTOM_TEMPLATE.id;
                 let base_url = app
                     .provider_editor
                     .custom_fields
@@ -223,7 +223,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             // cleared and prefill when the `RouteSettings` answer lands.
             app.provider_editor.editor_vision_override = None;
             app.provider_editor.editor_tool_override = None;
-            app.send_intent(nuo_protocol::AgentRequest::QueryRouteSettings {
+            app.send_intent(protocol::AgentRequest::QueryRouteSettings {
                 provider_id: row.provider_id.clone(),
                 model: row.model.clone(),
             });
@@ -305,14 +305,14 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                             r.protocol,
                             r.base_url,
                             r.auth,
-                            r.provider != nuo_view::providers::CUSTOM_TEMPLATE.id,
+                            r.provider != view::providers::CUSTOM_TEMPLATE.id,
                         )
                     })
                     .unwrap_or((
                         String::new(),
                         String::new(),
                         String::new(),
-                        nuo_protocol::ConnectionAuth::Static,
+                        protocol::ConnectionAuth::Static,
                         true,
                     ));
                 app.surfaces
@@ -354,15 +354,15 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
             };
             let mut parts = payload.splitn(2, ':');
             let axis = match parts.next() {
-                Some("search") => nuo_protocol::WebProviderAxis::Search,
-                Some("reader") => nuo_protocol::WebProviderAxis::Reader,
+                Some("search") => protocol::WebProviderAxis::Search,
+                Some("reader") => protocol::WebProviderAxis::Reader,
                 _ => return ActionFlow::NextEvent,
             };
             let provider_id = parts.next().unwrap_or_default().to_string();
             app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                nuo_protocol::WebSearchConfigUpdate {
+                protocol::WebSearchConfigUpdate {
                     expected_revision,
-                    credential: Some(nuo_protocol::WebCredentialUpdate {
+                    credential: Some(protocol::WebCredentialUpdate {
                         axis,
                         provider_id,
                         value: app.composer.input.trim().to_string(),
@@ -387,7 +387,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                 return ActionFlow::NextEvent;
             };
             app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                nuo_protocol::WebSearchConfigUpdate {
+                protocol::WebSearchConfigUpdate {
                     expected_revision,
                     searxng_url: Some(app.composer.input.trim().to_string()),
                     ..Default::default()
@@ -433,7 +433,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                         .provider_editor
                         .editor_thinking_available
                         .then_some(app.provider_editor.editor_thinking),
-                    overrides: Some(nuo_protocol::CapabilityOverrides {
+                    overrides: Some(protocol::CapabilityOverrides {
                         vision: app.provider_editor.editor_vision_override,
                         tool_call: app.provider_editor.editor_tool_override,
                         ..Default::default()
@@ -448,7 +448,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                         .provider_editor
                         .editor_thinking_available
                         .then_some(app.provider_editor.editor_thinking),
-                    overrides: Some(nuo_protocol::CapabilityOverrides {
+                    overrides: Some(protocol::CapabilityOverrides {
                         vision: app.provider_editor.editor_vision_override,
                         tool_call: app.provider_editor.editor_tool_override,
                         ..Default::default()
@@ -656,7 +656,7 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
             },
             // The log is a reading surface: it has no list cursor or
             // sub-layer for ↑/↓ to move, so the key is spent.
-            SceneKind::CommandLog => {}
+            SceneKind::CommandLog | SceneKind::Diff => {}
             SceneKind::Thread | SceneKind::Subagent => {}
         }
     }
@@ -716,7 +716,7 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
             },
             // The log scene keeps its own scroll; ↓ is routed to it by its
             // scene scheme, not by this list-walk fallback.
-            SceneKind::CommandLog => {}
+            SceneKind::CommandLog | SceneKind::Diff => {}
             SceneKind::Thread | SceneKind::Subagent => {}
         }
     }
@@ -758,7 +758,7 @@ pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, ke
         let auth = app.provider_row_auth(&id);
         let method = auth
             .default_login_method()
-            .unwrap_or(nuo_protocol::LoginMethod::Device);
+            .unwrap_or(protocol::LoginMethod::Device);
         app.send_intent(AgentRequest::ConnectConnection { name: id, method });
         app.dismiss_surface();
     } else {
@@ -810,12 +810,12 @@ pub(crate) async fn handle_permission_submit(
     }
     if let Some(request) = app.human.pending_permission.take() {
         let decision = if app.human.permission_confirm_always {
-            nuo_protocol::PermissionDecision::Always
+            protocol::PermissionDecision::Always
         } else {
             match app.surfaces.modal_index {
-                0 => nuo_protocol::PermissionDecision::Once,
-                i if i == reject_idx => nuo_protocol::PermissionDecision::Reject,
-                _ => nuo_protocol::PermissionDecision::Reject,
+                0 => protocol::PermissionDecision::Once,
+                i if i == reject_idx => protocol::PermissionDecision::Reject,
+                _ => protocol::PermissionDecision::Reject,
             }
         };
         let request_id = request.id;
@@ -825,14 +825,14 @@ pub(crate) async fn handle_permission_submit(
             decision,
             parent_call_id,
         });
-        if decision == nuo_protocol::PermissionDecision::Reject {
-            let queued: Vec<nuo_tool::PermissionRequest> =
+        if decision == protocol::PermissionDecision::Reject {
+            let queued: Vec<tool::PermissionRequest> =
                 app.human.pending_permissions.drain(..).collect();
             for pending in queued {
                 let parent_call_id = app.human.subagent_permission_parent.remove(&pending.id);
                 app.send_intent(AgentRequest::PermissionReply {
                     request_id: pending.id,
-                    decision: nuo_protocol::PermissionDecision::Reject,
+                    decision: protocol::PermissionDecision::Reject,
                     parent_call_id,
                 });
             }
@@ -887,9 +887,9 @@ pub(crate) mod question_effects {
                     // instead of forwarding to the server — the
                     // server has no parked round waiting for a
                     // TRUST_GATE_REQUEST_ID reply.
-                    if request_id == nuo_view::trust_gate::TRUST_GATE_REQUEST_ID {
+                    if request_id == view::trust_gate::TRUST_GATE_REQUEST_ID {
                         runtime.trust_gate_dismissed.store(true, Ordering::SeqCst);
-                        let selected = nuo_view::trust_gate::answer_to_domains(answers);
+                        let selected = view::trust_gate::answer_to_domains(answers);
                         // A refusal must name what to refuse. The offered set is
                         // the authority, not the selection: "the user picked
                         // nothing" means "refuse everything that was asked
@@ -897,9 +897,9 @@ pub(crate) mod question_effects {
                         // record no refusal at all and let the gate re-open.
                         let offered = app.session.workspace_security.domains_needing_review();
                         let decision = if selected.is_empty() {
-                            nuo_protocol::TrustDecision::Deny
+                            protocol::TrustDecision::Deny
                         } else {
-                            nuo_protocol::TrustDecision::Grant
+                            protocol::TrustDecision::Grant
                         };
                         let domains = if selected.is_empty() {
                             offered
@@ -918,7 +918,7 @@ pub(crate) mod question_effects {
                 }
                 crate::shell::question_model::QuestionEffect::Cancelled { request_id } => {
                     // Defensive guard — see the Reply arm.
-                    if request_id == nuo_view::trust_gate::TRUST_GATE_REQUEST_ID {
+                    if request_id == view::trust_gate::TRUST_GATE_REQUEST_ID {
                         runtime.trust_gate_dismissed.store(true, Ordering::SeqCst);
                         continue;
                     }
@@ -960,11 +960,11 @@ mod tests {
         // The `custom` template is the generic bring-your-own-endpoint
         // provider; the seeded provider id is the one persisted on the
         // connection, and it is NOT part of the curated chooser table.
-        assert_eq!(nuo_view::providers::CUSTOM_TEMPLATE.id, "custom");
+        assert_eq!(view::providers::CUSTOM_TEMPLATE.id, "custom");
         assert!(
-            nuo_view::providers::PROVIDER_PRESETS
+            view::providers::PROVIDER_PRESETS
                 .iter()
-                .all(|t| t.id != nuo_view::providers::CUSTOM_TEMPLATE.id),
+                .all(|t| t.id != view::providers::CUSTOM_TEMPLATE.id),
             "custom connections have their own Connections-level branch"
         );
     }
@@ -984,7 +984,7 @@ mod tests {
         // Simulate the mounted sheet exactly as the per-frame sync leaves it:
         // slot state set, no router transient pushed on top of the session view.
         let request = {
-            use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+            use tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
             UserQuestionRequest {
                 id: "q1".into(),
@@ -1055,7 +1055,7 @@ pub(crate) async fn apply_pre_attach_decision(
             );
             app.send_intent(AgentRequest::TrustWorkspace {
                 domains,
-                decision: nuo_protocol::TrustDecision::Grant,
+                decision: protocol::TrustDecision::Grant,
             });
             // The per-frame sync clears `pre_attach` once the
             // republished snapshot reports Trusted. The PreAttach surface
@@ -1086,7 +1086,7 @@ pub(crate) async fn apply_pre_attach_decision(
             // exists to make unrepresentable.
             app.send_intent(AgentRequest::TrustWorkspace {
                 domains,
-                decision: nuo_protocol::TrustDecision::Deny,
+                decision: protocol::TrustDecision::Deny,
             });
         }
     }

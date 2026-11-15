@@ -12,9 +12,9 @@
 //! keeping the interaction vocabulary free of layering cycles and unit-testable
 //! in isolation.
 
-use nuo_view::disclosure_config::{DisclosureSource, tool_step_expanded};
-use nuo_view::model::document::ToolStepStatus;
-use nuo_view::model::layout::{
+use view::disclosure_config::{DisclosureSource, tool_step_expanded};
+use view::model::document::ToolStepStatus;
+use view::model::layout::{
     COMMAND_RESULT_BLOCK_IDX, COMPACTED_CARD_BLOCK_IDX, InteractiveTarget, NOTICE_BLOCK_IDX,
     REASONING_BLOCK_IDX, SemanticCursor, TOOL_STEP_BLOCK_IDX,
 };
@@ -79,7 +79,7 @@ pub fn summary_at(cursor: &SemanticCursor) -> Option<(usize, StepKind)> {
 // user toggle pins the step (see `document::TranscriptMessage::pin_*`) and
 // opts out of further automatic changes.
 //
-// The rule itself lives in `nuo_view::disclosure_config::tool_step_expanded`,
+// The rule itself lives in `view::disclosure_config::tool_step_expanded`,
 // next to the pure `DisclosureSource` port: one resolver serves the live
 // applier, the restore pass, and the subagent folding path. This function is
 // the shell's spelling of it, kept so call sites read in domain terms.
@@ -150,7 +150,7 @@ mod tests {
     /// "focused it" the same component (ADR-0020 §6).
     #[test]
     fn every_marked_entry_classifies_and_focuses_identically() {
-        use nuo_view::model::layout::InteractiveTarget;
+        use view::model::layout::InteractiveTarget;
         let cases = [
             (TOOL_STEP_BLOCK_IDX, StepKind::ToolStep),
             (REASONING_BLOCK_IDX, StepKind::Reasoning),

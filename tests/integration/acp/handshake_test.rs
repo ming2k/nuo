@@ -3,7 +3,7 @@
 //! fabric — no agent runtime involved.
 //!
 //! Ported from the former `nuo-agent/tests/p2p_lifecycle_and_pairing_test.rs`
-//! (ADR-0009): the handshake/pairing protocol is owned by `nuo-acp`, so its
+//! (ADR-0009): the handshake/pairing protocol is owned by `acp`, so its
 //! coverage must live here, independent of any cognitive runtime, so it
 //! survives the retirement of the orphaned `nuo-agent` runtime.
 
@@ -11,7 +11,7 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_acp::*;
+use acp::*;
 use std::time::Duration;
 use uuid::Uuid;
 

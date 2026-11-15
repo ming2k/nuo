@@ -10,8 +10,8 @@ use nuotc::{Color, Span};
 use crate::shell::keymap::{HintSide, Key, LiveHint};
 use crate::shell::modal_keys::live_history_hints;
 use crate::shell::session::{HintState, live_chat_hints};
-use nuo_ui_primitives::components::keycap::keycap_style;
-use nuo_ui_primitives::theme::Theme;
+use ui_primitives::components::keycap::keycap_style;
+use ui_primitives::theme::Theme;
 
 // Width ladder
 

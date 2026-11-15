@@ -13,7 +13,7 @@ use super::common::{
 };
 use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::keycap::{keycap_span, keycap_warn_span};
+use ui_primitives::components::keycap::{keycap_span, keycap_warn_span};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActivityStripProps<'a> {
@@ -27,7 +27,7 @@ pub struct ActivityStripProps<'a> {
     /// renderer either to paint it at full width (squeezing the status out) or
     /// to slice the sentence back apart — the anti-pattern that let the retry
     /// vocabulary drift in the first place.
-    pub backoff: Option<&'a nuo_view::retry::RetryProgress>,
+    pub backoff: Option<&'a view::retry::RetryProgress>,
     /// Gate state (e.g. permission or ask_user pending).
     pub awaiting_permission: bool,
     /// Number of queued follow-up messages staged in outbox.

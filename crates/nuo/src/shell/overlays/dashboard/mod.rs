@@ -38,17 +38,17 @@
 //! running); `i` / `p` / `n` issue control-plane verbs (interrupt / prompt
 //! / new session); `k` kills the selection (confirm step); `s` suspends
 //! it; `Esc` backs out of the preview, then the dashboard.
-use nuo_protocol::{MonitoredThread, ThreadActivity, ThreadHosting};
 use nuotc::{
     Constraint, Direction, Frame, Layout, Line, Modifier, Rect, Span, Style,
     {Block as RtBlock, Paragraph},
 };
+use protocol::{MonitoredThread, ThreadActivity, ThreadHosting};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;
 use crate::shell::view_header::TabBarProps;
-use nuo_ui_primitives::design::INPUT_PROMPT_PREFIX;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::design::INPUT_PROMPT_PREFIX;
+use ui_primitives::primitives::{
     ElevationContainer, LayoutTier, SCROLL_EDGE_MARGIN, resolve_scroll, viewport_rect,
 };
 
@@ -121,7 +121,7 @@ pub struct DashboardProps<'a> {
     /// Whether the dashboard is displaying the Model Usage view (ADR-0129).
     pub view_usage: bool,
     /// Cross-session model usage statistics report, if loaded.
-    pub usage_report: Option<&'a nuo_protocol::usage_stats::UsageStatsReport>,
+    pub usage_report: Option<&'a protocol::usage_stats::UsageStatsReport>,
     /// Whether a model usage report fetch is in flight over the control plane.
     pub usage_loading: bool,
     /// Scroll offset for the model usage analytics report view.

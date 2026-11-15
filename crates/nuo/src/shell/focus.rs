@@ -27,7 +27,7 @@
 //!
 //! [ADR-0145]: ../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md
 
-use nuo_view::model::layout::InteractiveTarget;
+use view::model::layout::InteractiveTarget;
 
 /// Which peer surface of the chat scene owns the keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -245,14 +245,14 @@ fn config_view_monochrome_profile_navigation_and_item_counts() {
 #[tokio::test]
 async fn config_view_components_toggle_and_persistence() {
     let tmp = tempfile::tempdir().unwrap();
-    let dirs = nuo_host::paths::Dirs {
+    let dirs = host::paths::Dirs {
         config_dir: tmp.path().join("config"),
         data_dir: tmp.path().join("data"),
         state_dir: tmp.path().join("state"),
         cache_dir: tmp.path().join("cache"),
         runtime_dir: None,
     };
-    let _sandbox = nuo_host::paths::TestDirsGuard::install(dirs);
+    let _sandbox = host::paths::TestDirsGuard::install(dirs);
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();

@@ -13,10 +13,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
 
     // A long user message fills the first wrapped line edge to edge, so the
     // right-side padding is only present if the wrap width reserves it.
-    let messages = vec![TranscriptMessage::new(
-        nuo_tool::Role::User,
-        "x".repeat(200),
-    )];
+    let messages = vec![TranscriptMessage::new(tool::Role::User, "x".repeat(200))];
     let long_input = "y".repeat(200);
 
     terminal.draw(|f| {
@@ -58,7 +55,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
+                layout: view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -304,13 +301,13 @@ fn composer_focused_and_unfocused_panels_render_distinct_backgrounds() {
 /// as `› steer` on that row.
 #[test]
 fn in_round_interjection_renders_one_body_row() {
-    use nuo_view::model::document::SteerOriginTag;
+    use view::model::document::SteerOriginTag;
     let theme = Theme::default();
     let width = 72u16;
     let mut terminal = nuotc::TestTerminal::new(width, 24);
 
-    let steer = TranscriptMessage::new(nuo_tool::Role::User, "use rg, not find")
-        .with_origin(nuo_view::model::document::UserMessageOrigin::Steer)
+    let steer = TranscriptMessage::new(tool::Role::User, "use rg, not find")
+        .with_origin(view::model::document::UserMessageOrigin::Steer)
         .with_sent_at_ms(1_700_000_000_000)
         .with_origin_tags(vec![SteerOriginTag::InRound]);
     let messages = vec![steer];
@@ -351,7 +348,7 @@ fn in_round_interjection_renders_one_body_row() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
+                layout: view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -404,15 +401,15 @@ fn in_round_interjection_renders_one_body_row() {
 #[test]
 fn history_panel_uses_composer_padding_not_brand_column() {
     let theme = Theme::default();
-    let history: Vec<nuo_protocol::HistoryEntry> = ["one", "two", "three"]
+    let history: Vec<protocol::HistoryEntry> = ["one", "two", "three"]
         .into_iter()
         .enumerate()
         .map(|(i, text)| {
-            nuo_protocol::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
+            protocol::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
         })
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
-    let ranked = nuo_ui_primitives::fuzzy::rank(&texts, "");
+    let ranked = ui_primitives::fuzzy::rank(&texts, "");
     let input_rect = nuotc::Rect::new(0, 40, 30, 2);
     let mut terminal = nuotc::TestTerminal::new(30, 42);
     let mut panel: Option<nuotc::Rect> = None;
@@ -483,7 +480,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_tool::Role::Assistant,
+        tool::Role::Assistant,
         "# 👨‍👩‍👧 OKX\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -521,7 +518,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
+                layout: view::layout::Strategy::default(),
                 height_cache: None,
             },
         );

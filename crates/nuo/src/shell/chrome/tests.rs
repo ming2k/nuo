@@ -2,8 +2,8 @@ use super::model_bar::context_usage_spans;
 use super::*;
 use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
-use nuo_view::model::layout::LayoutMap;
 use nuotc::{Color, Rect};
+use view::model::layout::LayoutMap;
 
 fn activity_row_text(width: u16, status: &str, phase: usize) -> String {
     activity_row_text_with_clause(width, status, None, false, phase)
@@ -18,7 +18,7 @@ fn activity_row_text(width: u16, status: &str, phase: usize) -> String {
 fn activity_row_text_with_clause(
     width: u16,
     status: &str,
-    backoff: Option<&nuo_view::retry::RetryProgress>,
+    backoff: Option<&view::retry::RetryProgress>,
     awaiting: bool,
     phase: usize,
 ) -> String {
@@ -143,7 +143,7 @@ fn backoff_clause_renders_beside_status_and_degrades_narrow() {
     // separate, warning-toned clause — never replacing the label. Both forms
     // come from the same `RetryProgress`, so the ordinal can never disagree
     // between the wide and the narrow rendering.
-    let progress = nuo_view::retry::RetryProgress::scheduled(
+    let progress = view::retry::RetryProgress::scheduled(
         2,
         8,
         std::time::Instant::now() + std::time::Duration::from_secs(4),
@@ -261,14 +261,14 @@ fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
 #[test]
 fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
     // The clause is fully phrased by its single owner
-    // (`nuo_view::retry::RetryProgress::label`), so the strip paints it as-is.
+    // (`view::retry::RetryProgress::label`), so the strip paints it as-is.
     // The regression this pins: the strip used to wrap the clause in `(...)`,
     // which was correct when the clause was a bare `2/8 (next in 4s)` fragment
     // and became `((retry 6/30 (next in 8s)))` once the vocabulary moved to one
     // owner. A renderer must never re-author a phrase it does not own.
     let theme = Theme::default();
     let now = std::time::Instant::now();
-    let progress = nuo_view::retry::RetryProgress::scheduled(
+    let progress = view::retry::RetryProgress::scheduled(
         6,
         30,
         now + std::time::Duration::from_secs(8),
@@ -593,16 +593,16 @@ fn activity_strip_rotates_spinner_frames_and_supports_ascii_vt() {
 #[test]
 fn context_usage_spans_render_used_and_percentage() {
     let theme = Theme::default();
-    let spans = context_usage_spans(20_200, 256_000, &theme, theme.panel());
+    let spans = context_usage_spans(20_200, 256_000, None, &theme, theme.panel());
     let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
     assert_eq!(text, "20.2k (8%)");
     // Color psychology: calm/muted at low ratio, warning at >=70%, error at >=90%.
     assert_eq!(spans[1].style.fg, theme.muted());
 
-    let warn_spans = context_usage_spans(195_000, 256_000, &theme, theme.panel());
+    let warn_spans = context_usage_spans(195_000, 256_000, None, &theme, theme.panel());
     assert_eq!(warn_spans[1].style.fg, theme.warn());
 
-    let crit_spans = context_usage_spans(240_000, 256_000, &theme, theme.panel());
+    let crit_spans = context_usage_spans(240_000, 256_000, None, &theme, theme.panel());
     assert_eq!(crit_spans[1].style.fg, theme.err());
 }
 
@@ -1499,5 +1499,19 @@ fn queue_modal_does_not_invent_a_time_for_a_row_without_one() {
     assert!(
         !without.contains(':'),
         "no stamp means no invented time (the epoch would be 08:00 here): {without:?}"
+    );
+}
+
+#[test]
+fn model_bar_context_segment_shows_session_spend() {
+    let theme = Theme::default();
+    let spans = context_usage_spans(20_200, 256_000, Some(4_200_000_000), &theme, theme.panel());
+    let text = spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert!(
+        text.contains("$4.20"),
+        "session spend must be visible: {text}"
     );
 }

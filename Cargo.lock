@@ -3,10 +3,37 @@
 version = 4
 
 [[package]]
+name = "acp"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "hex",
+ "hmac 0.12.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+ "tokio",
+ "tool",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
+name = "adobe-cmap-parser"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae8abfa9a4688de8fc9f42b3f013b6fffec18ed8a554f5f113577e0b9b3212a3"
+dependencies = [
+ "pom",
+]
 
 [[package]]
 name = "aes"
@@ -109,6 +136,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e"
 dependencies = [
  "aws-lc-sys",
+ "untrusted 0.7.1",
  "zeroize",
 ]
 
@@ -255,16 +283,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "cesu8"
-version = "1.1.0"
+name = "cff-parser"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c"
+checksum = "c5810ca1a2b5870df2aab1c03e11c40c361ba51d6e3e361e56310f1cb3b4e087"
 
 [[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "chacha20"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "rand_core 0.10.1",
+]
 
 [[package]]
 name = "chrono"
@@ -320,17 +359,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "combine"
-version = "4.6.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfc320937d09e6de266b31b9afb480f197d7a861be86be7cb2ea7e5d1bfffc5e"
-dependencies = [
- "bytes",
- "memchr",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -374,6 +403,12 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "core_detect"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
 
 [[package]]
 name = "cpubits"
@@ -630,7 +665,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -670,10 +705,70 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "ecb"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a8bfa975b1aec2145850fcaa1c6fe269a16578c44705a532ae3edc92b8881c7"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
+
+[[package]]
+name = "encoding_rs"
+version = "0.8.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89253175e704ab869b04f9db224d38630e0211a53841a79181deae0889e169f5"
+dependencies = [
+ "cfg-if",
+ "core_detect",
+ "multiversion_no_op",
+ "rustversion",
+ "scopeguard",
+ "simdutf8",
+]
+
+[[package]]
+name = "engine"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs",
+ "fastrand",
+ "futures",
+ "guardrails",
+ "host",
+ "inference-wire",
+ "inventory",
+ "model-routing",
+ "netune",
+ "persistence",
+ "protocol",
+ "provider",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tool",
+ "tool-ast",
+ "tool-exec",
+ "tool-fs",
+ "tool-web",
+ "tracing",
+ "uuid",
+ "walkdir",
+ "yaml_serde",
+]
 
 [[package]]
 name = "equivalent"
@@ -688,7 +783,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -696,6 +791,15 @@ name = "error-code"
 version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b5343afd4a8365a643ac588dab4cf234a190c7f6c88c9f6dd6ffe00837661b7"
+
+[[package]]
+name = "euclid"
+version = "0.20.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bb7ef65b3777a325d1eeefefab5b6d4959da54747e33bd6258e789640f307ad"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "fallible-iterator"
@@ -915,9 +1019,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -937,6 +1043,22 @@ dependencies = [
  "log",
  "regex-automata",
  "regex-syntax",
+]
+
+[[package]]
+name = "guardrails"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "host",
+ "inference-wire",
+ "protocol",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tool",
+ "tracing",
 ]
 
 [[package]]
@@ -998,6 +1120,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
 dependencies = [
  "digest 0.11.3",
+]
+
+[[package]]
+name = "host"
+version = "0.0.88"
+dependencies = [
+ "arboard",
+ "async-trait",
+ "base64",
+ "directories",
+ "dirs",
+ "image",
+ "libc",
+ "notify",
+ "pdf-extract",
+ "protocol",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tool",
+ "tracing",
+ "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1259,6 +1407,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inference-wire"
+version = "0.0.88"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "inotify"
 version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1314,50 +1471,6 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
-
-[[package]]
-name = "jni"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a87aa2bb7d2af34197c04845522473242e1aa17c12f4935d5856491a7fb8c97"
-dependencies = [
- "cesu8",
- "cfg-if",
- "combine",
- "jni-sys 0.3.1",
- "log",
- "thiserror 1.0.69",
- "walkdir",
- "windows-sys 0.45.0",
-]
-
-[[package]]
-name = "jni-sys"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258"
-dependencies = [
- "jni-sys 0.4.1",
-]
-
-[[package]]
-name = "jni-sys"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2"
-dependencies = [
- "jni-sys-macros",
-]
-
-[[package]]
-name = "jni-sys-macros"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
-dependencies = [
- "quote",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "jobserver"
@@ -1472,12 +1585,53 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lopdf"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25aab26d99567469098e64a02f42679f8965c6401263eefa31d8f2dcc37a221c"
+dependencies = [
+ "aes",
+ "bitflags",
+ "cbc",
+ "ecb",
+ "encoding_rs",
+ "flate2",
+ "getrandom 0.4.3",
+ "indexmap",
+ "itoa",
+ "log",
+ "md-5",
+ "nom",
+ "rand 0.10.3",
+ "rangemap",
+ "sha2 0.10.9",
+ "stringprep",
+ "thiserror",
+ "ttf-parser",
+ "weezl",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
+]
+
+[[package]]
+name = "mcp"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "protocol",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tool",
 ]
 
 [[package]]
@@ -1545,12 +1699,32 @@ dependencies = [
  "hyper-util",
  "log",
  "pin-project-lite",
- "rand",
+ "rand 0.9.5",
  "regex",
  "serde_json",
  "serde_urlencoded",
  "similar",
  "tokio",
+]
+
+[[package]]
+name = "model-routing"
+version = "0.0.88"
+dependencies = [
+ "chrono",
+ "futures",
+ "glob",
+ "host",
+ "mockito",
+ "persistence",
+ "protocol",
+ "provider",
+ "serde_json",
+ "server",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1564,9 +1738,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "multiversion_no_op"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
+
+[[package]]
 name = "netune"
-version = "0.0.28"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.28#26a5ae604409ef14da1a00819b5b1181916f5b39"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
 dependencies = [
  "base64",
  "brotli",
@@ -1578,24 +1758,22 @@ dependencies = [
  "netune-http1",
  "netune-http2",
  "netune-io",
+ "netune-tls",
  "netune-trace",
  "netune-ws",
- "rustls",
- "rustls-platform-verifier",
  "socket2",
  "tokio",
- "tokio-rustls",
 ]
 
 [[package]]
 name = "netune-egress"
-version = "0.0.28"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.28#26a5ae604409ef14da1a00819b5b1181916f5b39"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
 
 [[package]]
 name = "netune-http1"
-version = "0.0.28"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.28#26a5ae604409ef14da1a00819b5b1181916f5b39"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
 dependencies = [
  "bytes",
  "http",
@@ -1604,8 +1782,8 @@ dependencies = [
 
 [[package]]
 name = "netune-http2"
-version = "0.0.28"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.28#26a5ae604409ef14da1a00819b5b1181916f5b39"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
 dependencies = [
  "bytes",
  "http",
@@ -1614,29 +1792,54 @@ dependencies = [
 
 [[package]]
 name = "netune-io"
-version = "0.0.28"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.28#26a5ae604409ef14da1a00819b5b1181916f5b39"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
 dependencies = [
  "netune-trace",
  "tokio",
 ]
 
 [[package]]
+name = "netune-tls"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
+dependencies = [
+ "aws-lc-rs",
+ "aws-lc-sys",
+ "brotli",
+ "flate2",
+ "rustls-pki-types",
+ "rustls-webpki",
+ "thiserror",
+ "tokio",
+ "webpki-root-certs",
+]
+
+[[package]]
 name = "netune-trace"
-version = "0.0.28"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.28#26a5ae604409ef14da1a00819b5b1181916f5b39"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "netune-ws"
-version = "0.0.28"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.28#26a5ae604409ef14da1a00819b5b1181916f5b39"
+version = "0.0.29"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.29#bd07214b94240834f16d33b126afe09a977e6439"
 dependencies = [
  "base64",
  "bytes",
  "http",
+]
+
+[[package]]
+name = "nom"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -1672,7 +1875,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1698,779 +1901,81 @@ dependencies = [
  "chrono",
  "crossterm",
  "dirs",
+ "engine",
  "futures",
+ "host",
  "insta",
  "libc",
- "nuo-engine",
- "nuo-host",
- "nuo-persistence",
- "nuo-protocol",
- "nuo-server",
- "nuo-tool",
- "nuo-ui-primitives",
- "nuo-view",
  "nuotc",
+ "persistence",
+ "protocol",
  "regex",
  "serde",
  "serde_json",
+ "server",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
+ "tool",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "ui-primitives",
  "unicode-segmentation",
  "unicode-width",
  "uuid",
+ "view",
  "walkdir",
-]
-
-[[package]]
-name = "nuo-acp"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "chrono",
- "hex",
- "hmac 0.12.1",
- "nuo-tool",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nuo-engine"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "chrono",
- "dirs",
- "fastrand",
- "futures",
- "inventory",
- "netune",
- "nuo-guardrails",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-model-routing",
- "nuo-persistence",
- "nuo-protocol",
- "nuo-provider",
- "nuo-tool",
- "nuo-tool-ast",
- "nuo-tool-exec",
- "nuo-tool-fs",
- "nuo-tool-web",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tokio-util",
- "toml",
- "tracing",
- "uuid",
- "walkdir",
- "yaml_serde",
-]
-
-[[package]]
-name = "nuo-guardrails"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-tool",
- "regex",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nuo-host"
-version = "0.0.88"
-dependencies = [
- "arboard",
- "async-trait",
- "base64",
- "directories",
- "dirs",
- "image",
- "libc",
- "notify",
- "nuo-protocol",
- "nuo-tool",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "uuid",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "nuo-inference-wire"
-version = "0.0.88"
-dependencies = [
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "nuo-mcp"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "nuo-protocol",
- "nuo-tool",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "nuo-model-routing"
-version = "0.0.88"
-dependencies = [
- "chrono",
- "futures",
- "glob",
- "mockito",
- "nuo-host",
- "nuo-persistence",
- "nuo-protocol",
- "nuo-provider",
- "nuo-server",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nuo-persistence"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "base64",
- "crc32c",
- "futures",
- "hex",
- "nuo-host",
- "nuo-protocol",
- "nuo-tool",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nuo-protocol"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "base64",
- "bytes",
- "chrono",
- "futures",
- "glob",
- "hex",
- "inventory",
- "nuo-inference-wire",
- "nuo-tool",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "toml",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "nuo-provider"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "base64",
- "bytes",
- "futures",
- "http",
- "httpdate",
- "netune",
- "netune-trace",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-tool",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "toml",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nuo-provider-anthropic"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "futures",
- "http",
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-tool",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nuo-provider-catalog"
-version = "0.0.88"
-dependencies = [
- "http",
- "netune",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-anthropic",
- "nuo-provider-google-antigravity",
- "nuo-provider-qoder",
- "serde_json",
-]
-
-[[package]]
-name = "nuo-provider-chatgpt-plan"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "base64",
- "futures",
- "inventory",
- "netune",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "nuo-provider-codebuddy-auth"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "futures",
- "netune",
- "nuo-host",
- "nuo-protocol",
- "nuo-provider",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "nuo-provider-codebuddy-cn"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-codebuddy-auth",
- "tokio",
-]
-
-[[package]]
-name = "nuo-provider-codebuddy-intl"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-codebuddy-auth",
- "tokio",
-]
-
-[[package]]
-name = "nuo-provider-commandcode-goat"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nuo-provider-copilot"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
-]
-
-[[package]]
-name = "nuo-provider-deepseek"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nuo-provider-glm-cn"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
-]
-
-[[package]]
-name = "nuo-provider-google-antigravity"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "http",
- "inventory",
- "netune",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-tool",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nuo-provider-kimi"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nuo-provider-openai"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "futures",
- "http",
- "inventory",
- "mockito",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-tool",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nuo-provider-opencode-go"
-version = "0.0.88"
-dependencies = [
- "chrono",
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-deepseek",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nuo-provider-opencode-zen"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
-]
-
-[[package]]
-name = "nuo-provider-opendesign"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
-]
-
-[[package]]
-name = "nuo-provider-openrouter"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nuo-provider-qianwen"
-version = "0.0.88"
-dependencies = [
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
-]
-
-[[package]]
-name = "nuo-provider-qoder"
-version = "0.0.88"
-dependencies = [
- "aes",
- "async-trait",
- "base64",
- "cbc",
- "fastrand",
- "futures",
- "getrandom 0.4.3",
- "http",
- "inventory",
- "md-5",
- "netune",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
- "nuo-tool",
- "rsa",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nuo-provider-xai"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "inventory",
- "nuo-inference-wire",
- "nuo-protocol",
- "nuo-provider",
-]
-
-[[package]]
-name = "nuo-server"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "base64",
- "chrono",
- "dirs",
- "futures",
- "http",
- "ignore",
- "inventory",
- "libc",
- "netune",
- "nuo-acp",
- "nuo-engine",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-mcp",
- "nuo-model-routing",
- "nuo-persistence",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-anthropic",
- "nuo-provider-catalog",
- "nuo-provider-chatgpt-plan",
- "nuo-provider-codebuddy-auth",
- "nuo-provider-codebuddy-cn",
- "nuo-provider-codebuddy-intl",
- "nuo-provider-commandcode-goat",
- "nuo-provider-copilot",
- "nuo-provider-deepseek",
- "nuo-provider-glm-cn",
- "nuo-provider-google-antigravity",
- "nuo-provider-kimi",
- "nuo-provider-openai",
- "nuo-provider-opencode-go",
- "nuo-provider-opencode-zen",
- "nuo-provider-opendesign",
- "nuo-provider-openrouter",
- "nuo-provider-qianwen",
- "nuo-provider-qoder",
- "nuo-provider-xai",
- "nuo-tool",
- "nuo-tool-ast",
- "nuo-tool-exec",
- "nuo-tool-fs",
- "nuo-tool-web",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
- "yaml_serde",
-]
-
-[[package]]
-name = "nuo-test-support"
-version = "0.0.88"
-dependencies = [
- "libc",
- "serde",
- "serde_json",
- "tempfile",
 ]
 
 [[package]]
 name = "nuo-tests"
 version = "0.0.88"
 dependencies = [
+ "acp",
  "async-trait",
  "base64",
+ "engine",
  "futures",
+ "guardrails",
+ "host",
+ "inference-wire",
  "libc",
+ "mcp",
  "mockito",
+ "model-routing",
  "nuo",
- "nuo-acp",
- "nuo-engine",
- "nuo-guardrails",
- "nuo-host",
- "nuo-inference-wire",
- "nuo-mcp",
- "nuo-model-routing",
- "nuo-persistence",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-anthropic",
- "nuo-provider-catalog",
- "nuo-provider-google-antigravity",
- "nuo-provider-openai",
- "nuo-provider-qoder",
- "nuo-server",
- "nuo-test-support",
- "nuo-tool",
- "nuo-tool-ast",
- "nuo-tool-exec",
- "nuo-tool-fs",
- "nuo-tool-web",
- "nuo-view",
+ "persistence",
  "proc-macro2",
+ "protocol",
+ "provider",
+ "provider-anthropic",
+ "provider-catalog",
+ "provider-google-antigravity",
+ "provider-openai",
+ "provider-qoder",
  "regex",
  "serde",
  "serde_json",
+ "server",
  "syn 2.0.119",
  "tempfile",
+ "test-support",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
+ "tool",
+ "tool-ast",
+ "tool-exec",
+ "tool-fs",
+ "tool-web",
  "uuid",
+ "view",
  "walkdir",
-]
-
-[[package]]
-name = "nuo-tool"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "hex",
- "nuo-tool-derive",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "toml",
- "uuid",
-]
-
-[[package]]
-name = "nuo-tool-ast"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "ignore",
- "inventory",
- "nuo-protocol",
- "nuo-tool",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tree-sitter",
- "tree-sitter-c",
- "tree-sitter-cpp",
- "tree-sitter-go",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
-]
-
-[[package]]
-name = "nuo-tool-derive"
-version = "0.0.88"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "nuo-tool-exec"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "nuo-tool",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "nuo-tool-fs"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "base64",
- "glob",
- "ignore",
- "nuo-tool",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "nuo-tool-web"
-version = "0.0.88"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "http",
- "inventory",
- "netune",
- "nuo-protocol",
- "nuo-tool",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "toml",
-]
-
-[[package]]
-name = "nuo-ui-primitives"
-version = "0.0.88"
-dependencies = [
- "chrono",
- "nuotc",
- "serde",
- "toml",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
-name = "nuo-view"
-version = "0.0.88"
-dependencies = [
- "chrono",
- "nuo-protocol",
- "nuo-provider",
- "nuo-provider-anthropic",
- "nuo-provider-google-antigravity",
- "nuo-provider-openai",
- "nuo-tool",
- "nuo-ui-primitives",
- "nuotc",
- "serde_json",
- "similar",
- "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]
@@ -2599,6 +2104,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-extract"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5c4820f5811e424ce037d08493ac87752ecc54339e0f1e40c3d17da93278861"
+dependencies = [
+ "adobe-cmap-parser",
+ "cff-parser",
+ "encoding_rs",
+ "euclid",
+ "log",
+ "lopdf",
+ "postscript",
+ "type1-encoding-parser",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2612,6 +2134,29 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "persistence"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "base64",
+ "crc32c",
+ "futures",
+ "hex",
+ "host",
+ "protocol",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tool",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "pin-project-lite"
@@ -2659,6 +2204,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pom"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60f6ce597ecdcc9a098e7fddacb1065093a3d66446fa16c675e7e71d1b5c28e6"
+
+[[package]]
+name = "postscript"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78451badbdaebaf17f053fd9152b3ffb33b516104eacb45e7864aaa9c712f306"
+
+[[package]]
 name = "potential_utf"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2689,6 +2246,343 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "protocol"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "chrono",
+ "futures",
+ "glob",
+ "hex",
+ "inference-wire",
+ "inventory",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tool",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "provider"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "futures",
+ "host",
+ "http",
+ "httpdate",
+ "inference-wire",
+ "netune",
+ "netune-trace",
+ "protocol",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tool",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "provider-anthropic"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "futures",
+ "http",
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "serde_json",
+ "tokio",
+ "tool",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "provider-catalog"
+version = "0.0.88"
+dependencies = [
+ "http",
+ "inference-wire",
+ "netune",
+ "protocol",
+ "provider",
+ "provider-anthropic",
+ "provider-google-antigravity",
+ "provider-qoder",
+ "serde_json",
+]
+
+[[package]]
+name = "provider-chatgpt-plan"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures",
+ "host",
+ "inference-wire",
+ "inventory",
+ "netune",
+ "protocol",
+ "provider",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "provider-codebuddy-auth"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "futures",
+ "host",
+ "netune",
+ "protocol",
+ "provider",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "provider-codebuddy-cn"
+version = "0.0.88"
+dependencies = [
+ "host",
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "provider-codebuddy-auth",
+ "tokio",
+]
+
+[[package]]
+name = "provider-codebuddy-intl"
+version = "0.0.88"
+dependencies = [
+ "host",
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "provider-codebuddy-auth",
+ "tokio",
+]
+
+[[package]]
+name = "provider-commandcode-goat"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "provider-copilot"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+]
+
+[[package]]
+name = "provider-deepseek"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "provider-glm-cn"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+]
+
+[[package]]
+name = "provider-google-antigravity"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "http",
+ "inference-wire",
+ "inventory",
+ "netune",
+ "protocol",
+ "provider",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tool",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "provider-kimi"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "provider-openai"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "futures",
+ "http",
+ "inference-wire",
+ "inventory",
+ "mockito",
+ "protocol",
+ "provider",
+ "serde_json",
+ "tokio",
+ "tool",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "provider-opencode-go"
+version = "0.0.88"
+dependencies = [
+ "chrono",
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "provider-deepseek",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "provider-opencode-zen"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+]
+
+[[package]]
+name = "provider-opendesign-go"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+]
+
+[[package]]
+name = "provider-openrouter"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "provider-qianwen"
+version = "0.0.88"
+dependencies = [
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
+]
+
+[[package]]
+name = "provider-qoder"
+version = "0.0.88"
+dependencies = [
+ "aes",
+ "async-trait",
+ "base64",
+ "cbc",
+ "fastrand",
+ "futures",
+ "getrandom 0.4.3",
+ "host",
+ "http",
+ "inference-wire",
+ "inventory",
+ "md-5",
+ "netune",
+ "protocol",
+ "provider",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tool",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "provider-xai"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "inference-wire",
+ "inventory",
+ "protocol",
+ "provider",
 ]
 
 [[package]]
@@ -2729,6 +2623,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
+dependencies = [
+ "chacha20",
+ "getrandom 0.4.3",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "rand_chacha"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2754,6 +2659,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
+name = "rangemap"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a611d15b50743feb4c76b7d03edcb0e64f399c26961e4efe6975bc398be6aa3d"
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2769,7 +2680,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
 dependencies = [
  "libredox",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2811,7 +2722,7 @@ dependencies = [
  "cfg-if",
  "getrandom 0.2.17",
  "libc",
- "untrusted",
+ "untrusted 0.9.0",
  "windows-sys 0.52.0",
 ]
 
@@ -2842,7 +2753,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "353b74f9810d5b085b6c42c9d86a5f0fdb795553235cdd48753b32e3809d18a7"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -2871,15 +2782,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags",
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2888,8 +2799,6 @@ version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
- "aws-lc-rs",
- "log",
  "once_cell",
  "rustls-pki-types",
  "rustls-webpki",
@@ -2919,33 +2828,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls-platform-verifier"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d99feebc72bae7ab76ba994bb5e121b8d83d910ca40b36e0921f53becc41784"
-dependencies = [
- "core-foundation",
- "core-foundation-sys",
- "jni",
- "log",
- "once_cell",
- "rustls",
- "rustls-native-certs",
- "rustls-platform-verifier-android",
- "rustls-webpki",
- "security-framework",
- "security-framework-sys",
- "webpki-root-certs",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rustls-platform-verifier-android"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
-
-[[package]]
 name = "rustls-webpki"
 version = "0.103.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2954,7 +2836,7 @@ dependencies = [
  "aws-lc-rs",
  "ring",
  "rustls-pki-types",
- "untrusted",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -3098,6 +2980,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "server"
+version = "0.0.88"
+dependencies = [
+ "acp",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dirs",
+ "engine",
+ "futures",
+ "host",
+ "http",
+ "ignore",
+ "inference-wire",
+ "inventory",
+ "libc",
+ "mcp",
+ "model-routing",
+ "netune",
+ "persistence",
+ "protocol",
+ "provider",
+ "provider-anthropic",
+ "provider-catalog",
+ "provider-chatgpt-plan",
+ "provider-codebuddy-auth",
+ "provider-codebuddy-cn",
+ "provider-codebuddy-intl",
+ "provider-commandcode-goat",
+ "provider-copilot",
+ "provider-deepseek",
+ "provider-glm-cn",
+ "provider-google-antigravity",
+ "provider-kimi",
+ "provider-openai",
+ "provider-opencode-go",
+ "provider-opencode-zen",
+ "provider-opendesign-go",
+ "provider-openrouter",
+ "provider-qianwen",
+ "provider-qoder",
+ "provider-xai",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tool",
+ "tool-ast",
+ "tool-exec",
+ "tool-fs",
+ "tool-web",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+ "yaml_serde",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3193,6 +3136,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "simdutf8"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
 name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3221,7 +3170,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3255,6 +3204,17 @@ name = "streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
+
+[[package]]
+name = "stringprep"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4df3d392d81bd458a8a621b8bffbd2302a12ffe288a9d931670948749463b1"
+dependencies = [
+ "unicode-bidi",
+ "unicode-normalization",
+ "unicode-properties",
+]
 
 [[package]]
 name = "subtle"
@@ -3311,16 +3271,17 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
-name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+name = "test-support"
+version = "0.0.88"
 dependencies = [
- "thiserror-impl 1.0.69",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -3329,18 +3290,7 @@ version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.21",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -3402,6 +3352,12 @@ dependencies = [
  "displaydoc",
  "zerovec",
 ]
+
+[[package]]
+name = "tinyvec"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
@@ -3511,6 +3467,103 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
+name = "tool"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tool-derive",
+ "uuid",
+]
+
+[[package]]
+name = "tool-ast"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "ignore",
+ "inventory",
+ "protocol",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tool",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-cpp",
+ "tree-sitter-go",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+]
+
+[[package]]
+name = "tool-derive"
+version = "0.0.88"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "tool-exec"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tool",
+]
+
+[[package]]
+name = "tool-fs"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "base64",
+ "glob",
+ "ignore",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tool",
+]
+
+[[package]]
+name = "tool-web"
+version = "0.0.88"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "http",
+ "inventory",
+ "netune",
+ "protocol",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "toml",
+ "tool",
+]
+
+[[package]]
 name = "tracing"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3529,7 +3582,7 @@ checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
  "symlink",
- "thiserror 2.0.21",
+ "thiserror",
  "time",
  "tracing-subscriber",
 ]
@@ -3665,6 +3718,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttf-parser"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
 name = "tungstenite"
 version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3675,12 +3734,21 @@ dependencies = [
  "http",
  "httparse",
  "log",
- "rand",
+ "rand 0.9.5",
  "rustls",
  "rustls-pki-types",
  "sha1",
- "thiserror 2.0.21",
+ "thiserror",
  "utf-8",
+]
+
+[[package]]
+name = "type1-encoding-parser"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa10c302f5a53b7ad27fd42a3996e23d096ba39b5b8dd6d9e683a05b01bee749"
+dependencies = [
+ "pom",
 ]
 
 [[package]]
@@ -3690,10 +3758,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
+name = "ui-primitives"
+version = "0.0.88"
+dependencies = [
+ "chrono",
+ "nuotc",
+ "serde",
+ "toml",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "unicode-bidi"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
+name = "unicode-properties"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "993ad287eb20e8ba755312801cfe1413e0f25d604075863acaddca10b04c1833"
 
 [[package]]
 name = "unicode-segmentation"
@@ -3706,6 +3807,12 @@ name = "unicode-width"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "untrusted"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
 
 [[package]]
 name = "untrusted"
@@ -3766,6 +3873,25 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "view"
+version = "0.0.88"
+dependencies = [
+ "chrono",
+ "nuotc",
+ "protocol",
+ "provider",
+ "provider-anthropic",
+ "provider-google-antigravity",
+ "provider-openai",
+ "serde_json",
+ "similar",
+ "tool",
+ "ui-primitives",
+ "unicode-segmentation",
+ "unicode-width",
+]
 
 [[package]]
 name = "walkdir"
@@ -3847,6 +3973,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "weezl"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3868,7 +4000,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3938,15 +4070,6 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
-version = "0.45.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
-dependencies = [
- "windows-targets 0.42.2",
-]
-
-[[package]]
-name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
@@ -3970,21 +4093,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
  "windows-link",
-]
-
-[[package]]
-name = "windows-targets"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e5180c00cd44c9b1c88adb3693291f1cd93605ded80c250a75d472756b4d071"
-dependencies = [
- "windows_aarch64_gnullvm 0.42.2",
- "windows_aarch64_msvc 0.42.2",
- "windows_i686_gnu 0.42.2",
- "windows_i686_msvc 0.42.2",
- "windows_x86_64_gnu 0.42.2",
- "windows_x86_64_gnullvm 0.42.2",
- "windows_x86_64_msvc 0.42.2",
 ]
 
 [[package]]
@@ -4022,12 +4130,6 @@ dependencies = [
 
 [[package]]
 name = "windows_aarch64_gnullvm"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "597a5118570b68bc08d8d59125332c54f1ba9d9adeedeef5b99b02ba2b0698f8"
-
-[[package]]
-name = "windows_aarch64_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
@@ -4040,12 +4142,6 @@ checksum = "a9d8416fa8b42f5c947f8482c43e7d89e73a173cead56d044f6a56104a6d1b53"
 
 [[package]]
 name = "windows_aarch64_msvc"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e08e8864a60f06ef0d0ff4ba04124db8b0fb3be5776a5cd47641e942e58c4d43"
-
-[[package]]
-name = "windows_aarch64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
@@ -4055,12 +4151,6 @@ name = "windows_aarch64_msvc"
 version = "0.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9d782e804c2f632e395708e99a94275910eb9100b2114651e04744e9b125006"
-
-[[package]]
-name = "windows_i686_gnu"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c61d927d8da41da96a81f029489353e68739737d3beca43145c8afec9a31a84f"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -4088,12 +4178,6 @@ checksum = "fa7359d10048f68ab8b09fa71c3daccfb0e9b559aed648a8f95469c27057180c"
 
 [[package]]
 name = "windows_i686_msvc"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44d840b6ec649f480a41c8d80f9c65108b92d89345dd94027bfe06ac444d1060"
-
-[[package]]
-name = "windows_i686_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
@@ -4103,12 +4187,6 @@ name = "windows_i686_msvc"
 version = "0.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e7ac75179f18232fe9c285163565a57ef8d3c89254a30685b57d83a38d326c2"
-
-[[package]]
-name = "windows_x86_64_gnu"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8de912b8b8feb55c064867cf047dda097f92d51efad5b491dfb98f6bbb70cb36"
 
 [[package]]
 name = "windows_x86_64_gnu"
@@ -4124,12 +4202,6 @@ checksum = "9c3842cdd74a865a8066ab39c8a7a473c0778a3f29370b5fd6b4b9aa7df4a499"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26d41b46a36d453748aedef1486d5c7a85db22e56aff34643984ea85514e94a3"
-
-[[package]]
-name = "windows_x86_64_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
@@ -4139,12 +4211,6 @@ name = "windows_x86_64_gnullvm"
 version = "0.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ffa179e2d07eee8ad8f57493436566c7cc30ac536a3379fdf008f47f6bb7ae1"
-
-[[package]]
-name = "windows_x86_64_msvc"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9aec5da331524158c6d1a4ac0ab1541149c0b9505fde06423b02f5ef0106b9f0"
 
 [[package]]
 name = "windows_x86_64_msvc"

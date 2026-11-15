@@ -3,7 +3,7 @@ use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;
-use nuo_ui_primitives::design::{MODEL_BAR_GAP_MIN, MODEL_BAR_INNER_PADDING, MODEL_BAR_MODEL_GAP};
+use ui_primitives::design::{MODEL_BAR_GAP_MIN, MODEL_BAR_INNER_PADDING, MODEL_BAR_MODEL_GAP};
 
 pub const CONTEXT_USAGE_WARN_THRESHOLD: f64 = 0.70;
 pub const CONTEXT_USAGE_CRIT_THRESHOLD: f64 = 0.90;
@@ -23,6 +23,8 @@ pub struct ModelBarProps<'a> {
     pub reasoning_effort: Option<&'a str>,
     pub context_tokens: Option<usize>,
     pub context_window: usize,
+    /// Session-attributed spend in nano-USD. `None`/zero renders nothing.
+    pub cost_nano_usd: Option<u64>,
 }
 
 impl<'a> Default for ModelBarProps<'a> {
@@ -35,6 +37,7 @@ impl<'a> Default for ModelBarProps<'a> {
             reasoning_effort: None,
             context_tokens: None,
             context_window: 0,
+            cost_nano_usd: None,
         }
     }
 }
@@ -63,6 +66,7 @@ pub fn format_token_count(n: usize) -> String {
 pub(crate) fn context_usage_spans(
     used: usize,
     max: usize,
+    cost_nano_usd: Option<u64>,
     theme: &Theme,
     bg: Color,
 ) -> Vec<Span<'static>> {
@@ -89,6 +93,16 @@ pub(crate) fn context_usage_spans(
         format!(" ({}%)", pct),
         Style::default().fg(color).bg(bg),
     ));
+    if let Some(cost) = cost_nano_usd.filter(|cost| *cost > 0) {
+        spans.push(Span::styled(
+            " · ",
+            Style::default().fg(theme.muted()).bg(bg),
+        ));
+        spans.push(Span::styled(
+            protocol::pricing::NanoUsd(cost).format_usd(),
+            Style::default().fg(theme.muted()).bg(bg),
+        ));
+    }
     spans
 }
 
@@ -108,6 +122,7 @@ pub fn draw_model_bar(
         reasoning_effort,
         context_tokens,
         context_window,
+        cost_nano_usd,
     } = props;
 
     let bg = theme.surface();
@@ -117,7 +132,7 @@ pub fn draw_model_bar(
     let context_max = if context_window > 0 {
         context_window
     } else {
-        nuo_protocol::model::resolve(current_model).context_window
+        protocol::model::resolve(current_model).context_window
     };
 
     // Name-first, id-fallback (ADR-0081): the catalog resolved this route's
@@ -182,7 +197,7 @@ pub fn draw_model_bar(
     let mut context_spans: Vec<Span<'static>> = Vec::new();
     if context_max > 0 {
         let used = context_tokens.unwrap_or(0);
-        context_spans = context_usage_spans(used, context_max, theme, bg);
+        context_spans = context_usage_spans(used, context_max, cost_nano_usd, theme, bg);
     }
     let context_seg_width = context_spans
         .iter()

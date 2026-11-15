@@ -6,15 +6,15 @@ use unicode_width::UnicodeWidthStr;
 
 use super::super::common::{caret_column, field_viewport, truncate_ellipsis};
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::options::{ChoiceTone, choice_style, push_wrapped_styled};
-use nuo_ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup, RowStyledAtom};
-use nuo_ui_primitives::primitives::{
+use ui_primitives::components::options::{ChoiceTone, choice_style, push_wrapped_styled};
+use ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup, RowStyledAtom};
+use ui_primitives::primitives::{
     BodyRenderOptions, ContentModalSpec, FixedModalSpec, FooterHint, SCROLL_EDGE_MARGIN,
     breadcrumb_parts, content_modal_area, content_modal_probe, hierarchical_breadcrumb, keyvocab,
     modal_area, modal_chrome_rows, modal_frame, modal_header_parts, render_body,
     render_modal_footer,
 };
-use nuo_view::providers::{ConnectionTemplate, CustomField, PROVIDER_PRESETS};
+use view::providers::{ConnectionTemplate, CustomField, PROVIDER_PRESETS};
 
 // Effort selector (Faster⇄Smarter node slider)
 
@@ -23,8 +23,8 @@ const TRACK_NODE: char = '○';
 const TRACK_MARKER: char = '●';
 const EFFORT_LABEL_MIN_GAP: usize = 2;
 
-fn effort_tier(wire: &str) -> Option<nuo_protocol::effort::Effort> {
-    nuo_protocol::effort::Effort::parse(wire)
+fn effort_tier(wire: &str) -> Option<protocol::effort::Effort> {
+    protocol::effort::Effort::parse(wire)
 }
 
 fn effort_caption(wire: &str) -> &'static str {
@@ -261,7 +261,7 @@ pub fn draw_model_editor(
 
     let body_width = content_modal_probe(frame, geometry)
         .width
-        .saturating_sub(2 * nuo_ui_primitives::design::MODAL_INNER_H_PADDING)
+        .saturating_sub(2 * ui_primitives::design::MODAL_INNER_H_PADDING)
         as usize;
     let effort_rows = match effort {
         Some(_) => effort_block_rows(effort_levels),

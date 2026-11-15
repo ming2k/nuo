@@ -14,7 +14,7 @@ use super::*;
 #[test]
 fn history_panel_renders_every_query_state() {
     let theme = Theme::default();
-    let history: Vec<nuo_protocol::HistoryEntry> = [
+    let history: Vec<protocol::HistoryEntry> = [
         "git status",
         "git commit -am 'ship it'",
         "cargo test",
@@ -23,7 +23,7 @@ fn history_panel_renders_every_query_state() {
     .into_iter()
     .enumerate()
     .map(|(i, text)| {
-        nuo_protocol::HistoryEntry::new(
+        protocol::HistoryEntry::new(
             text.to_string(),
             Some(format!("s{i}")),
             Some("~/p".to_string()),
@@ -42,8 +42,8 @@ fn history_panel_renders_every_query_state() {
     let input_rect = nuotc::Rect::new(0, 22, 80, 2);
     for (query, expected_matches) in cases {
         let mut terminal = nuotc::TestTerminal::new(80, 24);
-        let mut ranked = nuo_ui_primitives::fuzzy::rank(&texts, query);
-        nuo_ui_primitives::fuzzy::sort_by_score(&mut ranked);
+        let mut ranked = ui_primitives::fuzzy::rank(&texts, query);
+        ui_primitives::fuzzy::sort_by_score(&mut ranked);
         assert_eq!(
             ranked.len(),
             *expected_matches,
@@ -71,9 +71,9 @@ fn history_panel_renders_every_query_state() {
     // Empty history must render the "(no history yet)" placeholder rather
     // than indexing into an empty slice.
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    let empty: Vec<nuo_protocol::HistoryEntry> = Vec::new();
-    let ranked: Vec<(usize, nuo_ui_primitives::fuzzy::FuzzyMatch)> =
-        nuo_ui_primitives::fuzzy::rank::<&str>(&[], "");
+    let empty: Vec<protocol::HistoryEntry> = Vec::new();
+    let ranked: Vec<(usize, ui_primitives::fuzzy::FuzzyMatch)> =
+        ui_primitives::fuzzy::rank::<&str>(&[], "");
     terminal.draw(|f| {
         let _ = draw_history_panel(
             f,
@@ -96,18 +96,18 @@ fn history_panel_renders_every_query_state() {
 #[test]
 fn history_panel_folds_multiline_entries() {
     let theme = Theme::default();
-    let history: Vec<nuo_protocol::HistoryEntry> =
+    let history: Vec<protocol::HistoryEntry> =
         ["first line\nsecond line\nthird line", "single line"]
             .into_iter()
             .enumerate()
             .map(|(i, text)| {
-                nuo_protocol::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, 0)
+                protocol::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, 0)
             })
             .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
 
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    let ranked = nuo_ui_primitives::fuzzy::rank(&texts, "");
+    let ranked = ui_primitives::fuzzy::rank(&texts, "");
     let input_rect = nuotc::Rect::new(0, 22, 80, 2);
 
     terminal.draw(|f| {
@@ -137,15 +137,15 @@ fn history_panel_folds_multiline_entries() {
 #[test]
 fn history_panel_collapses_to_actual_row_count() {
     let theme = Theme::default();
-    let history: Vec<nuo_protocol::HistoryEntry> = ["one", "two"]
+    let history: Vec<protocol::HistoryEntry> = ["one", "two"]
         .into_iter()
         .enumerate()
         .map(|(i, text)| {
-            nuo_protocol::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
+            protocol::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
         })
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
-    let ranked = nuo_ui_primitives::fuzzy::rank(&texts, "");
+    let ranked = ui_primitives::fuzzy::rank(&texts, "");
     // Composer near the bottom of a tall terminal so room-above is not the
     // binding constraint — the row count is.
     let input_rect = nuotc::Rect::new(0, 40, 80, 2);
@@ -184,13 +184,11 @@ fn history_panel_reserves_activity_bar_rows() {
     let theme = Theme::default();
     // Enough entries that, absent the reservation, the panel would want to
     // grow tall and run past the activity bar.
-    let history: Vec<nuo_protocol::HistoryEntry> = (0..25)
-        .map(|i| {
-            nuo_protocol::HistoryEntry::new(format!("entry {i}"), Some(format!("s{i}")), None, i)
-        })
+    let history: Vec<protocol::HistoryEntry> = (0..25)
+        .map(|i| protocol::HistoryEntry::new(format!("entry {i}"), Some(format!("s{i}")), None, i))
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
-    let ranked = nuo_ui_primitives::fuzzy::rank(&texts, "");
+    let ranked = ui_primitives::fuzzy::rank(&texts, "");
     // Composer at row 15; the activity bar occupies the single row above it
     // (row 14), so `activity_height = 1`.
     let input_rect = nuotc::Rect::new(0, 15, 80, 2);

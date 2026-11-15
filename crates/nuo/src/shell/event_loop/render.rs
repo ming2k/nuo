@@ -7,9 +7,9 @@ use crate::shell::render;
 use crate::shell::surfaces::{DialogKind, OverlaySurface, SceneKind, SheetKind};
 use crate::shell::ui::UiKey;
 use crate::shell::{App, ProviderDeleteChoice};
-use nuo_ui_primitives::primitives::Recess;
-use nuo_view::model::document::TranscriptMessage;
-use nuo_view::model::layout::LayoutMap;
+use ui_primitives::primitives::Recess;
+use view::model::document::TranscriptMessage;
+use view::model::layout::LayoutMap;
 
 use super::actions::effective_reasoning_effort;
 use super::transcript::display_status;
@@ -164,15 +164,16 @@ fn draw_startup_surface(
         );
 
         ui.stage_document(std::mem::take(layout_map));
-        app.transcript.modal_body_height = drawn_modal_rect.height.saturating_sub(
-            nuo_ui_primitives::primitives::modal_chrome_rows(
-                nuo_ui_primitives::primitives::ModalSpec {
-                    width_percent: 0,
-                    header: true,
-                    footer: true,
-                },
-            ),
-        );
+        app.transcript.modal_body_height =
+            drawn_modal_rect
+                .height
+                .saturating_sub(ui_primitives::primitives::modal_chrome_rows(
+                    ui_primitives::primitives::ModalSpec {
+                        width_percent: 0,
+                        header: true,
+                        footer: true,
+                    },
+                ));
         if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
             ui.mount(UiKey::Overlay(overlay), drawn_modal_rect);
         }
@@ -208,7 +209,7 @@ fn draw_transcript_surface(
         .human
         .pending_permission
         .is_some()
-        .then_some(nuo_view::phase::Phase::AwaitingUser);
+        .then_some(view::phase::Phase::AwaitingUser);
     let status = if let Some(ref target) = app.session.switching_session {
         format!("loading session {target}…")
     } else if app.link.link_down {
@@ -260,7 +261,7 @@ fn draw_transcript_surface(
     };
     let is_fullscreen_scene = matches!(
         app.current_scene(),
-        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
     );
     let chrome_hidden = is_fullscreen_scene;
     // When zoomed into a Subagent, render its child messages and
@@ -463,7 +464,7 @@ fn draw_transcript_surface(
                 },
                 logo: app.surfaces.logo.as_deref(),
                 guidance,
-                carousel_index: nuo_view::empty_state::carousel_page_for(
+                carousel_index: view::empty_state::carousel_page_for(
                     app.transcript.carousel_epoch.elapsed().as_millis(),
                 ),
                 theme: &app.surfaces.theme,
@@ -475,6 +476,50 @@ fn draw_transcript_surface(
     // The transcript draw is the only consumer of the height cache; restore
     // it immediately so the rest of the frame sees the refreshed entries.
     app.transcript.layout_height_cache = height_cache;
+    if app.transcript.search.active && transcript_render.input_rect.y > 0 {
+        let bar_rect = nuotc::layout::Rect::new(
+            transcript_render.input_rect.x,
+            transcript_render.input_rect.y.saturating_sub(1),
+            transcript_render.input_rect.width,
+            1,
+        );
+        let match_info = if app.transcript.search.query.trim().is_empty() {
+            String::new()
+        } else if app.transcript.search.matches.is_empty() {
+            "  [0 matches]".to_string()
+        } else {
+            format!(
+                "  [{}/{}]",
+                app.transcript.search.current + 1,
+                app.transcript.search.matches.len()
+            )
+        };
+        let line = nuotc::Line::from(vec![
+            nuotc::Span::styled(
+                " Find: ",
+                nuotc::Style::default()
+                    .fg(app.surfaces.theme.affordance_fg)
+                    .add_modifier(nuotc::Modifier::BOLD),
+            ),
+            nuotc::Span::styled(
+                format!("{}█", app.transcript.search.query),
+                nuotc::Style::default().fg(app.surfaces.theme.user_fg),
+            ),
+            nuotc::Span::styled(
+                match_info,
+                nuotc::Style::default().fg(app.surfaces.theme.muted()),
+            ),
+            nuotc::Span::styled(
+                "   Enter next · Shift+Enter prev · Esc close",
+                nuotc::Style::default().fg(app.surfaces.theme.muted()),
+            ),
+        ]);
+        f.render_widget(
+            &mut nuotc::Paragraph::new(line)
+                .style(nuotc::Style::default().bg(app.surfaces.theme.panel())),
+            bar_rect,
+        );
+    }
     for (key, rect) in &transcript_render.footer.rows {
         let key = match key {
             render::FooterRowId::TopGap => continue,
@@ -537,7 +582,7 @@ fn draw_model_bar_surface(
     let viewed_chrome = app.viewed_chrome();
     let is_fullscreen_scene = matches!(
         app.current_scene(),
-        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
     );
     let chrome_hidden = is_fullscreen_scene;
     // The input-action hint bar (with model/context metadata on
@@ -608,6 +653,7 @@ fn draw_model_bar_surface(
                     reasoning_effort: hint_reasoning,
                     context_tokens: app.telemetry.context_tokens.map(|snapshot| snapshot.tokens),
                     context_window: app.active_model_context_window(),
+                    cost_nano_usd: Some(app.viewed_chrome().session_cost_nano_usd),
                 },
                 &app.surfaces.theme,
                 &app.surfaces.key_overrides,
@@ -640,7 +686,7 @@ fn draw_composer_surface(
     let viewed_chrome = app.viewed_chrome();
     let is_fullscreen_scene = matches!(
         app.current_scene(),
-        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
     );
     let has_overlay = app.surfaces.surfaces.active_overlay().is_some();
     let chrome_hidden = is_fullscreen_scene;
@@ -663,7 +709,7 @@ fn draw_composer_surface(
                     input_rect.y,
                     input_rect.width,
                     input_rect.height
-                        + nuo_ui_primitives::design::COMPOSER_HINT_GAP_ROWS
+                        + ui_primitives::design::COMPOSER_HINT_GAP_ROWS
                         + hint_rect.height,
                 );
                 let max_scroll = render::draw_permission_sheet(
@@ -863,8 +909,7 @@ fn persist_transcript_layout(
     app.transcript.view_height = transcript.view_height;
     app.transcript.max_scroll = transcript
         .content_lines
-        .saturating_sub(transcript.view_height as usize)
-        .min(u16::MAX as usize) as u16;
+        .saturating_sub(transcript.view_height as usize);
     // Hit-test rects for the footer bars, resolved from the one registry the
     // renderer placed this frame (`TranscriptRender::footer`) — one source
     // of truth instead of per-bar plumbing.
@@ -897,7 +942,7 @@ fn draw_interaction_sheets(
     let hint_rect = slot.hint_rect;
     let is_fullscreen_scene = matches!(
         app.current_scene(),
-        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
     );
     let chrome_hidden = is_fullscreen_scene;
     let overlay_owns_caret =
@@ -916,7 +961,7 @@ fn draw_interaction_sheets(
                         input_rect.y,
                         input_rect.width,
                         input_rect.height
-                            + nuo_ui_primitives::design::COMPOSER_HINT_GAP_ROWS
+                            + ui_primitives::design::COMPOSER_HINT_GAP_ROWS
                             + hint_rect.height,
                     );
                     let props = crate::shell::overlays::ask_user::AskUserProps {
@@ -1034,7 +1079,7 @@ fn draw_recessed_surface(
 ) -> SurfaceDraw {
     let is_fullscreen_scene = matches!(
         app.current_scene(),
-        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
     );
     let has_overlay = app.surfaces.surfaces.active_overlay().is_some();
     let recess = if is_fullscreen_scene {
@@ -1098,7 +1143,7 @@ fn draw_active_overlay(
                 is_responding: viewed_running,
                 has_selection: !matches!(
                     app.transcript.selection,
-                    nuo_view::model::selection::SelectionState::None
+                    view::model::selection::SelectionState::None
                 ),
                 has_running_task: viewed_running,
                 has_notices: !!app.has_notices(),
@@ -1230,17 +1275,15 @@ fn draw_active_overlay(
             )),
             SheetKind::OAuthPending => {
                 let title: &'static str = match &app.provider_editor.custom_auth {
-                    nuo_protocol::ConnectionAuth::Negotiated { provider } => {
-                        match provider.as_ref() {
-                            "chatgpt" => "ChatGPT Subscription",
-                            "copilot" => "Copilot",
-                            "xai" => "xAI",
-                            "google-antigravity" => "Google Antigravity",
-                            "qoder" => "Qoder",
-                            _ => "Subscription",
-                        }
-                    }
-                    nuo_protocol::ConnectionAuth::Static => "OAuth",
+                    protocol::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
+                        "chatgpt" => "ChatGPT Subscription",
+                        "copilot" => "Copilot",
+                        "xai" => "xAI",
+                        "google-antigravity" => "Google Antigravity",
+                        "qoder" => "Qoder",
+                        _ => "Subscription",
+                    },
+                    protocol::ConnectionAuth::Static => "OAuth",
                 };
                 Some(render::draw_oauth_pending(
                     title,
@@ -1267,12 +1310,12 @@ fn draw_active_overlay(
                 let protocol_display = app
                     .provider_editor
                     .custom_protocol_wire
-                    .parse::<nuo_protocol::WireProtocol>()
+                    .parse::<protocol::WireProtocol>()
                     .map(|p| p.display_name())
                     .unwrap_or(&app.provider_editor.custom_protocol_wire);
                 let budget_display = match &app.provider_editor.custom_budget {
-                    nuo_protocol::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
-                    nuo_protocol::ConnectionBudget::Local { limit, period, .. } => {
+                    protocol::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
+                    protocol::ConnectionBudget::Local { limit, period, .. } => {
                         format!("Local ({}, {})", limit.format_usd(), period.label())
                     }
                 };
@@ -1282,7 +1325,7 @@ fn draw_active_overlay(
                         field: app.provider_editor.custom_field,
                         editing,
                         custom: app.provider_editor.custom_provider_id.as_deref()
-                            == Some(nuo_view::providers::CUSTOM_TEMPLATE.id),
+                            == Some(view::providers::CUSTOM_TEMPLATE.id),
                         title: &title,
                         name_buf: &app.provider_editor.custom_name,
                         base_url_buf: &app.provider_editor.custom_base_url,
@@ -1465,11 +1508,11 @@ fn draw_scene(
             if let Some((ref mut state, ref mut anchor)) = app.surfaces.config_dropdown {
                 if let Some(target_rect) = app.surfaces.config_selected_rect
                     && anchor.placement
-                        != nuo_ui_primitives::components::dropdown::DropdownPlacement::CenterScreen
+                        != ui_primitives::components::dropdown::DropdownPlacement::CenterScreen
                 {
                     anchor.target_rect = target_rect;
                 }
-                let popup_area = nuo_ui_primitives::components::dropdown::draw_dropdown(
+                let popup_area = ui_primitives::components::dropdown::draw_dropdown(
                     f,
                     state,
                     anchor,
@@ -1523,6 +1566,43 @@ fn draw_scene(
             // The dashboard's list-body slot stays unset: this scene's scroll
             // is its own field and its page step is derived from the body
             // rect the renderer just clamped against.
+            Some(rects.area)
+        }
+        SceneKind::Diff => {
+            let rects = render::draw_diff_scene(
+                f,
+                render::DiffSceneProps {
+                    state: app.transcript.diff_viewer.as_mut(),
+                    thread_id: Some(viewed_session_id),
+                    tab_bar: Some(render::TabBarProps {
+                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        active_tab: app.surfaces.surfaces.active_tab_index(),
+                        unread_faults: scene_unread_faults,
+                    }),
+                },
+                &app.surfaces.theme,
+            );
+            if let Some(rect) = rects.tab_bar_rect {
+                ui.mount(UiKey::TabBar, rect);
+            }
+            for (idx, tab_rect) in &rects.tab_rects {
+                ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+            }
+            if let Some(rect) = rects.tab_prev_rect {
+                ui.mount(UiKey::TabBarPrev, rect);
+            }
+            if let Some(rect) = rects.tab_next_rect {
+                ui.mount(UiKey::TabBarNext, rect);
+            }
+            if let Some(rect) = rects.tab_overflow_rect {
+                ui.mount(UiKey::TabBarOverview, rect);
+            }
+            if let Some(rect) = rects.tab_notices_rect {
+                ui.mount(UiKey::NoticesBadge, rect);
+            }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::HelpBadge, rect);
+            }
             Some(rects.area)
         }
         SceneKind::Thread | SceneKind::Subagent => None,
@@ -1623,8 +1703,8 @@ fn finish_frame(
             .modal_rect
             .map(|r| {
                 r.height
-                    .saturating_sub(nuo_ui_primitives::primitives::modal_chrome_rows(
-                        nuo_ui_primitives::primitives::ModalSpec {
+                    .saturating_sub(ui_primitives::primitives::modal_chrome_rows(
+                        ui_primitives::primitives::ModalSpec {
                             width_percent: 0,
                             header: true,
                             footer: true,

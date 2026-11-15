@@ -58,6 +58,8 @@ pub enum SceneKind {
     /// tab stack, breadcrumbs, `Alt+[`, resize and scroll anchoring already
     /// understand, so reading a log costs no second navigation model.
     CommandLog,
+    /// Fullscreen diff viewer for session file changes.
+    Diff,
 }
 
 impl SceneKind {
@@ -69,6 +71,7 @@ impl SceneKind {
             Self::Settings => "Settings",
             Self::Subagent => "Subagent",
             Self::CommandLog => "Command log",
+            Self::Diff => "Diff viewer",
         }
     }
 
@@ -80,6 +83,7 @@ impl SceneKind {
             Self::Settings => "Alt-,",
             Self::Subagent => "zoom a subagent task",
             Self::CommandLog => "v  view log",
+            Self::Diff => "F4  review diffs",
         }
     }
 
@@ -91,6 +95,7 @@ impl SceneKind {
             Self::Settings => "settings",
             Self::Subagent => "subagent",
             Self::CommandLog => "log",
+            Self::Diff => "diff",
         }
     }
 
@@ -103,7 +108,7 @@ impl SceneKind {
     /// they act in — the property that decides whether the chat pane and its
     /// composer are hidden behind it.
     pub fn is_reading_scene(self) -> bool {
-        matches!(self, Self::CommandLog)
+        matches!(self, Self::CommandLog | Self::Diff)
     }
 }
 
@@ -412,7 +417,7 @@ pub struct TabContextState {
     /// tab can never be restored with an entry highlighted while the composer
     /// was supposedly live.
     pub focus: crate::shell::focus::Focus,
-    pub scroll: u16,
+    pub scroll: usize,
     pub input: String,
     pub cursor_position: usize,
     pub input_scroll: usize,
@@ -532,7 +537,10 @@ impl ClientTab {
             TabKind::Thread(_) => {
                 if !matches!(
                     scene,
-                    SceneKind::Thread | SceneKind::Subagent | SceneKind::CommandLog
+                    SceneKind::Thread
+                        | SceneKind::Subagent
+                        | SceneKind::CommandLog
+                        | SceneKind::Diff
                 ) {
                     tracing::warn!(
                         ?scene,
@@ -1187,7 +1195,7 @@ impl SurfaceRouter {
             // transcript step, so it belongs to the tab that owns that step and
             // pushes onto that tab's own stack (peer of `Subagent`). A
             // workspace container would let a thread's log outlive the thread.
-            SceneKind::Thread | SceneKind::Subagent | SceneKind::CommandLog => {}
+            SceneKind::Thread | SceneKind::Subagent | SceneKind::CommandLog | SceneKind::Diff => {}
         }
         self.scene = scene;
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
@@ -1405,8 +1413,8 @@ impl SurfaceStore {
             .filter(|target| {
                 let label = target.label();
                 let hint = target.hint();
-                nuo_ui_primitives::fuzzy::fuzzy_match(label, q).is_some()
-                    || nuo_ui_primitives::fuzzy::fuzzy_match(hint, q).is_some()
+                ui_primitives::fuzzy::fuzzy_match(label, q).is_some()
+                    || ui_primitives::fuzzy::fuzzy_match(hint, q).is_some()
             })
             .collect()
     }

@@ -1,8 +1,7 @@
 # Repository test host. This is intentionally **not** a production crate: it
 # owns the root `tests/` entry points so integration and E2E suites compile as
 # one binary each instead of one linker invocation per test file (ADR-0178).
-# Production code remains in the multi-crate `crates/*`, `tools/*`, and
-# `providers/*` tiers.
+# Production code remains in the multi-crate `crates/*` workspace.
 [package]
 name = "nuo-tests"
 version.workspace = true
@@ -24,8 +23,6 @@ path = "tests/e2e/main.rs"
 [workspace]
 members = [
     "crates/*",
-    "tools/*",
-    "providers/*",
 ]
 default-members = ["crates/nuo"]
 resolver = "2"
@@ -89,19 +86,21 @@ thiserror = "2.0"
 # L1 `Traced` policy for model attempts because its latency telemetry is derived
 # from the protocol timeline; control-plane calls keep a small traced ring only
 # to name the phase a timeout interrupted.
-# v0.0.28 adds three consumer seams on top of the v0.0.27 diagnostic spine:
-# `Established` exposes the exact negotiated ALPN name beside the trace enum,
-# a QUIC connector can resolve and confine an authority inside the attempt, and
-# `netune-http1::write_request_head` serializes a caller-owned header set with
-# no synthetic framing. Nuo's egress is the shared netune HTTP/1.1 + HTTP/2
-# request path, so the release changes no wire bytes here; it inherits the same
-# `AttemptError`/`TraceSnapshot` evidence contract and the 10 s handshake bound.
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.28" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.28" }
+# v0.0.29 replaces `TlsConnector` with `TlsRouterConnector` over the owned
+# `netune-tls` egress engine, splits `antigravity-cli` into
+# `antigravity-cli-unary` (`http/1.1` only) and `antigravity-cli-stream`
+# (`h2, http/1.1` paired with `go-nethttp`), and adds per-connection HTTP/2
+# regular-header order policy (`GoMapRandom` for `H2Fingerprint::go`).
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.29" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.29" }
 http = "1.2"
-# Image normalization accepts only JPEG and PNG (see `nuo-host/src/image.rs`);
+# Image normalization accepts only JPEG and PNG (see `host/src/image.rs`);
 # GIF/WebP are deliberately left untouched, so their decoders must not be built.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+# PDF text extraction is a host capability behind the `DocumentExtractor` seam
+# (ADR-0193). The filesystem tool crate never links this parser; only the
+# composition root injects the host implementation.
+pdf-extract = "0.12"
 windows-sys = "0.61"
 notify = "8"
 tree-sitter = "0.25"
@@ -126,84 +125,83 @@ mockito = "1"
 tempfile = "3"
 
 # ACP & Substrates
-nuo-acp = { version = "0.0.88", path = "crates/nuo-acp" }
-acp = { version = "0.0.88", package = "nuo-acp", path = "crates/nuo-acp" }
-nuo-tool = { version = "0.0.88", path = "crates/nuo-tool" }
-nuo-tool-derive = { version = "0.0.88", path = "crates/nuo-tool-derive" }
-nuo-provider = { version = "0.0.88", path = "crates/nuo-provider" }
-nuo-provider-qoder = { version = "0.0.88", path = "providers/nuo-provider-qoder" }
-nuo-provider-catalog = { version = "0.0.88", path = "providers/nuo-provider-catalog" }
-nuo-provider-anthropic = { version = "0.0.88", path = "providers/nuo-provider-anthropic" }
-nuo-provider-google-antigravity = { version = "0.0.88", path = "providers/nuo-provider-google-antigravity" }
-nuo-provider-openai = { version = "0.0.88", path = "providers/nuo-provider-openai" }
-nuo-provider-chatgpt-plan = { version = "0.0.88", path = "providers/nuo-provider-chatgpt-plan" }
-nuo-provider-deepseek = { version = "0.0.88", path = "providers/nuo-provider-deepseek" }
-nuo-provider-kimi = { version = "0.0.88", path = "providers/nuo-provider-kimi" }
-nuo-provider-copilot = { version = "0.0.88", path = "providers/nuo-provider-copilot" }
-nuo-provider-commandcode-goat = { version = "0.0.88", path = "providers/nuo-provider-commandcode-goat" }
-nuo-provider-opencode-go = { version = "0.0.88", path = "providers/nuo-provider-opencode-go" }
-nuo-provider-opencode-zen = { version = "0.0.88", path = "providers/nuo-provider-opencode-zen" }
-nuo-provider-opendesign = { version = "0.0.88", path = "providers/nuo-provider-opendesign" }
-nuo-provider-openrouter = { version = "0.0.88", path = "providers/nuo-provider-openrouter" }
-nuo-provider-xai = { version = "0.0.88", path = "providers/nuo-provider-xai" }
-nuo-provider-qianwen = { version = "0.0.88", path = "providers/nuo-provider-qianwen" }
-nuo-provider-glm-cn = { version = "0.0.88", path = "providers/nuo-provider-glm-cn" }
-nuo-provider-codebuddy-auth = { version = "0.0.88", path = "providers/nuo-provider-codebuddy-auth" }
-nuo-provider-codebuddy-cn = { version = "0.0.88", path = "providers/nuo-provider-codebuddy-cn" }
-nuo-provider-codebuddy-intl = { version = "0.0.88", path = "providers/nuo-provider-codebuddy-intl" }
-nuo-mcp = { version = "0.0.88", path = "crates/nuo-mcp" }
-nuo-inference-wire = { version = "0.0.88", path = "crates/nuo-inference-wire", default-features = false }
+acp = { version = "0.0.88", path = "crates/acp" }
+tool = { version = "0.0.88", path = "crates/tool" }
+tool-derive = { version = "0.0.88", path = "crates/tool-derive" }
+provider = { version = "0.0.88", path = "crates/provider" }
+provider-qoder = { version = "0.0.88", path = "crates/provider-qoder" }
+provider-catalog = { version = "0.0.88", path = "crates/provider-catalog" }
+provider-anthropic = { version = "0.0.88", path = "crates/provider-anthropic" }
+provider-google-antigravity = { version = "0.0.88", path = "crates/provider-google-antigravity" }
+provider-openai = { version = "0.0.88", path = "crates/provider-openai" }
+provider-chatgpt-plan = { version = "0.0.88", path = "crates/provider-chatgpt-plan" }
+provider-deepseek = { version = "0.0.88", path = "crates/provider-deepseek" }
+provider-kimi = { version = "0.0.88", path = "crates/provider-kimi" }
+provider-copilot = { version = "0.0.88", path = "crates/provider-copilot" }
+provider-commandcode-goat = { version = "0.0.88", path = "crates/provider-commandcode-goat" }
+provider-opencode-go = { version = "0.0.88", path = "crates/provider-opencode-go" }
+provider-opencode-zen = { version = "0.0.88", path = "crates/provider-opencode-zen" }
+provider-opendesign-go = { version = "0.0.88", path = "crates/provider-opendesign-go" }
+provider-openrouter = { version = "0.0.88", path = "crates/provider-openrouter" }
+provider-xai = { version = "0.0.88", path = "crates/provider-xai" }
+provider-qianwen = { version = "0.0.88", path = "crates/provider-qianwen" }
+provider-glm-cn = { version = "0.0.88", path = "crates/provider-glm-cn" }
+provider-codebuddy-auth = { version = "0.0.88", path = "crates/provider-codebuddy-auth" }
+provider-codebuddy-cn = { version = "0.0.88", path = "crates/provider-codebuddy-cn" }
+provider-codebuddy-intl = { version = "0.0.88", path = "crates/provider-codebuddy-intl" }
+mcp = { version = "0.0.88", path = "crates/mcp" }
+inference-wire = { version = "0.0.88", path = "crates/inference-wire", default-features = false }
 # Dev-only: hermetic E2E harness (sandboxed NUO_HOME, mock provider, CLI
 # runner). Never a shipped dependency; `tests/integration/governance/test_architecture.rs`
 # enforces that it stays under `[dev-dependencies]`.
-nuo-test-support = { version = "0.0.88", path = "crates/nuo-test-support" }
+test-support = { version = "0.0.88", path = "crates/test-support" }
 
 # Terminal Substrate (Nuotc)
 nuotc = { git = "https://github.com/ming2k/nuotc.git", tag = "v0.0.6" }
 
 # In-house Nuo crates
-nuo-protocol = { version = "0.0.88", path = "crates/nuo-protocol" }
+protocol = { version = "0.0.88", path = "crates/protocol" }
 nuo = { version = "0.0.88", path = "crates/nuo" }
-nuo-server = { version = "0.0.88", path = "crates/nuo-server" }
-nuo-persistence = { version = "0.0.88", path = "crates/nuo-persistence" }
-nuo-ui-primitives = { version = "0.0.88", path = "crates/nuo-ui-primitives" }
-nuo-view = { version = "0.0.88", path = "crates/nuo-view" }
-nuo-host = { version = "0.0.88", path = "crates/nuo-host" }
-nuo-engine = { version = "0.0.88", path = "crates/nuo-engine" }
-nuo-guardrails = { version = "0.0.88", path = "crates/nuo-guardrails" }
-nuo-model-routing = { version = "0.0.88", path = "crates/nuo-model-routing" }
-nuo-tool-fs = { version = "0.0.88", path = "tools/nuo-tool-fs" }
-nuo-tool-exec = { version = "0.0.88", path = "tools/nuo-tool-exec" }
-nuo-tool-web = { version = "0.0.88", path = "tools/nuo-tool-web" }
-nuo-tool-ast = { version = "0.0.88", path = "tools/nuo-tool-ast" }
+server = { version = "0.0.88", path = "crates/server" }
+persistence = { version = "0.0.88", path = "crates/persistence" }
+ui-primitives = { version = "0.0.88", path = "crates/ui-primitives" }
+view = { version = "0.0.88", path = "crates/view" }
+host = { version = "0.0.88", path = "crates/host" }
+engine = { version = "0.0.88", path = "crates/engine" }
+guardrails = { version = "0.0.88", path = "crates/guardrails" }
+model-routing = { version = "0.0.88", path = "crates/model-routing" }
+tool-fs = { version = "0.0.88", path = "crates/tool-fs" }
+tool-exec = { version = "0.0.88", path = "crates/tool-exec" }
+tool-web = { version = "0.0.88", path = "crates/tool-web" }
+tool-ast = { version = "0.0.88", path = "crates/tool-ast" }
 
 # The root test host links every crate whose public surface the integration
 # and E2E suites exercise. All edges are dev-only; `nuo-tests` is not shipped.
 [dev-dependencies]
 nuo = { workspace = true }
-nuo-acp = { workspace = true }
-nuo-engine = { workspace = true }
-nuo-host = { workspace = true }
-nuo-inference-wire = { workspace = true }
-nuo-mcp = { workspace = true }
-nuo-model-routing = { workspace = true }
-nuo-persistence = { workspace = true, features = ["test-path-override"] }
-nuo-protocol = { workspace = true }
-nuo-provider = { workspace = true }
-nuo-provider-anthropic = { workspace = true }
-nuo-provider-catalog = { workspace = true }
-nuo-provider-google-antigravity = { workspace = true }
-nuo-provider-openai = { workspace = true }
-nuo-provider-qoder = { workspace = true }
-nuo-server = { workspace = true }
-nuo-test-support = { workspace = true }
-nuo-tool = { workspace = true }
-nuo-tool-exec = { workspace = true }
-nuo-tool-fs = { workspace = true }
-nuo-tool-ast = { workspace = true }
-nuo-tool-web = { workspace = true }
-nuo-guardrails = { workspace = true }
-nuo-view = { workspace = true }
+acp = { workspace = true }
+engine = { workspace = true }
+host = { workspace = true }
+inference-wire = { workspace = true }
+mcp = { workspace = true }
+model-routing = { workspace = true }
+persistence = { workspace = true, features = ["test-path-override"] }
+protocol = { workspace = true }
+provider = { workspace = true }
+provider-anthropic = { workspace = true }
+provider-catalog = { workspace = true }
+provider-google-antigravity = { workspace = true }
+provider-openai = { workspace = true }
+provider-qoder = { workspace = true }
+server = { workspace = true }
+test-support = { workspace = true }
+tool = { workspace = true }
+tool-exec = { workspace = true }
+tool-fs = { workspace = true }
+tool-ast = { workspace = true }
+tool-web = { workspace = true }
+guardrails = { workspace = true }
+view = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 futures = { workspace = true }

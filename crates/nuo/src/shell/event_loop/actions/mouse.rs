@@ -5,8 +5,8 @@ use crate::shell::input;
 use crate::shell::interaction::{self, ClickTarget};
 use crate::shell::step_interaction::StepKind;
 use crate::shell::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
-use nuo_view::model::layout::{InteractiveTarget, SemanticCursor};
-use nuo_view::model::selection::{CellDragInfo, SelectionState, floor_grapheme_boundary};
+use view::model::layout::{InteractiveTarget, SemanticCursor};
+use view::model::selection::{CellDragInfo, SelectionState, floor_grapheme_boundary};
 
 use super::super::runtime::UiRuntime;
 use super::super::transcript::resolve_focused_mut;
@@ -144,10 +144,12 @@ pub(super) async fn handle_selection_start(
             handle_permission_submit(app, runtime).await;
         }
         Some(UiKey::Sheet(crate::shell::sheet::SheetKind::Permission)) => {
-            if let Some(cursor) =
-                app.transcript.ui.document.cursor_at(x, y).filter(|cursor| {
-                    cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
-                })
+            if let Some(cursor) = app
+                .transcript
+                .ui
+                .document
+                .cursor_at(x, y)
+                .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
             {
                 app.transcript
                     .drag
@@ -188,8 +190,8 @@ pub(super) async fn handle_selection_start(
                                             (revision, payload.parse())
                                         {
                                             app.send_intent(
-                                                nuo_protocol::AgentRequest::UpdateWebSearchConfig(
-                                                    Box::new(nuo_protocol::WebSearchConfigUpdate {
+                                                protocol::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(protocol::WebSearchConfigUpdate {
                                                         expected_revision: revision,
                                                         provider: Some(provider),
                                                         ..Default::default()
@@ -203,8 +205,8 @@ pub(super) async fn handle_selection_start(
                                             (revision, payload.parse())
                                         {
                                             app.send_intent(
-                                                nuo_protocol::AgentRequest::UpdateWebSearchConfig(
-                                                    Box::new(nuo_protocol::WebSearchConfigUpdate {
+                                                protocol::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(protocol::WebSearchConfigUpdate {
                                                         expected_revision: revision,
                                                         reader: Some(reader),
                                                         ..Default::default()
@@ -247,10 +249,12 @@ pub(super) async fn handle_selection_start(
             }
         }
         Some(UiKey::Overlay(_overlay)) => {
-            if let Some(cursor) =
-                app.transcript.ui.document.cursor_at(x, y).filter(|cursor| {
-                    cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
-                })
+            if let Some(cursor) = app
+                .transcript
+                .ui
+                .document
+                .cursor_at(x, y)
+                .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
             {
                 app.transcript
                     .drag
@@ -290,10 +294,12 @@ pub(super) async fn handle_selection_start(
             }
         }
         Some(UiKey::OauthUrl | UiKey::OauthCode) => {
-            if let Some(cursor) =
-                app.transcript.ui.document.cursor_at(x, y).filter(|cursor| {
-                    cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
-                })
+            if let Some(cursor) = app
+                .transcript
+                .ui
+                .document
+                .cursor_at(x, y)
+                .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
             {
                 app.transcript
                     .drag
@@ -731,7 +737,7 @@ async fn execute_help_action(
         K::NewTab => {
             app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
             if app.is_current_thread_empty() {
-                app.send_intent(nuo_protocol::AgentRequest::SlashCommand("/new".to_string()));
+                app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
             } else {
                 app.surfaces.switch_to_new = true;
                 app.link

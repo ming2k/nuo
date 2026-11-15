@@ -1,6 +1,6 @@
-//! High-level browser opener for the TUI application, backed by `nuo_host::opener`.
+//! High-level browser opener for the TUI application, backed by `host::opener`.
 
-use nuo_host::opener::{OpenOutcome, SystemOpener};
+use host::opener::{OpenOutcome, SystemOpener};
 
 /// Open a URL in the user's default browser with extensive cross-platform fallbacks.
 pub fn open_browser(url: &str) -> Result<(), String> {

@@ -1,5 +1,5 @@
 use super::*;
-use nuo_protocol::ThreadOrigin;
+use protocol::ThreadOrigin;
 
 fn row(id: &str, status: ThreadActivity) -> MonitoredThread {
     MonitoredThread {
@@ -40,11 +40,11 @@ fn snapshot(rows: Vec<MonitoredThread>) -> MonitorSnapshot {
 #[test]
 fn table_renders_server_tasks_section() {
     let mut snap = snapshot(Vec::new());
-    snap.tasks = vec![nuo_protocol::MonitoredTask {
+    snap.tasks = vec![protocol::MonitoredTask {
         id: "task_abc12345".into(),
         label: "rehost:svc_old".into(),
         spec: "npm run dev".into(),
-        state: nuo_protocol::JobState::Ready {
+        state: protocol::JobState::Ready {
             started_at_ms: 0,
             ready_at_ms: 0,
         },
@@ -127,7 +127,7 @@ fn base_diag() -> ServerDiagnostics {
         lock_held: false,
         lock_holder_pid: None,
         lock_holder_alive: false,
-        local_endpoint: Some(nuo_host::ipc::LocalEndpoint::UnixSocket(
+        local_endpoint: Some(host::ipc::LocalEndpoint::UnixSocket(
             std::path::PathBuf::from("/run/user/1000/nuo/server.sock"),
         )),
         local_endpoint_exists: false,
@@ -284,7 +284,7 @@ fn diagnostics_formatter_names_the_sandbox_instance() {
 fn diagnostics_formatter_renders_runtime_events() {
     let diag = ServerDiagnostics {
         recent_events: vec![
-            nuo_host::diagnostics::DiagnosticEvent {
+            host::diagnostics::DiagnosticEvent {
                 timestamp_ms: 1730419200000,
                 pid: 913105,
                 process_kind: "server".to_string(),
@@ -292,7 +292,7 @@ fn diagnostics_formatter_renders_runtime_events() {
                 summary: "terminating existing PID 138253".to_string(),
                 details: None,
             },
-            nuo_host::diagnostics::DiagnosticEvent {
+            host::diagnostics::DiagnosticEvent {
                 timestamp_ms: 1730419201000,
                 pid: 913200,
                 process_kind: "client".to_string(),

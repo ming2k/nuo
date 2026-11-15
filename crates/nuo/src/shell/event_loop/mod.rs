@@ -114,19 +114,19 @@ fn frozen_event_passthrough(event: &Event) -> bool {
     }
 }
 
-pub(crate) fn tool_verb_for(name: &str) -> nuo_view::phase::ToolVerb {
+pub(crate) fn tool_verb_for(name: &str) -> view::phase::ToolVerb {
     match name {
-        "find_files" | "read" | "read_url" => nuo_view::phase::ToolVerb::Exploring,
-        "search_text" => nuo_view::phase::ToolVerb::Searching,
-        "search_web" => nuo_view::phase::ToolVerb::WebSearching,
-        "write_file" | "edit_text" => nuo_view::phase::ToolVerb::Editing,
-        "execute_command" => nuo_view::phase::ToolVerb::Running,
+        "find_files" | "read" | "read_url" => view::phase::ToolVerb::Exploring,
+        "search_text" => view::phase::ToolVerb::Searching,
+        "search_web" => view::phase::ToolVerb::WebSearching,
+        "write_file" | "edit_text" => view::phase::ToolVerb::Editing,
+        "execute_command" => view::phase::ToolVerb::Running,
         "write_todos" | "update_todo" | "todo" | "todo_update" => {
-            nuo_view::phase::ToolVerb::UpdatingTasks
+            view::phase::ToolVerb::UpdatingTasks
         }
-        "spawn_agent" | "delegate_code" => nuo_view::phase::ToolVerb::Delegating,
-        n if n.starts_with("mcp__") => nuo_view::phase::ToolVerb::Mcp,
-        _ => nuo_view::phase::ToolVerb::Generic,
+        "spawn_agent" | "delegate_code" => view::phase::ToolVerb::Delegating,
+        n if n.starts_with("mcp__") => view::phase::ToolVerb::Mcp,
+        _ => view::phase::ToolVerb::Generic,
     }
 }
 
@@ -283,14 +283,20 @@ fn next_poll_interval(
     app: &App,
     animating: bool,
     empty_state_showing: bool,
+    frame_wait: Option<std::time::Duration>,
 ) -> std::time::Duration {
-    if animating {
-        // Heartbeat aligned with spinner updates (100ms) and coalesced
-        // streaming deltas.
-        return std::time::Duration::from_millis(100);
+    // Animation still advances at 10Hz; content frames are independently
+    // budgeted by `STREAM_FRAME_INTERVAL`. When a frame was deferred, the loop
+    // must wake exactly at the end of that budget rather than at the animation
+    // heartbeat.
+    let mut next_timeout = if animating {
+        std::time::Duration::from_millis(100)
+    } else {
+        std::time::Duration::from_millis(1000)
+    };
+    if let Some(wait) = frame_wait {
+        next_timeout = next_timeout.min(wait.max(std::time::Duration::from_millis(1)));
     }
-
-    let mut next_timeout = std::time::Duration::from_millis(1000);
 
     // Toast / armed timeouts to wake exactly when state needs to clear
     let now = std::time::Instant::now();
@@ -319,7 +325,7 @@ fn next_poll_interval(
     // Empty-state carousel: sleep until the next slide boundary (up to
     // CAROUSEL_SLIDE_SECS).
     if empty_state_showing {
-        let slide_ms = (nuo_view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
+        let slide_ms = (view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
         let elapsed_ms = app.transcript.carousel_epoch.elapsed().as_millis();
         let rem_ms = slide_ms.saturating_sub(elapsed_ms % slide_ms);
         next_timeout = next_timeout.min(std::time::Duration::from_millis((rem_ms as u64).max(50)));
@@ -350,6 +356,10 @@ pub(crate) async fn run_app_loop(
     let mut mutation_rx = mutation_rx;
     let mut terminal_resized = false;
     let mut last_composer_height: Option<u16> = None;
+    // Content-frame gate. This is deliberately separate from the animation
+    // heartbeat: stream deltas may arrive at provider speed, but the terminal
+    // is painted at most once per `STREAM_FRAME_INTERVAL`.
+    let mut last_paint: Option<std::time::Instant> = None;
     // Tracks whether the frozen notice is currently on screen, so the freeze
     // branch repaints it exactly on entry and on each geometry change rather
     // than every tick.
@@ -375,7 +385,7 @@ pub(crate) async fn run_app_loop(
         // centered notice; `FrozenFrame` owns that pass so the normal path
         // below only ever runs with visible chrome.
         let (frozen_w, frozen_h) = terminal.size();
-        if nuo_ui_primitives::design::below_minimum(frozen_w, frozen_h) {
+        if ui_primitives::design::below_minimum(frozen_w, frozen_h) {
             let flow = FrozenFrame {
                 app,
                 terminal,
@@ -448,7 +458,7 @@ pub(crate) async fn run_app_loop(
             0,
             0,
             term_w,
-            term_h.saturating_sub(nuo_ui_primitives::design::PAGE_HEADER_ROWS),
+            term_h.saturating_sub(ui_primitives::design::PAGE_HEADER_ROWS),
         );
         let in_subagent = !app.transcript.focus_stack.is_empty();
         // A full-screen scene replaces the chat pane entirely. The log scene
@@ -460,6 +470,7 @@ pub(crate) async fn run_app_loop(
             crate::shell::surfaces::SceneKind::Dashboard
                 | crate::shell::surfaces::SceneKind::Settings
                 | crate::shell::surfaces::SceneKind::CommandLog
+                | crate::shell::surfaces::SceneKind::Diff
         );
         let composer_active = !is_fullscreen_scene && !in_subagent;
         let current_composer_height = if composer_active {
@@ -479,8 +490,7 @@ pub(crate) async fn run_app_loop(
             app.transcript.max_scroll = app
                 .transcript
                 .content_lines
-                .saturating_sub(estimated_view_height as usize)
-                .min(u16::MAX as usize) as u16;
+                .saturating_sub(estimated_view_height as usize);
             if !app.transcript.follow_bottom {
                 app.transcript.scroll_settle_pending = true;
             }
@@ -497,7 +507,7 @@ pub(crate) async fn run_app_loop(
         let empty_state_showing =
             app.focused_messages().is_empty() && app.transcript.focus_stack.is_empty();
         if empty_state_showing {
-            let current_carousel_index = nuo_view::empty_state::carousel_page_for(
+            let current_carousel_index = view::empty_state::carousel_page_for(
                 app.transcript.carousel_epoch.elapsed().as_millis(),
             );
             if current_carousel_index != last_carousel_index {
@@ -542,18 +552,29 @@ pub(crate) async fn run_app_loop(
             || runtime.dirty.swap(false, Ordering::AcqRel);
         was_animating = animation_draw;
 
+        // Budget content frames independently of the animation heartbeat. A
+        // burst of deltas leaves `input_redraw_pending` set and parks the loop
+        // on the remaining budget; the next pass paints the accumulated state.
+        let frame_due =
+            last_paint.is_none_or(|last| last.elapsed() >= crate::shell::STREAM_FRAME_INTERVAL);
+        let paint_now = needs_draw && frame_due;
+        if needs_draw && !frame_due {
+            input_redraw_pending = true;
+        }
+
         let stage_bottom_follow = (displayed_transcript_changed || viewport_geometry_changed)
             && app.transcript.follow_bottom;
         let stage_settle = app.transcript.scroll_settle_pending && !stage_bottom_follow;
 
         let painted_scroll = app.transcript.scroll;
-        if needs_draw {
+        if paint_now {
             if stage_bottom_follow || stage_settle {
                 terminal.stage(|f| render::render_frame(app, f, &viewed_session_id))?;
             } else {
                 terminal.draw(|f| render::render_frame(app, f, &viewed_session_id))?;
                 app.transcript.ui.commit();
             }
+            last_paint = Some(std::time::Instant::now());
         }
 
         // Scroll anchoring (resize stability): on the settle pass that follows
@@ -565,10 +586,10 @@ pub(crate) async fn run_app_loop(
         // leaves the existing offset untouched. Non-settle passes discard any
         // resolution outright — the follow-bottom path never needed it, and a
         // lingering value must not leak into a later, unrelated settle.
-        if needs_draw {
+        if paint_now {
             if stage_settle {
                 if let Some(resolved) = app.transcript.layout_height_cache.take_resolved() {
-                    app.transcript.scroll = resolved.min(u16::MAX as usize) as u16;
+                    app.transcript.scroll = resolved;
                 }
             } else {
                 app.transcript.layout_height_cache.take_resolved();
@@ -589,11 +610,7 @@ pub(crate) async fn run_app_loop(
             } else {
                 app.transcript
                     .pin_summary_line
-                    .map(|line| {
-                        app.transcript
-                            .max_scroll
-                            .max(line.min(u16::MAX as usize) as u16)
-                    })
+                    .map(|line| app.transcript.max_scroll.max(line))
                     .unwrap_or(app.transcript.max_scroll)
             };
             app.transcript.scroll = app.transcript.scroll.min(limit);
@@ -604,7 +621,7 @@ pub(crate) async fn run_app_loop(
         // The staged pass above measured the new content but emitted no bytes.
         // If the bottom moved, redraw immediately at the final offset. If it
         // did not, commit the already-final staged grid without a second layout.
-        if stage_bottom_follow && needs_draw {
+        if stage_bottom_follow && paint_now {
             if app.transcript.scroll != painted_scroll {
                 input_redraw_pending = true;
                 continue;
@@ -620,7 +637,7 @@ pub(crate) async fn run_app_loop(
         // grid is stale — redraw at the settled position; otherwise commit the
         // staged grid, which is already laid out at the correct offset,
         // without a second layout pass.
-        if stage_settle && needs_draw {
+        if stage_settle && paint_now {
             app.transcript.scroll_settle_pending = false;
             if app.transcript.scroll != painted_scroll {
                 input_redraw_pending = true;
@@ -632,13 +649,22 @@ pub(crate) async fn run_app_loop(
         // A transcript shrink can clamp a manually positioned viewport after
         // a normal draw. Repaint once at the newly valid offset instead of
         // leaving the just-painted frame beyond the new end of the content.
-        if needs_draw && app.transcript.scroll != painted_scroll {
+        if paint_now && app.transcript.scroll != painted_scroll {
             input_redraw_pending = true;
             continue;
         }
         app.retain_visible_focused_target();
 
-        let poll_interval = next_poll_interval(app, animating, empty_state_showing);
+        let frame_wait = if needs_draw && !frame_due {
+            Some(
+                last_paint
+                    .map(|last| crate::shell::STREAM_FRAME_INTERVAL.saturating_sub(last.elapsed()))
+                    .unwrap_or(crate::shell::STREAM_FRAME_INTERVAL),
+            )
+        } else {
+            None
+        };
+        let poll_interval = next_poll_interval(app, animating, empty_state_showing, frame_wait);
 
         tokio::select! {
             biased;
@@ -657,7 +683,7 @@ pub(crate) async fn run_app_loop(
                     if matches!(event, Event::Resize(..)) {
                         terminal_resized = true;
                         let (w, h) = terminal.size();
-                        frozen_now = nuo_ui_primitives::design::below_minimum(w, h);
+                        frozen_now = ui_primitives::design::below_minimum(w, h);
                     }
                     if frozen_now && !frozen_event_passthrough(&event) {
                         if let Event::Key(_) = &event {
@@ -1103,6 +1129,7 @@ async fn process_one_event<W: io::Write>(
                 )
             ),
             notice_viewer_open: app.notice_viewer_open(),
+            transcript_searching: app.transcript.search.active,
         };
         let modal_keys = crate::shell::modal_keys::ModalKeys {
             model_searching,
@@ -1197,7 +1224,7 @@ async fn process_one_event<W: io::Write>(
 
     // No client-side "unknown command" downgrade: a `/`-prefixed draft is a
     // slash command, full stop. The client cannot know the server's whole
-    // vocabulary (built-ins are compiled into `nuo-server`; an embedding adds
+    // vocabulary (built-ins are compiled into `server`; an embedding adds
     // more through `SlashCommandRegistry`), so judging it here would both
     // swallow typos into the transcript as if they were prompts **and** deny
     // registered commands it has never heard of. `AgentRequest::SlashCommand` is
@@ -1318,19 +1345,19 @@ mod freeze_guard_tests {
 
     #[test]
     fn below_minimum_is_the_geometric_authority() {
-        assert!(nuo_ui_primitives::design::below_minimum(
-            nuo_ui_primitives::design::MIN_TERMINAL_COLS - 1,
-            nuo_ui_primitives::design::MIN_TERMINAL_ROWS
+        assert!(ui_primitives::design::below_minimum(
+            ui_primitives::design::MIN_TERMINAL_COLS - 1,
+            ui_primitives::design::MIN_TERMINAL_ROWS
         ));
-        assert!(nuo_ui_primitives::design::below_minimum(
-            nuo_ui_primitives::design::MIN_TERMINAL_COLS,
-            nuo_ui_primitives::design::MIN_TERMINAL_ROWS - 1
+        assert!(ui_primitives::design::below_minimum(
+            ui_primitives::design::MIN_TERMINAL_COLS,
+            ui_primitives::design::MIN_TERMINAL_ROWS - 1
         ));
-        assert!(!nuo_ui_primitives::design::below_minimum(
-            nuo_ui_primitives::design::MIN_TERMINAL_COLS,
-            nuo_ui_primitives::design::MIN_TERMINAL_ROWS
+        assert!(!ui_primitives::design::below_minimum(
+            ui_primitives::design::MIN_TERMINAL_COLS,
+            ui_primitives::design::MIN_TERMINAL_ROWS
         ));
-        assert!(!nuo_ui_primitives::design::below_minimum(120, 40));
+        assert!(!ui_primitives::design::below_minimum(120, 40));
     }
 
     #[test]

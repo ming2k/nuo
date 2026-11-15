@@ -1,6 +1,6 @@
 //! The server link state (D6): every outbox send is checked, and a
 //! dead link is a first-class chrome state, not noise.
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
 use crate::shell::app::App;
 use crate::shell::app::notice_catalog::ClientNotice;
@@ -20,7 +20,7 @@ impl App {
                     self.link.link_down = true;
                     self.link.relink_requested = true;
                     self.record_client_notice(ClientNotice::LinkSendFailed);
-                    nuo_host::diagnostics::record_event(
+                    host::diagnostics::record_event(
                         "client",
                         "link_lost",
                         "outbox channel closed while delivering intent; auto-relink requested",

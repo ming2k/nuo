@@ -5,7 +5,7 @@
 //! observability from thread history.
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 
-use nuo_ui_primitives::theme::Theme;
+use ui_primitives::theme::Theme;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackgroundTaskItem {

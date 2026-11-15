@@ -33,12 +33,12 @@ use crate::shell::surfaces::{DialogKind, SceneKind};
 /// Glyph vocabulary for chords. The constants live in the pure substrate so a
 /// footer's key token needs no driver; re-exported here because every overlay
 /// already imports this module for its hint types.
-pub use nuo_ui_primitives::keyvocab;
+pub use ui_primitives::keyvocab;
 
 /// The pure chord model — `Key`, `KeyCode`, `KeyModifiers` and their display
 /// tokens — lives in the substrate so bindings carry no terminal-driver
 /// dependency ([INV-ARCH-UI-ZERO-IO]).
-pub use nuo_ui_primitives::chord::{Key, KeyCode, KeyModifiers, chord_token, display_token};
+pub use ui_primitives::chord::{Key, KeyCode, KeyModifiers, chord_token, display_token};
 
 /// Fold a terminal driver key event into the pure [`Key`].
 ///

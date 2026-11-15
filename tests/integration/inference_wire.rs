@@ -8,7 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuo_inference_wire::StreamLoopDetector;
+use inference_wire::StreamLoopDetector;
 
 #[test]
 fn test_wire_loop_detector_intercepts_runaway() {

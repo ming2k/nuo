@@ -1,13 +1,13 @@
 use super::*;
-use nuo_tool::ShellTermination;
-use nuo_view::Theme;
-use nuo_view::tools::shell_output::OutputCoverage;
 use nuotc::Rect;
+use tool::ShellTermination;
 use unicode_width::UnicodeWidthStr;
+use view::Theme;
+use view::tools::shell_output::OutputCoverage;
 
 #[test]
 fn termination_footer_renders_stream_guard_warning() {
-    let theme = nuo_view::Theme::default();
+    let theme = view::Theme::default();
     let footer = termination_footer(
         ShellTermination::StreamGuard,
         &theme,
@@ -22,7 +22,7 @@ fn termination_footer_renders_stream_guard_warning() {
 
 #[test]
 fn termination_footer_renders_professional_supervisor_verdicts() {
-    let theme = nuo_view::Theme::default();
+    let theme = view::Theme::default();
     let surface = theme.match_title_surface();
 
     let timeout = termination_footer(ShellTermination::Timeout, &theme, surface).unwrap();
@@ -345,7 +345,7 @@ fn edit_diff_renders_with_actual_file_line_number() {
     std::fs::write(&file_path, &content).unwrap();
 
     let mut terminal = nuotc::TestTerminal::new(80, 20);
-    let mut layout_map = nuo_view::model::layout::LayoutMap::default();
+    let mut layout_map = view::model::layout::LayoutMap::default();
     let theme = Theme::default();
     let mut skip_rows = 0;
     let mut y = 0;

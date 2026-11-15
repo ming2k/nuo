@@ -5,10 +5,10 @@
 
 use crate::shell::question_model::QuestionModel;
 use crate::shell::ui::ComponentTree;
-use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+use tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
-use nuo_ui_primitives::theme::Theme;
 use nuotc::{Frame, Rect};
+use ui_primitives::theme::Theme;
 
 /// Pure immutable properties for the AskUser component.
 #[derive(Debug, Clone)]

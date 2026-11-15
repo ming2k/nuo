@@ -61,7 +61,7 @@ pub async fn discover(_project_root: &Path) -> Option<ServerInfo> {
     // The record is published *after* both listeners bind, so a held lock with
     // no record means a spawn is in flight: give it a bounded moment.
     let lock_path = discovery::global_lock_path();
-    if nuo_host::lock::ProcessLock::is_locked(&lock_path) {
+    if host::lock::ProcessLock::is_locked(&lock_path) {
         for _ in 0..DISCOVER_SPAWN_POLLS {
             tokio::time::sleep(DISCOVER_SPAWN_POLL).await;
             if let Some(info) = discover_at(&global_path).await {
@@ -70,13 +70,13 @@ pub async fn discover(_project_root: &Path) -> Option<ServerInfo> {
         }
     }
 
-    if nuo_host::lock::ProcessLock::is_locked(&lock_path)
-        && let Some(pid) = nuo_host::lock::ProcessLock::probe_holder(&lock_path)
+    if host::lock::ProcessLock::is_locked(&lock_path)
+        && let Some(pid) = host::lock::ProcessLock::probe_holder(&lock_path)
         && is_process_alive(pid)
     {
         let local_endpoint = discovery::default_local_endpoint().ok();
         let local_connectable = match local_endpoint.as_ref() {
-            Some(endpoint) => nuo_host::ipc::probe_async(endpoint).await.connectable,
+            Some(endpoint) => host::ipc::probe_async(endpoint).await.connectable,
             None => false,
         };
 
@@ -90,7 +90,7 @@ pub async fn discover(_project_root: &Path) -> Option<ServerInfo> {
         if local_connectable || tcp_connectable {
             let recovered = ServerInfo {
                 pid,
-                process_birth_token: nuo_host::process::process_identity(pid)
+                process_birth_token: host::process::process_identity(pid)
                     .ok()
                     .map(|identity| identity.birth_token),
                 port: default_port,
@@ -135,7 +135,7 @@ pub(super) async fn discover_at(path: &Path) -> Option<ServerInfo> {
 }
 
 fn server_process_matches(info: &ServerInfo) -> bool {
-    nuo_host::process::process_identity(info.pid).is_ok_and(|identity| {
+    host::process::process_identity(info.pid).is_ok_and(|identity| {
         info.process_birth_token
             .is_none_or(|expected| expected == identity.birth_token)
     })
@@ -150,7 +150,7 @@ async fn is_alive(info: &ServerInfo) -> bool {
         return false;
     }
     match info.effective_local_endpoint() {
-        Some(endpoint) if nuo_host::ipc::probe_async(&endpoint).await.connectable => true,
+        Some(endpoint) if host::ipc::probe_async(&endpoint).await.connectable => true,
         _ => {
             let addr = std::net::SocketAddr::from(([127, 0, 0, 1], info.port));
             tokio::time::timeout(LIVENESS_TIMEOUT, tokio::net::TcpStream::connect(addr))
@@ -161,21 +161,21 @@ async fn is_alive(info: &ServerInfo) -> bool {
 }
 
 pub fn is_process_alive(pid: u32) -> bool {
-    nuo_host::process::process_identity(pid).is_ok()
+    host::process::process_identity(pid).is_ok()
 }
 
 async fn wait_for_process_exit(
-    identity: nuo_host::process::ProcessIdentity,
+    identity: host::process::ProcessIdentity,
     timeout: Duration,
 ) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
-        if !nuo_host::process::process_is_alive(identity) {
+        if !host::process::process_is_alive(identity) {
             return true;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    !nuo_host::process::process_is_alive(identity)
+    !host::process::process_is_alive(identity)
 }
 
 /// Whether a discovered server is a stale image that should be replaced rather
@@ -225,7 +225,7 @@ pub async fn get_server_endpoints(info: &ServerInfo) -> Result<ServerEndpointsRe
 pub async fn get_usage_stats(
     info: &ServerInfo,
     event_cap: usize,
-) -> Result<nuo_protocol::usage_stats::UsageStatsReport, String> {
+) -> Result<protocol::usage_stats::UsageStatsReport, String> {
     let reply = control_with_reply(info, ControlRequest::GetUsageStats { event_cap }).await?;
     serde_json::from_str(&reply).map_err(|e| format!("invalid usage stats reply: {e}"))
 }
@@ -233,8 +233,8 @@ pub async fn get_usage_stats(
 /// The role-scoped history listing: durable rows plus live status.
 pub async fn list_threads(
     info: &ServerInfo,
-    filter: nuo_protocol::ThreadFilter,
-) -> Result<Vec<nuo_protocol::MonitoredThread>, String> {
+    filter: protocol::ThreadFilter,
+) -> Result<Vec<protocol::MonitoredThread>, String> {
     let reply = control_with_reply(info, ControlRequest::ListThreads { filter }).await?;
     serde_json::from_str(&reply).map_err(|e| format!("invalid thread listing reply: {e}"))
 }
@@ -242,9 +242,9 @@ pub async fn list_threads(
 /// Stop hosted threads without deleting their history.
 pub async fn stop_threads(
     info: &ServerInfo,
-    filter: Option<nuo_protocol::ThreadFilter>,
+    filter: Option<protocol::ThreadFilter>,
     ids: Vec<String>,
-) -> Result<nuo_protocol::ThreadRemovalReport, String> {
+) -> Result<protocol::ThreadRemovalReport, String> {
     let reply = control_with_reply_with_timeout(
         info,
         ControlRequest::StopThreads { filter, ids },
@@ -257,9 +257,9 @@ pub async fn stop_threads(
 /// Permanently delete durable thread history in the selected scope.
 pub async fn purge_threads(
     info: &ServerInfo,
-    filter: Option<nuo_protocol::ThreadFilter>,
+    filter: Option<protocol::ThreadFilter>,
     ids: Vec<String>,
-) -> Result<nuo_protocol::ThreadRemovalReport, String> {
+) -> Result<protocol::ThreadRemovalReport, String> {
     let reply = control_with_reply_with_timeout(
         info,
         ControlRequest::PurgeThreads { filter, ids },
@@ -274,7 +274,7 @@ pub async fn stop(info: &ServerInfo) -> Result<(), String> {
         .grace_secs
         .map(Duration::from_secs)
         .unwrap_or(FALLBACK_GRACE);
-    let target_identity = nuo_host::process::process_identity(info.pid).ok();
+    let target_identity = host::process::process_identity(info.pid).ok();
     if let (Some(expected), Some(actual)) = (
         info.process_birth_token,
         target_identity.map(|identity| identity.birth_token),
@@ -300,11 +300,11 @@ pub async fn stop(info: &ServerInfo) -> Result<(), String> {
 
     if !stopped {
         if let Some(identity) = target_identity {
-            if nuo_host::process::request_termination(identity).is_ok() {
+            if host::process::request_termination(identity).is_ok() {
                 stopped = wait_for_process_exit(identity, grace).await;
             }
-            if !stopped && nuo_host::process::process_is_alive(identity) {
-                let _ = nuo_host::process::force_terminate(identity);
+            if !stopped && host::process::process_is_alive(identity) {
+                let _ = host::process::force_terminate(identity);
                 stopped = wait_for_process_exit(identity, Duration::from_millis(1000)).await;
             }
         } else {
@@ -313,11 +313,10 @@ pub async fn stop(info: &ServerInfo) -> Result<(), String> {
     }
 
     let gone = stopped
-        || target_identity.is_none_or(|identity| !nuo_host::process::process_is_alive(identity));
+        || target_identity.is_none_or(|identity| !host::process::process_is_alive(identity));
 
     if gone
-        && let Ok(_cleanup_lock) =
-            nuo_host::lock::ProcessLock::acquire(&discovery::global_lock_path())
+        && let Ok(_cleanup_lock) = host::lock::ProcessLock::acquire(&discovery::global_lock_path())
     {
         discovery::remove_if_matching_process(
             &discovery::global_discovery_path(),
@@ -337,7 +336,7 @@ pub async fn stop_server(info: &ServerInfo) -> Result<(), String> {
 }
 
 pub fn startup_log_path() -> PathBuf {
-    let dirs = nuo_host::paths::get();
+    let dirs = host::paths::get();
     dirs.state_dir.join("log").join("server-startup.log")
 }
 
@@ -361,7 +360,7 @@ pub async fn ensure_server_explicit(
     }
 
     let spawn_lock_path = discovery::global_spawn_lock_path();
-    let _spawn_guard = match nuo_host::lock::ProcessLock::acquire(&spawn_lock_path) {
+    let _spawn_guard = match host::lock::ProcessLock::acquire(&spawn_lock_path) {
         Ok(guard) => Some(guard),
         Err(_) => {
             // Another client is spawning. Poll for its discovery record, but
@@ -378,7 +377,7 @@ pub async fn ensure_server_explicit(
                 {
                     return Ok(info);
                 }
-                if let Ok(guard) = nuo_host::lock::ProcessLock::acquire(&spawn_lock_path) {
+                if let Ok(guard) = host::lock::ProcessLock::acquire(&spawn_lock_path) {
                     acquired = Some(guard);
                     break;
                 }
@@ -395,18 +394,16 @@ pub async fn ensure_server_explicit(
     }
 
     let lock_path = discovery::global_lock_path();
-    let db_lock_path = nuo_host::paths::get()
-        .db_file()
-        .with_extension("db.owner.lock");
+    let db_lock_path = host::paths::get().db_file().with_extension("db.owner.lock");
     let mut candidate_pids = std::collections::HashSet::new();
-    if nuo_host::lock::ProcessLock::is_locked(&lock_path)
-        && let Some(holder_pid) = nuo_host::lock::ProcessLock::probe_holder(&lock_path)
+    if host::lock::ProcessLock::is_locked(&lock_path)
+        && let Some(holder_pid) = host::lock::ProcessLock::probe_holder(&lock_path)
         && is_process_alive(holder_pid)
     {
         candidate_pids.insert(holder_pid);
     }
-    if nuo_host::lock::ProcessLock::is_locked(&db_lock_path)
-        && let Some(holder_pid) = nuo_host::lock::ProcessLock::probe_holder(&db_lock_path)
+    if host::lock::ProcessLock::is_locked(&db_lock_path)
+        && let Some(holder_pid) = host::lock::ProcessLock::probe_holder(&db_lock_path)
         && is_process_alive(holder_pid)
     {
         candidate_pids.insert(holder_pid);
@@ -416,11 +413,8 @@ pub async fn ensure_server_explicit(
             holder_pid,
             "ensure_server: replacing conflicting server holding instance or database lock"
         );
-        let _ = nuo_host::process::takeover_pid(
-            holder_pid,
-            nuo_host::process::TakeoverOptions::default(),
-        )
-        .await;
+        let _ = host::process::takeover_pid(holder_pid, host::process::TakeoverOptions::default())
+            .await;
     }
 
     let mut child = spawn_server(explicit_port)?;
@@ -459,7 +453,7 @@ fn spawn_server(explicit_port: Option<u16>) -> Result<tokio::process::Child, Str
         command.arg("--port").arg(port.to_string());
     }
 
-    nuo_host::process::configure_server(&mut command);
+    host::process::configure_server(&mut command);
 
     let log_path = startup_log_path();
     if let Some(parent) = log_path.parent() {
@@ -509,7 +503,7 @@ pub fn server_image_is_current(info: &ServerInfo) -> bool {
         return true;
     }
     if let Some(published) = info.image_digest.as_deref() {
-        let Some((len, digest)) = nuo_host::process::image_digest_len(&expected) else {
+        let Some((len, digest)) = host::process::image_digest_len(&expected) else {
             return true;
         };
         let len_matches = info
@@ -517,25 +511,25 @@ pub fn server_image_is_current(info: &ServerInfo) -> bool {
             .is_none_or(|expected_len| expected_len == len);
         return len_matches && digest.eq_ignore_ascii_case(published);
     }
-    nuo_host::process::process_image_matches_path(info.pid, &expected)
+    host::process::process_image_matches_path(info.pid, &expected)
 }
 
 /// Check whether the discovered server is compatible with this client.
 ///
 /// The image verdict is computed here (the side that owns process/filesystem
-/// access) and handed to `nuo-protocol`, which only combines it with the
+/// access) and handed to `protocol`, which only combines it with the
 /// protocol and product-version signals.
 pub fn versions_compatible(info: &ServerInfo) -> bool {
-    nuo_protocol::version::versions_compatible(info, server_image_is_current(info))
+    protocol::version::versions_compatible(info, server_image_is_current(info))
 }
 
 /// The actionable error for a discovered-but-incompatible server.
 pub fn incompatibility_error(info: &ServerInfo) -> String {
-    nuo_protocol::version::incompatibility_error(info, server_image_is_current(info))
+    protocol::version::incompatibility_error(info, server_image_is_current(info))
 }
 
 pub fn configure_server_detachment(command: &mut std::process::Command) {
-    nuo_host::process::configure_server_std(command);
+    host::process::configure_server_std(command);
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -549,7 +543,7 @@ pub struct ServerDiagnostics {
     pub lock_held: bool,
     pub lock_holder_pid: Option<u32>,
     pub lock_holder_alive: bool,
-    pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
+    pub local_endpoint: Option<host::ipc::LocalEndpoint>,
     pub local_endpoint_exists: bool,
     pub local_endpoint_connectable: bool,
     pub tcp_port: u16,
@@ -560,7 +554,7 @@ pub struct ServerDiagnostics {
     pub installed_image_digest: Option<String>,
     pub server_image_digest: Option<String>,
     pub server_image_current: bool,
-    pub recent_events: Vec<nuo_host::diagnostics::DiagnosticEvent>,
+    pub recent_events: Vec<host::diagnostics::DiagnosticEvent>,
 }
 
 pub async fn diagnose_server() -> ServerDiagnostics {
@@ -570,8 +564,8 @@ pub async fn diagnose_server() -> ServerDiagnostics {
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
     let lock_path = discovery::global_lock_path();
-    let lock_held = nuo_host::lock::ProcessLock::is_locked(&lock_path);
-    let lock_holder_pid = nuo_host::lock::ProcessLock::probe_holder(&lock_path);
+    let lock_held = host::lock::ProcessLock::is_locked(&lock_path);
+    let lock_holder_pid = host::lock::ProcessLock::probe_holder(&lock_path);
     let lock_holder_alive = lock_holder_pid.map(is_process_alive).unwrap_or(false);
 
     let local_endpoint = raw_record
@@ -580,7 +574,7 @@ pub async fn diagnose_server() -> ServerDiagnostics {
         .or_else(|| discovery::default_local_endpoint().ok());
     let local_probe = local_endpoint
         .as_ref()
-        .map(nuo_host::ipc::probe)
+        .map(host::ipc::probe)
         .unwrap_or_default();
 
     let default_port = env_default_port();
@@ -604,7 +598,7 @@ pub async fn diagnose_server() -> ServerDiagnostics {
     let installed_image = installed_image.is_file().then_some(installed_image);
     let installed_image_digest = installed_image
         .as_ref()
-        .and_then(|p| nuo_host::process::image_digest_len(p).map(|(_, d)| d));
+        .and_then(|p| host::process::image_digest_len(p).map(|(_, d)| d));
     let discovery_record = discovery_record.or(raw_record);
     let server_image_digest = discovery_record
         .as_ref()
@@ -636,6 +630,6 @@ pub async fn diagnose_server() -> ServerDiagnostics {
         installed_image_digest,
         server_image_digest,
         server_image_current,
-        recent_events: nuo_host::diagnostics::recent_events(8),
+        recent_events: host::diagnostics::recent_events(8),
     }
 }

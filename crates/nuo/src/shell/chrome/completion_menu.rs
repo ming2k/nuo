@@ -4,9 +4,9 @@ use nuotc::{Clear, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;
-use nuo_ui_primitives::design::INPUT_PROMPT_GLYPH;
-use nuo_ui_primitives::primitives::{ElevationContainer, contrast_fg, viewport_rect};
-use nuo_view::model::layout::LayoutMap;
+use ui_primitives::design::INPUT_PROMPT_GLYPH;
+use ui_primitives::primitives::{ElevationContainer, contrast_fg, viewport_rect};
+use view::model::layout::LayoutMap;
 
 /// Draw a completion menu anchored relative to the trigger target rect.
 pub fn draw_completion_menu(
@@ -262,7 +262,7 @@ pub fn draw_completion_menu(
             insp_lines.push(Line::from(header_spans));
 
             if !doc.summary.is_empty() {
-                for wl in nuo_view::text_layout::wrap_text(&doc.summary, max_text_w) {
+                for wl in view::text_layout::wrap_text(&doc.summary, max_text_w) {
                     insp_lines.push(Line::from(vec![
                         Span::styled(" ", span_bg),
                         Span::styled(
@@ -275,7 +275,7 @@ pub fn draw_completion_menu(
 
             if !doc.usage.is_empty() {
                 let usage_str = format!("Usage: {}", doc.usage.join("  |  "));
-                for wl in nuo_view::text_layout::wrap_text(&usage_str, max_text_w) {
+                for wl in view::text_layout::wrap_text(&usage_str, max_text_w) {
                     let fg_style = if doc_has_frame {
                         span_bg.fg(theme.fg())
                     } else {
@@ -290,7 +290,7 @@ pub fn draw_completion_menu(
 
             for (sub_name, sub_summary) in &doc.subcommands {
                 let sub_str = format!("  {sub_name} — {sub_summary}");
-                for wl in nuo_view::text_layout::wrap_text(&sub_str, max_text_w) {
+                for wl in view::text_layout::wrap_text(&sub_str, max_text_w) {
                     insp_lines.push(Line::from(vec![
                         Span::styled(" ", span_bg),
                         Span::styled(wl.text.to_string(), span_bg.fg(theme.muted())),

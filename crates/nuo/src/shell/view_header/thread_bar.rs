@@ -13,7 +13,7 @@ use super::*;
 /// Each token is chosen to be self-describing — `auto` and `open` name the
 /// state they assert — so no tooltip layer is needed. The authoritative
 /// long-form wording (usage, subcommands, examples) lives in the slash-command
-/// catalog (`BuiltinCmd::SPECS` in `nuo-server`), which is where
+/// catalog (`BuiltinCmd::SPECS` in `server`), which is where
 /// `/unattended on|off` and `/confinement on|off` explain themselves. Adding a
 /// second explanation surface here would fork that text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -257,10 +257,10 @@ pub(super) fn truncate_to_width(s: &str, max_width: usize) -> String {
 /// The mechanics are the substrate's (ADR-0152 `[INV-TEXT-OVERFLOW-01]`): this
 /// alias exists only to thread the caller's marker through.
 pub(super) fn truncate_with(s: &str, max_width: usize, ellipsis: &str) -> String {
-    nuo_ui_primitives::components::overflow::fit_with(
+    ui_primitives::components::overflow::fit_with(
         s,
         max_width,
-        nuo_ui_primitives::components::overflow::Overflow::End,
+        ui_primitives::components::overflow::Overflow::End,
         ellipsis,
     )
     .text

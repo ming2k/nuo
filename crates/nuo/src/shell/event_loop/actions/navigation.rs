@@ -3,8 +3,8 @@ use super::host;
 use crate::shell::App;
 use crate::shell::event_loop::runtime::UiRuntime;
 use crate::shell::event_loop::sync::show_local_toast;
-use nuo_protocol::AgentRequest;
-use nuo_view::model::selection::SelectionState;
+use protocol::AgentRequest;
+use view::model::selection::SelectionState;
 
 pub(crate) fn enter_panel(
     app: &mut App,
@@ -226,7 +226,7 @@ pub(crate) fn enter_scene(
         }
         // The log scene reads state the transcript already holds; entering it
         // asks the backend for nothing.
-        SceneKind::CommandLog | SceneKind::Thread | SceneKind::Subagent => None,
+        SceneKind::CommandLog | SceneKind::Diff | SceneKind::Thread | SceneKind::Subagent => None,
     };
     if let Some(request) = request
         && !app.send_intent(request)

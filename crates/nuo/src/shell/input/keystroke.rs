@@ -6,8 +6,8 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 #[cfg(test)]
-use nuo_ui_primitives::chord::{Key as ChordKey, KeyCode as ChordCode, KeyModifiers as ChordMods};
-use nuo_ui_primitives::key::{Key, KeyStroke};
+use ui_primitives::chord::{Key as ChordKey, KeyCode as ChordCode, KeyModifiers as ChordMods};
+use ui_primitives::key::{Key, KeyStroke};
 
 /// Fold a driver key event into the pure [`Key`].
 pub(crate) fn key_from_event(event: KeyEvent) -> Key {

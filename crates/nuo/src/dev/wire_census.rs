@@ -27,30 +27,30 @@ enum SurfaceKind {
 /// over `AgentResponse` only names the referenced type, so a field change in
 /// the nested struct would otherwise be invisible.
 const CENSUS_TYPES: &[(&str, &str, SurfaceKind)] = &[
-    ("Wire", "crates/nuo-protocol/src/lib.rs", SurfaceKind::Enum),
+    ("Wire", "crates/protocol/src/lib.rs", SurfaceKind::Enum),
     (
         "AgentRequest",
-        "crates/nuo-protocol/src/events/request.rs",
+        "crates/protocol/src/events/request.rs",
         SurfaceKind::Enum,
     ),
     (
         "AgentResponse",
-        "crates/nuo-protocol/src/events/response.rs",
+        "crates/protocol/src/events/response.rs",
         SurfaceKind::Enum,
     ),
     (
         "RoundEvent",
-        "crates/nuo-protocol/src/events/round.rs",
+        "crates/protocol/src/events/round.rs",
         SurfaceKind::Enum,
     ),
     (
         "RoundScope",
-        "crates/nuo-protocol/src/events/round.rs",
+        "crates/protocol/src/events/round.rs",
         SurfaceKind::Enum,
     ),
     (
         "TurnContext",
-        "crates/nuo-protocol/src/events/round.rs",
+        "crates/protocol/src/events/round.rs",
         SurfaceKind::Struct,
     ),
 ];
@@ -565,7 +565,7 @@ pub fn compute_census(root: &Path) -> Result<Census, String> {
         types.insert(type_name.to_string(), TypeCensus { members, shape });
     }
     Ok(Census {
-        protocol: nuo_protocol::PROTOCOL_VERSION,
+        protocol: protocol::PROTOCOL_VERSION,
         types,
     })
 }
@@ -599,7 +599,7 @@ pub fn check_wire_census(root: &Path) -> Result<(), String> {
         return Err(format!(
             "wire surface changed without a protocol bump (both at protocol {}):\n{}\
              \nA peer still speaking protocol {} cannot decode these frames.\n\
-             Bump `PROTOCOL_VERSION` in crates/nuo-protocol/src/lib.rs, then renew the census in the same commit.",
+             Bump `PROTOCOL_VERSION` in crates/protocol/src/lib.rs, then renew the census in the same commit.",
             current.protocol,
             describe_changes(&recorded, &current),
             current.protocol,
@@ -752,7 +752,7 @@ pub enum Wire {
         let blessed = bless_census(&root).unwrap();
         let text = std::fs::read_to_string(&blessed).unwrap();
         assert!(
-            text.contains(&format!("protocol {}", nuo_protocol::PROTOCOL_VERSION)),
+            text.contains(&format!("protocol {}", protocol::PROTOCOL_VERSION)),
             "{text}"
         );
 
@@ -814,7 +814,7 @@ pub enum Wire {
         );
         bless_census(&root).unwrap();
 
-        let path = root.join("crates/nuo-protocol/src/events/round.rs");
+        let path = root.join("crates/protocol/src/events/round.rs");
         let source = std::fs::read_to_string(&path).unwrap();
         std::fs::write(&path, source.replace("pub turn: u64", "pub turn: u32")).unwrap();
         let err = check_wire_census(&root).unwrap_err();
@@ -835,7 +835,7 @@ pub enum Wire {
              pub enum RoundEvent {\n    Text,\n}\n",
         );
         let blessed = bless_census(&root).unwrap();
-        let current = nuo_protocol::PROTOCOL_VERSION;
+        let current = protocol::PROTOCOL_VERSION;
         let previous = current - 1;
         let text = std::fs::read_to_string(&blessed).unwrap().replace(
             &format!("protocol {current}"),
@@ -861,7 +861,7 @@ pub enum Wire {
              pub enum RoundEvent {\n    StreamDiscard,\n}\n",
         );
         let blessed = bless_census(&root).unwrap();
-        let current = nuo_protocol::PROTOCOL_VERSION;
+        let current = protocol::PROTOCOL_VERSION;
         let previous = current - 1;
         let text = std::fs::read_to_string(&blessed).unwrap().replace(
             &format!("protocol {current}"),
@@ -883,14 +883,14 @@ pub enum Wire {
         let root =
             std::env::temp_dir().join(format!("nuo-wire-census-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("crates/nuo-protocol/src")).unwrap();
+        std::fs::create_dir_all(root.join("crates/protocol/src")).unwrap();
         std::fs::create_dir_all(root.join("crates/nuo/src/dev")).unwrap();
         root
     }
 
     fn write_enum(root: &Path, name: &str, body: &str) {
         assert_eq!(name, "Wire");
-        std::fs::write(root.join("crates/nuo-protocol/src/lib.rs"), body).unwrap();
+        std::fs::write(root.join("crates/protocol/src/lib.rs"), body).unwrap();
     }
 
     fn write_events(root: &Path, body: &str) {
@@ -905,7 +905,7 @@ pub enum Wire {
                 "\npub enum RoundScope {\n    Turn { context: TurnContext, event: RoundEvent },\n    Session { event: RoundEvent },\n}\n",
             );
         }
-        let events_dir = root.join("crates/nuo-protocol/src/events");
+        let events_dir = root.join("crates/protocol/src/events");
         std::fs::create_dir_all(&events_dir).unwrap();
         for file in ["request.rs", "response.rs", "round.rs"] {
             std::fs::write(events_dir.join(file), &source).unwrap();

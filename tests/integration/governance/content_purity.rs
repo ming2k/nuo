@@ -5,8 +5,8 @@
 //! the failure mode a per-function test cannot catch. The behavioural halves of
 //! the invariants live where they can be tested directly:
 //!
-//! - `[INV-LAYER-04]` / `[INV-TRANSCRIPT-01]`: `nuo_view::model::layer` and
-//!   `nuo_view::model::thread` unit tests prove the routing and admission gates
+//! - `[INV-LAYER-04]` / `[INV-TRANSCRIPT-01]`: `view::model::layer` and
+//!   `view::model::thread` unit tests prove the routing and admission gates
 //!   (`ContentLayer` has no transcript arm; `ThreadDoc::admit` refuses
 //!   operation/telemetry/ephemera).
 //! - `[INV-DIALOG-01]`: this file.
@@ -49,7 +49,7 @@ fn rust_files(dir: &Path) -> Vec<PathBuf> {
 fn no_content_payload_carries_a_presentation_layer() {
     let root = workspace_root();
     let mut offenders = Vec::new();
-    for dir in ["crates", "providers", "tools"] {
+    for dir in ["crates"] {
         for file in rust_files(&root.join(dir)) {
             // Prose that names the retired concept is *negative knowledge* and
             // must survive; only live code may not.
@@ -122,7 +122,7 @@ fn dialog_surfaces_hold_no_thread_capability() {
 #[test]
 fn round_event_classification_has_no_wildcard_arm() {
     let root = workspace_root();
-    let events = read(&root.join("crates/nuo-protocol/src/events/round.rs"));
+    let events = read(&root.join("crates/protocol/src/events/round.rs"));
     let start = events
         .find("pub fn class(&self) -> EventClass {")
         .expect("RoundEvent::class must exist");
@@ -137,7 +137,7 @@ fn round_event_classification_has_no_wildcard_arm() {
     // And the class must actually be consulted by the admission path.
     let edits = read(&root.join("crates/nuo/src/shell/event_loop/mutations.rs"));
     assert!(
-        edits.contains("class: nuo_protocol::EventClass"),
+        edits.contains("class: protocol::EventClass"),
         "TranscriptEdit::Append must carry the event class (ADR-0117)"
     );
     let apply = read(&root.join("crates/nuo/src/shell/event_loop/apply.rs"));
@@ -157,7 +157,7 @@ fn round_event_classification_has_no_wildcard_arm() {
 #[test]
 fn command_ledger_has_exactly_one_writer() {
     let root = workspace_root();
-    let server = root.join("crates/nuo-server/src");
+    let server = root.join("crates/server/src");
     let mut writers = Vec::new();
     for file in rust_files(&server) {
         let text = read(&file);
@@ -201,7 +201,7 @@ fn command_ledger_has_exactly_one_writer() {
 #[test]
 fn command_effects_are_declared_not_inferred() {
     let root = workspace_root();
-    let startup = read(&root.join("crates/nuo-server/src/composition/startup.rs"));
+    let startup = read(&root.join("crates/server/src/composition/startup.rs"));
 
     // Every entry states both effects.
     let entries = startup.matches("effect: { bare:").count();
@@ -218,7 +218,7 @@ fn command_effects_are_declared_not_inferred() {
 
     // The resolver is one function over the vocabulary, not a per-command match.
     let resolver = startup
-        .find("pub fn effect_for(parts: &[&str]) -> nuo_tool::CommandEffect {")
+        .find("pub fn effect_for(parts: &[&str]) -> tool::CommandEffect {")
         .expect("startup::effect_for must exist as the single resolver");
     let body = &startup[resolver..];
     let end = body.find("\n}\n").expect("effect_for body must close");
@@ -232,7 +232,7 @@ fn command_effects_are_declared_not_inferred() {
     );
 
     // A reply that reached the client always carries the class.
-    let events = read(&root.join("crates/nuo-protocol/src/events/round.rs"));
+    let events = read(&root.join("crates/protocol/src/events/round.rs"));
     let variant = events
         .find("    CommandResult {")
         .expect("RoundEvent::CommandResult must exist");
@@ -240,7 +240,7 @@ fn command_effects_are_declared_not_inferred() {
     let close = tail.find("\n    },").expect("variant must close");
     assert!(
         (tail[..close].contains("effect: crate::CommandEffect")
-            || tail[..close].contains("effect: nuo_tool::CommandEffect")
+            || tail[..close].contains("effect: tool::CommandEffect")
             || tail[..close].contains("effect: CommandEffect")),
         "RoundEvent::CommandResult must carry the declared effect (ADR-0140 [INV-CMD-08])"
     );

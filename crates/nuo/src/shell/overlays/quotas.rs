@@ -4,24 +4,24 @@
 //! - L1: Compact summary `name provider [92%/5h 99%/week]`
 //! - L2: Expanded detail with progress bars (Enter to toggle)
 
-use nuo_protocol::{
+use nuotc::{Color, Frame, Line, Modifier, Span, Style};
+use protocol::{
     ConnectionQuotaEntry, ConnectionUsageState, ProviderQuotaData, ProviderQuotaSnapshot,
     QuotaWindowKind,
 };
-use nuotc::{Color, Frame, Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::common::placeholder;
 use crate::shell::render::Theme;
-use nuo_ui_primitives::components::options::{ChoiceTone, choice_style};
-use nuo_ui_primitives::design::MODAL_INNER_H_PADDING;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::components::options::{ChoiceTone, choice_style};
+use ui_primitives::design::MODAL_INNER_H_PADDING;
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, HeaderPart, content_modal_area, content_modal_probe, keyvocab,
     modal_chrome_rows, modal_frame, modal_header_parts, render_modal_footer,
 };
-use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
-use nuo_view::model::layout::LayoutMap;
-use nuo_view::model::selection::SelectionState;
+use view::components::selectable_body::{SelectableRow, render_selectable_body};
+use view::model::layout::LayoutMap;
+use view::model::selection::SelectionState;
 
 /// Draw the provider quota dashboard with two-tier UI.
 /// L1: Compact summary rows. L2: Expanded detail with progress bars.
@@ -58,7 +58,7 @@ pub fn draw_quotas_modal(
         )
     } else if let Some(snap) = snapshot {
         let header = if let Some(ref filter) = snap.provider_filter {
-            nuo_ui_primitives::primitives::breadcrumb_parts("Quotas", filter).to_vec()
+            ui_primitives::primitives::breadcrumb_parts("Quotas", filter).to_vec()
         } else {
             vec![HeaderPart::title("Quotas")]
         };
@@ -329,7 +329,7 @@ fn quota_bar(used_fraction: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::{
+    use protocol::{
         ConnectionQuotaEntry, ConnectionUsageState, PeriodicQuota, ProviderQuotaData,
         QuotaWindowBucket,
     };
@@ -358,7 +358,7 @@ mod tests {
             primary_balance: Some("85%".into()),
             quota: None,
             plan: None,
-            state: ConnectionUsageState::Available(Box::new(nuo_protocol::ProviderUsage {
+            state: ConnectionUsageState::Available(Box::new(protocol::ProviderUsage {
                 primary_balance: Some("85%".into()),
                 ..Default::default()
             })),

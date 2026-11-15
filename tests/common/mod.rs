@@ -1,7 +1,7 @@
 //! Shared fixtures for the root integration and E2E entries.
 //!
 //! This module is compiled into both entry binaries. Keep it dependency-light:
-//! process-wide sandboxes and path resolution belong in `nuo-test-support`;
+//! process-wide sandboxes and path resolution belong in `test-support`;
 //! this file is for repository-shape helpers that tests share across crates.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -18,11 +18,6 @@ pub fn workspace_root() -> PathBuf {
 /// A crate directory under `crates/`.
 pub fn crate_dir(name: &str) -> PathBuf {
     workspace_root().join("crates").join(name)
-}
-
-/// A crate directory under `providers/` or `tools/`.
-pub fn tier_crate_dir(tier: &str, name: &str) -> PathBuf {
-    workspace_root().join(tier).join(name)
 }
 
 /// Read a repository-relative text file.

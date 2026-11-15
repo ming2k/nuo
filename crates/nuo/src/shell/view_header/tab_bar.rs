@@ -122,7 +122,7 @@ pub(crate) fn draw_tab_bar(
     let notice_badge_text =
         (tab_bar.unread_faults > 0).then(|| format!("!{}", tab_bar.unread_faults));
     let notice_badge_w = notice_badge_text.as_ref().map_or(0, |t| t.width() + 2 + 1); // "[!N]" + " "
-    let help_affordance = nuo_ui_primitives::components::keycap::KeyAffordance::tabbar_help("help");
+    let help_affordance = ui_primitives::components::keycap::KeyAffordance::tabbar_help("help");
     let help_w = help_affordance.width();
     let right_width = notice_badge_w + help_w;
 

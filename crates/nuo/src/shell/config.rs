@@ -10,11 +10,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use nuo_ui_primitives::{ColorSchemeConfig, ThemeFile};
+use ui_primitives::{ColorSchemeConfig, ThemeFile};
 
-use nuo_view::disclosure_config::{DisclosureSource, reasoning_expanded, tool_expanded};
+use view::disclosure_config::{DisclosureSource, reasoning_expanded, tool_expanded};
 
-pub use nuo_view::disclosure_config::THINKING_KEY;
+pub use view::disclosure_config::THINKING_KEY;
 
 fn default_true() -> bool {
     true
@@ -109,7 +109,7 @@ impl TuiConfig {
     }
     /// Load configuration from `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
     pub fn load() -> Self {
-        Self::read_from(&nuo_host::paths::get().terminal_config_file()).unwrap_or_default()
+        Self::read_from(&host::paths::get().terminal_config_file()).unwrap_or_default()
     }
 
     fn read_from(path: &Path) -> Option<Self> {
@@ -119,12 +119,12 @@ impl TuiConfig {
 
     /// Save the configuration to `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = nuo_host::paths::get().terminal_config_file();
+        let path = host::paths::get().terminal_config_file();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let serialized = toml::to_string_pretty(self)?;
-        nuo_host::fsutil::atomic_write_bytes(&path, serialized.as_bytes())?;
+        host::fsutil::atomic_write_bytes(&path, serialized.as_bytes())?;
         Ok(())
     }
 }
@@ -156,7 +156,7 @@ pub fn reasoning_default_expanded(config: &TuiConfig) -> bool {
 /// honour the choice (ADR-0020).
 pub fn set_component_default_expanded(
     config: &mut TuiConfig,
-    component: &nuo_view::tools::ToolComponent,
+    component: &view::tools::ToolComponent,
     expanded: bool,
 ) {
     for name in component.names() {
@@ -193,7 +193,7 @@ pub fn candidate_theme_dirs(workspace: Option<&Path>) -> Vec<PathBuf> {
     }
 
     // 2. The unified user theme directory: `$XDG_CONFIG_HOME/nuo/themes`.
-    let nuo_themes = nuo_host::paths::get().themes_dir();
+    let nuo_themes = host::paths::get().themes_dir();
     if !dirs.contains(&nuo_themes) {
         dirs.push(nuo_themes);
     }
@@ -267,26 +267,23 @@ pub fn load_all_theme_files(workspace: Option<&Path>) -> Vec<ThemeFile> {
 /// them purely via `Theme::available_color_schemes_from`.
 pub fn available_color_schemes(
     workspace: Option<&Path>,
-) -> Vec<nuo_ui_primitives::theme::ColorSchemePreset> {
-    nuo_ui_primitives::theme::Theme::available_color_schemes_from(&load_all_theme_files(workspace))
+) -> Vec<ui_primitives::theme::ColorSchemePreset> {
+    ui_primitives::theme::Theme::available_color_schemes_from(&load_all_theme_files(workspace))
 }
 
 /// Canonicalize a persisted scheme id against the workspace's theme files.
 pub fn normalize_color_scheme(name: &str, workspace: Option<&Path>) -> String {
-    nuo_ui_primitives::theme::Theme::normalize_color_scheme_from(
-        name,
-        &load_all_theme_files(workspace),
-    )
+    ui_primitives::theme::Theme::normalize_color_scheme_from(name, &load_all_theme_files(workspace))
 }
 
 /// Index of a scheme id within the workspace's available schemes.
 pub fn color_scheme_index(name: &str, workspace: Option<&Path>) -> usize {
-    nuo_ui_primitives::theme::Theme::color_scheme_index_from(name, &load_all_theme_files(workspace))
+    ui_primitives::theme::Theme::color_scheme_index_from(name, &load_all_theme_files(workspace))
 }
 
 /// Human label for a scheme id within the workspace's available schemes.
 pub fn color_scheme_label(name: &str, workspace: Option<&Path>) -> String {
-    nuo_ui_primitives::theme::Theme::color_scheme_label_from(name, &load_all_theme_files(workspace))
+    ui_primitives::theme::Theme::color_scheme_label_from(name, &load_all_theme_files(workspace))
 }
 
 /// Build a renderer theme for a scheme id with workspace theme files.
@@ -294,8 +291,8 @@ pub fn theme_from_color_scheme(
     name: &str,
     custom: &ColorSchemeConfig,
     workspace: Option<&Path>,
-) -> nuo_ui_primitives::theme::Theme {
-    nuo_ui_primitives::theme::Theme::from_color_scheme_from(
+) -> ui_primitives::theme::Theme {
+    ui_primitives::theme::Theme::from_color_scheme_from(
         name,
         custom,
         &load_all_theme_files(workspace),
@@ -308,8 +305,8 @@ pub fn resolve_theme_with_profile(
     custom: &ColorSchemeConfig,
     workspace: Option<&Path>,
     profile: &nuotc::TerminalProfile,
-) -> nuo_ui_primitives::theme::Theme {
-    nuo_ui_primitives::theme::Theme::resolve_with_profile(
+) -> ui_primitives::theme::Theme {
+    ui_primitives::theme::Theme::resolve_with_profile(
         name,
         custom,
         &load_all_theme_files(workspace),
@@ -590,7 +587,7 @@ error = "#dc322f"
     #[test]
     fn set_component_default_expanded_prunes_when_matching_default() {
         let mut cfg = TuiConfig::default();
-        let comp = nuo_view::tools::component_for("execute_command").expect("command component");
+        let comp = view::tools::component_for("execute_command").expect("command component");
         assert!(!comp.default_expanded());
 
         // Overriding to true inserts into map

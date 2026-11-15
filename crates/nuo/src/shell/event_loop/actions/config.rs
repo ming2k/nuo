@@ -4,11 +4,11 @@ use crate::shell::event_loop::actions::navigation::enter_panel;
 use crate::shell::event_loop::runtime::UiRuntime;
 use crate::shell::event_loop::sync::show_local_toast;
 use crate::shell::surfaces::{SceneKind, SheetKind};
-use nuo_protocol::AgentRequest;
+use protocol::AgentRequest;
 
 pub(crate) fn select_connection_preset(
     app: &mut App,
-    forced_method: Option<nuo_protocol::LoginMethod>,
+    forced_method: Option<protocol::LoginMethod>,
 ) {
     if !app
         .surfaces
@@ -48,10 +48,10 @@ pub(crate) fn select_connection_preset(
         show_local_toast(
             app,
             match method {
-                nuo_protocol::LoginMethod::Browser => {
+                protocol::LoginMethod::Browser => {
                     "Browser PKCE login is not supported by this connection."
                 }
-                nuo_protocol::LoginMethod::Device => {
+                protocol::LoginMethod::Device => {
                     "Device login is not supported by this connection."
                 }
             },
@@ -216,12 +216,12 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                 match app.surfaces.config_detail_index {
                     0 => {
                         let anchor = if let Some(target_rect) = app.surfaces.config_selected_rect {
-                            nuo_ui_primitives::components::dropdown::DropdownAnchor::anchored(
+                            ui_primitives::components::dropdown::DropdownAnchor::anchored(
                                 target_rect,
-                                nuo_ui_primitives::components::dropdown::DropdownPlacement::Auto,
+                                ui_primitives::components::dropdown::DropdownPlacement::Auto,
                             )
                         } else {
-                            nuo_ui_primitives::components::dropdown::DropdownAnchor::center_screen()
+                            ui_primitives::components::dropdown::DropdownAnchor::center_screen()
                         };
                         if is_search {
                             let current = app
@@ -264,7 +264,7 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                             (current + 5).max(5)
                         };
                         app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                            nuo_protocol::WebSearchConfigUpdate {
+                            protocol::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 timeout_secs: Some(next),
                                 ..Default::default()
@@ -282,13 +282,13 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 capability.id == id
                                     && capability.axis
                                         == if is_search {
-                                            nuo_protocol::WebProviderAxis::Search
+                                            protocol::WebProviderAxis::Search
                                         } else {
-                                            nuo_protocol::WebProviderAxis::Reader
+                                            protocol::WebProviderAxis::Reader
                                         }
                             })?;
                             let endpoint = capability.endpoint
-                                == nuo_protocol::WebEndpointRequirement::UserSupplied;
+                                == protocol::WebEndpointRequirement::UserSupplied;
                             let target = if endpoint {
                                 format!("web_endpoint:{id}")
                             } else {

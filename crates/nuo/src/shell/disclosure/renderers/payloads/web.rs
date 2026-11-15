@@ -3,9 +3,9 @@ use nuotc::{Line, Modifier, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
-use nuo_view::model::layout::LinkHit;
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::{block_selection_range, padded_tail, wrap_text};
+use view::model::layout::LinkHit;
+use view::model::selection::SelectionState;
+use view::text_layout::{block_selection_range, padded_tail, wrap_text};
 
 /// Render an interactive web search result stream with cards, domain pills, and clickable URLs.
 #[allow(clippy::too_many_arguments)]
@@ -15,7 +15,7 @@ pub(crate) fn draw_web_search_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_tool::ToolOutput>,
+    structured: Option<&tool::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -25,7 +25,7 @@ pub(crate) fn draw_web_search_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (query, _provider, hits, truncated) = match structured {
-        Some(nuo_tool::ToolOutput::WebSearch {
+        Some(tool::ToolOutput::WebSearch {
             query,
             provider,
             results,
@@ -172,7 +172,7 @@ pub(crate) fn draw_web_article_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_tool::ToolOutput>,
+    structured: Option<&tool::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -182,7 +182,7 @@ pub(crate) fn draw_web_article_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (url, title, _domain, markdown, reader, tokens, truncated) = match structured {
-        Some(nuo_tool::ToolOutput::WebArticle {
+        Some(tool::ToolOutput::WebArticle {
             url,
             title,
             domain,
@@ -368,7 +368,7 @@ pub(crate) fn draw_web_article_content(
                 let mut spans = vec![
                     Span::styled(" ".repeat(indent), pad),
                     Span::styled(
-                        format!("{} ", nuo_ui_primitives::design::QUOTE_GUTTER_GLYPH),
+                        format!("{} ", ui_primitives::design::QUOTE_GUTTER_GLYPH),
                         quote_bar_style,
                     ),
                     Span::styled(wl.text.clone(), quote_style),
@@ -424,7 +424,7 @@ pub(crate) fn draw_web_article_content(
 pub(crate) fn parse_fallback_web_search(
     output: &str,
     arguments: &str,
-) -> (String, String, Vec<nuo_tool::WebSearchHit>, bool) {
+) -> (String, String, Vec<tool::WebSearchHit>, bool) {
     let query = serde_json::from_str::<serde_json::Value>(arguments)
         .ok()
         .and_then(|v| {
@@ -459,7 +459,7 @@ pub(crate) fn parse_fallback_web_search(
         if is_numbered {
             if let (Some(title), Some(url)) = (current_title.take(), current_url.take()) {
                 let domain = extract_url_host(&url);
-                hits.push(nuo_tool::WebSearchHit {
+                hits.push(tool::WebSearchHit {
                     title,
                     url,
                     domain,
@@ -484,7 +484,7 @@ pub(crate) fn parse_fallback_web_search(
 
     if let (Some(title), Some(url)) = (current_title, current_url) {
         let domain = extract_url_host(&url);
-        hits.push(nuo_tool::WebSearchHit {
+        hits.push(tool::WebSearchHit {
             title,
             url,
             domain,
@@ -516,7 +516,7 @@ pub(crate) fn parse_fallback_web_article(
         cleaned = &cleaned[..idx];
     }
     let trimmed = cleaned.trim();
-    let tokens = nuo_tool::tokenizer::count_tokens(trimmed);
+    let tokens = tool::tokenizer::count_tokens(trimmed);
     let truncated = output.contains("kept the first") || output.contains("truncated to fit");
     (
         url,

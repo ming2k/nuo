@@ -35,22 +35,23 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
          ┌──────────┴──────────┐          ┌──────────┴──────────┐
          ▼                     ▼          ▼                     ▼
 ┌────────────────────────────────┐      ┌────────────────────────────────┐
-│   Model Extensions (providers/)│      │   Tool Extensions (tools/)     │
-│   nuo-provider-anthropic       │      │   nuo-tool-fs                  │
-│   nuo-provider-openai          │      │   nuo-tool-exec                │
-│   ... (16 provider crates)     │      │   nuo-tool-web, nuo-tool-ast   │
+│   Model Extensions (crates/)   │      │   Tool Extensions (crates/)    │
+│   crates/nuo-provider-anthropic│      │   crates/nuo-tool-fs           │
+│   crates/nuo-provider-openai   │      │   crates/nuo-tool-exec         │
+│   ... (20 provider crates)     │      │   nuo-tool-web, nuo-tool-ast   │
 └────────────────────────────────┘      └────────────────────────────────┘
 ```
 
-**Physical layout (`[INV-ARCH-TIER-01]`, ADR-0109)**: All crates uniformly reside within one of three flat tiers:
-- `crates/*`: Layers 1–4, with `crates/nuo` as the sole public application executable.
-- `providers/nuo-provider-*`: Layer-3 model provider adapters. The only sanctioned vendor edges are the `nuo-provider-catalog` dispatcher and the `codebuddy-auth` shared base (ADR-0183).
-- `tools/nuo-tool-*`: Layer-3 tool plugins (leaves).
+**Physical layout (`[INV-ARCH-TIER-01]`)**: All workspace crates uniformly reside under `crates/*`:
+- `crates/nuo`: The sole public application executable.
+- `crates/nuo-*`: Core platform crates (Layers 1–4).
+- `crates/nuo-provider-*`: Layer-3 model provider adapters. The only sanctioned vendor edges are the `nuo-provider-catalog` dispatcher and the `codebuddy-auth` shared base (ADR-0183).
+- `crates/nuo-tool-*`: Layer-3 tool plugins (leaves).
 
 No production crate resides directly at the workspace root. The sole root package is the dev-only `nuo-tests` harness that owns the two external test entries; gated mechanically by the `governance::architecture_firewall` integration suite.
 
 ### Crate Inclusion Threshold
-New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their responsibilities cannot be cleanly modeled as internal modules of existing domain crates and their position in the hierarchy is unambiguously ratified via an ADR.
+New crates are admitted to `crates/*` only if their responsibilities cannot be cleanly modeled as internal modules of existing domain crates and their position in the hierarchy is unambiguously ratified via an ADR.
 
 ---
 
@@ -134,15 +135,14 @@ New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their
 ## 4. Architectural Invariants Constitution
 
 - **`[INV-WS-01]` Self-Contained Workspace**: All workspace crates and substrates must resolve within the local repository without relying on external sibling path dependencies (`../`).
-- **`[INV-ARCH-TIER-01]` Pure Tiered Workspace Topology (ADR-0109)**: All crates uniformly
-  reside within one of three flat tiers: `crates/*` (Layers 1–4, with `crates/nuo` as the sole
-  public application executable), `providers/nuo-provider-*` (Layer-3 providers), and
-  `tools/nuo-tool-*` (Layer-3 tools). Zero crates reside directly at the workspace root, and
-  workspace admission is strictly the wildcard set `["crates/*", "tools/*", "providers/*"]`.
+- **`[INV-ARCH-TIER-01]` Flat `crates/*` Workspace Topology**: All workspace crates uniformly
+  reside under `crates/*` (including `crates/nuo` as the sole public application executable,
+  `crates/nuo-provider-*` adapters, and `crates/nuo-tool-*` tools). Zero crates reside directly at
+  the workspace root, and workspace admission is strictly the wildcard set `["crates/*"]`.
   Gated mechanically by `nuo::dev::firewall` rule R5 via the nextest integration filter `test(governance::architecture_firewall::test_inv_arch_firewall_and_topology)`.
 - **`[INV-HOST-01]` Sandbox & Containment**: All local command execution and file mutations must pass through `nuo-host` sandbox and containment boundaries.
 - **`[INV-TOOL-01]` Decentralized Capability Tools**: Tools are natively owned and implemented by their capability crates (`acp`, `nuo-host`, `nuo-persistence`) using the zero-runtime `nuo-tool` standard, rather than concentrated in a monolithic harness.
-- **`[INV-VER-01]` Federated Cluster SemVer**: The workspace lockstep suite (`crates/*`, `providers/*`, `tools/*`) evolves under unified versioning, while external substrates (`nuotc`) maintain autonomous release cycles.
+- **`[INV-VER-01]` Federated Cluster SemVer**: The workspace lockstep suite (`crates/*`) evolves under unified versioning, while external substrates (`nuotc`) maintain autonomous release cycles.
 - **`[INV-MOD-01]` Zero Domain Leakage**: Terminal graphics substrates (`nuotc`) and the model wire substrate (`nuo-inference-wire`, formerly the model codec, per ADR-0084) must remain completely free of application-level agent concepts. Mechanism: the `Provider` cognitive contract lives in `nuo-provider::capability`, and the wire crate's dependency set (`serde`/`serde_json`/`thiserror`/`uuid`) structurally forbids I/O, a transport, or an async trait — `tokio` and `async-trait` were removed with the code that needed them (ADR-0143). `[INV-AP-01]`/`[INV-AP-02]` refine this for the split crate; `[INV-AP-03]` forbids re-growing an unwired second implementation.
 - **`[INV-MOD-02]` Ghost-Free CJK Cells**: Wide-character trailing cells are populated by the writer with matching background attributes; diff never emits unowned padding spaces.
 - **`[INV-MOD-03]` Authoritative Retained Grid**: The retained `Grid` is the single source of truth for desired visual state; dirty line tracking eliminates redundant full-frame rasterization.
@@ -150,10 +150,10 @@ New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their
 - **`[INV-AUTH-02]` Secret Storage Firewall (ADR-0014, ADR-0032)**: OAuth token sets live only in `auth.toml` (`$XDG_STATE_HOME/nuo/auth.toml`, 0600), API keys only in `credentials.toml` (`$XDG_STATE_HOME/nuo/credentials.toml`, 0600); raw secrets never enter `$XDG_CONFIG_HOME/nuo`, `connections.toml`, or any versionable file.
 - **`[INV-LANE-03]` Server-Enforced Entitlement (ADR-0014)**: On the subscription server-proxy lane, plan gate, model availability, credits and provider routing are resolved only by the control plane (`api.commandcode.ai/alpha/generate`); client-side `Availability` filter is a projection of the resolved answer, never authority over it — live-probed with a GOAT key where `claude-sonnet-4-6`/`gpt-5.4`/`muse-spark-1.1` return `403 MODEL_NOT_IN_PLAN` but `claude-sonnet-5-5` routes through a gateway, upstream-provider mismatch (`openai/gpt-5.6-sol → openai`, `moonshotai/Kimi-K2.5 → bedrock`, `deepseek-v4-flash → deepseek-v4.1-flash@novita`).
 - **`[INV-LANE-04]` Routing Provenance Record (ADR-0014)**: The client persists `providerMetadata.<resolved>.routing.planningReasoning` verbatim from the `finish-step` envelope into session telemetry; a local-direct lane with no proxy provenance takes `None`, never a fabricated sentence.
-- **`[INV-PROV-06]` Single Definition (ADR-0027)**: Each model provider id has exactly one authoritative `ModelProviderSpec`, in its `providers/nuo-provider-*` crate. A second definition of the same id is a defect, not a staging state.
+- **`[INV-PROV-06]` Single Definition (ADR-0027)**: Each model provider id has exactly one authoritative `ModelProviderSpec`, in its `crates/nuo-provider-*` crate. A second definition of the same id is a defect, not a staging state.
 - **`[INV-PROV-07]` No Orphan Contract (ADR-0027)**: Every public item in `nuo-provider` has at least one non-test consumer in the shipped build; a contract with zero production consumers must be wired or deleted in the same change that introduces it.
 - **`[INV-PROV-08]` No String-Sniffing Dispatch (ADR-0027)**: Capability dispatch keys off typed declarations; no code path selects behaviour by matching a provider id or base-URL substring.
-- **`[INV-PROV-09]` Providers Are Linked (ADR-0027)**: The shipped build links every crate that claims to be a provider; an unlinked `providers/nuo-provider-*` crate is dead code.
+- **`[INV-PROV-09]` Providers Are Linked (ADR-0027)**: The shipped build links every crate that claims to be a provider; an unlinked `crates/nuo-provider-*` crate is dead code.
 - **`[INV-PROV-10]` Behaviour Behind Ports (ADR-0027)**: Static facts are `&'static` tables; runtime facts are overlays; behaviour is a trait port. No fourth mechanism.
 - **`[INV-CATALOG-04]` Single Unidirectional Catalog Pipeline (ADR-0081)**: Catalog rows flow Source → Mapping → Overwrite, once and in that order; no stage re-derives what a previous stage settled, and a Source is never labelled by its own downstream.
 - **`[INV-CATALOG-05]` Declared Display Policy (ADR-0081)**: A surface's labels come from its declared `DisplayPolicy` (`Native` trusts the published name; `Structural` lifts bare ids), never from an id-shaped guess or a per-model lookup table. The declaration is enforced registry-wide by `every_registered_surface_renders_its_seeds_without_routing_syntax` (`crates/nuo-server/src/provider_registry/tests.rs`): no registered surface may publish an id whose rendered label still contains `/` or `:` — an ids-only surface must declare `Structural`.
@@ -191,7 +191,7 @@ New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their
 All binding architectural decisions, structural boundaries, and discarded alternatives are codified canonically in the [`docs/adr/`](../adr/) flat registry. Foundational architectural pillars and their governing records include:
 
 - **Concentric Architecture & Entry Point**: Single public binary dispatching across client, daemon, and headless modes ([ADR-0005](../adr/0005-unified-binary-and-concentric-runtime-architecture.md), [ADR-0061](../adr/0061-pure-thread-topology-headless-unified-entry-and-unburdened-cli-architecture.md)).
-- **Tiered Workspace Topology**: Flat 3-tier layout (`crates/*`, `providers/*`, `tools/*`) with single application host and zero root library crates ([ADR-0055](../adr/0055-hierarchical-workspace-topology-and-component-namespace.md), [ADR-0109](../adr/0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md)).
+- **Flat Workspace Topology**: Single `crates/*` container with single application host (`crates/nuo`) and zero root library crates (consolidated from the earlier 3-tier layout of [ADR-0055](../adr/0055-hierarchical-workspace-topology-and-component-namespace.md) and [ADR-0109](../adr/0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md)).
 - **Server Purity & Protocol Decoupling**: Headless server hosting threads as single source of truth, strictly decoupled from presentation crates and communicating exclusively via typed IPC ([ADR-0011](../adr/0011-nuo-tui-presentation-and-nuo-server-container.md), [ADR-0033](../adr/0033-canonical-server-entity-dual-hosting-postures-and-endpoint-orthogonality.md), [ADR-0066](../adr/0066-canonical-protocol-nomenclature-and-codec-purity.md)).
 - **Presentation Substrates & Peer Focus Planes**: Retained canvas diffing engine (`nuotc`), generic UI primitives (`nuo-ui-primitives`), agent views (`nuo-view`), and symmetric focus crossings ([ADR-0003](../adr/0003-autonomous-terminal-canvas-substrate-nuotc.md), [ADR-0053](../adr/0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md), [ADR-0145](../adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
 - **Cognitive Runtime & Inversion**: Provider capability contracts with decentralized tools and single-definition specifications ([ADR-0014](../adr/0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md), [ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md), [ADR-0100](../adr/0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md)).

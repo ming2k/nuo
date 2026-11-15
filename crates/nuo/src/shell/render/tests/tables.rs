@@ -11,7 +11,7 @@ use super::*;
 /// every rendered line stays within the available width.
 #[test]
 fn wide_table_shrinks_columns_and_keeps_borders_intact() {
-    use nuo_view::model::document::TableAlignment;
+    use view::model::document::TableAlignment;
 
     let headers = vec![
         "Tool".to_string(),
@@ -99,7 +99,7 @@ fn wide_table_shrinks_columns_and_keeps_borders_intact() {
 /// with a single cell in a two-column table.
 #[test]
 fn table_render_handles_ragged_rows_without_panicking() {
-    use nuo_view::model::document::TableAlignment;
+    use view::model::document::TableAlignment;
 
     let headers = vec!["A".to_string(), "B".to_string()];
     // 0, 1, 2, and 3 cells — exercises both the under- and over-wide paths.
@@ -148,7 +148,7 @@ fn table_render_handles_ragged_rows_without_panicking() {
 /// and the same line count (no spurious wrap).
 #[test]
 fn table_markup_columns_size_to_visible_width() {
-    use nuo_view::model::document::TableAlignment;
+    use view::model::document::TableAlignment;
 
     let plain = build_table_render(
         &["a".to_string(), "b".to_string()],

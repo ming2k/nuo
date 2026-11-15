@@ -7,11 +7,11 @@
 //! state machine* — mounting/dismissing sheets in reaction to request
 //! queues, projecting viewed-session data, and the scroll-relevant
 //! transcript-change bookkeeping — all reading and writing `App` alone.
-use nuo_tool::Role;
+use tool::Role;
 
 use crate::shell::app::App;
 use crate::shell::event_loop::runtime::{UiRuntime, now_epoch_ms};
-use nuo_view::model::document::{TranscriptMessage, UserMessageOrigin};
+use view::model::document::{TranscriptMessage, UserMessageOrigin};
 
 /// The per-frame reconciliation over App-owned request queues and sheets.
 pub(crate) fn sync_request_surfaces(app: &mut App, runtime: &UiRuntime) {

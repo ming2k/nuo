@@ -6,7 +6,7 @@
 use crate::shell::App;
 use crate::shell::composer::composer_text_width;
 use crate::shell::composer_grid::TextGrid;
-use nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS;
+use ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandDoc {
@@ -21,7 +21,7 @@ pub struct CommandDoc {
 }
 
 impl CommandDoc {
-    pub fn from_spec(spec: &nuo_tool::CommandSpec) -> Self {
+    pub fn from_spec(spec: &tool::CommandSpec) -> Self {
         Self {
             name: spec.name.clone(),
             summary: spec.summary.clone(),
@@ -87,22 +87,22 @@ impl Completion {
         }
     }
 
-    fn from_backend(input: &str, item: &nuo_tool::InputCompletion) -> Option<Self> {
+    fn from_backend(input: &str, item: &tool::InputCompletion) -> Option<Self> {
         let replace_start = char_to_byte(input, item.replace_start)?;
         let replace_end = char_to_byte(input, item.replace_end)?;
         if replace_start > replace_end {
             return None;
         }
         let kind = match item.kind {
-            nuo_tool::InputCompletionKind::Slash => CompletionItemKind::Slash,
-            nuo_tool::InputCompletionKind::SlashAlias => CompletionItemKind::SlashAlias,
-            nuo_tool::InputCompletionKind::Intent => CompletionItemKind::IntentSuggestion {
+            tool::InputCompletionKind::Slash => CompletionItemKind::Slash,
+            tool::InputCompletionKind::SlashAlias => CompletionItemKind::SlashAlias,
+            tool::InputCompletionKind::Intent => CompletionItemKind::IntentSuggestion {
                 matched_intent: String::new(),
                 reason: item.description.clone(),
             },
-            nuo_tool::InputCompletionKind::PathFile => CompletionItemKind::PathFile,
-            nuo_tool::InputCompletionKind::PathDir => CompletionItemKind::PathDir,
-            nuo_tool::InputCompletionKind::PathExplicit => CompletionItemKind::PathExplicit,
+            tool::InputCompletionKind::PathFile => CompletionItemKind::PathFile,
+            tool::InputCompletionKind::PathDir => CompletionItemKind::PathDir,
+            tool::InputCompletionKind::PathExplicit => CompletionItemKind::PathExplicit,
         };
         Some(Self {
             label: item.label.clone(),
@@ -146,14 +146,14 @@ pub fn completion_anchor(
     let x = input_rect.x + COMPOSER_PROMPT_PREFIX_COLS as u16 + col.min(text_width) as u16;
 
     let visible_rows = (input_rect.height as usize)
-        .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
+        .saturating_sub(ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
         .max(1);
 
     let anchor_y = if row <= input_scroll {
         input_rect.y
     } else {
         let visible_row = (row - input_scroll).min(visible_rows.saturating_sub(1));
-        input_rect.y + nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + visible_row as u16
+        input_rect.y + ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + visible_row as u16
     };
 
     nuotc::Rect::new(x, anchor_y, 1, 1)
@@ -168,10 +168,7 @@ pub fn completion_anchor_x(
     completion_anchor(input, byte_cursor, input_rect, 0, kind).x
 }
 
-pub fn resolved_slash_command_len(
-    input: &str,
-    catalog: &nuo_tool::CommandCatalog,
-) -> Option<usize> {
+pub fn resolved_slash_command_len(input: &str, catalog: &tool::CommandCatalog) -> Option<usize> {
     if !input.starts_with('/') {
         return None;
     }
@@ -184,7 +181,7 @@ pub fn resolved_slash_command_len(
 }
 
 pub(super) fn mention_range_at(input: &str, cursor_byte: usize) -> Option<(usize, usize)> {
-    nuo_tool::mention::mention_range_at(input, cursor_byte)
+    tool::mention::mention_range_at(input, cursor_byte)
 }
 
 impl App {
@@ -237,7 +234,7 @@ impl App {
     /// Current completions translated into renderer-native byte edits.
     ///
     /// Completion is **one implementation, owned by the server**
-    /// (`nuo_server::runtime::input_completion`). This adapter only translates: the
+    /// (`server::runtime::input_completion`). This adapter only translates: the
     /// backend speaks Unicode-scalar offsets over the control plane, the TUI
     /// edits bytes.
     ///
@@ -253,7 +250,7 @@ impl App {
     pub fn completions(&self) -> Vec<Completion> {
         // Tier 1: synchronous `/` command matching, straight from the owner.
         if self.composer.input.starts_with('/') {
-            let items = nuo_server::runtime::input_completion::complete_slash_items(
+            let items = server::runtime::input_completion::complete_slash_items(
                 &self.composer.command_catalog,
                 &self.composer.input,
                 self.byte_cursor(),
@@ -282,7 +279,7 @@ impl App {
                 // engine through its frontend-test adapter, so the engine under
                 // test is the one production uses (the cursor is the wire's
                 // scalar index, as over the control plane).
-                nuo_server::runtime::input_completion::complete_for_frontend_test(
+                server::runtime::input_completion::complete_for_frontend_test(
                     self.composer.command_catalog.clone(),
                     self.session.cwd.clone(),
                     &self.composer.input,
@@ -327,7 +324,7 @@ impl App {
         if self.active_mention_range().is_some() {
             self.composer.completion_request_id =
                 self.composer.completion_request_id.wrapping_add(1);
-            self.send_intent(nuo_protocol::AgentRequest::CompleteComposer {
+            self.send_intent(protocol::AgentRequest::CompleteComposer {
                 request_id: self.composer.completion_request_id,
                 text: state.0,
                 cursor,
@@ -340,7 +337,7 @@ impl App {
         request_id: u64,
         input: String,
         cursor: usize,
-        items: Vec<nuo_tool::InputCompletion>,
+        items: Vec<tool::InputCompletion>,
     ) {
         if request_id != self.composer.completion_request_id
             || input != self.composer.input

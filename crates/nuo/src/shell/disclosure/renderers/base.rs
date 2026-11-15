@@ -2,8 +2,8 @@
 use nuotc::{Frame, Line, Paragraph, Rect};
 
 use crate::shell::render::Theme;
-use nuo_view::model::layout::{BlockRegion, LayoutMap};
-use nuo_view::text_layout::WrappedLine;
+use view::model::layout::{BlockRegion, LayoutMap};
+use view::text_layout::WrappedLine;
 
 pub(crate) const MARKER_COLLAPSED: &str = "+";
 pub(crate) const MARKER_EXPANDED: &str = "-";
@@ -141,14 +141,14 @@ pub(crate) fn advance_plain_blank_rows(
 /// A fold summary is prose that must be cut at its first line break rather than
 /// flattened — splicing two unrelated sentences into one run-on would misreport
 /// what the fold hides. That is exactly
-/// [`fit_line`](nuo_ui_primitives::components::overflow::fit_line), so this is a
+/// [`fit_line`](ui_primitives::components::overflow::fit_line), so this is a
 /// thin alias over the substrate's overflow vocabulary rather than a fourth
 /// private copy of it (ADR-0152 `[INV-TEXT-OVERFLOW-01]`).
 pub(crate) fn truncate_to_width(text: &str, max_width: usize) -> String {
-    nuo_ui_primitives::components::overflow::fit_line(
+    ui_primitives::components::overflow::fit_line(
         text,
         max_width,
-        nuo_ui_primitives::components::overflow::Overflow::End,
+        ui_primitives::components::overflow::Overflow::End,
     )
     .text
 }

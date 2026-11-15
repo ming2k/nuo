@@ -215,7 +215,7 @@ fn violations(src: &Path, group: &str, forbidden: &[&str]) -> Vec<String> {
 }
 
 fn src_root() -> PathBuf {
-    crate::common::crate_dir("nuo-engine").join("src")
+    crate::common::crate_dir("engine").join("src")
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ fn src_root() -> PathBuf {
 
 #[test]
 fn governance_is_a_strict_inner_layer() {
-    let guardrails_src = crate::common::crate_dir("nuo-guardrails").join("src");
+    let guardrails_src = crate::common::crate_dir("guardrails").join("src");
     let mut files = Vec::new();
     sources(&guardrails_src, &mut files);
     assert!(

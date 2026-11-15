@@ -14,7 +14,7 @@
 use std::path::Path;
 
 use nuo::transport::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
-use nuo_protocol::{
+use protocol::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredThread, ThreadActivity, ThreadHosting,
 };
 
@@ -329,7 +329,7 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     );
     println!("  Transport: {transport} | Project: {root}");
 
-    let db_path = nuo_host::paths::get().db_file();
+    let db_path = host::paths::get().db_file();
     let db_status = if let Some(health) = &snapshot.persistence_health {
         if health.is_healthy() {
             "WAL healthy".to_string()
@@ -395,9 +395,9 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         && !health.is_healthy()
     {
         let state = match health {
-            nuo_protocol::monitor::PersistenceHealth::Recovering { .. } => "recovering",
-            nuo_protocol::monitor::PersistenceHealth::Down { .. } => "down",
-            nuo_protocol::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
+            protocol::monitor::PersistenceHealth::Recovering { .. } => "recovering",
+            protocol::monitor::PersistenceHealth::Down { .. } => "down",
+            protocol::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
         };
         let detail = health.detail().unwrap_or_default();
         out.push_str(&format!(
@@ -412,13 +412,13 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         ));
         for t in &snapshot.tasks {
             let state = match &t.state {
-                nuo_protocol::JobState::Running { .. } => "running",
-                nuo_protocol::JobState::Ready { .. } => "ready",
-                nuo_protocol::JobState::Succeeded { .. } => "done",
-                nuo_protocol::JobState::Failed { .. } => "failed",
-                nuo_protocol::JobState::Killed { .. } => "killed",
-                nuo_protocol::JobState::TimedOut { .. } => "timed out",
-                nuo_protocol::JobState::Queued => "queued",
+                protocol::JobState::Running { .. } => "running",
+                protocol::JobState::Ready { .. } => "ready",
+                protocol::JobState::Succeeded { .. } => "done",
+                protocol::JobState::Failed { .. } => "failed",
+                protocol::JobState::Killed { .. } => "killed",
+                protocol::JobState::TimedOut { .. } => "timed out",
+                protocol::JobState::Queued => "queued",
             };
             let latest = t.latest_output.as_deref().unwrap_or("");
             let latest = if latest.chars().count() > 30 {
@@ -550,7 +550,7 @@ mod tests;
 #[cfg(test)]
 mod persistence_health_tests {
     use super::*;
-    use nuo_protocol::monitor::PersistenceHealth;
+    use protocol::monitor::PersistenceHealth;
 
     #[test]
     fn table_warns_when_the_persistence_writer_is_down() {

@@ -107,14 +107,14 @@ impl App {
     /// Build the mutation request implied by toggling the selected tool in the
     /// Tools modal, or `None` when there is no snapshot or the selection
     /// is out of range.
-    pub fn session_activate_request(&self) -> Option<nuo_protocol::AgentRequest> {
+    pub fn session_activate_request(&self) -> Option<protocol::AgentRequest> {
         let tool = self
             .session
             .session_context
             .as_ref()?
             .tools
             .get(self.active_index())?;
-        Some(nuo_protocol::AgentRequest::ToggleTool {
+        Some(protocol::AgentRequest::ToggleTool {
             name: tool.name.clone(),
             enabled: !tool.enabled,
         })
@@ -525,6 +525,11 @@ impl App {
                 // transcript's scroll would move a transcript the user cannot
                 // see and leave the visible page frozen.
                 SceneKind::CommandLog => Some((&mut self.surfaces.command_log_scroll, None)),
+                SceneKind::Diff => self
+                    .transcript
+                    .diff_viewer
+                    .as_mut()
+                    .map(|diff| (&mut diff.scroll, None)),
                 SceneKind::Dashboard => {
                     if self.surfaces.host_preview.is_some() {
                         Some((&mut self.surfaces.host_preview_scroll, None))
@@ -556,14 +561,14 @@ impl App {
             // theirs to keep (`[INV-OUTBOX-04]`).
             if origin == QueuePauseOrigin::ModalAutoPause {
                 self.resume_queue(&sid);
-                self.send_intent(nuo_protocol::AgentRequest::QueuePaused {
+                self.send_intent(protocol::AgentRequest::QueuePaused {
                     thread_id: sid,
                     paused: false,
                 });
             }
         }
         if self.composer.input_history_persist {
-            self.send_intent(nuo_protocol::AgentRequest::QueryInputHistory);
+            self.send_intent(protocol::AgentRequest::QueryInputHistory);
         }
         // Session transitions isolate their effects to session-scoped dialogs
         // (`[INV-SURFACE-05]`): archive the outgoing session's modal state,
@@ -691,7 +696,7 @@ impl App {
                 self.stash_draft();
             }
             if self.composer.input_history_persist {
-                self.send_intent(nuo_protocol::AgentRequest::QueryInputHistory);
+                self.send_intent(protocol::AgentRequest::QueryInputHistory);
             }
         }
         let first = !self.surfaces.surface_store.is_open(id);
@@ -713,38 +718,71 @@ impl App {
     /// who pressed `v` deserves to know the step is not there rather than
     /// be dropped into an empty page.
     pub(crate) fn open_command_log_scene(&mut self, mi: usize) {
-        use nuo_view::model::command_log::CommandLog;
-        use nuo_view::model::document::MessageKind;
-        use nuo_view::tools::shell_output::{ShellOutput, command_invocation, is_command_body};
+        use view::model::command_log::{CommandLog, LogScope};
+        use view::model::document::MessageKind;
+        use view::tools::shell_output::{ShellOutput, command_invocation, is_command_body};
 
         let derived = {
             let Some(message) = self.focused_messages().get(mi) else {
                 return;
             };
-            let MessageKind::ToolStep {
-                name,
-                arguments,
-                output,
-                structured,
-                ..
-            } = &message.kind
-            else {
-                return;
-            };
-            if !is_command_body(name, structured.as_deref()) {
-                return;
+            match &message.kind {
+                MessageKind::ToolStep {
+                    name,
+                    arguments,
+                    output,
+                    structured,
+                    ..
+                } if is_command_body(name, structured.as_deref()) => {
+                    let output = output.as_deref().unwrap_or("");
+                    let fold = ShellOutput::derive(output, structured.as_deref()).fold();
+                    let mut log =
+                        CommandLog::derive(mi, arguments, output, structured.as_deref(), fold);
+                    if log.command.is_empty() {
+                        log.command = command_invocation(structured.as_deref(), arguments);
+                    }
+                    log
+                }
+                MessageKind::ToolStep {
+                    name,
+                    arguments,
+                    output,
+                    ..
+                } => {
+                    let body = output.as_deref().unwrap_or("(no output)");
+                    let mut rows: Vec<String> = body.lines().map(ToString::to_string).collect();
+                    if rows.is_empty() {
+                        rows.push("(empty output)".to_string());
+                    }
+                    let summary_arg = arguments.trim();
+                    let command = if summary_arg.is_empty() || summary_arg == "{}" {
+                        name.clone()
+                    } else {
+                        format!("{name} {summary_arg}")
+                    };
+                    CommandLog {
+                        message_idx: mi,
+                        command,
+                        rows,
+                        scope: LogScope::Full,
+                        ..Default::default()
+                    }
+                }
+                _ => {
+                    let mut rows: Vec<String> =
+                        message.raw.lines().map(ToString::to_string).collect();
+                    if rows.is_empty() {
+                        rows.push("(empty message)".to_string());
+                    }
+                    CommandLog {
+                        message_idx: mi,
+                        command: format!("{:?} message #{}", message.role, mi + 1).to_lowercase(),
+                        rows,
+                        scope: LogScope::Full,
+                        ..Default::default()
+                    }
+                }
             }
-            let output = output.as_deref().unwrap_or("");
-            // The fold is re-derived here rather than read off the step: the
-            // rendered fold is a function of the payload and the reveal flag, and
-            // the scene needs the geometry (which rows the transcript kept) to
-            // scope "hidden rows only" correctly.
-            let fold = ShellOutput::derive(output, structured.as_deref()).fold();
-            let mut log = CommandLog::derive(mi, arguments, output, structured.as_deref(), fold);
-            if log.command.is_empty() {
-                log.command = command_invocation(structured.as_deref(), arguments);
-            }
-            log
         };
 
         self.transcript.command_log = Some(derived);
@@ -768,6 +806,51 @@ impl App {
         self.surfaces.command_log_scroll = 0;
         self.leave_scene();
         true
+    }
+
+    /// Open the fullscreen diff viewer (`SceneKind::Diff`) for file patches
+    /// recorded in the focused transcript.
+    pub(crate) fn open_diff_scene(&mut self) {
+        use crate::shell::overlays::{DiffFileEntry, DiffViewerState, build_diff_lines};
+        use tool::{PatchOp, ToolOutput};
+        use view::model::document::MessageKind;
+
+        let mut files = Vec::new();
+        for message in self.focused_messages() {
+            if let MessageKind::ToolStep {
+                structured: Some(out),
+                ..
+            } = &message.kind
+                && let ToolOutput::Patch {
+                    path, op, old, new, ..
+                } = out.as_ref()
+            {
+                let op_label = match op {
+                    PatchOp::Create => "A",
+                    PatchOp::Edit => "M",
+                    PatchOp::Delete => "D",
+                };
+                let (lines, additions, deletions) = build_diff_lines(old, new);
+                files.push(DiffFileEntry {
+                    path: path.clone(),
+                    op_label,
+                    additions,
+                    deletions,
+                    reviewed: false,
+                    lines,
+                });
+            }
+        }
+
+        self.transcript.diff_viewer = Some(DiffViewerState {
+            files,
+            selected_file: 0,
+            scroll: 0,
+        });
+        self.switch_scene(crate::shell::surfaces::SceneKind::Diff);
+        self.transcript.focus.enter_composer();
+        self.transcript.selection = SelectionState::None;
+        self.transcript.drag.cancel();
     }
 
     /// Persist current TUI presentation preferences into `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
@@ -800,7 +883,7 @@ impl App {
             // The log view holds no interactive state of its own: its scroll
             // and scope live on the scene state the router keeps, so leaving it
             // has nothing to tear down.
-            SceneKind::CommandLog => {}
+            SceneKind::CommandLog | SceneKind::Diff => {}
             SceneKind::Thread | SceneKind::Subagent => {}
         }
     }
@@ -1224,6 +1307,11 @@ impl App {
                 .session_chrome
                 .get(&self.session.current_session_id)
                 .and_then(|chrome| chrome.last_turn_performance),
+            session_cost_nano_usd: self
+                .session
+                .session_chrome
+                .get(&self.session.current_session_id)
+                .map_or(0, |chrome| chrome.session_cost_nano_usd),
             transport_setback: self.session.provider_retry.clone(),
         }
     }
@@ -1231,8 +1319,8 @@ impl App {
     /// Write the primary session's activity phase, retiring its
     /// transport-setback clause by the same rule as
     /// [`SessionChrome::set_phase`].
-    pub fn set_phase(&mut self, phase: Option<nuo_view::phase::Phase>) {
-        if nuo_view::phase::ends_transport_setback(phase.as_ref()) {
+    pub fn set_phase(&mut self, phase: Option<view::phase::Phase>) {
+        if view::phase::ends_transport_setback(phase.as_ref()) {
             self.session.provider_retry = None;
         }
         self.session.phase = phase;
@@ -1259,7 +1347,7 @@ impl App {
     pub fn clear_responding(&mut self) {
         self.set_phase(None);
         self.session.round_started_at = None;
-        self.session.loop_status = nuo_protocol::LoopStatus::Idle;
+        self.session.loop_status = protocol::LoopStatus::Idle;
         if let Some(chrome) = self
             .session
             .session_chrome

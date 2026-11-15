@@ -1,0 +1,17 @@
+[package]
+name = "provider-opendesign-go"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "OpenDesign Cloud API provider channel for Nuo (ADR-0015)"
+
+[dependencies]
+protocol = { workspace = true }
+provider = { workspace = true }
+inference-wire = { workspace = true }
+inventory = { workspace = true }
+
+[lints]
+workspace = true

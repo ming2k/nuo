@@ -14,7 +14,7 @@
 //! band paints the whole row.
 //!
 //! The tool-backed rows are derived from the tool registry
-//! (`nuo_view::tools::TOOL_COMPONENTS`), which also owns name → presenter
+//! (`view::tools::TOOL_COMPONENTS`), which also owns name → presenter
 //! resolution and the per-tool built-in defaults. Declaring a new tool
 //! component therefore makes its settings row appear automatically: this
 //! module must never re-list tool names, labels, or defaults by hand
@@ -24,7 +24,7 @@ use nuotc::{Color, Frame, Line, Modifier, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};
-use nuo_view::tools::{TOOL_COMPONENTS, ToolComponent};
+use view::tools::{TOOL_COMPONENTS, ToolComponent};
 
 /// The disclosure badge a row renders in its third column.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -206,7 +206,7 @@ pub(super) fn draw_components_detail(
         // Description on its own line, wrapped to the full width; each wrapped
         // row is padded so the band stays full-width.
         let desc_fg = props.theme.band_text(band, props.theme.muted());
-        let wrapped = nuo_view::text_layout::wrap_text(description, body_width);
+        let wrapped = view::text_layout::wrap_text(description, body_width);
         for segment in &wrapped {
             let mut spans = vec![Span::styled(
                 segment.text.clone(),

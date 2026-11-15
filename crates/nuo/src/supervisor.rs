@@ -22,10 +22,8 @@ pub async fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error
         && info.pid != std::process::id()
     {
         eprintln!("nuo: replacing existing server (pid {})...", info.pid);
-        let _ = nuo_host::process::takeover_pid_sync(
-            info.pid,
-            nuo_host::process::TakeoverOptions::default(),
-        );
+        let _ =
+            host::process::takeover_pid_sync(info.pid, host::process::TakeoverOptions::default());
         client::discovery::remove(&client::discovery::global_discovery_path());
     }
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nuo"));
@@ -69,12 +67,12 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
     let info = match client::discover(Path::new(".")).await {
         Some(info) => info,
         None => {
-            let lock_path = nuo_server::transport::serve_discovery::global_lock_path();
-            if let Some(pid) = nuo_host::lock::ProcessLock::probe_holder(&lock_path) {
+            let lock_path = server::transport::serve_discovery::global_lock_path();
+            if let Some(pid) = host::lock::ProcessLock::probe_holder(&lock_path) {
                 if client::is_process_alive(pid) {
                     client::ServerInfo {
                         pid,
-                        process_birth_token: nuo_host::process::process_identity(pid)
+                        process_birth_token: host::process::process_identity(pid)
                             .ok()
                             .map(|identity| identity.birth_token),
                         port: nuo::composition::startup::env_default_port(),
@@ -82,11 +80,12 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
                         project_root: String::new(),
                         started_at: 0,
                         #[cfg(unix)]
-                        uds_path: Some(nuo_server::transport::serve_discovery::default_uds_path()),
+                        uds_path: Some(server::transport::serve_discovery::default_uds_path()),
                         #[cfg(not(unix))]
                         uds_path: None,
-                        local_endpoint:
-                            nuo_server::transport::serve_discovery::default_local_endpoint().ok(),
+                        local_endpoint: server::transport::serve_discovery::default_local_endpoint(
+                        )
+                        .ok(),
                         version: None,
                         grace_secs: None,
                         protocol: None,
@@ -127,11 +126,9 @@ pub async fn restart_server(
     if let Some(info) = client::discover(Path::new(".")).await {
         eprintln!("nuo: stopping existing server (pid {})...", info.pid);
         if force {
-            let _ = nuo_host::process::takeover_pid(
-                info.pid,
-                nuo_host::process::TakeoverOptions::default(),
-            )
-            .await;
+            let _ =
+                host::process::takeover_pid(info.pid, host::process::TakeoverOptions::default())
+                    .await;
             client::discovery::remove(&client::discovery::global_discovery_path());
         } else {
             let _ = client::stop(&info).await;
@@ -170,16 +167,16 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
         nuo::runtime::host::HostOptions {
             port,
             expose: if flags.public {
-                nuo_server::transport::serve::ServeExpose::Public
+                server::transport::serve::ServeExpose::Public
             } else {
-                nuo_server::transport::serve::ServeExpose::Local
+                server::transport::serve::ServeExpose::Local
             },
             token: None,
             local_auth: !flags.no_local_auth
-                && nuo_persistence::config::Config::load().server.local_auth,
+                && persistence::config::Config::load().server.local_auth,
             port_fallback: flags.port.is_none(),
             local_endpoint: Some(
-                nuo_server::transport::serve_discovery::default_local_endpoint()
+                server::transport::serve_discovery::default_local_endpoint()
                     .map_err(std::io::Error::other)?,
             ),
             disable_tcp,

@@ -9,7 +9,7 @@ use nuotc::{Frame, Line};
 
 use super::common::{placeholder, selectable_row};
 use crate::shell::render::Theme;
-use nuo_ui_primitives::primitives::{
+use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, SCROLL_EDGE_MARGIN, content_modal_area, keyvocab,
     modal_chrome_rows, modal_frame, modal_header, render_body, render_modal_footer,
 };
@@ -20,7 +20,7 @@ use nuo_ui_primitives::primitives::{
 /// (the same one the `/session` modal used), refreshed after each mutation.
 pub fn draw_permissions_manager(
     frame: &mut Frame,
-    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
+    session_context: Option<&protocol::ThreadContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     theme: &Theme,
@@ -80,7 +80,7 @@ pub fn draw_permissions_manager(
         f.body,
         body,
         scroll,
-        nuo_ui_primitives::primitives::BodyRenderOptions::new(follow, SCROLL_EDGE_MARGIN, false),
+        ui_primitives::primitives::BodyRenderOptions::new(follow, SCROLL_EDGE_MARGIN, false),
         theme,
     );
 

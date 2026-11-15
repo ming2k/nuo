@@ -4,8 +4,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
 use crate::shell::disclosure::renderers::payloads::summary::draw_title_band;
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::{
+use view::model::selection::SelectionState;
+use view::text_layout::{
     WrappedLine, block_selection_range, clamp_selection_range, line_selection, line_spans,
     padded_tail, wrap_text,
 };
@@ -287,7 +287,7 @@ pub(crate) fn draw_matches_content(
                 if current_path != Some(parsed.path) {
                     current_path = Some(parsed.path);
                     let normalized =
-                        nuo_ui_primitives::components::path::PathView::from_str(parsed.path)
+                        ui_primitives::components::path::PathView::from_str(parsed.path)
                             .maybe_base_dir(ctx.workspace_root)
                             .format_text();
                     // File title band: distinct background + bold, wrapped at the

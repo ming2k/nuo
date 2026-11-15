@@ -3,9 +3,9 @@ use nuotc::{Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
-use nuo_ui_primitives::design::{QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH};
-use nuo_view::model::selection::SelectionState;
-use nuo_view::text_layout::{
+use ui_primitives::design::{QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH};
+use view::model::selection::SelectionState;
+use view::text_layout::{
     WrappedLine, block_selection_range, line_selection, line_spans, padded_tail, wrap_text,
 };
 

@@ -13,7 +13,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
     app.composer.input = "walked row".to_string();
     app.composer.history_index = Some(0);
     app.composer.draft_capsule.text = "half-typed draft in a".to_string();
-    app.composer.pending_images = vec![nuo_tool::ImagePart {
+    app.composer.pending_images = vec![tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     }];
@@ -116,7 +116,7 @@ async fn inline_history_round_trip_keeps_staged_attachments() {
     app.session.current_session_id = "session-a".to_string();
     app.record_input_history("sent prompt".to_string(), Vec::new(), Vec::new());
 
-    let image = nuo_tool::ImagePart {
+    let image = tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -153,7 +153,7 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     app.composer.draft_capsule.text = "stale draft".to_string();
     app.composer.input = "whatever".to_string();
 
-    let image = nuo_tool::ImagePart {
+    let image = tool::ImagePart {
         mime: "image/png".to_string(),
         data: "img".to_string(),
     };
@@ -223,7 +223,7 @@ async fn slash_dispatch_never_arms_activity_state() {
             .last()
             .is_some_and(|message| message.is_command_result()
                 && message.command_result_phase()
-                    == Some(nuo_view::model::document::CommandPhase::Pending)),
+                    == Some(view::model::document::CommandPhase::Pending)),
         "dispatch must push the pending command row"
     );
 }

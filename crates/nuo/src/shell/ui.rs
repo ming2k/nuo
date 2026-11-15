@@ -5,7 +5,7 @@ use nuotc::ui::{Component, InputPolicy, LayoutBox, PointerPolicy, Scene, UiRunti
 
 use crate::shell::sheet::SheetKind;
 use crate::shell::surfaces::{DialogKind, OverlaySurface, SheetKind as SurfaceSheetKind};
-use nuo_view::model::layout::{LayoutMap, PermissionActionHit, QuestionOptionHit};
+use view::model::layout::{LayoutMap, PermissionActionHit, QuestionOptionHit};
 
 /// Keyboard event families. Scene components claim the
 /// families they own at mount time; keyboard routing resolves the foreground

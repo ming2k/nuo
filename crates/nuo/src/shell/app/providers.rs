@@ -22,7 +22,7 @@ impl App {
     /// branch of the add flow, so the Connections panel stays below it on the
     /// transient navigation stack.
     pub fn open_custom_connection_editor(&mut self) {
-        self.seed_custom_provider_from_template(&nuo_view::providers::CUSTOM_TEMPLATE);
+        self.seed_custom_provider_from_template(&view::providers::CUSTOM_TEMPLATE);
         self.surfaces
             .surfaces
             .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
@@ -77,7 +77,7 @@ impl App {
     pub fn begin_oauth_add(
         &mut self,
         template: &ConnectionTemplate,
-        method: nuo_protocol::LoginMethod,
+        method: protocol::LoginMethod,
     ) {
         self.seed_custom_provider_from_template(template);
         self.provider_editor.awaiting_oauth_add = true;
@@ -87,8 +87,8 @@ impl App {
         // overwrites this with the live URL/code as soon as the device-code
         // request returns.
         self.provider_editor.oauth_pending_message = match method {
-            nuo_protocol::LoginMethod::Device => "Requesting device code…".to_string(),
-            nuo_protocol::LoginMethod::Browser => {
+            protocol::LoginMethod::Device => "Requesting device code…".to_string(),
+            protocol::LoginMethod::Browser => {
                 "Complete authorization in your browser (or open the link below).".to_string()
             }
         };
@@ -148,14 +148,14 @@ impl App {
         self.provider_editor.custom_field = 0;
         self.provider_editor.custom_edit_id = None;
         let default_name = match &self.provider_editor.custom_auth {
-            nuo_protocol::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
+            protocol::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
                 "chatgpt" => "ChatGPT Subscription",
                 "copilot" => "Copilot",
                 "google-antigravity" => "Google Antigravity",
                 "qoder" => "Qoder",
                 _ => "xAI",
             },
-            nuo_protocol::ConnectionAuth::Static => "Custom",
+            protocol::ConnectionAuth::Static => "Custom",
         };
         self.provider_editor.custom_name = default_name.to_string();
         self.composer.input = default_name.to_string();
@@ -180,7 +180,7 @@ impl App {
             .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending)
         {
-            self.send_intent(nuo_protocol::AgentRequest::CancelAuthorizeOAuth);
+            self.send_intent(protocol::AgentRequest::CancelAuthorizeOAuth);
             self.provider_editor.awaiting_oauth_add = false;
             self.provider_editor.oauth_pending_url.clear();
             self.provider_editor.oauth_pending_user_code.clear();
@@ -259,7 +259,7 @@ impl App {
     }
 
     /// Auth mode of a provider picker row (for OAuth re-connect routing).
-    pub fn provider_row_auth(&self, id: &str) -> nuo_protocol::ConnectionAuth {
+    pub fn provider_row_auth(&self, id: &str) -> protocol::ConnectionAuth {
         self.surfaces
             .provider_picker
             .rows
@@ -289,7 +289,7 @@ impl App {
         base_url: String,
         auth: ConnectionAuth,
         curated: bool,
-        budget: nuo_protocol::ConnectionBudget,
+        budget: protocol::ConnectionBudget,
     ) {
         self.surfaces
             .surfaces
@@ -349,17 +349,17 @@ impl App {
     pub fn cycle_custom_choice(&mut self, forward: bool) {
         match self.current_custom_field() {
             Some(CustomField::Protocol) => {
-                const PROTOCOLS: &[nuo_protocol::WireProtocol] = &[
-                    nuo_protocol::WireProtocol::OpenAiChatCompletions,
-                    nuo_protocol::WireProtocol::OpenAiResponses,
-                    nuo_protocol::WireProtocol::AnthropicMessages,
-                    nuo_protocol::WireProtocol::GoogleGenerateContent,
-                    nuo_protocol::WireProtocol::GoogleInteractions,
+                const PROTOCOLS: &[protocol::WireProtocol] = &[
+                    protocol::WireProtocol::OpenAiChatCompletions,
+                    protocol::WireProtocol::OpenAiResponses,
+                    protocol::WireProtocol::AnthropicMessages,
+                    protocol::WireProtocol::GoogleGenerateContent,
+                    protocol::WireProtocol::GoogleInteractions,
                 ];
                 let current = self
                     .provider_editor
                     .custom_protocol_wire
-                    .parse::<nuo_protocol::WireProtocol>()
+                    .parse::<protocol::WireProtocol>()
                     .unwrap_or_default();
                 let index = PROTOCOLS
                     .iter()
@@ -374,10 +374,10 @@ impl App {
             }
             Some(CustomField::Budget) => {
                 let options = [
-                    nuo_protocol::ConnectionBudget::Remote,
-                    nuo_protocol::ConnectionBudget::local(1.0, nuo_protocol::BudgetPeriod::Session),
-                    nuo_protocol::ConnectionBudget::local(5.0, nuo_protocol::BudgetPeriod::Daily),
-                    nuo_protocol::ConnectionBudget::local(20.0, nuo_protocol::BudgetPeriod::Total),
+                    protocol::ConnectionBudget::Remote,
+                    protocol::ConnectionBudget::local(1.0, protocol::BudgetPeriod::Session),
+                    protocol::ConnectionBudget::local(5.0, protocol::BudgetPeriod::Daily),
+                    protocol::ConnectionBudget::local(20.0, protocol::BudgetPeriod::Total),
                 ];
                 let index = options
                     .iter()
@@ -466,7 +466,7 @@ impl App {
 
     /// Return the authoritative model info for the currently active route
     /// (current_provider, current_model) as projected by the server.
-    pub fn active_model_info(&self) -> Option<&nuo_protocol::ProviderModelInfo> {
+    pub fn active_model_info(&self) -> Option<&protocol::ProviderModelInfo> {
         self.surfaces
             .provider_picker
             .rows
@@ -490,7 +490,7 @@ impl App {
         if let Some(info) = self.active_model_info() {
             return info.context_window;
         }
-        nuo_protocol::model::resolve(&self.session.current_model).context_window
+        protocol::model::resolve(&self.session.current_model).context_window
     }
 
     /// Whether images would travel to the active route.

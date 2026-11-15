@@ -1,6 +1,6 @@
 use super::super::editor::effort_block_rows;
 use super::*;
-use nuo_view::providers::PROVIDER_PRESETS;
+use view::providers::PROVIDER_PRESETS;
 
 /// Render the per-model settings editor (effort + thinking, no API key)
 /// into a terminal of the given size and read back the buffer text.

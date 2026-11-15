@@ -7,9 +7,9 @@
 
 use super::*;
 use crate::shell::composer::{ComposerProps, ComposerText};
-use nuo_view::markdown_table::{build_table_render, shrink_column_widths};
-use nuo_view::text_layout::wrap_text;
 use unicode_width::UnicodeWidthStr;
+use view::markdown_table::{build_table_render, shrink_column_widths};
+use view::text_layout::wrap_text;
 
 /// The disclosure policy the render fixtures fold against: no overrides, so a
 /// step resolves its declared component default. Threaded through
@@ -86,7 +86,7 @@ fn render_full_view_with_context(
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
+                layout: view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -120,7 +120,7 @@ mod turn_headers;
 /// "thinking cannot be expanded".
 #[test]
 fn live_subagent_reasoning_renders_its_body_when_expanded() {
-    use nuo_tool::SubagentEvent;
+    use tool::SubagentEvent;
 
     let mut task = TranscriptMessage::tool_step(
         "task_1",
@@ -137,7 +137,7 @@ fn live_subagent_reasoning_renders_its_body_when_expanded() {
     );
     let mut children = task.subagent_children().unwrap().to_vec();
     // Expand the trace exactly as a click/`Enter` on its summary would.
-    use nuo_view::model::interactive::InteractiveEntry;
+    use view::model::interactive::InteractiveEntry;
     assert!(
         children[0].toggle_expanded(),
         "the reasoning entry must be activatable"
@@ -167,7 +167,7 @@ fn wrap_cache_is_transparent() {
     for text in samples {
         for width in [1usize, 8, 40, 200] {
             let cached = cache.wrap_text(text, width);
-            let fresh = nuo_view::text_layout::wrap_text(text, width);
+            let fresh = view::text_layout::wrap_text(text, width);
             assert_eq!(cached.len(), fresh.len());
             for (c, f) in cached.iter().zip(fresh.iter()) {
                 assert_eq!(
@@ -184,9 +184,9 @@ fn wrap_cache_is_transparent() {
         let mut fresh: Vec<(usize, Vec<_>)> = Vec::new();
         let mut offset = 0usize;
         for line in code.split('\n') {
-            let mut wrapped = nuo_view::text_layout::wrap_text(line, width);
+            let mut wrapped = view::text_layout::wrap_text(line, width);
             if wrapped.is_empty() {
-                wrapped.push(nuo_view::text_layout::WrappedLine {
+                wrapped.push(view::text_layout::WrappedLine {
                     text: String::new(),
                     start_byte: 0,
                     end_byte: 0,

@@ -1,23 +1,23 @@
 //! Web settings: one compiled provider for search and one for page reading.
 
-use nuo_protocol::{
+use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
+use protocol::{
     WebCredentialRequirement, WebCredentialStatus, WebProviderAxis, WebSearchConfigView,
 };
-use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
 
 use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};
 
 pub fn build_websearch_provider_dropdown(
     current: &str,
     ws: Option<&WebSearchConfigView>,
-) -> nuo_ui_primitives::components::dropdown::DropdownState<String> {
+) -> ui_primitives::components::dropdown::DropdownState<String> {
     build_provider_dropdown(current, ws, WebProviderAxis::Search)
 }
 
 pub fn build_websearch_reader_dropdown(
     current: &str,
     ws: Option<&WebSearchConfigView>,
-) -> nuo_ui_primitives::components::dropdown::DropdownState<String> {
+) -> ui_primitives::components::dropdown::DropdownState<String> {
     build_provider_dropdown(current, ws, WebProviderAxis::Reader)
 }
 
@@ -25,8 +25,8 @@ fn build_provider_dropdown(
     current: &str,
     ws: Option<&WebSearchConfigView>,
     axis: WebProviderAxis,
-) -> nuo_ui_primitives::components::dropdown::DropdownState<String> {
-    use nuo_ui_primitives::components::dropdown::{DropdownIndicator, DropdownItem, DropdownState};
+) -> ui_primitives::components::dropdown::DropdownState<String> {
+    use ui_primitives::components::dropdown::{DropdownIndicator, DropdownItem, DropdownState};
 
     let mut items: Vec<_> = ws
         .into_iter()
@@ -95,7 +95,7 @@ pub fn reader_item_count(ws: Option<&WebSearchConfigView>) -> usize {
 fn setup_capability(
     ws: Option<&WebSearchConfigView>,
     axis: WebProviderAxis,
-) -> Option<&nuo_protocol::WebProviderCapability> {
+) -> Option<&protocol::WebProviderCapability> {
     let ws = ws?;
     let id = match axis {
         WebProviderAxis::Search => ws.provider.id(),
@@ -105,7 +105,7 @@ fn setup_capability(
         capability.axis == axis
             && capability.id == id
             && (capability.credential != WebCredentialRequirement::None
-                || capability.endpoint == nuo_protocol::WebEndpointRequirement::UserSupplied)
+                || capability.endpoint == protocol::WebEndpointRequirement::UserSupplied)
     })
 }
 
@@ -216,7 +216,7 @@ fn draw_web_detail(
     );
 
     if let Some(capability) = setup_capability(Some(ws), axis) {
-        if capability.endpoint == nuo_protocol::WebEndpointRequirement::UserSupplied {
+        if capability.endpoint == protocol::WebEndpointRequirement::UserSupplied {
             push_row(
                 &mut lines,
                 &mut selectable,

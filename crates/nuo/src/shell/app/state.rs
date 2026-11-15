@@ -34,7 +34,7 @@ pub struct SessionState {
     /// Latest session-context snapshot for the Tools / Mcp / Skills /
     /// Permissions managers, or `None` before the first `QuerySessionContext`
     /// round-trip completes. Refreshed each frame from the response listener.
-    pub session_context: Option<nuo_protocol::ThreadContextSnapshot>,
+    pub session_context: Option<protocol::ThreadContextSnapshot>,
     pub loop_status: LoopStatus,
     /// Whether the primary session has a stopped round parked for `/retry`
     /// Mirrored from the session-scoped harness snapshot — the
@@ -43,8 +43,8 @@ pub struct SessionState {
     /// own `SessionChrome::can_retry`.
     pub harness_retry_pending: bool,
     /// Typed activity-bar phase for the primary session (`None` = idle /
-    /// bar hidden). Never holds transport setbacks — see `nuo_view::phase`.
-    pub phase: Option<nuo_view::phase::Phase>,
+    /// bar hidden). Never holds transport setbacks — see `view::phase`.
+    pub phase: Option<view::phase::Phase>,
     /// The primary session's transport setback (retry countdown), rendered as a
     /// clause beside `App::phase`. The primary's slot, mirroring
     /// [`SessionChrome::transport_setback`] for the primary view exactly as
@@ -55,7 +55,7 @@ pub struct SessionState {
     /// Durability-health banner state (D4): the server's
     /// persistence-writer degradation, folded from the monitor stream.
     /// `None` / `Healthy` renders no banner.
-    pub persistence_health: Option<nuo_protocol::monitor::PersistenceHealth>,
+    pub persistence_health: Option<protocol::monitor::PersistenceHealth>,
     /// Whether all tool permissions are auto-approved this session
     /// (`--unattended` / `/unattended on`). Mirrored from the harness snapshot.
     pub unattended: bool,
@@ -74,7 +74,7 @@ pub struct SessionState {
     /// Server-attested readiness of the attached thread (ADR-0133
     /// `[INV-ATTACH-04]`). Input is gated on `Ready`; `Failed` is a recoverable
     /// disclosure, never a reason to exit.
-    pub session_phase: nuo_protocol::ThreadPhase,
+    pub session_phase: protocol::ThreadPhase,
     /// When switching threads, holds the short id of the target thread being loaded.
     pub switching_session: Option<String>,
     /// Sessions whose last interactive round reached its natural completion
@@ -92,12 +92,12 @@ pub struct SessionState {
     /// no client-side drain to gate.
     pub queue_blocked_sessions: std::collections::HashSet<String>,
     /// The latest harness workspace-security snapshot (trust-gate state).
-    pub workspace_security: nuo_protocol::WorkspaceSecuritySnapshot,
+    pub workspace_security: protocol::WorkspaceSecuritySnapshot,
     /// Rows shown in the threads picker (`/threads` or `nuo attach`).
-    pub sessions_overview: Vec<nuo_protocol::ThreadOverview>,
+    pub sessions_overview: Vec<protocol::ThreadOverview>,
     /// Live monitor snapshot for the thread fleet orchestrator dashboard
     /// mirrored from `UiRuntime::host_sessions` each frame.
-    pub host_sessions: Vec<nuo_protocol::MonitoredThread>,
+    pub host_sessions: Vec<protocol::MonitoredThread>,
     /// The session whose outbox the Queue view auto-paused on entry, **and
     /// whether that auto-pause is still the state we owe a release for**.
     ///
@@ -113,15 +113,25 @@ pub struct SessionState {
     /// forced-resume button (`[INV-OUTBOX-04]`).
     pub(crate) queue_exit_session: Option<(String, QueuePauseOrigin)>,
     /// Thread DAG tree representation for `/tree` visualization.
-    pub session_tree: nuo_protocol::ThreadTree,
+    pub session_tree: protocol::ThreadTree,
     /// Full detail for the thread under the info sub-view cursor. Populated by
     /// an on-demand `QueryThreadDetail` round-trip when the sub-view opens
     /// (`i`) and refreshed whenever the selection moves while in the sub-view.
     /// `None` while the round-trip is in flight.
-    pub session_detail: Option<nuo_protocol::ThreadDetail>,
+    pub session_detail: Option<protocol::ThreadDetail>,
     /// The effective TUI config (the applier's disclosure defaults read it;
     /// the translator no longer carries config clones).
     pub tui_config: crate::shell::config::TuiConfig,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TranscriptSearchState {
+    pub active: bool,
+    pub query: String,
+    /// Indices into `TranscriptState::messages` that match `query`.
+    pub matches: Vec<usize>,
+    /// Index into `matches` for the currently focused match.
+    pub current: usize,
 }
 
 /// `transcript` state.
@@ -139,14 +149,14 @@ pub struct TranscriptState {
     /// instead of O(transcript). Cleared whenever the transcript changes
     /// so a cached height is only ever read while the message's content is unchanged.
     pub layout_height_cache: crate::shell::render::HeightCache,
-    pub scroll: u16,
+    pub scroll: usize,
     /// Whether the view follows the newest content (auto-scroll to bottom).
     pub follow_bottom: bool,
     /// Last measured stream height in lines and viewport height, used to pin
     /// the view to the bottom while following.
     pub content_lines: usize,
     pub view_height: u16,
-    pub max_scroll: u16,
+    pub max_scroll: usize,
     /// Expanded step pinned under the HUD bar (its message index + screen rect),
     /// when its body is scrolled into view. Clicks inside the rect collapse it.
     pub sticky_step: Option<usize>,
@@ -209,6 +219,8 @@ pub struct TranscriptState {
     /// thread is shown; the top frame is the currently focused view.
     /// Each frame carries the parent's scroll snapshot, restored on exit.
     pub focus_stack: Vec<ZoomFrame>,
+    /// In-transcript `Ctrl+F` search state.
+    pub search: TranscriptSearchState,
     /// Which layout strategy arranges the transcript message stream. Selected
     /// via `[tui] transcript_layout`; defaults to the turn-banded layout (each
     /// tool-bearing ReAct turn grouped under a labelled header). See
@@ -241,11 +253,13 @@ pub struct TranscriptState {
     /// payload changes is the transcript's business, not a navigation entity's.
     /// `None` means the scene has nothing to show — every read path states that
     /// rather than painting an empty page that looks like a failure.
-    pub command_log: Option<nuo_view::model::command_log::CommandLog>,
+    pub command_log: Option<view::model::command_log::CommandLog>,
+    /// Fullscreen diff viewer state for `SceneKind::Diff`.
+    pub diff_viewer: Option<crate::shell::overlays::DiffViewerState>,
     /// Per-surface receipt logs (ADR-0116): the layer that replaced "append it
     /// to the transcript" for operations, diagnostics and dialog receipts.
     /// Addressable, capped, ephemeral, and unreachable from persistence.
-    pub logs: nuo_view::model::log::SurfaceLogs,
+    pub logs: view::model::log::SurfaceLogs,
     /// The dashboard console's receipt transcript: one entry
     /// per dispatched directive plus the server's answer. Lives for the
     /// dashboard's open lifetime (cleared on open) — it is a cockpit log,
@@ -294,9 +308,9 @@ pub struct ComposerState {
     pub completion_dismissed: bool,
     pub suggestion_index: Option<usize>,
     /// Backend-owned slash-command vocabulary published by the server.
-    pub command_catalog: nuo_tool::CommandCatalog,
+    pub command_catalog: tool::CommandCatalog,
     /// Latest race-checked completion rows returned by the server.
-    pub backend_completions: Vec<nuo_tool::InputCompletion>,
+    pub backend_completions: Vec<tool::InputCompletion>,
     /// Backend completion round-trip awaiting consumption by the loop.
     pub(crate) backend_completion_signal: Option<crate::shell::event_loop::CompletionSignal>,
     pub completion_response_input: Option<String>,
@@ -314,7 +328,7 @@ pub struct ComposerState {
     /// box stays compact. Order matches the chip numbering.
     pub pending_text_pastes: Vec<String>,
     /// Atomic draft capsule snapshot captured on entering transient sub-modes (ADR-0051 [INV-COMP-03]).
-    pub draft_capsule: nuo_view::composer_mode::DraftCapsule,
+    pub draft_capsule: view::composer_mode::DraftCapsule,
     /// In-memory attachment cache for recorded history entries, keyed by
     /// `(text, session_id)` — see [`HistoryAttachments`]. Seeded by
     /// `Self::record_input_history`, consumed by the ↑/↓ and Ctrl+R recall
@@ -324,7 +338,7 @@ pub struct ComposerState {
     /// FIFO insertion order of `Self::history_attachments` keys, so the
     /// cache can be pruned oldest-first when it outgrows its cap.
     pub history_attachments_order: VecDeque<(String, Option<String>)>,
-    pub input_history: Vec<nuo_protocol::HistoryEntry>,
+    pub input_history: Vec<protocol::HistoryEntry>,
     /// **Derived** prompt rows for the viewed session, reconstructed from the
     /// transcript (see `Self::backfill_session_history`). Never persisted:
     /// the session file is the durable source of truth for thread
@@ -334,7 +348,7 @@ pub struct ComposerState {
     /// `Self::current_session_history` — see `Self::history_entry`.
     /// Ordered oldest-first (transcript append order) so growth never shifts
     /// existing indices.
-    pub session_history_backfill: Vec<nuo_protocol::HistoryEntry>,
+    pub session_history_backfill: Vec<protocol::HistoryEntry>,
     /// How many transcript messages `Self::backfill_session_history` has
     /// already consumed for the current session, so a long streaming session
     /// rescans only its tail. Reset to `0` on every viewed-session change.
@@ -414,7 +428,7 @@ pub struct ComposerState {
     /// Requests the operator submitted before the thread reached `Ready`.
     /// Flushed in order on the `Ready` transition; the server also buffers
     /// defensively, but the client-side queue keeps the UI honest.
-    pub pending_prompts: Vec<nuo_protocol::AgentRequest>,
+    pub pending_prompts: Vec<protocol::AgentRequest>,
 }
 
 /// `human` state.
@@ -424,7 +438,7 @@ pub struct HumanState {
     /// remain the *mounted front* projections the sheets render.
     pub pending_permissions: std::collections::VecDeque<PermissionRequest>,
     pub pending_questions: std::collections::VecDeque<UserQuestionRequest>,
-    pub pending_inputs: std::collections::VecDeque<nuo_protocol::InputRequest>,
+    pub pending_inputs: std::collections::VecDeque<protocol::InputRequest>,
     /// Full-duplex (ADR-0029): which subagent (by parent tool-call id)
     /// surfaced a given permission / ask_user request, so the modal's reply
     /// can be tagged for down-routing.
@@ -447,7 +461,7 @@ pub struct HumanState {
     /// The pending interactive-input request (L3.5 β) from an interactive
     /// `bash` command, or `None`. Set when a `RoundEvent::InputRequest` arrives;
     /// the input-injection modal reads it for its prompt/command/secret.
-    pub pending_input: Option<nuo_protocol::InputRequest>,
+    pub pending_input: Option<protocol::InputRequest>,
     /// The open question (ask_user) modal's self-contained MVU state, or
     /// `None` when no question modal is open. Replaces the four separate
     /// `question_*` fields that previously scattered the modal's state across
@@ -499,12 +513,12 @@ pub struct SurfacesState {
     /// Latest authoritative `[web]` selection/readiness snapshot from the harness.
     /// Refreshed when the Settings view opens (`QueryWebSearchConfig`) and
     /// on every `WebSearchConfigUpdated` ack.
-    pub websearch_config: Option<nuo_protocol::WebSearchConfigView>,
+    pub websearch_config: Option<protocol::WebSearchConfigView>,
     /// Floating dropdown state and anchor for settings popup selectors (e.g.
     /// Web Search provider and Web Fetch reader selectors).
     pub config_dropdown: Option<(
-        nuo_ui_primitives::components::dropdown::DropdownState<String>,
-        nuo_ui_primitives::components::dropdown::DropdownAnchor,
+        ui_primitives::components::dropdown::DropdownState<String>,
+        ui_primitives::components::dropdown::DropdownAnchor,
     )>,
     /// Authoritative screen rectangle of the active settings detail row,
     /// updated during settings render to anchor popovers precisely.
@@ -609,7 +623,7 @@ pub struct SurfacesState {
     pub color_scheme: String,
     /// Last persisted custom semantic palette. Retained while a preset is
     /// active so switching schemes never discards the user's colors.
-    pub custom_color_scheme: nuo_ui_primitives::ColorSchemeConfig,
+    pub custom_color_scheme: ui_primitives::ColorSchemeConfig,
 
     /// Whether clicking outside a dismissable modal closes it (mirroring Esc).
     /// From `[tui] click_outside_dismiss` (default `true`): when true, an
@@ -629,7 +643,7 @@ pub struct SurfacesState {
     pub copy_toast_message: String,
     pub copy_toast_failed: bool,
     /// A transient notice toast (command acknowledgments such as
-    /// `/delegate on`, routed to the toast layer by `nuo_view::model::layer`). Unlike the
+    /// `/delegate on`, routed to the toast layer by `view::model::layer`). Unlike the
     /// inline `MessageKind::Notice`, this never enters the transcript: it
     /// renders as a top-right bubble that fades on its own, mirroring the copy
     /// toast. Severity drives the bubble's accent color. Held until
@@ -678,7 +692,7 @@ pub struct SurfacesState {
     /// Full detail and usage for the connection under the detail sub-view. Populated by
     /// an on-demand `QueryConnectionDetail` round-trip when the sub-view opens (Enter).
     /// `None` while the round-trip is in flight.
-    pub connection_detail: Option<nuo_protocol::ConnectionDetail>,
+    pub connection_detail: Option<protocol::ConnectionDetail>,
 }
 
 /// `provider_editor` state.
@@ -749,7 +763,7 @@ pub struct ProviderEditorState {
     /// selector.
     pub custom_protocol_wire: String,
     /// Connection budget policy configured in create/edit modal (ADR-0065).
-    pub custom_budget: nuo_protocol::ConnectionBudget,
+    pub custom_budget: protocol::ConnectionBudget,
     /// Models seeded by the active template (create mode). Submitted as the
     /// provider's model list unless the editor exposes a free-text Model field
     /// (then the single typed model is submitted instead). Empty in edit mode.
@@ -759,7 +773,7 @@ pub struct ProviderEditorState {
     /// Template-specific user agent carried into newly-created channels.
     pub custom_user_agent: Option<String>,
     /// How newly-created connections authenticate (from the selected template).
-    pub custom_auth: nuo_protocol::ConnectionAuth,
+    pub custom_auth: protocol::ConnectionAuth,
     /// The **model provider id** the active create flow was seeded from, or
     /// `None` in edit mode / when no template is active. Sent as
     /// `AddConnection::provider` (the wire field): it is the
@@ -806,32 +820,32 @@ pub struct TelemetryState {
     /// in-process harness shares this ledger); `None` in attach mode, where
     /// the accounting lives server-side and the modal renders the on-demand
     /// `Self::token_report` snapshot instead.
-    pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
     /// Token-source report fetched on demand from the harness for the viewed
     /// session. Populated by a `QueryTokenUsage` round-trip when the
     /// Telemetry modal opens in attach mode (`token_ledger` is `None`);
     /// `None` while the round-trip is in flight (the modal renders a loading
     /// placeholder). Cleared when the viewed session switches.
-    pub token_report: Option<nuo_protocol::TokenSourceReport>,
+    pub token_report: Option<protocol::TokenSourceReport>,
     /// Latest session-scoped AI context snapshot from the harness. This is a
     /// provider usage/projection value, never a persisted transcript estimate.
-    pub context_tokens: Option<nuo_protocol::ContextTokenSnapshot>,
+    pub context_tokens: Option<protocol::ContextTokenSnapshot>,
     /// Per-session context snapshots (M1): the applier keys them by
     /// session; the render loop projects the *viewed* session's value into
     /// `context_tokens` each frame.
-    pub context_tokens_by_session: HashMap<String, nuo_protocol::ContextTokenSnapshot>,
+    pub context_tokens_by_session: HashMap<String, protocol::ContextTokenSnapshot>,
     /// Cross-session usage-statistics report (ADR-0129 [INV-USAGE-01]).
     /// Session-independent: it aggregates the durable store under `data/usage/`,
     /// which survives session cleanup.
-    pub usage_stats: Option<nuo_protocol::usage_stats::UsageStatsReport>,
+    pub usage_stats: Option<protocol::usage_stats::UsageStatsReport>,
     /// Whether an on-demand usage report fetch is currently in flight.
     pub usage_loading: bool,
     /// Scroll offset for the model usage statistics report view.
     pub usage_scroll: usize,
     /// Provider quota pool snapshot (`QueryProviderQuotas`, ADR-0036).
-    pub provider_quotas: Option<nuo_protocol::ProviderQuotaSnapshot>,
+    pub provider_quotas: Option<protocol::ProviderQuotaSnapshot>,
     /// Cached connection usage states for ambient indicators.
-    pub connection_usages: std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>,
+    pub connection_usages: std::collections::HashMap<String, protocol::ConnectionUsageState>,
 }
 
 /// `link` state.

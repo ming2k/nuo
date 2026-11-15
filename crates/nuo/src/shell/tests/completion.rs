@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use nuo_view::model::layout::LayoutMap;
+use view::model::layout::LayoutMap;
 
 // `@path` completion tests
 
@@ -24,7 +24,7 @@ fn completion_anchor_aligns_slash_menu_with_composer_text_start() {
     let x = completion_anchor_x("/pu", 3, rect, CompletionKind::Slash);
     assert_eq!(
         x,
-        rect.x + nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16
+        rect.x + ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16
     );
 }
 
@@ -37,7 +37,7 @@ fn completion_anchor_aligns_path_menu_with_the_at_trigger() {
     let x = completion_anchor_x(input, input.len(), rect, CompletionKind::Path);
     assert_eq!(
         x,
-        rect.x + nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16 + 8
+        rect.x + ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16 + 8
     );
 }
 
@@ -51,7 +51,7 @@ fn completion_anchor_follows_the_at_trigger_across_wraps() {
     let x = completion_anchor_x(input, input.len(), rect, CompletionKind::Path);
     assert_eq!(
         x,
-        rect.x + nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16
+        rect.x + ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16
     );
 }
 
@@ -66,7 +66,7 @@ fn completion_anchor_keeps_column_when_token_stays_on_one_row() {
     // 2 (prefix) + 10 (token column within text).
     assert_eq!(
         x,
-        rect.x + nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16 + 10
+        rect.x + ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16 + 10
     );
 }
 
@@ -80,13 +80,13 @@ fn completion_anchor_vertical_tracks_multiline_cursor_row() {
     // Anchor Y must be at text row 4 (rect.y + COMPOSER_TEXT_ROW_OFFSET + 4 = 10 + 1 + 4 = 15).
     assert_eq!(
         anchor.y,
-        rect.y + nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 4
+        rect.y + ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 4
     );
     // Anchor X must align with the `@` token.
     let trigger_col = nuotc::cursor_column("或者按照 ", "或者按照 ".len());
     assert_eq!(
         anchor.x,
-        rect.x + nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16 + trigger_col as u16
+        rect.x + ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16 + trigger_col as u16
     );
 }
 
@@ -106,7 +106,7 @@ fn completion_anchor_vertical_accounts_for_scroll() {
     let anchor = completion_anchor(input, input.len(), rect, 2, CompletionKind::Path);
     assert_eq!(
         anchor.y,
-        rect.y + nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1
+        rect.y + ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1
     );
 }
 
@@ -209,7 +209,7 @@ fn resolved_slash_len_covers_only_the_command_token_not_args() {
 #[test]
 fn resolved_slash_len_matches_custom_command() {
     let customs = vec![("/deploy".to_string(), "Deploy the app".to_string())];
-    let catalog = nuo_server::composition::startup::command_catalog(&customs);
+    let catalog = server::composition::startup::command_catalog(&customs);
     assert_eq!(
         resolved_slash_command_len("/deploy prod", &catalog),
         Some(7)
@@ -242,7 +242,7 @@ fn resolved_slash_len_rejects_partial_prefix_and_unknown_commands() {
 /// `/unconfined`), and carried a `/setup` alias the server could not dispatch at
 /// all. Nothing could catch that: the two lists had no shared owner.
 ///
-/// There is one owner now (`nuo_server::composition::startup::command_catalog`). This pins
+/// There is one owner now (`server::composition::startup::command_catalog`). This pins
 /// the consequence in both directions — every advertised name is admitted, and
 /// every admitted command is advertised.
 #[test]
@@ -254,21 +254,21 @@ fn completion_catalog_matches_the_dispatchers_vocabulary() {
     );
     for spec in &catalog.commands {
         assert!(
-            nuo_server::composition::startup::BuiltinCmd::from_slash(&spec.name).is_some(),
+            server::composition::startup::BuiltinCmd::from_slash(&spec.name).is_some(),
             "client advertises {} but the dispatcher does not admit it",
             spec.name
         );
     }
     for alias in &catalog.aliases {
         assert!(
-            nuo_server::composition::startup::BuiltinCmd::from_slash(&alias.name).is_some(),
+            server::composition::startup::BuiltinCmd::from_slash(&alias.name).is_some(),
             "client advertises alias {} that the dispatcher does not resolve",
             alias.name
         );
     }
     // Every executable built-in is completable: a command you cannot discover
     // from the menu does not exist for practical purposes.
-    for (name, _) in nuo_server::composition::startup::BuiltinCmd::ALL {
+    for (name, _) in server::composition::startup::BuiltinCmd::ALL {
         assert!(
             catalog.recognizes(name),
             "built-in {name} is missing from the completion catalog"
@@ -445,7 +445,7 @@ fn mention_range_handles_multibyte_before_at() {
 fn delete_provider_stages_overlay_without_deleting() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
-    let custom = |id: &str| nuo_protocol::ProviderPickerRow {
+    let custom = |id: &str| protocol::ProviderPickerRow {
         id: id.to_string(),
         name: id.to_string(),
         model: "m".to_string(),
@@ -460,7 +460,7 @@ fn delete_provider_stages_overlay_without_deleting() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
         default_id: "my-custom".to_string(),
         rows: vec![custom("my-custom")],
     };
@@ -488,7 +488,7 @@ fn delete_provider_stages_overlay_without_deleting() {
 fn delete_provider_ignores_builtin() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
-    let builtin = |id: &str| nuo_protocol::ProviderPickerRow {
+    let builtin = |id: &str| protocol::ProviderPickerRow {
         id: id.to_string(),
         name: id.to_string(),
         model: "m".to_string(),
@@ -503,7 +503,7 @@ fn delete_provider_ignores_builtin() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
         default_id: "kimi-code".to_string(),
         rows: vec![builtin("kimi-code")],
     };
@@ -621,13 +621,13 @@ fn two_stage_skill_completion_descends_and_terminates() {
     assert_eq!(app.composer.input, "@skill:");
 
     // Simulate backend skill arrival for Stage 2
-    let item = nuo_tool::InputCompletion {
+    let item = tool::InputCompletion {
         label: "@skill:rust-expert".to_string(),
         description: "Expert Rust developer".to_string(),
         insert_text: "@skill:rust-expert ".to_string(),
         replace_start: 0,
         replace_end: 7,
-        kind: nuo_tool::InputCompletionKind::PathExplicit,
+        kind: tool::InputCompletionKind::PathExplicit,
         alias_of: None,
         command: None,
     };
@@ -670,13 +670,13 @@ fn bare_at_query_does_not_pass_through_to_stage2_content() {
     // Stage-2 content IS reachable — but only after the namespace is committed.
     app.composer.input = "@skill:wright".to_string();
     app.composer.cursor_position = app.composer.input.chars().count();
-    let item = nuo_tool::InputCompletion {
+    let item = tool::InputCompletion {
         label: "@skill:wright-plan-authoring".to_string(),
         description: "Author and write wright plan.toml manifests".to_string(),
         insert_text: "@skill:wright-plan-authoring ".to_string(),
         replace_start: 0,
         replace_end: app.composer.input.chars().count(),
-        kind: nuo_tool::InputCompletionKind::PathExplicit,
+        kind: tool::InputCompletionKind::PathExplicit,
         alias_of: None,
         command: None,
     };
@@ -763,7 +763,7 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
         .surfaces
         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
         .info_detail = true;
-    app.session.session_detail = Some(nuo_protocol::ThreadDetail {
+    app.session.session_detail = Some(protocol::ThreadDetail {
         id: "x".to_string(),
         ..Default::default()
     });
@@ -913,7 +913,7 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
         &crate::shell::modal_keys::ModalKeys::default(),
         &crate::shell::sheet::SheetKeys::default(),
         &crate::shell::session::SceneKeys::default(),
-        &mut nuo_view::model::selection::SelectionDrag::default(),
+        &mut view::model::selection::SelectionDrag::default(),
     );
     assert_eq!(
         action,
@@ -1345,16 +1345,8 @@ fn delete_input_selection_clears_buffer_and_selection() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            6,
-        ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            10,
-        ),
+        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
     assert!(app.delete_input_selection());
     assert_eq!(app.composer.input, "hello ");
@@ -1368,16 +1360,8 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
     app.composer.input = "hello world".to_string();
     // Drag forward from 'w' (6) to 'd' (10/11): mouse released at 11.
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            6,
-        ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            11,
-        ),
+        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 11),
     };
     app.composer.cursor_position = 11;
 
@@ -1398,16 +1382,12 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
 
     // Backward drag: drag from 'd' (11) to 'w' (6): mouse released at 6.
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
+        anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
             11,
         ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            6,
-        ),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
     };
     app.composer.cursor_position = 6;
 
@@ -1433,16 +1413,12 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
     app.composer.input = "hello world".to_string();
     // Backward drag: drag from 'd' (11) to 'w' (6): mouse released at 6.
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
+        anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
             11,
         ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            6,
-        ),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
     };
     app.composer.cursor_position = 6;
 
@@ -1467,16 +1443,12 @@ fn range_selection_up_and_down_restore_caret_at_release_position() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
+        anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
             11,
         ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            6,
-        ),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
     };
     app.composer.cursor_position = 1; // stale
 
@@ -1497,16 +1469,8 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            6,
-        ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            10,
-        ),
+        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::Home);
@@ -1521,16 +1485,8 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
     );
 
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            6,
-        ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            10,
-        ),
+        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::End);
@@ -1552,16 +1508,12 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
     // Drag backwards from '界' (byte 9..12, char 3..4) to '好' (byte 3..6, char 1..2).
     // Mouse released at byte 3 (char 1).
     app.transcript.selection = SelectionState::Range {
-        anchor: nuo_view::model::layout::SemanticCursor::new(
+        anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
             12,
         ),
-        head: nuo_view::model::layout::SemanticCursor::new(
-            crate::shell::render::INPUT_MSG_IDX,
-            0,
-            3,
-        ),
+        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 3),
     };
     app.composer.cursor_position = 3;
 
@@ -1610,13 +1562,13 @@ fn adr0162_swr_retains_backend_completions_during_path_mention_typing() {
     app.composer.cursor_position = app.composer.input.len();
 
     // Simulate backend response arriving for @src/
-    let item = nuo_tool::InputCompletion {
+    let item = tool::InputCompletion {
         label: "src/main.rs".to_string(),
         description: "main entrypoint".to_string(),
         insert_text: "src/main.rs".to_string(),
         replace_start: 8,
         replace_end: 13,
-        kind: nuo_tool::InputCompletionKind::PathFile,
+        kind: tool::InputCompletionKind::PathFile,
         alias_of: None,
         command: None,
     };
@@ -1797,7 +1749,7 @@ fn mid_paragraph_mention_edit_offsets_are_scalar_indices() {
         .expect("suffix present");
     app.composer.cursor_position = caret;
 
-    let wire_items = nuo_server::runtime::input_completion::complete_for_frontend_test(
+    let wire_items = server::runtime::input_completion::complete_for_frontend_test(
         app.composer.command_catalog.clone(),
         app.session.cwd.clone(),
         &app.composer.input,

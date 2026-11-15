@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
 
-const TIERS: &[&str] = &["crates", "providers", "tools"];
+const TIERS: &[&str] = &["crates"];
 
 /// Crates admitted without any test, with the reason they are exempt.
 ///
@@ -258,7 +258,7 @@ fn external_tests_have_exactly_two_entries() {
         headless.contains("#[test]")
             && headless.contains("binary_path")
             && headless.contains("MockProvider"),
-        "the headless E2E test must run the fresh binary (`nuo_test_support::binary_path`) \
+        "the headless E2E test must run the fresh binary (`test_support::binary_path`) \
          against the hermetic mock provider; an E2E tier with no tests is not a tier"
     );
 }
@@ -289,7 +289,7 @@ fn test_support_stays_a_dev_dependency() {
             }
             let shipped_section =
                 section.ends_with("dependencies") && !section.ends_with("dev-dependencies");
-            if shipped_section && trimmed.starts_with("nuo-test-support") {
+            if shipped_section && trimmed.starts_with("test-support") {
                 violations.push(path.clone());
                 break;
             }
@@ -297,21 +297,21 @@ fn test_support_stays_a_dev_dependency() {
     }
     assert!(
         violations.is_empty(),
-        "`nuo-test-support` is a dev-only harness and must never appear in \
+        "`test-support` is a dev-only harness and must never appear in \
          [dependencies] or [build-dependencies] ([INV-TEST-03], ADR-0178): \
          {violations:?}"
     );
 
     let root_manifest = fs::read_to_string(root.join("Cargo.toml")).expect("read root manifest");
     assert!(
-        root_manifest.contains("nuo-test-support = { workspace = true }"),
-        "the root test host must dev-depend on nuo-test-support"
+        root_manifest.contains("test-support = { workspace = true }"),
+        "the root test host must dev-depend on test-support"
     );
-    let kit_manifest = fs::read_to_string(root.join("crates/nuo-test-support/Cargo.toml"))
-        .expect("read nuo-test-support manifest");
+    let kit_manifest = fs::read_to_string(root.join("crates/test-support/Cargo.toml"))
+        .expect("read test-support manifest");
     assert!(
         kit_manifest.contains("publish = false"),
-        "nuo-test-support is a repository-local harness and must never be published"
+        "test-support is a repository-local harness and must never be published"
     );
 }
 
@@ -341,7 +341,7 @@ fn tier_runner_profiles_are_declared() {
 
 /// `[INV-VOCAB-03]` (ADR-0180): a source file copied between crates is a
 /// second definition waiting to drift. Four byte-identical files once lived in
-/// both `nuo-protocol` and `nuo-host`; this gate makes a recurrence loud.
+/// both `protocol` and `host`; this gate makes a recurrence loud.
 #[test]
 #[allow(clippy::type_complexity)]
 fn source_files_are_not_byte_identical_across_crates() {

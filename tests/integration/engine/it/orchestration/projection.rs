@@ -11,7 +11,7 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
     let agent = Arc::new(Agent::new(
         Arc::new(InstantProvider),
         Vec::new(),
-        nuo_engine::AgentIdentity::default(),
+        engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
 
@@ -24,7 +24,7 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
             session: session.clone(),
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                budget: protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -43,7 +43,7 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: nuo_engine::orchestration::RoundDriver::Fresh,
+            driver: engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

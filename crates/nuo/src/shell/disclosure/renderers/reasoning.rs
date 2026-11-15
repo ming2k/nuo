@@ -14,11 +14,11 @@ use crate::shell::render::{
     REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS,
     TRANSCRIPT_BODY_LEADING_INDENT,
 };
-use nuo_view::message_body::draw_message_body;
-use nuo_view::model::document::{Block, Inline, TranscriptMessage};
-use nuo_view::model::layout::{BlockRegion, REASONING_BLOCK_IDX};
-use nuo_view::model::selection::{CellDragInfo, SelectionState};
-use nuo_view::text_layout::{
+use view::message_body::draw_message_body;
+use view::model::document::{Block, Inline, TranscriptMessage};
+use view::model::layout::{BlockRegion, REASONING_BLOCK_IDX};
+use view::model::selection::{CellDragInfo, SelectionState};
+use view::text_layout::{
     RichLineParams, RichTextColors, RichTextRanges, WrappedLine, block_selection_range,
     line_selection, line_spans_rich, padded_tail,
 };
@@ -101,7 +101,56 @@ pub fn draw_reasoning_trace(
         );
         let mut emitted_any_block = false;
         for (bi, block) in msg.blocks.iter().enumerate() {
-            if let Block::Text(inline) = block {
+            // A reasoning trace is still Markdown. Rendering only `Text`
+            // silently dropped code fences, lists, headings, tables, and
+            // quotes from the expanded body. Non-prose blocks are flattened to
+            // their raw text (with a list/quote/rule marker) so nothing
+            // disappears; the muted prose style is the right emphasis for a
+            // thinking trace.
+            let flattened;
+            let inline = match block {
+                Block::Text(inline) => inline,
+                Block::Break => continue,
+                Block::Code { content, .. } => {
+                    flattened = Inline::plain(content.clone());
+                    &flattened
+                }
+                Block::Math { content } => {
+                    flattened = Inline::plain(format!("∑ {content}"));
+                    &flattened
+                }
+                Block::Heading { inline, .. } => inline,
+                Block::ListItem {
+                    inline,
+                    ordered,
+                    depth,
+                    checked,
+                } => {
+                    let indent = "  ".repeat(*depth);
+                    let marker = match checked {
+                        Some(true) => "[x]".to_string(),
+                        Some(false) => "[ ]".to_string(),
+                        None => ordered
+                            .map(|n| format!("{n}."))
+                            .unwrap_or_else(|| "-".to_string()),
+                    };
+                    flattened = Inline::plain(format!("{indent}{marker} {}", inline.content));
+                    &flattened
+                }
+                Block::Quote(inline) => {
+                    flattened = Inline::plain(format!("> {}", inline.content));
+                    &flattened
+                }
+                Block::Table { rendered, .. } => {
+                    flattened = Inline::plain(rendered.clone());
+                    &flattened
+                }
+                Block::Rule => {
+                    flattened = Inline::plain("────────────────");
+                    &flattened
+                }
+            };
+            {
                 let Inline {
                     content,
                     code_ranges,
@@ -119,7 +168,7 @@ pub fn draw_reasoning_trace(
                     );
                 }
                 emitted_any_block = true;
-                let hidden = nuo_view::text_layout::block_hidden_ranges(
+                let hidden = view::text_layout::block_hidden_ranges(
                     content,
                     code_ranges,
                     bold_ranges,
@@ -149,25 +198,25 @@ pub fn draw_reasoning_trace(
                         base: Style::default().fg(ctx.theme.muted()),
                         colors: RichTextColors::from_theme(ctx.theme),
                     });
-                    let mut hidden_for_line = nuo_view::text_layout::bold_delim_local_ranges(
+                    let mut hidden_for_line = view::text_layout::bold_delim_local_ranges(
                         &wl.text,
                         wl.start_byte,
                         bold_ranges,
                     );
-                    hidden_for_line.extend(nuo_view::text_layout::markup_hidden_ranges(
+                    hidden_for_line.extend(view::text_layout::markup_hidden_ranges(
                         &wl.text,
                         wl.start_byte,
                         code_ranges,
                         &[],
                         math_ranges,
                     ));
-                    hidden_for_line.extend(nuo_view::text_layout::link_delim_local_ranges(
+                    hidden_for_line.extend(view::text_layout::link_delim_local_ranges(
                         &wl.text,
                         wl.start_byte,
                         link_ranges,
                     ));
                     let used = TRANSCRIPT_BODY_LEADING_INDENT as usize
-                        + nuo_view::text_layout::visible_width(&wl.text, &hidden_for_line);
+                        + view::text_layout::visible_width(&wl.text, &hidden_for_line);
                     let mut line = line;
                     line.spans.push(Span::styled(
                         padded_tail(ctx.full_width, used),

@@ -4,15 +4,15 @@
 //! matching `` `Calling \`<tool>\`` `` formatter used when no display content
 //! is available for a restored assistant turn.
 //!
-//! [`Message`]: nuo_tool::Message
+//! [`Message`]: tool::Message
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-use nuo_tool::{Message, Role};
+use tool::{Message, Role};
 
 use crate::shell::step_interaction;
-use nuo_view::disclosure_config::DisclosureSource;
-use nuo_view::model::document::{TranscriptMessage, UserMessageOrigin};
+use view::disclosure_config::DisclosureSource;
+use view::model::document::{TranscriptMessage, UserMessageOrigin};
 
 pub(super) fn transcript_message_from_core(message: Message) -> Option<TranscriptMessage> {
     if message.hidden {
@@ -55,7 +55,7 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
     let is_insert = message
         .origin
         .as_ref()
-        .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::UserSteer);
+        .is_some_and(|origin| origin.kind == tool::InjectionKind::UserSteer);
     let content = if let Some(display_content) = message.display_content {
         display_content
     } else if message.content.is_empty() {
@@ -114,7 +114,7 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
                 // seam, so every restored steer is an in-round interjection.
                 // The render tag is rebuilt here so any consumer of the
                 // restored document sees the one-body-row form.
-                msg.origin_tags = vec![nuo_view::model::document::SteerOriginTag::InRound];
+                msg.origin_tags = vec![view::model::document::SteerOriginTag::InRound];
             }
         }
         Some(msg)
@@ -135,7 +135,7 @@ pub(super) fn transcript_messages_from_core(
 /// message stream is pure dialogue — and each row is stamped with the
 /// record's `at_ms` (via `sent_at_ms`) as its seam anchor.
 pub(super) fn transcript_interrupts_from_records(
-    records: Vec<nuo_protocol::RoundInterrupt>,
+    records: Vec<protocol::RoundInterrupt>,
 ) -> Vec<TranscriptMessage> {
     records
         .into_iter()
@@ -157,7 +157,7 @@ pub(super) fn merge_round_interrupt_rows(
     dialogue: Vec<TranscriptMessage>,
     interrupts: Vec<TranscriptMessage>,
 ) -> Vec<TranscriptMessage> {
-    use nuo_tool::Role;
+    use tool::Role;
 
     if interrupts.is_empty() {
         return dialogue;
@@ -198,7 +198,7 @@ pub(super) fn merge_round_interrupt_rows(
 /// `sent_at_ms`) so [`merge_command_rows`] can place it at its turn seam; the
 /// stamp is projection-only state and never reaches the ledger or the model.
 pub(super) fn transcript_commands_from_ledger(
-    commands: Vec<nuo_protocol::CommandRecord>,
+    commands: Vec<protocol::CommandRecord>,
 ) -> Vec<TranscriptMessage> {
     commands
         .into_iter()
@@ -235,7 +235,7 @@ pub(super) fn merge_command_rows(
     dialogue: Vec<TranscriptMessage>,
     commands: Vec<TranscriptMessage>,
 ) -> Vec<TranscriptMessage> {
-    use nuo_tool::Role;
+    use tool::Role;
 
     if commands.is_empty() {
         return dialogue;
@@ -318,7 +318,7 @@ fn transcript_from_core_inner(
             let is_insert = message
                 .origin
                 .as_ref()
-                .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::UserSteer);
+                .is_some_and(|origin| origin.kind == tool::InjectionKind::UserSteer);
             let opens_round =
                 message.role == Role::User && !is_insert && !message.is_command_echo();
             if opens_round {
@@ -368,7 +368,7 @@ fn transcript_from_core_inner(
             // gated.
             let chain_disclosed = model
                 .as_deref()
-                .and_then(nuo_protocol::model_by_id)
+                .and_then(protocol::model_by_id)
                 .map(|m| m.thinking.chain_disclosed())
                 .unwrap_or(true);
             if chain_disclosed && let Some(reasoning) = message.reasoning_content.take() {
@@ -389,7 +389,7 @@ fn transcript_from_core_inner(
                 thinking.set_reasoning_duration(0);
                 // Honor the configured default expand state for reasoning
                 // traces so resumed sessions match live behavior.
-                if nuo_view::disclosure_config::reasoning_expanded(config) {
+                if view::disclosure_config::reasoning_expanded(config) {
                     thinking.set_reasoning_expanded(true);
                 }
                 restored.push(thinking);
@@ -467,17 +467,17 @@ fn transcript_from_core_inner(
                 // resume.
                 let (structured, duration_ms) = match &meta {
                     Some(meta) => (
-                        nuo_tool::ToolOutput::Subagent {
+                        tool::ToolOutput::Subagent {
                             summary: output.to_string(),
                             messages: Vec::new(),
-                            usage: nuo_tool::TokenUsage::default(),
+                            usage: tool::TokenUsage::default(),
                             generation_ms: 0,
                             failed: meta.failed,
                             interrupted: meta.interrupted,
                         },
                         meta.duration_ms.unwrap_or(0),
                     ),
-                    None => (nuo_tool::ToolOutput::text(output), 0),
+                    None => (tool::ToolOutput::text(output), 0),
                 };
                 if item.finish_tool_step(&step_id, output, structured, duration_ms) {
                     // Restore the subagent's nested transcript so its partial /
@@ -548,7 +548,7 @@ fn transcript_from_core_inner(
                     && transcript_message.origin == UserMessageOrigin::Steer
                 {
                     transcript_message.origin_tags =
-                        vec![nuo_view::model::document::SteerOriginTag::InRound];
+                        vec![view::model::document::SteerOriginTag::InRound];
                 }
             }
             restored.push(transcript_message);
@@ -623,8 +623,8 @@ mod tests {
     use super::{
         merge_round_interrupt_rows, rebase_transcript_rounds, transcript_interrupts_from_records,
     };
-    use nuo_tool::Role;
-    use nuo_view::model::document::TranscriptMessage;
+    use tool::Role;
+    use view::model::document::TranscriptMessage;
 
     #[test]
     fn rebases_a_compacted_relative_tail_to_the_session_round_counter() {
@@ -646,8 +646,8 @@ mod tests {
     #[test]
     fn restores_interrupted_subagent_with_children_and_status() {
         use crate::shell::config::TuiConfig;
-        use nuo_tool::SubagentMeta;
-        use nuo_tool::{Message, ToolCall};
+        use tool::SubagentMeta;
+        use tool::{Message, ToolCall};
 
         let call = ToolCall {
             id: "call_9".to_string(),
@@ -697,7 +697,7 @@ mod tests {
             .expect("the subagent step must be restored");
         assert_eq!(
             step.tool_step_status(),
-            Some(nuo_view::model::document::ToolStepStatus::Interrupted),
+            Some(view::model::document::ToolStepStatus::Interrupted),
             "restored interrupted subagent must classify as Interrupted, not Ok/Failed"
         );
         let kids = step.subagent_children().expect("children must be restored");
@@ -705,7 +705,7 @@ mod tests {
         assert!(kids[0].is_tool_step());
         assert_eq!(
             kids[0].tool_step_status(),
-            Some(nuo_view::model::document::ToolStepStatus::Ok),
+            Some(view::model::document::ToolStepStatus::Ok),
             "the child read step completed normally"
         );
     }
@@ -715,7 +715,7 @@ mod tests {
     /// every seam lands at the tail (the process died mid-round).
     #[test]
     fn round_interrupt_markers_land_at_their_seams() {
-        use nuo_protocol::{RoundInterrupt, RoundInterruptReason};
+        use protocol::{RoundInterrupt, RoundInterruptReason};
 
         let dialogue = vec![
             TranscriptMessage::new(Role::User, "first").with_sent_at_ms(1_000),
@@ -759,7 +759,7 @@ mod tests {
     /// with the live path.
     #[test]
     fn round_interrupt_marker_text_uses_shared_vocabulary() {
-        use nuo_protocol::{RoundInterrupt, RoundInterruptReason};
+        use protocol::{RoundInterrupt, RoundInterruptReason};
 
         let marker = TranscriptMessage::round_interrupted(RoundInterrupt {
             reason: RoundInterruptReason::User,

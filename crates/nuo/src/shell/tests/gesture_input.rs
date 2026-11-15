@@ -217,7 +217,7 @@ async fn click_dismisses_an_open_dropdown_through_the_real_dispatch() {
     let dropdown = crate::shell::views::settings::build_websearch_provider_dropdown("exa", None);
     app.surfaces.config_dropdown = Some((
         dropdown,
-        nuo_ui_primitives::components::dropdown::DropdownAnchor::center_screen(),
+        ui_primitives::components::dropdown::DropdownAnchor::center_screen(),
     ));
 
     let mut terminal = nuotc::TestTerminal::new(80, 24);

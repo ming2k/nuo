@@ -1,0 +1,22 @@
+[package]
+name = "provider-codebuddy-cn"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Tencent AI CodeBuddy domestic (CN) provider channel for Nuo — copilot.tencent.com ingress"
+
+[dependencies]
+protocol = { workspace = true }
+provider = { workspace = true }
+provider-codebuddy-auth = { workspace = true }
+inference-wire = { workspace = true }
+host = { workspace = true }
+inventory = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

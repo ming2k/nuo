@@ -1,11 +1,12 @@
 //! Response translator: translates wire AgentResponse stream into AppMutations.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use tokio::sync::mpsc;
 
-use crate::shell::{event_loop, is_coalescible_stream_update, session_gate};
-use nuo_protocol::{AgentResponse, LoopStatus, ProviderPickerSnapshot};
+use crate::shell::{STREAM_FRAME_INTERVAL, event_loop, is_coalescible_stream_update, session_gate};
+use protocol::{AgentResponse, LoopStatus, ProviderPickerSnapshot};
 
 /// Translator-side alias for the mutation type (formerly a `use` inside the
 /// event loop).
@@ -45,9 +46,9 @@ struct TranslatorState {
     current_provider: String,
     current_model: String,
     picker: ProviderPickerSnapshot,
-    harness: nuo_protocol::HarnessSnapshot,
+    harness: protocol::HarnessSnapshot,
     /// The round's retry episode, as the *typed* state machine
-    /// (`nuo_view::retry`). One value holds the attempt pair, the
+    /// (`view::retry`). One value holds the attempt pair, the
     /// backoff instant and the fault history, so the three consumers
     /// that need it — the bar clause, the receipt-log line and the
     /// settled turn anchor — cannot disagree about any of them.
@@ -57,7 +58,7 @@ struct TranslatorState {
     /// the round in flight has not retried. Boundary writes below exist so
     /// a later round's error can never be blamed for an earlier round's
     /// attempts.
-    retry_progress: Option<nuo_view::retry::RetryProgress>,
+    retry_progress: Option<view::retry::RetryProgress>,
     reasoning_start: Option<std::time::Instant>,
     /// The live primary session id: the translator updates it on
     /// `/new` / `/session open` / `/resume` / `/fork` and scopes
@@ -80,7 +81,7 @@ struct TranslatorState {
 /// Turn position and send time carried by a turn-scoped round event.
 #[derive(Clone, Copy)]
 struct TurnCtx {
-    turn_context: Option<nuo_protocol::TurnContext>,
+    turn_context: Option<protocol::TurnContext>,
     turn_position: Option<(u64, u64)>,
     turn_sent_at: Option<u64>,
 }
@@ -120,12 +121,12 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
             current_provider: initial_provider_for_translator.clone(),
             current_model: initial_model_for_translator.clone(),
             picker: ProviderPickerSnapshot::default(),
-            harness: nuo_protocol::HarnessSnapshot {
+            harness: protocol::HarnessSnapshot {
                 loop_status: LoopStatus::Idle,
                 round_counter: initial_round_count,
                 unattended: false,
                 confined: true,
-                workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
+                workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
                 retry_pending: false,
                 role: None,
                 workspace: None,
@@ -141,19 +142,37 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
             viewed_session_id: viewed_session_id_clone,
         };
 
+        // High-frequency deltas are coalesced at the translator, not dropped:
+        // the first delta wakes the loop immediately, later deltas within the
+        // frame budget schedule exactly one trailing wake. The loop itself also
+        // enforces the same budget, so a burst of non-stream events cannot turn
+        // into a repaint storm.
+        let mut last_stream_wakeup: Option<Instant> = None;
+        let stream_wakeup_scheduled = Arc::new(AtomicBool::new(false));
+
         while let Some(resp) = rx.recv().await {
-            // Any handled response can change state the loop renders from,
-            // so signal a redraw. High-frequency stream deltas deliberately
-            // do not wake the loop one-by-one: while responding, its 10fps
-            // heartbeat coalesces them into a smooth stream.
             dirty_clone.store(true, Ordering::Release);
-            // A side thread can receive stream deltas while the
-            // primary activity indicator is idle — no heartbeat then, so
-            // retain the immediate wake.
-            let defer_stream_wakeup =
+
+            let now = Instant::now();
+            let coalescible =
                 is_coalescible_stream_update(&resp) && ir_clone.load(Ordering::SeqCst);
-            if !defer_stream_wakeup {
+            let due = !coalescible
+                || last_stream_wakeup
+                    .is_none_or(|last| now.duration_since(last) >= STREAM_FRAME_INTERVAL);
+            if due {
+                last_stream_wakeup = Some(now);
                 dirty_notify_clone.notify_one();
+            } else if !stream_wakeup_scheduled.swap(true, Ordering::AcqRel) {
+                let wait = last_stream_wakeup
+                    .map(|last| STREAM_FRAME_INTERVAL.saturating_sub(now.duration_since(last)))
+                    .unwrap_or(STREAM_FRAME_INTERVAL);
+                let notify = dirty_notify_clone.clone();
+                let scheduled = Arc::clone(&stream_wakeup_scheduled);
+                tokio::spawn(async move {
+                    tokio::time::sleep(wait).await;
+                    scheduled.store(false, Ordering::Release);
+                    notify.notify_one();
+                });
             }
             state.handle(resp).await;
         }
