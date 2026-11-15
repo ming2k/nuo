@@ -6,6 +6,13 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.89] - 2026-11-15
+
+### Changed
+
+- **netune v0.0.29 alignment.** Migrated `TlsConnector` callers to `TlsRouterConnector`, split `antigravity-cli` into `antigravity-cli-unary` (`http/1.1` only, routed through a dedicated `enable_http2: false` shared client) and `antigravity-cli-stream` (`h2, http/1.1` paired with `go-nethttp`), and updated `Cargo.lock` to netune `v0.0.29`.
+- **Workspace crate layout & protocol v30.** Finalized the crate directory/package rename across the workspace, bumped `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` to `30` with a renewed wire census, and brought ADR-0193–0207, rustdoc links, and formatting into compliance with all CI gates.
+
 ## [0.0.88] - 2026-11-15
 
 ### Changed
