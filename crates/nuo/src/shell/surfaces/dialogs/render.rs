@@ -439,6 +439,8 @@ pub(super) fn render_dialog(
                 &app.notice_lines().iter().cloned().collect::<Vec<_>>(),
                 d,
                 ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
             ))
         }
         _ => None,

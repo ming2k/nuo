@@ -863,10 +863,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
     let modal_text = frame_text(&terminal);
-    assert!(
-        modal_text.contains("Notices & Disclosures"),
-        "sovereign dialog title"
-    );
+    assert!(modal_text.contains("Notices"), "sovereign dialog title");
     assert!(modal_text.contains("client"), "renders topic");
     assert!(modal_text.contains("link down"), "renders notice content");
 

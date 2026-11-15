@@ -18,10 +18,10 @@
 //! - Topic pill indicators and right-aligned timestamp metadata.
 //! - Prominent headline titles with active-selection accent markers (`▌`).
 //! - Expandable detailed technical context (HTTP response bodies, stack traces).
-//! - Distinct card divider lines and pagination metadata.
+//! - Spatial separation between cards and selectable text body (`render_selectable_body`).
 //! - Zero footer displacement, ensuring 100% composer stability.
 
-use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
+use nuotc::{Frame, Modifier, Rect, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::keymap::Key;
@@ -29,10 +29,13 @@ use crate::shell::render::Theme;
 use crate::shell::surfaces::NoticesDialog;
 use ui_primitives::elevation::modal_frame;
 use ui_primitives::primitives::{
-    ContentModalSpec, FooterHint, content_modal_area_in, keyvocab, modal_header,
+    ContentModalSpec, FooterHint, HeaderPart, content_modal_area_in, keyvocab, modal_header_parts,
     render_modal_footer,
 };
+use view::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
+use view::model::layout::LayoutMap;
 use view::model::log::{LineStatus, SurfaceLine};
+use view::model::selection::SelectionState;
 
 /// How many rows `text` occupies when wrapped to `width` columns.
 pub fn wrapped_row_count(text: &str, width: usize) -> usize {
@@ -50,36 +53,46 @@ pub fn draw_notices_modal(
     lines: &[SurfaceLine],
     dialog: &mut NoticesDialog,
     theme: &Theme,
+    selection: &SelectionState,
+    layout_map: &mut LayoutMap,
 ) -> Rect {
     let geometry = ContentModalSpec::TOOLS;
     let bounds = content_modal_area_in(area, geometry, 24);
     let f = modal_frame(frame, bounds, theme, true, true);
 
     let faults = lines.iter().filter(|l| l.status.is_fault()).count();
-    let title = if lines.is_empty() {
-        "Notices & Disclosures".to_string()
+    let meta = if lines.is_empty() {
+        String::new()
     } else {
         let card_idx = (dialog.index + 1).min(lines.len());
         if faults > 0 {
             format!(
-                "Notices & Disclosures | Card {} of {} ({} fault{})",
-                card_idx,
+                "  {card_idx}/{}  {faults} fault{}",
                 lines.len(),
-                faults,
                 if faults == 1 { "" } else { "s" }
             )
         } else {
-            format!(
-                "Notices & Disclosures | Card {} of {}",
-                card_idx,
-                lines.len()
-            )
+            format!("  {card_idx}/{}", lines.len())
         }
     };
-    modal_header(frame, f.header, &title, theme);
+    if meta.is_empty() {
+        modal_header_parts(frame, f.header, &[HeaderPart::title("Notices")], theme);
+    } else {
+        modal_header_parts(
+            frame,
+            f.header,
+            &[
+                HeaderPart::title("Notices"),
+                HeaderPart::Text {
+                    text: &meta,
+                    accent: false,
+                },
+            ],
+            theme,
+        );
+    }
 
     let body_rect = f.body;
-    let body_h = body_rect.height as usize;
     let body_width = body_rect.width as usize;
     dialog.body_height = body_rect.height;
 
@@ -91,32 +104,34 @@ pub fn draw_notices_modal(
         dialog.index = lines.len().saturating_sub(1);
     }
 
-    let mut body_lines: Vec<Line<'static>> = Vec::new();
-    let mut selected_row: Option<usize> = None;
+    let mut rows: Vec<SelectableRow> = Vec::new();
+    let mut selected_row_idx: Option<usize> = None;
 
     if lines.is_empty() {
-        body_lines.push(Line::from(""));
-        body_lines.push(Line::from(vec![
-            Span::styled("   ", Style::default()),
-            Span::styled(
+        rows.push(SelectableRow::from_segments(vec![]));
+        rows.push(SelectableRow {
+            prefix: Some(RowSegment::styled("   ", Style::default())),
+            hang_prefix: None,
+            segments: vec![RowSegment::styled(
                 "No operational notices or diagnostic faults recorded.",
                 Style::default()
                     .fg(theme.muted())
                     .add_modifier(Modifier::BOLD),
-            ),
-        ]));
-        body_lines.push(Line::from(vec![
-            Span::styled("   ", Style::default()),
-            Span::styled(
+            )],
+        });
+        rows.push(SelectableRow {
+            prefix: Some(RowSegment::styled("   ", Style::default())),
+            hang_prefix: None,
+            segments: vec![RowSegment::styled(
                 "Operational warnings, retries, and errors land here automatically.",
                 Style::default().fg(theme.dim()),
-            ),
-        ]));
+            )],
+        });
     } else {
         for (i, notice) in lines.iter().enumerate() {
             let is_sel = dialog.index == i;
             if is_sel {
-                selected_row = Some(body_lines.len());
+                selected_row_idx = Some(rows.len());
             }
 
             // Severity drives the band (ADR-0139): a derived tint pair
@@ -145,120 +160,104 @@ pub fn draw_notices_modal(
                 Style::default()
             };
 
-            // 1. Card Header: [TOPIC PILL (severity band)] ... at HH:MM
-            // The topic pill carries the band as its surface: severity is the
-            // background+foreground pair, the topic is the word. No glyph, no
-            // bracketed badge — one color channel, one label. On a profile
-            // where color carries nothing the band's `marker` supplies the
-            // severity word instead (e.g. `topic error`).
+            // 1. Card Header: [TOPIC PILL (severity band)] ... HH:MM
             let pill = if band.marker.is_empty() {
                 format!(" {topic} ")
             } else {
                 format!(" {topic} {} ", band.marker)
             };
-            let mut header_spans = vec![
-                Span::styled(select_indicator, select_style),
-                Span::styled(
-                    pill.clone(),
-                    Style::default()
-                        .fg(band.fg)
-                        .bg(band.bg)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ];
             let header_w = 2 + pill.width();
-            let time_str = format!("at {time}");
             let right_pad = body_width
-                .saturating_sub(header_w + time_str.width() + 1)
+                .saturating_sub(header_w + time.width() + 1)
                 .max(1);
-            header_spans.push(Span::styled(" ".repeat(right_pad), Style::default()));
-            header_spans.push(Span::styled(time_str, Style::default().fg(theme.dim())));
-            body_lines.push(Line::from(header_spans));
+            rows.push(SelectableRow {
+                prefix: Some(RowSegment::styled(select_indicator, select_style)),
+                hang_prefix: None,
+                segments: vec![
+                    RowSegment::styled(
+                        pill,
+                        Style::default()
+                            .fg(band.fg)
+                            .bg(band.bg)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    RowSegment::styled(" ".repeat(right_pad), Style::default()),
+                    RowSegment::styled(time, Style::default().fg(theme.dim())),
+                ],
+            });
 
             // 2. Card Headline: Headline text with selection accent
             let headline = one_line(&notice.text);
-            let headline_w = body_width.saturating_sub(6).max(1);
-            let wrapped_headline = wrap_row(&headline, headline_w);
-            for (line_idx, hl) in wrapped_headline.iter().enumerate() {
-                let prefix = if line_idx == 0 {
-                    select_indicator
-                } else {
-                    if is_sel { "▌ " } else { "  " }
-                };
-                body_lines.push(Line::from(vec![
-                    Span::styled(prefix, select_style),
-                    Span::styled("  ", Style::default()),
-                    Span::styled(
-                        hl.clone(),
-                        Style::default()
-                            .fg(if is_sel { theme.fg() } else { theme.muted() })
-                            .add_modifier(if is_sel {
-                                Modifier::BOLD
-                            } else {
-                                Modifier::empty()
-                            }),
-                    ),
-                ]));
-            }
+            let headline_prefix = if is_sel { "▌   " } else { "    " };
+            rows.push(SelectableRow {
+                prefix: Some(RowSegment::styled(headline_prefix, select_style)),
+                hang_prefix: Some(RowSegment::styled(headline_prefix, select_style)),
+                segments: vec![RowSegment::styled(
+                    headline,
+                    Style::default()
+                        .fg(if is_sel { theme.fg() } else { theme.muted() })
+                        .add_modifier(if is_sel {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
+                )],
+            });
 
             // 3. Card Expandable Technical Detail (when selected and expanded)
             if is_sel && dialog.detail {
-                body_lines.push(Line::from(vec![
-                    Span::styled(select_indicator, select_style),
-                    Span::styled("    ┌ Detail:", Style::default().fg(theme.dim())),
-                ]));
-                let detail_w = body_width.saturating_sub(10).max(1);
+                rows.push(SelectableRow {
+                    prefix: Some(RowSegment::styled(select_indicator, select_style)),
+                    hang_prefix: None,
+                    segments: vec![],
+                });
                 for line in notice.text.lines() {
-                    for wrapped in wrap_row(line, detail_w) {
-                        body_lines.push(Line::from(vec![
-                            Span::styled(select_indicator, select_style),
-                            Span::styled("    │ ", Style::default().fg(theme.dim())),
-                            Span::styled(wrapped, Style::default().fg(theme.fg())),
-                        ]));
-                    }
+                    rows.push(SelectableRow {
+                        prefix: Some(RowSegment::styled(headline_prefix, select_style)),
+                        hang_prefix: Some(RowSegment::styled(headline_prefix, select_style)),
+                        segments: vec![RowSegment::styled(
+                            line.to_string(),
+                            Style::default().fg(theme.fg()),
+                        )],
+                    });
                 }
                 if let Some(detail) = notice.detail.as_deref() {
                     for line in detail.lines() {
-                        for wrapped in wrap_row(line, detail_w) {
-                            body_lines.push(Line::from(vec![
-                                Span::styled(select_indicator, select_style),
-                                Span::styled("    │ ", Style::default().fg(theme.dim())),
-                                Span::styled(wrapped, Style::default().fg(theme.muted())),
-                            ]));
-                        }
+                        rows.push(SelectableRow {
+                            prefix: Some(RowSegment::styled(headline_prefix, select_style)),
+                            hang_prefix: Some(RowSegment::styled(headline_prefix, select_style)),
+                            segments: vec![RowSegment::styled(
+                                line.to_string(),
+                                Style::default().fg(theme.muted()),
+                            )],
+                        });
                     }
                 }
-                body_lines.push(Line::from(vec![
-                    Span::styled(select_indicator, select_style),
-                    Span::styled("    └", Style::default().fg(theme.dim())),
-                ]));
             }
 
-            // 4. Card Separator Divider between cards
+            // 4. Spatial gap between cards (no divider line)
             if i + 1 < lines.len() {
-                let div_line = "─".repeat(body_width.saturating_sub(4).max(1));
-                body_lines.push(Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled(div_line, Style::default().fg(theme.dim())),
-                ]));
+                rows.push(SelectableRow::from_segments(vec![]));
             }
         }
     }
 
-    // Scroll anchoring
-    if let Some(cursor_row) = selected_row {
-        if cursor_row < dialog.scroll {
-            dialog.scroll = cursor_row;
-        } else if cursor_row >= dialog.scroll + body_h.max(1) {
-            dialog.scroll = cursor_row + 1 - body_h.max(1);
-        }
-    }
-    dialog.scroll = dialog
-        .scroll
-        .min(body_lines.len().saturating_sub(body_h.max(1)));
-
-    let mut body_para = nuotc::Paragraph::new(body_lines).scroll(dialog.scroll as u16, 0);
-    frame.render_widget(&mut body_para, body_rect);
+    let follow = selected_row_idx.map(|idx| {
+        rows[..idx]
+            .iter()
+            .map(|r| r.visual_row_count(body_width))
+            .sum()
+    });
+    render_selectable_body(
+        frame,
+        body_rect,
+        &rows,
+        &mut dialog.scroll,
+        follow,
+        theme,
+        selection,
+        layout_map,
+    );
 
     // Modal footer hints
     let hints: &[FooterHint] = if lines.is_empty() {
@@ -370,16 +369,30 @@ mod tests {
             index: 1,
             ..Default::default()
         };
+        let mut layout_map = LayoutMap::default();
         let mut terminal = nuotc::TestTerminal::new(100, 30);
         terminal.draw(|f| {
-            draw_notices_modal(f, f.area(), &lines, &mut dialog, &theme);
+            draw_notices_modal(
+                f,
+                f.area(),
+                &lines,
+                &mut dialog,
+                &theme,
+                &SelectionState::None,
+                &mut layout_map,
+            );
         });
         let text = all_text(&terminal);
         assert!(text.contains("Notices"), "header names the surface: {text}");
+        assert!(text.contains("2/2"), "header shows compact card index: {text}");
         assert!(text.contains("backend"), "renders topic: {text}");
         assert!(text.contains("link down"), "renders title: {text}");
         assert!(text.contains("images"), "renders second topic: {text}");
         assert!(text.contains("fault"), "the header counts faults: {text}");
+        assert!(
+            !text.contains("───") && !text.contains("Notices & Disclosures"),
+            "minimalist layout uses spatial gaps instead of divider lines and verbose title: {text}"
+        );
     }
 
     #[test]
@@ -391,9 +404,18 @@ mod tests {
             detail: true,
             ..Default::default()
         };
+        let mut layout_map = LayoutMap::default();
         let mut terminal = nuotc::TestTerminal::new(100, 30);
         terminal.draw(|f| {
-            draw_notices_modal(f, f.area(), &lines, &mut dialog, &theme);
+            draw_notices_modal(
+                f,
+                f.area(),
+                &lines,
+                &mut dialog,
+                &theme,
+                &SelectionState::None,
+                &mut layout_map,
+            );
         });
         let text = all_text(&terminal);
         assert!(
@@ -401,15 +423,28 @@ mod tests {
             "detail is wrapped: {text}"
         );
         assert!(text.contains("link"), "states topic: {text}");
+        assert!(
+            !text.contains("┌ Detail:") && !text.contains('│') && !text.contains('└'),
+            "expanded detail uses spatial indentation without box-drawing clutter: {text}"
+        );
     }
 
     #[test]
     fn an_empty_log_explains_itself_instead_of_showing_a_blank_panel() {
         let theme = Theme::default();
         let mut dialog = NoticesDialog::default();
+        let mut layout_map = LayoutMap::default();
         let mut terminal = nuotc::TestTerminal::new(100, 30);
         terminal.draw(|f| {
-            draw_notices_modal(f, f.area(), &[], &mut dialog, &theme);
+            draw_notices_modal(
+                f,
+                f.area(),
+                &[],
+                &mut dialog,
+                &theme,
+                &SelectionState::None,
+                &mut layout_map,
+            );
         });
         let text = all_text(&terminal);
         assert!(text.contains("No operational notices"), "{text}");
@@ -427,9 +462,18 @@ mod tests {
             notice(LineStatus::Ok, "c", "done", 3),
         ];
         let mut dialog = NoticesDialog::default();
+        let mut layout_map = LayoutMap::default();
         let mut terminal = nuotc::TestTerminal::new(100, 30);
         terminal.draw(|f| {
-            draw_notices_modal(f, f.area(), &lines, &mut dialog, &theme);
+            draw_notices_modal(
+                f,
+                f.area(),
+                &lines,
+                &mut dialog,
+                &theme,
+                &SelectionState::None,
+                &mut layout_map,
+            );
         });
         let text = all_text(&terminal);
 
@@ -483,9 +527,18 @@ mod tests {
             notice(LineStatus::Warn, "b", "degraded", 2),
         ];
         let mut dialog = NoticesDialog::default();
+        let mut layout_map = LayoutMap::default();
         let mut terminal = nuotc::TestTerminal::new(100, 30);
         terminal.draw(|f| {
-            draw_notices_modal(f, f.area(), &lines, &mut dialog, &theme);
+            draw_notices_modal(
+                f,
+                f.area(),
+                &lines,
+                &mut dialog,
+                &theme,
+                &SelectionState::None,
+                &mut layout_map,
+            );
         });
         let text = all_text(&terminal);
         assert!(
@@ -495,6 +548,64 @@ mod tests {
         assert!(
             text.contains("warn"),
             "monochrome must name the warning severity in text: {text}"
+        );
+    }
+
+    #[test]
+    fn notice_content_registers_selectable_regions_and_paints_selection() {
+        use view::model::layout::{MODAL_DOC_MSG_IDX, SemanticCursor};
+
+        let theme = Theme::default();
+        let lines = vec![notice(
+            LineStatus::Failed,
+            "backend",
+            "connection refused by upstream",
+            1_700_000_000_000,
+        )];
+        let mut dialog = NoticesDialog::default();
+        let mut layout_map = LayoutMap::default();
+        let mut terminal = nuotc::TestTerminal::new(100, 30);
+        terminal.draw(|f| {
+            draw_notices_modal(
+                f,
+                f.area(),
+                &lines,
+                &mut dialog,
+                &theme,
+                &SelectionState::None,
+                &mut layout_map,
+            );
+        });
+
+        let region = layout_map
+            .first_region_for_message(MODAL_DOC_MSG_IDX)
+            .expect("notice modal body must register MODAL_DOC_MSG_IDX regions");
+        assert!(region.rect.width > 0);
+
+        // Select the headline row (block_idx = 1) and verify selection highlight paints.
+        let sel = SelectionState::Range {
+            anchor: SemanticCursor::new(MODAL_DOC_MSG_IDX, 1, 0),
+            head: SemanticCursor::new(MODAL_DOC_MSG_IDX, 1, 10),
+        };
+        layout_map = LayoutMap::default();
+        terminal.draw(|f| {
+            draw_notices_modal(
+                f,
+                f.area(),
+                &lines,
+                &mut dialog,
+                &theme,
+                &sel,
+                &mut layout_map,
+            );
+        });
+        let buf = terminal.buffer();
+        let sel_bg = theme.selected();
+        let has_selection_bg = (0..30u16)
+            .any(|y| (0..100u16).any(|x| buf.get(x, y).is_some_and(|c| c.style.bg == sel_bg)));
+        assert!(
+            has_selection_bg,
+            "selected notice text must paint with theme.selected() background"
         );
     }
 

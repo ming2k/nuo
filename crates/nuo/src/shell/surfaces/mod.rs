@@ -181,7 +181,7 @@ impl DialogKind {
             DialogKind::Switcher => "Quick switcher",
             DialogKind::PortShare => "Port & sharing",
             DialogKind::Help => "Help & Shortcuts",
-            DialogKind::Notices => "Notices & Disclosures",
+            DialogKind::Notices => "Notices",
         }
     }
 
