@@ -17,15 +17,14 @@ impl Tool for UseSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Load a skill into the conversation context. Skills provide domain-specific expertise. \
-         Call this when the task matches a skill's description."
+        "Load a skill's domain instructions into the conversation context."
     }
 
     fn parameters(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
-                "name": { "type": "string", "description": "The skill name to load" }
+                "name": { "type": "string", "description": "Skill name to load" }
             },
             "required": ["name"]
         })

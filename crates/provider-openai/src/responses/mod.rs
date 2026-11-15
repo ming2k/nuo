@@ -16,7 +16,10 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use protocol::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
-use protocol::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
+use protocol::{
+    CredentialSource, Effort, ProviderError, ProviderErrorKind, ReasoningEffortControl,
+    ResolvedAuth,
+};
 
 use std::sync::{Arc, Mutex};
 
@@ -417,7 +420,10 @@ impl OpenAiResponsesProvider {
                 stream,
                 instructions: Some(&request.instructions),
                 tool_specs: request.tool_specs(),
-                reasoning_effort: self.reasoning_effort,
+                reasoning_effort: ReasoningEffortControl::resolve(
+                    request.reasoning_effort,
+                    self.reasoning_effort,
+                ),
                 delivery: &request.delivery,
                 store: self.store,
                 dialect: self.dialect,
@@ -541,17 +547,6 @@ impl Provider for OpenAiResponsesProvider {
 
     fn usage_supported(&self) -> bool {
         true
-    }
-
-    fn supports_parallel_tool_calls(&self) -> bool {
-        if self.capabilities.family == "deepseek"
-            || self.capabilities.family.contains("deepseek")
-            || self.endpoint.model.contains("deepseek")
-        {
-            false
-        } else {
-            self.dialect.supports_parallel_tool_calls()
-        }
     }
 
     async fn chat(
@@ -1008,15 +1003,15 @@ mod stream_protocol_tests {
     }
 
     #[test]
-    fn deepseek_on_standard_dialect_disables_parallel_tool_calls_capability() {
+    fn deepseek_and_standard_providers_support_parallel_tool_calls() {
         let provider = OpenAiResponsesProvider::from_static_key(
             "test-key".to_string(),
-            "deepseek/deepseek-v4-flash-fast".to_string(),
-            "https://api.commandcode.ai/provider/v1/responses",
+            "deepseek-flash".to_string(),
+            "https://api.deepseek.com/v1/responses",
         )
-        .with_dialect(protocol::OpenAiResponsesDialect::Standard);
+        .with_dialect(protocol::OpenAiResponsesDialect::DeepSeek);
 
-        assert!(!provider.supports_parallel_tool_calls());
+        assert!(provider.supports_parallel_tool_calls());
 
         let gpt_provider = OpenAiResponsesProvider::from_static_key(
             "test-key".to_string(),
@@ -1026,5 +1021,56 @@ mod stream_protocol_tests {
         .with_dialect(protocol::OpenAiResponsesDialect::Standard);
 
         assert!(gpt_provider.supports_parallel_tool_calls());
+    }
+
+    #[test]
+    fn request_reasoning_effort_overrides_provider_default() {
+        let mut caps = protocol::ModelCapabilities::for_channel("deepseek-flash", None);
+        caps.effort_levels = [Effort::None, Effort::Low, Effort::Medium, Effort::High]
+            .into_iter()
+            .map(protocol::EffortLevel::Known)
+            .collect();
+        let provider = OpenAiResponsesProvider::from_static_key(
+            "test-key".to_string(),
+            "deepseek-flash".to_string(),
+            "https://api.deepseek.com/v1/responses",
+        )
+        .with_dialect(protocol::OpenAiResponsesDialect::DeepSeek)
+        .with_model_capabilities(caps)
+        .with_reasoning_effort(Some(Effort::High));
+
+        let base_req = ModelRequest::new(vec![tool::Message::new(tool::Role::User, "hi")]);
+        let body_default = provider.build_body(&base_req, false).unwrap();
+        assert_eq!(body_default["reasoning"]["effort"], "high");
+
+        let cap_low_req = base_req
+            .clone()
+            .with_reasoning_effort(Some(ReasoningEffortControl::Cap(Effort::Low)));
+        let body_cap_low = provider.build_body(&cap_low_req, false).unwrap();
+        assert_eq!(body_cap_low["reasoning"]["effort"], "low");
+
+        let override_req = base_req
+            .clone()
+            .with_reasoning_effort(Some(ReasoningEffortControl::Override(Effort::None)));
+        let body_none = provider.build_body(&override_req, false).unwrap();
+        assert_eq!(body_none["reasoning"]["effort"], "none");
+
+        // Cap(Low) must never escalate an explicit None or Minimal route setting.
+        let off_provider = OpenAiResponsesProvider::from_static_key(
+            "test-key".to_string(),
+            "deepseek-flash".to_string(),
+            "https://api.deepseek.com/v1/responses",
+        )
+        .with_dialect(protocol::OpenAiResponsesDialect::DeepSeek)
+        .with_model_capabilities(protocol::ModelCapabilities {
+            effort_levels: [Effort::None, Effort::Low, Effort::Medium, Effort::High]
+                .into_iter()
+                .map(protocol::EffortLevel::Known)
+                .collect(),
+            ..protocol::ModelCapabilities::for_channel("deepseek-flash", None)
+        })
+        .with_reasoning_effort(Some(Effort::None));
+        let body_still_off = off_provider.build_body(&cap_low_req, false).unwrap();
+        assert_eq!(body_still_off["reasoning"]["effort"], "none");
     }
 }

@@ -97,11 +97,7 @@ impl Tool for ArchivistInstructSessionTool {
     }
 
     fn description(&self) -> &str {
-        "Hand a task or directive to a hosted workspace session as a top-down \
-         instruction (the session's master will execute it inside its own \
-         workspace). Use this after finding a relevant session when the user \
-         wants action taken — you locate and delegate; you never touch files \
-         yourself."
+        "Dispatch a top-down instruction to a hosted workspace session for its agent to execute."
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -110,11 +106,11 @@ impl Tool for ArchivistInstructSessionTool {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "The target session's id (or unique hex prefix)"
+                    "description": "Target session ID (or unique hex prefix)"
                 },
                 "instruction": {
                     "type": "string",
-                    "description": "The directive for the session master to execute"
+                    "description": "Directive for the session agent to execute"
                 }
             },
             "required": ["session_id", "instruction"]
@@ -180,11 +176,7 @@ impl Tool for ArchivistSearchHistoryTool {
     }
 
     fn description(&self) -> &str {
-        "Full-text search across every session transcript this nuo instance has ever \
-         persisted, across all projects/workspaces. Matches message text (BM25-ranked) \
-         and returns session ids, titles, roles, and highlighted snippets. Use this \
-         when the user describes a past conversation by content ('the one where we \
-         debugged the retry loop')."
+        "Full-text BM25 search across persisted session transcripts, returning matching snippets and session metadata."
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -193,15 +185,15 @@ impl Tool for ArchivistSearchHistoryTool {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Keywords or phrases to match against transcript text (FTS5 MATCH syntax; plain words also work)"
+                    "description": "Keywords or FTS5 MATCH query"
                 },
                 "workspace": {
                     "type": "string",
-                    "description": "Optional project root to restrict hits to (omit to search every project)"
+                    "description": "Project root filter (omit to search all projects)"
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum hits to return (default 20, max 100)"
+                    "description": "Max hits to return (default 20, max 100)"
                 }
             },
             "required": ["query"]
@@ -265,10 +257,7 @@ impl Tool for ArchivistListSessionsTool {
     }
 
     fn description(&self) -> &str {
-        "List every session this nuo instance has ever persisted, across all scopes \
-         — id, title, digest (intent + history), scope, message count, and \
-         timestamps, newest activity first. Use this to survey what conversations exist \
-         or to filter by title/intent before reading one in detail."
+        "List persisted sessions (newest activity first) with IDs, titles, digests, scopes, and message counts."
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -277,11 +266,11 @@ impl Tool for ArchivistListSessionsTool {
             "properties": {
                 "workspace": {
                     "type": "string",
-                    "description": "Optional project root to restrict the listing to (omit for all scopes)"
+                    "description": "Project root filter (omit for all scopes)"
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum sessions to return (default 50)"
+                    "description": "Max sessions to return (default 50)"
                 }
             }
         })
@@ -339,9 +328,7 @@ impl Tool for ArchivistReadSessionTool {
     }
 
     fn description(&self) -> &str {
-        "Read a specific session's transcript tail by session id (4+ hex-char prefix \
-         accepted). Returns role-tagged messages so a found conversation can be quoted \
-         or summarized back to the user."
+        "Read the recent transcript messages of a session by ID."
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -350,11 +337,11 @@ impl Tool for ArchivistReadSessionTool {
             "properties": {
                 "session_id": {
                     "type": "string",
-                    "description": "The session id (or unique hex prefix) to read"
+                    "description": "Session ID (or 4+ hex-char prefix)"
                 },
                 "tail_messages": {
                     "type": "integer",
-                    "description": "Number of most recent messages to return (default 20, max 200)"
+                    "description": "Max recent messages to return (default 20, max 200)"
                 }
             },
             "required": ["session_id"]

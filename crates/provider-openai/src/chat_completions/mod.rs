@@ -15,7 +15,10 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use protocol::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
-use protocol::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
+use protocol::{
+    CredentialSource, Effort, ProviderError, ProviderErrorKind, ReasoningEffortControl,
+    ResolvedAuth,
+};
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -318,6 +321,34 @@ impl OpenAiChatCompletionsProvider {
             .attach_auth_scoped_headers(req, auth)
             .with_telemetry(telemetry.clone()))
     }
+
+    fn build_body(
+        &self,
+        request: &ModelRequest,
+        stream: bool,
+    ) -> Result<serde_json::Value, ProviderError> {
+        let cache_plan = self
+            .prompt_cache
+            .resolve(request)
+            .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
+        Ok(request::body_with_capabilities(
+            &request.messages,
+            &request.temporary_context,
+            request::BodyInput {
+                model: &self.endpoint.model,
+                stream,
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
+                reasoning_effort: ReasoningEffortControl::resolve(
+                    request.reasoning_effort,
+                    self.reasoning_effort,
+                ),
+                dialect: self.dialect,
+                cache_plan: &cache_plan,
+            },
+            &self.capabilities,
+        ))
+    }
 }
 
 #[async_trait]
@@ -357,39 +388,11 @@ impl Provider for OpenAiChatCompletionsProvider {
         true
     }
 
-    fn supports_parallel_tool_calls(&self) -> bool {
-        if self.capabilities.family == "deepseek"
-            || self.capabilities.family.contains("deepseek")
-            || self.endpoint.model.contains("deepseek")
-        {
-            false
-        } else {
-            self.dialect.supports_parallel_tool_calls()
-        }
-    }
-
     async fn chat(
         &self,
         request: &ModelRequest,
     ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        let cache_plan = self
-            .prompt_cache
-            .resolve(request)
-            .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
-        let body = request::body_with_capabilities(
-            &request.messages,
-            &request.temporary_context,
-            request::BodyInput {
-                model: &self.endpoint.model,
-                stream: false,
-                instructions: Some(&request.instructions),
-                tool_specs: request.tool_specs(),
-                reasoning_effort: self.reasoning_effort,
-                dialect: self.dialect,
-                cache_plan: &cache_plan,
-            },
-            &self.capabilities,
-        );
+        let body = self.build_body(request, false)?;
 
         let label = self.label();
         let resp = self
@@ -443,24 +446,7 @@ impl Provider for OpenAiChatCompletionsProvider {
         telemetry: protocol::TransportTelemetry,
     ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
     {
-        let cache_plan = self
-            .prompt_cache
-            .resolve(request)
-            .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
-        let body = request::body_with_capabilities(
-            &request.messages,
-            &request.temporary_context,
-            request::BodyInput {
-                model: &self.endpoint.model,
-                stream: true,
-                instructions: Some(&request.instructions),
-                tool_specs: request.tool_specs(),
-                reasoning_effort: self.reasoning_effort,
-                dialect: self.dialect,
-                cache_plan: &cache_plan,
-            },
-            &self.capabilities,
-        );
+        let body = self.build_body(request, true)?;
 
         let response = self
             .send_request(
@@ -489,24 +475,7 @@ impl Provider for OpenAiChatCompletionsProvider {
         BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
         protocol::ProviderError,
     > {
-        let cache_plan = self
-            .prompt_cache
-            .resolve(request)
-            .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
-        let body = request::body_with_capabilities(
-            &request.messages,
-            &request.temporary_context,
-            request::BodyInput {
-                model: &self.endpoint.model,
-                stream: true,
-                instructions: Some(&request.instructions),
-                tool_specs: request.tool_specs(),
-                reasoning_effort: self.reasoning_effort,
-                dialect: self.dialect,
-                cache_plan: &cache_plan,
-            },
-            &self.capabilities,
-        );
+        let body = self.build_body(request, true)?;
 
         let response = self
             .send_request(
@@ -758,6 +727,44 @@ mod tests {
             headers.get("user-agent").unwrap().to_str().unwrap(),
             OPENCODE_USER_AGENT
         );
+    }
+
+    #[test]
+    fn request_reasoning_effort_cap_and_override_respect_route_state() {
+        let caps = protocol::ModelCapabilities {
+            effort_levels: [Effort::None, Effort::Low, Effort::Medium, Effort::High]
+                .into_iter()
+                .map(protocol::EffortLevel::Known)
+                .collect(),
+            ..protocol::ModelCapabilities::for_channel("deepseek-chat", None)
+        };
+        let high_provider = OpenAiChatCompletionsProvider::with_base_url(
+            "k".to_string(),
+            "deepseek-chat".to_string(),
+            "https://api.deepseek.com",
+        )
+        .with_model_capabilities(caps.clone())
+        .with_reasoning_effort(Some(Effort::High));
+
+        let cap_low = ModelRequest::new(vec![Message::new(Role::User, "hi")])
+            .with_reasoning_effort(Some(ReasoningEffortControl::Cap(Effort::Low)));
+        let body_capped = high_provider.build_body(&cap_low, false).unwrap();
+        assert_eq!(body_capped["reasoning_effort"], "low");
+
+        let off_provider = OpenAiChatCompletionsProvider::with_base_url(
+            "k".to_string(),
+            "deepseek-chat".to_string(),
+            "https://api.deepseek.com",
+        )
+        .with_model_capabilities(caps)
+        .with_reasoning_effort(Some(Effort::None));
+        let body_still_off = off_provider.build_body(&cap_low, false).unwrap();
+        assert_eq!(body_still_off["reasoning_effort"], "none");
+
+        let override_off = ModelRequest::new(vec![Message::new(Role::User, "hi")])
+            .with_reasoning_effort(Some(ReasoningEffortControl::Override(Effort::None)));
+        let body_forced_off = high_provider.build_body(&override_off, false).unwrap();
+        assert_eq!(body_forced_off["reasoning_effort"], "none");
     }
 
     // Golden-wire tests live in nuo-providers (`registry::qoder::wire_golden`)

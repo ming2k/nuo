@@ -11,7 +11,7 @@ use crate::search::SearchProvider;
 
 #[derive(ToolSchema, Deserialize)]
 struct WebSearchArgs {
-    #[tool(desc = "The search query")]
+    #[tool(desc = "Search query")]
     query: String,
 }
 
@@ -78,9 +78,7 @@ impl WebSearchTool {
 
     fn description_text() -> String {
         let year = chrono::Utc::now().format("%Y");
-        format!(
-            "Search the web for current information, documentation, or events. Current year is {year}."
-        )
+        format!("Search the web for current information or documentation (current year: {year}).")
     }
 }
 

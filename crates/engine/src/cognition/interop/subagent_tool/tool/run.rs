@@ -279,6 +279,7 @@ impl SubagentTool {
         }
         let mut subagent = builder.build();
         subagent.set_kind(protocol::AgentKind::Subagent);
+        subagent.set_reasoning_effort(profile.reasoning_effort);
         // Role-scoped project instructions select on the staffing role. The
         // child's identity is its profile task prompt, so the profile name is
         // the role it must resolve against.

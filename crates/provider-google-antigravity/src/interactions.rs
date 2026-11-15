@@ -215,7 +215,12 @@ impl GoogleInteractionsProvider {
             body["tools"] = json!([{ "function_declarations": decls }]);
         }
 
-        if let Some(effort) = self.reasoning_effort {
+        if !self.capabilities.effort_levels.is_empty()
+            && let Some(effort) = protocol::ReasoningEffortControl::resolve(
+                request.reasoning_effort,
+                self.reasoning_effort,
+            )
+        {
             // The depth rung is the same closed enum on this surface. Translate
             // through the one provider-owned mapping rather than upper-casing
             // the generic effort spelling, which would emit `MINIMAL` (a value
@@ -223,7 +228,7 @@ impl GoogleInteractionsProvider {
             // unattributable `400 INVALID_ARGUMENT`.
             body["generation_config"] = json!({
                 "thinking_config": {
-                    "include_thoughts": true,
+                    "include_thoughts": effort != Effort::None,
                     "thinking_level": crate::request::thinking_level_wire(effort),
                 }
             });

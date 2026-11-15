@@ -184,11 +184,67 @@ impl AnthropicMessagesProvider {
         self
     }
 
+    fn effective_thinking(&self, request: &ModelRequest) -> ThinkingConfig {
+        let always_on = self.capabilities.thinking == protocol::ReasoningSupport::AdaptiveAlwaysOn;
+        if request.reasoning_effort.is_none() {
+            return self.thinking;
+        }
+        let thinking_active = self.thinking.mode.is_on() || always_on;
+        let (keep_on, resolved_effort) = protocol::ReasoningEffortControl::resolve_switchable(
+            request.reasoning_effort,
+            thinking_active,
+            self.thinking.effort,
+        );
+        if !keep_on {
+            let fallback_effort = if always_on && !self.capabilities.effort_levels.is_empty() {
+                Effort::shallowest_nonzero(&self.capabilities.effort_levels).or(Some(Effort::Low))
+            } else {
+                None
+            };
+            return ThinkingConfig {
+                mode: protocol::ReasoningMode::Off,
+                effort: fallback_effort,
+            };
+        }
+        ThinkingConfig {
+            mode: if always_on {
+                self.thinking.mode
+            } else {
+                protocol::ReasoningMode::Adaptive
+            },
+            effort: resolved_effort,
+        }
+    }
+
+    fn build_request_body(
+        &self,
+        request: &ModelRequest,
+        stream: bool,
+        cache_plan: &protocol::ResolvedCachePolicy,
+        thinking: ThinkingConfig,
+    ) -> serde_json::Value {
+        request::body_with_capabilities(
+            &request.messages,
+            &request.temporary_context,
+            request::BodyInput {
+                model: &self.endpoint.model,
+                stream,
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
+                max_tokens: self.max_tokens,
+                thinking,
+                cache_plan,
+            },
+            &self.capabilities,
+        )
+    }
+
     /// Apply the per-request auth + version + beta headers to a request builder.
     fn build_request_for_auth(
         &self,
         wire: &provider::WireRequest,
         auth: &ResolvedAuth,
+        thinking: ThinkingConfig,
     ) -> Result<RequestBuilder, protocol::ProviderError> {
         let encoded = wire.encode()?;
         let mut req = RequestBuilder::new(http::Method::POST, self.endpoint.base_url())
@@ -197,7 +253,7 @@ impl AnthropicMessagesProvider {
         for (name, value) in request::headers(
             auth.token.expose_secret(),
             &self.capabilities,
-            self.thinking,
+            thinking,
             self.dialect == protocol::AnthropicMessagesDialect::Copilot,
         ) {
             req = req.header(name, value);
@@ -222,6 +278,7 @@ impl AnthropicMessagesProvider {
         &self,
         wire: &provider::WireRequest,
         is_stream: bool,
+        thinking: ThinkingConfig,
         telemetry: &protocol::TransportTelemetry,
     ) -> Result<HttpResponse, ProviderError> {
         // Prewarm races auth resolution: both are async, neither needs the
@@ -238,7 +295,7 @@ impl AnthropicMessagesProvider {
         let auth = auth_result.map_err(|e| ProviderError::authentication("Anthropic", e))?;
 
         let mut req = self
-            .build_request_for_auth(wire, &auth)?
+            .build_request_for_auth(wire, &auth, thinking)?
             .with_telemetry(telemetry.clone());
         if !is_stream {
             req = req.timeout(self.client.request_timeout());
@@ -257,7 +314,7 @@ impl AnthropicMessagesProvider {
                 .await
                 .map_err(|error| ProviderError::authentication("Anthropic", error))?;
             let mut retry_req = self
-                .build_request_for_auth(wire, &refreshed_auth)?
+                .build_request_for_auth(wire, &refreshed_auth, thinking)?
                 .with_telemetry(telemetry.clone());
             if !is_stream {
                 retry_req = retry_req.timeout(self.client.request_timeout());
@@ -317,24 +374,17 @@ impl Provider for AnthropicMessagesProvider {
         request: &ModelRequest,
     ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
         let cache_plan = self.resolve_cache_plan(request)?;
-        let body = request::body_with_capabilities(
-            &request.messages,
-            &request.temporary_context,
-            request::BodyInput {
-                model: &self.endpoint.model,
-                stream: false,
-                instructions: Some(&request.instructions),
-                tool_specs: request.tool_specs(),
-                max_tokens: self.max_tokens,
-                thinking: self.thinking,
-                cache_plan: &cache_plan,
-            },
-            &self.capabilities,
-        );
+        let thinking = self.effective_thinking(request);
+        let body = self.build_request_body(request, false, &cache_plan, thinking);
 
         let wire = provider::WireRequest::new(protocol::WireProtocol::AnthropicMessages, body);
         let resp = self
-            .send_request(&wire, false, &protocol::TransportTelemetry::default())
+            .send_request(
+                &wire,
+                false,
+                thinking,
+                &protocol::TransportTelemetry::default(),
+            )
             .await?;
         let response_json: serde_json::Value = decode_response_json(resp, "Anthropic").await?;
 
@@ -367,23 +417,11 @@ impl Provider for AnthropicMessagesProvider {
     ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
     {
         let cache_plan = self.resolve_cache_plan(request)?;
-        let body = request::body_with_capabilities(
-            &request.messages,
-            &request.temporary_context,
-            request::BodyInput {
-                model: &self.endpoint.model,
-                stream: true,
-                instructions: Some(&request.instructions),
-                tool_specs: request.tool_specs(),
-                max_tokens: self.max_tokens,
-                thinking: self.thinking,
-                cache_plan: &cache_plan,
-            },
-            &self.capabilities,
-        );
+        let thinking = self.effective_thinking(request);
+        let body = self.build_request_body(request, true, &cache_plan, thinking);
 
         let wire = provider::WireRequest::new(protocol::WireProtocol::AnthropicMessages, body);
-        let response = self.send_request(&wire, true, &telemetry).await?;
+        let response = self.send_request(&wire, true, thinking, &telemetry).await?;
 
         // Reuse the shared SSE byte reassembly; each payload is one Anthropic
         // event JSON. Map to text deltas only (this is the simple stream path).
@@ -403,23 +441,11 @@ impl Provider for AnthropicMessagesProvider {
         protocol::ProviderError,
     > {
         let cache_plan = self.resolve_cache_plan(request)?;
-        let body = request::body_with_capabilities(
-            &request.messages,
-            &request.temporary_context,
-            request::BodyInput {
-                model: &self.endpoint.model,
-                stream: true,
-                instructions: Some(&request.instructions),
-                tool_specs: request.tool_specs(),
-                max_tokens: self.max_tokens,
-                thinking: self.thinking,
-                cache_plan: &cache_plan,
-            },
-            &self.capabilities,
-        );
+        let thinking = self.effective_thinking(request);
+        let body = self.build_request_body(request, true, &cache_plan, thinking);
 
         let wire = provider::WireRequest::new(protocol::WireProtocol::AnthropicMessages, body);
-        let response = self.send_request(&wire, true, &telemetry).await?;
+        let response = self.send_request(&wire, true, thinking, &telemetry).await?;
 
         let sig_stash = signature::SignatureStash::shared();
         let terminal_stash = sig_stash.clone();

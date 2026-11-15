@@ -163,14 +163,17 @@ pub fn body_with_capabilities(
             instructions.push_str(&ephemeral_instructions);
         }
     }
-    let last_assistant_idx = working.iter().rposition(|m| m.role == Role::Assistant);
+    let active_round_start = working
+        .iter()
+        .rposition(|m| m.opens_user_round())
+        .unwrap_or(0);
     for (m_idx, m) in working.into_iter().enumerate() {
         match m.role {
             Role::User => {
                 input_items.push(InputItem::plain(message_item("user", m, "input_text")));
             }
             Role::Assistant => {
-                let is_latest_assistant = Some(m_idx) == last_assistant_idx;
+                let in_active_round = m_idx >= active_round_start;
                 let is_deepseek = dialect == protocol::OpenAiResponsesDialect::DeepSeek;
                 if matches!(delivery, protocol::RequestDelivery::OpaqueReplay) {
                     match m
@@ -202,7 +205,7 @@ pub fn body_with_capabilities(
                                     item.get("type").and_then(Value::as_str) == Some("reasoning")
                                 })
                             {
-                                let reasoning_text = if is_deepseek && !is_latest_assistant {
+                                let reasoning_text = if is_deepseek && !in_active_round {
                                     ""
                                 } else {
                                     m.reasoning_content
@@ -216,7 +219,7 @@ pub fn body_with_capabilities(
                                 )));
                             }
                             if (is_deepseek || dialect.dual_form_reasoning_replay())
-                                && !is_latest_assistant
+                                && !in_active_round
                             {
                                 let pruned_items: Vec<Value> = items
                                     .iter()
@@ -252,13 +255,14 @@ pub fn body_with_capabilities(
                 // or message originated from a different provider), reconstruct the items.
                 // 1. Emit reasoning item if reasoning_content is present, or if tools were called
                 // on a thinking-enabled dialect requiring unencrypted reasoning.
-                // For DeepSeek, older historical assistant turns have reasoning pruned to "" to prevent
-                // context saturation and V-shaped attention collapse while satisfying upstream schema verification.
+                // For DeepSeek, assistant turns from completed prior user rounds have reasoning
+                // pruned to "" while all assistant tool steps in the active user round keep their
+                // full reasoning chain (preserving prefix KV cache and CoT continuity across steps).
                 //
                 // A *portable* gateway fronts several upstreams with contradictory
                 // replay contracts behind one URL, so it gets the dual form:
                 // `summary` and `content` always present together, with the
-                // pruned (older-turn) case carrying empty `summary` parts only —
+                // pruned (older-round) case carrying empty `summary` parts only —
                 // never an empty `reasoning_text`, which one upstream rejects as
                 // "must be passed back to the API" (ADR-0142).
                 if dialect.dual_form_reasoning_replay() {
@@ -266,13 +270,13 @@ pub fn body_with_capabilities(
                     // where a real chain exists: a turn that performed a tool
                     // call must be preceded by reasoning for the upstreams that
                     // validate the pairing, while a plain text reply needs none.
-                    // Older turns drop their chain entirely (ADR-0083 hygiene:
+                    // Completed older rounds drop their chain entirely (ADR-0083 hygiene:
                     // replaying every historical chain saturates the context and
                     // collapses attention), keeping only the empty item a tool
-                    // call requires; the latest turn replays what it really had.
+                    // call requires; the active user round replays what it really had.
                     let chain = m.reasoning_content.as_deref().filter(|s| !s.is_empty());
                     let has_call = m.tool_calls.is_some();
-                    let (text, needed) = if is_latest_assistant {
+                    let (text, needed) = if in_active_round {
                         (chain, has_call || chain.is_some())
                     } else {
                         (None, has_call)
@@ -280,7 +284,7 @@ pub fn body_with_capabilities(
                     if needed {
                         input_items.push(InputItem::plain(reasoning_item(text, true)));
                     }
-                } else if is_deepseek && !is_latest_assistant {
+                } else if is_deepseek && !in_active_round {
                     if m.tool_calls.is_some() {
                         input_items.push(InputItem::plain(reasoning_item(Some(""), false)));
                     }
@@ -358,7 +362,7 @@ pub fn body_with_capabilities(
         if dialect.supports_tool_choice() {
             body["tool_choice"] = json!("auto");
         }
-        if dialect.supports_parallel_tool_calls() {
+        if dialect.emits_parallel_tool_calls_field() {
             body["parallel_tool_calls"] = json!(true);
         }
     }

@@ -1,8 +1,8 @@
 //! One versioned runtime context policy.
 //!
 //! The policy is configuration, not a second context model. It carries the
-//! watermarks, the effective input ceiling, and the two tool-output retention
-//! bands the request pipeline actually reads. The Phase-A fact/view/checkpoint
+//! watermarks, the effective input ceiling, and the observation protection window
+//! used by watermark-gated pruning. The Phase-A fact/view/checkpoint
 //! substrate that once lived beside it was deleted with SessionIR
 //! ([ADR-0182](../../docs/adr/0182-context-policy-is-configuration-and-phase-a-substrate-is-deleted.md)).
 //!
@@ -22,9 +22,6 @@ pub const CONTEXT_POLICY_SCHEMA_VERSION: u32 = 1;
 /// 1M-token route that never compacts turns every ReAct turn into a multi-second
 /// wait. The policy derives every watermark from the capped window.
 pub const DEFAULT_MAX_INPUT_TOKENS: u64 = 128_000;
-
-/// Default horizon, in tokens, for tool-result retention.
-pub const DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS: u64 = 24_000;
 
 /// Default verbatim window for the newest tool output, in tokens.
 pub const DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS: u64 = 6_000;
@@ -137,9 +134,6 @@ pub struct ContextPolicy {
     pub max_input_tokens: u64,
     /// Verbatim window for the newest tool output, in tokens.
     pub recent_observation_protect_tokens: u64,
-    /// Absolute token horizon for tool-result retention, measured from the tail.
-    #[serde(default = "default_tool_output_retention_tokens")]
-    pub tool_output_retention_tokens: u64,
 }
 
 impl Default for ContextPolicy {
@@ -153,7 +147,6 @@ impl Default for ContextPolicy {
             fallback_window_tokens: 32_000,
             max_input_tokens: DEFAULT_MAX_INPUT_TOKENS,
             recent_observation_protect_tokens: DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS,
-            tool_output_retention_tokens: DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS,
         }
     }
 }
@@ -166,8 +159,6 @@ pub enum PolicyError {
     InvalidLimit { name: String },
     /// A watermark ordering rule failed.
     Watermarks(WatermarkError),
-    /// The tool-output retention horizon is shorter than the verbatim window.
-    RetentionBelowProtect { retention: u64, protect: u64 },
     /// The stamped schema version is not the one this runtime knows.
     UnknownSchemaVersion { found: u32, expected: u32 },
 }
@@ -177,10 +168,6 @@ impl std::fmt::Display for PolicyError {
         match self {
             Self::InvalidLimit { name } => write!(f, "invalid finite context limit: {name}"),
             Self::Watermarks(error) => write!(f, "watermark policy invalid: {error}"),
-            Self::RetentionBelowProtect { retention, protect } => write!(
-                f,
-                "tool-output retention horizon {retention} is below the verbatim window {protect}"
-            ),
             Self::UnknownSchemaVersion { found, expected } => write!(
                 f,
                 "unknown context policy schema version {found} (expected {expected})"
@@ -207,20 +194,10 @@ impl ContextPolicy {
                 "recent_observation_protect_tokens",
                 self.recent_observation_protect_tokens,
             ),
-            (
-                "tool_output_retention_tokens",
-                self.tool_output_retention_tokens,
-            ),
         ] {
             if value == 0 {
                 return Err(PolicyError::InvalidLimit { name: name.into() });
             }
-        }
-        if self.tool_output_retention_tokens < self.recent_observation_protect_tokens {
-            return Err(PolicyError::RetentionBelowProtect {
-                retention: self.tool_output_retention_tokens,
-                protect: self.recent_observation_protect_tokens,
-            });
         }
         self.watermarks.validate().map_err(PolicyError::Watermarks)
     }
@@ -257,10 +234,6 @@ fn default_max_input_tokens() -> u64 {
     DEFAULT_MAX_INPUT_TOKENS
 }
 
-fn default_tool_output_retention_tokens() -> u64 {
-    DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,13 +255,12 @@ mod tests {
         ));
 
         let p = ContextPolicy {
-            recent_observation_protect_tokens: 8_000,
-            tool_output_retention_tokens: 6_000,
+            recent_observation_protect_tokens: 0,
             ..ContextPolicy::default()
         };
         assert!(matches!(
             p.validate().unwrap_err(),
-            PolicyError::RetentionBelowProtect { .. }
+            PolicyError::InvalidLimit { .. }
         ));
 
         let p = ContextPolicy {
@@ -339,9 +311,5 @@ mod tests {
         "#;
         let policy: ContextPolicy = toml::from_str(source).expect("policy parses");
         assert_eq!(policy.max_input_tokens, DEFAULT_MAX_INPUT_TOKENS);
-        assert_eq!(
-            policy.tool_output_retention_tokens,
-            DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
-        );
     }
 }

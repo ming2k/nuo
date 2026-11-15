@@ -18,11 +18,9 @@ use tool::{
 };
 
 mod edit;
-mod patch;
 mod read;
 
 pub use edit::{EditTextArgs, EditTextTool};
-pub use patch::{PatchArgs, PatchTool};
 pub use read::{ReadArgs, ReadTool};
 
 /// The `path` argument of a file tool's raw JSON arguments, when present and
@@ -195,11 +193,9 @@ fn display_match_path(file_path: &Path, search_root: &Path, workspace_root: &Pat
 /// Typed parameters for [`WriteFileTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct WriteFileArgs {
-    #[tool(desc = "Path to the file to create or overwrite relative to the workspace root")]
+    #[tool(desc = "File path to create or overwrite (relative to workspace root)")]
     pub path: String,
-    #[tool(
-        desc = "The complete, unabridged content of the file. Never use placeholders like '// ... existing code'"
-    )]
+    #[tool(desc = "Complete file content (no truncation placeholders)")]
     pub content: String,
 }
 
@@ -221,7 +217,7 @@ impl Tool for WriteFileTool {
     }
 
     fn description(&self) -> &str {
-        "Creates a new file or fully overwrites an entire file. PREFER edit_text for modifying existing files to prevent accidental truncation or loss of unchanged code."
+        "Create a new file or overwrite an entire file. Prefer edit_text for localized edits to existing files."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -386,14 +382,12 @@ pub struct FindFilesArgs {
     #[tool(desc = "Directory to search (default '.')")]
     pub path: Option<String>,
     #[serde(default, alias = "name", alias = "glob", alias = "query")]
-    #[tool(
-        desc = "Glob pattern or filename to search for (e.g. '*.rs', 'Cargo.toml', 'src/**'). If omitted or empty, matches all files."
-    )]
+    #[tool(desc = "Glob pattern or filename (e.g. '*.rs', 'src/**'); omit to match all files")]
     pub pattern: Option<String>,
     #[serde(default, alias = "globs", alias = "includes")]
-    #[tool(desc = "Optional list of glob patterns to match files")]
+    #[tool(desc = "Multiple glob patterns to match")]
     pub patterns: Option<Vec<String>>,
-    #[tool(desc = "Maximum results cap (default 200)")]
+    #[tool(desc = "Max results to return (default 200)")]
     pub limit: Option<usize>,
 }
 
@@ -415,7 +409,7 @@ impl Tool for FindFilesTool {
     }
 
     fn description(&self) -> &str {
-        "Find files recursively by glob pattern or filename (e.g. '*.rs', 'Cargo.toml'). If pattern is omitted, lists all files. Respects .gitignore and project ignore rules."
+        "Find files recursively by glob pattern or filename, respecting ignore rules."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -524,18 +518,18 @@ impl Tool for FindFilesTool {
 pub struct SearchTextArgs {
     #[tool(desc = "Directory or file to search (default '.')")]
     pub path: Option<String>,
-    #[tool(desc = "Exact text or regex to search for")]
+    #[tool(desc = "Literal text or regex pattern")]
     pub query: String,
-    #[tool(desc = "Treat query as a regular expression (default false)")]
+    #[tool(desc = "Interpret query as regex (default false)")]
     pub regex: Option<bool>,
     #[serde(default, alias = "glob", alias = "globs", alias = "includes")]
-    #[tool(desc = "Optional file glob filters (e.g. '*.rs', 'src/**'). Empty means all files.")]
+    #[tool(desc = "File glob filters (e.g. ['*.rs'])")]
     pub include: Option<Vec<String>>,
-    #[tool(desc = "Case-insensitive matching (default false)")]
+    #[tool(desc = "Case-insensitive search (default false)")]
     pub case_insensitive: Option<bool>,
-    #[tool(desc = "Context lines before and after each match (default 0, max 5)")]
+    #[tool(desc = "Context lines around each match (default 0, max 5)")]
     pub context: Option<usize>,
-    #[tool(desc = "Maximum matching lines (default 200)")]
+    #[tool(desc = "Max matching lines (default 200)")]
     pub limit: Option<usize>,
 }
 
@@ -557,7 +551,7 @@ impl Tool for SearchTextTool {
     }
 
     fn description(&self) -> &str {
-        "Search file contents recursively for literal text or regular expressions. Returns path:line:content matches."
+        "Search file contents recursively for text or regex, returning path:line:content matches."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -628,6 +622,14 @@ impl Tool for SearchTextTool {
     }
 }
 
+/// Maximum characters emitted per matched/context line in [`SearchTextTool`].
+/// Prevents minified assets or single-line data dumps from blowing past the
+/// transcript budget or hitting the universal spooler on a single match.
+const MAX_SEARCH_LINE_CHARS: usize = 500;
+/// Maximum cumulative payload bytes emitted by [`SearchTextTool`] before
+/// stopping early with a truncation marker (kept under the 64 KB spooler).
+const MAX_SEARCH_BYTES: usize = 48 * 1024;
+
 /// Blocking text scan used by [`SearchTextTool`]. Runs on the blocking pool so
 /// a large tree never stalls the async runtime, and keeps the whole match set
 /// in one pass so a context window cannot re-read a file.
@@ -662,6 +664,7 @@ fn scan_text_blocking(
 
     let walker = build_workspace_walker(root).build();
     let mut matches = Vec::new();
+    let mut total_bytes = 0usize;
     let mut emitted_hits = 0usize;
     'files: for entry in walker.flatten() {
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
@@ -708,11 +711,17 @@ fn scan_text_blocking(
                     continue;
                 }
                 let separator = if index == hit { ':' } else { '-' };
-                matches.push(format!(
-                    "{relative}{separator}{}{separator} {}",
-                    index + 1,
-                    line.trim()
-                ));
+                let clamped = read::clamp_line_to(line.trim(), MAX_SEARCH_LINE_CHARS);
+                let formatted = format!("{relative}{separator}{}{separator} {clamped}", index + 1);
+                let next_bytes = total_bytes + formatted.len() + 1;
+                if !matches.is_empty() && next_bytes > MAX_SEARCH_BYTES {
+                    matches.push(format!(
+                        "... (search output truncated at {MAX_SEARCH_BYTES} bytes; narrow path, include filter, or limit)"
+                    ));
+                    break 'files;
+                }
+                total_bytes = next_bytes;
+                matches.push(formatted);
                 last_emitted = Some(index);
             }
             emitted_hits += 1;
@@ -727,7 +736,6 @@ pub fn create_fs_tools(ctx: Arc<SystemToolContext>) -> Vec<Arc<dyn Tool>> {
         Arc::new(ReadTool::new(ctx.clone())),
         Arc::new(WriteFileTool::new(ctx.clone())),
         Arc::new(EditTextTool::new(ctx.clone())),
-        Arc::new(PatchTool::new(ctx.clone())),
         Arc::new(FindFilesTool::new(ctx.clone())),
         Arc::new(SearchTextTool::new(ctx)),
     ]

@@ -112,23 +112,21 @@ impl Mode {
 #[serde(deny_unknown_fields)]
 struct CodeQueryArgs {
     #[tool(
-        desc = "Query mode: 'outline' lists one file's declarations, 'symbol' returns a declaration's source by name, 'find' locates declarations matching a kind/name pattern in a scope.",
+        desc = "Query mode: 'outline' (file declarations), 'symbol' (declaration source by name), or 'find' (declarations matching pattern)",
         choices = ["outline", "symbol", "find"]
     )]
     mode: String,
-    #[tool(
-        desc = "File for 'outline'/'symbol'; file or directory scope for 'find' (default '.'). Relative paths use the primary workspace."
-    )]
+    #[tool(desc = "Target file ('outline'/'symbol') or search scope ('find', default '.')")]
     path: Option<String>,
-    #[tool(desc = "Declaration to locate for 'symbol', e.g. 'handle_request' or 'Service::run'.")]
+    #[tool(desc = "Symbol name for 'symbol' mode (e.g. 'Service::run')")]
     symbol: Option<String>,
     #[tool(
-        desc = "Pattern for 'find', e.g. 'fn:handle_*' or 'impl:Runnable'. Comma/space-separated ORed clauses 'kind[:name-glob]'; kinds: fn, method, struct, enum, trait, impl, class, interface, type, const, static, mod, macro."
+        desc = "Clause pattern for 'find' mode: 'kind[:name-glob]' (kinds: fn, method, struct, enum, trait, impl, class, interface, type, const, static, mod, macro)"
     )]
     pattern: Option<String>,
-    #[tool(desc = "Maximum entries to return (default 200)")]
+    #[tool(desc = "Max entries to return (default 200)")]
     limit: Option<u64>,
-    #[tool(desc = "Maximum result bytes (default 16384, max 131072)")]
+    #[tool(desc = "Max result bytes (default 16384, max 131072)")]
     budget: Option<u64>,
 }
 
@@ -290,7 +288,7 @@ impl Tool for CodeQueryTool {
     }
 
     fn description(&self) -> &str {
-        "Query code by structure instead of reading whole files: 'outline' lists a file's declarations, 'symbol' returns one declaration's source by name, 'find' locates declarations matching a kind/name pattern in a scope. Every result names the content version of the bytes it describes. Languages: rs, ts, js, py, c, cpp, go."
+        "Query AST declarations across rs, ts, js, py, c, cpp, and go files."
     }
 
     fn parameters(&self) -> serde_json::Value {

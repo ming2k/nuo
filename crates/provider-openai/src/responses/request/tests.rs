@@ -171,7 +171,12 @@ fn portable_dialect_prunes_older_reasoning_to_an_empty_summary() {
     }]);
 
     let body = body_with_caps_of(
-        vec![Message::new(Role::User, "hi"), older, latest],
+        vec![
+            Message::new(Role::User, "hi"),
+            older,
+            Message::new(Role::User, "next round"),
+            latest,
+        ],
         portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
         &deepseek_capabilities(),
     )
@@ -466,6 +471,50 @@ fn deepseek_dialect_prunes_historical_reasoning_items_on_older_turns() {
     // Index 5: reasoning for assistant2 (active/latest, preserved in full)
     assert_eq!(input[5]["type"], "reasoning");
     assert_eq!(input[5]["content"][0]["text"], "latest reasoning");
+}
+
+#[test]
+fn deepseek_dialect_preserves_all_reasoning_items_across_multi_step_tool_round() {
+    let mut step1 = Message::new(Role::Assistant, "");
+    step1.reasoning_content = Some("step 1 reasoning".into());
+    step1.tool_calls = Some(vec![ToolCall {
+        id: "call_1".into(),
+        name: "tool_1".into(),
+        arguments: "{}".into(),
+    }]);
+    let mut tool1 = Message::new(Role::Tool, "out1");
+    tool1.tool_call_id = Some("call_1".into());
+
+    let mut step2 = Message::new(Role::Assistant, "");
+    step2.reasoning_content = Some("step 2 reasoning".into());
+    step2.tool_calls = Some(vec![ToolCall {
+        id: "call_2".into(),
+        name: "tool_2".into(),
+        arguments: "{}".into(),
+    }]);
+    let mut tool2 = Message::new(Role::Tool, "out2");
+    tool2.tool_call_id = Some("call_2".into());
+
+    let body = body_with_caps_of(
+        vec![
+            Message::new(Role::User, "active question"),
+            step1,
+            tool1,
+            step2,
+            tool2,
+        ],
+        deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN),
+        &deepseek_capabilities(),
+    )
+    .unwrap();
+
+    let input = body["input"].as_array().unwrap();
+    // Both tool-call steps belong to the active user round, so both keep their
+    // full reasoning_text (preserving prefix KV cache and CoT continuity).
+    assert_eq!(input[1]["type"], "reasoning");
+    assert_eq!(input[1]["content"][0]["text"], "step 1 reasoning");
+    assert_eq!(input[4]["type"], "reasoning");
+    assert_eq!(input[4]["content"][0]["text"], "step 2 reasoning");
 }
 
 #[test]

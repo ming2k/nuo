@@ -12,33 +12,36 @@ fn agent_installs_its_stateful_todo_tools() {
 }
 
 #[test]
-fn model_request_bands_historical_tool_outputs() {
+fn model_request_keeps_historical_tool_outputs_prefix_immutable() {
+    // Regression guard: in the cruise zone (below watermark-gated pruning),
+    // Agent::model_request MUST NOT rewrite historical tool results on a
+    // sliding per-turn token band, because any mid-prefix mutation invalidates
+    // the provider KV cache and forces the model to re-read files.
     let agent = agent();
-    agent.set_tool_output_projection(10, 200);
-    let newest = Message::tool_result(&ToolCall::new("c1", "read", "{}"), "n".repeat(200));
+    let oldest = Message::tool_result(
+        &ToolCall::new("c3", "execute_command", "{}"),
+        format!(
+            "[execute_command result]:\n{}\n- Spool File: \"/tmp/oldest.log\"",
+            "old output\n".repeat(400)
+        ),
+    );
     let middle = Message::tool_result(
         &ToolCall::new("c2", "read", "{}"),
         format!(
             "[read result]:\n{}\n- Spool File: \"/tmp/middle.log\"",
-            (0..120)
+            (0..200)
                 .map(|i| format!("middle line {i}"))
                 .collect::<Vec<_>>()
                 .join("\n")
         ),
     );
-    let oldest = Message::tool_result(
-        &ToolCall::new("c3", "execute_command", "{}"),
-        format!(
-            "[execute_command result]:\n{}\n- Spool File: \"/tmp/oldest.log\"",
-            "old output\n".repeat(200)
-        ),
-    );
+    let newest = Message::tool_result(&ToolCall::new("c1", "read", "{}"), "n".repeat(200));
     let messages = vec![
         Message::new(Role::User, "start"),
-        oldest,
+        oldest.clone(),
         Message::new(Role::Assistant, "working"),
-        middle,
-        newest,
+        middle.clone(),
+        newest.clone(),
     ];
 
     let request = agent.model_request(&messages);
@@ -48,82 +51,9 @@ fn model_request_bands_historical_tool_outputs() {
         .filter(|message| message.role == Role::Tool)
         .collect();
     assert_eq!(tools.len(), 3);
-    // Oldest band: cleared to a one-line placeholder, pointer preserved.
-    assert!(tools[0].content.starts_with("[cleared tool result:"));
-    assert!(
-        tools[0]
-            .content
-            .contains("- Spool File: \"/tmp/oldest.log\"")
-    );
-    // Middle band: frozen head, pointer preserved.
-    assert!(tools[1].content.contains("Previous turn output compacted"));
-    assert!(
-        tools[1]
-            .content
-            .contains("- Spool File: \"/tmp/middle.log\"")
-    );
-    // Newest band: verbatim.
-    assert_eq!(tools[2].content, "n".repeat(200));
-}
-
-#[test]
-fn remote_stored_continuations_are_exempt_from_tool_output_projection() {
-    struct RemoteStoredProvider;
-    #[async_trait]
-    impl Provider for RemoteStoredProvider {
-        async fn chat(
-            &self,
-            _request: &protocol::ModelRequest,
-        ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-            Ok(protocol::ProviderCompletion::message(Message::new(
-                Role::Assistant,
-                "ok",
-            )))
-        }
-        async fn stream_chat(
-            &self,
-            _request: &protocol::ModelRequest,
-            _telemetry: protocol::TransportTelemetry,
-        ) -> Result<
-            BoxStream<'static, Result<String, protocol::ProviderError>>,
-            protocol::ProviderError,
-        > {
-            Ok(Box::pin(stream::empty()))
-        }
-        fn continuation_mode(&self) -> protocol::ContinuationMode {
-            protocol::ContinuationMode::RemoteStored
-        }
-    }
-
-    let agent = Arc::new(Agent::new(
-        Arc::new(RemoteStoredProvider),
-        Vec::new(),
-        crate::AgentIdentity::default(),
-    ));
-    agent.set_tool_output_projection(10, 200);
-    let oldest = Message::tool_result(
-        &ToolCall::new("c1", "execute_command", "{}"),
-        format!(
-            "[execute_command result]:\n{}\n- Spool File: \"/tmp/old.log\"",
-            "old output\n".repeat(200)
-        ),
-    );
-    let messages = vec![
-        Message::new(Role::User, "start"),
-        oldest,
-        Message::new(Role::Assistant, "done"),
-    ];
-    let request = agent.model_request(&messages);
-    let tool = request
-        .messages
-        .iter()
-        .find(|message| message.role == Role::Tool)
-        .expect("tool result present");
-    // Freezing an old message would change the semantic head and invalidate
-    // `previous_response_id`; the remote-stored route must see it verbatim.
-    assert!(tool.content.starts_with("[execute_command result]:"));
-    assert!(!tool.content.contains("Previous turn output compacted"));
-    assert!(!tool.content.starts_with("[cleared tool result:"));
+    assert_eq!(tools[0].content, oldest.content);
+    assert_eq!(tools[1].content, middle.content);
+    assert_eq!(tools[2].content, newest.content);
 }
 
 #[test]

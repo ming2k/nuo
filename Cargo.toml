@@ -91,8 +91,8 @@ thiserror = "2.0"
 # `antigravity-cli-unary` (`http/1.1` only) and `antigravity-cli-stream`
 # (`h2, http/1.1` paired with `go-nethttp`), and adds per-connection HTTP/2
 # regular-header order policy (`GoMapRandom` for `H2Fingerprint::go`).
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.30" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.30" }
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.32" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.32" }
 http = "1.2"
 # Image normalization accepts only JPEG and PNG (see `host/src/image.rs`);
 # GIF/WebP are deliberately left untouched, so their decoders must not be built.

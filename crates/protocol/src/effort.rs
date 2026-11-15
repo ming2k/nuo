@@ -271,6 +271,90 @@ impl Effort {
             });
         EffortLevel::Known(clamped)
     }
+
+    /// Return the shallowest non-[`Effort::None`] known rung in `levels`, or
+    /// `None` if `levels` contains no thinking rung. Used when an always-on
+    /// thinking endpoint receives a disable request and must drop to its
+    /// minimum active tier.
+    pub fn shallowest_nonzero(levels: &[EffortLevel]) -> Option<Effort> {
+        levels
+            .iter()
+            .filter_map(EffortLevel::as_known)
+            .filter(|e| *e != Effort::None)
+            .min_by_key(|e| e.rank())
+    }
+}
+
+/// Per-request adjustment to the route's configured [`Effort`].
+///
+/// Separates **upper-bounding** lightweight/maintenance requests from
+/// **unconditional override**:
+/// - [`Cap`](Self::Cap) ensures reasoning does not exceed the given tier,
+///   without ever turning thinking back on (`Effort::None`) or escalating a
+///   route already configured shallower (for example `Effort::Minimal`).
+/// - [`Override`](Self::Override) forces the specified tier regardless of the
+///   route's configuration (for example `Override(Effort::None)` on pure
+///   text-in/text-out classification tasks).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "mode", content = "effort", rename_all = "snake_case")]
+pub enum ReasoningEffortControl {
+    /// Upper-bound the route's effort; never escalates a shallower or disabled setting.
+    Cap(Effort),
+    /// Unconditionally replace the route's configured effort.
+    Override(Effort),
+}
+
+impl ReasoningEffortControl {
+    /// Resolve `control` against an optional single-knob route effort.
+    ///
+    /// When the route has no explicit effort (`None`) and a [`Cap`](Self::Cap)
+    /// is applied, `Some(cap)` is returned so endpoints whose server default is
+    /// deep/dynamic reasoning remain bounded (callers gate emission on the
+    /// model's declared effort ladder).
+    pub fn resolve(control: Option<Self>, route: Option<Effort>) -> Option<Effort> {
+        match (control, route) {
+            (None, route) => route,
+            (Some(Self::Override(effort)), _) => Some(effort),
+            (Some(Self::Cap(cap)), None) => Some(cap),
+            (Some(Self::Cap(cap)), Some(base)) => {
+                if base.rank() <= cap.rank() {
+                    Some(base)
+                } else {
+                    Some(cap)
+                }
+            }
+        }
+    }
+
+    /// Resolve `control` against a two-knob switchable thinking route where
+    /// `thinking_active` indicates whether thinking is currently on (via
+    /// opt-in or an always-on capability) and `configured_effort` holds any
+    /// explicit effort (`None` meaning the server's implicit default, `High`).
+    ///
+    /// Returns `(keep_thinking_on, resolved_effort)`. When `Cap` encounters an
+    /// inactive route (`!thinking_active`), thinking stays disabled with no
+    /// explicit effort so no effort config is leaked onto a disabled request.
+    pub fn resolve_switchable(
+        control: Option<Self>,
+        thinking_active: bool,
+        configured_effort: Option<Effort>,
+    ) -> (bool, Option<Effort>) {
+        match control {
+            None => (thinking_active, configured_effort),
+            Some(Self::Override(Effort::None)) => (false, None),
+            Some(Self::Override(effort)) => (true, Some(effort)),
+            Some(Self::Cap(_)) if !thinking_active => (false, None),
+            Some(Self::Cap(Effort::None)) => (false, None),
+            Some(Self::Cap(cap)) => {
+                let effective_base = configured_effort.unwrap_or(Effort::High);
+                if effective_base.rank() <= cap.rank() {
+                    (true, configured_effort)
+                } else {
+                    (true, Some(cap))
+                }
+            }
+        }
+    }
 }
 
 /// A reasoning-depth level **as a channel knows it** — either a known rung of
@@ -560,6 +644,87 @@ mod tests {
         assert_eq!(
             Effort::Minimal.clamp_to_levels(&ladder),
             EffortLevel::Known(Effort::High)
+        );
+    }
+
+    #[test]
+    fn reasoning_effort_control_resolve_caps_without_escalating() {
+        // Uncontrolled preserves the route verbatim.
+        assert_eq!(ReasoningEffortControl::resolve(None, None), None);
+        assert_eq!(
+            ReasoningEffortControl::resolve(None, Some(Effort::Medium)),
+            Some(Effort::Medium)
+        );
+
+        let cap_low = Some(ReasoningEffortControl::Cap(Effort::Low));
+        // Off and shallower tiers stay untouched.
+        assert_eq!(
+            ReasoningEffortControl::resolve(cap_low, Some(Effort::None)),
+            Some(Effort::None)
+        );
+        assert_eq!(
+            ReasoningEffortControl::resolve(cap_low, Some(Effort::Minimal)),
+            Some(Effort::Minimal)
+        );
+        assert_eq!(
+            ReasoningEffortControl::resolve(cap_low, Some(Effort::Low)),
+            Some(Effort::Low)
+        );
+        // Deeper tiers and unconfigured server defaults clamp to Low.
+        assert_eq!(
+            ReasoningEffortControl::resolve(cap_low, Some(Effort::High)),
+            Some(Effort::Low)
+        );
+        assert_eq!(
+            ReasoningEffortControl::resolve(cap_low, None),
+            Some(Effort::Low)
+        );
+
+        // Override forces regardless of route setting.
+        assert_eq!(
+            ReasoningEffortControl::resolve(
+                Some(ReasoningEffortControl::Override(Effort::None)),
+                Some(Effort::High),
+            ),
+            Some(Effort::None)
+        );
+    }
+
+    #[test]
+    fn reasoning_effort_control_switchable_preserves_disabled_state() {
+        let cap_low = Some(ReasoningEffortControl::Cap(Effort::Low));
+        // Off stays off without leaking an explicit effort.
+        assert_eq!(
+            ReasoningEffortControl::resolve_switchable(cap_low, false, None),
+            (false, None)
+        );
+        // Active implicit default (High) caps to Low.
+        assert_eq!(
+            ReasoningEffortControl::resolve_switchable(cap_low, true, None),
+            (true, Some(Effort::Low))
+        );
+        // Active shallower effort stays shallower.
+        assert_eq!(
+            ReasoningEffortControl::resolve_switchable(cap_low, true, Some(Effort::Minimal)),
+            (true, Some(Effort::Minimal))
+        );
+        // Cap above implicit High preserves None instead of forcing an explicit field.
+        assert_eq!(
+            ReasoningEffortControl::resolve_switchable(
+                Some(ReasoningEffortControl::Cap(Effort::Max)),
+                true,
+                None,
+            ),
+            (true, None)
+        );
+        // Explicit Override(None) disables active thinking.
+        assert_eq!(
+            ReasoningEffortControl::resolve_switchable(
+                Some(ReasoningEffortControl::Override(Effort::None)),
+                true,
+                Some(Effort::High),
+            ),
+            (false, None)
         );
     }
 }

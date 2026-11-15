@@ -378,112 +378,133 @@ impl Agent {
     }
 }
 
+/// Ceiling for unbounded generic tool text (`Text` / `Matches` from external
+/// or unbounded tools that lack tight internal byte pagination).
+///
+/// Structured variants (`Code`, `Listing`, `Patch`, `WebSearch`, `WebArticle`,
+/// `Subagent`) and self-bounded built-in tools (`read`, `code_query`,
+/// `find_files`, plus `search_text` line/byte caps) apply their own budgets
+/// internally and bypass this fallback.
+const GENERIC_TOOL_MAX_OUTPUT_CHARS: usize = 64 * 1024;
+
+/// Target character window kept when tail-folding an oversized generic output.
+const GENERIC_TOOL_FOLD_PREVIEW_CHARS: usize = 16 * 1024;
+
+fn write_spool_file(bytes: &[u8]) -> std::path::PathBuf {
+    let short_hash = tool::vfs_short_hash(bytes);
+    let spool_dir = tool::spool_root_dir();
+    let _ = std::fs::create_dir_all(&spool_dir);
+    let spool_file = spool_dir.join(format!("{short_hash}.log"));
+    let _ = std::fs::write(&spool_file, bytes);
+    spool_file
+}
+
+fn spool_and_fold_generic_output(call: &ToolCall, text: &str) -> Message {
+    let spool_file = write_spool_file(text.as_bytes());
+
+    let head_len = GENERIC_TOOL_FOLD_PREVIEW_CHARS / 4;
+    let tail_len = (GENERIC_TOOL_FOLD_PREVIEW_CHARS * 3) / 4;
+    let head_part: String = text.chars().take(head_len).collect();
+    let tail_part: String = text
+        .chars()
+        .rev()
+        .take(tail_len)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let middle_chars = text.chars().count().saturating_sub(head_len + tail_len);
+    let middle_kb = (middle_chars as f64) / 1024.0;
+    let middle_lines = text
+        .lines()
+        .count()
+        .saturating_sub(head_part.lines().count() + tail_part.lines().count());
+
+    let middle_text: String = text.chars().skip(head_len).take(middle_chars).collect();
+    let salient = tool::extract_salient_signatures(&middle_text, 3);
+    let salient_section = if !salient.is_empty() {
+        let mut s = format!(". {} salient signature(s) detected:\n", salient.len());
+        for (rel_line, sig) in salient {
+            s.push_str(&format!(">> [line +{rel_line}]: {sig}\n"));
+        }
+        s
+    } else {
+        String::new()
+    };
+
+    let banner = if middle_lines > 1 {
+        if salient_section.is_empty() {
+            format!(
+                "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
+            )
+        } else {
+            format!(
+                "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget{salient_section}---]"
+            )
+        }
+    } else {
+        format!(
+            "--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---"
+        )
+    };
+
+    let spool_path_str = spool_file.display().to_string();
+    let stub_content = format!(
+        "[{name} result]:\n{head_part}\n\n{banner}\n\n{tail_part}\n\n- Spool File: \"{spool_path_str}\"",
+        name = call.name
+    );
+    Message::tool_result(call, stub_content)
+}
+
 pub(crate) fn format_tool_result_message(
     call: &ToolCall,
     result: &ToolOutput,
     text: &str,
 ) -> Message {
-    if let ToolOutput::Shell {
-        truncated: true,
-        stdout,
-        stderr,
-        exit,
-        ..
-    } = result
-    {
-        // ADR-0093 [INV-SPOOL-01]: Ephemeral Session Spool.
-        // Store full raw un-truncated shell output in OS-native temporary spool file
-        // without pseudo-VFS resolver interception and without redundant triplication.
-        let raw_full = tool::tool_output::shell_inner_text(stdout, stderr, *exit);
-        let short_hash = tool::vfs_short_hash(raw_full.as_bytes());
-
-        // Single atomic write to canonical spool directory
-        let spool_dir = tool::spool_root_dir();
-        let _ = std::fs::create_dir_all(&spool_dir);
-        let spool_file = spool_dir.join(format!("{short_hash}.log"));
-        let _ = std::fs::write(&spool_file, raw_full.as_bytes());
-
-        let formatted = format!("[{} result]:\n{}", call.name, text);
-        let spool_path_str = spool_file.display().to_string();
-        // ADR-0093 [INV-TRUNC-01]: Objective metadata envelope; zero imperative pseudo-guidance
-        let message_content = format!("{formatted}\n\n- Spool File: \"{spool_path_str}\"");
-        Message::tool_result(call, message_content)
-    } else if call.name == "read"
-        && (call.arguments.contains("/tmp/nuo/vfs")
-            || call.arguments.contains("/tmp/nuo/spool")
-            || call.arguments.contains("/dev/shm/nuo/spool")
-            || call.arguments.contains("/tmp/vfs")
-            || call.arguments.contains("/virtual")
-            || call.arguments.contains(".nuo/virtual")
-            || call.arguments.contains("virtual://"))
-    {
-        // ADR-0070 / ADR-0093: Spool and VFS virtual reads are line-budgeted in-process and immune to secondary spilling
-        let formatted = format!("[{} result]:\n{}", call.name, text);
-        Message::tool_result(call, formatted)
-    } else if text.len() > tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
-        // ADR-0093: Ephemeral spooling & tail-heavy folding for oversized generic tool outputs.
-        let short_hash = tool::vfs_short_hash(text.as_bytes());
-        let spool_dir = tool::spool_root_dir();
-        let _ = std::fs::create_dir_all(&spool_dir);
-        let spool_file = spool_dir.join(format!("{short_hash}.log"));
-        let _ = std::fs::write(&spool_file, text.as_bytes());
-
-        // ADR-0093 [INV-FOLD-01]: Tail-heavy biasing (25% head, 75% tail)
-        let head_len = tool::tool_output::SHELL_TRUNCATED_CHARS / 4;
-        let tail_len = (tool::tool_output::SHELL_TRUNCATED_CHARS * 3) / 4;
-        let head_part: String = text.chars().take(head_len).collect();
-        let tail_part: String = text
-            .chars()
-            .rev()
-            .take(tail_len)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        let middle_chars = text.chars().count().saturating_sub(head_len + tail_len);
-        let middle_kb = (middle_chars as f64) / 1024.0;
-        let middle_lines = text
-            .lines()
-            .count()
-            .saturating_sub(head_part.lines().count() + tail_part.lines().count());
-
-        // Extract salient error signatures from middle omitted section
-        let middle_text: String = text.chars().skip(head_len).take(middle_chars).collect();
-        let salient = tool::extract_salient_signatures(&middle_text, 3);
-        let salient_section = if !salient.is_empty() {
-            let mut s = format!(". {} salient signature(s) detected:\n", salient.len());
-            for (rel_line, sig) in salient {
-                s.push_str(&format!(">> [line +{rel_line}]: {sig}\n"));
-            }
-            s
-        } else {
-            String::new()
-        };
-
-        let banner = if middle_lines > 1 {
-            if salient_section.is_empty() {
-                format!(
-                    "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
-                )
+    match result {
+        ToolOutput::Shell {
+            truncated: true,
+            stdout,
+            stderr,
+            exit,
+            ..
+        } => {
+            // Store raw un-truncated shell output in the ephemeral session spool
+            // while passing the bounded tail-heavy log preview to the model.
+            let raw_full = tool::tool_output::shell_inner_text(stdout, stderr, *exit);
+            let spool_file = write_spool_file(raw_full.as_bytes());
+            let spool_path_str = spool_file.display().to_string();
+            let message_content = format!(
+                "[{} result]:\n{}\n\n- Spool File: \"{}\"",
+                call.name, text, spool_path_str
+            );
+            Message::tool_result(call, message_content)
+        }
+        // Structured and self-budgeted tools (read pagination, directory listings,
+        // patches, web search/reader, subagent transcripts, errors, images, shell
+        // runs already within budget) must NEVER be sliced at SHELL_MAX_OUTPUT_CHARS.
+        ToolOutput::Shell {
+            truncated: false, ..
+        }
+        | ToolOutput::Code { .. }
+        | ToolOutput::Listing { .. }
+        | ToolOutput::Patch { .. }
+        | ToolOutput::WebSearch { .. }
+        | ToolOutput::WebArticle { .. }
+        | ToolOutput::Subagent { .. }
+        | ToolOutput::Error { .. }
+        | ToolOutput::PermissionDenied { .. }
+        | ToolOutput::Image { .. } => {
+            Message::tool_result(call, format!("[{} result]:\n{}", call.name, text))
+        }
+        ToolOutput::Text(_) | ToolOutput::Matches { .. } => {
+            let self_bounded_tool =
+                matches!(call.name.as_str(), "read" | "code_query" | "find_files");
+            if self_bounded_tool || text.len() <= GENERIC_TOOL_MAX_OUTPUT_CHARS {
+                Message::tool_result(call, format!("[{} result]:\n{}", call.name, text))
             } else {
-                format!(
-                    "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget{salient_section}---]"
-                )
+                spool_and_fold_generic_output(call, text)
             }
-        } else {
-            format!(
-                "--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---"
-            )
-        };
-
-        let spool_path_str = spool_file.display().to_string();
-        let stub_content = format!(
-            "[{name} result]:\n{head_part}\n\n{banner}\n\n{tail_part}\n\n- Spool File: \"{spool_path_str}\"",
-            name = call.name
-        );
-        Message::tool_result(call, stub_content)
-    } else {
-        let formatted = format!("[{} result]:\n{}", call.name, text);
-        Message::tool_result(call, formatted)
+        }
     }
 }

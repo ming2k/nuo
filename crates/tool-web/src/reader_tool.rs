@@ -13,9 +13,9 @@ pub const WEB_READER_MAX_TOKENS: usize = 4_000;
 
 #[derive(ToolSchema, Deserialize)]
 struct WebReaderArgs {
-    #[tool(desc = "The fully-qualified URL to read (http/https)")]
+    #[tool(desc = "HTTP/HTTPS URL to fetch")]
     url: String,
-    #[tool(desc = "If true, return raw content without HTML stripping (default false)")]
+    #[tool(desc = "Return raw content without HTML-to-Markdown conversion (default false)")]
     raw: Option<bool>,
 }
 
@@ -121,7 +121,7 @@ impl Tool for WebReaderTool {
         matches!(snapshot.behavior.reader, WebReaderProvider::Jina)
     }
     fn description(&self) -> &str {
-        "Read a web page and return its text content as clean Markdown."
+        "Fetch a URL and return its content as Markdown."
     }
     fn parameters(&self) -> serde_json::Value {
         WebReaderArgs::parameters_schema()

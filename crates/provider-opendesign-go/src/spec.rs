@@ -63,7 +63,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     // OpenDesign's slower tier of V4.1 Flash. The vendor has no such id; its
@@ -78,7 +78,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::ALL_EFFORTS_EXCEPT_ULTRA,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     // Retired V4 Flash ids, still accepted upstream and served by
@@ -92,7 +92,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     Model {
@@ -104,7 +104,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     Model {

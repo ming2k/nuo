@@ -1,7 +1,7 @@
 //! Fullscreen diff viewer scene (`SceneKind::Diff`).
 //!
 //! Displays file changes accumulated in the current session (from `edit_text`,
-//! `write_file`, `patch`, etc.) with hunk/line diff highlighting, file-by-file
+//! `write_file`, etc.) with hunk/line diff highlighting, file-by-file
 //! navigation (`n`/`p`), and per-file reviewed toggles (`r`).
 
 use nuotc::{Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect, Span, Style};

@@ -917,3 +917,35 @@ async fn execution_policy_rejects_subagent_spawning_when_depth_capped() {
         "error should mention ExecutionPolicy: {err_msg}"
     );
 }
+
+#[test]
+fn subagent_child_inherits_profile_reasoning_effort_override() {
+    let provider = std::sync::Arc::new(RecordingProvider::default());
+    let tool = SubagentTool::new(
+        provider,
+        protocol::ToolSet::default(),
+        &SubAgentProfile::EXPLORE,
+    );
+
+    let explore_child = tool.build_child_agent(&SubAgentProfile::EXPLORE);
+    assert_eq!(
+        explore_child.reasoning_effort_override(),
+        Some(protocol::ReasoningEffortControl::Cap(protocol::Effort::Low))
+    );
+    let explore_req = explore_child.model_request(&[Message::new(Role::User, "find")]);
+    assert_eq!(
+        explore_req.reasoning_effort,
+        Some(protocol::ReasoningEffortControl::Cap(protocol::Effort::Low))
+    );
+
+    let skill_child = tool.build_child_agent(&SubAgentProfile::SKILL);
+    assert_eq!(
+        skill_child.reasoning_effort_override(),
+        Some(protocol::ReasoningEffortControl::Cap(protocol::Effort::Low))
+    );
+
+    let debug_child = tool.build_child_agent(&SubAgentProfile::DEBUG);
+    assert_eq!(debug_child.reasoning_effort_override(), None);
+    let debug_req = debug_child.model_request(&[Message::new(Role::User, "debug")]);
+    assert_eq!(debug_req.reasoning_effort, None);
+}

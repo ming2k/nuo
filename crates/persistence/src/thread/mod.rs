@@ -1159,7 +1159,13 @@ pub async fn summarize_with_provider(
     const SUMMARIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     let response = match tokio::time::timeout(
         SUMMARIZATION_TIMEOUT,
-        provider.chat(&protocol::ModelRequest::ephemeral(messages).with_instructions(instructions)),
+        provider.chat(
+            &protocol::ModelRequest::ephemeral(messages)
+                .with_instructions(instructions)
+                .with_reasoning_effort(Some(protocol::ReasoningEffortControl::Cap(
+                    protocol::Effort::Low,
+                ))),
+        ),
     )
     .await
     {

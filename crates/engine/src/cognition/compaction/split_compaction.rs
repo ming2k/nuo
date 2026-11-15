@@ -307,7 +307,11 @@ pub async fn compact_facts(
 
     let instructions = protocol::InstructionText::fixed(COMPACTION_SYSTEM_PROMPT);
     let messages = vec![Message::new(Role::User, prompt_body)];
-    let request = ModelRequest::ephemeral(messages).with_instructions(instructions);
+    let request = ModelRequest::ephemeral(messages)
+        .with_instructions(instructions)
+        .with_reasoning_effort(Some(protocol::ReasoningEffortControl::Cap(
+            protocol::Effort::Low,
+        )));
 
     let response = match tokio::time::timeout(COMPACTION_TIMEOUT, provider.chat(&request)).await {
         Ok(Ok(msg)) => msg,

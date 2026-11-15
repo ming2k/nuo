@@ -251,6 +251,41 @@ fn deepseek_prunes_historical_reasoning_content_on_older_turns() {
 }
 
 #[test]
+fn deepseek_preserves_all_reasoning_content_across_multi_step_tool_round() {
+    let (mut step1, tool1) = assistant_that_thought();
+    step1.reasoning_content = Some("step 1 thoughts".into());
+    let (mut step2, mut tool2) = assistant_that_thought();
+    step2.reasoning_content = Some("step 2 thoughts".into());
+    step2.tool_calls.as_mut().unwrap()[0].id = "call_2".into();
+    tool2.tool_call_id = Some("call_2".into());
+
+    let body = body_with_caps_of(
+        vec![
+            Message::new(Role::User, "active question"),
+            step1,
+            tool1,
+            step2,
+            tool2,
+        ],
+        BodyInput {
+            model: "deepseek-flash",
+            stream: true,
+            instructions: None,
+            tool_specs: None,
+            reasoning_effort: None,
+            dialect: OpenAiChatDialect::DeepSeek,
+            cache_plan: &DEFAULT_CACHE_PLAN,
+        },
+        &deepseek_capabilities(),
+    );
+
+    // Both assistant tool-call steps are in the active user round and must
+    // preserve their full reasoning_content without mutating the prefix.
+    assert_eq!(body["messages"][1]["reasoning_content"], "step 1 thoughts");
+    assert_eq!(body["messages"][3]["reasoning_content"], "step 2 thoughts");
+}
+
+#[test]
 fn standard_chat_surface_never_replays_reasoning_content() {
     let (assistant, tool_result) = assistant_that_thought();
     let body = body_with_caps_of(

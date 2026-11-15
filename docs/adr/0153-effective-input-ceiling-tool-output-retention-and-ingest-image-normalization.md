@@ -24,6 +24,14 @@ negative_knowledge: true
   [ADR-0093](0093-abolition-of-pseudo-vfs-spool-architecture-and-salience-folding.md),
   [ADR-0142](0142-transcoding-gateway-surfaces-portable-mode-and-dual-form-reasoning-replay.md)
 
+> **Superseded in part (2026-11-15)**: Per-turn request-projected tool-output
+> retention bands (`tool_output_retention_tokens` / `project_historical_tool_outputs`
+> / `freeze_tool_output`) were removed to keep outbound request prefixes
+> strictly append-only across ReAct turns for upstream KV prompt-cache
+> preservation and to avoid invalidating multi-turn reasoning chains. Tool
+> outputs are bounded once at ingestion (`tool-fs` / generic spooler), and old
+> tool results are folded only on explicit pressure-gate pruning or compaction.
+
 ---
 
 ## Context and Problem Statement

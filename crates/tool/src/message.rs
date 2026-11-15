@@ -413,6 +413,20 @@ impl Message {
             .is_some_and(|o| o.kind == InjectionKind::CommandEcho)
     }
 
+    /// Whether this message opens a user round (as opposed to a mid-round
+    /// harness injection such as `ToolImage`, `SystemReminder`, `LoopReviewNudge`,
+    /// `ProjectRulesDelta`, `ImplicitFile`, `ImplicitSkill`, etc.).
+    pub fn opens_user_round(&self) -> bool {
+        if self.role != Role::User {
+            return false;
+        }
+        match self.origin.as_ref().map(|o| o.kind) {
+            None => !self.hidden,
+            Some(InjectionKind::SubagentTask | InjectionKind::HiddenRoundInput) => true,
+            _ => false,
+        }
+    }
+
     /// Stamp / overwrite the injection origin on this message. Builder-style
     /// companion to [`Message::injected`] for sites that build a message via
     /// another constructor first (e.g. `Message::hidden(...).with_origin(...)`).

@@ -168,45 +168,48 @@ pub struct ModelRequest {
     pub cached_prefix_fingerprint: String,
     /// Per-request prompt-cache intent. Ephemeral requests default to disabled.
     pub prompt_cache_preference: PromptCachePreference,
+    /// Optional per-request reasoning-effort cap or override. When `Some`, the
+    /// provider bounds or overrides its configured route effort (using
+    /// [`crate::ReasoningEffortControl::Cap`] to prevent deep thinking without
+    /// re-enabling disabled thinking, or [`crate::ReasoningEffortControl::Override`]
+    /// to force a tier explicitly).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<crate::ReasoningEffortControl>,
 }
 
 impl ModelRequest {
-    /// Build a request without tools (title generation, summarization, tests).
-    pub fn new(messages: Vec<Message>) -> Self {
+    fn base(
+        instructions: InstructionText,
+        messages: Vec<Message>,
+        tool_specs: Vec<ToolSpec>,
+        ephemeral: bool,
+    ) -> Self {
         Self {
             turn_context: Arc::default(),
-            instructions: InstructionText::default(),
+            instructions,
             messages,
             temporary_context: Vec::new(),
-            tool_specs: Vec::new(),
-            ephemeral: false,
+            tool_specs,
+            ephemeral,
             delivery: RequestDelivery::FullReplay,
             context_revision: ContextRevision::empty(),
             context_relation: ContextRelation::Initial,
             envelope_revision: EnvelopeRevision::ephemeral(),
             cached_prefix_fingerprint: String::new(),
             prompt_cache_preference: PromptCachePreference::default(),
+            reasoning_effort: None,
         }
         .with_recomputed_revisions()
     }
 
+    /// Build a request without tools (title generation, summarization, tests).
+    pub fn new(messages: Vec<Message>) -> Self {
+        Self::base(InstructionText::default(), messages, Vec::new(), false)
+    }
+
     /// Build an ephemeral request without tools (e.g. title generation, compaction).
     pub fn ephemeral(messages: Vec<Message>) -> Self {
-        Self {
-            turn_context: Arc::default(),
-            instructions: InstructionText::default(),
-            messages,
-            temporary_context: Vec::new(),
-            tool_specs: Vec::new(),
-            ephemeral: true,
-            delivery: RequestDelivery::FullReplay,
-            context_revision: ContextRevision::empty(),
-            context_relation: ContextRelation::Initial,
-            envelope_revision: EnvelopeRevision::ephemeral(),
-            cached_prefix_fingerprint: String::new(),
-            prompt_cache_preference: PromptCachePreference::default(),
-        }
-        .with_recomputed_revisions()
+        Self::base(InstructionText::default(), messages, Vec::new(), true)
     }
 
     /// Set instructions on the request.
@@ -221,6 +224,15 @@ impl ModelRequest {
         self
     }
 
+    /// Apply a reasoning-effort cap or override for this individual request.
+    pub fn with_reasoning_effort(
+        mut self,
+        reasoning_effort: Option<crate::ReasoningEffortControl>,
+    ) -> Self {
+        self.reasoning_effort = reasoning_effort;
+        self
+    }
+
     /// Build a request and snapshot the supplied tool declarations atomically.
     /// Tool specifications are sorted deterministically by name to guarantee
     /// static prefix alignment for LLM prompt / KV-cache reuse across turns.
@@ -230,21 +242,7 @@ impl ModelRequest {
             .map(|t| ToolSpec::from_tool(t.as_ref()))
             .collect();
         tool_specs.sort_by(|a, b| a.name.cmp(&b.name));
-        Self {
-            turn_context: Arc::default(),
-            instructions: InstructionText::default(),
-            messages,
-            temporary_context: Vec::new(),
-            tool_specs,
-            ephemeral: false,
-            delivery: RequestDelivery::FullReplay,
-            context_revision: ContextRevision::empty(),
-            context_relation: ContextRelation::Initial,
-            envelope_revision: EnvelopeRevision::ephemeral(),
-            cached_prefix_fingerprint: String::new(),
-            prompt_cache_preference: PromptCachePreference::default(),
-        }
-        .with_recomputed_revisions()
+        Self::base(InstructionText::default(), messages, tool_specs, false)
     }
 
     /// Build a request with structured instructions and pre-computed tool declarations.
@@ -254,21 +252,7 @@ impl ModelRequest {
         mut tool_specs: Vec<ToolSpec>,
     ) -> Self {
         tool_specs.sort_by(|a, b| a.name.cmp(&b.name));
-        Self {
-            turn_context: Arc::default(),
-            instructions,
-            messages,
-            temporary_context: Vec::new(),
-            tool_specs,
-            ephemeral: false,
-            delivery: RequestDelivery::FullReplay,
-            context_revision: ContextRevision::empty(),
-            context_relation: ContextRelation::Initial,
-            envelope_revision: EnvelopeRevision::ephemeral(),
-            cached_prefix_fingerprint: String::new(),
-            prompt_cache_preference: PromptCachePreference::default(),
-        }
-        .with_recomputed_revisions()
+        Self::base(instructions, messages, tool_specs, false)
     }
     pub fn with_instructions_and_tools(
         instructions: InstructionText,
@@ -280,21 +264,7 @@ impl ModelRequest {
             .map(|t| ToolSpec::from_tool(t.as_ref()))
             .collect();
         tool_specs.sort_by(|a, b| a.name.cmp(&b.name));
-        Self {
-            turn_context: Arc::default(),
-            instructions,
-            messages,
-            temporary_context: Vec::new(),
-            tool_specs,
-            ephemeral: false,
-            delivery: RequestDelivery::FullReplay,
-            context_revision: ContextRevision::empty(),
-            context_relation: ContextRelation::Initial,
-            envelope_revision: EnvelopeRevision::ephemeral(),
-            cached_prefix_fingerprint: String::new(),
-            prompt_cache_preference: PromptCachePreference::default(),
-        }
-        .with_recomputed_revisions()
+        Self::base(instructions, messages, tool_specs, false)
     }
 
     pub fn with_delivery(mut self, delivery: RequestDelivery) -> Self {
@@ -651,8 +621,8 @@ pub trait Provider: Send + Sync {
 
     /// Whether this provider channel supports parallel (batched) tool calling.
     ///
-    /// Used by system prompt policies to avoid instructing models to batch concurrent
-    /// tool calls when the underlying channel or dialect disallows it (e.g. DeepSeek).
+    /// Used by system prompt policies to instruct models to batch independent
+    /// tool calls within a single round when the underlying model supports tool calling.
     fn supports_parallel_tool_calls(&self) -> bool {
         true
     }

@@ -175,9 +175,6 @@ impl Agent {
                 ),
                 context_prune_threshold_tokens: Arc::new(std::sync::Mutex::new(0)),
                 last_measured_prompt: std::sync::Mutex::new(None),
-                tool_output_projection: Arc::new(std::sync::Mutex::new(
-                    crate::cognition::agent::ToolOutputProjectionBudget::default(),
-                )),
                 context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
                 history_reprojected: std::sync::atomic::AtomicBool::new(false),
                 images_suppressed: Arc::new(std::sync::RwLock::new(None)),
@@ -209,6 +206,7 @@ impl Agent {
                 extensions: Arc::new(std::sync::RwLock::new(vec![Arc::new(
                     crate::runtime::extension::CodeIntelligenceExtension,
                 )])),
+                reasoning_effort: std::sync::Mutex::new(None),
             },
             queues: substate::QueueState {
                 inbox_tx: std::sync::Mutex::new(None),
@@ -232,30 +230,21 @@ impl Agent {
             .unwrap_or_else(|e| e.into_inner()) = budget_tokens;
     }
 
-    /// Install the tool-output retention budget for the per-request projection.
-    ///
-    /// `retention_tokens == 0` disables the projection; a non-zero horizon is
-    /// clamped to at least the verbatim window so the two bands can never
-    /// invert. Called at startup and after every model switch, because the
-    /// horizon is part of the versioned context policy.
-    pub fn set_tool_output_projection(&self, verbatim_tokens: usize, retention_tokens: usize) {
-        let budget = crate::cognition::agent::ToolOutputProjectionBudget {
-            verbatim_tokens,
-            retention_tokens: retention_tokens.max(verbatim_tokens),
-        };
+    /// Install an agent-scoped reasoning-effort cap or override (for example,
+    /// capping read-only discovery subagents at `Low`). `None` clears the
+    /// control and inherits the provider's configured default.
+    pub fn set_reasoning_effort(&self, effort: Option<protocol::ReasoningEffortControl>) {
         *self
-            .context
-            .tool_output_projection
+            .control
+            .reasoning_effort
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = budget;
+            .unwrap_or_else(|e| e.into_inner()) = effort;
     }
 
-    pub(crate) fn tool_output_projection_budget(
-        &self,
-    ) -> crate::cognition::agent::ToolOutputProjectionBudget {
+    pub(crate) fn reasoning_effort_override(&self) -> Option<protocol::ReasoningEffortControl> {
         *self
-            .context
-            .tool_output_projection
+            .control
+            .reasoning_effort
             .lock()
             .unwrap_or_else(|e| e.into_inner())
     }
@@ -643,31 +632,6 @@ impl Agent {
         enriched.retain(|message| !message.is_command_echo());
         self.project_images_away_if_unusable(&mut enriched);
 
-        // Bound the historical tool-result bodies. This is a request projection:
-        // the durable transcript keeps every byte, while the provider sees the
-        // newest band verbatim, a frozen head (with its spool/artifact pointer)
-        // for the next band, and a one-line placeholder beyond the retention
-        // horizon.
-        //
-        // Only deliveries that replay the whole conversation need this. A
-        // `RemoteStored` route anchors on `previous_response_id` and sends only
-        // the delta; freezing an *old* message there would change the local
-        // semantic head and invalidate the remote cursor every turn, turning a
-        // cheap continuation into a full replay. Those routes get their relief
-        // from the bounded compaction policy instead.
-        let continuation = self.provider.continuation_mode();
-        let tool_output_budget = self.tool_output_projection_budget();
-        if tool_output_budget.retention_tokens > 0
-            && continuation != protocol::ContinuationMode::RemoteStored
-        {
-            protocol::project_historical_tool_outputs(
-                &mut enriched,
-                tool_output_budget.verbatim_tokens,
-                tool_output_budget.retention_tokens,
-                &self.tools.token_weights,
-            );
-        }
-
         // `E_n` (the request-local temporary context) is empty by default
         // code structure is delivered on demand
         // via `code_query`, not as an automatic ambient Repo Map. The facet
@@ -698,7 +662,11 @@ impl Agent {
         self.context
             .model_request_assembler
             .assemble_prepared(enriched, temporary_context, &context, &tools)
-            .with_route_state(&self.provider.route_fingerprint(), continuation)
+            .with_route_state(
+                &self.provider.route_fingerprint(),
+                self.provider.continuation_mode(),
+            )
+            .with_reasoning_effort(self.reasoning_effort_override())
     }
 
     /// Assemble a [`protocol::ModelRequest`] from a durable thread branch.
@@ -733,10 +701,12 @@ impl Agent {
             &context,
             &tools,
         )?;
-        Ok(request.with_route_state(
-            &self.provider.route_fingerprint(),
-            self.provider.continuation_mode(),
-        ))
+        Ok(request
+            .with_route_state(
+                &self.provider.route_fingerprint(),
+                self.provider.continuation_mode(),
+            )
+            .with_reasoning_effort(self.reasoning_effort_override()))
     }
     /// Project inline images away when this route cannot be given them
     /// Two independent reasons qualify, and both are *projection*

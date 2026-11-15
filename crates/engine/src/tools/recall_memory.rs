@@ -58,9 +58,7 @@ impl Tool for RecallMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Recall past conversations, dialogues, and philosophical insights previously shared \
-         between the user and this role. Use this to remember previous discussions, established \
-         positions, user perspectives, or topics explored in earlier sessions."
+        "Search past cross-session dialogues and insights for this role."
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -69,15 +67,15 @@ impl Tool for RecallMemoryTool {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query — keywords, phrases, or concepts to recall from past dialogues."
+                    "description": "Keywords or concepts to search"
                 },
                 "role": {
                     "type": "string",
-                    "description": "The role whose memory to search. Defaults to the current role."
+                    "description": "Role memory to search (default: current role)"
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of entries to return (1-10, default 5).",
+                    "description": "Max entries to return (1-10, default 5)",
                     "minimum": 1,
                     "maximum": 10
                 }

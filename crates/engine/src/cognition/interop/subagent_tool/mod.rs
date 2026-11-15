@@ -43,18 +43,11 @@ pub const DISPATCH_ROLES: &[&str] = &["explore", "debug", "skill"];
 
 /// Canonical description of the default `spawn_agent` dispatch tool.
 pub const SPAWN_AGENT_TOOL_DESCRIPTION: &str = "\
-Spawn an isolated child agent to perform a focused subtask in a separate \
-context window and return a consolidated summary. Set 'role' to 'explore' for read-only \
-research (default), 'debug' for non-interactive diagnosis and root-cause analysis, \
-or 'skill' for skill discovery, inspection, and domain guideline synthesis.";
+Spawn an isolated sub-agent in a separate context window and return its consolidated summary.";
 
 /// Canonical description of the diagnostic `delegate_debug` dispatch tool.
 pub const DELEGATE_DEBUG_TOOL_DESCRIPTION: &str = "\
-Delegate a defect, crash, or test failure investigation to a child agent that \
-runs builds, tests, and non-interactive diagnostics (e.g. gdb -batch, sanitizers) \
-in an isolated context window, then returns a structured root-cause analysis and \
-proposed fix. Unlike the main developer, it has no file-writing tools and will not \
-mutate your workspace.";
+Delegate read-only crash, test failure, or defect diagnosis to an isolated sub-agent.";
 
 /// Retry settings for a subagent, inherited from the session's provider retry configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

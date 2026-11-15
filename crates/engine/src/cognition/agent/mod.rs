@@ -94,29 +94,6 @@ pub(crate) type TurnPersistFn =
 /// It is `None` on subagents, the review diagnostic, and tests.
 pub(crate) type RequestProjectionFn = Arc<dyn Fn(protocol::RequestProjection) + Send + Sync>;
 
-/// Tool-output retention budget for the per-request history projection.
-///
-/// The newest `verbatim_tokens` of tool output stay intact; the next band up to
-/// `retention_tokens` is frozen to a bounded head plus its re-fetch pointer;
-/// anything older is cleared to a one-line placeholder. `retention_tokens == 0`
-/// disables the projection entirely.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ToolOutputProjectionBudget {
-    pub(crate) verbatim_tokens: usize,
-    pub(crate) retention_tokens: usize,
-}
-
-impl Default for ToolOutputProjectionBudget {
-    fn default() -> Self {
-        Self {
-            verbatim_tokens: protocol::context_policy::DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS
-                as usize,
-            retention_tokens: protocol::context_policy::DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
-                as usize,
-        }
-    }
-}
-
 /// Title-established observer fired by the background session titler
 /// (ADR-0022).
 ///

@@ -558,3 +558,31 @@ async fn search_text_emits_context_lines() {
         "context must be bounded: {content}"
     );
 }
+
+#[tokio::test]
+async fn search_text_bounds_oversized_single_line_and_total_output() {
+    let dir = tempdir().unwrap();
+    let ctx = Arc::new(SystemToolContext::new(dir.path()));
+    let t_ctx = ToolContext::default();
+    let huge_line = format!("needle {}", "x".repeat(5_000));
+    fs::write(dir.path().join("minified.js"), huge_line).unwrap();
+
+    let out = SearchTextTool::new(ctx)
+        .execute(&t_ctx, json!({"query": "needle"}))
+        .await
+        .unwrap();
+    let content = out.content();
+    assert!(
+        content.contains("minified.js:1: needle "),
+        "should still report the match line prefix: {content}"
+    );
+    assert!(
+        content.contains("line truncated to 500 chars"),
+        "long line must carry explicit truncation notice: {content}"
+    );
+    assert!(
+        content.len() < 1_000,
+        "clamped match should stay tiny, got {} bytes",
+        content.len()
+    );
+}

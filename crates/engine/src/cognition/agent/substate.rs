@@ -125,10 +125,6 @@ pub(crate) struct ContextState {
     /// paired with the local estimate at that turn, so compaction triggers can
     /// account for unmeasured system/tool/image tokens plus incremental delta.
     pub(crate) last_measured_prompt: std::sync::Mutex<Option<MeasuredPromptAnchor>>,
-    /// Tool-output retention budget for the per-request history projection.
-    /// Seeded from the context policy and re-seeded on every model switch so a
-    /// long ReAct round cannot accumulate every tool byte it ever produced.
-    pub(crate) tool_output_projection: Arc<std::sync::Mutex<ToolOutputProjectionBudget>>,
     /// Optional mid-turn model-context projection gate.
     pub(crate) context_projection_gate:
         Arc<std::sync::Mutex<Option<Arc<dyn ContextProjectionGate>>>>,
@@ -246,6 +242,10 @@ pub(crate) struct ControlState {
     pub(crate) request_projection_persist: std::sync::Mutex<Option<RequestProjectionFn>>,
     /// Atomic extensions bound to this agent instance.
     pub(crate) extensions: Arc<std::sync::RwLock<Vec<Arc<dyn protocol::Extension>>>>,
+    /// Optional agent-scoped reasoning-effort cap or override (e.g.
+    /// capping read-only discovery subagents at `Low`). `None` inherits the
+    /// provider's configured effort.
+    pub(crate) reasoning_effort: std::sync::Mutex<Option<protocol::ReasoningEffortControl>>,
 }
 
 pub(crate) struct QueueState {

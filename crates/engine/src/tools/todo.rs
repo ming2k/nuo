@@ -16,12 +16,8 @@ use serde_json::{Value, json};
 
 use tool::{BuiltinTool, MAX_TODOS, TodoList, TodoStatus, Tool};
 
-const TODO_DESCRIPTION: &str = "Update the task list. Two modes, mutually exclusive: \
-(1) full replace — provide `items`, the full array ({content, status: \
-'pending'|'in_progress'|'completed'|'cancelled'}), at most one item in_progress (extras are \
-auto-demoted); (2) surgical update — provide `key` (1-based position or case-insensitive \
-content substring) and `status` to mark progress without re-sending the whole list. Prefer \
-the surgical mode when only marking progress on a single step.";
+const TODO_DESCRIPTION: &str = "Update the task list via either `items` (full replace) or \
+`key` + `status` (surgical update). Prefer surgical mode when updating a single step.";
 
 /// Shared handle injected into the todo tool so it mutates the live state
 /// owned by the agent that dispatches it.

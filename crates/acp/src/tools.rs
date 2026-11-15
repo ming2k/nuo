@@ -290,10 +290,7 @@ impl Tool for DelegateToPeerTool {
     }
 
     fn description(&self) -> &str {
-        "Delegates a task or question to another agent in this room, then waits for its reply. \
-         Prefer this over doing the work yourself when a peer's described specialty covers the \
-         request (for example issue tracking, research, or deployment). The task must be phrased \
-         in natural language and must be self-contained: the peer does not share your conversation."
+        "Delegate a self-contained task or question to a peer agent and wait for its reply."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -302,15 +299,15 @@ impl Tool for DelegateToPeerTool {
             "properties": {
                 "peer": {
                     "type": "string",
-                    "description": "Address of the peer agent, e.g. `agent://local/kanban`. Use `list_peers` to see available peers."
+                    "description": "Peer agent address (e.g. `agent://local/kanban`; see `list_peers`)"
                 },
                 "task": {
                     "type": "string",
-                    "description": "Self-contained natural language instructions for the peer, including any context it needs."
+                    "description": "Self-contained instructions and context for the peer"
                 },
                 "thread": {
                     "type": "string",
-                    "description": "Optional thread/session ID to continue an ongoing conversation with this peer. Omit to start fresh."
+                    "description": "Thread/session ID to continue an existing conversation (omit to start fresh)"
                 }
             },
             "required": ["peer", "task"],
@@ -372,8 +369,7 @@ impl Tool for ListPeersTool {
     }
 
     fn description(&self) -> &str {
-        "Lists the other agents currently in this room and what each one specializes in. \
-         Call this before delegating if you are unsure which peer handles a task."
+        "List peer agents in this room and their specialties."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -462,10 +458,7 @@ impl Tool for PublishToChannelTool {
     }
 
     fn description(&self) -> &str {
-        "Posts a message to a named channel, where it is recorded for all subscribers. \
-         Use this to share progress or information with a group. Unlike `delegate_to_peer`, \
-         publishing expects no reply and does not wait: it is how you keep several agents \
-         informed at once. Mention a peer by address to make sure they are notified."
+        "Post a non-blocking message to a channel for all subscribers."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -474,16 +467,16 @@ impl Tool for PublishToChannelTool {
             "properties": {
                 "channel": {
                     "type": "string",
-                    "description": "Channel to publish to, e.g. `ops` or `dev/frontend`."
+                    "description": "Target channel (e.g. `ops` or `dev/frontend`)"
                 },
                 "message": {
                     "type": "string",
-                    "description": "The message body to post."
+                    "description": "Message body"
                 },
                 "mention": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional peer addresses to explicitly notify."
+                    "description": "Peer addresses to explicitly notify"
                 }
             },
             "required": ["channel", "message"],
@@ -563,8 +556,7 @@ impl Tool for ReadChannelTool {
     }
 
     fn description(&self) -> &str {
-        "Reads recent messages from a channel, including anything posted while you were \
-         busy. Use this to catch up on a discussion before responding or delegating."
+        "Read recent messages from a channel."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -573,13 +565,13 @@ impl Tool for ReadChannelTool {
             "properties": {
                 "channel": {
                     "type": "string",
-                    "description": "Channel to read, e.g. `ops`."
+                    "description": "Channel name (e.g. `ops`)"
                 },
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 100,
-                    "description": "Maximum messages to return, newest last. Defaults to 20."
+                    "description": "Max messages to return, newest last (default 20)"
                 }
             },
             "required": ["channel"],
@@ -651,8 +643,7 @@ impl Tool for ListChannelsTool {
     }
 
     fn description(&self) -> &str {
-        "Lists the channels in this room, showing how many messages each holds and whether \
-         you are subscribed. Call this to find where a discussion is happening."
+        "List channels in this room with message counts and subscription status."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -722,9 +713,7 @@ impl Tool for OpenChannelTool {
     }
 
     fn description(&self) -> &str {
-        "Creates a channel for a group discussion that does not exist yet. Opening an \
-         existing channel is harmless. Channel names are lowercase, may use `-`, `_` and \
-         `/` for hierarchy, and must start with a letter or digit."
+        "Create a channel if it does not exist."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -733,7 +722,7 @@ impl Tool for OpenChannelTool {
             "properties": {
                 "channel": {
                     "type": "string",
-                    "description": "Channel name, e.g. `incidents` or `dev/frontend`."
+                    "description": "Lowercase channel name using letters, digits, `-`, `_`, or `/` (e.g. `dev/frontend`)"
                 }
             },
             "required": ["channel"],
@@ -826,11 +815,7 @@ impl Tool for SubscribeChannelTool {
     }
 
     fn description(&self) -> &str {
-        "Subscribes to a channel so its traffic reaches you. \
-         `mode` controls how often you are woken: \
-         `all` (every message — use sparingly), \
-         `mentions_only` (only when you are mentioned — the usual choice), \
-         `manual` (never woken, read on demand via `read_channel`)."
+        "Subscribe to a channel and configure its wakeup policy."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -839,12 +824,12 @@ impl Tool for SubscribeChannelTool {
             "properties": {
                 "channel": {
                     "type": "string",
-                    "description": "Channel to subscribe to."
+                    "description": "Channel to subscribe to"
                 },
                 "mode": {
                     "type": "string",
                     "enum": ["all", "mentions_only", "manual"],
-                    "description": "Notification policy. Defaults to `mentions_only`."
+                    "description": "Wakeup policy: 'mentions_only' (default), 'all' (every message), or 'manual' (read on demand)"
                 }
             },
             "required": ["channel"],

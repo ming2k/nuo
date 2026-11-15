@@ -292,17 +292,23 @@ fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
     assert!(rendered1.contains("crates/*"));
     assert!(!rendered1.contains("Batch independent inspection"));
     assert!(!rendered1.contains("code_query"));
+    assert!(rendered1.contains("When target files are known, read the relevant files"));
 
     // 2. Channel with parallel tool calls and with code_query admitted:
     let ctx_full = InstructionContext {
         workspace_topology: Some("- crates/*\n- tools/*".to_string()),
         supports_parallel_tool_calls: true,
-        tool_names: vec!["code_query".to_string(), "execute_command".to_string()],
+        tool_names: vec![
+            "code_query".to_string(),
+            "execute_command".to_string(),
+            "read".to_string(),
+        ],
         ..Default::default()
     };
     let regions2 = reg.build_regions(&ctx_full).unwrap();
     let rendered2 = protocol::render_blocks(&regions2.fixed);
     assert!(rendered2.contains("Workspace"));
-    assert!(rendered2.contains("Batch independent inspection and file examination operations"));
-    assert!(rendered2.contains("Prefer structural AST queries (`code_query` outline/symbol)"));
+    assert!(rendered2.contains("Batch independent inspection, search, and read operations"));
+    assert!(rendered2.contains("When target files are known, read the relevant files"));
+    assert!(rendered2.contains("Use `code_query` (outline/symbol/references)"));
 }

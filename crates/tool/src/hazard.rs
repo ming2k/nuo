@@ -11,7 +11,7 @@ pub enum HazardLevel {
     /// Safe / Read-Only (e.g. view_file, grep, find).
     /// Does not mutate files, run arbitrary binaries, or alter system state.
     Safe,
-    /// File Mutation / Overwrite risk (e.g. write_to_file, replace_file_content, patch).
+    /// File Mutation / Overwrite risk (e.g. write_file, edit_text).
     /// Can alter source code or overwrite data in workspace.
     FileModification,
     /// Arbitrary Command Execution / System Process risk (e.g. bash, native shell).

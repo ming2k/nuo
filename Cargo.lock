@@ -359,7 +359,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -665,7 +665,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -783,7 +783,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1745,8 +1745,8 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "netune"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 dependencies = [
  "base64",
  "brotli",
@@ -1767,13 +1767,13 @@ dependencies = [
 
 [[package]]
 name = "netune-egress"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 
 [[package]]
 name = "netune-http1"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 dependencies = [
  "bytes",
  "http",
@@ -1782,8 +1782,8 @@ dependencies = [
 
 [[package]]
 name = "netune-http2"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 dependencies = [
  "bytes",
  "http",
@@ -1792,8 +1792,8 @@ dependencies = [
 
 [[package]]
 name = "netune-io"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 dependencies = [
  "netune-trace",
  "tokio",
@@ -1801,8 +1801,8 @@ dependencies = [
 
 [[package]]
 name = "netune-tls"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 dependencies = [
  "aws-lc-rs",
  "aws-lc-sys",
@@ -1817,16 +1817,16 @@ dependencies = [
 
 [[package]]
 name = "netune-trace"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "netune-ws"
-version = "0.0.30"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.30#de4ab6cdca3484d6a8702fb62289c5588bda65c7"
+version = "0.0.32"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.32#f79ca12e5edf36f707769bd2031152051e2f3117"
 dependencies = [
  "base64",
  "bytes",
@@ -1875,7 +1875,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2790,7 +2790,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3170,7 +3170,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3268,10 +3268,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4000,7 +4000,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

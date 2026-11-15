@@ -114,7 +114,7 @@ pub mod wire_surface;
 /// Default user agent this project sends to providers.
 pub const NUO_USER_AGENT: &str = concat!("nuo/", env!("CARGO_PKG_VERSION"));
 pub mod effort;
-pub use effort::{COMMON_LADDER, Effort, EffortLevel};
+pub use effort::{COMMON_LADDER, Effort, EffortLevel, ReasoningEffortControl};
 pub mod tuning;
 pub use tuning::{EFFORT_KNOB, THINKING_KNOB, TunableSetting, TunableSettings};
 pub mod reasoning;
@@ -189,8 +189,7 @@ pub mod session_title;
 pub mod context_policy;
 pub use context_policy::{
     CONTEXT_POLICY_SCHEMA_VERSION, ContextPolicy, DEFAULT_MAX_INPUT_TOKENS,
-    DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS, DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS, PolicyError,
-    WatermarkError, WatermarkPolicy,
+    DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS, PolicyError, WatermarkError, WatermarkPolicy,
 };
 
 pub mod session_tree;
@@ -246,13 +245,11 @@ pub use model::{
 pub use monitor::*;
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
-    ContextBudget, FROZEN_TOOL_OUTPUT_HEAD_CHARS, FROZEN_TOOL_OUTPUT_HEAD_LINES,
-    LayeredRequestWeights, MessageContentFingerprint, MessageTokenWeights,
+    ContextBudget, LayeredRequestWeights, MessageContentFingerprint, MessageTokenWeights,
     PRUNE_QUANTUM_FLOOR_TOKENS, PruneOutcome, RequestTokenEstimate, TAIL_QUARANTINE_TOKENS,
-    ToolOutputProjection, ToolSchemaWeights, estimate_bytes, estimate_draft_tokens,
-    estimate_message_tokens, estimate_semantic_json_tokens, estimate_tokens,
-    estimate_tokens_weighted, freeze_tool_output, layered_request_weights,
-    project_historical_tool_outputs, prune_tool_results,
+    ToolSchemaWeights, estimate_bytes, estimate_draft_tokens, estimate_message_tokens,
+    estimate_semantic_json_tokens, estimate_tokens, estimate_tokens_weighted,
+    layered_request_weights, prune_tool_results,
 };
 pub use secret::SecretString;
 pub use session_title::{TITLE_MAX_LEN, ThreadTitle, clean_title};

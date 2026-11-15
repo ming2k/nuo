@@ -276,6 +276,7 @@ const INTERACTIVE: SubAgentProfile = SubAgentProfile {
     variant_pins: &[],
     unattended: false,
     allow_model_stdin: false,
+    reasoning_effort: None,
 };
 
 #[tokio::test]

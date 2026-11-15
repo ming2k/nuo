@@ -129,7 +129,13 @@ impl OpenAiResponsesDialect {
         !matches!(self, OpenAiResponsesDialect::DeepSeek)
     }
 
-    pub const fn supports_parallel_tool_calls(self) -> bool {
+    /// Whether the `/responses` request schema defines the top-level
+    /// `parallel_tool_calls` boolean control field.
+    ///
+    /// DeepSeek's `/responses` schema omits this control field (ADR-0083) even
+    /// though the model natively emits parallel `function_call` items in a
+    /// single turn.
+    pub const fn emits_parallel_tool_calls_field(self) -> bool {
         !matches!(self, OpenAiResponsesDialect::DeepSeek)
     }
 
@@ -673,11 +679,6 @@ impl OpenAiChatDialect {
     /// `reasoning_details`).
     pub const fn replays_reasoning_content(self) -> bool {
         matches!(self, OpenAiChatDialect::DeepSeek)
-    }
-
-    /// Whether this dialect supports parallel (batched) tool calling.
-    pub const fn supports_parallel_tool_calls(self) -> bool {
-        !matches!(self, OpenAiChatDialect::DeepSeek)
     }
 
     /// The declarative wire surface for this chat dialect, when it has one.

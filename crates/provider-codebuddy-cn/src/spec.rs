@@ -59,7 +59,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     Model {

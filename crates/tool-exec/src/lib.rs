@@ -67,19 +67,13 @@ impl ExecToolContext {
 /// Typed parameters for [`ExecuteCommandTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct ExecuteCommandArgs {
-    #[tool(desc = "The shell command to execute. Commands MUST be finite and self-terminating.")]
+    #[tool(desc = "Non-interactive, self-terminating shell command")]
     pub command: String,
-    #[tool(
-        desc = "Overall wall-clock timeout in seconds (default 1800 = 30 minutes). Enforces a hard physical execution ceiling."
-    )]
+    #[tool(desc = "Wall-clock timeout in seconds (default 1800)")]
     pub timeout: Option<u64>,
-    #[tool(
-        desc = "Optional idle timeout in seconds. Execution terminates early as IdleBlocked if no stdout/stderr output is observed for this duration."
-    )]
+    #[tool(desc = "Idle timeout in seconds with no stdout/stderr output")]
     pub idle_timeout: Option<u64>,
-    #[tool(
-        desc = "Set to true to bypass semantic folding and output raw unabridged command stream (default false)."
-    )]
+    #[tool(desc = "Return raw output without semantic folding (default false)")]
     pub raw: Option<bool>,
 }
 
@@ -432,7 +426,7 @@ impl Tool for ExecuteCommandTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a shell command in a non-interactive environment. Commands must be finite and self-terminating."
+        "Execute a shell command in the workspace environment."
     }
 
     fn parameters_schema(&self) -> Value {

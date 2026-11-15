@@ -39,7 +39,7 @@ fn portable_surface_declares_its_probed_contract() {
     // form with `400 tools[0].function: requires a native Responses target`.
     assert!(!portable.nested_tool_definitions());
     assert!(portable.supports_tool_choice());
-    assert!(portable.supports_parallel_tool_calls());
+    assert!(portable.emits_parallel_tool_calls_field());
     assert!(portable.supports_developer_role());
     // No state: `store: true` and `previous_response_id` both answer 400,
     // so `store` is never emitted and the full context is replayed.
@@ -55,6 +55,7 @@ fn portable_surface_declares_its_probed_contract() {
     // DeepSeek's native surface keeps the opposite answers.
     let native = ProviderDialect::DeepSeek.openai_responses();
     assert!(native.nested_tool_definitions());
+    assert!(!native.emits_parallel_tool_calls_field());
     assert!(!native.supports_store());
     assert!(!native.dual_form_reasoning_replay());
     assert!(!native.encrypted_reasoning());

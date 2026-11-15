@@ -133,6 +133,12 @@ pub struct SubAgentProfile {
     /// a command's stdin directly. Without it, stdin is structurally
     /// unreachable from the model's arguments even inside a subagent.
     pub allow_model_stdin: bool,
+    /// Optional reasoning-effort cap or override for subagents running under
+    /// this profile. `None` inherits the parent provider's configured effort.
+    /// Read-only discovery roles cap effort at [`crate::Effort::Low`] so file
+    /// lookup and skill synthesis do not incur deep-thinking latency on
+    /// routine hops while never escalating a shallower or disabled route.
+    pub reasoning_effort: Option<crate::ReasoningEffortControl>,
 }
 
 impl SubAgentProfile {
@@ -244,6 +250,7 @@ handful of turns, then answer.",
         variant_pins: &[],
         unattended: true,
         allow_model_stdin: false,
+        reasoning_effort: Some(crate::ReasoningEffortControl::Cap(crate::Effort::Low)),
     };
 
     /// The session-titling role. Read-only and non-interactive, its
@@ -264,6 +271,7 @@ the title in the same language as the conversation.",
         variant_pins: &[],
         unattended: true,
         allow_model_stdin: false,
+        reasoning_effort: Some(crate::ReasoningEffortControl::Override(crate::Effort::None)),
     };
 
     /// The debugging subagent role. Unlike `EXPLORE` (pure static read-only),
@@ -307,6 +315,7 @@ Run at most a handful of focused turns, then answer.",
         variant_pins: &[],
         unattended: true,
         allow_model_stdin: false,
+        reasoning_effort: None,
     };
 
     /// The skill discovery and domain expertise subagent role.
@@ -328,6 +337,7 @@ questions of the user; focus strictly on skill discovery and instruction synthes
         variant_pins: &[],
         unattended: true,
         allow_model_stdin: false,
+        reasoning_effort: Some(crate::ReasoningEffortControl::Cap(crate::Effort::Low)),
     };
 
     /// Static catalog of all built-in subagent profiles.

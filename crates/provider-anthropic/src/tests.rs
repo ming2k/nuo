@@ -796,3 +796,59 @@ fn cache_controls_are_omitted_below_the_route_minimum() {
         "a prompt below the declared minimum must not pay a cache write"
     );
 }
+
+#[test]
+fn request_reasoning_effort_overrides_thinking_config() {
+    let provider = AnthropicMessagesProvider::new(
+        "k".to_string(),
+        "claude-sonnet-4-6".to_string(),
+        "https://x",
+    )
+    .with_thinking(
+        ThinkingConfig::default()
+            .with_mode(ReasoningMode::Adaptive)
+            .with_effort(Effort::High),
+    );
+
+    let req = ModelRequest::new(vec![Message::new(Role::User, "title")]);
+    let plan = ResolvedCachePolicy::Disabled;
+
+    let default_thinking = provider.effective_thinking(&req);
+    let default_body = provider.build_request_body(&req, false, &plan, default_thinking);
+    assert_eq!(default_body["thinking"]["type"], "adaptive");
+    assert_eq!(default_body["output_config"]["effort"], "high");
+
+    let low_req = req
+        .clone()
+        .with_reasoning_effort(Some(protocol::ReasoningEffortControl::Cap(Effort::Low)));
+    let low_thinking = provider.effective_thinking(&low_req);
+    let low_body = provider.build_request_body(&low_req, false, &plan, low_thinking);
+    assert_eq!(low_body["thinking"]["type"], "adaptive");
+    assert_eq!(low_body["output_config"]["effort"], "low");
+
+    let none_req = req.with_reasoning_effort(Some(protocol::ReasoningEffortControl::Override(
+        Effort::None,
+    )));
+    let none_thinking = provider.effective_thinking(&none_req);
+    let none_body = provider.build_request_body(&none_req, false, &plan, none_thinking);
+    assert!(none_body.get("thinking").is_none());
+    assert!(none_body.get("output_config").is_none());
+
+    // Cap(Low) must never turn thinking ON or leak `output_config` when off.
+    let disabled_provider =
+        AnthropicMessagesProvider::new("k".to_string(), "claude-sonnet-5".to_string(), "https://x");
+    let disabled_cap_thinking = disabled_provider.effective_thinking(&low_req);
+    let disabled_cap_body =
+        disabled_provider.build_request_body(&low_req, false, &plan, disabled_cap_thinking);
+    assert_eq!(disabled_cap_body["thinking"]["type"], "disabled");
+    assert!(disabled_cap_body.get("output_config").is_none());
+
+    // Cap(Low) caps an AdaptiveAlwaysOn model's implicit default effort to Low.
+    let always_on_provider =
+        AnthropicMessagesProvider::new("k".to_string(), "claude-fable-5".to_string(), "https://x");
+    let always_on_thinking = always_on_provider.effective_thinking(&low_req);
+    let always_on_body =
+        always_on_provider.build_request_body(&low_req, false, &plan, always_on_thinking);
+    assert_eq!(always_on_body["thinking"]["type"], "adaptive");
+    assert_eq!(always_on_body["output_config"]["effort"], "low");
+}

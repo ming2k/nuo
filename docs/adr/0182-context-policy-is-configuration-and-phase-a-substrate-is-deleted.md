@@ -36,7 +36,8 @@ module was deleted. The protocol copy remained: 2,387 lines, with the obsolete
 groups, retrieval handles) have zero references outside the module.
 
 The live surface is a compact configuration policy: watermarks, effective input
-ceiling, retention bands, and the budget derivation used by compaction.
+ceiling, and the budget derivation used by compaction (per-request tool-output
+retention bands having been retired in favor of an append-only KV-cache prefix).
 
 ## Architectural Decisions
 

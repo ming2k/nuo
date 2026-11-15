@@ -45,7 +45,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     Model {
@@ -57,7 +57,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     // CommandCode names its models `vendor/model`, and the server resolves the
@@ -76,7 +76,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     Model {
@@ -88,7 +88,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     Model {

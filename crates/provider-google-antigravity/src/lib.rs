@@ -655,13 +655,20 @@ impl GoogleProvider {
         auth: &protocol::ResolvedAuth,
     ) -> (String, http::header::HeaderMap, provider::WireRequest) {
         let key = auth.token.expose_secret();
+        let effective_effort = protocol::ReasoningEffortControl::resolve(
+            request.reasoning_effort,
+            self.reasoning_effort,
+        );
         let is_claude = self.endpoint.model.starts_with("claude-");
-        let include_thoughts = self.capabilities.reasoning() && !omit_thinking && !is_claude;
+        let include_thoughts = self.capabilities.reasoning()
+            && !omit_thinking
+            && !is_claude
+            && effective_effort != Some(protocol::Effort::None);
         let thinking = if omit_thinking || is_claude {
             None
         } else {
             request::resolve_thinking(
-                self.reasoning_effort,
+                effective_effort,
                 &self.capabilities.effort_levels,
                 request::max_thinking_budget(&self.endpoint.model),
             )
@@ -751,7 +758,11 @@ impl GoogleProvider {
                 .filter(|s| !s.is_empty())
                 .unwrap_or("aicode-consumers");
 
-            let effective_model = self.effective_wire_model();
+            let effective_model = effective_antigravity_wire_model(
+                &self.capabilities,
+                &self.endpoint.model,
+                effective_effort,
+            );
             let wrapped_body = serde_json::json!({
                 "project": project,
                 "requestId": uuid::Uuid::new_v4().to_string(),

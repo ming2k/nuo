@@ -487,3 +487,64 @@ fn a_token_from_the_same_backend_replays() {
         "sig-same-backend"
     );
 }
+
+#[test]
+fn request_reasoning_effort_cap_and_override_respect_route_state() {
+    let capabilities = {
+        let mut caps = p_caps("gemini-2.5-flash");
+        caps.thinking = protocol::reasoning::ReasoningSupport::ReasoningContent;
+        let levels = [
+            protocol::Effort::None,
+            protocol::Effort::Minimal,
+            protocol::Effort::Low,
+            protocol::Effort::Medium,
+            protocol::Effort::High,
+            protocol::Effort::Max,
+        ];
+        caps.effort_levels = levels.iter().copied().map(Into::into).collect();
+        caps
+    };
+    let cap_low = ModelRequest::new(Vec::new()).with_reasoning_effort(Some(
+        protocol::ReasoningEffortControl::Cap(protocol::Effort::Low),
+    ));
+    let high_p = GoogleProvider::new("k".to_string(), "gemini-2.5-flash".to_string())
+        .with_model_capabilities(capabilities.clone())
+        .with_reasoning_effort(Some(protocol::Effort::High));
+    let (_, _, capped) = high_p.prepare_request(&cap_low, true, false);
+    assert_eq!(
+        capped.body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+        6144
+    );
+    assert_eq!(
+        capped.body["generationConfig"]["thinkingConfig"]["includeThoughts"],
+        true
+    );
+
+    // Off stays off under Cap(Low).
+    let off_p = GoogleProvider::new("k".to_string(), "gemini-2.5-flash".to_string())
+        .with_model_capabilities(capabilities)
+        .with_reasoning_effort(Some(protocol::Effort::None));
+    let (_, _, off_body) = off_p.prepare_request(&cap_low, true, false);
+    assert_eq!(
+        off_body.body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+        0
+    );
+    assert!(
+        off_body.body["generationConfig"]["thinkingConfig"]["includeThoughts"].is_null(),
+        "includeThoughts must be omitted when effort resolves to None"
+    );
+
+    // Override(None) disables active High thinking.
+    let override_off = ModelRequest::new(Vec::new()).with_reasoning_effort(Some(
+        protocol::ReasoningEffortControl::Override(protocol::Effort::None),
+    ));
+    let (_, _, forced_off) = high_p.prepare_request(&override_off, true, false);
+    assert_eq!(
+        forced_off.body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+        0
+    );
+    assert!(
+        forced_off.body["generationConfig"]["thinkingConfig"]["includeThoughts"].is_null(),
+        "includeThoughts must be omitted when overridden to None"
+    );
+}

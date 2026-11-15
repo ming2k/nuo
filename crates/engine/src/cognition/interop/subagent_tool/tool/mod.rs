@@ -455,18 +455,18 @@ impl Tool for SubagentTool {
         let mut properties = serde_json::Map::new();
         properties.insert(
             "description".to_string(),
-            json!({ "type": "string", "description": "Short label for the sub-task (<=60 chars)" }),
+            json!({ "type": "string", "description": "Short task label (<=60 chars)" }),
         );
         properties.insert(
             "prompt".to_string(),
-            json!({ "type": "string", "description": "The full, self-contained instructions for the sub-agent" }),
+            json!({ "type": "string", "description": "Self-contained instructions for the sub-agent" }),
         );
         properties.insert(
             "role".to_string(),
             json!({
                 "type": "string",
                 "enum": DISPATCH_ROLES,
-                "description": "Optional sub-agent role: 'explore' (default, read-only research), 'debug' (non-interactive diagnosis and root-cause analysis), or 'skill' (skill discovery, inspection, and domain guideline synthesis). Defaults to 'explore'."
+                "description": "Sub-agent role: 'explore' (default, read-only research), 'debug' (root-cause diagnosis), or 'skill' (skill discovery and guideline synthesis)"
             }),
         );
         if has_background {
@@ -474,7 +474,7 @@ impl Tool for SubagentTool {
                 "background".to_string(),
                 json!({
                     "type": "boolean",
-                    "description": "If true, launch the sub-agent asynchronously in the background and return a job_id immediately. Its findings will be delivered automatically when it completes."
+                    "description": "Run asynchronously and deliver findings on completion (default false)"
                 }),
             );
         }

@@ -59,7 +59,9 @@ pub use protocol::model_providers::DEEPSEEK_BUILTIN_MODELS;
 /// config keeps its capabilities without being offered to new users.
 pub const MODELS: &[Model] = &[
     // DeepSeek V4.1 Flash — DeepSeek-V4.1-Flash-1017, the current Flash line
-    // with multimodal vision integrated (ADR-0080).
+    // with multimodal vision integrated (ADR-0080). Default `medium` effort
+    // keeps interactive tool-calling turns responsive while allowing users and
+    // callers to step up to `high` or down to `low`/`none` per channel/request.
     Model {
         id: "deepseek-flash",
         family: "deepseek",
@@ -69,7 +71,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     // DeepSeek V4 Pro — DeepSeek-V4-Pro-0813, the pure-text reasoning
@@ -98,7 +100,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
     // The retired experimental vision name, likewise served by V4.1 Flash.
@@ -111,7 +113,7 @@ pub const MODELS: &[Model] = &[
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
-        default_effort: Some(protocol::Effort::High),
+        default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
     },
 ];
@@ -227,6 +229,25 @@ mod tests {
             effort_ladders::DEEPSEEK_NATIVE.first(),
             Some(&protocol::Effort::None),
             "`none` is the thinking off switch and must survive the clamp"
+        );
+    }
+
+    #[test]
+    fn flash_models_default_to_low_effort_while_pro_stays_high() {
+        for id in [
+            "deepseek-flash",
+            "deepseek-v4-flash",
+            "deepseek-v4-flash-vision-exp",
+        ] {
+            assert_eq!(
+                model(id).default_effort,
+                Some(protocol::Effort::Low),
+                "{id} must default to Low rather than Medium (which server maps to High)"
+            );
+        }
+        assert_eq!(
+            model("deepseek-v4-pro").default_effort,
+            Some(protocol::Effort::High)
         );
     }
 }

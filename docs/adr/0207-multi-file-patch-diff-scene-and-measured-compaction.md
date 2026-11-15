@@ -15,6 +15,13 @@ negative_knowledge: false
 - Date: 2026-11-15
 - Tags: tools, tui, diff, compaction, telemetry
 
+> **Superseded in part (2026-11-15)**: Decision §1 (`BuiltinTool::Patch` /
+> `crates/tool-fs/src/patch.rs`) was retired because native parallel `edit_text`
+> / `write_file` calls already carry structured `ToolOutput::Patch` diffs for
+> `SceneKind::Diff` without maintaining a third text-patch envelope grammar in
+> tool schemas. Decisions §2 (`SceneKind::Diff`, universal message pager) and §3
+> (measured-usage compaction anchor, `cache_hit_ratio`) remain active.
+
 ## Context
 
 Following the performance, harness, and TUI parity roadmap against OpenCode:

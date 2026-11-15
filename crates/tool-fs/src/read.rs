@@ -48,13 +48,11 @@ const TAIL_LINES: usize = 100;
 /// Typed parameters for [`ReadTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct ReadArgs {
-    #[tool(desc = "Path to a file or directory; relative paths use the workspace root")]
+    #[tool(desc = "File or directory path (relative to workspace root)")]
     pub path: String,
-    #[tool(
-        desc = "1-based line or directory-entry offset. Negative reads the tail of a text file (default 1)."
-    )]
+    #[tool(desc = "1-based line or entry offset; negative reads text tail (default 1)")]
     pub offset: Option<i64>,
-    #[tool(desc = "Maximum lines or entries to return (default and hard cap: 2000)")]
+    #[tool(desc = "Max lines or entries to return (default/max 2000)")]
     pub limit: Option<usize>,
 }
 
@@ -92,12 +90,8 @@ impl Tool for ReadTool {
     }
 
     fn description(&self) -> &str {
-        "Read a file or directory. Text files and PDFs are line-numbered and \
-         paginated; directories list one level; PNG/JPEG/GIF/WebP images are \
-         returned to a vision-capable model. PDF text is extracted locally \
-         (no OCR): encrypted or scanned PDFs are reported, not decoded. Binary \
-         files are reported, not decoded. Use find_files for recursive globs \
-         and search_text for content search."
+        "Read a file (text, PDF, or image) or list one directory level. \
+         Use find_files for recursive file discovery and search_text for content search."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -677,20 +671,24 @@ fn decode_utf8(bytes: &[u8], raw_path: &str, start_line: usize) -> Result<String
     Ok(text.to_string())
 }
 
-fn clamp_line(line: &str) -> String {
-    if line.chars().count() <= MAX_LINE_CHARS {
+pub(crate) fn clamp_line_to(line: &str, max_chars: usize) -> String {
+    if line.chars().count() <= max_chars {
         return line.to_string();
     }
     let mut end = line.len();
     for (count, (offset, _)) in line.char_indices().enumerate() {
-        if count == MAX_LINE_CHARS {
+        if count == max_chars {
             end = offset;
             break;
         }
     }
     let mut clamped = line[..end].to_string();
-    clamped.push_str(&format!(" … (line truncated to {MAX_LINE_CHARS} chars)"));
+    clamped.push_str(&format!(" … (line truncated to {max_chars} chars)"));
     clamped
+}
+
+fn clamp_line(line: &str) -> String {
+    clamp_line_to(line, MAX_LINE_CHARS)
 }
 
 fn lang_for(raw_path: &str) -> Option<String> {

@@ -17,7 +17,7 @@ impl Tool for AskUserTool {
     }
 
     fn description(&self) -> &str {
-        "Ask the user structured questions to resolve ambiguity or choose trade-offs."
+        "Ask the user structured multiple-choice questions to resolve ambiguity."
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -26,31 +26,31 @@ impl Tool for AskUserTool {
             "properties": {
                 "questions": {
                     "type": "array",
-                    "description": "Questions to ask the user. Each question is presented in order.",
+                    "description": "Questions to present in order",
                     "items": {
                         "type": "object",
                         "properties": {
                             "header": {
                                 "type": "string",
-                                "description": "Very short label displayed as a chip/tag for the question (optional)."
+                                "description": "Short chip/tag label"
                             },
                             "question": {
                                 "type": "string",
-                                "description": "The complete question to ask the user."
+                                "description": "Question text"
                             },
                             "options": {
                                 "type": "array",
-                                "description": "Available choices. Provide 2-4 options. Put the recommended option first and suffix its label with '(Recommended)'.",
+                                "description": "2-4 choices; put recommended first with '(Recommended)' suffix",
                                 "items": {
                                     "type": "object",
                                     "properties": {
                                         "label": {
                                             "type": "string",
-                                            "description": "Short choice label returned to you if selected."
+                                            "description": "Choice label"
                                         },
                                         "description": {
                                             "type": "string",
-                                            "description": "Optional longer explanation of the choice."
+                                            "description": "Optional choice explanation"
                                         }
                                     },
                                     "required": ["label"]
@@ -61,7 +61,7 @@ impl Tool for AskUserTool {
                             "multi_select": {
                                 "type": "boolean",
                                 "default": false,
-                                "description": "Whether the user may select more than one option."
+                                "description": "Allow selecting multiple options"
                             }
                         },
                         "required": ["question", "options"]

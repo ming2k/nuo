@@ -22,15 +22,13 @@ use super::{SystemToolContext, atomic_write, path_argument};
 /// Typed parameters for [`EditTextTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct EditTextArgs {
-    #[tool(desc = "Path to an existing file relative to the workspace root")]
+    #[tool(desc = "Existing file path (relative to workspace root)")]
     pub path: String,
-    #[tool(
-        desc = "The text block to replace. Must match exactly once unless replace_all is true. Matching retries with line-ending/whitespace/typographic normalization, but never ignores leading indentation."
-    )]
+    #[tool(desc = "Exact text block to replace (include surrounding lines to match uniquely)")]
     pub old_string: String,
-    #[tool(desc = "The replacement text. Must differ from old_string.")]
+    #[tool(desc = "Replacement text")]
     pub new_string: String,
-    #[tool(desc = "Replace every occurrence instead of requiring a unique match (default false)")]
+    #[tool(desc = "Replace all occurrences instead of requiring a unique match (default false)")]
     pub replace_all: Option<bool>,
 }
 
@@ -302,11 +300,8 @@ impl Tool for EditTextTool {
     }
 
     fn description(&self) -> &str {
-        "Edit an existing file by replacing a text block. `old_string` must match \
-         exactly once unless `replace_all` is true. Matching retries with line-ending, \
-         trailing-whitespace, and typographic normalization, but never ignores leading \
-         indentation. Include surrounding lines as anchors when the block is ambiguous. \
-         Never use this to create a new file."
+        "Replace an exact text block in an existing file. \
+         Use write_file to create new files or overwrite whole files."
     }
 
     fn parameters_schema(&self) -> Value {

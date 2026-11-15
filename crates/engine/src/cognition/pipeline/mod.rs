@@ -83,8 +83,13 @@ impl HarnessTaskPipeline {
 
         let response = tokio::time::timeout(
             timeout,
-            self.provider
-                .chat(&ModelRequest::ephemeral(messages).with_instructions(instructions)),
+            self.provider.chat(
+                &ModelRequest::ephemeral(messages)
+                    .with_instructions(instructions)
+                    .with_reasoning_effort(Some(protocol::ReasoningEffortControl::Override(
+                        protocol::Effort::None,
+                    ))),
+            ),
         )
         .await
         .map_err(|_| CognitiveError::Timeout(timeout))?
@@ -285,5 +290,55 @@ mod tests {
             })
             .await;
         assert_eq!(verdict, StreamLoopVerdict::No);
+    }
+
+    #[tokio::test]
+    async fn harness_task_consult_disables_reasoning_effort() {
+        struct CaptureEffortProvider {
+            seen: std::sync::Mutex<Vec<Option<protocol::ReasoningEffortControl>>>,
+        }
+        #[async_trait]
+        impl Provider for CaptureEffortProvider {
+            async fn chat(
+                &self,
+                req: &ModelRequest,
+            ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+                self.seen.lock().unwrap().push(req.reasoning_effort);
+                Ok(protocol::ProviderCompletion::message(Message::new(
+                    Role::Assistant,
+                    "Compact Session Title",
+                )))
+            }
+            async fn stream_chat(
+                &self,
+                _req: &ModelRequest,
+                _telemetry: protocol::TransportTelemetry,
+            ) -> Result<
+                futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+                protocol::ProviderError,
+            > {
+                Ok(Box::pin(futures::stream::empty()))
+            }
+        }
+
+        let provider = Arc::new(CaptureEffortProvider {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+        let title = CognitivePipeline::new(provider.clone())
+            .consult(
+                ThreadTitleTask,
+                ThreadTitleInput {
+                    excerpt: "user: hi\nassistant: hello".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(title, "Compact Session Title");
+        assert_eq!(
+            *provider.seen.lock().unwrap(),
+            vec![Some(protocol::ReasoningEffortControl::Override(
+                protocol::Effort::None
+            ))]
+        );
     }
 }

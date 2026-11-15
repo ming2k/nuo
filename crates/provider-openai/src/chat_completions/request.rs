@@ -299,20 +299,21 @@ pub fn body_with_capabilities(
     });
 
     // DeepSeek CoT hygiene: upstream requires `reasoning_content` on tool-calling assistant
-    // messages. However, replaying historical CoT across older rounds saturates the context
-    // window and triggers V-shaped attention collapse / repetitive loops. We preserve the full
-    // reasoning_content on the active (latest) assistant turn only; older assistant turns with
-    // tool_calls have their reasoning pruned to "" (satisfying upstream schema verification
-    // without inflating the prompt with historical thinking).
-    let last_assistant_idx = cleaned
+    // messages. All assistant tool steps within the active user round keep their full
+    // `reasoning_content` (preserving prefix KV cache and CoT continuity across tool steps
+    // per DeepSeek's Thinking Mode + Tool Calls contract), while assistant turns from
+    // completed prior user rounds have their reasoning pruned to "" (satisfying upstream
+    // schema verification without inflating the prompt with historical thinking).
+    let active_round_start = cleaned
         .iter()
-        .rposition(|message| message.role == Role::Assistant);
+        .rposition(|message| message.opens_user_round())
+        .unwrap_or(0);
     let wire_messages: Vec<Value> = cleaned
         .iter_mut()
         .enumerate()
         .map(|(idx, message)| {
             if dialect.replays_reasoning_content()
-                && Some(idx) != last_assistant_idx
+                && idx < active_round_start
                 && message.reasoning_content.is_some()
             {
                 match message {
