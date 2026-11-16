@@ -62,22 +62,19 @@ pub async fn clear_remote_cache() -> Result<(), String> {
 /// per fetch — the same behaviour the previous `reqwest` client had, without
 /// carrying a second HTTP implementation for a catalog download.
 struct Fetcher {
-    client: netune::Client<netune::TlsRouterConnector<netune::TcpConnector>>,
+    client: netune::Client,
 }
 
 impl Fetcher {
-    fn new() -> Result<Self, String> {
-        let connector = netune::TlsRouterConnector::new(netune::TcpConnector::new());
-        Ok(Self {
-            client: netune::Client::new(
-                connector,
-                netune::Pool::default(),
-                netune::ClientConfig {
-                    user_agent: format!("nuo/{} (+ai-coding-agent)", env!("CARGO_PKG_VERSION")),
-                    ..Default::default()
-                },
-            ),
-        })
+    fn new() -> Self {
+        Self {
+            client: netune::Client::builder()
+                .user_agent(format!(
+                    "nuo/{} (+ai-coding-agent)",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .build(),
+        }
     }
 
     async fn get(&self, url: &str) -> Result<Vec<u8>, String> {
@@ -119,7 +116,7 @@ impl Fetcher {
 /// Fetch a remote skill repository and return the cached root directories for
 /// each skill that has a `SKILL.md`.
 pub async fn fetch_remote_repo(repo_url: &str) -> Result<Vec<PathBuf>, String> {
-    let client = Fetcher::new()?;
+    let client = Fetcher::new();
 
     let base = repo_url.trim_end_matches('/');
     let index_url = format!("{}/{}", base, INDEX_FILE);

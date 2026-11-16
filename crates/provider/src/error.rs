@@ -18,6 +18,9 @@ fn mirror_diagnostic(diagnostic: NetuneDiagnostic) -> TransportDiagnostic {
         netune_trace::RetryVerdict::Retryable => RetryVerdict::Retryable,
         netune_trace::RetryVerdict::Conditional => RetryVerdict::Conditional,
         netune_trace::RetryVerdict::Terminal => RetryVerdict::Terminal,
+        // A future verdict is unknown to this older mirror; treat it as
+        // terminal so an unrecognised classification never authorises a retry.
+        _ => RetryVerdict::Terminal,
     };
     TransportDiagnostic {
         code: diagnostic.code().to_string(),

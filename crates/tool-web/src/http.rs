@@ -10,9 +10,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
-use netune::{
-    Client, ClientConfig, Pool, RequestHead, Response, Target, TcpConnector, TlsRouterConnector,
-};
+use netune::{Client, ClientConfig, EgressConfinement, RequestHead, Response, Target};
 use protocol::WebConfig;
 
 /// A response whose body has been read.
@@ -30,24 +28,21 @@ impl Reply {
 }
 
 /// Direct web client with public-address confinement.
-pub struct WebHttp(Box<Client<TlsRouterConnector<TcpConnector>>>);
+pub struct WebHttp(Box<Client>);
 
 impl WebHttp {
     /// Build the handle from resolved `[web]` behavior.
     pub fn new(config: &WebConfig) -> Result<Self, String> {
         let _timeout = Duration::from_secs(config.timeout_secs.max(1));
-        let client_config = ClientConfig {
-            user_agent: crate::client::MOZILLA_UA.to_string(),
+        let client_config = ClientConfig::default()
+            .with_user_agent(crate::client::MOZILLA_UA)
             // The SSRF guard owns redirect policy: it must see every hop.
-            max_redirects: 0,
-            ..Default::default()
-        };
-        let connector = TlsRouterConnector::new(TcpConnector::strict_public());
-        Ok(Self(Box::new(Client::new(
-            connector,
-            Pool::default(),
-            client_config,
-        ))))
+            .with_max_redirects(0);
+        let client = Client::builder()
+            .config(client_config)
+            .confinement(EgressConfinement::StrictPublic)
+            .build();
+        Ok(Self(Box::new(client)))
     }
 
     fn timeout(&self) -> Duration {

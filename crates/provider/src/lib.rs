@@ -67,7 +67,7 @@ pub use spec::{
 pub use auth::*;
 
 pub use transport::{
-    Client, Http, HttpResponse, NetTransport, Reply, Request, RequestBuilder, RequestParts,
-    Transport, TransportError,
+    AttemptTrace, Client, EndpointRef, Http, HttpResponse, NetTransport, Reply, Request,
+    RequestBuilder, RequestParts, Transport, TransportError,
 };
 pub use wire::{EncodedRequest, WireRequest};

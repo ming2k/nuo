@@ -30,7 +30,7 @@ resolver = "2"
 [workspace.package]
 version = "0.0.91"
 edition = "2024"
-rust-version = "1.89"
+rust-version = "1.95"
 license = "MIT"
 
 [workspace.dependencies]
@@ -75,9 +75,10 @@ base64 = "0.22"
 hex = "0.4"
 hmac = "0.12"
 thiserror = "2.0"
-# netune is distributed by git tag only: the crates.io `0.1.x` line is yanked
-# and unmaintained, and the registry `0.0.1` is a stale stub. Pin the release
-# tag here; `Cargo.lock` records the exact commit for reproducible builds.
+# netune is distributed by git tag only: the crates.io publication of the
+# `0.1.x` line is yanked and unmaintained, and the registry `0.0.1` is a stale
+# stub. Pin the release tag here; `Cargo.lock` records the exact commit for
+# reproducible builds.
 # v0.0.10 replaces the shared `Arc<Mutex<Recorder>>` with tiered observation: a
 # per-attempt `Observation` selects `NoTap`/`Counters`/`Ring`, `TraceCollector`
 # is the only cold-path handle, and a response body reports the fidelity its tap
@@ -91,8 +92,12 @@ thiserror = "2.0"
 # `antigravity-cli-unary` (`http/1.1` only) and `antigravity-cli-stream`
 # (`h2, http/1.1` paired with `go-nethttp`), and adds per-connection HTTP/2
 # regular-header order policy (`GoMapRandom` for `H2Fingerprint::go`).
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.32" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.32" }
+# v0.1.1 is the GA release of the Stable tier: the public configuration and
+# trace types are `#[non_exhaustive]` with `with_*` builders, plain TLS uses
+# rustls by default, and the owned `netune-tls` engine is opt-in through a
+# named profile.
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.1.1" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.1.1" }
 http = "1.2"
 # Image normalization accepts only JPEG and PNG (see `host/src/image.rs`);
 # GIF/WebP are deliberately left untouched, so their decoders must not be built.

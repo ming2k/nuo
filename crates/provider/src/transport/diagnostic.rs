@@ -1,8 +1,8 @@
 //! Failure evidence attached to an outbound transport error.
 //!
-//! netune v0.0.26 made failure narration part of the trace and made every
-//! public attempt return the evidence it recorded. Nuo keeps the hot path
-//! unchanged and carries only the cold-path diagnosis across its transport
+//! netune's diagnostic contract made failure narration part of the trace and
+//! made every public attempt return the evidence it recorded. Nuo keeps the hot
+//! path unchanged and carries only the cold-path diagnosis across its transport
 //! boundary: the stable code, the phase, the retry verdict, the bounded
 //! message, the trace id, and the drop counts that bound the claim.
 
@@ -124,6 +124,9 @@ pub(crate) fn phase_label(phase: DiagnosticPhase) -> &'static str {
         DiagnosticPhase::Sink => "trace sink",
         DiagnosticPhase::Trace => "trace recording",
         DiagnosticPhase::Unknown => "request",
+        // A phase added after this consumer was built is named generically
+        // rather than misreported as a phase this build does know.
+        _ => "request",
     }
 }
 

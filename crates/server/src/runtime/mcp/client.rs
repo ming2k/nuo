@@ -166,7 +166,7 @@ enum McpConnection {
         /// The owned transport. Boxed because the connection state (pool,
         /// config, and TLS router) is much larger than the stdio variant; the
         /// enum is held for the life of an MCP server, not per message.
-        client: Box<netune::Client<netune::TlsRouterConnector<netune::TcpConnector>>>,
+        client: Box<netune::Client>,
         /// Session id issued by the server (`Mcp-Session-Id` on initialize),
         /// echoed on every subsequent request. `None` until (and unless) the
         /// server assigns one.
@@ -216,14 +216,9 @@ impl McpClient {
             // connect time with a clear message, not on first request.
             netune::Target::from_url(url)
                 .map_err(|error| format!("invalid MCP url '{url}': {error}"))?;
-            let connector = netune::TlsRouterConnector::new(netune::TcpConnector::new());
             McpConnection::Http {
                 url: url.to_string(),
-                client: Box::new(netune::Client::new(
-                    connector,
-                    netune::Pool::default(),
-                    netune::ClientConfig::default(),
-                )),
+                client: Box::new(netune::Client::builder().build()),
                 session_id: None,
             }
         } else {
@@ -441,26 +436,24 @@ impl McpClient {
                 // A connection-level failure (DNS, refused, TLS, reset) is
                 // transport-class and safe to reconnect-retry, while any
                 // delivered body is parsed below and classified as protocol.
-                // The deadline covers the body too, as the previous client's
-                // per-request timeout did.
-                let exchange = tokio::time::timeout(
-                    MCP_REQUEST_TIMEOUT,
-                    client.request(&target, head, Some(body.into())),
-                )
-                .await
-                .map_err(|_| {
-                    McpError::Transport(format!(
-                        "MCP {method} timed out after {}s",
-                        MCP_REQUEST_TIMEOUT.as_secs()
-                    ))
-                })?
-                .map_err(|error| {
-                    McpError::Transport(format!(
-                        "MCP {method} HTTP failed: {error} [{} trace {}]",
-                        error.diagnostic().code,
-                        error.trace().meta.id
-                    ))
-                })?;
+                // This deadline bounds the wait for response headers; the body
+                // keeps the transport's own request and body-idle bounds.
+                let exchange =
+                    tokio::time::timeout(MCP_REQUEST_TIMEOUT, client.request(&target, head, body))
+                        .await
+                        .map_err(|_| {
+                            McpError::Transport(format!(
+                                "MCP {method} timed out after {}s",
+                                MCP_REQUEST_TIMEOUT.as_secs()
+                            ))
+                        })?
+                        .map_err(|error| {
+                            McpError::Transport(format!(
+                                "MCP {method} HTTP failed: {error} [{} trace {}]",
+                                error.diagnostic().code,
+                                error.trace().meta.id
+                            ))
+                        })?;
                 let status = exchange.head.status;
                 if !status.is_success() {
                     // 4xx/5xx: the server answered and refused — a protocol
@@ -549,24 +542,22 @@ impl McpClient {
                 // Notifications have no id and thus no reply to correlate:
                 // spec-compliant servers answer 202 with (possibly) an empty
                 // body. Transport failure still classifies as reconnect-safe.
-                let exchange = tokio::time::timeout(
-                    MCP_REQUEST_TIMEOUT,
-                    client.request(&target, head, Some(body.into())),
-                )
-                .await
-                .map_err(|_| {
-                    McpError::Transport(format!(
-                        "MCP {method} notify timed out after {}s",
-                        MCP_REQUEST_TIMEOUT.as_secs()
-                    ))
-                })?
-                .map_err(|error| {
-                    McpError::Transport(format!(
-                        "MCP {method} notify failed: {error} [{} trace {}]",
-                        error.diagnostic().code,
-                        error.trace().meta.id
-                    ))
-                })?;
+                let exchange =
+                    tokio::time::timeout(MCP_REQUEST_TIMEOUT, client.request(&target, head, body))
+                        .await
+                        .map_err(|_| {
+                            McpError::Transport(format!(
+                                "MCP {method} notify timed out after {}s",
+                                MCP_REQUEST_TIMEOUT.as_secs()
+                            ))
+                        })?
+                        .map_err(|error| {
+                            McpError::Transport(format!(
+                                "MCP {method} notify failed: {error} [{} trace {}]",
+                                error.diagnostic().code,
+                                error.trace().meta.id
+                            ))
+                        })?;
                 let mut exchange = exchange;
                 let _ = exchange.body.read_to_end().await;
                 Ok(())

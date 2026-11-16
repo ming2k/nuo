@@ -12,7 +12,11 @@ use super::error::TransportError;
 use super::request::{RequestBuilder, RequestParts};
 
 /// Overall bound for a single non-streaming request.
-const CHAT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+///
+/// The shared transport also uses it as the response-head bound: netune's
+/// 30 s default would otherwise cut a non-streaming answer off before its
+/// first byte, even though Nuo allows the whole attempt 300 s.
+pub(crate) const CHAT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Bound on the advisory pre-warm.
 ///
@@ -105,11 +109,10 @@ mod owned {
     use bytes::Bytes;
     use futures::StreamExt;
     use futures::stream::BoxStream;
-    use netune::{Connector, TcpConnector, TlsRouterConnector};
+    use netune::{Connector, TcpConnector};
     use netune_trace::{
-        AttemptRef, ConnectionIdentity, ConnectionInfo, DiagnosticCode, DiagnosticRecord,
-        EndpointRef, EventKind, Fidelity, RequestTrace, TRACE_SCHEMA_VERSION, TraceCollector,
-        TraceSnapshot, derive,
+        ConnectionIdentity, ConnectionInfo, DiagnosticCode, DiagnosticRecord, EventKind, Fidelity,
+        RequestTrace, TraceCollector, TraceSnapshot, derive,
     };
 
     use super::super::diagnostic::{last_phase, phase_label};
@@ -123,29 +126,59 @@ mod owned {
 
     const TRACE_CAPACITY: usize = 16_384;
 
-    /// Rebuild an attempt envelope from the collector's v2 snapshot.
+    /// Who an attempt was addressed to.
+    ///
+    /// netune's trace schema v3 carries only the authority; the provider/model
+    /// identity is the consumer's metadata and joins it by `trace.meta.id`.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct EndpointRef {
+        /// Provider label that issued the attempt.
+        pub provider: String,
+        /// Model the attempt was for, when the caller knows it.
+        pub model: String,
+        /// `host:port` the attempt was addressed to.
+        pub authority: String,
+    }
+
+    /// One attempt as Nuo records it: netune's trace plus Nuo's endpoint.
+    ///
+    /// The inner trace keeps the authoritative protocol timeline; the endpoint
+    /// supplies the provider/model attribution that schema v3 deliberately
+    /// removed from the transport envelope.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct AttemptTrace {
+        /// Provider/model/authority the attempt was addressed to.
+        pub endpoint: EndpointRef,
+        /// netune's recorded attempt envelope.
+        pub trace: RequestTrace,
+    }
+
+    impl std::ops::Deref for AttemptTrace {
+        type Target = RequestTrace;
+
+        fn deref(&self) -> &Self::Target {
+            &self.trace
+        }
+    }
+
+    /// Rebuild an attempt envelope from the collector's snapshot.
     ///
     /// The snapshot owns the real generated [`TraceMeta`](netune_trace::TraceMeta)
     /// and the diagnostic side table, so a failed attempt no longer fabricates
     /// a placeholder id or drops its evidence. Connection identity stays
     /// unknown here because only a completed response body can name the socket
     /// it actually rode.
-    fn trace_from_snapshot(snapshot: TraceSnapshot, endpoint: EndpointRef) -> RequestTrace {
-        RequestTrace {
-            meta: snapshot.meta,
-            attempt: AttemptRef {
-                round: 0,
-                turn: 0,
-                attempt: 0,
-            },
-            endpoint,
-            connection: ConnectionInfo::default(),
-            identity: ConnectionIdentity::default(),
-            schema_version: TRACE_SCHEMA_VERSION,
-            fidelity: snapshot.fidelity,
-            log: snapshot.log,
-            diagnostics: snapshot.diagnostics,
-        }
+    fn trace_from_snapshot(snapshot: TraceSnapshot, authority: &str) -> RequestTrace {
+        RequestTrace::new(snapshot.meta, authority, snapshot.log)
+            .with_connection(ConnectionInfo::default())
+            .with_identity(ConnectionIdentity::default())
+            .with_fidelity(snapshot.fidelity)
+            .with_diagnostics(snapshot.diagnostics)
+    }
+
+    fn attempt_trace_from_snapshot(snapshot: TraceSnapshot, endpoint: EndpointRef) -> AttemptTrace {
+        let trace = trace_from_snapshot(snapshot, &endpoint.authority);
+        AttemptTrace { endpoint, trace }
     }
 
     /// Publish a terminal attempt to the sink, including failures.
@@ -161,32 +194,37 @@ mod owned {
         let snapshot = collector.snapshot(Fidelity::l1());
         let diagnostic = diagnostic_from_snapshot(&snapshot);
         if let Some(sink) = sink {
-            sink(trace_from_snapshot(snapshot, endpoint.clone()));
+            sink(attempt_trace_from_snapshot(snapshot, endpoint.clone()));
         }
         diagnostic
     }
 
     /// Turn a body/stream failure into a typed transport failure.
     ///
-    /// netune's `send_traced` boundary owns the head; a failure while reading
-    /// the body surfaces as a bare `NetError`. The collector still knows the
-    /// phase it reached, so the diagnostic is added there and the whole
-    /// evidence record is published before the error is returned.
+    /// netune's `Body` owns the terminal snapshot, including any diagnostic a
+    /// protocol layer recorded, so this publishes that exact evidence instead
+    /// of rebuilding it from the collector.
     fn stream_error(
         label: &'static str,
-        error: netune::NetError,
-        collector: &TraceCollector,
+        error: netune::AttemptError,
         endpoint: &EndpointRef,
         sink: &Option<TraceSink>,
     ) -> TransportError {
-        if collector.diagnostics().last_error().is_none() {
-            collector.record_error(error.diagnostic());
+        // The body's terminal snapshot already carries the producer's
+        // diagnostic (protocol-specific when it has one). Publish that exact
+        // evidence, then flatten only the bounded fields onto the error.
+        let snapshot = error.trace();
+        let diagnostic = diagnostic_from_snapshot(snapshot);
+        if let Some(sink) = sink {
+            sink(attempt_trace_from_snapshot(
+                snapshot.clone(),
+                endpoint.clone(),
+            ));
         }
-        let diagnostic = publish_terminal(sink, collector, endpoint);
         TransportError::Stream {
             label,
             message: error.to_string(),
-            retryable: error.is_retryable(),
+            retryable: error.error().is_retryable(),
             diagnostic,
         }
     }
@@ -222,7 +260,7 @@ mod owned {
             self.sealed = true;
             let trace = trace_from_snapshot(
                 self.collector.snapshot(Fidelity::l1()),
-                self.endpoint.clone(),
+                &self.endpoint.authority,
             );
             let derived = derive(&trace);
 
@@ -278,47 +316,41 @@ mod owned {
     /// trace carries the diagnostics recorded before the error was returned;
     /// its `meta.id` matches the id on the `TransportDiagnostic`. The netune
     /// event ring remains the record of truth; this sink is a view.
-    pub type TraceSink = Arc<dyn Fn(RequestTrace) + Send + Sync>;
+    pub type TraceSink = Arc<dyn Fn(AttemptTrace) + Send + Sync>;
 
     /// The owned netune transport implementation.
-    pub struct NetTransport<C: Connector = TlsRouterConnector<TcpConnector>> {
-        client: std::sync::Arc<netune::Client<C>>,
+    pub struct NetTransport {
+        client: std::sync::Arc<netune::Client>,
         /// HTTP/1.1-only fallback client for TLS profiles that intentionally
         /// pair with no HTTP/2 profile in netune (e.g. `antigravity-cli-unary`).
-        http1_client: Option<std::sync::Arc<netune::Client<C>>>,
+        http1_client: Option<std::sync::Arc<netune::Client>>,
         sink: Option<TraceSink>,
     }
 
-    impl NetTransport<TlsRouterConnector<TcpConnector>> {
-        pub fn new() -> Result<Self, String> {
-            Ok(Self {
+    impl NetTransport {
+        pub fn new() -> Self {
+            Self {
                 client: std::sync::Arc::clone(super::super::network::shared_client()),
                 http1_client: Some(std::sync::Arc::clone(
                     super::super::network::shared_http1_client(),
                 )),
                 sink: None,
-            })
+            }
         }
 
-        pub fn from_shared_client(
-            client: std::sync::Arc<netune::Client<TlsRouterConnector<TcpConnector>>>,
-        ) -> Self {
+        pub fn from_shared_client(client: std::sync::Arc<netune::Client>) -> Self {
             Self {
                 client,
                 http1_client: None,
                 sink: None,
             }
         }
-    }
 
-    impl NetTransport<TcpConnector> {
         pub fn plain() -> Self {
             Self::from_connector(TcpConnector::new())
         }
-    }
 
-    impl<C: Connector> NetTransport<C> {
-        pub fn from_connector(connector: C) -> Self {
+        pub fn from_connector(connector: impl Connector + 'static) -> Self {
             Self {
                 client: std::sync::Arc::new(netune::Client::new(
                     connector,
@@ -336,8 +368,14 @@ mod owned {
         }
     }
 
+    impl Default for NetTransport {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     #[async_trait::async_trait]
-    impl<C: Connector> Transport for NetTransport<C> {
+    impl Transport for NetTransport {
         async fn send(&self, parts: RequestParts) -> Result<HttpResponse, TransportError> {
             let (mut target, path) = netune::Target::from_url(&parts.url).map_err(|error| {
                 TransportError::InvalidRequest {
@@ -405,7 +443,7 @@ mod owned {
                     // publish its snapshot before converting the error.
                     let snapshot = error.trace().clone();
                     if let Some(sink) = &self.sink {
-                        sink(trace_from_snapshot(snapshot, endpoint.clone()));
+                        sink(attempt_trace_from_snapshot(snapshot, endpoint.clone()));
                     }
                     return Err(attempt_error(parts.label, &error));
                 }
@@ -443,10 +481,13 @@ mod owned {
                         Some(deadline) => {
                             match tokio::time::timeout_at(deadline, body.next_chunk()).await {
                                 Ok(result) => result,
-                                Err(_) => Err(netune::NetError::Io(std::io::Error::new(
-                                    std::io::ErrorKind::TimedOut,
-                                    "request timed out while reading the body",
-                                ))),
+                                Err(_) => Err(netune::AttemptError::new(
+                                    netune::NetError::Io(std::io::Error::new(
+                                        std::io::ErrorKind::TimedOut,
+                                        "request timed out while reading the body",
+                                    )),
+                                    collector.snapshot(Fidelity::l1()),
+                                )),
                             }
                         }
                         None => body.next_chunk().await,
@@ -458,22 +499,22 @@ mod owned {
                         )),
                         Ok(None) => {
                             if let Some(sink) = sink
-                                && let Some(mut trace) = body.trace()
+                                && let Some(trace) = body.trace()
                             {
                                 // The body owns the honest envelope: the
                                 // negotiated connection identity, the schema
                                 // version, and the fidelity its tap actually
                                 // produced (L1 for HTTP/1.1, L0 for HTTP/2).
-                                trace.endpoint = endpoint;
-                                sink(trace);
+                                sink(AttemptTrace {
+                                    endpoint: endpoint.clone(),
+                                    trace,
+                                });
                             }
                             writer.seal();
                             None
                         }
                         Err(error) => Some((
-                            Err(stream_error(
-                                label, error, &collector, &endpoint, &sink,
-                            )),
+                            Err(stream_error(label, error, &endpoint, &sink)),
                             (body, collector, sink, endpoint, deadline, label, writer, true),
                         )),
                     }
@@ -502,7 +543,7 @@ mod owned {
     }
 }
 
-pub use owned::{NetTransport, TraceSink};
+pub use owned::{AttemptTrace, EndpointRef, NetTransport, TraceSink};
 
 /// Pooled HTTP client executing requests through the owned netune transport.
 #[derive(Clone)]
@@ -513,18 +554,7 @@ pub struct Client {
 
 impl Client {
     pub fn new() -> Self {
-        let transport: Arc<dyn Transport> = match NetTransport::new() {
-            Ok(transport) => Arc::new(transport),
-            Err(error) => {
-                let transport = NetTransport::from_connector(netune::TcpConnector::new());
-                tracing::error!(
-                    fallback = "plaintext connector; TLS requests will fail at dispatch",
-                    %error,
-                    "shared netune client init failed; degrading transport"
-                );
-                Arc::new(transport)
-            }
-        };
+        let transport: Arc<dyn Transport> = Arc::new(NetTransport::new());
         Self {
             transport,
             request_timeout: CHAT_REQUEST_TIMEOUT,

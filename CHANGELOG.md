@@ -6,6 +6,14 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [Unreleased]
+
+### Changed
+
+- **netune v0.1.1 GA alignment.** `netune` and `netune-trace` move from `v0.0.32` to `v0.1.1`. The transport now builds production clients through `Client::builder()` so the rustls ALPN offer follows `enable_http2` (a directly constructed `TlsRouterConnector::new` offers HTTP/1.1 only), replaces `ClientConfig` struct literals with `with_*` builders now that the type is `#[non_exhaustive]`, and drops the `Client<C>` connector type parameter because netune erased it. The shared clients keep Nuo's total-budget policy with `request_timeout(None)`: non-streaming model calls pass their own 300 s deadline, while a streaming turn deliberately has no overall deadline. Because netune's 30 s default response-head bound would otherwise cut off a non-streaming answer before its 300 s budget, the shared clients align that bound with the same 300 s and leave the 60 s body-idle bound as the streaming liveness check. netune v0.1.1 declares `rust-version = 1.95`, so the workspace MSRV moves from 1.89 to 1.95.
+- **Trace schema v3 keeps Nuo's endpoint metadata outside the transport envelope.** netune 0.1's `RequestTrace` no longer carries `attempt`/`endpoint`; `AttemptTrace` now pairs the transport envelope with Nuo's `EndpointRef` (`provider`, `model`, `authority`) at the attempt sink, joined by the same `trace.meta.id`. Failed and timed-out attempts rebuild the envelope with `RequestTrace::new` instead of a struct literal.
+- **Body failures are `AttemptError`s.** netune 0.1 returns the terminal snapshot with a body failure, so `NetTransport` publishes that exact evidence instead of rebuilding it; a caller-side body deadline still yields its own terminal diagnostic and trace. Unknown future `DiagnosticPhase` and `RetryVerdict` variants are mapped fail-closed.
+
 ## [0.0.91] - 2026-11-16
 
 ### Changed

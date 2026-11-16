@@ -18,6 +18,16 @@ negative_knowledge: true
   [ADR-0108](0108-provider-substrate-consolidation-and-satellite-crate-retirement.md)
 - **Amends:** ADR-0108 (the direct netune substrate now includes its diagnostic contract, not only its timings)
 
+> **Amendment (2026-11-16, netune v0.1.1).** netune's GA trace schema v3
+> removes `attempt` and `endpoint` from `RequestTrace`. Nuo now pairs the
+> transport envelope with its own `EndpointRef` in
+> `AttemptTrace { endpoint, trace }` at the attempt sink, joined by the same
+> `trace.meta.id`. A body failure now arrives as `AttemptError` carrying its
+> own terminal snapshot rather than a bare `NetError`. The evidence boundary,
+> invariants, and trace-propagation decision below are unchanged; only §2's
+> bare-`NetError` body path and §4's schema-v2 envelope construction are
+> superseded.
+
 ## Context
 
 Nuo derives the latency timeline for every model attempt from netune's event

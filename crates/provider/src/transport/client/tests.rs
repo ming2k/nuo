@@ -61,7 +61,7 @@ async fn the_trace_sink_gets_the_honest_envelope_and_timings_are_published() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     });
 
-    let seen: Arc<Mutex<Option<netune_trace::RequestTrace>>> = Arc::new(Mutex::new(None));
+    let seen: Arc<Mutex<Option<AttemptTrace>>> = Arc::new(Mutex::new(None));
     let slot = Arc::clone(&seen);
     let transport = NetTransport::plain().with_trace_sink(Arc::new(move |trace| {
         *slot.lock().unwrap_or_else(|error| error.into_inner()) = Some(trace);
@@ -185,7 +185,7 @@ async fn a_failed_attempt_carries_its_diagnostic_and_publishes_its_trace() {
         .local_addr()
         .unwrap()
         .port();
-    let seen: Arc<Mutex<Vec<netune_trace::RequestTrace>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen: Arc<Mutex<Vec<AttemptTrace>>> = Arc::new(Mutex::new(Vec::new()));
     let slot = Arc::clone(&seen);
     let transport = NetTransport::plain().with_trace_sink(Arc::new(move |trace| {
         slot.lock()
@@ -245,7 +245,7 @@ async fn a_body_failure_carries_the_phase_and_publishes_its_trace() {
             .unwrap();
     });
 
-    let seen: Arc<Mutex<Vec<netune_trace::RequestTrace>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen: Arc<Mutex<Vec<AttemptTrace>>> = Arc::new(Mutex::new(Vec::new()));
     let slot = Arc::clone(&seen);
     let transport = NetTransport::plain().with_trace_sink(Arc::new(move |trace| {
         slot.lock()

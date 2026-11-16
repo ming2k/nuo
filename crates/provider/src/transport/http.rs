@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use http::{HeaderMap, Method, StatusCode};
-use netune::{Client, Target, TcpConnector, TlsRouterConnector};
+use netune::{Client, Target};
 
 pub use super::encoding::encode_component;
 use super::encoding::form_encode;
@@ -91,8 +91,8 @@ impl Reply {
 /// A pooled control-plane HTTP handle.
 #[derive(Clone)]
 pub struct Http {
-    client: Arc<Client<TlsRouterConnector<TcpConnector>>>,
-    http1_client: Arc<Client<TlsRouterConnector<TcpConnector>>>,
+    client: Arc<Client>,
+    http1_client: Arc<Client>,
     timeout: Duration,
 }
 
@@ -125,7 +125,7 @@ impl Http {
             }
             head = head.with_header(name.as_str(), value.as_str());
         }
-        let body = match &request.body {
+        let body: Option<bytes::Bytes> = match &request.body {
             None => None,
             Some(Body::Json(value)) => {
                 if content_type.is_none() {
@@ -163,18 +163,9 @@ impl Http {
                 .await?;
             let status = response.head.status;
             let headers = response.head.headers.clone();
-            let bytes = match response.body.read_to_end().await {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    if evidence.diagnostics().last_error().is_none() {
-                        evidence.record_error(error.diagnostic());
-                    }
-                    return Err(netune::AttemptError::new(
-                        error,
-                        evidence.snapshot(netune_trace::Fidelity::l1()),
-                    ));
-                }
-            };
+            // A body failure is already an `AttemptError`: it owns the terminal
+            // snapshot Nuo would otherwise rebuild.
+            let bytes = response.body.read_to_end().await?;
             Ok::<_, netune::AttemptError>((status, headers, bytes))
         };
         let (status, headers, bytes) = tokio::time::timeout(self.timeout, exchange)

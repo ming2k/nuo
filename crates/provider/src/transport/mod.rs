@@ -11,7 +11,9 @@ pub mod network;
 pub mod request;
 pub mod sse;
 
-pub use client::{Client, HttpResponse, NetTransport, TraceSink, Transport};
+pub use client::{
+    AttemptTrace, Client, EndpointRef, HttpResponse, NetTransport, TraceSink, Transport,
+};
 pub use diagnostic::TransportDiagnostic;
 pub use encoding::{encode_component, form_encode, percent_encode, percent_encode_form_pairs};
 pub use error::{TransportError, retry_after_ms};
