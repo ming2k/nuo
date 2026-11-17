@@ -6,6 +6,25 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.93] - 2026-11-17
+
+### Added
+
+- **Deferred tool discovery (`tool_search`) and `ToolExposure`.** Tools now declare `Direct`, `Deferred`, or `Hidden` exposure ([ADR-0208](docs/adr/0208-tool-contract-validation-snapshots-and-deferred-discovery.md)). MCP tools default to deferred (opt-out via `defer_tools = false`) and are activated per-session via `tool_search` using BM25F field-weighted ranking without disturbing the stable direct prefix.
+- **Typed structured/media tool outputs and compiled schema validation.** Added `ToolOutput::Structured` and `ToolOutput::Media`, compiled JSON Schema input/output validation and unambiguous argument coercion (`jsonschema 0.61`) at the dispatch boundary, and immutable per-request `ToolSnapshot` catalogs.
+- **MCP progress, cancellation, and resource parity.** Stdio and Streamable-HTTP MCP requests run concurrently without holding the transport lock across awaits, propagate `notifications/cancelled` and `notifications/progress`, re-initialize on HTTP `404` session expiry, route `tools/list_changed` / `resources/list_changed` / `prompts/list_changed`, and expose `resources/list` and `resources/read` ([ADR-0210](docs/adr/0210-mcp-cancellation-and-progress.md)).
+- **Declarative `[permissions].deny` enforcement (`DenyPolicy`).** Config-level deny rules now hard-refuse matching tool scopes ahead of interactive confirmation prompts.
+
+### Changed
+
+- **Single `Tool::execute` contract and bounded previews/errors.** Replaced `parameters()` with `parameters_schema()`, made `Tool::preview` async with bounded windowed diffs (8 MiB input cap, 5 s wait), and capped tool error payloads at 8 KiB with full spooling.
+- **Off-thread bounded `read` pagination.** Moved `read` filesystem probing and line scanning onto `spawn_blocking` with cancellation checks, a 64 MiB scan budget, and sparse 1 MiB checkpoint resumption ([ADR-0209](docs/adr/0209-read-pages-run-off-thread.md)).
+- **UTF-8 safe truncation** in persistence thread observation previews and `/jobs` output summaries.
+
+### Removed
+
+- Removed legacy `Tool::call` / `call_structured` / `call_structured_with_events` entry points and dead `CommandTool`, `DynamicTool`, `McpTool`, `ToolRegistry`, and `ApprovalHandler` surfaces ([ADR-0208](docs/adr/0208-tool-contract-validation-snapshots-and-deferred-discovery.md)).
+
 ## [0.0.92] - 2026-11-17
 
 ### Changed
