@@ -27,15 +27,16 @@
 //!
 //! ### Behavior invariants (preserved verbatim from the old path)
 //!
-//! 1. **Order is load-bearing** (see [`default_chain`]): schema validation
-//!    comes *after* the hook (so hooks observe every call, including malformed
+//! 1. **Order is load-bearing** (see [`default_chain`]): the hook observes
+//!    every call first; argument schema validation happens once in dispatch,
+//!    before the chain, so every policy sees normalized arguments
 //! 2. **`ScopeTarget` is the shared switch** for bash-policy / broker:
 //!    `Unspecified` skips both.
 //! 3. **`Reject` is collective** — one reject rejects the whole pending batch
 //!    (owned by the permission store's `reply`, keyed on a reject decision).
-//! 4. **The delegated flag is not authority.** Scope, bash, and broker decisions are
-//!    identical for attended and unattended sessions. Only the executor decides
-//!    whether a missing grant can be requested interactively.
+//! 4. **Unattended is not authority.** Scope, bash, and broker decisions are
+//!    identical for attended and unattended sessions; an unattended session
+//!    fails closed when a grant is missing because no human can supply one.
 //! 5. **`PermissionDenied` vs `Error`** distinguish user-aborts from hard
 //!    failures.
 //! 6. **One prompt per call.** Both the bash confirm gate and the broker emit
@@ -51,6 +52,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use protocol::{HookOutcome, RestorePoint};
+use serde_json::Value;
 use tool::{ScopeTarget, Tool, ToolOutput};
 
 use super::scoped_tools::ScopedToolDisable;
@@ -184,7 +186,7 @@ pub trait PermissionContext: Send + Sync {
 pub struct PolicyContext<'a> {
     pub tool: &'a Arc<dyn Tool>,
     pub call_name: &'a str,
-    pub arguments: &'a str,
+    pub arguments: &'a Value,
     pub scope_target: ScopeTarget,
     pub disabled: std::collections::HashSet<String>,
     pub scoped_disabled: ScopedToolDisable,
@@ -248,7 +250,7 @@ pub fn default_chain() -> Vec<Box<dyn PermissionPolicy>> {
     vec![
         Box::new(HookPolicy),
         Box::new(DisabledPolicy),
-        Box::new(SchemaPolicy),
+        Box::new(DenyPolicy),
         Box::new(BashPolicy),
         Box::new(BrokerPolicy),
     ]
@@ -265,8 +267,7 @@ impl PermissionPolicy for HookPolicy {
         "hook"
     }
     async fn evaluate(&self, ctx: &PolicyContext<'_>) -> PolicyDecision {
-        let tool_input = serde_json::from_str::<serde_json::Value>(ctx.arguments)
-            .unwrap_or(serde_json::Value::Null);
+        let tool_input = ctx.arguments.clone();
         let verdict = ctx.ctx.check_pre_tool_use(ctx.call_name, &tool_input).await;
         // Apply scoped disables from hooks first (narrows the toolset for
         // subsequent calls this round), then honour the deny.
@@ -311,23 +312,32 @@ impl PermissionPolicy for DisabledPolicy {
     }
 }
 
-/// Gate 3: argument schema validation.
-pub struct SchemaPolicy;
+/// Gate 4: declarative deny rules. Runs before the command policy so a hard
+/// denial wins even when the command would otherwise prompt for a one-off
+/// confirmation.
+pub struct DenyPolicy;
 #[async_trait]
-impl PermissionPolicy for SchemaPolicy {
+impl PermissionPolicy for DenyPolicy {
     fn name(&self) -> &'static str {
-        "schema"
+        "deny"
     }
     async fn evaluate(&self, ctx: &PolicyContext<'_>) -> PolicyDecision {
-        match tool::validation::validate_tool_arguments(&ctx.tool.parameters(), ctx.arguments) {
-            Ok(()) => PolicyDecision::Pass,
-            Err(message) => PolicyDecision::Deny {
+        let rule = scope_target_to_rule(ctx.call_name, &ctx.scope_target);
+        if ctx.ctx.permissions().is_denied(&rule) {
+            return PolicyDecision::Deny {
                 output: ToolOutput::Error {
-                    message,
-                    detail: None,
+                    message: format!(
+                        "Tool `{}` is denied by policy for scope `{}`.",
+                        ctx.call_name, rule.scope
+                    ),
+                    detail: Some(
+                        "A `[permissions].deny` rule is a hard denial; it cannot be overridden by an interactive approval. Remove or narrow the rule in config.toml to allow this call."
+                            .to_string(),
+                    ),
                 },
-            },
+            };
         }
+        PolicyDecision::Pass
     }
 }
 
@@ -347,13 +357,24 @@ impl PermissionPolicy for BashPolicy {
             ScopeTarget::Command(c) => c.clone(),
             _ => return PolicyDecision::Pass,
         };
-        match ctx.ctx.check_bash_policy(&command, ctx.arguments).await {
+        let arguments = serde_json::to_string(ctx.arguments).unwrap_or_default();
+        match ctx.ctx.check_bash_policy(&command, &arguments).await {
             BashVerdict::Allow => PolicyDecision::Pass,
             BashVerdict::Deny { output } => PolicyDecision::Deny { output },
             BashVerdict::Confirm { match_ } => {
                 if ctx.unattended {
-                    // Under unattended mode, dangerous commands requiring confirmation are auto-approved.
-                    PolicyDecision::Pass
+                    PolicyDecision::Deny {
+                        output: ToolOutput::Error {
+                            message: format!(
+                                "Dangerous command requires confirmation, but this session is unattended: `{command}`"
+                            ),
+                            detail: Some(
+                                "No human is present to approve a one-off command. Pre-authorize the exact \
+                                 command with `[bash_policy.rules]` (or run the session attended) to permit it."
+                                    .to_string(),
+                            ),
+                        },
+                    }
                 } else {
                     // Build the one-off dangerous-command prompt.
                     PolicyDecision::MissingAuthority {
@@ -369,7 +390,7 @@ impl PermissionPolicy for BashPolicy {
                                 if match_.builtin { " (built-in)" } else { "" },
                                 match_.reason,
                             ),
-                            arguments: ctx.arguments.to_string(),
+                            arguments: serde_json::to_string(ctx.arguments).unwrap_or_default(),
                             scope: command.clone(),
                             elevation: false,
                             one_off: true,
@@ -401,14 +422,7 @@ impl PermissionPolicy for BrokerPolicy {
         "broker"
     }
     async fn evaluate(&self, ctx: &PolicyContext<'_>) -> PolicyDecision {
-        if ctx.unattended {
-            return PolicyDecision::Approve;
-        }
         let submission = ctx.tool.permission_submission(ctx.arguments);
-        if submission.is_none() && matches!(ctx.scope_target, ScopeTarget::Unspecified) {
-            return PolicyDecision::Pass;
-        }
-
         let rule = if let Some(sub) = &submission {
             PermissionRule {
                 tool: ctx.call_name.to_string(),
@@ -417,6 +431,27 @@ impl PermissionPolicy for BrokerPolicy {
         } else {
             scope_target_to_rule(ctx.call_name, &ctx.scope_target)
         };
+
+        if ctx.ctx.permissions().is_denied(&rule) {
+            return PolicyDecision::Deny {
+                output: ToolOutput::Error {
+                    message: format!(
+                        "Tool `{}` is denied by policy for scope `{}`.",
+                        ctx.call_name, rule.scope
+                    ),
+                    detail: Some(
+                        "A `[permissions].deny` rule is a hard denial; it cannot be overridden by an interactive approval. Remove or narrow the rule in config.toml to allow this call."
+                            .to_string(),
+                    ),
+                },
+            };
+        }
+
+        // A pure read with no locatable target is not an authority the user
+        // should ever be asked to grant — unless an explicit deny matched above.
+        if submission.is_none() && matches!(ctx.scope_target, ScopeTarget::Unspecified) {
+            return PolicyDecision::Pass;
+        }
 
         if ctx.ctx.permissions().is_allowed(&rule) {
             return PolicyDecision::Approve;
@@ -443,9 +478,15 @@ impl PermissionPolicy for BrokerPolicy {
         // `None` is a real answer, not a gap: a shell command, a network fetch, or a
         // subagent cannot describe its effect without causing it, and a prompt that
         // said otherwise would be manufacturing confidence.
-        let preview = ctx
-            .tool
-            .preview(&serde_json::from_str(ctx.arguments).unwrap_or(serde_json::Value::Null));
+        let preview = tokio::time::timeout(tool::PREVIEW_TIMEOUT, ctx.tool.preview(ctx.arguments))
+            .await
+            .unwrap_or_else(|_| {
+                tracing::debug!(
+                    tool = %ctx.call_name,
+                    "tool preview timed out; continuing without a diff"
+                );
+                None
+            });
 
         PolicyDecision::MissingAuthority {
             request: Box::new(tool::PermissionRequest {
@@ -453,7 +494,7 @@ impl PermissionPolicy for BrokerPolicy {
                 tool: ctx.call_name.to_string(),
                 label,
                 description,
-                arguments: ctx.arguments.to_string(),
+                arguments: serde_json::to_string(ctx.arguments).unwrap_or_default(),
                 scope: rule.scope.clone(),
                 elevation,
                 one_off: false,
@@ -470,7 +511,7 @@ impl PermissionPolicy for BrokerPolicy {
 fn scope_target_to_rule(tool: &str, target: &ScopeTarget) -> PermissionRule {
     let scope = match target {
         ScopeTarget::Unspecified => "*".to_string(),
-        ScopeTarget::Path(p) => p.to_string_lossy().into_owned(),
+        ScopeTarget::Path(p) => tool::normalize_access_path(p.to_string_lossy().into_owned()),
         ScopeTarget::Command(c) => c.clone(),
     };
     PermissionRule {

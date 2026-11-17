@@ -68,7 +68,7 @@ pub use signature::{
 pub use tools::{
     AcpToolContext, DelegateToPeerTool, DelegationContext, ListChannelsTool, ListPeersTool,
     OpenChannelTool, PublishToChannelTool, ReadChannelTool, SubscribeChannelTool,
-    create_acp_direct_tools, create_acp_tools, register_acp_direct_tools, register_acp_tools,
+    create_acp_direct_tools, create_acp_tools,
 };
 pub use transport::{
     ChannelReceiver, ChannelSender, TransportBridge, TransportLink, TransportReceiver,

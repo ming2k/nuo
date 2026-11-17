@@ -12,7 +12,7 @@ tool-derive = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time", "macros", "process", "io-util", "rt"] }
+jsonschema = { version = "0.61", default-features = false }
 tokio-util = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
@@ -20,6 +20,7 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 toml = { workspace = true }
 
 [lints]

@@ -368,12 +368,26 @@ impl Agent {
         // channel paste-up uses. The provider serialises it to `image_url`
         // (OpenAI-compat) / `inline_data` (Google), letting the model see the
         // pixels. A short textual link ties the two messages together.
-        if let ToolOutput::Image { mime, data } = result {
-            messages.push(crate::runtime::message::tool_image(
-                &call.name,
-                mime.clone(),
-                data.clone(),
-            ));
+        match result {
+            ToolOutput::Image { mime, data } => {
+                messages.push(crate::runtime::message::tool_image(
+                    &call.name,
+                    mime.clone(),
+                    data.clone(),
+                ));
+            }
+            ToolOutput::Media { parts, .. } => {
+                for part in parts {
+                    if let tool::tool_output::MediaPart::Image { mime, data } = part {
+                        messages.push(crate::runtime::message::tool_image(
+                            &call.name,
+                            mime.clone(),
+                            data.clone(),
+                        ));
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -387,16 +401,104 @@ impl Agent {
 /// internally and bypass this fallback.
 const GENERIC_TOOL_MAX_OUTPUT_CHARS: usize = 64 * 1024;
 
+/// Errors are model-facing observations too. A verbose MCP error or a
+/// deserializer echoing a large argument blob must not be exempt from the
+/// context budget just because it took the failure path.
+const GENERIC_TOOL_MAX_ERROR_CHARS: usize = 8 * 1024;
+
 /// Target character window kept when tail-folding an oversized generic output.
 const GENERIC_TOOL_FOLD_PREVIEW_CHARS: usize = 16 * 1024;
 
+/// Spool files are written once per oversized tool result. The name is
+/// content-addressed only as a prefix; a random-looking process/sequence suffix
+/// avoids two sessions overwriting (or symlink-attacking) each other's file.
 fn write_spool_file(bytes: &[u8]) -> std::path::PathBuf {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
     let short_hash = tool::vfs_short_hash(bytes);
     let spool_dir = tool::spool_root_dir();
     let _ = std::fs::create_dir_all(&spool_dir);
-    let spool_file = spool_dir.join(format!("{short_hash}.log"));
-    let _ = std::fs::write(&spool_file, bytes);
+    secure_spool_dir(&spool_dir);
+    let spool_file = spool_dir.join(format!(
+        "{short_hash}-{}-{}.log",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    match options.open(&spool_file) {
+        Ok(mut file) => {
+            if file.write_all(bytes).is_err() {
+                let _ = std::fs::remove_file(&spool_file);
+            }
+        }
+        Err(_) => {
+            // A name collision is not fatal for the model: the folded preview is
+            // still returned, just without a full-output path.
+        }
+    }
+    if SEQUENCE.load(Ordering::Relaxed).is_multiple_of(16) {
+        sweep_spool(&spool_dir);
+    }
     spool_file
+}
+
+#[cfg(unix)]
+fn secure_spool_dir(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+}
+
+#[cfg(not(unix))]
+fn secure_spool_dir(_dir: &std::path::Path) {}
+
+/// Keep the process-private spool from becoming an unbounded RAM disk.
+///
+/// The directory lives on `/dev/shm` where available, so leaving every
+/// oversized result forever is a memory leak with a filesystem API. Entries
+/// older than seven days, and the oldest entries above a 512 MiB total, are
+/// removed. Runs opportunistically while writing a new spool file.
+fn sweep_spool(dir: &std::path::Path) {
+    use std::time::{Duration, SystemTime};
+
+    const MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+    const MAX_BYTES: u64 = 512 * 1024 * 1024;
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let now = SystemTime::now();
+    let mut files: Vec<(std::path::PathBuf, u64, SystemTime)> = Vec::new();
+    let mut total = 0u64;
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        total = total.saturating_add(metadata.len());
+        files.push((
+            entry.path(),
+            metadata.len(),
+            metadata.modified().unwrap_or(now),
+        ));
+    }
+    files.sort_by_key(|(_, _, modified)| *modified);
+    for (path, len, modified) in files {
+        let expired = now.duration_since(modified).unwrap_or_default() > MAX_AGE;
+        if (expired || total > MAX_BYTES) && std::fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(len);
+        }
+    }
 }
 
 fn spool_and_fold_generic_output(call: &ToolCall, text: &str) -> Message {
@@ -492,12 +594,20 @@ pub(crate) fn format_tool_result_message(
         | ToolOutput::WebSearch { .. }
         | ToolOutput::WebArticle { .. }
         | ToolOutput::Subagent { .. }
-        | ToolOutput::Error { .. }
-        | ToolOutput::PermissionDenied { .. }
         | ToolOutput::Image { .. } => {
             Message::tool_result(call, format!("[{} result]:\n{}", call.name, text))
         }
-        ToolOutput::Text(_) | ToolOutput::Matches { .. } => {
+        ToolOutput::Error { .. } | ToolOutput::PermissionDenied { .. } => {
+            if text.len() <= GENERIC_TOOL_MAX_ERROR_CHARS {
+                Message::tool_result(call, format!("[{} result]:\n{}", call.name, text))
+            } else {
+                spool_and_fold_generic_output(call, text)
+            }
+        }
+        ToolOutput::Text(_)
+        | ToolOutput::Matches { .. }
+        | ToolOutput::Structured { .. }
+        | ToolOutput::Media { .. } => {
             let self_bounded_tool =
                 matches!(call.name.as_str(), "read" | "code_query" | "find_files");
             if self_bounded_tool || text.len() <= GENERIC_TOOL_MAX_OUTPUT_CHARS {

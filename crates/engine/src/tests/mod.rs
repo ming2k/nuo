@@ -1,5 +1,6 @@
 use super::*;
 use futures::stream::{self, BoxStream};
+use serde_json::Value;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TestProvider;
@@ -184,16 +185,20 @@ impl Tool for WriteTestTool {
         "test write tool"
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
 
-    fn scope_target(&self, _arguments: &str) -> tool::ScopeTarget {
+    fn scope_target(&self, _arguments: &Value) -> tool::ScopeTarget {
         tool::ScopeTarget::Path(std::path::PathBuf::from("/tmp/test"))
     }
 
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("should not run".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("should not run".to_string()))
     }
 }
 
@@ -207,14 +212,18 @@ impl Tool for StreamingReadTool {
         "streaming test tool"
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        assert_eq!(arguments, "{\"value\":1}");
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        assert_eq!(arguments, serde_json::json!({"value":1}));
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok("read".to_string())
+        Ok(::tool::ToolOutput::text("read".to_string()))
     }
 }
 
@@ -228,12 +237,16 @@ impl Tool for ShadowTodoTool {
         "caller-owned shadow"
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
 
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("wrong state".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("wrong state".to_string()))
     }
 }
 
@@ -422,38 +435,40 @@ impl Tool for RecordingTool {
     fn description(&self) -> &str {
         "recording test tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    fn scope_target(&self, arguments: &str) -> tool::ScopeTarget {
+    fn scope_target(&self, arguments: &Value) -> tool::ScopeTarget {
         if self.name == "execute_command" {
-            let command = serde_json::from_str::<serde_json::Value>(arguments)
-                .ok()
-                .and_then(|v| {
-                    v.get("command")
-                        .and_then(|c| c.as_str())
-                        .map(str::to_string)
-                })
+            let command = arguments
+                .get("command")
+                .and_then(|c| c.as_str())
+                .map(str::to_string)
                 .unwrap_or_else(|| arguments.to_string());
             tool::ScopeTarget::Command(command)
         } else if self.declares_target {
             // Pull a path from the args if present, else a fixed sentinel, so
             // the broker fires for the `write` variant.
-            let path = serde_json::from_str::<serde_json::Value>(arguments)
-                .ok()
-                .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(str::to_string))
+            let path = arguments
+                .get("path")
+                .and_then(|p| p.as_str())
+                .map(str::to_string)
                 .unwrap_or_else(|| "/tmp/recording".to_string());
             tool::ScopeTarget::Path(std::path::PathBuf::from(path))
         } else {
             tool::ScopeTarget::Unspecified
         }
     }
-    async fn call(&self, arguments: &str) -> Result<String, String> {
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
         self.calls
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(arguments.to_string());
-        Ok(self.output.clone())
+        Ok(::tool::ToolOutput::text(self.output.clone()))
     }
 }
 
@@ -578,11 +593,15 @@ impl Tool for SubagentReadTool {
     fn description(&self) -> &str {
         "test read tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("file contents".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("file contents".to_string()))
     }
 }
 
@@ -660,3 +679,221 @@ mod permissions;
 mod scheduling;
 mod stream_loops;
 mod streaming;
+
+#[tokio::test]
+async fn a_tool_timeout_is_enforced_by_the_dispatcher() {
+    use std::future::pending;
+
+    struct SlowTool;
+
+    #[async_trait]
+    impl Tool for SlowTool {
+        fn name(&self) -> &str {
+            "slow"
+        }
+        fn description(&self) -> &str {
+            "never returns"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn timeout(&self) -> Option<std::time::Duration> {
+            Some(std::time::Duration::from_millis(20))
+        }
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            let _: () = pending().await;
+            unreachable!("the dispatcher timeout must win")
+        }
+    }
+
+    let agent = Arc::new(Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(SlowTool)],
+        crate::AgentIdentity::default(),
+    ));
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let call = ToolCall::new("slow_call", "slow", "{}");
+    let output = agent
+        .execute_tool(&call, &tx, &CancellationToken::new())
+        .await;
+    assert!(output.is_error(), "got {output:?}");
+    assert!(
+        output.to_text().contains("timed out"),
+        "{}",
+        output.to_text()
+    );
+}
+
+#[tokio::test]
+async fn tool_search_activates_a_deferred_tool_for_the_next_turn() {
+    struct DeferredStub;
+
+    #[async_trait]
+    impl Tool for DeferredStub {
+        fn name(&self) -> &str {
+            "deferred_capability"
+        }
+        fn description(&self) -> &str {
+            "A capability that is only declared after discovery."
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn exposure(&self) -> tool::ToolExposure {
+            tool::ToolExposure::Deferred
+        }
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text("found"))
+        }
+    }
+
+    let agent = Arc::new(Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(DeferredStub)],
+        crate::AgentIdentity::default(),
+    ));
+    assert!(
+        !agent
+            .visible_tools()
+            .iter()
+            .any(|tool| tool.name() == "deferred_capability"),
+        "a deferred tool must not be declared before discovery"
+    );
+    agent.install_tool(Arc::new(crate::tools::ToolSearchTool::new(Arc::downgrade(
+        &agent,
+    ))));
+    // The next model request rebuilds the declaration snapshot; do the same
+    // here because the install happened after the previous request.
+    agent.refresh_tool_snapshot();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let call = ToolCall::new(
+        "search_1",
+        "tool_search",
+        r#"{"query":"deferred capability"}"#,
+    );
+    let output = agent
+        .execute_tool(&call, &tx, &CancellationToken::new())
+        .await;
+    assert!(
+        output.to_text().contains("deferred_capability"),
+        "{}",
+        output.to_text()
+    );
+    assert!(
+        agent
+            .visible_tools()
+            .iter()
+            .any(|tool| tool.name() == "deferred_capability"),
+        "activation must make the tool visible on the next request"
+    );
+
+    let empty = ToolCall::new("search_2", "tool_search", r#"{"query":"   "}"#);
+    let output = agent
+        .execute_tool(&empty, &tx, &CancellationToken::new())
+        .await;
+    assert!(output.is_error(), "empty search must not activate tools");
+    assert!(
+        output.to_text().contains("must name a capability"),
+        "{}",
+        output.to_text()
+    );
+}
+
+#[tokio::test]
+async fn tool_progress_reaches_the_event_stream() {
+    struct ProgressTool;
+
+    #[async_trait]
+    impl Tool for ProgressTool {
+        fn name(&self) -> &str {
+            "progressing"
+        }
+        fn description(&self) -> &str {
+            "emits one progress tick"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn execute(
+            &self,
+            ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            ctx.emit_progress(::tool::ToolProgress::new("half", Some(1), Some(2)));
+            Ok(::tool::ToolOutput::text("done"))
+        }
+    }
+
+    let agent = Arc::new(Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(ProgressTool)],
+        crate::AgentIdentity::default(),
+    ));
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let call = ToolCall::new("progress_call", "progressing", "{}");
+    let output = agent
+        .execute_tool(&call, &tx, &CancellationToken::new())
+        .await;
+    assert!(!output.is_error());
+    match rx.try_recv() {
+        Ok(AgentEvent::ToolStream {
+            id,
+            stream: tool::ToolStream::Progress(progress),
+        }) => {
+            assert_eq!(id, "progress_call");
+            assert_eq!(progress.message, "half");
+            assert_eq!(progress.current, Some(1));
+        }
+        other => panic!("expected a progress event, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_failed_call_keeps_its_last_progress_tick() {
+    struct FailingProgressTool;
+
+    #[async_trait]
+    impl Tool for FailingProgressTool {
+        fn name(&self) -> &str {
+            "failing_progress"
+        }
+        fn description(&self) -> &str {
+            "emits progress, then fails"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn execute(
+            &self,
+            ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            ctx.emit_progress(::tool::ToolProgress::new("half", Some(1), Some(2)));
+            Ok(::tool::ToolOutput::error("server stopped"))
+        }
+    }
+
+    let agent = Arc::new(Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(FailingProgressTool)],
+        crate::AgentIdentity::default(),
+    ));
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let call = ToolCall::new("failing_progress_call", "failing_progress", "{}");
+    let output = agent
+        .execute_tool(&call, &tx, &CancellationToken::new())
+        .await;
+    assert!(output.is_error());
+    let text = output.to_text();
+    assert!(text.contains("server stopped"), "{text}");
+    assert!(text.contains("Last progress: half — 1/2 (50%)"), "{text}");
+}

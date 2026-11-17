@@ -325,13 +325,17 @@ impl tool::Tool for RetryReadTool {
         "retry safety test"
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
 
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok("read".to_string())
+        Ok(tool::ToolOutput::text("read"))
     }
 }
 

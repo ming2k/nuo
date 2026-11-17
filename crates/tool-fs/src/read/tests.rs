@@ -1,7 +1,7 @@
 use super::*;
+use ::tool::ToolContext;
 use serde_json::json;
 use tempfile::tempdir;
-use tool::ToolContext;
 
 fn ctx(root: &std::path::Path) -> Arc<SystemToolContext> {
     Arc::new(SystemToolContext::new(root))
@@ -106,11 +106,17 @@ async fn text_page_reports_its_window_and_continuation() {
             prefix,
             suffix,
             lang,
+            ..
         } => {
             assert_eq!(text, "b\nc");
             assert_eq!(start_line, 2);
             assert_eq!(lang.as_deref(), Some("rs"));
-            assert_eq!(prefix.as_deref(), Some("[Lines 2-3 of 4 from `src.rs`]"));
+            assert!(
+                prefix.as_deref().is_some_and(|prefix| prefix
+                    .starts_with("[Lines 2-3 of 4 from `src.rs`]")
+                    && prefix.contains("version")),
+                "{prefix:?}"
+            );
             assert_eq!(
                 suffix.as_deref(),
                 Some("[1 more line — read with offset=4]")
@@ -212,6 +218,7 @@ async fn pdf_is_extracted_into_a_paginated_text_result() {
             prefix,
             suffix,
             lang,
+            ..
         } => {
             assert_eq!(text, "[page 1]\nalpha");
             assert_eq!(start_line, 1);

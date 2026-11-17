@@ -128,11 +128,12 @@ pub async fn begin(
     // Fast path: a tool that declares no effect is a read. This is the common
     // case and must not touch the CAS or the writer.
     let ceiling = tool.effect_class();
-    if ceiling == EffectClass::None && !tool.accesses(arguments).declares_write() {
+    let value = serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
+    if ceiling == EffectClass::None && !tool.accesses(&value).declares_write() {
         return Ok(PendingWrite::default());
     }
 
-    let accesses = tool.accesses(arguments);
+    let accesses = tool.accesses(&value);
     let store = journal.store();
 
     // Non-reversible: a receipt, not a recovery point. Appended already complete

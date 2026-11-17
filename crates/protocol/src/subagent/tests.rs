@@ -19,7 +19,7 @@ impl Tool for Stub {
     fn description(&self) -> &str {
         "stub"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
     fn requires_user(&self) -> bool {
@@ -31,8 +31,12 @@ impl Tool for Stub {
     fn affects_control_flow(&self) -> bool {
         self.affects_control_flow
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("stub".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("stub".to_string()))
     }
 }
 

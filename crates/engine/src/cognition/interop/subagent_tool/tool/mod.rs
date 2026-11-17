@@ -1,6 +1,7 @@
 //! The subagent tool entity and its `Tool` contract.
 
 use super::*;
+use ::tool::BuiltinTool;
 
 /// Spawn a read-only exploration subagent to handle a research sub-task.
 ///
@@ -65,7 +66,7 @@ pub struct SubagentTool {
     accounting: std::sync::Mutex<Option<SubagentAccountingContext>>,
     /// Live child cancellation tokens keyed by the parent tool-call id — the
     /// cooperative-cancel arm of interruption (the counterpoint to dropping
-    /// the child future). `call_structured_with_events` stores the token each
+    /// the child future). `execute_streaming` stores the token each
     /// spawned subagent runs under; the harness's executor calls
     /// [`Tool::request_cancel`] when the user interrupts the turn, which
     /// cancels the stored token. The child's round loop observes it at its
@@ -443,10 +444,20 @@ impl Tool for SubagentTool {
         self.tool_name
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        if self.tool_name == BuiltinTool::SpawnAgent.as_str() {
+            BuiltinTool::SpawnAgent.aliases()
+        } else {
+            // A debug/profile-specific delegation tool is its own capability;
+            // claiming the canonical aliases would shadow the research tool.
+            &[]
+        }
+    }
+
     fn description(&self) -> &str {
         self.tool_description
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         let has_background = self
             .background_dispatcher
             .lock()
@@ -520,18 +531,29 @@ impl Tool for SubagentTool {
         true
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        self.run_subagent(None, arguments, Box::new(|_| {})).await
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        let arguments = serde_json::to_string(&arguments)
+            .map_err(|error| ::tool::ToolError::invalid_args(self.name(), error.to_string()))?;
+        self.run_subagent(None, &arguments, Box::new(|_| {}))
+            .await
+            .map(::tool::ToolOutput::text)
+            .map_err(::tool::ToolError::custom)
     }
 
-    async fn call_structured_with_events<'a>(
+    async fn execute_streaming<'a>(
         &self,
+        _ctx: &::tool::ToolContext,
         invocation: ::tool::ToolInvocation<'a>,
         on_event: Box<dyn FnMut(::tool::SubagentEvent) + Send + 'a>,
         _on_stream: &mut (dyn FnMut(::tool::ToolStream) + Send + 'a),
-    ) -> Result<::tool::ToolOutput, String> {
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
         let call_id = invocation.call_id;
-        let arguments = invocation.arguments;
+        let arguments = serde_json::to_string(invocation.arguments)
+            .map_err(|error| ::tool::ToolError::invalid_args(self.name(), error.to_string()))?;
         // Run the subagent, streaming its lifecycle as SubagentEvents to the
         // parent harness (so the live TUI builds the nested view in real
         // time), then return a structured payload carrying the full transcript
@@ -552,7 +574,7 @@ impl Tool for SubagentTool {
         // input-validation errors (bad JSON, missing fields) propagate as
         // `Err`, because they have no partial transcript worth keeping.
         match self
-            .run_subagent_dispatch(Some(call_id), arguments, on_event)
+            .run_subagent_dispatch(Some(call_id), &arguments, on_event)
             .await?
         {
             SubagentDispatchResult::Background {

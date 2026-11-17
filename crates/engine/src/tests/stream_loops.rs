@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Value;
 
 #[tokio::test]
 async fn stream_loop_verdict_after_natural_end_still_recovers() {
@@ -505,30 +506,33 @@ impl Tool for PreviewableWriteTool {
     fn description(&self) -> &str {
         "previewable write test tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
     fn risk_profile(&self) -> tool::RiskProfile {
         tool::RiskProfile::IdempotentMutation
     }
-    fn scope_target(&self, _arguments: &str) -> tool::ScopeTarget {
+    fn scope_target(&self, _arguments: &Value) -> tool::ScopeTarget {
         tool::ScopeTarget::Path(std::path::PathBuf::from(self.path))
     }
-    fn accesses(&self, _arguments: &str) -> tool::ToolAccesses {
+    fn accesses(&self, _arguments: &Value) -> tool::ToolAccesses {
         tool::ToolAccesses::write_file(self.path.to_string())
     }
-    fn preview(&self, _arguments: &serde_json::Value) -> Option<tool::PreviewResult> {
-        Some(tool::PreviewResult {
-            path: self.path.to_string(),
-            op: tool::PatchOp::Edit,
-            old: self.before.to_string(),
-            new: self.after.to_string(),
-            start_line: 1,
-            warnings: Vec::new(),
-        })
+    async fn preview(&self, _arguments: &serde_json::Value) -> Option<tool::PreviewResult> {
+        Some(tool::PreviewResult::bounded(
+            self.path,
+            tool::PatchOp::Edit,
+            self.before.to_string(),
+            self.after.to_string(),
+            Vec::new(),
+        ))
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok(format!("wrote {}", self.path))
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text(format!("wrote {}", self.path)))
     }
 }
 

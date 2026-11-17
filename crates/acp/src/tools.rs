@@ -873,17 +873,3 @@ pub fn create_acp_direct_tools(ctx: Arc<AcpToolContext>) -> Vec<Arc<dyn Tool>> {
         Arc::new(ListPeersTool::new(ctx)),
     ]
 }
-
-/// Registers the full set of ACP collaboration tools into a ToolRegistry.
-pub fn register_acp_tools(registry: &mut tool::ToolRegistry, ctx: Arc<AcpToolContext>) {
-    for tool in create_acp_tools(ctx) {
-        registry.register_arc(tool);
-    }
-}
-
-/// Registers direct delegation tools into a ToolRegistry.
-pub fn register_acp_direct_tools(registry: &mut tool::ToolRegistry, ctx: Arc<AcpToolContext>) {
-    for tool in create_acp_direct_tools(ctx) {
-        registry.register_arc(tool);
-    }
-}

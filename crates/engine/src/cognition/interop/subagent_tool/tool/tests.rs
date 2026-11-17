@@ -135,11 +135,15 @@ impl Tool for EchoReadTool {
     fn description(&self) -> &str {
         "test read tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({"type": "object"})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("echo".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("echo".to_string()))
     }
 }
 
@@ -158,11 +162,15 @@ impl Tool for TerseReadTool {
     fn description(&self) -> &str {
         "terse read tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({"type": "object"})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("terse".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("terse".to_string()))
     }
 }
 #[test]
@@ -218,7 +226,10 @@ async fn subagent_retries_after_transient_stream_failure() {
     );
 
     let output = tool
-        .call(r#"{"description":"find files","prompt":"where are the handlers?"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"description":"find files","prompt":"where are the handlers?"}"#,
+        )
         .await
         .expect("the subagent must recover from one transient stream failure");
 
@@ -246,7 +257,10 @@ async fn subagent_inherits_and_respects_custom_retry_policy() {
     tool.bind_retry_policy(1, 10, 10); // only 1 attempt
 
     let output = tool
-        .call(r#"{"description":"find files","prompt":"where are the handlers?"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"description":"find files","prompt":"where are the handlers?"}"#,
+        )
         .await
         .expect("tool call returns error string in outcome");
 
@@ -268,7 +282,10 @@ async fn task_tool_runs_read_only_subagent_and_returns_answer() {
     );
 
     let output = tool
-        .call(r#"{"description":"find files","prompt":"where are the handlers?"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"description":"find files","prompt":"where are the handlers?"}"#,
+        )
         .await
         .unwrap();
 
@@ -474,8 +491,16 @@ async fn task_tool_rejects_missing_fields() {
         protocol::ToolSet::default(),
         &SubAgentProfile::EXPLORE,
     );
-    assert!(tool.call(r#"{"description":"x"}"#).await.is_err());
-    assert!(tool.call(r#"{"prompt":"x"}"#).await.is_err());
+    assert!(
+        tool.execute_text(&::tool::ToolContext::default(), r#"{"description":"x"}"#)
+            .await
+            .is_err()
+    );
+    assert!(
+        tool.execute_text(&::tool::ToolContext::default(), r#"{"prompt":"x"}"#)
+            .await
+            .is_err()
+    );
 }
 
 /// The tool cannot dispatch a background child (the call awaits
@@ -490,14 +515,17 @@ async fn subagent_schema_hides_and_rejects_background_dispatch() {
         &SubAgentProfile::EXPLORE,
     );
     assert!(
-        tool.parameters()
+        tool.parameters_schema()
             .get("properties")
             .and_then(|p| p.get("background"))
             .is_none(),
         "the unsupported background parameter must not be advertised"
     );
     let err = tool
-        .call(r#"{"description":"x","prompt":"y","background":true}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"description":"x","prompt":"y","background":true}"#,
+        )
         .await
         .expect_err("background dispatch must be rejected explicitly");
     assert!(
@@ -546,7 +574,7 @@ async fn subagent_schema_advertises_and_dispatches_background_when_bound() {
     tool.bind_background_dispatcher(dispatcher.clone());
 
     assert!(
-        tool.parameters()
+        tool.parameters_schema()
             .get("properties")
             .and_then(|p| p.get("background"))
             .is_some(),
@@ -554,11 +582,13 @@ async fn subagent_schema_advertises_and_dispatches_background_when_bound() {
     );
 
     let mut noop_stream = |_s: ::tool::ToolStream| {};
+    let arguments = serde_json::json!({"description": "explore repo", "prompt": "find main", "background": true});
     let out = tool
-        .call_structured_with_events(
+        .execute_streaming(
+            &::tool::ToolContext::default(),
             ::tool::ToolInvocation {
                 call_id: "call_bg_1",
-                arguments: r#"{"description":"explore repo","prompt":"find main","background":true}"#,
+                arguments: &arguments,
                 input: ::tool::InputContract::Supervised { expectation: None },
                 input_handler: None,
             },
@@ -613,11 +643,15 @@ impl Tool for StubWriteTool {
     fn description(&self) -> &str {
         "test write tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({"type": "object"})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("write".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("write".to_string()))
     }
 }
 
@@ -775,7 +809,7 @@ async fn debug_subagent_role_execution() {
     );
 
     let summary = tool
-        .call(r#"{"description":"debug crash","prompt":"investigate segfault in parser","role":"debug"}"#)
+        .execute_text(&::tool::ToolContext::default(), r#"{"description":"debug crash","prompt":"investigate segfault in parser","role":"debug"}"#)
         .await
         .expect("debug subagent dispatch succeeds");
 
@@ -792,7 +826,7 @@ async fn skill_subagent_role_execution() {
     );
 
     let summary = tool
-        .call(r#"{"description":"find rust skill","prompt":"locate rust guidelines in .nuo/skills","role":"skill"}"#)
+        .execute_text(&::tool::ToolContext::default(), r#"{"description":"find rust skill","prompt":"locate rust guidelines in .nuo/skills","role":"skill"}"#)
         .await
         .expect("skill subagent dispatch succeeds");
 
@@ -814,10 +848,13 @@ async fn unknown_role_is_rejected_with_the_dispatchable_set() {
     );
 
     let error = tool
-        .call(r#"{"description":"typo","prompt":"do something","role":"explort"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"description":"typo","prompt":"do something","role":"explort"}"#,
+        )
         .await
         .expect_err("an unadvertised role must not silently run");
-    assert!(error.contains("Unknown 'role' 'explort'"), "got: {error}");
+    assert!(error.contains("explort"), "got: {error}");
     assert!(
         error.contains("explore"),
         "must name dispatchable roles: {error}"
@@ -837,10 +874,13 @@ async fn internal_title_role_is_not_dispatchable() {
     );
 
     let error = tool
-        .call(r#"{"description":"title","prompt":"name this session","role":"title"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"description":"title","prompt":"name this session","role":"title"}"#,
+        )
         .await
         .expect_err("the internal titling role must not be model-dispatchable");
-    assert!(error.contains("Unknown 'role' 'title'"), "got: {error}");
+    assert!(error.contains("title"), "got: {error}");
 }
 
 /// The advertised enum and the enforced check come from one constant, so a
@@ -854,7 +894,7 @@ fn schema_role_enum_matches_the_enforced_dispatch_roles() {
         &SubAgentProfile::EXPLORE,
     );
 
-    let advertised: Vec<String> = tool.parameters()["properties"]["role"]["enum"]
+    let advertised: Vec<String> = tool.parameters_schema()["properties"]["role"]["enum"]
         .as_array()
         .expect("role enum is an array")
         .iter()
@@ -902,7 +942,8 @@ async fn execution_policy_rejects_subagent_spawning_when_depth_capped() {
     tool.bind_execution_policy(capped_policy);
 
     let result = tool
-        .call(
+        .execute_text(
+            &::tool::ToolContext::default(),
             r#"{"description":"nested subagent","prompt":"spawn more subagents","role":"explore"}"#,
         )
         .await;

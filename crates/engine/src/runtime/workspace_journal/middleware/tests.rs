@@ -8,6 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -154,7 +155,7 @@ impl Tool for StubTool {
         self.risk
     }
 
-    fn accesses(&self, _arguments: &str) -> ToolAccesses {
+    fn accesses(&self, _arguments: &Value) -> ToolAccesses {
         self.accesses.clone()
     }
 
@@ -462,7 +463,7 @@ async fn withheld_paths_are_journaled_with_a_reason_and_no_preimage() {
         fn risk_profile(&self) -> RiskProfile {
             RiskProfile::IdempotentMutation
         }
-        fn accesses(&self, _arguments: &str) -> ToolAccesses {
+        fn accesses(&self, _arguments: &Value) -> ToolAccesses {
             ToolAccesses::write_file(".env".to_string())
         }
         async fn execute(
@@ -547,7 +548,7 @@ async fn withheld_preimage_is_journaled_write_ahead_not_as_a_receipt() {
         fn risk_profile(&self) -> RiskProfile {
             RiskProfile::IdempotentMutation
         }
-        fn accesses(&self, _arguments: &str) -> ToolAccesses {
+        fn accesses(&self, _arguments: &Value) -> ToolAccesses {
             ToolAccesses::write_file(".env".to_string())
         }
         async fn execute(

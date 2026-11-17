@@ -23,6 +23,7 @@ pub enum BuiltinTool {
     SpawnAgent,
     RecallMemory,
     CodeQuery,
+    ToolSearch,
 }
 
 impl BuiltinTool {
@@ -41,6 +42,7 @@ impl BuiltinTool {
         BuiltinTool::SpawnAgent,
         BuiltinTool::RecallMemory,
         BuiltinTool::CodeQuery,
+        BuiltinTool::ToolSearch,
     ];
 
     /// The canonical wire and capability name of this tool.
@@ -59,17 +61,36 @@ impl BuiltinTool {
             Self::SpawnAgent => "spawn_agent",
             Self::RecallMemory => "recall_memory",
             Self::CodeQuery => "code_query",
+            Self::ToolSearch => "tool_search",
         }
     }
 
-    /// Backwards-compatibility aliases (none for clean native built-ins).
+    /// Compatibility aliases used by models trained on other tool vocabularies.
+    ///
+    /// Aliases are dispatch identity, not versioning: each alias resolves to
+    /// exactly one canonical capability, and `ALL` is asserted unique in tests.
     pub const fn aliases(&self) -> &'static [&'static str] {
-        &[]
+        match self {
+            Self::ExecuteCommand => &["bash", "shell", "run_command", "exec"],
+            Self::Read => &["read_file", "read_text", "view"],
+            Self::WriteFile => &["write", "create_file"],
+            Self::EditText => &["edit", "str_replace", "replace_text"],
+            Self::FindFiles => &["find", "glob"],
+            Self::SearchText => &["grep", "rg", "ripgrep"],
+            Self::ReadUrl => &["fetch", "webfetch", "open_url"],
+            Self::SearchWeb => &["web_search"],
+            Self::AskUser => &["question"],
+            Self::Todo => &["todo_write", "todos"],
+            Self::SpawnAgent => &["task", "subagent", "delegate"],
+            Self::RecallMemory => &["memory", "recall"],
+            Self::CodeQuery => &["outline", "symbols", "ast"],
+            Self::ToolSearch => &["search_tools", "find_tools"],
+        }
     }
 
-    /// Whether a requested tool name matches this tool.
+    /// Whether a requested tool name matches this tool (canonical or alias).
     pub fn matches(&self, requested: &str) -> bool {
-        self.as_str() == requested
+        self.as_str() == requested || self.aliases().contains(&requested)
     }
 
     /// Resolve a canonical tool name to its `BuiltinTool` variant.
@@ -148,15 +169,20 @@ mod tests {
     fn test_builtin_tool_mapping() {
         assert_eq!(BuiltinTool::ExecuteCommand.as_str(), "execute_command");
         assert!(BuiltinTool::ExecuteCommand.matches("execute_command"));
-        assert!(!BuiltinTool::ExecuteCommand.matches("run_command"));
+        assert!(BuiltinTool::ExecuteCommand.matches("bash"));
+        assert!(!BuiltinTool::ExecuteCommand.matches("unknown_command"));
 
         assert_eq!(
             BuiltinTool::from_name("execute_command"),
             Some(BuiltinTool::ExecuteCommand)
         );
-        assert_eq!(BuiltinTool::from_name("run_command"), None);
+        assert_eq!(
+            BuiltinTool::from_name("run_command"),
+            Some(BuiltinTool::ExecuteCommand)
+        );
+        assert_eq!(BuiltinTool::from_name("unknown_command"), None);
         assert_eq!(BuiltinTool::from_name("read"), Some(BuiltinTool::Read));
-        assert_eq!(BuiltinTool::from_name("read_text"), None);
+        assert_eq!(BuiltinTool::from_name("read_text"), Some(BuiltinTool::Read));
         assert_eq!(BuiltinTool::from_name("read_image"), None);
         assert_eq!(BuiltinTool::from_name("non_existent"), None);
     }
@@ -164,8 +190,8 @@ mod tests {
     #[test]
     fn test_builtin_tool_equality_with_strings() {
         assert_eq!(BuiltinTool::ExecuteCommand, "execute_command");
-        assert_ne!(BuiltinTool::ExecuteCommand, "run_command");
+        assert_eq!(BuiltinTool::ExecuteCommand, "bash");
         assert_eq!("execute_command", BuiltinTool::ExecuteCommand);
-        assert_ne!("run_command", BuiltinTool::ExecuteCommand);
+        assert_eq!("bash", BuiltinTool::ExecuteCommand);
     }
 }

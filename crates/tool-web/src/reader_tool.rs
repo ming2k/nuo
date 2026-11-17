@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::sync::RwLock;
 
 use async_trait::async_trait;
@@ -123,20 +124,26 @@ impl Tool for WebReaderTool {
     fn description(&self) -> &str {
         "Fetch a URL and return its content as Markdown."
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
         WebReaderArgs::parameters_schema()
     }
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        self.call_structured(arguments)
-            .await
-            .map(|out| out.to_text())
-    }
-    async fn call_structured(&self, arguments: &str) -> Result<tool::ToolOutput, String> {
-        let args: WebReaderArgs =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        let args: WebReaderArgs = serde_json::from_value(arguments)
+            .map_err(|e| ::tool::ToolError::invalid_args(self.name(), e.to_string()))?;
         let url = &args.url;
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err("URL must start with http:// or https://".to_string());
+            return Err(::tool::ToolError::invalid_args(
+                self.name(),
+                "URL must start with http:// or https://",
+            ));
         }
         crate::ssrf::assert_public_url(url).await?;
         let raw = args.raw.unwrap_or(false);
@@ -157,7 +164,7 @@ impl Tool for WebReaderTool {
             (body, false)
         };
 
-        Ok(tool::ToolOutput::WebArticle {
+        Ok(::tool::ToolOutput::WebArticle {
             url: url.to_string(),
             title,
             domain,

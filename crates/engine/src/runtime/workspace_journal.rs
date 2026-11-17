@@ -166,7 +166,7 @@ fn read_pre_image(path: &Path) -> Result<Option<Vec<u8>>, String> {
 /// `effect_ceiling` is the tool's declared
 /// [`effect_class`](tool::Tool::effect_class) and `accesses` its declared
 /// accesses for these arguments; the two are reconciled here exactly as
-/// [`effect_class_for`](tool::Tool::effect_class_for) does, so a tool cannot
+/// the dispatcher's reconciliation does, so a tool cannot
 /// claim reversibility it cannot support.
 ///
 /// Returns [`CaptureOutcome::paths`] empty and [`CaptureOutcome::effect`] the

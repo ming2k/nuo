@@ -30,7 +30,7 @@ fn redesigned_components_render_without_panicking() {
                 thinking.set_reasoning_expanded(true);
                 let mut tool = TranscriptMessage::tool_step("call_1", "find_files", r#"{"path":"."}"#);
                 tool.set_tool_step_expanded(true);
-                tool.finish_tool_step("call_1", "file_a\nfile_b", tool::ToolOutput::text("file_a\nfile_b"), 12);
+                tool.finish_tool_step("call_1", "file_a\nfile_b", ::tool::ToolOutput::text("file_a\nfile_b"), 12);
                 let messages = vec![
                     TranscriptMessage::new(tool::Role::User, "hi"),
                     TranscriptMessage::new(

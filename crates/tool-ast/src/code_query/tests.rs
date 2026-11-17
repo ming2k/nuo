@@ -30,7 +30,10 @@ async fn outline_reports_a_version_that_tracks_content() {
     let tool = tool_for(dir.path());
 
     let first = tool
-        .call(r#"{"mode":"outline","path":"service.rs"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"outline","path":"service.rs"}"#,
+        )
         .await
         .unwrap();
     assert!(first.contains("version "), "{first}");
@@ -42,7 +45,10 @@ async fn outline_reports_a_version_that_tracks_content() {
     );
 
     let repeat = tool
-        .call(r#"{"mode":"outline","path":"service.rs"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"outline","path":"service.rs"}"#,
+        )
         .await
         .unwrap();
     assert_eq!(first.lines().next(), repeat.lines().next());
@@ -50,7 +56,10 @@ async fn outline_reports_a_version_that_tracks_content() {
     // Same-size replacement still changes the version.
     std::fs::write(&file, SERVICE.replace("top_level", "top_levxl")).unwrap();
     let second = tool
-        .call(r#"{"mode":"outline","path":"service.rs"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"outline","path":"service.rs"}"#,
+        )
         .await
         .unwrap();
     assert_ne!(first.lines().next(), second.lines().next());
@@ -65,7 +74,10 @@ async fn symbol_returns_the_declaration_source_and_its_span() {
     let tool = tool_for(dir.path());
 
     let found = tool
-        .call(r#"{"mode":"symbol","path":"service.rs","symbol":"handle_request"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"symbol","path":"service.rs","symbol":"handle_request"}"#,
+        )
         .await
         .unwrap();
     assert!(
@@ -92,13 +104,19 @@ async fn symbol_resolves_a_qualified_name() {
     let tool = tool_for(dir.path());
 
     let qualified = tool
-        .call(r#"{"mode":"symbol","path":"service.rs","symbol":"Service::helper"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"symbol","path":"service.rs","symbol":"Service::helper"}"#,
+        )
         .await
         .unwrap();
     assert!(qualified.contains("fn helper(&self)"), "{qualified}");
 
     let missing = tool
-        .call(r#"{"mode":"symbol","path":"service.rs","symbol":"Nope::helper"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"symbol","path":"service.rs","symbol":"Nope::helper"}"#,
+        )
         .await
         .unwrap();
     assert!(missing.contains("No declaration named"), "{missing}");
@@ -118,7 +136,10 @@ async fn find_matches_kind_and_name_glob_across_a_scope() {
 
     let tool = tool_for(dir.path());
     let globbed = tool
-        .call(r#"{"mode":"find","pattern":"fn:handle_*","path":"src"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"find","pattern":"fn:handle_*","path":"src"}"#,
+        )
         .await
         .unwrap();
     assert!(globbed.contains("handle_request"), "{globbed}");
@@ -130,7 +151,10 @@ async fn find_matches_kind_and_name_glob_across_a_scope() {
     assert!(!globbed.contains("top_level"), "{globbed}");
 
     let kinds = tool
-        .call(r#"{"mode":"find","pattern":"struct"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"find","pattern":"struct"}"#,
+        )
         .await
         .unwrap();
     assert!(kinds.contains("struct Service"), "{kinds}");
@@ -147,7 +171,10 @@ async fn find_rejects_unknown_kinds_with_the_vocabulary() {
     let tool = tool_for(dir.path());
 
     let error = tool
-        .call(r#"{"mode":"find","pattern":"fnction:x"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"find","pattern":"fnction:x"}"#,
+        )
         .await
         .unwrap_err();
     assert!(
@@ -164,19 +191,19 @@ async fn modes_name_their_required_argument() {
     let dir = tempdir().unwrap();
     let tool = tool_for(dir.path());
     assert!(
-        tool.call(r#"{"mode":"outline"}"#)
+        tool.execute_text(&::tool::ToolContext::default(), r#"{"mode":"outline"}"#)
             .await
             .unwrap_err()
             .contains("requires 'path'")
     );
     assert!(
-        tool.call(r#"{"mode":"symbol"}"#)
+        tool.execute_text(&::tool::ToolContext::default(), r#"{"mode":"symbol"}"#)
             .await
             .unwrap_err()
             .contains("requires 'symbol'")
     );
     assert!(
-        tool.call(r#"{"mode":"find"}"#)
+        tool.execute_text(&::tool::ToolContext::default(), r#"{"mode":"find"}"#)
             .await
             .unwrap_err()
             .contains("requires 'pattern'")
@@ -191,7 +218,7 @@ async fn modes_name_their_required_argument() {
 #[test]
 fn schema_advertises_the_mode_enum_as_a_string_enum() {
     let tool = CodeQueryTool::new(None);
-    let mode = &tool.parameters()["properties"]["mode"];
+    let mode = &tool.parameters_schema()["properties"]["mode"];
     assert_eq!(
         mode["type"], "string",
         "a string field must not be schema'd as an object"
@@ -231,13 +258,19 @@ async fn symbol_qualification_does_not_cross_identifier_boundaries() {
     let tool = tool_for(dir.path());
 
     let miss = tool
-        .call(r#"{"mode":"symbol","path":"svc.rs","symbol":"Service::run"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"symbol","path":"svc.rs","symbol":"Service::run"}"#,
+        )
         .await
         .unwrap();
     assert!(miss.contains("No declaration named"), "{miss}");
 
     let hit = tool
-        .call(r#"{"mode":"symbol","path":"svc.rs","symbol":"FooService::run"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"symbol","path":"svc.rs","symbol":"FooService::run"}"#,
+        )
         .await
         .unwrap();
     assert!(hit.contains("fn run(&self)"), "{hit}");
@@ -258,7 +291,10 @@ async fn symbol_discloses_a_truncated_declaration() {
     let tool = tool_for(dir.path());
 
     let out = tool
-        .call(r#"{"mode":"symbol","path":"big.rs","symbol":"big","budget":120}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"symbol","path":"big.rs","symbol":"big","budget":120}"#,
+        )
         .await
         .unwrap();
     assert!(out.contains("Source truncated"), "{out}");
@@ -282,7 +318,10 @@ async fn scope_scan_discloses_files_it_could_not_analyse() {
 
     let tool = tool_for(dir.path());
     let out = tool
-        .call(r#"{"mode":"find","pattern":"fn"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"find","pattern":"fn"}"#,
+        )
         .await
         .unwrap();
 
@@ -313,7 +352,10 @@ async fn outline_discloses_truncation_at_the_entry_limit() {
     let tool = tool_for(dir.path());
 
     let out = tool
-        .call(r#"{"mode":"outline","path":"many.rs","limit":5}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"outline","path":"many.rs","limit":5}"#,
+        )
         .await
         .unwrap();
     assert!(out.contains("5 of 40 symbols"), "{out}");
@@ -333,7 +375,10 @@ async fn rejects_source_above_the_parse_budget() {
     let tool = tool_for(dir.path());
 
     let error = tool
-        .call(r#"{"mode":"outline","path":"huge.rs"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"outline","path":"huge.rs"}"#,
+        )
         .await
         .unwrap_err();
     assert!(error.contains("input budget"), "{error}");
@@ -347,7 +392,10 @@ async fn rejects_unsupported_language() {
     let tool = tool_for(dir.path());
 
     let error = tool
-        .call(r#"{"mode":"outline","path":"notes.txt"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"outline","path":"notes.txt"}"#,
+        )
         .await
         .unwrap_err();
     assert!(error.contains("Unsupported file type"), "{error}");
@@ -362,7 +410,10 @@ async fn outline_points_a_directory_at_find_mode() {
     let tool = tool_for(dir.path());
 
     let error = tool
-        .call(r#"{"mode":"outline","path":"src"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"outline","path":"src"}"#,
+        )
         .await
         .unwrap_err();
     assert!(error.contains("is a directory"), "{error}");
@@ -380,7 +431,10 @@ async fn find_respects_project_ignore_rules() {
     let tool = tool_for(dir.path());
 
     let out = tool
-        .call(r#"{"mode":"find","pattern":"fn"}"#)
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"mode":"find","pattern":"fn"}"#,
+        )
         .await
         .unwrap();
     assert!(out.contains("keep_me"), "{out}");

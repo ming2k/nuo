@@ -16,6 +16,7 @@ const TOOL_INPUT_PROGRESS_STEP: usize = 4096;
 struct EarlyTools<'a> {
     agent: &'a Agent,
     state: &'a RoundState,
+    cancel: CancellationToken,
     tx: mpsc::UnboundedSender<AgentEvent>,
     futures: futures::stream::FuturesUnordered<
         futures::future::BoxFuture<'a, (String, ToolOutput, u64)>,
@@ -25,7 +26,7 @@ struct EarlyTools<'a> {
 }
 
 impl<'a> EarlyTools<'a> {
-    fn new(agent: &'a Agent, state: &'a RoundState) -> Self {
+    fn new(agent: &'a Agent, state: &'a RoundState, cancel: &CancellationToken) -> Self {
         // The receiver is dropped: read-only tools do not need a live UI
         // channel, and a dropped receiver makes any incidental event send a
         // cheap no-op instead of buffering it for the whole stream.
@@ -34,6 +35,7 @@ impl<'a> EarlyTools<'a> {
         Self {
             agent,
             state,
+            cancel: cancel.clone(),
             tx,
             futures: futures::stream::FuturesUnordered::new(),
             started: std::collections::HashSet::new(),
@@ -60,10 +62,11 @@ impl<'a> EarlyTools<'a> {
         let call = call.clone();
         let agent = self.agent;
         let tx = self.tx.clone();
+        let call_cancel = self.cancel.clone();
         self.futures.push(
             async move {
                 let started = std::time::Instant::now();
-                let output = agent.execute_tool(&call, &tx).await;
+                let output = agent.execute_tool(&call, &tx, &call_cancel).await;
                 (call.id, output, started.elapsed().as_millis() as u64)
             }
             .boxed(),
@@ -198,7 +201,7 @@ impl StreamAttempt {
     where
         F: FnMut(AgentEvent) + Send,
     {
-        let mut early = EarlyTools::new(agent, state);
+        let mut early = EarlyTools::new(agent, state, cancel);
         loop {
             tokio::select! {
                 biased;

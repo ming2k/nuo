@@ -101,12 +101,18 @@ async fn read_emits_structured_code_with_pagination_framing() {
             start_line,
             prefix,
             suffix,
+            ..
         } => {
             // Pure content: no baked gutter and no range header.
             assert_eq!(text, "b\nc");
             assert_eq!(*start_line, 2);
             assert_eq!(lang.as_deref(), Some("rs"));
-            assert_eq!(prefix.as_deref(), Some("[Lines 2-3 of 4 from `src.rs`]"));
+            assert!(
+                prefix.as_deref().is_some_and(|prefix| prefix
+                    .starts_with("[Lines 2-3 of 4 from `src.rs`]")
+                    && prefix.contains("version")),
+                "{prefix:?}"
+            );
             assert_eq!(
                 suffix.as_deref(),
                 Some("[1 more line — read with offset=4]")
@@ -117,9 +123,12 @@ async fn read_emits_structured_code_with_pagination_framing() {
 
     // The model still sees the range header and per-line file numbers,
     // composed at `to_text` time instead of baked into `text`.
-    assert_eq!(
-        out.to_text(),
-        "[Lines 2-3 of 4 from `src.rs`]\n2: b\n3: c\n[1 more line — read with offset=4]"
+    let text = out.to_text();
+    assert!(text.starts_with("[Lines 2-3 of 4 from `src.rs`]"), "{text}");
+    assert!(text.contains("version"), "{text}");
+    assert!(
+        text.ends_with("[1 more line — read with offset=4]"),
+        "{text}"
     );
 }
 
@@ -145,7 +154,12 @@ async fn read_to_eof_has_no_continuation_hint() {
         } => {
             assert_eq!(text, "one\ntwo");
             assert_eq!(start_line, 1);
-            assert_eq!(prefix.as_deref(), Some("[Lines 1-2 of 2 from `full.txt`]"));
+            assert!(
+                prefix.as_deref().is_some_and(|prefix| prefix
+                    .starts_with("[Lines 1-2 of 2 from `full.txt`]")
+                    && prefix.contains("version")),
+                "{prefix:?}"
+            );
             assert_eq!(suffix, None);
         }
         other => panic!("expected ToolOutput::Code, got {other:?}"),
@@ -584,5 +598,68 @@ async fn search_text_bounds_oversized_single_line_and_total_output() {
         content.len() < 1_000,
         "clamped match should stay tiny, got {} bytes",
         content.len()
+    );
+}
+
+#[tokio::test]
+async fn stale_version_refuses_edit_and_write() {
+    let dir = tempdir().unwrap();
+    let ctx = Arc::new(SystemToolContext::new(dir.path()));
+    let t_ctx = ToolContext::default();
+    std::fs::write(dir.path().join("v.txt"), "one\ntwo\n").unwrap();
+
+    let read = ReadTool::new(ctx.clone())
+        .execute(&t_ctx, json!({"path": "v.txt"}))
+        .await
+        .unwrap();
+    let version = match read {
+        ToolOutput::Code { version, .. } => version.expect("read must carry a version"),
+        other => panic!("expected Code, got {other:?}"),
+    };
+
+    // A stale version (the file changed after the read) is refused.
+    std::fs::write(dir.path().join("v.txt"), "one\nTWO\n").unwrap();
+    let stale = EditTextTool::new(ctx.clone())
+        .execute(
+            &t_ctx,
+            json!({
+                "path": "v.txt",
+                "old_string": "TWO",
+                "new_string": "three",
+                "expected_version": version
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        stale.to_string().contains("changed since it was read"),
+        "{stale}"
+    );
+
+    // Re-reading yields the current version, which is accepted.
+    let read = ReadTool::new(ctx.clone())
+        .execute(&t_ctx, json!({"path": "v.txt"}))
+        .await
+        .unwrap();
+    let version = match read {
+        ToolOutput::Code { version, .. } => version.expect("version"),
+        other => panic!("expected Code, got {other:?}"),
+    };
+    let edited = EditTextTool::new(ctx.clone())
+        .execute(
+            &t_ctx,
+            json!({
+                "path": "v.txt",
+                "old_string": "TWO",
+                "new_string": "three",
+                "expected_version": version
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(!edited.is_error());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("v.txt")).unwrap(),
+        "one\nthree\n"
     );
 }

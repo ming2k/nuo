@@ -109,18 +109,19 @@ impl Tool for BrokerGatedTool {
     fn description(&self) -> &str {
         "test write tool gated by the permission broker"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    fn scope_target(&self, _arguments: &str) -> tool::ScopeTarget {
+    fn scope_target(&self, _arguments: &serde_json::Value) -> tool::ScopeTarget {
         tool::ScopeTarget::Path(std::path::PathBuf::from("/tmp/gated"))
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<ToolOutput, tool::ToolError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok("wrote".to_string())
-    }
-    async fn call_structured(&self, arguments: &str) -> Result<ToolOutput, String> {
-        self.call(arguments).await.map(ToolOutput::text)
+        Ok(ToolOutput::text("wrote"))
     }
 }
 
@@ -341,10 +342,12 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
     let tool = Arc::clone(&subagent_tool);
     let task = tokio::spawn(async move {
         let mut on_stream = |_: engine::ToolStream| ();
-        tool.call_structured_with_events(
+        let arguments = serde_json::json!({"description": "d", "prompt": "run the write tool"});
+        tool.execute_streaming(
+            &tool::ToolContext::default(),
             tool::ToolInvocation {
                 call_id: "parent_call_7",
-                arguments: r#"{"description":"d","prompt":"run the write tool"}"#,
+                arguments: &arguments,
                 input: tool::InputContract::default(),
                 input_handler: None,
             },
@@ -454,10 +457,12 @@ async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
     let tool = Arc::clone(&subagent_tool);
     let mut on_stream = |_: engine::ToolStream| ();
     let task = tokio::spawn(async move {
-        tool.call_structured_with_events(
+        let arguments = serde_json::json!({"description": "d", "prompt": "do a thing"});
+        tool.execute_streaming(
+            &tool::ToolContext::default(),
             tool::ToolInvocation {
                 call_id: "parent_call_session",
-                arguments: r#"{"description":"d","prompt":"do a thing"}"#,
+                arguments: &arguments,
                 input: tool::InputContract::default(),
                 input_handler: None,
             },

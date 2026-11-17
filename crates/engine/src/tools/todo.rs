@@ -65,7 +65,7 @@ impl TodoTool {
     /// the tool reconciles it against the current list preserving identity
     /// (see `TodoList::reconcile`). This is the robust interface: the model
     /// never has to track ids.
-    async fn replace(&self, arguments: &str) -> Result<String, String> {
+    async fn replace(&self, arguments: Value) -> Result<String, String> {
         #[derive(serde::Deserialize)]
         struct Arguments {
             items: Vec<TodoArgs>,
@@ -77,7 +77,7 @@ impl TodoTool {
         }
 
         let parsed: Arguments =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
+            serde_json::from_value(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
         if parsed.items.len() > MAX_TODOS {
             return Err(format!("Todo list is limited to {MAX_TODOS} items."));
         }
@@ -234,11 +234,15 @@ impl Tool for TodoTool {
         BuiltinTool::Todo.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::Todo.aliases()
+    }
+
     fn description(&self) -> &str {
         TODO_DESCRIPTION
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -273,25 +277,36 @@ impl Tool for TodoTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let value: Value =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        let value = arguments;
         let has_items = value.get("items").is_some();
         let has_key = value.get("key").is_some();
 
         match (has_items, has_key) {
-            (true, false) => self.replace(arguments).await,
-            (false, true) => self.update(&value).await,
-            (true, true) => Err(
+            (true, false) => self
+                .replace(value.clone())
+                .await
+                .map(tool::ToolOutput::text)
+                .map_err(Into::into),
+            (false, true) => self
+                .update(&value)
+                .await
+                .map(tool::ToolOutput::text)
+                .map_err(Into::into),
+            (true, true) => Err(tool::ToolError::invalid_args(
+                self.name(),
                 "Provide either `items` (full-replace mode) or `key` + `status` (surgical \
-                 update mode) — not both."
-                    .to_string(),
-            ),
-            (false, false) => Err(
+                 update mode) — not both.",
+            )),
+            (false, false) => Err(tool::ToolError::invalid_args(
+                self.name(),
                 "Provide either `items` (the full list, to replace it) or `key` + `status` \
-                 (to surgically update matched items)."
-                    .to_string(),
-            ),
+                 (to surgically update matched items).",
+            )),
         }
     }
 }
@@ -313,12 +328,16 @@ mod tests {
     async fn todo_tool_reconciles_and_preserves_identity() {
         let (context, list) = ctx();
         let tool = TodoTool::new(context.clone());
-        tool.call(r#"{"items":[{"content":"design","status":"pending"}]}"#)
-            .await
-            .unwrap();
+        tool.execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"items":[{"content":"design","status":"pending"}]}"#,
+        )
+        .await
+        .unwrap();
         let first_id = list.lock().unwrap().items[0].id;
 
-        tool.call(
+        tool.execute_text(
+            &::tool::ToolContext::default(),
             r#"{"items":[{"content":"design","status":"completed"},
                          {"content":"implement","status":"in_progress"}]}"#,
         )
@@ -339,7 +358,8 @@ mod tests {
         let (context, list) = ctx();
         let tool = TodoTool::new(context.clone());
         let body = tool
-            .call(
+            .execute_text(
+                &::tool::ToolContext::default(),
                 r#"{"items":[
                     {"content":"a","status":"in_progress"},
                     {"content":"b","status":"in_progress"}
@@ -359,7 +379,8 @@ mod tests {
     async fn todo_tool_surgical_update_matches_by_position() {
         let (context, list) = ctx();
         let tool = TodoTool::new(context.clone());
-        tool.call(
+        tool.execute_text(
+            &::tool::ToolContext::default(),
             r#"{"items":[
                 {"content":"a","status":"pending"},
                 {"content":"b","status":"pending"}
@@ -367,9 +388,12 @@ mod tests {
         )
         .await
         .unwrap();
-        tool.call(r#"{"key":"2","status":"completed"}"#)
-            .await
-            .unwrap();
+        tool.execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"key":"2","status":"completed"}"#,
+        )
+        .await
+        .unwrap();
         let guard = list.lock().unwrap();
         assert_eq!(guard.items[1].status, TodoStatus::Completed);
         assert_eq!(guard.items[0].status, TodoStatus::Pending);
@@ -379,11 +403,17 @@ mod tests {
     async fn todo_tool_surgical_update_matches_by_content() {
         let (context, list) = ctx();
         let tool = TodoTool::new(context.clone());
-        tool.call(r#"{"items":[{"content":"Write tests","status":"pending"}]}"#)
-            .await
-            .unwrap();
+        tool.execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"items":[{"content":"Write tests","status":"pending"}]}"#,
+        )
+        .await
+        .unwrap();
         let body = tool
-            .call(r#"{"key":"tests","status":"completed"}"#)
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"key":"tests","status":"completed"}"#,
+            )
             .await
             .unwrap();
         assert!(body.contains("Updated 1"));
@@ -394,7 +424,13 @@ mod tests {
     async fn todo_tool_surgical_update_empty_list_returns_hint() {
         let (context, _) = ctx();
         let tool = TodoTool::new(context);
-        let body = tool.call(r#"{"key":"1","status":"done"}"#).await.unwrap();
+        let body = tool
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"key":"1","status":"completed"}"#,
+            )
+            .await
+            .unwrap();
         assert!(body.contains("No todos"));
     }
 
@@ -402,7 +438,8 @@ mod tests {
     async fn todo_tool_surgical_update_rejects_second_in_progress() {
         let (context, list) = ctx();
         let tool = TodoTool::new(context.clone());
-        tool.call(
+        tool.execute_text(
+            &::tool::ToolContext::default(),
             r#"{"items":[
                 {"content":"a","status":"in_progress"},
                 {"content":"b","status":"pending"}
@@ -411,7 +448,10 @@ mod tests {
         .await
         .unwrap();
         let body = tool
-            .call(r#"{"key":"b","status":"in_progress"}"#)
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"key":"b","status":"in_progress"}"#,
+            )
             .await
             .unwrap();
         assert!(body.contains("in_progress"));
@@ -424,7 +464,8 @@ mod tests {
         let (context, _) = ctx();
         let tool = TodoTool::new(context);
         let body = tool
-            .call(
+            .execute_text(
+                &::tool::ToolContext::default(),
                 r#"{"items":[{"content":"a","status":"pending"}],
                    "key":"1","status":"completed"}"#,
             )
@@ -437,7 +478,10 @@ mod tests {
     async fn todo_tool_rejects_neither_mode() {
         let (context, _) = ctx();
         let tool = TodoTool::new(context);
-        let body = tool.call(r#"{}"#).await.unwrap_err();
+        let body = tool
+            .execute_text(&::tool::ToolContext::default(), r#"{}"#)
+            .await
+            .unwrap_err();
         assert!(body.contains("either"));
     }
 }

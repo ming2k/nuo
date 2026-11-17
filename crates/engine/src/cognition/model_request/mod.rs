@@ -73,7 +73,13 @@ impl ModelRequestAssembler {
             .unwrap_or_else(|error| panic!("invalid instruction layout: {error}"));
         let tools = tools
             .iter()
-            .map(|t| protocol::capability::ToolSpec::new(t.name(), t.description(), t.parameters()))
+            .map(|t| {
+                protocol::capability::ToolSpec::new(
+                    t.name(),
+                    t.description(),
+                    t.parameters_schema(),
+                )
+            })
             .collect();
         protocol::RequestBuilder {
             tools,
@@ -107,7 +113,13 @@ impl ModelRequestAssembler {
             .unwrap_or_else(|error| panic!("invalid instruction layout: {error}"));
         let tools = tools
             .iter()
-            .map(|t| protocol::capability::ToolSpec::new(t.name(), t.description(), t.parameters()))
+            .map(|t| {
+                protocol::capability::ToolSpec::new(
+                    t.name(),
+                    t.description(),
+                    t.parameters_schema(),
+                )
+            })
             .collect();
         let request_context =
             protocol::RequestContext::new(regions.fixed, regions.transient, tools);
@@ -133,12 +145,16 @@ mod tests {
             "Inspect the request boundary"
         }
 
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object", "properties": {}})
         }
 
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
-            Ok("ok".to_string())
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text("ok".to_string()))
         }
     }
 

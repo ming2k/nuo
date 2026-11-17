@@ -37,7 +37,10 @@ async fn jina_reader_works() {
     let cfg = proxied_config();
     let jina = WebReaderTool::with_config(cfg);
     let out = jina
-        .call(r#"{"url":"https://example.com"}"#)
+        .execute_text(
+            &tool::ToolContext::default(),
+            r#"{"url":"https://example.com"}"#,
+        )
         .await
         .expect("jina read");
     assert!(
@@ -52,7 +55,10 @@ async fn search_then_reader_pipeline_works() {
     let cfg = proxied_config();
     let search = WebSearchTool::with_config(cfg.clone());
     let results = search
-        .call(r#"{"query":"rust async traits"}"#)
+        .execute_text(
+            &tool::ToolContext::default(),
+            r#"{"query":"rust async traits"}"#,
+        )
         .await
         .expect("websearch");
     assert!(results.contains("Search results"), "got: {results:.200}");
@@ -81,7 +87,10 @@ async fn search_then_reader_pipeline_works() {
         .expect("a https URL in the search results");
     let reader = WebReaderTool::with_config(cfg);
     let page = reader
-        .call(&format!(r#"{{"url":"{url}"}}"#))
+        .execute_text(
+            &tool::ToolContext::default(),
+            &format!(r#"{{"url":"{url}"}}"#),
+        )
         .await
         .expect("read_url of a search hit");
     assert!(!page.trim().is_empty(), "page body should not be empty");

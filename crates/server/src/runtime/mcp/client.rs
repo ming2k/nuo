@@ -22,9 +22,11 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::{
     Arc, OnceLock,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use tool::Tool;
+
+mod request;
 
 /// Pluggable trust verifier for project-level MCP servers.
 pub type McpTrustVerifier = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
@@ -61,10 +63,11 @@ pub fn is_asset_attested(
         .map(|v| v(locator, spec))
         .unwrap_or(true)
 }
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::time::{Duration, timeout};
+use tokio_util::sync::CancellationToken;
 
 /// Protocol revisions this client can speak, newest first. The client sends
 /// its newest and steps down to the newest revision the server offered, per
@@ -84,19 +87,34 @@ const MCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 /// connection. A server that accepts the request but never responds (or streams
 /// nothing forever) is released instead of pinning the agent indefinitely.
 const MCP_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// Hard cap on one newline-delimited JSON-RPC message from a stdio server.
+/// A server that emits an unbounded line must fail the transport rather than
+/// grow the client's heap until the process is killed.
+const MAX_MCP_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 
 /// A typed MCP error: either a broken transport (retry-safe) or a protocol
 /// result (never retry a protocol error — re-sending an already-applied
 /// non-idempotent call would double a side effect).
 #[derive(Debug)]
 enum McpError {
-    /// The stdio pipe broke: a failed write/read, the child exited, or a
-    /// request timed out. The connection is unusable and a reconnect may help.
+    /// The stdio pipe broke: a failed write/read, the child exited. The
+    /// connection is unusable and a reconnect may help.
     Transport(String),
+    /// The request timed out. This is **not** retry-safe: the server may have
+    /// applied the call, and re-sending a non-idempotent tool would duplicate
+    /// its side effect.
+    Timeout(String),
     /// The server replied with a JSON-RPC `error` object (or a malformed
     /// response). This is a deterministic server-side result — retrying the
     /// *same* call yields the *same* outcome, so never reconnect on it.
     Protocol(String),
+    /// The caller cancelled the request (or a timeout cancelled it). The client
+    /// sends `notifications/cancelled` best-effort; no reconnect is implied.
+    Cancelled,
+    /// The HTTP server rejected a request carrying an MCP session id with
+    /// `404 Not Found` (or `400 Bad Request`). The session is stale; the
+    /// client re-initializes once and retries the rejected request.
+    SessionExpired,
 }
 
 impl McpError {
@@ -125,7 +143,11 @@ impl McpError {
 impl std::fmt::Display for McpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            McpError::Transport(msg) | McpError::Protocol(msg) => f.write_str(msg),
+            McpError::Transport(msg) | McpError::Protocol(msg) | McpError::Timeout(msg) => {
+                f.write_str(msg)
+            }
+            McpError::Cancelled => f.write_str("MCP request cancelled"),
+            McpError::SessionExpired => f.write_str("MCP HTTP session expired"),
         }
     }
 }
@@ -146,11 +168,327 @@ pub struct McpLoadResult {
     pub servers: Vec<Arc<McpServer>>,
 }
 
+/// A server-to-client notification worth acting on.
+///
+/// Progress is not represented here: it is per-request ephemeral data and is
+/// routed directly to the waiting call. Everything else either updates the
+/// catalog (list_changed), is a diagnostic log message, or is recorded as an
+/// unknown notification for observability.
+#[derive(Debug, Clone)]
+pub enum McpNotification {
+    /// `notifications/message` — MCP logging. Never model context.
+    Logging {
+        level: String,
+        logger: Option<String>,
+        data: Value,
+    },
+    ToolsListChanged,
+    ResourcesListChanged,
+    PromptsListChanged,
+    ResourceUpdated {
+        uri: String,
+    },
+    RootsListChanged,
+    Other {
+        method: String,
+        params: Value,
+    },
+}
+
+/// Consumer for non-progress MCP notifications. The callback must be cheap and
+/// non-blocking; the stdio reader invokes it inline.
+pub type McpNotificationSink = Arc<dyn Fn(McpNotification) + Send + Sync>;
+
+fn parse_notification(method: &str, params: Option<&Value>) -> McpNotification {
+    match method {
+        "notifications/message" => McpNotification::Logging {
+            level: params
+                .and_then(|params| params.get("level"))
+                .and_then(Value::as_str)
+                .unwrap_or("info")
+                .to_string(),
+            logger: params
+                .and_then(|params| params.get("logger"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            data: params
+                .and_then(|params| params.get("data"))
+                .cloned()
+                .unwrap_or(Value::Null),
+        },
+        "notifications/tools/list_changed" => McpNotification::ToolsListChanged,
+        "notifications/resources/list_changed" => McpNotification::ResourcesListChanged,
+        "notifications/prompts/list_changed" => McpNotification::PromptsListChanged,
+        "notifications/resources/updated" => McpNotification::ResourceUpdated {
+            uri: params
+                .and_then(|params| params.get("uri"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        },
+        "notifications/roots/list_changed" => McpNotification::RootsListChanged,
+        other => McpNotification::Other {
+            method: other.to_string(),
+            params: params.cloned().unwrap_or(Value::Null),
+        },
+    }
+}
+
 struct McpTransport {
     process_tree: host::process::OwnedProcessTree,
     _child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    /// Shared with the reader task so a server-to-client request can be
+    /// answered without going through the request path.
+    stdin: Arc<tokio::sync::Mutex<ChildStdin>>,
+}
+
+/// One request waiting for its JSON-RPC response. The reader task owns the
+/// response channel; a dropped caller simply removes the entry.
+struct PendingRequest {
+    response: oneshot::Sender<Result<Value, McpError>>,
+    progress: Option<mpsc::UnboundedSender<tool::ToolProgress>>,
+}
+
+/// Shared state between the client and its stdio reader task.
+#[derive(Default)]
+struct Inflight {
+    pending: std::sync::Mutex<HashMap<u64, PendingRequest>>,
+    alive: AtomicBool,
+    notification_sink: std::sync::Mutex<Option<McpNotificationSink>>,
+}
+
+impl Inflight {
+    fn new() -> Self {
+        Self {
+            pending: std::sync::Mutex::new(HashMap::new()),
+            alive: AtomicBool::new(true),
+            notification_sink: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
+    }
+
+    fn insert(&self, id: u64, pending: PendingRequest) -> bool {
+        let mut guard = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !self.alive.load(Ordering::Relaxed) {
+            return false;
+        }
+        guard.insert(id, pending);
+        true
+    }
+
+    fn remove(&self, id: u64) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&id);
+    }
+
+    /// Complete one response. A late response for a cancelled request has no
+    /// waiter and is deliberately dropped.
+    fn complete(&self, id: u64, message: Value) {
+        let pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&id);
+        if let Some(pending) = pending {
+            let _ = pending.response.send(Ok(message));
+        }
+    }
+
+    fn progress(&self, id: u64, tick: tool::ToolProgress) {
+        let guard = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(sender) = guard.get(&id).and_then(|pending| pending.progress.as_ref()) {
+            let _ = sender.send(tick);
+        }
+    }
+
+    fn set_notification_sink(&self, sink: McpNotificationSink) {
+        *self
+            .notification_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(sink);
+    }
+
+    fn notify(&self, notification: McpNotification) {
+        let sink = self
+            .notification_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if let Some(sink) = sink {
+            sink(notification);
+        }
+    }
+
+    /// The reader ended: fail every waiter with a transport error and make new
+    /// requests fail until the server handle reconnects.
+    fn fail_all(&self) {
+        self.alive.store(false, Ordering::Relaxed);
+        let pending = {
+            let mut guard = self
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            std::mem::take(&mut *guard)
+        };
+        for (_, pending) in pending {
+            let _ = pending
+                .response
+                .send(Err(McpError::Transport("MCP reader closed".to_string())));
+        }
+    }
+}
+
+/// Parse `nuo-{id}` progress tokens back to the request they belong to.
+fn progress_id(message: &Value) -> Option<(u64, tool::ToolProgress)> {
+    let params = message.get("params")?;
+    let token = params.get("progressToken")?.as_str()?;
+    let id = token.strip_prefix("nuo-")?.parse().ok()?;
+    Some((
+        id,
+        tool::ToolProgress::new(
+            params
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            params.get("progress").and_then(Value::as_u64),
+            params.get("total").and_then(Value::as_u64),
+        ),
+    ))
+}
+
+/// Build the JSON-RPC reply for a server-to-client request.
+///
+/// nuo advertises no sampling, roots, or elicitation capability, so those
+/// requests are rejected explicitly. `ping` is always safe and is answered so
+/// a server's liveness probe cannot hang.
+fn server_request_response(id: &Value, method: &str) -> Value {
+    if method == "ping" {
+        return json!({"jsonrpc": "2.0", "id": id, "result": {}});
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32601,
+            "message": format!("MCP client does not support server request `{method}`")
+        }
+    })
+}
+
+/// Own stdout for the whole connection: responses are routed by id, progress
+/// by token, and a closed pipe fails every waiter exactly once.
+async fn reader_loop(
+    mut stdout: BufReader<ChildStdout>,
+    inflight: Arc<Inflight>,
+    writer: Arc<tokio::sync::Mutex<ChildStdin>>,
+) {
+    loop {
+        let message = match read_message(&mut stdout).await {
+            Ok(message) => message,
+            Err(_) => {
+                inflight.fail_all();
+                return;
+            }
+        };
+        if let (Some(id), Some(method)) = (
+            message.get("id"),
+            message.get("method").and_then(Value::as_str),
+        ) {
+            // Server-to-client request. Capabilities are empty, so the only
+            // spec-defined request we can answer is `ping`; everything else
+            // gets a JSON-RPC method-not-found rather than a silent hang.
+            let response = server_request_response(id, method);
+            let write = tokio::time::timeout(MCP_REQUEST_TIMEOUT, async {
+                let mut writer = writer.lock().await;
+                write_message(&mut writer, &response).await
+            })
+            .await;
+            if !matches!(write, Ok(Ok(()))) {
+                inflight.fail_all();
+                return;
+            }
+            continue;
+        }
+        if let Some(method) = message.get("method").and_then(Value::as_str) {
+            if method == "notifications/progress" {
+                if let Some((id, tick)) = progress_id(&message) {
+                    inflight.progress(id, tick);
+                }
+            } else {
+                inflight.notify(parse_notification(method, message.get("params")));
+            }
+            continue;
+        }
+        if let Some(id) = message.get("id").and_then(Value::as_u64)
+            && (message.get("result").is_some() || message.get("error").is_some())
+        {
+            inflight.complete(id, message);
+        }
+        // Server-to-client requests (sampling, roots, elicitation) are ignored
+        // because the client advertises no corresponding capability.
+    }
+}
+
+/// A Streamable-HTTP connection's cloneable client state.
+///
+/// `netune::Client` is `Clone` and shares its pool, so two requests can hold
+/// independent clones and run concurrently. The only mutable wire state is the
+/// MCP session id, which is application-level and therefore guarded here rather
+/// than in the transport; the guard is never held across an await.
+#[derive(Clone)]
+struct HttpTransport {
+    /// Absolute URL of the Streamable-HTTP endpoint.
+    url: String,
+    client: netune::Client,
+    /// Session id issued by the server (`Mcp-Session-Id` on initialize),
+    /// echoed on every subsequent request. `None` until (and unless) the
+    /// server assigns one.
+    session_id: Arc<std::sync::Mutex<Option<String>>>,
+    /// Serializes session re-initialization after a stale-session response so
+    /// concurrent requests do not each run a handshake.
+    reinit: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl HttpTransport {
+    fn session(&self) -> Option<String> {
+        self.session_id
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    fn remember_session(&self, header: Option<&str>) {
+        let Some(header) = header else {
+            return;
+        };
+        let mut guard = self
+            .session_id
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if guard.as_deref() != Some(header) {
+            *guard = Some(header.to_string());
+        }
+    }
+
+    /// Replace the session id with exactly what a fresh handshake returned.
+    /// Unlike [`Self::remember_session`], `None` clears a stale id.
+    fn set_session(&self, session: Option<&str>) {
+        *self
+            .session_id
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = session.map(str::to_string);
+    }
 }
 
 /// One open connection to an MCP server: either a spawned stdio child or a
@@ -160,18 +498,9 @@ enum McpConnection {
     /// Boxed because the process handles dominate the enum's size and the
     /// connection is held for the server's lifetime, not copied per message.
     Stdio(Box<McpTransport>),
-    Http {
-        /// Absolute URL of the Streamable-HTTP endpoint.
-        url: String,
-        /// The owned transport. Boxed because the connection state (pool,
-        /// config, and TLS router) is much larger than the stdio variant; the
-        /// enum is held for the life of an MCP server, not per message.
-        client: Box<netune::Client>,
-        /// Session id issued by the server (`Mcp-Session-Id` on initialize),
-        /// echoed on every subsequent request. `None` until (and unless) the
-        /// server assigns one.
-        session_id: Option<String>,
-    },
+    /// Boxed because the HTTP client state is much larger than the stdio
+    /// variant; the enum is held for the life of an MCP server, not per message.
+    Http(Box<HttpTransport>),
 }
 
 impl Drop for McpConnection {
@@ -187,6 +516,7 @@ impl Drop for McpConnection {
 
 struct McpClient {
     transport: Mutex<McpConnection>,
+    inflight: Arc<Inflight>,
     next_id: AtomicU64,
     /// The negotiated wire dialect, swappable on connect. `Legacy` keeps the
     /// initialize/initialized handshake shape; `Stateless` is the 2026-07-28
@@ -206,21 +536,53 @@ enum McpDialect {
 }
 
 impl McpClient {
+    /// Snapshot the HTTP transport, if this client uses Streamable HTTP.
+    ///
+    /// The transport lock is held only for the clone; requests run against the
+    /// cloned `netune::Client` (which shares the connection pool) without
+    /// serializing on it.
+    async fn http_transport(&self) -> Option<HttpTransport> {
+        match &*self.transport.lock().await {
+            McpConnection::Http(http) => Some((**http).clone()),
+            McpConnection::Stdio(_) => None,
+        }
+    }
+
+    /// Install the consumer for non-progress notifications. The sink is shared
+    /// with the reader task and may be replaced without reconnecting.
+    fn set_notification_sink(&self, sink: McpNotificationSink) {
+        self.inflight.set_notification_sink(sink);
+    }
+
     async fn connect(config: &McpServerConfig) -> Result<Arc<Self>, String> {
+        Self::connect_with_http(config, None).await
+    }
+
+    /// Connect with an optional injected HTTP transport. The stdio tests and
+    /// the real client both use `connect`; HTTP tests inject a `netune::mock`
+    /// client so the request/streaming path runs against its real machinery
+    /// without a listening socket.
+    async fn connect_with_http(
+        config: &McpServerConfig,
+        http_client: Option<netune::Client>,
+    ) -> Result<Arc<Self>, String> {
         // Transport selection: a configured `url` reaches the server over
         // Streamable HTTP; otherwise `command` spawns a local stdio child.
         // (`url` wins when both are set, mirroring the common MCP client
         // configuration shape.)
+        let mut stdio_stdout: Option<ChildStdout> = None;
+        let mut stdio_writer: Option<Arc<tokio::sync::Mutex<ChildStdin>>> = None;
         let connection = if let Some(url) = config.url.as_deref() {
             // Validate the URL up front so a misconfigured server fails at
             // connect time with a clear message, not on first request.
             netune::Target::from_url(url)
                 .map_err(|error| format!("invalid MCP url '{url}': {error}"))?;
-            McpConnection::Http {
+            McpConnection::Http(Box::new(HttpTransport {
                 url: url.to_string(),
-                client: Box::new(netune::Client::builder().build()),
-                session_id: None,
-            }
+                client: http_client.unwrap_or_else(|| netune::Client::builder().build()),
+                session_id: Arc::new(std::sync::Mutex::new(None)),
+                reinit: Arc::new(tokio::sync::Mutex::new(())),
+            }))
         } else {
             let (program, args) = config
                 .command
@@ -259,19 +621,32 @@ impl McpClient {
                 .stdin
                 .take()
                 .ok_or_else(|| "MCP server stdin is unavailable".to_string())?;
+            let stdin = Arc::new(tokio::sync::Mutex::new(stdin));
             let stdout = child
                 .stdout
                 .take()
                 .ok_or_else(|| "MCP server stdout is unavailable".to_string())?;
+            stdio_stdout = Some(stdout);
+            stdio_writer = Some(Arc::clone(&stdin));
             McpConnection::Stdio(Box::new(McpTransport {
                 process_tree,
                 _child: child,
                 stdin,
-                stdout: BufReader::new(stdout),
             }))
         };
+        let inflight = Arc::new(Inflight::new());
+        if let Some(stdout) = stdio_stdout {
+            let writer =
+                stdio_writer.ok_or_else(|| "MCP stdio writer is unavailable".to_string())?;
+            tokio::spawn(reader_loop(
+                BufReader::new(stdout),
+                Arc::clone(&inflight),
+                writer,
+            ));
+        }
         let client = Arc::new(Self {
             transport: Mutex::new(connection),
+            inflight,
             next_id: AtomicU64::new(1),
             dialect: tokio::sync::RwLock::new(McpDialect::Legacy),
         });
@@ -349,221 +724,22 @@ impl McpClient {
             .map_err(|error| error.to_string())?;
         Ok(client)
     }
+}
 
-    async fn request(&self, method: &str, mut params: Value) -> Result<Value, McpError> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        // The 2026-07-28 revision carries the protocol version, client
-        // identity, and capabilities on every request via `params._meta`
-        // under reserved `io.modelcontextprotocol/*` keys (SEP-2575); older
-        // revisions send them once, in `initialize`.
-        let params = if matches!(*self.dialect.read().await, McpDialect::Stateless) {
-            let mut object = params
-                .as_object_mut()
-                .cloned()
-                .unwrap_or_else(serde_json::Map::new);
-            object.insert(
-                "_meta".to_string(),
-                json!({
-                    "io.modelcontextprotocol/protocolVersion": MCP_STATELESS_VERSION,
-                    "io.modelcontextprotocol/clientInfo": {
-                        "name": "nuo",
-                        "version": env!("CARGO_PKG_VERSION")
-                    },
-                    "io.modelcontextprotocol/clientCapabilities": {}
-                }),
-            );
-            Value::Object(object)
-        } else {
-            params
-        };
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params,
-        });
-
-        let mut connection = self.transport.lock().await;
-        let response = match &mut *connection {
-            McpConnection::Stdio(transport) => {
-                write_message(&mut transport.stdin, &payload)
-                    .await
-                    .map_err(|msg| {
-                        McpError::Transport(format!("MCP {method} write failed: {msg}"))
-                    })?;
-                // Bound how long a single request can hang the agent: a server that
-                // keeps the pipe open without answering is released rather than
-                // pinning the transport lock forever.
-                timeout(MCP_REQUEST_TIMEOUT, async {
-                    loop {
-                        let response =
-                            read_message(&mut transport.stdout).await.map_err(|msg| {
-                                McpError::Transport(format!("MCP {method} read failed: {msg}"))
-                            })?;
-                        if response.get("id").and_then(Value::as_u64) != Some(id) {
-                            // An unrelated notification/async reply: skip, keep reading
-                            // for *our* id.
-                            continue;
-                        }
-                        // Our reply — break out of the async block with it.
-                        break Ok(response);
-                    }
-                })
-                .await
-                .map_err(|_| {
-                    McpError::Transport(format!(
-                        "MCP {method} timed out after {}s",
-                        MCP_REQUEST_TIMEOUT.as_secs()
-                    ))
-                })??
-            }
-            McpConnection::Http {
-                url,
-                client,
-                session_id,
-            } => {
-                let (target, path) = netune::Target::from_url(url).map_err(|error| {
-                    McpError::Transport(format!("invalid MCP url '{url}': {error}"))
-                })?;
-                let mut head = netune::RequestHead::new(netune::Method::POST, path)
-                    .with_header("accept", "application/json, text/event-stream")
-                    .with_header("content-type", "application/json");
-                if let Some(session) = session_id.as_deref() {
-                    head = head.with_header("mcp-session-id", session);
-                }
-                let body = serde_json::to_vec(&payload)
-                    .map_err(|error| McpError::Protocol(format!("MCP {method} encode: {error}")))?;
-                // A connection-level failure (DNS, refused, TLS, reset) is
-                // transport-class and safe to reconnect-retry, while any
-                // delivered body is parsed below and classified as protocol.
-                // This deadline bounds the wait for response headers; the body
-                // keeps the transport's own request and body-idle bounds.
-                let exchange =
-                    tokio::time::timeout(MCP_REQUEST_TIMEOUT, client.request(&target, head, body))
-                        .await
-                        .map_err(|_| {
-                            McpError::Transport(format!(
-                                "MCP {method} timed out after {}s",
-                                MCP_REQUEST_TIMEOUT.as_secs()
-                            ))
-                        })?
-                        .map_err(|error| {
-                            McpError::Transport(format!(
-                                "MCP {method} HTTP failed: {error} [{} trace {}]",
-                                error.diagnostic().code,
-                                error.trace().meta.id
-                            ))
-                        })?;
-                let status = exchange.head.status;
-                if !status.is_success() {
-                    // 4xx/5xx: the server answered and refused — a protocol
-                    // result, not a broken pipe.
-                    let mut exchange = exchange;
-                    let detail = exchange
-                        .body
-                        .read_to_end()
-                        .await
-                        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-                        .unwrap_or_default();
-                    return Err(McpError::Protocol(format!(
-                        "MCP {method} HTTP {status}: {detail}"
-                    )));
-                }
-                if session_id.is_none() {
-                    *session_id = exchange
-                        .head
-                        .headers
-                        .get("mcp-session-id")
-                        .and_then(|value| value.to_str().ok())
-                        .map(str::to_string);
-                }
-                let content_type = exchange
-                    .head
-                    .headers
-                    .get("content-type")
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or_default()
-                    .to_string();
-                let mut exchange = exchange;
-                let body = exchange
-                    .body
-                    .read_to_end()
-                    .await
-                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-                    .map_err(|error| {
-                        McpError::Transport(format!(
-                            "MCP {method} body: {error} [{}]",
-                            error.diagnostic().code
-                        ))
-                    })?;
-                parse_http_message(&body, &content_type, method)?
-            }
-        };
-
-        // At this point the response is well-formed and carries our id: a
-        // JSON-RPC `error` object is a *protocol* result, not a transport
-        // failure — the caller must NOT reconnect-and-retry it.
-        if let Some(error) = response.get("error") {
-            return Err(McpError::Protocol(format!("MCP {method} error: {error}")));
-        }
-        response
-            .get("result")
-            .cloned()
-            .ok_or_else(|| McpError::Protocol(format!("MCP {method} response has no result")))
+/// Extract one MCP progress tick for `token`, if this notification is for us.
+fn progress_tick(params: Option<&Value>, token: &str) -> Option<tool::ToolProgress> {
+    let params = params?;
+    if params.get("progressToken").and_then(Value::as_str) != Some(token) {
+        return None;
     }
-
-    async fn notify(&self, method: &str, params: Value) -> Result<(), McpError> {
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-        });
-        let mut connection = self.transport.lock().await;
-        match &mut *connection {
-            McpConnection::Stdio(transport) => write_message(&mut transport.stdin, &payload)
-                .await
-                .map_err(|msg| McpError::Transport(format!("MCP {method} notify failed: {msg}"))),
-            McpConnection::Http {
-                url,
-                client,
-                session_id,
-            } => {
-                let (target, path) = netune::Target::from_url(url).map_err(|error| {
-                    McpError::Transport(format!("invalid MCP url '{url}': {error}"))
-                })?;
-                let mut head = netune::RequestHead::new(netune::Method::POST, path)
-                    .with_header("accept", "application/json, text/event-stream")
-                    .with_header("content-type", "application/json");
-                if let Some(session) = session_id.as_deref() {
-                    head = head.with_header("mcp-session-id", session);
-                }
-                let body = serde_json::to_vec(&payload)
-                    .map_err(|error| McpError::Protocol(format!("MCP {method} encode: {error}")))?;
-                // Notifications have no id and thus no reply to correlate:
-                // spec-compliant servers answer 202 with (possibly) an empty
-                // body. Transport failure still classifies as reconnect-safe.
-                let exchange =
-                    tokio::time::timeout(MCP_REQUEST_TIMEOUT, client.request(&target, head, body))
-                        .await
-                        .map_err(|_| {
-                            McpError::Transport(format!(
-                                "MCP {method} notify timed out after {}s",
-                                MCP_REQUEST_TIMEOUT.as_secs()
-                            ))
-                        })?
-                        .map_err(|error| {
-                            McpError::Transport(format!(
-                                "MCP {method} notify failed: {error} [{} trace {}]",
-                                error.diagnostic().code,
-                                error.trace().meta.id
-                            ))
-                        })?;
-                let mut exchange = exchange;
-                let _ = exchange.body.read_to_end().await;
-                Ok(())
-            }
-        }
-    }
+    Some(tool::ToolProgress::new(
+        params
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        params.get("progress").and_then(Value::as_u64),
+        params.get("total").and_then(Value::as_u64),
+    ))
 }
 
 /// Parse a Streamable-HTTP response body into a JSON-RPC reply for `method`.
@@ -571,7 +747,13 @@ impl McpClient {
 /// `text/event-stream` (SSE `data:` frames; per spec the *last* `message`
 /// event carrying our id is the reply — but practical servers send exactly
 /// one, so the first id-matching frame wins).
-fn parse_http_message(body: &str, content_type: &str, method: &str) -> Result<Value, McpError> {
+fn parse_http_message_with_progress(
+    body: &str,
+    content_type: &str,
+    method: &str,
+    progress_token: Option<&str>,
+    mut on_progress: Option<&mut (dyn FnMut(tool::ToolProgress) + Send)>,
+) -> Result<Value, McpError> {
     if content_type.starts_with("text/event-stream") {
         // Collect every `data:` frame into candidate JSON-RPC messages.
         for frame in body.lines().filter_map(|line| {
@@ -580,9 +762,18 @@ fn parse_http_message(body: &str, content_type: &str, method: &str) -> Result<Va
                 .starts_with("data:")
                 .then(|| trimmed["data:".len()..].trim())
         }) {
-            if let Ok(value) = serde_json::from_str::<Value>(frame)
-                && value.get("jsonrpc").is_some()
-            {
+            let Ok(value) = serde_json::from_str::<Value>(frame) else {
+                continue;
+            };
+            if value.get("method").and_then(Value::as_str) == Some("notifications/progress") {
+                if let (Some(token), Some(callback)) = (progress_token, on_progress.as_mut())
+                    && let Some(progress) = progress_tick(value.get("params"), token)
+                {
+                    (**callback)(progress);
+                }
+                continue;
+            }
+            if value.get("result").is_some() || value.get("error").is_some() {
                 return Ok(value);
             }
         }
@@ -599,9 +790,17 @@ struct McpTool {
     original_name: String,
     description: String,
     parameters: Value,
+    output_schema: Option<Value>,
+    risk: tool::RiskProfile,
+    /// Transport-failure retry is safe only for read-only or explicitly
+    /// idempotent operations. A generic mutating MCP tool may have applied its
+    /// side effect before the pipe broke, so retrying would duplicate it.
+    retry_safe: bool,
+    accesses: tool::ToolAccesses,
     /// The reconnect-capable server handle. When a tool call fails with a
-    /// connection error, [`call`](Tool::call) resets the connection and retries
-    /// once — transparent crash recovery without waiting for the next refresh.
+    /// connection error, [`execute`](Tool::execute) resets the connection and
+    /// retries once — transparent crash recovery without waiting for the next
+    /// refresh.
     server: Arc<McpServer>,
 }
 
@@ -614,6 +813,9 @@ pub struct McpServer {
     server_name: String,
     read_only: bool,
     client: tokio::sync::Mutex<Option<Arc<McpClient>>>,
+    /// Installed before or after the first connect; re-applied whenever a new
+    /// client replaces a dead one.
+    notification_sink: std::sync::Mutex<Option<McpNotificationSink>>,
 }
 
 impl McpServer {
@@ -623,6 +825,20 @@ impl McpServer {
             server_name,
             read_only,
             client: tokio::sync::Mutex::new(None),
+            notification_sink: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Install (or replace) the consumer for this server's non-progress
+    /// notifications. Safe to call before the first connection; the sink is
+    /// retained and attached to every replacement client.
+    pub(super) async fn set_notification_sink(&self, sink: McpNotificationSink) {
+        *self
+            .notification_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(Arc::clone(&sink));
+        if let Some(client) = self.client.lock().await.as_ref() {
+            client.set_notification_sink(sink);
         }
     }
 
@@ -684,6 +900,14 @@ impl McpServer {
             return Ok(c.clone());
         }
         let client = McpClient::connect(&self.config).await?;
+        if let Some(sink) = self
+            .notification_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+        {
+            client.set_notification_sink(sink);
+        }
         *guard = Some(client.clone());
         Ok(client)
     }
@@ -703,11 +927,106 @@ impl McpServer {
         self.read_only
     }
 
+    pub fn defer_tools(&self) -> bool {
+        self.config.defer_tools
+    }
+
     /// Whether a server-advertised tool (original name) passes this server's
     /// `allow_tools`/`deny_tools` configuration — see
     /// [`McpServerConfig::admits_tool`].
     pub fn admits_tool(&self, original_name: &str) -> bool {
         self.config.admits_tool(original_name)
+    }
+
+    /// Send a best-effort `notifications/cancelled` for `request_id`.
+    async fn cancel_request(&self, request_id: u64) {
+        let client = self.client.lock().await.clone();
+        if let Some(client) = client {
+            let _ = client
+                .notify(
+                    "notifications/cancelled",
+                    json!({"requestId": request_id, "reason": "cancelled"}),
+                )
+                .await;
+        }
+    }
+
+    /// Execute one read-only endpoint (`resources/list` / `resources/read`)
+    /// with cancellation and progress.
+    async fn request_endpoint(
+        &self,
+        method: &str,
+        params: Value,
+        cancel: &CancellationToken,
+        on_progress: &mut (dyn FnMut(tool::ToolProgress) + Send),
+        request_id: Option<&Arc<AtomicU64>>,
+    ) -> Result<Value, McpError> {
+        let client = self.ensure_connected().await.map_err(McpError::Transport)?;
+        let result = client
+            .request_with(
+                method,
+                params,
+                Some(cancel),
+                Some(&mut *on_progress),
+                request_id,
+            )
+            .await;
+        if matches!(result, Err(McpError::Transport(_))) {
+            self.reset().await;
+        }
+        result
+    }
+
+    /// Execute `tools/call` with cancellation and progress.
+    async fn call_tool(
+        &self,
+        name: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        on_progress: &mut (dyn FnMut(tool::ToolProgress) + Send),
+        request_id: Option<&Arc<AtomicU64>>,
+        retry_safe: bool,
+    ) -> Result<Value, McpError> {
+        let payload = json!({"name": name, "arguments": arguments});
+        let client = self.ensure_connected().await.map_err(McpError::Transport)?;
+        match client
+            .request_with(
+                "tools/call",
+                payload.clone(),
+                Some(cancel),
+                Some(&mut *on_progress),
+                request_id,
+            )
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(McpError::Cancelled) => Err(McpError::Cancelled),
+            Err(McpError::Timeout(message)) => Err(McpError::Timeout(message)),
+            Err(error) if error.is_transport() => {
+                tracing::warn!(
+                    server = %self.server_name,
+                    tool = %name,
+                    %error,
+                    "MCP transport error, reconnecting{}",
+                    if retry_safe { " and retrying once" } else { "" }
+                );
+                self.reset().await;
+                if !retry_safe {
+                    return Err(error);
+                }
+                let client = self.ensure_connected().await.map_err(McpError::Transport)?;
+                client
+                    .request_with(
+                        "tools/call",
+                        payload,
+                        Some(cancel),
+                        Some(&mut *on_progress),
+                        request_id,
+                    )
+                    .await
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -721,46 +1040,86 @@ impl Tool for McpTool {
         &self.description
     }
 
-    fn parameters(&self) -> Value {
+    fn parameters_schema(&self) -> Value {
         self.parameters.clone()
     }
 
-    fn hazard_level(&self) -> tool::HazardLevel {
-        tool::HazardLevel::NetworkOrExternal
+    fn output_schema(&self) -> Option<Value> {
+        self.output_schema.clone()
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let arguments: Value = serde_json::from_str(arguments)
-            .map_err(|error| format!("invalid MCP tool arguments: {}", error))?;
-        let payload = json!({
-            "name": self.original_name,
-            "arguments": arguments,
+    fn risk_profile(&self) -> tool::RiskProfile {
+        self.risk
+    }
+
+    fn accesses(&self, _arguments: &Value) -> tool::ToolAccesses {
+        self.accesses.clone()
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(MCP_REQUEST_TIMEOUT)
+    }
+
+    fn exposure(&self) -> tool::ToolExposure {
+        if self.server.defer_tools() {
+            tool::ToolExposure::Deferred
+        } else {
+            tool::ToolExposure::Direct
+        }
+    }
+
+    async fn execute(
+        &self,
+        ctx: &::tool::ToolContext,
+        arguments: Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        let request_id = Arc::new(AtomicU64::new(0));
+        let done = CancellationToken::new();
+        let watcher_done = done.clone();
+        let watcher_server = Arc::clone(&self.server);
+        let watcher_id = Arc::clone(&request_id);
+        let watcher_cancel = ctx.cancel_token.clone();
+        let watcher = tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = watcher_cancel.cancelled() => {
+                    let id = watcher_id.load(Ordering::Relaxed);
+                    if id != 0 {
+                        watcher_server.cancel_request(id).await;
+                    }
+                }
+                _ = watcher_done.cancelled() => {}
+            }
         });
-        // Try with the current (possibly cached) connection. Only a *transport*
-        // failure (the pipe broke — the server crashed) warrants a reconnect
-        // and a single retry. A *protocol* error (a JSON-RPC `error` object) is
-        // a deterministic server-side result: re-sending an already-applied
-        // non-idempotent tool call would repeat its side effect, so it is
-        // returned to the caller verbatim and never retried.
-        let client = self.server.ensure_connected().await?;
-        match client.request("tools/call", payload.clone()).await {
+
+        let mut progress = |progress: tool::ToolProgress| ctx.emit_progress(progress);
+        let result = self
+            .server
+            .call_tool(
+                &self.original_name,
+                arguments,
+                &ctx.cancel_token,
+                &mut progress,
+                Some(&request_id),
+                self.retry_safe,
+            )
+            .await;
+        done.cancel();
+        watcher.abort();
+
+        match result {
             Ok(result) => Ok(render_tool_result(&result)),
-            Err(error) if error.is_transport() => {
-                tracing::warn!(
-                    server = %self.server.name(),
-                    tool = %self.original_name,
-                    %error,
-                    "MCP transport error, reconnecting and retrying once"
-                );
-                self.server.reset().await;
-                let client = self.server.ensure_connected().await?;
-                let result = client.request("tools/call", payload).await?;
-                Ok(render_tool_result(&result))
-            }
-            Err(error) => {
-                // Protocol error: surface it to the caller; do not reconnect.
-                Err(error.to_string())
-            }
+            Err(McpError::Cancelled) => Ok(tool::ToolOutput::Error {
+                message: format!("MCP tool `{}` was cancelled", self.public_name),
+                detail: Some(
+                    "The server was sent notifications/cancelled and may still be stopping."
+                        .to_string(),
+                ),
+            }),
+            Err(error) => Err(::tool::ToolError::execution(
+                self.public_name.clone(),
+                error.to_string(),
+            )),
         }
     }
 }
@@ -772,6 +1131,7 @@ pub async fn load_mcp_tools(configs: &HashMap<String, McpServerConfig>) -> McpLo
     let mut names = configs.keys().cloned().collect::<Vec<_>>();
     names.sort();
 
+    let mut taken = HashSet::new();
     for name in names {
         let config = &configs[&name];
         if !config.enabled {
@@ -785,7 +1145,7 @@ pub async fn load_mcp_tools(configs: &HashMap<String, McpServerConfig>) -> McpLo
                 name.clone(),
                 config.read_only,
             ));
-            let server_tools = build_tools_from_server(&server).await?;
+            let server_tools = build_tools_from_server(&server, &mut taken).await?;
             Ok::<_, String>((server, server_tools))
         })
         .await;
@@ -821,11 +1181,12 @@ pub async fn refresh_mcp_tools(
     let mut tools = Vec::new();
     let mut statuses = Vec::new();
 
+    let mut taken = HashSet::new();
     for server in servers {
         // Reset the connection so ensure_connected opens a fresh one.
         server.reset().await;
         match timeout(MCP_CONNECT_TIMEOUT, async {
-            build_tools_from_server(server).await
+            build_tools_from_server(server, &mut taken).await
         })
         .await
         {
@@ -867,11 +1228,39 @@ pub async fn connect_server(
             name.to_string(),
             config.read_only,
         ));
-        let tools = build_tools_from_server(&server).await?;
+        let mut taken = HashSet::new();
+        let tools = build_tools_from_server(&server, &mut taken).await?;
         Ok::<_, String>((server, tools))
     })
     .await
     .map_err(|_| "connection timed out".to_string())?
+}
+
+/// Re-run `tools/list` over the existing connection without dropping it.
+///
+/// This is the list_changed path: a catalog edit should not fail an unrelated
+/// in-flight tool call. If the live request fails, the caller can fall back to
+/// [`reconnect_server`], which resets the transport.
+pub async fn refresh_server_tools(
+    server: &Arc<McpServer>,
+) -> (Vec<Arc<dyn Tool>>, McpConnectionStatus) {
+    let mut taken = HashSet::new();
+    match timeout(
+        MCP_CONNECT_TIMEOUT,
+        build_tools_from_server(server, &mut taken),
+    )
+    .await
+    {
+        Ok(Ok(tools)) => {
+            let count = tools.len();
+            (tools, McpConnectionStatus::Connected { tools: count })
+        }
+        Ok(Err(error)) => (Vec::new(), McpConnectionStatus::Failed(error)),
+        Err(_) => (
+            Vec::new(),
+            McpConnectionStatus::Failed("connection timed out".to_string()),
+        ),
+    }
 }
 
 /// Reset and re-establish one server's connection, re-discovering its tools.
@@ -881,7 +1270,13 @@ pub async fn reconnect_server(
     server: &Arc<McpServer>,
 ) -> (Vec<Arc<dyn Tool>>, McpConnectionStatus) {
     server.reset().await;
-    match timeout(MCP_CONNECT_TIMEOUT, build_tools_from_server(server)).await {
+    let mut taken = HashSet::new();
+    match timeout(
+        MCP_CONNECT_TIMEOUT,
+        build_tools_from_server(server, &mut taken),
+    )
+    .await
+    {
         Ok(Ok(tools)) => {
             let count = tools.len();
             (tools, McpConnectionStatus::Connected { tools: count })
@@ -897,24 +1292,36 @@ pub async fn reconnect_server(
 /// Build [`McpTool`] adapters from a connected server's `tools/list` response.
 /// Each tool holds the [`McpServer`] handle so it can auto-reconnect on
 /// failure.
-async fn build_tools_from_server(server: &Arc<McpServer>) -> Result<Vec<Arc<dyn Tool>>, String> {
+async fn build_tools_from_server(
+    server: &Arc<McpServer>,
+    taken: &mut HashSet<String>,
+) -> Result<Vec<Arc<dyn Tool>>, String> {
     let client = server.ensure_connected().await?;
     let result = client.request("tools/list", json!({})).await?;
     let definitions = result
         .get("tools")
         .and_then(Value::as_array)
         .ok_or_else(|| "MCP tools/list response has no tools array".to_string())?;
+    // Probe the optional resource surface once, with the connect budget, so a
+    // server that does not implement it does not get two permanently-failing
+    // tools in the deferred catalog.
+    let resources_supported = server.config.enable_resources
+        && timeout(
+            MCP_CONNECT_TIMEOUT,
+            client.request("resources/list", json!({})),
+        )
+        .await
+        .is_ok_and(|result| result.is_ok());
 
     // `sanitize_name` is a lossy, many-to-one mapping (every non-`[A-Za-z0-9_]`
     // char folds to `_`), so distinct server-side tool names can collapse to the
     // same public name (e.g. `read-file` and `read.file` both become
     // `read_file`). Left unchecked, the second adapter would be silently dropped
-    // by the first-wins `ToolSet`, making that tool unreachable. We guarantee
-    // uniqueness here, where the whole server's tool list is in scope, by
-    // appending the lowest free numeric suffix on collision. `original_name` is
-    // untouched, so `tools/call` still targets the correct server-side tool.
-    let mut taken = HashSet::new();
-    definitions
+    // by the first-wins `ToolSet`, making that tool unreachable. `taken` is
+    // shared across every server in one load/refresh so the names are globally
+    // unique, and the suffix is a stable hash of the raw identity. `original_name`
+    // is untouched, so `tools/call` still targets the correct server-side tool.
+    let mut tools: Vec<Arc<dyn Tool>> = definitions
         .iter()
         // Config-time scoping (follow-up): `allow_tools`/`deny_tools`
         // filter on the *original* server-declared name, before sanitization
@@ -939,7 +1346,8 @@ async fn build_tools_from_server(server: &Arc<McpServer>) -> Result<Vec<Arc<dyn 
                     sanitize_name(server.name()),
                     sanitize_name(&original_name)
                 ),
-                &mut taken,
+                &format!("{}\0{}", server.name(), original_name),
+                taken,
             );
             let description = definition
                 .get("description")
@@ -950,19 +1358,266 @@ async fn build_tools_from_server(server: &Arc<McpServer>) -> Result<Vec<Arc<dyn 
                 .get("inputSchema")
                 .cloned()
                 .unwrap_or_else(|| json!({"type":"object"}));
+            let output_schema = definition.get("outputSchema").cloned();
+            let annotations = definition.get("annotations");
+            let hint = |name: &str| {
+                annotations
+                    .and_then(|annotations| annotations.get(name))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            };
+            let read_only = hint("readOnlyHint") || server.read_only();
+            let destructive = hint("destructiveHint");
+            let idempotent = hint("idempotentHint");
+            let open_world = hint("openWorldHint");
+            // Scheduling uses the same annotation: a read-only MCP call cannot
+            // corrupt a concurrent write, while anything else is treated as a
+            // global-exclusive effect because the server does not expose a
+            // locatable path.
+            let (risk, accesses) = if read_only {
+                (tool::RiskProfile::ReadOnly, tool::ToolAccesses::none())
+            } else if destructive {
+                (tool::RiskProfile::Destructive, tool::ToolAccesses::all())
+            } else if idempotent {
+                (
+                    tool::RiskProfile::IdempotentMutation,
+                    tool::ToolAccesses::all(),
+                )
+            } else if open_world || annotations.is_none() {
+                (tool::RiskProfile::NetworkAccess, tool::ToolAccesses::all())
+            } else {
+                (
+                    tool::RiskProfile::IdempotentMutation,
+                    tool::ToolAccesses::all(),
+                )
+            };
             Ok(Arc::new(McpTool {
                 public_name,
                 original_name,
                 description,
                 parameters,
+                output_schema,
+                risk,
+                retry_safe: read_only || idempotent,
+                accesses,
                 server: Arc::clone(server),
             }) as Arc<dyn Tool>)
         })
-        .collect()
+        .collect::<Result<Vec<Arc<dyn Tool>>, String>>()?;
+
+    if resources_supported {
+        let list_name = unique_name(
+            format!("mcp__{}__list_resources", sanitize_name(server.name())),
+            &format!("{}\0__list_resources", server.name()),
+            taken,
+        );
+        let read_name = unique_name(
+            format!("mcp__{}__read_resource", sanitize_name(server.name())),
+            &format!("{}\0__read_resource", server.name()),
+            taken,
+        );
+        tools.push(Arc::new(McpResourceTool {
+            public_name: list_name,
+            operation: ResourceOp::List,
+            server: Arc::clone(server),
+        }));
+        tools.push(Arc::new(McpResourceTool {
+            public_name: read_name,
+            operation: ResourceOp::Read,
+            server: Arc::clone(server),
+        }));
+    }
+    Ok(tools)
+}
+
+/// Which MCP resource endpoint one adapter exposes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceOp {
+    List,
+    Read,
+}
+
+/// A model-facing adapter for `resources/list` / `resources/read`.
+///
+/// MCP resources are a first-class part of the protocol, not a tool-server
+/// extension. Exposing them as two read-only tools keeps the model's discovery
+/// surface uniform: `tool_search` can activate them, the permission chain sees
+/// a normal `ReadOnly` hazard, and `read` remains the only place a filesystem
+/// path is resolved.
+struct McpResourceTool {
+    public_name: String,
+    operation: ResourceOp,
+    server: Arc<McpServer>,
+}
+
+#[async_trait]
+impl Tool for McpResourceTool {
+    fn name(&self) -> &str {
+        &self.public_name
+    }
+
+    fn description(&self) -> &str {
+        match self.operation {
+            ResourceOp::List => "List the MCP server's resources and resource templates.",
+            ResourceOp::Read => "Read one MCP resource by URI.",
+        }
+    }
+
+    fn parameters_schema(&self) -> Value {
+        match self.operation {
+            ResourceOp::List => json!({
+                "type": "object",
+                "properties": {
+                    "cursor": {"type": "string", "description": "Opaque pagination cursor"}
+                },
+                "additionalProperties": false
+            }),
+            ResourceOp::Read => json!({
+                "type": "object",
+                "properties": {
+                    "uri": {"type": "string", "description": "Resource URI returned by list_resources"}
+                },
+                "required": ["uri"],
+                "additionalProperties": false
+            }),
+        }
+    }
+
+    fn risk_profile(&self) -> tool::RiskProfile {
+        tool::RiskProfile::ReadOnly
+    }
+
+    fn exposure(&self) -> tool::ToolExposure {
+        if self.server.defer_tools() {
+            tool::ToolExposure::Deferred
+        } else {
+            tool::ToolExposure::Direct
+        }
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(MCP_REQUEST_TIMEOUT)
+    }
+
+    async fn execute(
+        &self,
+        ctx: &::tool::ToolContext,
+        arguments: Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        let request_id = Arc::new(AtomicU64::new(0));
+        let done = CancellationToken::new();
+        let watcher_done = done.clone();
+        let watcher_server = Arc::clone(&self.server);
+        let watcher_id = Arc::clone(&request_id);
+        let watcher_cancel = ctx.cancel_token.clone();
+        let watcher = tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = watcher_cancel.cancelled() => {
+                    let id = watcher_id.load(Ordering::Relaxed);
+                    if id != 0 {
+                        watcher_server.cancel_request(id).await;
+                    }
+                }
+                _ = watcher_done.cancelled() => {}
+            }
+        });
+        let mut progress = |progress: tool::ToolProgress| ctx.emit_progress(progress);
+        let result = match self.operation {
+            ResourceOp::List => {
+                let mut params = json!({});
+                if let Some(cursor) = arguments
+                    .get("cursor")
+                    .and_then(Value::as_str)
+                    .filter(|cursor| !cursor.is_empty())
+                {
+                    params["cursor"] = json!(cursor);
+                }
+                self.server
+                    .request_endpoint(
+                        "resources/list",
+                        params,
+                        &ctx.cancel_token,
+                        &mut progress,
+                        Some(&request_id),
+                    )
+                    .await
+                    .map(|result| {
+                        let content = serde_json::to_string_pretty(&result).unwrap_or_default();
+                        tool::ToolOutput::Structured {
+                            content,
+                            value: result,
+                            failed: false,
+                        }
+                    })
+            }
+            ResourceOp::Read => {
+                let uri = arguments
+                    .get("uri")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        tool::ToolError::invalid_args(self.public_name.clone(), "missing `uri`")
+                    })?;
+                self.server
+                    .request_endpoint(
+                        "resources/read",
+                        json!({"uri": uri}),
+                        &ctx.cancel_token,
+                        &mut progress,
+                        Some(&request_id),
+                    )
+                    .await
+                    .map(|result| render_resource_result(&result))
+            }
+        };
+        done.cancel();
+        watcher.abort();
+        result.map_err(|error| match error {
+            McpError::Cancelled => tool::ToolError::cancelled(self.public_name.clone()),
+            other => tool::ToolError::execution(self.public_name.clone(), other.to_string()),
+        })
+    }
+}
+
+fn render_resource_result(result: &Value) -> tool::ToolOutput {
+    use tool::tool_output::MediaPart;
+
+    let mut parts = Vec::new();
+    if let Some(contents) = result.get("contents").and_then(Value::as_array) {
+        for item in contents {
+            let uri = item.get("uri").and_then(Value::as_str).unwrap_or_default();
+            let mime = item.get("mimeType").and_then(Value::as_str);
+            if let Some(text) = item.get("text").and_then(Value::as_str) {
+                parts.push(MediaPart::text(text));
+            } else if let Some(blob) = item.get("blob").and_then(Value::as_str) {
+                match mime {
+                    Some(mime) if mime.starts_with("image/") => {
+                        parts.push(mcp_image_part(mime, blob));
+                    }
+                    _ => parts.push(MediaPart::Resource {
+                        uri: uri.to_string(),
+                        mime: mime.map(str::to_string),
+                        name: item.get("name").and_then(Value::as_str).map(str::to_string),
+                        text: None,
+                    }),
+                }
+            }
+        }
+    }
+    if parts.is_empty() {
+        return tool::ToolOutput::text(result.to_string());
+    }
+    tool::ToolOutput::media(parts)
 }
 
 async fn write_message(stdin: &mut ChildStdin, message: &Value) -> Result<(), String> {
     let mut line = serde_json::to_vec(message).map_err(|error| error.to_string())?;
+    if line.len().saturating_add(1) > MAX_MCP_MESSAGE_BYTES {
+        return Err(format!(
+            "MCP JSON-RPC message exceeds {} MiB",
+            MAX_MCP_MESSAGE_BYTES / (1024 * 1024)
+        ));
+    }
     line.push(b'\n');
     stdin
         .write_all(&line)
@@ -971,22 +1626,43 @@ async fn write_message(stdin: &mut ChildStdin, message: &Value) -> Result<(), St
     stdin.flush().await.map_err(|error| error.to_string())
 }
 
-async fn read_message(stdout: &mut BufReader<ChildStdout>) -> Result<Value, String> {
-    let mut line = String::new();
+async fn read_bounded_line<R>(reader: &mut R, limit: usize) -> Result<Vec<u8>, String>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut line = Vec::new();
     loop {
-        line.clear();
-        let bytes = stdout
-            .read_line(&mut line)
-            .await
-            .map_err(|error| error.to_string())?;
-        if bytes == 0 {
-            return Err("MCP server closed stdout".to_string());
+        let (consumed, newline) = {
+            let available = reader.fill_buf().await.map_err(|error| error.to_string())?;
+            if available.is_empty() {
+                return Err("MCP server closed stdout".to_string());
+            }
+            let newline = available.iter().position(|byte| *byte == b'\n');
+            let end = newline.map_or(available.len(), |position| position + 1);
+            if line.len().saturating_add(end) > limit {
+                return Err(format!(
+                    "MCP JSON-RPC message exceeds {} MiB",
+                    limit / (1024 * 1024)
+                ));
+            }
+            line.extend_from_slice(&available[..end]);
+            (end, newline.is_some())
+        };
+        reader.consume(consumed);
+        if newline {
+            return Ok(line);
         }
-        if line.trim().is_empty() {
+    }
+}
+
+async fn read_message(stdout: &mut BufReader<ChildStdout>) -> Result<Value, String> {
+    loop {
+        let line = read_bounded_line(stdout, MAX_MCP_MESSAGE_BYTES).await?;
+        if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
-        return serde_json::from_str(line.trim())
-            .map_err(|error| format!("invalid MCP JSON-RPC message: {}", error));
+        return serde_json::from_slice(&line)
+            .map_err(|error| format!("invalid MCP JSON-RPC message: {error}"));
     }
 }
 
@@ -1002,22 +1678,52 @@ fn sanitize_name(name: &str) -> String {
         .collect()
 }
 
-/// Reserve a collision-free variant of `name` within `taken`, recording the
-/// result. The first claimant keeps the bare name; each later duplicate gets the
-/// lowest free `_2`, `_3`, … suffix. Deterministic and order-stable, so a server
-/// returning the same `tools/list` always yields the same public names.
-fn unique_name(name: String, taken: &mut HashSet<String>) -> String {
-    if taken.insert(name.clone()) {
-        return name;
-    }
-    let mut suffix = 2u32;
-    loop {
-        let candidate = format!("{name}_{suffix}");
-        if taken.insert(candidate.clone()) {
-            return candidate;
+/// Provider function-name ceiling (OpenAI's limit is 64 characters).
+const MCP_MAX_TOOL_NAME: usize = 64;
+
+/// Reserve a collision-free, length-bounded public name within `taken`.
+///
+/// The base name is kept when it is unique and fits. Any collision or overflow
+/// gets a **stable** suffix derived from the raw `(server, tool)` identity, not
+/// the lowest free integer: a numeric suffix depends on the order a server
+/// happens to return `tools/list`, so a reconnect could silently re-point a
+/// historical call at a different tool. A hash suffix is order-independent and
+/// survives restarts.
+fn unique_name(name: String, raw_key: &str, taken: &mut HashSet<String>) -> String {
+    let hash = tool::vfs_short_hash(raw_key.as_bytes());
+    let fit = |base: &str| {
+        if base.len() + 1 + hash.len() <= MCP_MAX_TOOL_NAME {
+            format!("{base}_{hash}")
+        } else {
+            let keep = MCP_MAX_TOOL_NAME - 1 - hash.len();
+            let mut end = keep;
+            while !base.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("{}_{hash}", &base[..end])
         }
-        suffix += 1;
+    };
+    let base = if name.len() > MCP_MAX_TOOL_NAME {
+        fit(&name)
+    } else {
+        name
+    };
+    if taken.insert(base.clone()) {
+        return base;
     }
+    let mut candidate = fit(&base);
+    let mut attempt = 1u32;
+    while !taken.insert(candidate.clone()) {
+        let suffix = format!("{hash}{attempt}");
+        let keep = MCP_MAX_TOOL_NAME - 1 - suffix.len();
+        let mut end = keep.min(base.len());
+        while !base.is_char_boundary(end) {
+            end -= 1;
+        }
+        candidate = format!("{}_{suffix}", &base[..end]);
+        attempt += 1;
+    }
+    candidate
 }
 
 const MCP_MAX_OUTPUT_BYTES: usize = 16_384;
@@ -1076,86 +1782,112 @@ pub(crate) fn compact_mcp_output(raw: &str) -> String {
     )
 }
 
-fn render_tool_result(result: &Value) -> String {
-    let raw = if let Some(content) = result.get("content").and_then(Value::as_array) {
-        let rendered = content
-            .iter()
-            .filter_map(|item| item.get("text").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join("\n");
-        if !rendered.is_empty() {
-            rendered
-        } else {
-            result.to_string()
-        }
+/// Base64 image ceiling for one MCP content part. The image normalizer handles
+/// files the agent reads; a remote server can still return an arbitrarily large
+/// inline image, so the same boundary applies here.
+const MAX_MCP_IMAGE_BASE64_BYTES: usize = 8 * 1024 * 1024;
+
+fn mcp_image_part(mime: &str, data: &str) -> tool::tool_output::MediaPart {
+    if data.len() > MAX_MCP_IMAGE_BASE64_BYTES {
+        tool::tool_output::MediaPart::text(format!(
+            "[image omitted: {mime}, {} bytes exceeds the inline media ceiling]",
+            data.len()
+        ))
     } else {
-        result.to_string()
-    };
-    compact_mcp_output(&raw)
+        tool::tool_output::MediaPart::image(mime, data)
+    }
+}
+
+fn render_tool_result(result: &Value) -> tool::ToolOutput {
+    use tool::tool_output::MediaPart;
+
+    let failed = result
+        .get("isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let structured = result.get("structuredContent").cloned();
+    let mut parts = Vec::new();
+    if let Some(content) = result.get("content").and_then(Value::as_array) {
+        for item in content {
+            match item.get("type").and_then(Value::as_str).unwrap_or("text") {
+                "image" => {
+                    if let (Some(mime), Some(data)) = (
+                        item.get("mimeType").and_then(Value::as_str),
+                        item.get("data").and_then(Value::as_str),
+                    ) {
+                        parts.push(mcp_image_part(mime, data));
+                    }
+                }
+                "resource" => {
+                    let resource = item.get("resource").unwrap_or(item);
+                    parts.push(MediaPart::Resource {
+                        uri: resource
+                            .get("uri")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        mime: resource
+                            .get("mimeType")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        name: resource
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        text: resource
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    });
+                }
+                _ => {
+                    if let Some(text) = item.get("text").and_then(Value::as_str) {
+                        parts.push(MediaPart::text(compact_mcp_output(text)));
+                    }
+                }
+            }
+        }
+    }
+    let has_media = parts
+        .iter()
+        .any(|part| !matches!(part, MediaPart::Text { .. }));
+    if has_media {
+        return tool::ToolOutput::Media {
+            parts,
+            structured,
+            failed,
+        };
+    }
+    let text = parts
+        .into_iter()
+        .filter_map(|part| match part {
+            MediaPart::Text { text } => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some(value) = structured {
+        return tool::ToolOutput::Structured {
+            content: if text.is_empty() {
+                value.to_string()
+            } else {
+                text
+            },
+            value,
+            failed,
+        };
+    }
+    if text.is_empty() {
+        return tool::ToolOutput::text(result.to_string());
+    }
+    if failed {
+        return tool::ToolOutput::Error {
+            message: text,
+            detail: None,
+        };
+    }
+    tool::ToolOutput::text(text)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_are_safe_for_provider_function_schemas() {
-        assert_eq!(sanitize_name("git tools/read-file"), "git_tools_read_file");
-    }
-
-    #[test]
-    fn colliding_public_names_are_disambiguated_deterministically() {
-        // `read-file` and `read.file` both sanitize to the same public name;
-        // the second (and third) must get a distinct, stable suffix.
-        let mut taken = HashSet::new();
-        let first = unique_name("mcp__s__read_file".to_string(), &mut taken);
-        let second = unique_name("mcp__s__read_file".to_string(), &mut taken);
-        let third = unique_name("mcp__s__read_file".to_string(), &mut taken);
-        assert_eq!(first, "mcp__s__read_file");
-        assert_eq!(second, "mcp__s__read_file_2");
-        assert_eq!(third, "mcp__s__read_file_3");
-        // A name that only differs after sanitization keeps its own identity.
-        let other = unique_name("mcp__s__write_file".to_string(), &mut taken);
-        assert_eq!(other, "mcp__s__write_file");
-    }
-
-    #[test]
-    fn text_content_is_rendered_without_protocol_wrappers() {
-        let result = json!({
-            "content": [
-                {"type": "text", "text": "first"},
-                {"type": "text", "text": "second"}
-            ]
-        });
-        assert_eq!(render_tool_result(&result), "first\nsecond");
-    }
-
-    #[test]
-    fn compact_mcp_output_preserves_small_outputs() {
-        let small = "hello world\nline 2";
-        assert_eq!(compact_mcp_output(small), small);
-    }
-
-    #[test]
-    fn compact_mcp_output_compacts_and_spills_large_byte_payloads() {
-        // Output exceeding 16KB
-        let large = "a".repeat(20_000);
-        let compacted = compact_mcp_output(&large);
-        assert!(compacted.contains("[MCP Output truncated:"));
-        assert!(compacted.contains("Exceeded 16KB/200-line safety boundary"));
-        assert!(compacted.contains("[Full output saved to:"));
-    }
-
-    #[test]
-    fn compact_mcp_output_compacts_and_spills_large_line_count() {
-        // Output exceeding 200 lines
-        let lines: Vec<String> = (1..=300).map(|i| format!("line {i}")).collect();
-        let large = lines.join("\n");
-        let compacted = compact_mcp_output(&large);
-        assert!(compacted.contains("[MCP Output truncated: 300 lines"));
-        assert!(compacted.contains("--- Output preview (head) ---"));
-        assert!(compacted.contains("line 1"));
-        assert!(compacted.contains("--- Output preview (tail) ---"));
-        assert!(compacted.contains("line 300"));
-    }
-}
+mod tests;

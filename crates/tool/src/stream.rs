@@ -21,6 +21,51 @@ pub enum ToolStream {
     Stdout(String),
     /// Bytes appended to the running stderr buffer.
     Stderr(String),
+    /// A structured progress tick from a long-running tool (MCP
+    /// `notifications/progress`, a background indexer, …). Ephemeral: it is
+    /// rendered while the call runs and never enters the durable transcript.
+    Progress(ToolProgress),
+}
+
+/// One progress tick for a running tool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolProgress {
+    /// Human-readable status (may be empty when the server only reports counts).
+    pub message: String,
+    /// Completed work units, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<u64>,
+    /// Total work units, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+}
+
+impl ToolProgress {
+    pub fn new(message: impl Into<String>, current: Option<u64>, total: Option<u64>) -> Self {
+        Self {
+            message: message.into(),
+            current,
+            total,
+        }
+    }
+
+    /// One display line. The TUI and headless surfaces share this composition so
+    /// a progress tick reads the same everywhere.
+    pub fn render(&self) -> String {
+        match (self.current, self.total) {
+            (Some(current), Some(total)) if total > 0 => {
+                let percent = (current.saturating_mul(100) / total).min(100);
+                if self.message.is_empty() {
+                    format!("{current}/{total} ({percent}%)")
+                } else {
+                    format!("{} — {current}/{total} ({percent}%)", self.message)
+                }
+            }
+            (Some(current), _) if self.message.is_empty() => format!("{current}"),
+            (_, Some(total)) if self.message.is_empty() => format!("/{total}"),
+            _ => self.message.clone(),
+        }
+    }
 }
 
 /// How a child process's input channels are provisioned for one invocation.

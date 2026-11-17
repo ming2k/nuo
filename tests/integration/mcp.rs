@@ -67,29 +67,42 @@ done
 
 #[tokio::test]
 async fn test_mcp_server_request_handling_and_tool_export() {
+    use async_trait::async_trait;
     use mcp::McpServer;
     use std::sync::Arc;
-    use tool::DynamicTool;
 
-    let server = McpServer::new("nous-export-server", "1.0.0");
-    let calc_tool = DynamicTool::new(
-        "add",
-        "Adds two numbers",
-        json!({
-            "type": "object",
-            "properties": {
-                "a": { "type": "number" },
-                "b": { "type": "number" }
-            }
-        }),
-        |args| async move {
+    struct AddTool;
+
+    #[async_trait]
+    impl tool::Tool for AddTool {
+        fn name(&self) -> &str {
+            "add"
+        }
+        fn description(&self) -> &str {
+            "Adds two numbers"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "properties": {
+                    "a": { "type": "number" },
+                    "b": { "type": "number" }
+                }
+            })
+        }
+        async fn execute(
+            &self,
+            _ctx: &tool::ToolContext,
+            args: serde_json::Value,
+        ) -> Result<tool::ToolOutput, tool::ToolError> {
             let a = args["a"].as_f64().unwrap_or(0.0);
             let b = args["b"].as_f64().unwrap_or(0.0);
-            Ok((a + b).to_string())
-        },
-    );
+            Ok(tool::ToolOutput::text((a + b).to_string()))
+        }
+    }
 
-    server.register_tool(Arc::new(calc_tool)).await;
+    let server = McpServer::new("nous-export-server", "1.0.0");
+    server.register_tool(Arc::new(AddTool)).await;
 
     // 1. Initialize request
     let init_req = JsonRpcRequest::new(1, "initialize", None);

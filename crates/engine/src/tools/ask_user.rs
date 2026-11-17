@@ -16,11 +16,15 @@ impl Tool for AskUserTool {
         BuiltinTool::AskUser.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::AskUser.aliases()
+    }
+
     fn description(&self) -> &str {
         "Ask the user structured multiple-choice questions to resolve ambiguity."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -80,11 +84,15 @@ impl Tool for AskUserTool {
         true
     }
 
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Err(
-            "ask_user is handled by the agent harness and should not be called directly"
-                .to_string(),
-        )
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Err(::tool::ToolError::execution(
+            self.name(),
+            "ask_user is handled by the agent harness and should not be called directly",
+        ))
     }
 }
 

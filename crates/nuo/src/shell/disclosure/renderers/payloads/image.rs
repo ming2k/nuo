@@ -7,8 +7,8 @@
 //! statement that the model received the bytes while this terminal did not
 //! paint them.
 
+use ::tool::ToolOutput;
 use nuotc::{Line, Modifier, Span, Style};
-use tool::ToolOutput;
 use view::model::selection::SelectionState;
 
 use crate::shell::disclosure::renderers::base::RenderCtx;

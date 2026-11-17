@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use acp::{AgentAddress, AgentEnvelope, AgentManifest, Fabric, MessageIntent, SteerAction};
 use engine::{Agent, AgentIdentity};
@@ -117,7 +117,7 @@ impl Tool for HypervisorListSessionsTool {
         "List all active and hosted sessions in the server with their statuses and message counts."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -130,8 +130,12 @@ impl Tool for HypervisorListSessionsTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
         let include_idle = args["include_idle"].as_bool().unwrap_or(true);
 
         let snapshot = self
@@ -156,11 +160,13 @@ impl Tool for HypervisorListSessionsTool {
             })
             .collect();
 
-        Ok(serde_json::to_string_pretty(&json!({
-            "total": sessions.len(),
-            "sessions": sessions
-        }))
-        .unwrap_or_default())
+        Ok(tool::ToolOutput::text(
+            serde_json::to_string_pretty(&json!({
+                "total": sessions.len(),
+                "sessions": sessions
+            }))
+            .unwrap_or_default(),
+        ))
     }
 }
 
@@ -185,7 +191,7 @@ impl Tool for HypervisorInspectSessionTool {
         "Inspect the detailed state and transcript history of a specific hosted session."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -199,9 +205,12 @@ impl Tool for HypervisorInspectSessionTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
 
         let session_id = args["session_id"]
             .as_str()
@@ -230,7 +239,9 @@ impl Tool for HypervisorInspectSessionTool {
             "round_count": rounds,
         });
 
-        Ok(serde_json::to_string_pretty(&details).unwrap_or_default())
+        Ok(tool::ToolOutput::text(
+            serde_json::to_string_pretty(&details).unwrap_or_default(),
+        ))
     }
 }
 
@@ -259,7 +270,7 @@ impl Tool for HypervisorInstructSessionTool {
         "Send top-down instructions or steering guidance from the Hypervisor to a session agent over the ACP fabric."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -276,9 +287,12 @@ impl Tool for HypervisorInstructSessionTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
 
         let session_id = args["session_id"]
             .as_str()
@@ -299,12 +313,14 @@ impl Tool for HypervisorInstructSessionTool {
             .await
             .map_err(|e| format!("Failed to dispatch instruction via ACP fabric: {e}"))?;
 
-        Ok(json!({
-            "status": "delivered",
-            "message_id": msg_id,
-            "target_session": session_id
-        })
-        .to_string())
+        Ok(tool::ToolOutput::text(
+            json!({
+                "status": "delivered",
+                "message_id": msg_id,
+                "target_session": session_id
+            })
+            .to_string(),
+        ))
     }
 }
 
@@ -335,7 +351,7 @@ impl Tool for HypervisorCoordinateDebugTool {
         "Coordinate joint debugging (联调) between multiple sessions by linking their context and dispatching shared objectives."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -356,19 +372,22 @@ impl Tool for HypervisorCoordinateDebugTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
 
         let session_a = args["session_a"].as_str().ok_or("Missing 'session_a'")?;
         let session_b = args["session_b"].as_str().ok_or("Missing 'session_b'")?;
         let objective = args["objective"].as_str().ok_or("Missing 'objective'")?;
 
         if self.registry.get(session_a).await.is_none() {
-            return Err(format!("Session A '{session_a}' not found"));
+            return Err(format!("Session A '{session_a}' not found").into());
         }
         if self.registry.get(session_b).await.is_none() {
-            return Err(format!("Session B '{session_b}' not found"));
+            return Err(format!("Session B '{session_b}' not found").into());
         }
 
         // Notify both sessions over ACP fabric
@@ -386,12 +405,14 @@ impl Tool for HypervisorCoordinateDebugTool {
             let _ = self.fabric.dispatch(envelope).await;
         }
 
-        Ok(json!({
-            "status": "coordinated",
-            "paired": [session_a, session_b],
-            "objective": objective
-        })
-        .to_string())
+        Ok(tool::ToolOutput::text(
+            json!({
+                "status": "coordinated",
+                "paired": [session_a, session_b],
+                "objective": objective
+            })
+            .to_string(),
+        ))
     }
 }
 
@@ -415,7 +436,10 @@ mod tests {
         assert_eq!(hypervisor.address().as_str(), "agent://local/hypervisor");
 
         let list_tool = HypervisorListSessionsTool::new(registry.clone());
-        let res = list_tool.call("{}").await.unwrap();
+        let res = list_tool
+            .execute_text(&::tool::ToolContext::default(), "{}")
+            .await
+            .unwrap();
         assert!(res.contains("total"));
     }
 }

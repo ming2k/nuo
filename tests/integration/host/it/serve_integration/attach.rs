@@ -35,10 +35,10 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(None),
             project: None,
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()
@@ -170,10 +170,10 @@ async fn test_select_then_attach_round_trip() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Attach(None),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -274,10 +274,10 @@ async fn welcome_then_snapshot_then_ready_is_the_order() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()
@@ -357,10 +357,10 @@ async fn attach_receives_restored_todos_after_welcome() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Attach(None),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -429,10 +429,10 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(None),
             project: None,
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()
@@ -484,10 +484,10 @@ async fn unknown_id_is_an_error() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Attach(Some("nope".into())),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -521,10 +521,10 @@ async fn unknown_id_is_refused_with_session_gone_code() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Attach(Some("no-such-session-at-all".into())),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -572,10 +572,10 @@ async fn select_project_scopes_auto_attach() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Attach(None),
         project: Some(project_a),
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -679,10 +679,10 @@ async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Attach(None),
         project: Some(project_a),
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -731,10 +731,10 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
         .unwrap();
     ws1.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()
@@ -771,10 +771,10 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
         .unwrap();
     ws2.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()
@@ -826,10 +826,10 @@ async fn bounded_request_ingress_sheds_load_with_server_busy() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()

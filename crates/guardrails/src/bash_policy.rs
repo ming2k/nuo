@@ -103,8 +103,8 @@ impl BashPolicyMatch {
 
     /// A hard refusal (built-in/user `Deny`). Same wording in the interactive
     /// full check and the chain's non-interactive check.
-    pub fn blocked_output(&self, command: &str) -> tool::ToolOutput {
-        tool::ToolOutput::Error {
+    pub fn blocked_output(&self, command: &str) -> ::tool::ToolOutput {
+        ::tool::ToolOutput::Error {
             message: format!("[bash policy] Blocked dangerous command: {command}"),
             detail: Some(self.detail()),
         }

@@ -2,97 +2,144 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use async_trait::async_trait;
 use serde_json::json;
-use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 use tool::{
-    AlwaysApprove, ApprovalDecision, ApprovalHandler, DynamicTool, McpTool, RiskProfile, Tool,
-    ToolCallRequest, ToolContext, ToolError, ToolRegistry,
+    BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolExposure, ToolOutput,
+    prepare_tool_arguments,
 };
 
-#[tokio::test]
-async fn dynamic_tool_basic_execution() {
-    let tool = DynamicTool::new(
-        "calc",
-        "Adds two numbers",
-        json!({"type": "object"}),
-        |args| async move {
-            let a = args["a"].as_i64().unwrap_or(0);
-            let b = args["b"].as_i64().unwrap_or(0);
-            Ok((a + b).to_string())
-        },
-    );
+struct EchoArgs;
 
-    let ctx = ToolContext::default();
-    let res = tool.execute(&ctx, json!({"a": 2, "b": 3})).await.unwrap();
-    assert_eq!(res.content(), "5");
-    assert!(!res.is_error());
-}
+#[async_trait]
+impl Tool for EchoArgs {
+    fn name(&self) -> &str {
+        "echo_args"
+    }
 
-#[tokio::test]
-async fn cooperative_cancellation_is_honored() {
-    let cancel = CancellationToken::new();
-    cancel.cancel(); // Pre-cancelled
+    fn description(&self) -> &str {
+        "Echo a validated argument object"
+    }
 
-    let tool = DynamicTool::new("dummy", "desc", json!({}), |_| async {
-        Ok("never reached".to_string())
-    });
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "count": {"type": "integer"}
+            },
+            "required": ["text"],
+            "additionalProperties": false
+        })
+    }
 
-    let mut registry = ToolRegistry::new();
-    registry.register(tool);
+    fn output_schema(&self) -> Option<serde_json::Value> {
+        Some(json!({
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "count": {"type": "integer"}
+            },
+            "required": ["text", "count"]
+        }))
+    }
 
-    let ctx = ToolContext::default().with_cancel_token(cancel);
-    let err = registry
-        .execute(&ctx, "dummy", json!({}))
-        .await
-        .unwrap_err();
+    fn risk_profile(&self) -> RiskProfile {
+        RiskProfile::ReadOnly
+    }
 
-    match err {
-        ToolError::Cancelled(name) => assert_eq!(name, "dummy"),
-        other => panic!("expected Cancelled, got {other:?}"),
+    async fn execute(
+        &self,
+        _ctx: &ToolContext,
+        arguments: serde_json::Value,
+    ) -> Result<ToolOutput, ToolError> {
+        let text = arguments["text"].as_str().unwrap_or_default().to_string();
+        let count = arguments["count"].as_u64().unwrap_or(0);
+        Ok(ToolOutput::Structured {
+            content: format!("{text} x{count}"),
+            value: json!({"text": text, "count": count}),
+            failed: false,
+        })
     }
 }
 
 #[tokio::test]
-async fn risk_profile_and_approval_contract() {
-    let tool = DynamicTool::new("wipe_disk", "destroys data", json!({}), |_| async {
-        Ok("done".to_string())
-    })
-    .with_risk(RiskProfile::Destructive)
-    .with_approval_check(|args| args.get("force").and_then(|v| v.as_bool()) == Some(true));
-
-    assert_eq!(tool.risk_profile(), RiskProfile::Destructive);
-
-    let ctx = ToolContext::default();
-    assert!(!tool.requires_approval(&ctx, &json!({"force": false})));
-    assert!(tool.requires_approval(&ctx, &json!({"force": true})));
-
-    let approver = AlwaysApprove;
-    let req = ToolCallRequest {
-        call_id: "c1".into(),
-        tool_name: "wipe_disk".into(),
-        arguments: json!({"force": true}),
-        risk_profile: tool.risk_profile(),
-    };
-    let decision = approver.request_approval(&req, &ctx).await.unwrap();
-    assert_eq!(decision, ApprovalDecision::Approved);
+async fn raw_arguments_are_prepared_before_the_tool_runs() {
+    let tool = EchoArgs;
+    let output = tool
+        .execute_json(
+            &ToolContext::default(),
+            r#"{"text":"hi","count":"2","extra":true}"#,
+        )
+        .await
+        .expect("coercion and closed-object pruning must succeed");
+    assert_eq!(output.to_text(), "hi x2");
+    assert!(matches!(output, ToolOutput::Structured { .. }));
 }
 
 #[tokio::test]
-async fn mcp_adapter_invokes_handler() {
-    let tool = McpTool::new(
-        "git",
-        "status",
-        "Checks status",
-        json!({}),
-        Arc::new(|tool_name, _args| {
-            let name = tool_name.to_string();
-            Box::pin(async move { Ok(format!("{name}: clean")) })
-        }),
-    );
+async fn malformed_and_wrong_typed_arguments_never_reach_the_tool() {
+    let tool = EchoArgs;
+    let malformed = tool
+        .execute_json(&ToolContext::default(), "{not json")
+        .await
+        .expect_err("malformed JSON must be rejected");
+    assert!(malformed.to_string().contains("not valid JSON"));
 
-    assert_eq!(tool.server_name(), "git");
-    let ctx = ToolContext::default();
-    let out = tool.execute(&ctx, json!({})).await.unwrap();
-    assert_eq!(out.content(), "status: clean");
+    let wrong_type = tool
+        .execute_json(&ToolContext::default(), r#"{"text":42}"#)
+        .await
+        .expect_err("a number is not a string");
+    assert!(wrong_type.to_string().contains("string"), "{wrong_type}");
+}
+
+#[test]
+fn argument_preparation_reports_repairs() {
+    let prepared = prepare_tool_arguments(
+        &json!({
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer"},
+                "flags": {"type": "array", "items": {"type": "boolean"}}
+            }
+        }),
+        r#"{"limit":"20","flags":"true"}"#,
+    )
+    .expect("coercible");
+    assert_eq!(prepared.value["limit"], json!(20));
+    assert_eq!(prepared.value["flags"], json!([true]));
+    assert_eq!(prepared.repairs.len(), 3);
+}
+
+#[test]
+fn builtin_aliases_are_unique_and_resolve() {
+    let mut seen = std::collections::HashSet::new();
+    for builtin in BuiltinTool::ALL {
+        assert!(
+            seen.insert(builtin.as_str()),
+            "duplicate canonical name {}",
+            builtin.as_str()
+        );
+        assert_eq!(BuiltinTool::from_name(builtin.as_str()), Some(*builtin));
+        for alias in builtin.aliases() {
+            assert!(
+                seen.insert(*alias),
+                "alias {alias} is claimed more than once"
+            );
+            assert_eq!(
+                BuiltinTool::from_name(alias),
+                Some(*builtin),
+                "alias {alias} must resolve to {}",
+                builtin.as_str()
+            );
+        }
+    }
+}
+
+#[test]
+fn tool_exposure_defaults_to_direct_and_is_explicit() {
+    assert!(ToolExposure::Direct.is_direct());
+    assert!(!ToolExposure::Deferred.is_direct());
+    assert!(ToolExposure::Deferred.needs_discovery());
+    assert!(!ToolExposure::Hidden.is_model_reachable());
 }

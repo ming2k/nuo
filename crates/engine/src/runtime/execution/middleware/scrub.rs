@@ -1,10 +1,10 @@
 //! Secret scrubbing middleware to prevent accidental credential leakage in tool outputs.
 
+use ::tool::ToolOutput;
 use async_trait::async_trait;
 use protocol::execution::{ExecutionEnvironment, ToolMiddleware};
 use regex::Regex;
 use std::sync::LazyLock;
-use tool::ToolOutput;
 
 #[allow(clippy::expect_used)]
 static SECRET_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {

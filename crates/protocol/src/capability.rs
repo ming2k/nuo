@@ -417,11 +417,15 @@ mod tests {
         fn description(&self) -> &str {
             self.desc
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
-            Ok(String::new())
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text(String::new()))
         }
     }
 

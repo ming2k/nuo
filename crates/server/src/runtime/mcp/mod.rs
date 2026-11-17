@@ -19,9 +19,9 @@ pub mod substrate_bridge;
 
 pub use catalog::McpCatalog;
 pub use client::{
-    McpAttestationVerifier, McpLoadResult, McpServer, McpTrustVerifier, connect_server,
-    load_mcp_tools, reconnect_server, refresh_mcp_tools, set_attestation_verifier,
-    set_trust_verifier,
+    McpAttestationVerifier, McpLoadResult, McpNotification, McpNotificationSink, McpServer,
+    McpTrustVerifier, connect_server, load_mcp_tools, reconnect_server, refresh_mcp_tools,
+    refresh_server_tools, set_attestation_verifier, set_trust_verifier,
 };
 pub use runtime::{McpRuntime, ReconfigureReport};
 pub use substrate_bridge::{adapt_mcp_tool, load_substrate_mcp_tools};

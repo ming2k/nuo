@@ -19,7 +19,7 @@
 //! the process ended, and what a copy of the whole log should contain. The
 //! scene renderer attaches type and paint; the keymap decides chords.
 
-use tool::ToolOutput;
+use ::tool::ToolOutput;
 
 use super::layout::SemanticCursor;
 use crate::tools::shell_output::{OutputCoverage, ShellOutput, command_invocation};

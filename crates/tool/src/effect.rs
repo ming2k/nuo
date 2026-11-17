@@ -29,10 +29,9 @@
 //! [`EffectClass::join`] takes the more severe of two classes. A tool whose
 //! declared accesses claim a file write while its risk profile says "arbitrary
 //! execution" joins to `Opaque` — the weaker claim can never launder the
-//! stronger one. This is what makes [`Tool::effect_class_for`] safe to derive:
+//! stronger one. This is what makes the journal's reconciliation safe:
 //! the derivation can only ever *promote* severity, never demote it.
 //!
-//! [`Tool::effect_class_for`]: crate::Tool::effect_class_for
 //!
 //! ## Fail-closed derivation
 //!

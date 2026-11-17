@@ -1071,12 +1071,13 @@ pub(crate) fn thread_from_session_data(data: &ThreadData) -> protocol::Thread {
                     let hash = message.content_blob.clone().unwrap_or_else(|| {
                         crate::blobs::BlobStore::hash(message.content.as_bytes())
                     });
-                    let preview_length = message.content.len().min(512);
                     FactPayload::Observation {
                         call_id,
                         tool_name,
+                        // Cut on a UTF-8 boundary: a raw `[..512]` slice panics
+                        // when a multibyte character straddles the limit.
                         output_ref: BlobRef::new(hash, message.content.len() as u64, "text/plain")
-                            .with_preview(message.content[..preview_length].to_string()),
+                            .with_preview(tool::truncate_utf8(&message.content, 512)),
                         metrics: ObservationMetrics {
                             original_bytes: message.content.len(),
                             original_lines: message.content.lines().count(),

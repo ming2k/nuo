@@ -12,8 +12,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
+use ::tool::ToolOutput;
 use tool::ShellTermination;
-use tool::ToolOutput;
 use view::model::command_log::LogScope;
 use view::model::document::MessageKind;
 

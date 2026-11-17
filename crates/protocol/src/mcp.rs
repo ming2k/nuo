@@ -20,6 +20,15 @@ pub struct McpServerConfig {
     pub read_only: bool,
     pub allow_tools: Vec<String>,
     pub deny_tools: Vec<String>,
+    /// Declare this server's tools as deferred (`tool_search` discoverable)
+    /// instead of putting every schema in every prompt. Defaults to `true`;
+    /// a small server or an embedding without `tool_search` can set false.
+    #[serde(default = "default_defer_tools")]
+    pub defer_tools: bool,
+    /// Expose the server's `resources/list` and `resources/read` endpoints as
+    /// discoverable tools alongside its function tools.
+    #[serde(default = "default_true")]
+    pub enable_resources: bool,
     #[serde(skip)]
     pub sandbox_root: Option<PathBuf>,
 }
@@ -34,9 +43,19 @@ impl Default for McpServerConfig {
             read_only: false,
             allow_tools: Vec::new(),
             deny_tools: Vec::new(),
+            defer_tools: true,
+            enable_resources: true,
             sandbox_root: None,
         }
     }
+}
+
+fn default_defer_tools() -> bool {
+    true
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl McpServerConfig {

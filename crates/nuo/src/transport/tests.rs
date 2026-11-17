@@ -361,6 +361,7 @@ fn remote_server_requires_a_port_and_a_token() {
 fn record(port: u16, token: Option<String>) -> ServerInfo {
     ServerInfo {
         pid: 99999999, // Unused/dead pid
+        version: None,
         process_birth_token: None,
         port,
         token,
@@ -368,7 +369,6 @@ fn record(port: u16, token: Option<String>) -> ServerInfo {
         started_at: 0,
         uds_path: None,
         local_endpoint: None,
-        version: None,
         grace_secs: None,
         protocol: None,
         image_digest: None,
@@ -415,6 +415,7 @@ async fn discover_at_preserves_record_if_pid_is_still_alive() {
     let path = tmp.path().join("serve.json");
     let live_rec = ServerInfo {
         pid: std::process::id(),
+        version: None,
         process_birth_token: None,
         port: dead_port(),
         token: None,
@@ -422,7 +423,6 @@ async fn discover_at_preserves_record_if_pid_is_still_alive() {
         started_at: 0,
         uds_path: None,
         local_endpoint: None,
-        version: None,
         grace_secs: None,
         protocol: None,
         image_digest: None,

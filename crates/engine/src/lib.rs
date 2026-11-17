@@ -171,7 +171,9 @@ pub mod dispatch;
 pub(crate) use dispatch::pipeline as dispatch_pipeline;
 pub use dispatch::tool_call::extract_partial_string_field;
 pub use dispatch::{dynamic, tool_call};
-pub(crate) use dispatch::{dynamic_tools, tool_integration, tool_manager, tool_scheduler};
+pub(crate) use dispatch::{
+    dynamic_tools, tool_activation, tool_integration, tool_manager, tool_scheduler, tool_snapshot,
+};
 
 // -----------------------------------------------------------------------------
 // Subsystem: Runtime substrate — env, durability, hooks, ports

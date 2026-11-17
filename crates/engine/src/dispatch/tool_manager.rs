@@ -34,6 +34,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tool::Tool;
 
 use crate::dynamic_tools::DynamicToolRegistry;
+use crate::tool_activation::ToolActivation;
 
 /// Which bucket a tool lives in. The classification is *runtime*, not a crate
 /// boundary: an MCP tool's transport lives in `mcp`, but once published
@@ -75,6 +76,8 @@ pub(crate) struct ToolManager {
     scoped_disabled: Arc<Mutex<guardrails::ScopedToolDisable>>,
     /// Role-level admitted MCP patterns.
     admit_mcp: Arc<RwLock<Vec<String>>>,
+    /// Session-scoped deferred-tool activation discovered by `tool_search`.
+    activated: Arc<ToolActivation>,
 }
 
 impl ToolManager {
@@ -87,6 +90,7 @@ impl ToolManager {
         disabled: Arc<Mutex<HashSet<String>>>,
         scoped_disabled: Arc<Mutex<guardrails::ScopedToolDisable>>,
         admit_mcp: Arc<RwLock<Vec<String>>>,
+        activated: Arc<ToolActivation>,
     ) -> Self {
         Self {
             resolved,
@@ -94,6 +98,7 @@ impl ToolManager {
             disabled,
             scoped_disabled,
             admit_mcp,
+            activated,
         }
     }
 
@@ -157,15 +162,35 @@ impl ToolManager {
     /// to prevent KV-cache invalidation. Delegated-mode restrictions on `ask_user`
     /// are enforced at execution time via PermissionPolicy Gate 6 (Runtime Gating).
     pub(crate) fn loop_tools(&self, _delegated: bool) -> Vec<Arc<dyn Tool>> {
-        let mut tools: Vec<Arc<dyn Tool>> = self
-            .installed()
-            .into_iter()
-            .filter(|s| s.tool.is_available())
-            .filter(|s| !self.is_name_disabled(s.tool.name()))
-            .map(|s| s.tool)
-            .collect();
-        tools.sort_by(|a, b| a.name().cmp(b.name()));
-        tools
+        let mut direct = Vec::new();
+        let mut deferred = Vec::new();
+        for sourced in self.installed() {
+            if !sourced.tool.is_available() || self.is_name_disabled(sourced.tool.name()) {
+                continue;
+            }
+            match sourced.tool.exposure() {
+                tool::ToolExposure::Direct => direct.push(sourced.tool),
+                tool::ToolExposure::Deferred => {
+                    if self.activated.is_active(sourced.tool.name()) {
+                        deferred.push(sourced.tool);
+                    }
+                }
+                tool::ToolExposure::Hidden => {}
+            }
+        }
+        // Direct tools stay a stable, sorted prefix so the prompt cache is not
+        // invalidated by activation. Newly discovered deferred tools append,
+        // which changes the tail only — the same property `tool_search` relies
+        // on to make discovery cheap.
+        direct.sort_by(|a, b| a.name().cmp(b.name()));
+        deferred.sort_by(|a, b| a.name().cmp(b.name()));
+        direct.extend(deferred);
+        direct
+    }
+
+    /// Whether a tool is disabled by either mask.
+    pub(crate) fn is_enabled(&self, name: &str) -> bool {
+        !self.is_name_disabled(name)
     }
 
     /// Look up a tool by name for dispatch. Returns the tool and its source.
@@ -217,6 +242,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use protocol::DynamicToolSink;
+    use serde_json::Value;
     use tool::ScopeTarget;
     use tool::ToolAccesses;
 
@@ -250,16 +276,20 @@ mod tests {
         fn description(&self) -> &str {
             "stub"
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        async fn call(&self, _args: &str) -> Result<String, String> {
-            Ok("ok".to_string())
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text("ok".to_string()))
         }
-        fn accesses(&self, _args: &str) -> ToolAccesses {
+        fn accesses(&self, _args: &Value) -> ToolAccesses {
             ToolAccesses::none()
         }
-        fn scope_target(&self, _args: &str) -> ScopeTarget {
+        fn scope_target(&self, _args: &Value) -> ScopeTarget {
             ScopeTarget::Unspecified
         }
     }
@@ -276,7 +306,14 @@ mod tests {
         let disabled = Arc::new(Mutex::new(disabled.iter().map(|s| s.to_string()).collect()));
         let scoped = Arc::new(Mutex::new(guardrails::ScopedToolDisable::default()));
         let admit_mcp = Arc::new(RwLock::new(vec!["*".to_string()]));
-        ToolManager::new(resolved, dynamic, disabled, scoped, admit_mcp)
+        ToolManager::new(
+            resolved,
+            dynamic,
+            disabled,
+            scoped,
+            admit_mcp,
+            Arc::new(ToolActivation::new()),
+        )
     }
 
     #[test]
@@ -333,6 +370,48 @@ mod tests {
             vec!["ask_user"],
             "delegated mode preserves schema for prompt cache"
         );
+    }
+
+    #[test]
+    fn deferred_tools_appear_only_after_activation() {
+        struct DeferredTool;
+        #[async_trait]
+        impl Tool for DeferredTool {
+            fn name(&self) -> &str {
+                "deferred"
+            }
+            fn description(&self) -> &str {
+                "deferred"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+            fn exposure(&self) -> tool::ToolExposure {
+                tool::ToolExposure::Deferred
+            }
+            async fn execute(
+                &self,
+                _ctx: &tool::ToolContext,
+                _arguments: serde_json::Value,
+            ) -> Result<tool::ToolOutput, tool::ToolError> {
+                Ok(tool::ToolOutput::text("ok"))
+            }
+        }
+
+        let activation = Arc::new(ToolActivation::new());
+        let m = ToolManager::new(
+            Arc::new(RwLock::new(vec![Arc::new(DeferredTool)])),
+            Arc::new(DynamicToolRegistry::default()),
+            Arc::new(Mutex::new(HashSet::new())),
+            Arc::new(Mutex::new(guardrails::ScopedToolDisable::default())),
+            Arc::new(RwLock::new(vec!["*".to_string()])),
+            Arc::clone(&activation),
+        );
+        assert!(m.loop_tools(false).is_empty());
+        activation.activate(["deferred"]);
+        let live = m.loop_tools(false);
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].name(), "deferred");
     }
 
     #[test]

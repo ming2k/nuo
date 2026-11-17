@@ -47,10 +47,11 @@ pub(crate) fn search_limit(requested: Option<u64>) -> Result<usize, String> {
 }
 
 /// Extract the common search root argument for scheduler access declarations.
-pub(crate) fn search_path_argument(arguments: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(arguments)
-        .ok()
-        .and_then(|value| value.get("path")?.as_str().map(str::to_string))
+pub(crate) fn search_path_argument(arguments: &serde_json::Value) -> String {
+    arguments
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
         .filter(|path| !path.is_empty())
         .unwrap_or_else(|| ".".to_string())
 }
@@ -163,8 +164,11 @@ mod tests {
 
         let env = crate::helpers::SimpleExecutionEnvironment::new(workspace.clone());
         assert!(resolve_search_root(&env, "src").is_ok());
-        assert_eq!(search_path_argument(r#"{"path":"src"}"#), "src");
-        assert_eq!(search_path_argument("{}"), ".");
+        assert_eq!(
+            search_path_argument(&serde_json::json!({"path":"src"})),
+            "src"
+        );
+        assert_eq!(search_path_argument(&serde_json::json!({})), ".");
     }
 
     #[test]

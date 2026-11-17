@@ -21,6 +21,7 @@
 //! 3. **Honest.** The result is a syntactic summary, never semantic ground
 //!    truth: unsupported formats, oversized inputs, unparseable regions, and
 //!    exhausted budgets are reported as such rather than being papered over.
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -287,27 +288,37 @@ impl Tool for CodeQueryTool {
         BuiltinTool::CodeQuery.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::CodeQuery.aliases()
+    }
+
     fn description(&self) -> &str {
         "Query AST declarations across rs, ts, js, py, c, cpp, and go files."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         CodeQueryArgs::parameters_schema()
     }
 
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
+    fn path_bound(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
         ToolAccesses::search_tree(search_path_argument(arguments))
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        self.call_structured(arguments)
-            .await
-            .map(|out| out.to_text())
-    }
-
-    async fn call_structured(&self, arguments: &str) -> Result<ToolOutput, String> {
-        let args: CodeQueryArgs = serde_json::from_str(arguments)
-            .map_err(|error| format!("Invalid arguments for code_query: {error}"))?;
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: Value,
+    ) -> Result<ToolOutput, ::tool::ToolError> {
+        let args: CodeQueryArgs = serde_json::from_value(arguments)
+            .map_err(|error| ::tool::ToolError::invalid_args(self.name(), error.to_string()))?;
         let caps = Caps::from(&args)?;
         let env = self.environment();
         let text = match Mode::parse(&args.mode)? {

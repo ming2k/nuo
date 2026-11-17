@@ -126,10 +126,13 @@ async fn trajectory_guard_blocks_repeating_command_before_execution() {
         cognitive_review: false,
         ..tool::TrajectoryGuardConfig::default()
     });
-    agent.seed_permissions_from_config(&[persistence::config::PermissionRuleConfig {
-        tool: "execute_command".to_string(),
-        scope: "make test".to_string(),
-    }]);
+    agent.seed_permissions_from_config(
+        &[persistence::config::PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "make test".to_string(),
+        }],
+        &[],
+    );
 
     let mut messages = vec![Message::new(Role::User, "go")];
     let outcome = agent
@@ -247,10 +250,13 @@ async fn trajectory_guard_suppressed_when_disabled() {
         crate::AgentIdentity::default(),
     ));
     agent.set_trajectory_guard_config(tool::TrajectoryGuardConfig::disabled());
-    agent.seed_permissions_from_config(&[persistence::config::PermissionRuleConfig {
-        tool: "execute_command".to_string(),
-        scope: "make test".to_string(),
-    }]);
+    agent.seed_permissions_from_config(
+        &[persistence::config::PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "make test".to_string(),
+        }],
+        &[],
+    );
 
     let mut messages = vec![Message::new(Role::User, "go")];
     let _ = agent
@@ -293,10 +299,13 @@ async fn trajectory_guard_cognitive_arbitration_confirms_loop_and_blocks_surgica
         crate::AgentIdentity::default(),
     ));
     agent.set_trajectory_guard_config(tool::TrajectoryGuardConfig::cognitive());
-    agent.seed_permissions_from_config(&[persistence::config::PermissionRuleConfig {
-        tool: "execute_command".to_string(),
-        scope: "cargo test".to_string(),
-    }]);
+    agent.seed_permissions_from_config(
+        &[persistence::config::PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "cargo test".to_string(),
+        }],
+        &[],
+    );
 
     let mut messages = vec![Message::new(Role::User, "run tests")];
     let outcome = agent
@@ -342,10 +351,13 @@ async fn trajectory_guard_cognitive_arbitration_acquits_and_escalates_ladder() {
         crate::AgentIdentity::default(),
     ));
     agent.set_trajectory_guard_config(tool::TrajectoryGuardConfig::cognitive());
-    agent.seed_permissions_from_config(&[persistence::config::PermissionRuleConfig {
-        tool: "execute_command".to_string(),
-        scope: "cargo test".to_string(),
-    }]);
+    agent.seed_permissions_from_config(
+        &[persistence::config::PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "cargo test".to_string(),
+        }],
+        &[],
+    );
 
     let mut messages = vec![Message::new(Role::User, "run tests")];
     let outcome = agent
@@ -392,10 +404,13 @@ async fn trajectory_guard_fail_open_on_provider_error_and_escalates() {
         crate::AgentIdentity::default(),
     ));
     agent.set_trajectory_guard_config(tool::TrajectoryGuardConfig::cognitive());
-    agent.seed_permissions_from_config(&[persistence::config::PermissionRuleConfig {
-        tool: "execute_command".to_string(),
-        scope: "cargo test".to_string(),
-    }]);
+    agent.seed_permissions_from_config(
+        &[persistence::config::PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "cargo test".to_string(),
+        }],
+        &[],
+    );
 
     let mut messages = vec![Message::new(Role::User, "run tests")];
     let outcome = agent
@@ -412,7 +427,7 @@ async fn trajectory_guard_fail_open_on_provider_error_and_escalates() {
 }
 
 #[tokio::test]
-async fn command_policy_confirm_auto_approves_when_unattended() {
+async fn command_policy_confirm_fails_closed_when_unattended() {
     let command = RecordingTool::read("execute_command", "COMMAND-OUT");
     let calls = command.calls_handle();
     let agent = Arc::new(Agent::new(
@@ -430,12 +445,20 @@ async fn command_policy_confirm_auto_approves_when_unattended() {
         .run_streaming_with_events(&mut messages, &CancellationToken::new(), |_| {})
         .await;
 
-    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        0,
+        "an unattended dangerous command must not run"
+    );
     let tool_message = messages
         .iter()
         .find(|m| m.role == Role::Tool)
-        .expect("command tool result should be recorded");
-    assert!(tool_message.content.contains("COMMAND-OUT"));
+        .expect("a refusal observation should be recorded");
+    assert!(
+        tool_message.content.contains("unattended"),
+        "{}",
+        tool_message.content
+    );
     assert!(outcome.unwrap().message.content.contains("done"));
 }
 
@@ -451,10 +474,13 @@ async fn command_policy_user_allow_overrides_builtin_confirm() {
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.seed_permissions_from_config(&[persistence::config::PermissionRuleConfig {
-        tool: "execute_command".to_string(),
-        scope: "git reset --hard".to_string(),
-    }]);
+    agent.seed_permissions_from_config(
+        &[persistence::config::PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "git reset --hard".to_string(),
+        }],
+        &[],
+    );
     let mut config = persistence::config::BashPolicyConfig::default();
     config
         .rules

@@ -55,6 +55,15 @@ pub(crate) struct ToolState {
     /// Shares storage Arcs with the agent's own fields so both see the same
     /// live state. See [`crate::tool_manager`].
     pub(crate) tool_manager: crate::tool_manager::ToolManager,
+    /// Session-scoped names activated by `tool_search`.
+    pub(crate) tool_activation: Arc<crate::tool_activation::ToolActivation>,
+    /// Harness-owned meta-tools installed after construction (today
+    /// `tool_search`). They are not part of the role-scoped capability pool, so
+    /// they must survive every `reresolve_tools` pass.
+    pub(crate) harness_tools: Arc<std::sync::Mutex<Vec<Arc<dyn Tool>>>>,
+    /// The immutable declaration/dispatch snapshot for the current request.
+    pub(crate) current_snapshot:
+        Arc<std::sync::RwLock<Option<Arc<crate::tool_snapshot::ToolSnapshot>>>>,
     /// This agent's **identity-side selection** of the pool (the agent half of
     /// the two-selector model): the capability scope it admits plus any variant
     /// pins it forces. The master agent is

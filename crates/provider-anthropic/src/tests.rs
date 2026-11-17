@@ -168,10 +168,10 @@ impl Tool for DummyTool {
     }
     async fn execute(
         &self,
-        _: &tool::ToolContext,
+        _: &::tool::ToolContext,
         _: Value,
-    ) -> std::result::Result<tool::ToolOutput, tool::ToolError> {
-        Ok(tool::ToolOutput::success("ok"))
+    ) -> std::result::Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::success("ok"))
     }
 }
 
@@ -189,10 +189,10 @@ impl Tool for DummyTool2 {
     }
     async fn execute(
         &self,
-        _: &tool::ToolContext,
+        _: &::tool::ToolContext,
         _: Value,
-    ) -> std::result::Result<tool::ToolOutput, tool::ToolError> {
-        Ok(tool::ToolOutput::success("ok"))
+    ) -> std::result::Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::success("ok"))
     }
 }
 

@@ -191,7 +191,7 @@ impl TranscriptMessage {
                     child.finish_tool_step(
                         id,
                         output.clone(),
-                        tool::ToolOutput::text(output.clone()),
+                        ::tool::ToolOutput::text(output.clone()),
                         *duration_ms,
                     );
                     if let Some(status) = child.tool_step_status() {
@@ -204,7 +204,7 @@ impl TranscriptMessage {
                     msg.finish_tool_step(
                         id,
                         output.clone(),
-                        tool::ToolOutput::text(output.clone()),
+                        ::tool::ToolOutput::text(output.clone()),
                         *duration_ms,
                     );
                     if let Some(status) = msg.tool_step_status() {
@@ -458,7 +458,7 @@ impl TranscriptMessage {
             return None;
         }
         let source: &str = match structured.as_deref() {
-            Some(tool::ToolOutput::Subagent { summary, .. }) => summary,
+            Some(::tool::ToolOutput::Subagent { summary, .. }) => summary,
             _ => output.as_deref()?,
         };
         let conclusion = source

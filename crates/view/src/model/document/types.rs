@@ -168,7 +168,7 @@ pub enum MessageKind {
         arguments: String,
         output: Option<String>,
         /// Typed result (ADR-0001). `None` until the result lands, then a
-        /// [`tool::ToolOutput`] carrying structured data (e.g. a shell
+        /// [`::tool::ToolOutput`] carrying structured data (e.g. a shell
         /// exit code) alongside the legacy `output` text. Consumed by the
         /// renderer for data-level classification — `finish_tool_step` derives
         /// [`ToolStepStatus`] from `ToolOutput::is_error()` instead of
@@ -181,7 +181,7 @@ pub enum MessageKind {
         /// `Option<ToolOutput>` would dominate the `MessageKind` enum size
         /// (clippy::large_enum_variant). The indirection is transparent to
         /// callers — the surrounding accessors deref it as needed.
-        structured: Option<Box<tool::ToolOutput>>,
+        structured: Option<Box<::tool::ToolOutput>>,
         /// Explicit lifecycle. Kept in sync with `output` by the
         /// `finish_tool_step` / `cancel_tool_step` transitions below.
         status: ToolStepStatus,

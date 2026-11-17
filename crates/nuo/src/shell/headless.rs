@@ -188,6 +188,10 @@ pub async fn run_headless(
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
+                            tool::ToolStream::Progress(progress) => {
+                                let _ = writeln!(io::stderr(), "[progress] {}", progress.render());
+                                let _ = io::stderr().flush();
+                            }
                         }
                     } else {
                         let stream_obj = serde_json::json!({
@@ -217,10 +221,10 @@ pub async fn run_headless(
                     } else {
                         let is_error = matches!(
                             structured,
-                            tool::ToolOutput::Error { .. }
-                                | tool::ToolOutput::PermissionDenied { .. }
+                            ::tool::ToolOutput::Error { .. }
+                                | ::tool::ToolOutput::PermissionDenied { .. }
                         ) || match &structured {
-                            tool::ToolOutput::Shell { exit, .. } => {
+                            ::tool::ToolOutput::Shell { exit, .. } => {
                                 exit.is_some_and(|code| code != 0)
                             }
                             _ => false,

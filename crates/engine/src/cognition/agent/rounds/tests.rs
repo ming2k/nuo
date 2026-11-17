@@ -1,7 +1,7 @@
 //! Agent streaming-round tests.
 
 use super::*;
-use tool::ToolOutput;
+use ::tool::ToolOutput;
 
 #[test]
 fn test_shell_output_spilling_and_guidance() {
@@ -35,13 +35,20 @@ fn test_shell_output_spilling_and_guidance() {
     assert!(!content.contains("call:call_test_spill_123"));
 
     // Verify the spool file was actually created on disk
-    let spool_file = tool::spool_root_dir().join(format!(
-        "{}.log",
-        tool::vfs_short_hash(
-            tool::tool_output::shell_inner_text("line 1\nline 2\n", "warning in build\n", Some(0))
-                .as_bytes()
-        )
-    ));
+    let hash = tool::vfs_short_hash(
+        tool::tool_output::shell_inner_text("line 1\nline 2\n", "warning in build\n", Some(0))
+            .as_bytes(),
+    );
+    let spool_file = std::fs::read_dir(tool::spool_root_dir())
+        .expect("spool dir")
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&hash) && name.ends_with(".log"))
+        })
+        .expect("spool file with the content hash");
     assert!(spool_file.exists());
     let disk_content = std::fs::read_to_string(&spool_file).unwrap();
     assert!(disk_content.contains("line 1\nline 2"));
@@ -86,6 +93,8 @@ fn structured_and_bounded_tool_outputs_bypass_8kb_spooling() {
         start_line: 1,
         prefix: None,
         suffix: None,
+
+        version: None,
     };
     let code_text = code_output.to_text();
     assert!(code_text.len() > 20_000);
@@ -143,10 +152,34 @@ fn unbounded_generic_tool_output_over_64kb_spools_safely() {
     assert!(msg.content.contains("- Spool File: \""));
     assert!(msg.content.contains("omitted to protect context budget"));
 
-    let spool_file = tool::spool_root_dir().join(format!(
-        "{}.log",
-        tool::vfs_short_hash(huge_text.as_bytes())
-    ));
+    let hash = tool::vfs_short_hash(huge_text.as_bytes());
+    let spool_file = std::fs::read_dir(tool::spool_root_dir())
+        .expect("spool dir")
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&hash) && name.ends_with(".log"))
+        })
+        .expect("spool file with the content hash");
     assert!(spool_file.exists());
     let _ = std::fs::remove_file(spool_file);
+}
+
+#[test]
+fn oversized_error_output_is_bounded_and_spooled() {
+    let call = ToolCall {
+        id: "call_error_spill".to_string(),
+        name: "mcp__noisy__fail".to_string(),
+        arguments: "{}".to_string(),
+    };
+    let text = "e".repeat(20 * 1024);
+    let result = ToolOutput::Error {
+        message: text.clone(),
+        detail: None,
+    };
+    let message = format_tool_result_message(&call, &result, &text);
+    assert!(message.content.contains("Spool File"));
+    assert!(message.content.len() < 64 * 1024);
 }

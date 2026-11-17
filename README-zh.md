@@ -14,7 +14,7 @@ Nuo 是一个基于 Rust 构建的高性能、模块化 AI 会话守护进程与
 - **会话守护进程 (`nuo`)**：跨项目托管多会话的轻量级后台进程，提供本地 IPC（Unix Domain Sockets）与 WebSocket 双控制面。
 - **认知引擎 (`nuo-engine`)**：运行流式 ReAct 循环、装配模型请求并协调子智能体；独立的 `nuo-guardrails` 策略层负责操作风险管控（`RiskProfile`）、人类交互确认断点与死循环熔断。
 - **多智能体协作协议 (ACP)**：原生实现 Agent Coordination Protocol，支持点对点任务委派（`agent://`）与多订阅者频道广播（`acp://`）。
-- **零开销工具体系**：纯粹的零 I/O 契约设计，支持编译期 JSON Schema 派生（`nuo-tool-derive`），并原生集成 MCP（Model Context Protocol）客户端与服务端。
+- **强类型工具体系**：单一 `execute` 入口，编译期 JSON Schema 派生与运行时校验/纠错，请求级不可变工具快照，类型化结构化/多模态结果，`tool_search` 延迟发现，并原生集成 MCP（Model Context Protocol）工具与资源。
 
 ---
 

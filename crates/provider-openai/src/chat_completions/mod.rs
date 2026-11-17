@@ -619,10 +619,10 @@ mod tests {
         }
         async fn execute(
             &self,
-            _: &tool::ToolContext,
+            _: &::tool::ToolContext,
             _: serde_json::Value,
-        ) -> std::result::Result<tool::ToolOutput, tool::ToolError> {
-            Ok(tool::ToolOutput::success(""))
+        ) -> std::result::Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::success(""))
         }
     }
 

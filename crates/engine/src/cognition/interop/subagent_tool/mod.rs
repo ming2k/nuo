@@ -29,7 +29,7 @@ pub const SPAWN_AGENT_TOOL_NAME: &str = ::tool::BuiltinTool::SpawnAgent.as_str()
 /// schema advertises them.
 ///
 /// This is the single source of truth for both the `role` enum in
-/// [`Tool::parameters`] and the runtime check in `run_subagent_outcome`, so the
+/// [`Tool::parameters_schema`] and the runtime check in `run_subagent_outcome`, so the
 /// advertised contract and the enforced one cannot drift: a role the schema
 /// offers is always resolvable, and a role it does not offer is rejected
 /// instead of being silently treated as the bound default (

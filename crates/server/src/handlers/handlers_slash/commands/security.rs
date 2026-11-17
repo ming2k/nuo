@@ -49,12 +49,16 @@ pub(crate) async fn skills(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&
             let tool = ListSkillsTool {
                 registry: (*skills_registry).clone(),
             };
-            match tool.call("{}").await {
+            match tool
+                .execute_simple(serde_json::json!({}))
+                .await
+                .map(|out| out.to_text())
+            {
                 Ok(output) => {
                     record_command(session, resp_tx, name, args, CommandResult::Text(output)).await;
                 }
                 Err(error) => {
-                    record_error(session, resp_tx, name, args, error).await;
+                    record_error(session, resp_tx, name, args, error.to_string()).await;
                 }
             }
         }

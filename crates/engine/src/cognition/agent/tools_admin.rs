@@ -3,6 +3,90 @@
 use super::*;
 
 impl Agent {
+    /// Install one harness-owned tool into the live resolved view.
+    ///
+    /// Used for meta-tools that need a handle to the agent itself (today
+    /// `tool_search`); role-scoped capability tools still flow through
+    /// [`protocol::ToolSet::resolve_for`]. Replacing a same-named tool keeps
+    /// the install idempotent.
+    pub fn install_tool(&self, tool: Arc<dyn Tool>) {
+        {
+            let mut harness = self
+                .tools
+                .harness_tools
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(existing) = harness
+                .iter_mut()
+                .find(|existing| existing.name() == tool.name())
+            {
+                *existing = Arc::clone(&tool);
+            } else {
+                harness.push(Arc::clone(&tool));
+            }
+        }
+        if let Ok(mut pool) = self.tools.pool.write() {
+            pool.upsert(Arc::clone(&tool));
+        }
+        let mut resolved = self
+            .tools
+            .resolved_tools
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(existing) = resolved
+            .iter_mut()
+            .find(|existing| existing.name() == tool.name())
+        {
+            *existing = tool;
+        } else {
+            resolved.push(tool);
+        }
+    }
+
+    /// Rank and activate deferred tools for one `tool_search` call.
+    pub(crate) fn search_deferred_tools(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Vec<crate::tools::DeferredHit> {
+        let entries: Vec<(String, String, Vec<String>, Vec<String>)> = self
+            .tools
+            .tool_manager
+            .installed()
+            .into_iter()
+            .filter(|sourced| {
+                sourced.tool.is_available()
+                    && sourced.tool.exposure() == tool::ToolExposure::Deferred
+                    && self.tools.tool_manager.is_enabled(sourced.tool.name())
+            })
+            .map(|sourced| {
+                let properties = sourced
+                    .tool
+                    .parameters_schema()
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                    .map(|properties| properties.keys().cloned().collect())
+                    .unwrap_or_default();
+                (
+                    sourced.tool.name().to_string(),
+                    sourced.tool.description().to_string(),
+                    sourced
+                        .tool
+                        .aliases()
+                        .iter()
+                        .map(|alias| alias.to_string())
+                        .collect(),
+                    properties,
+                )
+            })
+            .collect();
+        let hits = crate::tools::rank_deferred(&entries, query, limit);
+        self.tools
+            .tool_activation
+            .activate(hits.iter().map(|hit| hit.name.clone()));
+        hits
+    }
+
     /// Structured view of the cached "always allow" rules, for the session
     /// modal's Permissions pane. Unlike [`Agent::allowed_tools`] (which collapses
     /// each rule to a single formatted string), this keeps the tool/scope pair
@@ -40,9 +124,11 @@ impl Agent {
     /// to `PermissionStore::seed_from_config`.
     pub fn seed_permissions_from_config(
         &self,
-        rules: &[persistence::config::PermissionRuleConfig],
+        allow: &[persistence::config::PermissionRuleConfig],
+        deny: &[persistence::config::PermissionRuleConfig],
     ) {
-        self.context.permissions.seed_from_config(rules);
+        self.context.permissions.seed_from_config(allow);
+        self.context.permissions.seed_denies_from_config(deny);
     }
 
     /// Check an exact runtime permission scope without prompting. Used by
@@ -194,10 +280,39 @@ impl Agent {
     /// in-memory hook-scoped mask). Used at the schema-build choke points so a
     /// disabled tool's definition never reaches the provider.
     pub(crate) fn visible_tools(&self) -> Vec<Arc<dyn Tool>> {
-        // Delegate to the ToolManager's schema authority.
-        // tool schemas remain deterministic and invariant to maximize
-        // KV-cache reuse. Unattended-mode restrictions are enforced at runtime via PermissionPolicy.
-        self.tools.tool_manager.loop_tools(self.unattended())
+        self.refresh_tool_snapshot().tools()
+    }
+
+    /// Build and publish the immutable request snapshot.
+    ///
+    /// The model request and every dispatch in the resulting round read this
+    /// same snapshot: a registry reload mid-request cannot change what an
+    /// already-advertised call resolves to.
+    pub(crate) fn refresh_tool_snapshot(&self) -> Arc<crate::tool_snapshot::ToolSnapshot> {
+        let tools = self.tools.tool_manager.loop_tools(self.unattended());
+        let snapshot = Arc::new(crate::tool_snapshot::ToolSnapshot::build(tools));
+        tracing::debug!(tools = snapshot.len(), "refreshed tool snapshot");
+        *self
+            .tools
+            .current_snapshot
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = Some(Arc::clone(&snapshot));
+        snapshot
+    }
+
+    /// The snapshot for dispatch: the request's snapshot when present, else a
+    /// fresh one (programmatic/test callers that did not assemble a request).
+    pub(crate) fn current_tool_snapshot(&self) -> Arc<crate::tool_snapshot::ToolSnapshot> {
+        if let Some(snapshot) = self
+            .tools
+            .current_snapshot
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+        {
+            return Arc::clone(snapshot);
+        }
+        self.refresh_tool_snapshot()
     }
 
     /// Structured view of every installed tool, for the session modal's Tools

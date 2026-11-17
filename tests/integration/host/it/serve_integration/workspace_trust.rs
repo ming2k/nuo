@@ -96,10 +96,10 @@ async fn attach_trust_workspace_with_posture(
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
             posture,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()
@@ -168,10 +168,10 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Select {
-            version: None,
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            version: None,
             protocol: protocol::PROTOCOL_VERSION,
         })
         .unwrap()

@@ -6,10 +6,12 @@
 pub mod dynamic;
 pub(crate) mod dynamic_tools;
 pub(crate) mod pipeline;
+pub(crate) mod tool_activation;
 pub mod tool_call;
 pub(crate) mod tool_integration;
 pub(crate) mod tool_manager;
 pub(crate) mod tool_scheduler;
+pub(crate) mod tool_snapshot;
 
 pub use dynamic::*;
 pub use tool_call::*;

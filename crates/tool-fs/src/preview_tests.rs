@@ -35,7 +35,7 @@ async fn edit_preview_matches_the_applied_edit() {
         "old_string": "fn b() {}",
         "new_string": "fn b() { todo!() }",
     });
-    let preview = tool.preview(&args).expect("an edit has a preview");
+    let preview = tool.preview(&args).await.expect("an edit has a preview");
     assert_eq!(preview.op, PatchOp::Edit);
     assert!(!preview.is_creation());
     assert_eq!(preview.path, "a.rs");
@@ -68,7 +68,7 @@ async fn write_preview_of_a_new_file_is_a_creation() {
     let tool = WriteFileTool::new(context(&dir));
 
     let args = json!({ "path": "new.rs", "content": "hello\n" });
-    let preview = tool.preview(&args).expect("a write has a preview");
+    let preview = tool.preview(&args).await.expect("a write has a preview");
     assert!(preview.is_creation());
     assert_eq!(preview.old, "");
     assert_eq!(preview.new, "hello\n");
@@ -92,6 +92,7 @@ async fn write_preview_of_an_overwrite_shows_the_displaced_content() {
 
     let preview = tool
         .preview(&json!({ "path": "a.rs", "content": "replacement\n" }))
+        .await
         .unwrap();
     assert_eq!(preview.op, PatchOp::Edit);
     assert_eq!(preview.old, "valuable work\n");
@@ -105,8 +106,8 @@ async fn write_preview_of_an_overwrite_shows_the_displaced_content() {
 /// it), an edit whose anchor matches more than once (also rejected), and a path that
 /// does not exist for an edit. In each case a preview would describe a call that will
 /// not happen — making the preview the lie.
-#[test]
-fn edit_preview_is_absent_when_the_edit_would_be_rejected() {
+#[tokio::test]
+async fn edit_preview_is_absent_when_the_edit_would_be_rejected() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("a.rs"), "alpha\nbeta\n").unwrap();
     let tool = EditTextTool::new(context(&dir));
@@ -117,6 +118,7 @@ fn edit_preview_is_absent_when_the_edit_would_be_rejected() {
             "old_string": "not present",
             "new_string": "x",
         }))
+        .await
         .is_none(),
         "a preview of an edit that cannot match must be absent"
     );
@@ -127,6 +129,7 @@ fn edit_preview_is_absent_when_the_edit_would_be_rejected() {
             "old_string": "a",
             "new_string": "x",
         }))
+        .await
         .is_none(),
         "a preview of an ambiguous edit must be absent"
     );
@@ -137,6 +140,7 @@ fn edit_preview_is_absent_when_the_edit_would_be_rejected() {
             "old_string": "a",
             "new_string": "x",
         }))
+        .await
         .is_none(),
         "a preview of an edit to a missing file must be absent"
     );
@@ -144,27 +148,28 @@ fn edit_preview_is_absent_when_the_edit_would_be_rejected() {
 
 /// A malformed argument blob gets no preview: the schema gate owns that rejection,
 /// and a preview here would be a plausible-looking answer to a call that never runs.
-#[test]
-fn malformed_arguments_get_no_preview() {
+#[tokio::test]
+async fn malformed_arguments_get_no_preview() {
     let dir = tempdir().unwrap();
     let write = WriteFileTool::new(context(&dir));
-    assert!(write.preview(&json!({ "path": "a.rs" })).is_none());
-    assert!(write.preview(&json!({})).is_none());
+    assert!(write.preview(&json!({ "path": "a.rs" })).await.is_none());
+    assert!(write.preview(&json!({})).await.is_none());
 
     let edit = EditTextTool::new(context(&dir));
-    assert!(edit.preview(&json!({ "path": "a.rs" })).is_none());
+    assert!(edit.preview(&json!({ "path": "a.rs" })).await.is_none());
 }
 
 /// An idempotent write previews as "no change", which the approval sheet reports
 /// instead of drawing an empty diff.
-#[test]
-fn rewriting_identical_content_previews_as_unchanged() {
+#[tokio::test]
+async fn rewriting_identical_content_previews_as_unchanged() {
     let dir = tempdir().unwrap();
     std::fs::write(dir.path().join("a.rs"), "same\n").unwrap();
     let tool = WriteFileTool::new(context(&dir));
 
     let preview = tool
         .preview(&json!({ "path": "a.rs", "content": "same\n" }))
+        .await
         .unwrap();
     assert!(preview.is_unchanged());
     assert_eq!(preview.line_counts(), (0, 0));
@@ -172,24 +177,27 @@ fn rewriting_identical_content_previews_as_unchanged() {
 
 /// Tools whose effect cannot be computed without causing it must not pretend
 /// otherwise. The default is `None`, and these tools do not override it.
-#[test]
-fn unpredictable_tools_have_no_preview() {
+#[tokio::test]
+async fn unpredictable_tools_have_no_preview() {
     let dir = tempdir().unwrap();
     let ctx = context(&dir);
     // A reader, a searcher, and a lister are not mutating tools at all.
     assert!(
         ReadTool::new(ctx.clone())
             .preview(&json!({ "path": "a.rs" }))
+            .await
             .is_none()
     );
     assert!(
         SearchTextTool::new(ctx.clone())
             .preview(&json!({ "path": ".", "query": "x" }))
+            .await
             .is_none()
     );
     assert!(
         FindFilesTool::new(ctx)
             .preview(&json!({ "pattern": "*.rs" }))
+            .await
             .is_none()
     );
 }

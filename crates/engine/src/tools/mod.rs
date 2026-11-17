@@ -25,3 +25,7 @@ pub use tool_exec::*;
 pub use tool_fs::*;
 #[cfg(test)]
 pub use tool_web::*;
+
+mod tool_search;
+pub use tool_search::ToolSearchTool;
+pub(crate) use tool_search::{DeferredHit, rank_deferred};

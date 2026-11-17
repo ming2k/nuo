@@ -101,7 +101,7 @@ pub(crate) fn draw_tool_result(
     name: &str,
     arguments: &str,
     output: &str,
-    structured: Option<&tool::ToolOutput>,
+    structured: Option<&::tool::ToolOutput>,
     diff_cache: &mut DiffCache,
     selection: &SelectionState,
     indent: usize,
@@ -115,7 +115,7 @@ pub(crate) fn draw_tool_result(
     // that never reached disk and hide the actionable failure message.
     if matches!(
         structured,
-        Some(tool::ToolOutput::Error { .. } | tool::ToolOutput::PermissionDenied { .. })
+        Some(::tool::ToolOutput::Error { .. } | ::tool::ToolOutput::PermissionDenied { .. })
     ) {
         draw_tool_error(ctx, mi, block_idx, output, selection, indent, inner_w);
         return;
@@ -123,8 +123,8 @@ pub(crate) fn draw_tool_result(
 
     let kind = match view::tools::presenter_for(name).result_kind() {
         ResultKind::Auto => match structured {
-            Some(tool::ToolOutput::Listing { .. }) => ResultKind::Listing,
-            Some(tool::ToolOutput::Image { .. }) => ResultKind::Image,
+            Some(::tool::ToolOutput::Listing { .. }) => ResultKind::Listing,
+            Some(::tool::ToolOutput::Image { .. }) => ResultKind::Image,
             _ => ResultKind::Code,
         },
         kind => kind,
@@ -156,13 +156,13 @@ pub(crate) fn draw_tool_result(
             // flattened `output` string with `start_line = 0` (slice-relative
             // 1-based numbering).
             let (raw_content, raw_start_line, explicit_lang) = match structured {
-                Some(tool::ToolOutput::Code {
+                Some(::tool::ToolOutput::Code {
                     text,
                     start_line,
                     lang,
                     ..
                 }) => (text.as_str(), *start_line, lang.as_deref()),
-                Some(tool::ToolOutput::Patch {
+                Some(::tool::ToolOutput::Patch {
                     new, start_line, ..
                 }) => (new.as_str(), *start_line, None),
                 _ => (output, 0, None),
@@ -213,7 +213,7 @@ pub(crate) fn draw_tool_result(
             // completed steps. Both paths are cached by stable message id and
             // exact source, so animation frames never repeat Myers/word diffing.
             let path_buf: Option<String> = match structured {
-                Some(tool::ToolOutput::Patch { .. }) => None,
+                Some(::tool::ToolOutput::Patch { .. }) => None,
                 _ => {
                     let map = if let Ok(serde_json::Value::Object(obj)) =
                         serde_json::from_str::<serde_json::Value>(arguments)
@@ -231,7 +231,7 @@ pub(crate) fn draw_tool_result(
                 }
             };
             let path_ref = match structured {
-                Some(tool::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
+                Some(::tool::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
                 _ => path_buf.as_deref(),
             };
             let lang = path_ref
@@ -239,7 +239,7 @@ pub(crate) fn draw_tool_result(
                 .unwrap_or(ui_primitives::syntax::Language::Plain);
 
             let hunks = match structured {
-                Some(tool::ToolOutput::Patch {
+                Some(::tool::ToolOutput::Patch {
                     old,
                     new,
                     start_line,
@@ -270,7 +270,7 @@ pub(crate) fn draw_tool_result(
                     }
                 }
             };
-            if let Some(tool::ToolOutput::Patch { warnings, .. }) = structured {
+            if let Some(::tool::ToolOutput::Patch { warnings, .. }) = structured {
                 for warning in warnings {
                     let text = format!("Warning: {warning}");
                     let bg = ctx.theme.code_surface();

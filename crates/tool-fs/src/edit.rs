@@ -30,6 +30,8 @@ pub struct EditTextArgs {
     pub new_string: String,
     #[tool(desc = "Replace all occurrences instead of requiring a unique match (default false)")]
     pub replace_all: Option<bool>,
+    #[tool(desc = "Version returned by read; refuses the edit if the file changed since")]
+    pub expected_version: Option<String>,
 }
 
 /// One accepted edit: the new file content, where it starts, and how the match
@@ -299,6 +301,10 @@ impl Tool for EditTextTool {
         BuiltinTool::EditText.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::EditText.aliases()
+    }
+
     fn description(&self) -> &str {
         "Replace an exact text block in an existing file. \
          Use write_file to create new files or overwrite whole files."
@@ -316,14 +322,22 @@ impl Tool for EditTextTool {
         vec![ToolScope::Workspace]
     }
 
-    fn scope_target(&self, arguments: &str) -> ScopeTarget {
+    fn path_bound(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn scope_target(&self, arguments: &Value) -> ScopeTarget {
         match path_argument(arguments) {
             Some(path) => ScopeTarget::Path(PathBuf::from(path)),
             None => ScopeTarget::Unspecified,
         }
     }
 
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
         match path_argument(arguments) {
             // Read-modify-write: `edit_text` both reads and rewrites the file,
             // so it conflicts with any other access to the same path.
@@ -338,39 +352,72 @@ impl Tool for EditTextTool {
     /// the user needs to approve, and that is the whole file region that
     /// changes, not the needle the model happened to write. `new` is the full
     /// post-edit content for the same reason.
-    fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
-        let args: EditTextArgs = serde_json::from_value(arguments.clone()).ok()?;
-        let path = self.ctx.resolve_path(&args.path);
-        let content = fs::read_to_string(&path).ok()?;
-        let planned = plan_edit(
-            &content,
-            &args.old_string,
-            &args.new_string,
-            args.replace_all.unwrap_or(false),
-            &args.path,
-        )
-        .ok()?;
-        let warnings = planned.warnings();
-        Some(PreviewResult {
-            path: args.path,
-            op: PatchOp::Edit,
-            old: content,
-            new: planned.content,
-            start_line: 1,
-            warnings,
+    async fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
+        let ctx = Arc::clone(&self.ctx);
+        let arguments = arguments.clone();
+        let tool_name = self.name().to_string();
+        tokio::task::spawn_blocking(move || {
+            let args: EditTextArgs = serde_json::from_value(arguments).ok()?;
+            let path = ctx.resolve_path(&args.path);
+            super::verify_expected_version(&path, args.expected_version.as_deref(), &tool_name)
+                .ok()?;
+            // Preview is a UI convenience, not an unbounded blocking read.
+            // Refuse to read an oversized file; the real edit still runs and
+            // reports its own bounded result.
+            if !super::preview_input_allowed(&path) {
+                return None;
+            }
+            let content = fs::read_to_string(&path).ok()?;
+            let planned = plan_edit(
+                &content,
+                &args.old_string,
+                &args.new_string,
+                args.replace_all.unwrap_or(false),
+                &args.path,
+            )
+            .ok()?;
+            let warnings = planned.warnings();
+            let new_content = planned.content;
+            let mut preview =
+                PreviewResult::bounded(args.path, PatchOp::Edit, content, new_content, warnings);
+            if preview.truncated {
+                preview.warnings.push(
+                    "The displayed diff is a bounded window around the edit; the file itself was edited in full."
+                        .to_string(),
+                );
+            }
+            Some(preview)
         })
+        .await
+        .ok()
+        .flatten()
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let ctx = Arc::clone(&self.ctx);
+        tokio::task::spawn_blocking(move || EditTextTool::execute_blocking(&ctx, arguments))
+            .await
+            .map_err(|error| {
+                ToolError::execution("edit_text", format!("edit worker failed: {error}"))
+            })?
+    }
+}
+
+impl EditTextTool {
+    fn execute_blocking(
+        ctx: &SystemToolContext,
+        arguments: Value,
+    ) -> Result<ToolOutput, ToolError> {
         let args: EditTextArgs = serde_json::from_value(arguments).map_err(|err| {
-            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+            ToolError::execution("edit_text", format!("invalid arguments: {err}"))
         })?;
 
         let raw_path = &args.path;
-        let path = self.ctx.resolve_path(raw_path);
+        let path = ctx.resolve_path(raw_path);
+        super::verify_expected_version(&path, args.expected_version.as_deref(), "edit_text")?;
         let content = fs::read_to_string(&path).map_err(|err| {
             ToolError::execution(
-                self.name(),
+                "edit_text",
                 format!("failed to read file `{raw_path}`: {err}"),
             )
         })?;
@@ -382,11 +429,11 @@ impl Tool for EditTextTool {
             args.replace_all.unwrap_or(false),
             raw_path,
         )
-        .map_err(|error| ToolError::execution(self.name(), error))?;
+        .map_err(|error| ToolError::execution("edit_text", error))?;
 
         atomic_write(&path, planned.content.as_bytes()).map_err(|err| {
             ToolError::execution(
-                self.name(),
+                "edit_text",
                 format!("failed to write edited file `{raw_path}`: {err}"),
             )
         })?;
@@ -502,6 +549,17 @@ fn truncate_for_diagnostic(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{plan_edit, split_lines};
+    use std::io::Write as _;
+
+    #[test]
+    fn preview_refuses_files_above_the_input_cap() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        let chunk = vec![b'x'; 1024 * 1024];
+        for _ in 0..9 {
+            file.write_all(&chunk).unwrap();
+        }
+        assert!(!crate::preview_input_allowed(file.path()));
+    }
 
     fn file() -> &'static str {
         "alpha\nbeta\ngamma\n"

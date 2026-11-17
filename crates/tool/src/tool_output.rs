@@ -1,18 +1,11 @@
 //! Structured tool output (ADR-0001).
 //!
-//! Tools historically return `Result<String, String>`, forcing every consumer
-//! (the transcript model, the TUI) to recover structure by string-sniffing
-//! (`starts_with("Error")`, `"Exit N"`, `"STDERR:"`, …). `ToolOutput` replaces
-//! that with a typed result. Migration is incremental via the Strangler
-//! pattern: `Tool::call_structured` defaults to delegating to the legacy
-//! `Tool::call` and wrapping the text as [`ToolOutput::Text`], so unmigrated
-//! tools keep working unchanged while migrated tools override
-//! `call_structured` to return richer variants.
-//!
-//! This module currently declares only the variants the default bridge needs
-//! (`Text`, `Error`). Richer variants (`Shell`, `Patch`, `Listing`, `Matches`,
-//! …) are added in the step that first migrates a tool to use them, so the
-//! type grows with real callers rather than speculatively.
+//! Tools return one typed result; consumers never string-sniff
+//! (`starts_with("Error")`, `"Exit N"`, `"STDERR:"`, …) to recover structure.
+//! [`Tool::execute`](crate::Tool::execute) is the only entry point, and every
+//! tool returns a [`ToolOutput`] variant that carries the semantics its
+//! consumers need: shell exit and interleaved lines, a code page with a line
+//! base, a patch, a listing, a subagent transcript, or structured MCP output.
 use serde::{Deserialize, Serialize};
 
 /// Typed result of a tool invocation.
@@ -24,9 +17,8 @@ use serde::{Deserialize, Serialize};
 /// pattern-matching on the variant in tests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ToolOutput {
-    /// Plain text or markdown prose. The back-compat variant produced by the
-    /// default [`Tool::call_structured`](crate::Tool::call_structured) for any
-    /// tool still returning a raw string.
+    /// Plain text or markdown prose. The projection used by tools whose
+    /// result genuinely is prose; structured tools return a richer variant.
     Text(String),
     /// A structured error. Distinct from [`ToolOutput::Text`] so consumers can
     /// tell a failed call apart from a successful textual result that merely
@@ -106,6 +98,12 @@ pub enum ToolOutput {
         start_line: usize,
         prefix: Option<String>,
         suffix: Option<String>,
+        /// Opaque content version of the source file at read time. A later
+        /// `edit_text` / `write_file` can pass it back as `expected_version` to
+        /// refuse a write based on stale bytes. `None` for virtual or
+        /// version-less sources.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
     },
     /// A directory listing, as display-ready entry strings plus the page
     /// coordinates that produced them.
@@ -192,6 +190,30 @@ pub enum ToolOutput {
         #[serde(default)]
         truncated: bool,
     },
+    /// A structured, machine-readable result plus the text the model sees.
+    ///
+    /// This is the MCP `structuredContent` path and the contract for any tool
+    /// that declares [`Tool::output_schema`](crate::Tool::output_schema): the
+    /// dispatcher validates `value` against that schema, while `content` is the
+    /// human/model-facing projection. Keeping both means a scripted consumer
+    /// gets JSON and the transcript still gets readable prose.
+    Structured {
+        content: String,
+        value: serde_json::Value,
+        #[serde(default)]
+        failed: bool,
+    },
+    /// An ordered multi-part media result: text, images, and MCP resources in
+    /// the order the producer returned them. Unlike [`ToolOutput::Image`],
+    /// which carries exactly one image, this preserves the full MCP content
+    /// array instead of flattening it to text.
+    Media {
+        parts: Vec<MediaPart>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        structured: Option<serde_json::Value>,
+        #[serde(default)]
+        failed: bool,
+    },
     /// A structured web article/page read (produced by `read_url`).
     WebArticle {
         url: String,
@@ -204,6 +226,41 @@ pub enum ToolOutput {
         #[serde(default)]
         truncated: bool,
     },
+}
+
+/// One ordered part of a [`ToolOutput::Media`] result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MediaPart {
+    Text {
+        text: String,
+    },
+    Image {
+        mime: String,
+        data: String,
+    },
+    Resource {
+        uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
+}
+
+impl MediaPart {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text { text: text.into() }
+    }
+
+    pub fn image(mime: impl Into<String>, data: impl Into<String>) -> Self {
+        Self::Image {
+            mime: mime.into(),
+            data: data.into(),
+        }
+    }
 }
 
 /// Single search hit within [`ToolOutput::WebSearch`].
@@ -541,6 +598,24 @@ impl ToolOutput {
         ToolOutput::Text(content.into())
     }
 
+    /// Construct a structured result with a model-facing projection.
+    pub fn structured(content: impl Into<String>, value: serde_json::Value) -> Self {
+        ToolOutput::Structured {
+            content: content.into(),
+            value,
+            failed: false,
+        }
+    }
+
+    /// Construct a multi-part media result.
+    pub fn media(parts: Vec<MediaPart>) -> Self {
+        ToolOutput::Media {
+            parts,
+            structured: None,
+            failed: false,
+        }
+    }
+
     /// Construct an error result. Compatibility constructor for the former flat
     /// `ToolOutput` (ADR-0008 §7 unification).
     pub fn error(message: impl Into<String>) -> Self {
@@ -660,6 +735,8 @@ impl ToolOutput {
             ToolOutput::Image { mime, .. } => {
                 format!("[image: {}]", mime)
             }
+            ToolOutput::Structured { content, .. } => content.clone(),
+            ToolOutput::Media { parts, .. } => media_to_text(parts),
             ToolOutput::WebSearch {
                 query,
                 provider,
@@ -677,6 +754,15 @@ impl ToolOutput {
         }
     }
 
+    /// The machine-readable payload, when this variant carries one.
+    pub fn structured_value(&self) -> Option<&serde_json::Value> {
+        match self {
+            ToolOutput::Structured { value, .. } => Some(value),
+            ToolOutput::Media { structured, .. } => structured.as_ref(),
+            _ => None,
+        }
+    }
+
     /// Whether this output represents a failure. Replaces the TUI's
     /// `output.starts_with("Error")` heuristic with a data-level flag once
     /// tools migrate to emit [`ToolOutput::Error`] / a non-zero [`ToolOutput::Shell`]
@@ -687,6 +773,7 @@ impl ToolOutput {
             ToolOutput::PermissionDenied { .. } => true,
             ToolOutput::Shell { exit, .. } => !matches!(*exit, Some(0)),
             ToolOutput::Subagent { failed, .. } => *failed,
+            ToolOutput::Structured { failed, .. } | ToolOutput::Media { failed, .. } => *failed,
             ToolOutput::Text(_)
             | ToolOutput::Code { .. }
             | ToolOutput::Listing { .. }
@@ -911,6 +998,28 @@ pub fn truncate_utf8(text: &str, max_bytes: usize) -> &str {
         end -= 1;
     }
     &text[..end]
+}
+
+fn media_to_text(parts: &[MediaPart]) -> String {
+    let mut out = String::new();
+    for part in parts {
+        let piece = match part {
+            MediaPart::Text { text } => text.clone(),
+            MediaPart::Image { mime, .. } => format!("[image: {mime}]"),
+            MediaPart::Resource {
+                uri, mime, text, ..
+            } => match (text, mime) {
+                (Some(text), _) => format!("[resource: {uri}]\n{text}"),
+                (None, Some(mime)) => format!("[resource: {uri} ({mime})]"),
+                (None, None) => format!("[resource: {uri}]"),
+            },
+        };
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&piece);
+    }
+    out
 }
 
 fn web_search_to_text(

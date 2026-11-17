@@ -1449,7 +1449,7 @@ fn apply_tool_result(
     id: String,
     name: String,
     output: String,
-    structured: tool::ToolOutput,
+    structured: ::tool::ToolOutput,
     duration_ms: u64,
     fallback: Option<TranscriptMessage>,
     apply: &mut TranscriptApply,

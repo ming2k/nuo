@@ -15,16 +15,20 @@
 //! Every mutation publishes a complete snapshot for each server and updates a
 //! synchronously-readable status table, so the session-context snapshot can
 //! always reflect the current state.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use protocol::DynamicToolSink;
 use protocol::mcp::{McpConnectionStatus, McpServerConfig};
 use tool::Tool;
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 
-use super::{McpServer, connect_server, reconnect_server};
+use super::{
+    McpNotification, McpNotificationSink, McpServer, connect_server, reconnect_server,
+    refresh_server_tools,
+};
 
 /// One configured server's live state. `server` is `None` while disabled or
 /// when the last connect failed; `tools` is the server's current adapters
@@ -68,6 +72,13 @@ pub struct McpRuntime {
     statuses: RwLock<Vec<(String, McpConnectionStatus)>>,
     /// Connector-neutral publication port implemented by the consuming agent.
     sink: Arc<dyn DynamicToolSink>,
+    /// Server names whose catalog changed. The worker coalesces bursts and
+    /// reconnects only the affected server.
+    change_tx: mpsc::UnboundedSender<String>,
+    /// Taken by [`Self::spawn_list_change_worker`] exactly once. Keeping it in
+    /// the runtime until then means a notification arriving before the worker
+    /// starts is buffered rather than dropped.
+    change_rx: std::sync::Mutex<Option<mpsc::UnboundedReceiver<String>>>,
 }
 
 impl McpRuntime {
@@ -102,14 +113,22 @@ impl McpRuntime {
         });
         let entries: Vec<McpEntry> = futures::future::join_all(connect_futures).await;
 
+        let (change_tx, change_rx) = mpsc::unbounded_channel();
         let runtime = Self {
             configs: RwLock::new(configs),
             entries: Mutex::new(entries),
             statuses: RwLock::new(Vec::new()),
             sink,
+            change_tx,
+            change_rx: std::sync::Mutex::new(Some(change_rx)),
         };
         {
             let entries = runtime.entries.lock().await;
+            for entry in entries.iter() {
+                if let Some(server) = &entry.server {
+                    runtime.attach_notifications(&entry.name, server).await;
+                }
+            }
             runtime.publish(&entries);
         }
         runtime
@@ -150,11 +169,14 @@ impl McpRuntime {
             .map(|e| (e.name.clone(), e.status.clone()))
             .collect();
 
+        let (change_tx, change_rx) = mpsc::unbounded_channel();
         let runtime = Self {
             configs: RwLock::new(configs),
             entries: Mutex::new(entries),
             statuses: RwLock::new(statuses),
             sink,
+            change_tx,
+            change_rx: std::sync::Mutex::new(Some(change_rx)),
         };
         for name in runtime
             .configs
@@ -206,6 +228,9 @@ impl McpRuntime {
             entry.tools.clear();
             entry.status = McpConnectionStatus::Disabled;
         }
+        if let Some(server) = &entry.server {
+            self.attach_notifications(name, server).await;
+        }
         self.publish(&entries);
         Ok(())
     }
@@ -239,6 +264,50 @@ impl McpRuntime {
             }
             // Failed earlier (no live handle): try a fresh connect.
             None => *entry = connect_entry(name.to_string(), &config).await,
+        }
+        if let Some(server) = &entry.server {
+            self.attach_notifications(name, server).await;
+        }
+        self.publish(&entries);
+        Ok(())
+    }
+
+    /// Re-discover one server's tools over its existing connection, falling
+    /// back to a reset+reconnect only if the live request fails. This is what a
+    /// `tools/list_changed` or `resources/list_changed` notification drives.
+    pub async fn refresh_catalog(&self, name: &str) -> Result<(), String> {
+        let Some(config) = self
+            .configs
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+            .cloned()
+        else {
+            return Err(format!("MCP server '{name}' is not configured."));
+        };
+        let mut entries = self.entries.lock().await;
+        let Some(entry) = entries.iter_mut().find(|e| e.name == name) else {
+            return Err(format!("MCP server '{name}' is not configured."));
+        };
+        if matches!(entry.status, McpConnectionStatus::Disabled) {
+            return Ok(());
+        }
+        match &entry.server {
+            Some(server) => {
+                let (mut tools, mut status) = refresh_server_tools(server).await;
+                if matches!(status, McpConnectionStatus::Failed(_)) {
+                    // The existing connection is unusable; recover once with a
+                    // fresh one rather than leaving the server permanently
+                    // degraded until the periodic refresh.
+                    (tools, status) = reconnect_server(server).await;
+                }
+                entry.tools = tools;
+                entry.status = status;
+            }
+            None => *entry = connect_entry(name.to_string(), &config).await,
+        }
+        if let Some(server) = &entry.server {
+            self.attach_notifications(name, server).await;
         }
         self.publish(&entries);
         Ok(())
@@ -347,6 +416,12 @@ impl McpRuntime {
             });
         let connected: Vec<McpEntry> = futures::future::join_all(connect_futures).await;
 
+        for entry in &connected {
+            if let Some(server) = &entry.server {
+                self.attach_notifications(&entry.name, server).await;
+            }
+        }
+
         // Extract the per-server success report before `connected` is consumed
         // by the splice below.
         let report_connected: Vec<(String, bool)> = connected
@@ -447,6 +522,13 @@ impl McpRuntime {
         });
         let results: Vec<(usize, Option<McpEntry>)> =
             futures::future::join_all(refresh_futures).await;
+        for (_, entry) in &results {
+            if let Some(entry) = entry
+                && let Some(server) = &entry.server
+            {
+                self.attach_notifications(&entry.name, server).await;
+            }
+        }
 
         // Write the refreshed entries back and republish.
         let mut entries = self.entries.lock().await;
@@ -465,6 +547,94 @@ impl McpRuntime {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .is_empty()
+    }
+
+    /// Attach the runtime's notification policy to one server. Logging
+    /// notifications go to `tracing` (never the model transcript); a
+    /// list_changed notification names the server on the coalescing channel.
+    async fn attach_notifications(&self, name: &str, server: &Arc<McpServer>) {
+        let sender = self.change_tx.clone();
+        let server_name = name.to_string();
+        let sink: McpNotificationSink = Arc::new(move |notification| match notification {
+            McpNotification::Logging {
+                level,
+                logger,
+                data,
+            } => {
+                let logger = logger.as_deref().unwrap_or("mcp");
+                match level.to_ascii_lowercase().as_str() {
+                    "debug" => {
+                        tracing::debug!(server = %server_name, logger, %data, "MCP server log")
+                    }
+                    "warning" | "warn" => {
+                        tracing::warn!(server = %server_name, logger, %data, "MCP server log")
+                    }
+                    "error" | "critical" | "alert" | "emergency" => {
+                        tracing::error!(server = %server_name, logger, %data, "MCP server log")
+                    }
+                    _ => {
+                        tracing::info!(server = %server_name, logger, %data, "MCP server log")
+                    }
+                }
+            }
+            McpNotification::ToolsListChanged
+            | McpNotification::ResourcesListChanged
+            | McpNotification::PromptsListChanged => {
+                let _ = sender.send(server_name.clone());
+            }
+            McpNotification::ResourceUpdated { uri } => {
+                tracing::debug!(server = %server_name, %uri, "MCP resource updated");
+            }
+            McpNotification::RootsListChanged => {
+                tracing::debug!(server = %server_name, "MCP roots changed");
+            }
+            McpNotification::Other { method, params } => {
+                tracing::trace!(server = %server_name, %method, %params, "MCP notification");
+            }
+        });
+        server.set_notification_sink(sink).await;
+    }
+
+    /// Spawn the worker that turns `tools/list_changed` and friends into a
+    /// targeted reconnect. Bursts are coalesced for 50 ms so a server that
+    /// emits several notifications during one edit reconnects once.
+    ///
+    /// Call once after wrapping the runtime in `Arc`. If it is never called,
+    /// notifications are recorded only by `tracing`; the periodic catalog
+    /// refresh remains the fallback.
+    pub fn spawn_list_change_worker(self: &Arc<Self>) {
+        let Some(mut receiver) = self
+            .change_rx
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        else {
+            tracing::debug!("MCP list-change worker already spawned");
+            return;
+        };
+        let runtime = Arc::downgrade(self);
+        tokio::spawn(async move {
+            while let Some(first) = receiver.recv().await {
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                let mut pending = HashSet::from([first]);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                while let Ok(name) = receiver.try_recv() {
+                    pending.insert(name);
+                }
+                for name in pending {
+                    match runtime.refresh_catalog(&name).await {
+                        Ok(()) => {
+                            tracing::info!(server = %name, "MCP catalog refreshed after list_changed");
+                        }
+                        Err(error) => {
+                            tracing::warn!(server = %name, %error, "MCP list_changed refresh failed");
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// Publish complete per-server tool snapshots and rebuild the synchronous

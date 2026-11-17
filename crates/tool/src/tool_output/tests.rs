@@ -284,6 +284,8 @@ fn code_to_text_is_the_text() {
         start_line: 1,
         prefix: None,
         suffix: None,
+
+        version: None,
     };
     assert_eq!(o.to_text(), "1: fn main() {}");
     assert!(!o.is_error());
@@ -300,6 +302,8 @@ fn code_start_line_round_trips_and_defaults_to_zero() {
         start_line: 42,
         prefix: None,
         suffix: None,
+
+        version: None,
     };
     assert_eq!(o.to_text(), "42: x");
     let cloned = o.clone();
@@ -321,6 +325,8 @@ fn code_prefix_suffix_frame_the_content_for_the_model() {
         start_line: 100,
         prefix: Some("[f: lines 100-100 of 5000]".into()),
         suffix: Some("[4900 more lines — read with offset=101]".into()),
+
+        version: None,
     };
     assert_eq!(
         with_both.to_text(),
@@ -333,6 +339,8 @@ fn code_prefix_suffix_frame_the_content_for_the_model() {
         start_line: 100,
         prefix: Some("[f: lines 100-105 of 105]".into()),
         suffix: None,
+
+        version: None,
     };
     assert_eq!(
         prefix_only.to_text(),
@@ -555,4 +563,20 @@ fn web_article_round_trips_and_formats_text() {
     let json = serde_json::to_string(&wa).unwrap();
     let back: ToolOutput = serde_json::from_str(&json).unwrap();
     assert_eq!(back.to_text(), text);
+}
+
+#[test]
+fn truncate_utf8_never_splits_a_multibyte_character() {
+    // U+250C is three bytes; at a 510-byte prefix it spans 510..513, so a
+    // byte-index-512 cut would land inside it.
+    let content = format!("{}┌ tail", "a".repeat(510));
+    assert_eq!(truncate_utf8(&content, 512), "a".repeat(510).as_str());
+
+    // Exact and over-long limits, empty input, and limits inside a character.
+    assert_eq!(truncate_utf8("abc", 10), "abc");
+    assert_eq!(truncate_utf8("abc", 3), "abc");
+    assert_eq!(truncate_utf8("", 512), "");
+    assert_eq!(truncate_utf8("┌┌┌", 2), "");
+    assert_eq!(truncate_utf8("┌┌┌", 3), "┌");
+    assert_eq!(truncate_utf8("┌┌┌", 5), "┌");
 }

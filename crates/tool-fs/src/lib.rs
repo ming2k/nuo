@@ -30,17 +30,13 @@ pub use read::{ReadArgs, ReadTool};
 /// touches". Both [`Tool::scope_target`] (permission) and [`Tool::accesses`]
 /// (scheduler arbitration and effect classification) read it, so a tool cannot
 /// declare one path to the permission gate and another to the scheduler.
-pub(crate) fn path_argument(arguments: &str) -> Option<String> {
-    serde_json::from_str::<Value>(arguments)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("path")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|path| !path.is_empty())
-                .map(str::to_string)
-        })
+pub(crate) fn path_argument(arguments: &Value) -> Option<String> {
+    arguments
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
 }
 
 /// The read-side declaration shared by every pure-inspection fs tool.
@@ -51,7 +47,7 @@ pub(crate) fn path_argument(arguments: &str) -> Option<String> {
 /// [`scope_target`](Tool::scope_target) stays `Unspecified` so they remain
 /// auto-admitted by the permission chain — reading is not an authority the user
 /// should ever be asked to grant.
-pub(crate) fn read_accesses(arguments: &str) -> ToolAccesses {
+pub(crate) fn read_accesses(arguments: &Value) -> ToolAccesses {
     match path_argument(arguments) {
         Some(path) => ToolAccesses::read_file(path),
         None => ToolAccesses::none(),
@@ -71,6 +67,8 @@ pub struct SystemToolContext {
     /// the capability is unavailable in this embedding; `read` then reports a
     /// typed "no extractor" error instead of decoding document bytes as text.
     pub document_extractor: Option<Arc<dyn tool::DocumentExtractor>>,
+    /// Sparse line checkpoints shared by every `read` call in this workspace.
+    pub(crate) line_index: Arc<read::LineIndexCache>,
 }
 
 /// Semantic alias for filesystem tool context ([INV-TOOL-15]).
@@ -83,6 +81,7 @@ impl std::fmt::Debug for SystemToolContext {
             .field("vfs_resolver", &self.vfs_resolver.is_some())
             .field("image_normalizer", &self.image_normalizer.is_some())
             .field("document_extractor", &self.document_extractor.is_some())
+            .field("line_index", &"sparse")
             .finish()
     }
 }
@@ -94,6 +93,7 @@ impl SystemToolContext {
             vfs_resolver: None,
             image_normalizer: None,
             document_extractor: None,
+            line_index: Arc::new(read::LineIndexCache::default()),
         }
     }
 
@@ -119,6 +119,38 @@ impl SystemToolContext {
         } else {
             self.workspace_root.join(p)
         }
+    }
+}
+
+/// Refuse a write whose caller saw an older version of the file.
+pub(crate) fn verify_expected_version(
+    path: &Path,
+    expected: Option<&str>,
+    tool: &str,
+) -> Result<(), ToolError> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let meta = fs::metadata(path).map_err(|error| {
+        ToolError::execution(
+            tool,
+            format!(
+                "`{}` does not exist or cannot be stat'd ({error}); omit `expected_version` to create it",
+                path.display()
+            ),
+        )
+    })?;
+    let actual = read::file_version(path, &meta);
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(ToolError::execution(
+            tool,
+            format!(
+                "`{}` changed since it was read (expected version {expected}, found {actual}).                  Re-read the file and base the write on its current bytes.",
+                path.display()
+            ),
+        ))
     }
 }
 
@@ -197,6 +229,8 @@ pub struct WriteFileArgs {
     pub path: String,
     #[tool(desc = "Complete file content (no truncation placeholders)")]
     pub content: String,
+    #[tool(desc = "Version returned by read; refuses a write if the file changed since")]
+    pub expected_version: Option<String>,
 }
 
 /// Atomically creates or overwrites a file with new content.
@@ -216,6 +250,10 @@ impl Tool for WriteFileTool {
         BuiltinTool::WriteFile.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::WriteFile.aliases()
+    }
+
     fn description(&self) -> &str {
         "Create a new file or overwrite an entire file. Prefer edit_text for localized edits to existing files."
     }
@@ -232,7 +270,15 @@ impl Tool for WriteFileTool {
         vec![ToolScope::Workspace]
     }
 
-    fn scope_target(&self, arguments: &str) -> ScopeTarget {
+    fn path_bound(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn scope_target(&self, arguments: &Value) -> ScopeTarget {
         match path_argument(arguments) {
             Some(path) => ScopeTarget::Path(PathBuf::from(path)),
             // Unparseable arguments are the schema gate's problem, not the
@@ -243,7 +289,7 @@ impl Tool for WriteFileTool {
         }
     }
 
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
         match path_argument(arguments) {
             Some(path) => ToolAccesses::write_file(path),
             None => ToolAccesses::none(),
@@ -254,37 +300,63 @@ impl Tool for WriteFileTool {
     ///
     /// A creating write shows an empty `old`, so the preview reads as a creation
     /// rather than as an edit of nothing.
-    fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
-        let args: WriteFileArgs = serde_json::from_value(arguments.clone()).ok()?;
-        let path = self.ctx.resolve_path(&args.path);
-        let existing = fs::read_to_string(&path).ok();
-        Some(PreviewResult {
-            path: args.path,
-            op: if existing.is_some() {
-                PatchOp::Edit
-            } else {
-                PatchOp::Create
-            },
-            old: existing.unwrap_or_default(),
-            new: args.content,
-            start_line: 1,
-            warnings: Vec::new(),
+    async fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
+        let ctx = Arc::clone(&self.ctx);
+        let arguments = arguments.clone();
+        let tool_name = self.name().to_string();
+        tokio::task::spawn_blocking(move || {
+            let args: WriteFileArgs = serde_json::from_value(arguments).ok()?;
+            let path = ctx.resolve_path(&args.path);
+            verify_expected_version(&path, args.expected_version.as_deref(), &tool_name).ok()?;
+            if !preview_input_allowed(&path) {
+                return None;
+            }
+            let existing = fs::read_to_string(&path).ok();
+            Some(PreviewResult::bounded(
+                args.path,
+                if existing.is_some() {
+                    PatchOp::Edit
+                } else {
+                    PatchOp::Create
+                },
+                existing.unwrap_or_default(),
+                args.content,
+                Vec::new(),
+            ))
         })
+        .await
+        .ok()
+        .flatten()
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let ctx = Arc::clone(&self.ctx);
+        tokio::task::spawn_blocking(move || WriteFileTool::execute_blocking(&ctx, arguments))
+            .await
+            .map_err(|error| {
+                ToolError::execution("write_file", format!("write worker failed: {error}"))
+            })?
+    }
+}
+
+impl WriteFileTool {
+    fn execute_blocking(
+        ctx: &SystemToolContext,
+        arguments: Value,
+    ) -> Result<ToolOutput, ToolError> {
         let args: WriteFileArgs = serde_json::from_value(arguments).map_err(|err| {
-            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
+            ToolError::execution("write_file", format!("invalid arguments: {err}"))
         })?;
 
         let raw_path = &args.path;
         let content = &args.content;
 
-        let path = self.ctx.resolve_path(raw_path);
+        let path = ctx.resolve_path(raw_path);
+        verify_expected_version(&path, args.expected_version.as_deref(), "write_file")?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|err| {
                 ToolError::execution(
-                    self.name(),
+                    "write_file",
                     format!("failed to create parent directories for `{raw_path}`: {err}"),
                 )
             })?;
@@ -299,23 +371,29 @@ impl Tool for WriteFileTool {
 
         atomic_write(&path, content.as_bytes()).map_err(|err| {
             ToolError::execution(
-                self.name(),
+                "write_file",
                 format!("failed to write file `{raw_path}`: {err}"),
             )
         })?;
 
-        Ok(ToolOutput::Patch {
-            path: raw_path.clone(),
-            op: if is_existing {
+        let mut preview = PreviewResult::bounded(
+            raw_path.clone(),
+            if is_existing {
                 PatchOp::Edit
             } else {
                 PatchOp::Create
             },
             old,
-            new: content.clone(),
-            start_line: 1,
-            warnings: Vec::new(),
-        })
+            content.clone(),
+            Vec::new(),
+        );
+        if preview.truncated {
+            preview.warnings.push(
+                "The displayed diff is a bounded window around the change; the file itself was written in full."
+                    .to_string(),
+            );
+        }
+        Ok(preview.as_patch())
     }
 }
 
@@ -350,6 +428,23 @@ pub(crate) const IGNORED_DIRS: &[&str] = &[
 ];
 
 pub(crate) const IGNORED_FILES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini"];
+
+/// Preview is computed synchronously on the dispatch path. Reading a huge file
+/// to build an approval diff would block the async runtime; beyond this ceiling
+/// the prompt reports that no preview is available.
+pub(crate) const MAX_PREVIEW_INPUT_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Whether a preview may synchronously read this path.
+///
+/// A missing path is allowed through so the producer can report the more
+/// specific "does not exist" result; only an existing file above the cap is
+/// refused. Preview is a UI convenience and must never become an unbounded
+/// blocking read in the dispatch pipeline.
+pub(crate) fn preview_input_allowed(path: &Path) -> bool {
+    fs::metadata(path)
+        .map(|metadata| metadata.len() <= MAX_PREVIEW_INPUT_BYTES)
+        .unwrap_or(true)
+}
 
 /// Build a ripgrep-style walker that respects project ignore rules (`.gitignore`,
 /// `.ignore`, global gitignore) while pruning metadata and dependency trees (`.git`,
@@ -408,6 +503,10 @@ impl Tool for FindFilesTool {
         BuiltinTool::FindFiles.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::FindFiles.aliases()
+    }
+
     fn description(&self) -> &str {
         "Find files recursively by glob pattern or filename, respecting ignore rules."
     }
@@ -424,7 +523,15 @@ impl Tool for FindFilesTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
+    fn path_bound(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
         // Recursive walk: claims the whole subtree so a concurrent write
         // anywhere under the search root serializes against this scan.
         match path_argument(arguments) {
@@ -433,7 +540,11 @@ impl Tool for FindFilesTool {
         }
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+    async fn execute(
+        &self,
+        call_ctx: &ToolContext,
+        arguments: Value,
+    ) -> Result<ToolOutput, ToolError> {
         let mut arguments = arguments;
         if let Some(obj) = arguments.as_object_mut()
             && let Some(p) = obj.get("patterns").and_then(|v| v.as_str())
@@ -464,44 +575,54 @@ impl Tool for FindFilesTool {
             raw_patterns.push(p);
         }
 
-        let mut compiled_globs = Vec::new();
-        for pat in &raw_patterns {
-            if pat.is_empty() || pat == "*" || pat == "**/*" || pat == "**" {
-                continue;
-            }
-            let glob = glob::Pattern::new(pat).map_err(|err| {
-                ToolError::execution(self.name(), format!("invalid glob pattern `{pat}`: {err}"))
-            })?;
-            compiled_globs.push((pat.clone(), glob));
-        }
-
-        let mut matches = Vec::new();
-        let walker = build_workspace_walker(&search_root).build();
-
-        for entry in walker.flatten() {
-            if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                continue;
+        // The walk is synchronous and can traverse a large tree; run it on the
+        // blocking pool so it never stalls a Tokio worker shared by sessions.
+        let root = search_root.clone();
+        let workspace_root = self.ctx.workspace_root.clone();
+        let blocking_ctx = call_ctx.clone();
+        let matches = tokio::task::spawn_blocking(move || {
+            let mut compiled_globs = Vec::new();
+            for pat in &raw_patterns {
+                if pat.is_empty() || pat == "*" || pat == "**/*" || pat == "**" {
+                    continue;
+                }
+                let glob = glob::Pattern::new(pat)
+                    .map_err(|err| format!("invalid glob pattern `{pat}`: {err}"))?;
+                compiled_globs.push((pat.clone(), glob));
             }
 
-            let path = entry.path();
-            let relative = display_match_path(path, &search_root, &self.ctx.workspace_root);
-
-            let matched = if compiled_globs.is_empty() {
-                true
-            } else {
-                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                compiled_globs.iter().any(|(pat_str, g)| {
-                    g.matches(&relative) || (!pat_str.contains('/') && g.matches(file_name))
-                })
-            };
-
-            if matched {
-                matches.push(relative.to_string());
-                if matches.len() >= limit {
-                    break;
+            let mut matches = Vec::new();
+            let walker = build_workspace_walker(&root).build();
+            for (seen, entry) in walker.flatten().enumerate() {
+                if seen % 256 == 0 && blocking_ctx.is_cancelled() {
+                    return Err("tool `find_files` execution was cancelled".to_string());
+                }
+                if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                    continue;
+                }
+                let path = entry.path();
+                let relative = display_match_path(path, &root, &workspace_root);
+                let matched = if compiled_globs.is_empty() {
+                    true
+                } else {
+                    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    compiled_globs.iter().any(|(pat_str, matcher)| {
+                        matcher.matches(&relative)
+                            || (!pat_str.contains('/') && matcher.matches(file_name))
+                    })
+                };
+                if matched {
+                    matches.push(relative);
+                    if matches.len() >= limit {
+                        break;
+                    }
                 }
             }
-        }
+            Ok::<_, String>(matches)
+        })
+        .await
+        .map_err(|error| ToolError::execution(self.name(), format!("find worker failed: {error}")))?
+        .map_err(|error| ToolError::execution(self.name(), error))?;
 
         if matches.is_empty() {
             Ok(ToolOutput::success(format!(
@@ -550,6 +671,10 @@ impl Tool for SearchTextTool {
         BuiltinTool::SearchText.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::SearchText.aliases()
+    }
+
     fn description(&self) -> &str {
         "Search file contents recursively for text or regex, returning path:line:content matches."
     }
@@ -566,14 +691,26 @@ impl Tool for SearchTextTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
+    fn path_bound(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
         match path_argument(arguments) {
             Some(path) => ToolAccesses::search_tree(path),
             None => ToolAccesses::search_tree("."),
         }
     }
 
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
+    async fn execute(
+        &self,
+        call_ctx: &ToolContext,
+        arguments: Value,
+    ) -> Result<ToolOutput, ToolError> {
         let args: SearchTextArgs = serde_json::from_value(arguments).map_err(|err| {
             ToolError::execution(self.name(), format!("invalid arguments: {err}"))
         })?;
@@ -595,6 +732,7 @@ impl Tool for SearchTextTool {
 
         let ctx = Arc::clone(&self.ctx);
         let root = search_root.clone();
+        let blocking_ctx = call_ctx.clone();
         let scanned = tokio::task::spawn_blocking(move || {
             scan_text_blocking(
                 &ctx,
@@ -605,6 +743,7 @@ impl Tool for SearchTextTool {
                 &include,
                 context,
                 limit,
+                &blocking_ctx,
             )
         })
         .await
@@ -629,6 +768,11 @@ const MAX_SEARCH_LINE_CHARS: usize = 500;
 /// Maximum cumulative payload bytes emitted by [`SearchTextTool`] before
 /// stopping early with a truncation marker (kept under the 64 KB spooler).
 const MAX_SEARCH_BYTES: usize = 48 * 1024;
+/// Largest file the lexical search will read. A generated bundle or a database
+/// dump is not a source file; reading it whole would spend memory and time for
+/// matches no one wants, and `search_text` has no ripgrep-style streaming
+/// reader. Oversized files are skipped rather than partially scanned.
+const MAX_SEARCH_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Blocking text scan used by [`SearchTextTool`]. Runs on the blocking pool so
 /// a large tree never stalls the async runtime, and keeps the whole match set
@@ -643,6 +787,7 @@ fn scan_text_blocking(
     include: &[String],
     context: usize,
     limit: usize,
+    call_ctx: &ToolContext,
 ) -> Result<Vec<String>, String> {
     let pattern = if is_regex {
         query.to_string()
@@ -666,7 +811,10 @@ fn scan_text_blocking(
     let mut matches = Vec::new();
     let mut total_bytes = 0usize;
     let mut emitted_hits = 0usize;
-    'files: for entry in walker.flatten() {
+    'files: for (seen, entry) in walker.flatten().enumerate() {
+        if seen % 128 == 0 && call_ctx.is_cancelled() {
+            return Err("tool `search_text` execution was cancelled".to_string());
+        }
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
@@ -683,6 +831,13 @@ fn scan_text_blocking(
             {
                 continue;
             }
+        }
+        if entry
+            .metadata()
+            .map(|metadata| metadata.len() > MAX_SEARCH_FILE_BYTES)
+            .unwrap_or(false)
+        {
+            continue;
         }
         let Ok(content) = fs::read_to_string(file_path) else {
             continue;

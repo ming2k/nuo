@@ -794,8 +794,8 @@ async fn zero_argument_tool_call_survives_stream_finalization() {
     assert_eq!(outcome.unwrap().message.content, "done");
     assert_eq!(
         calls.lock().unwrap_or_else(|e| e.into_inner()).as_slice(),
-        &[String::new()],
-        "the zero-argument call must reach the tool with empty arguments"
+        &["{}".to_string()],
+        "the zero-argument call must reach the tool as an empty object"
     );
 }
 
@@ -1141,10 +1141,14 @@ async fn cancelling_during_tool_execution_emits_tool_cancelled() {
         fn description(&self) -> &str {
             "blocks until the turn is cancelled"
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
             self.started.notify_one();
             let _: () = pending().await;
             unreachable!("the turn is cancelled before this returns")

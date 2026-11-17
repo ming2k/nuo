@@ -46,7 +46,7 @@ pub(crate) fn tool_step(
 pub(crate) fn tool_step_structured(
     name: &str,
     arguments: &str,
-    structured: tool::ToolOutput,
+    structured: ::tool::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
     use view::model::interactive::InteractiveEntry;
@@ -64,7 +64,7 @@ pub(crate) fn tool_step_structured(
 pub(crate) fn tool_step_streaming(
     name: &str,
     arguments: &str,
-    structured: tool::ToolOutput,
+    structured: ::tool::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);

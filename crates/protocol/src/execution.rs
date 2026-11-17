@@ -433,7 +433,7 @@ pub trait ToolMiddleware: Send + Sync {
     async fn post_execute(
         &self,
         _tool: &str,
-        _output: &mut tool::ToolOutput,
+        _output: &mut ::tool::ToolOutput,
         _env: &dyn ExecutionEnvironment,
     ) -> Result<(), String> {
         Ok(())

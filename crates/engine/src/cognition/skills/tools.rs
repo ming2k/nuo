@@ -20,7 +20,7 @@ impl Tool for UseSkillTool {
         "Load a skill's domain instructions into the conversation context."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -30,9 +30,11 @@ impl Tool for UseSkillTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        args: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
         let name = args["name"].as_str().ok_or("Missing 'name'")?;
 
         // Snapshot only the metadata we need under the read lock,
@@ -43,7 +45,8 @@ impl Tool for UseSkillTool {
                 return Err(format!(
                     "Skill '{}' not found. Check the skill catalog to discover available skills.",
                     name
-                ));
+                )
+                .into());
             };
             (skill.scope, skill.quarantined)
         };
@@ -51,7 +54,8 @@ impl Tool for UseSkillTool {
         if quarantined {
             return Err(format!(
                 "Skill '{name}' is quarantined (workspace skills domain is untrusted). Review it and run `/trust skills` to enable.",
-            ));
+            )
+            .into());
         }
 
         // A repo skill may have changed since the last discovery scan. Check
@@ -69,7 +73,8 @@ impl Tool for UseSkillTool {
                 return Err(format!(
                     "Project skill '{name}' is {} because the skills-domain content changed. Review it and run `/trust skills`.",
                     state.as_str()
-                ));
+                )
+                .into());
             }
         }
         // Body is loaded lazily (and cached) on first use of this skill.
@@ -84,7 +89,9 @@ impl Tool for UseSkillTool {
             .get(name)
             .ok_or_else(|| format!("Skill '{}' not found.", name))?;
 
-        Ok(super::render::format_skill_injection(&skill, &content))
+        Ok(::tool::ToolOutput::text(
+            super::render::format_skill_injection(&skill, &content),
+        ))
     }
 }
 
@@ -103,7 +110,7 @@ impl Tool for ListSkillsTool {
         "List all available skills with their scope, description, and enabled state."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {},
@@ -111,9 +118,15 @@ impl Tool for ListSkillsTool {
         })
     }
 
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
         let registry = self.registry.lock();
-        Ok(super::render::format_skill_list(&registry.list()))
+        Ok(::tool::ToolOutput::text(super::render::format_skill_list(
+            &registry.list(),
+        )))
     }
 }
 
@@ -137,7 +150,9 @@ mod tests {
     async fn use_skill_returns_not_found_for_missing_skill() {
         let registry = Arc::new(SkillRegistry::empty());
         let tool = UseSkillTool { registry };
-        let result = tool.call(r#"{"name":"missing"}"#).await;
+        let result = tool
+            .execute_text(&::tool::ToolContext::default(), r#"{"name":"missing"}"#)
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -146,7 +161,10 @@ mod tests {
     async fn list_skills_reports_empty_registry() {
         let registry = Arc::new(SkillRegistry::empty());
         let tool = ListSkillsTool { registry };
-        let result = tool.call("{}").await.unwrap();
+        let result = tool
+            .execute_text(&::tool::ToolContext::default(), "{}")
+            .await
+            .unwrap();
         assert!(result.contains("Available skills"));
     }
 }

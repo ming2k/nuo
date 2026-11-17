@@ -230,7 +230,7 @@ async fn schema_violating_call_never_reaches_the_tool() {
         fn description(&self) -> &str {
             "recording tool with a typed schema"
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -240,12 +240,16 @@ async fn schema_violating_call_never_reaches_the_tool() {
                 "required": ["path"]
             })
         }
-        async fn call(&self, arguments: &str) -> Result<String, String> {
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
             self.calls
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(arguments.to_string());
-            Ok("ran".to_string())
+            Ok(::tool::ToolOutput::text("ran".to_string()))
         }
     }
 
@@ -282,16 +286,12 @@ async fn schema_violating_call_never_reaches_the_tool() {
         "schema violation must produce ToolOutput::Error, got {output:?}"
     );
     let text = output.to_text();
-    assert!(text.contains("invalid argument `limit`"), "{text}");
+    assert!(text.contains("limit"), "{text}");
 
     // Missing a required field.
     let output = run(&agent, r#"{"limit": 3}"#).await;
     assert!(matches!(output, ToolOutput::Error { .. }));
-    assert!(
-        output
-            .to_text()
-            .contains("missing required field(s): `path`")
-    );
+    assert!(output.to_text().contains("path") && output.to_text().contains("required"));
 
     // Wrong top-level type.
     let output = run(&agent, "[1, 2]").await;

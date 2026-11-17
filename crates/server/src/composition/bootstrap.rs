@@ -762,6 +762,13 @@ impl Assembler {
         agent.set_additional_workspace_roots(additional_roots.clone());
         agent.bind_shared_confinement(shared_confinement.clone());
         let agent = Arc::new(agent);
+        // Deferred-tool discovery is a harness meta-tool, not a role capability:
+        // it is installed on the master after construction because it needs a
+        // handle back to the agent's live catalog. Subagents use the static
+        // capability set and never receive MCP tools.
+        agent.install_tool(Arc::new(engine::tools::ToolSearchTool::new(
+            Arc::downgrade(&agent),
+        )));
         // Override axis (model): subagents are agents on the same model, so they
         // inherit the parent's tool-variant selection. The profile still owns the
         // orthogonal scope axis.
@@ -827,7 +834,10 @@ impl Assembler {
         // Seed declarative permission rules from `[permissions]` config so default
         // policies are data-driven. Runtime "Always" decisions still write to
         // permissions.json; these config rules re-apply on every start.
-        agent.seed_permissions_from_config(&self.config.permissions.allow);
+        agent.seed_permissions_from_config(
+            &self.config.permissions.allow,
+            &self.config.permissions.deny,
+        );
         // Asset trust, filesystem boundaries, and runtime execution grants are
         // independent axes. Opening a path grants none of them.
         // `.nuo/config.toml` may declare `[mcp.*]` servers (which execute
@@ -946,6 +956,7 @@ impl Assembler {
             self.config.mcp.clone(),
             built.agent.dynamic_tool_sink(),
         ));
+        mcp_runtime.spawn_list_change_worker();
         let mcp_runtime_for_bg = Arc::clone(&mcp_runtime);
         tokio::spawn(async move {
             mcp_runtime_for_bg.refresh_all().await;

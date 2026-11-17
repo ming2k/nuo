@@ -370,7 +370,7 @@ fn tool_step_collapses_and_restores_full_semantic_detail() {
     assert!(message.finish_tool_step(
         "call_1",
         "contents",
-        tool::ToolOutput::text("contents"),
+        ::tool::ToolOutput::text("contents"),
         1234
     ));
     // Collapsed completed: summary + duration suffix.
@@ -483,7 +483,7 @@ fn subagent_status_reflects_children_and_completion() {
     assert!(task.finish_tool_step(
         "call_9",
         "final answer",
-        tool::ToolOutput::text("final answer"),
+        ::tool::ToolOutput::text("final answer"),
         1500
     ));
     assert!(
@@ -516,7 +516,7 @@ fn subagent_failed_status_reports_failure() {
     );
     // The subagent failure is now signalled by the structured `failed`
     // flag on `ToolOutput::Subagent`, not by an "Error:" text prefix.
-    let structured = tool::ToolOutput::Subagent {
+    let structured = ::tool::ToolOutput::Subagent {
         summary: "Error: boom".into(),
         messages: Vec::new(),
         usage: tool::TokenUsage::default(),
@@ -617,7 +617,7 @@ fn interrupted_subagent_status_reports_interrupted_not_failed() {
     // the partial work was preserved, so it must classify as Interrupted
     // — never as Failed (it did not error) and never as Ok (it did not
     // finish).
-    let structured = tool::ToolOutput::Subagent {
+    let structured = ::tool::ToolOutput::Subagent {
         summary: "Interrupted: stopped by the user".into(),
         messages: Vec::new(),
         usage: tool::TokenUsage::default(),
@@ -649,7 +649,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
     // structured `ToolOutput::Shell { exit: Some(1) }`, `is_error()` now
     // drives the classification and the step correctly reads `Failed`.
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"false"}"#);
-    let structured = tool::ToolOutput::Shell {
+    let structured = ::tool::ToolOutput::Shell {
         command: "false".into(),
         stdout: String::new(),
         stderr: "boom".into(),
@@ -672,7 +672,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
 #[test]
 fn bash_success_is_classified_ok() {
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"true"}"#);
-    let structured = tool::ToolOutput::Shell {
+    let structured = ::tool::ToolOutput::Shell {
         command: "true".into(),
         stdout: "ok\n".into(),
         stderr: String::new(),
@@ -706,7 +706,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            tool::ToolOutput::Shell { lines, .. } => lines,
+            ::tool::ToolOutput::Shell { lines, .. } => lines,
             _ => panic!("expected Shell"),
         },
         _ => panic!("expected ToolStep"),
@@ -729,7 +729,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            tool::ToolOutput::Shell { stdout, stderr, .. } => {
+            ::tool::ToolOutput::Shell { stdout, stderr, .. } => {
                 assert!(stdout.contains("Compiling a"));
                 assert!(stdout.contains("Compiling c"));
                 assert!(stderr.contains("warning: b"));
@@ -758,7 +758,7 @@ fn cancel_tool_step_transitions_to_a_terminal_state() {
     assert!(!step.finish_tool_step(
         "call_1",
         "late result",
-        tool::ToolOutput::text("late result"),
+        ::tool::ToolOutput::text("late result"),
         10
     ));
     assert!(!step.cancel_tool_step("call_1"));
@@ -820,7 +820,7 @@ fn cancel_all_running_is_a_defensive_sweep_that_skips_terminal_steps() {
     let mut a = TranscriptMessage::tool_step("a", "read", "{}");
     let mut b = TranscriptMessage::tool_step("b", "read", "{}");
     // `b` already finished successfully; the sweep must not clobber it.
-    assert!(b.finish_tool_step("b", "contents", tool::ToolOutput::text("contents"), 5));
+    assert!(b.finish_tool_step("b", "contents", ::tool::ToolOutput::text("contents"), 5));
     assert_eq!(b.tool_step_status(), Some(ToolStepStatus::Ok));
 
     // The sweep cancels a running step and is then a no-op on it.
@@ -1498,7 +1498,7 @@ fn announced_tool_step_advances_with_arguments_and_updates_summary() {
     assert!(step.finish_tool_step(
         "call_1",
         "Edited 'src/lib.rs' successfully",
-        tool::ToolOutput::Patch {
+        ::tool::ToolOutput::Patch {
             path: "src/lib.rs".into(),
             op: tool::PatchOp::Edit,
             old: "foo".into(),
@@ -1607,7 +1607,7 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     assert!(step.finish_tool_step(
         "call_edit_1",
         "Updated auth",
-        tool::ToolOutput::Patch {
+        ::tool::ToolOutput::Patch {
             path: "src/model/auth.rs".into(),
             op: tool::PatchOp::Edit,
             old: "let x = 1;".into(),

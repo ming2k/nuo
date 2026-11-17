@@ -2,19 +2,10 @@
 //! plumbing, and the PostToolUse/PostToolUseFailure hook fire points.
 use super::*;
 
-/// Tools whose `path` argument is resolved through the workspace boundary.
-///
-/// `code_query` is deliberately absent: it already goes through the confined
-/// [`protocol::FsProvider`](protocol::execution::FsProvider) seam, so a
-/// second lexical gate would duplicate (and could disagree with) its canonical
-/// check.
-const PATH_BOUND_TOOLS: &[&str] = &[
-    "edit_text",
-    "find_files",
-    "read",
-    "search_text",
-    "write_file",
-];
+/// Ceiling for one structured tool result. The text half already has a 64 KiB
+/// cap; a JSON payload has no natural line structure, so it gets an explicit
+/// byte budget of its own.
+const MAX_STRUCTURED_OUTPUT_BYTES: usize = 512 * 1024;
 
 /// Resolve and admit one model-supplied path against the live workspace
 /// boundary. Kept pure so the lexical and canonical checks are testable
@@ -81,6 +72,136 @@ fn admit_model_path(
     Ok(candidate)
 }
 
+/// Adapter that turns a tool's context stream/progress sink into session events.
+struct ChannelStreamSink {
+    tx: mpsc::UnboundedSender<AgentEvent>,
+    call_id: String,
+}
+
+fn event_stream_sink(tx: mpsc::UnboundedSender<AgentEvent>, call_id: String) -> ChannelStreamSink {
+    ChannelStreamSink { tx, call_id }
+}
+
+impl tool::ToolStreamSink for ChannelStreamSink {
+    fn emit(&self, stream: tool::ToolStream) {
+        let _ = self.tx.send(AgentEvent::ToolStream {
+            id: self.call_id.clone(),
+            stream,
+        });
+    }
+}
+
+/// A short "did you mean" suffix for an unknown tool call.
+fn did_you_mean(names: &[String], requested: &str) -> String {
+    let requested = requested.to_ascii_lowercase();
+    let mut best: Option<(usize, &str)> = None;
+    for name in names {
+        let candidate = name.to_ascii_lowercase();
+        let distance = levenshtein(&requested, &candidate);
+        if distance <= 3 && best.is_none_or(|(best_distance, _)| distance < best_distance) {
+            best = Some((distance, name.as_str()));
+        }
+    }
+    match best {
+        Some((_, name)) => format!(" Did you mean `{name}`?"),
+        None => " Use one of the advertised tool names.".to_string(),
+    }
+}
+
+fn levenshtein(left: &str, right: &str) -> usize {
+    let left: Vec<char> = left.chars().collect();
+    let right: Vec<char> = right.chars().collect();
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    let mut current = vec![0usize; right.len() + 1];
+    for (i, left_char) in left.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, right_char) in right.iter().enumerate() {
+            let substitution = previous[j] + usize::from(left_char != right_char);
+            current[j + 1] = substitution.min(previous[j + 1] + 1).min(current[j] + 1);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[right.len()]
+}
+
+/// Keep a failed call's final progress tick in its model-facing detail.
+///
+/// The stream tick is ephemeral and may have been throttled; the error detail is
+/// durable and is what a later reader sees when diagnosing where the call
+/// stopped.
+fn attach_last_progress(output: ToolOutput, progress: Option<tool::ToolProgress>) -> ToolOutput {
+    let Some(progress) = progress else {
+        return output;
+    };
+    let line = format!("Last progress: {}", progress.render());
+    match output {
+        ToolOutput::Error { message, detail } => ToolOutput::Error {
+            message,
+            detail: Some(match detail {
+                Some(detail) if !detail.is_empty() => format!("{detail}\n{line}"),
+                _ => line,
+            }),
+        },
+        other => other,
+    }
+}
+
+/// Bound and validate the structured half of a tool result.
+///
+/// Kept outside `execute_tool` so the call sequence (resolve → permission →
+/// journal → timeout → finalize) stays readable and within the source-size
+/// ceiling.
+fn finalize_output(
+    call: &ToolCall,
+    entry: &crate::tool_snapshot::ToolSnapshotEntry,
+    output: ToolOutput,
+) -> ToolOutput {
+    if let Some(value) = output.structured_value()
+        && serde_json::to_vec(value)
+            .map(|bytes| bytes.len() > MAX_STRUCTURED_OUTPUT_BYTES)
+            .unwrap_or(false)
+    {
+        return ToolOutput::Error {
+            message: format!(
+                "Tool `{}` returned a structured payload larger than {} KiB",
+                call.name,
+                MAX_STRUCTURED_OUTPUT_BYTES / 1024
+            ),
+            detail: Some(
+                "Return a bounded summary in `content` and keep large data in an artifact the \
+                 model can read by path."
+                    .to_string(),
+            ),
+        };
+    }
+
+    if let Some(error) = &entry.output_error {
+        ToolOutput::Error {
+            message: format!("Tool `{}` has an invalid output schema", call.name),
+            detail: Some(error.clone()),
+        }
+    } else if let Some(schema) = &entry.output {
+        match output.structured_value() {
+            Some(value) => match schema.validate(value) {
+                Ok(()) => output,
+                Err(reason) => ToolOutput::Error {
+                    message: format!("Tool `{}` returned invalid structured output", call.name),
+                    detail: Some(reason),
+                },
+            },
+            None => ToolOutput::Error {
+                message: format!(
+                    "Tool `{}` declares an output schema but returned no structured value",
+                    call.name
+                ),
+                detail: None,
+            },
+        }
+    } else {
+        output
+    }
+}
+
 impl Agent {
     /// Fire PostToolUse (success) or PostToolUseFailure (error) hooks and append
     /// any injected context as hidden user messages (ADR-0025). No-op when the
@@ -137,15 +258,13 @@ impl Agent {
     /// turn-hook streak counter. An unknown tool name reads as `true`
     /// (unspecified), matching the trait default.
     pub(crate) fn tool_target_is_unspecified(&self, name: &str, arguments: &str) -> bool {
-        match self
-            .tools
-            .resolved_tools
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .find(|t| t.name() == name)
-        {
-            Some(t) => matches!(t.scope_target(arguments), tool::ScopeTarget::Unspecified),
+        let value =
+            serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+        match self.current_tool_snapshot().find(name) {
+            Some(entry) => matches!(
+                entry.tool.scope_target(&value),
+                tool::ScopeTarget::Unspecified
+            ),
             None => true,
         }
     }
@@ -624,10 +743,11 @@ impl Agent {
         {
             return false;
         }
-        let Some(sourced) = self.tools.tool_manager.find(&call.name) else {
+        let snapshot = self.current_tool_snapshot();
+        let Some(entry) = snapshot.find(&call.name) else {
             return false;
         };
-        let tool = &sourced.tool;
+        let tool = &entry.tool;
         // Only the shipped local read capabilities are eligible. A custom or
         // dynamic tool that merely *declares* ReadOnly is not assumed bounded:
         // an arbitrary test/plugin read can await a gate forever, and early
@@ -646,7 +766,10 @@ impl Agent {
             && !tool.spawns_subagent()
             && !tool.affects_control_flow()
             && matches!(
-                tool.scope_target(&call.arguments),
+                tool.scope_target(
+                    &serde_json::from_str::<serde_json::Value>(&call.arguments)
+                        .unwrap_or(serde_json::Value::Null)
+                ),
                 tool::ScopeTarget::Unspecified
             )
     }
@@ -681,20 +804,80 @@ impl Agent {
         }
     }
 
+    /// Build the per-call context every tool receives.
+    fn tool_context(&self, call_id: &str, cancel: &CancellationToken) -> tool::ToolContext {
+        let mut context = tool::ToolContext::new(call_id)
+            .with_session_id(self.hook_session_id())
+            .with_cancel_token(cancel.clone());
+        let mut roots = Vec::new();
+        if let Some(root) = self.workspace_root() {
+            roots.push(root);
+        }
+        roots.extend(self.additional_workspace_roots().iter().cloned());
+        if !roots.is_empty() {
+            context = context.with_workspace_roots(roots);
+        }
+        context
+    }
+
     pub(crate) async fn execute_tool(
         &self,
         call: &ToolCall,
         event_tx: &mpsc::UnboundedSender<AgentEvent>,
+        cancel: &CancellationToken,
     ) -> ToolOutput {
+        // A child token isolates this call: a timeout cancels the tool's own
+        // work without cancelling the whole turn, while a turn cancellation
+        // still propagates down into the tool.
+        let call_cancel = cancel.child_token();
+        if call_cancel.is_cancelled() {
+            return ToolOutput::Error {
+                message: format!("Tool `{}` was cancelled before it started", call.name),
+                detail: None,
+            };
+        }
         // ADR-0166: the call id is the call's identity — there is no second,
         // dispatch-local id to thread alongside it.
         let call_id = call.id.as_str();
-        let tool: Arc<dyn Tool> = match self.tools.tool_manager.find(&call.name) {
-            Some(sourced) => sourced.tool,
+        // Dispatch against the request snapshot, never the live registry: a
+        // tool added after the request was advertised is not callable, and a
+        // tool removed after it was advertised still resolves to the exact
+        // implementation the model saw.
+        let snapshot = self.current_tool_snapshot();
+        let entry = match snapshot.find(&call.name) {
+            Some(entry) => entry,
             None => {
                 return ToolOutput::Error {
-                    message: format!("Tool '{}' not found", call.name),
-                    detail: None,
+                    message: format!(
+                        "Tool `{}` is not advertised in this request and cannot be called.",
+                        call.name
+                    ),
+                    detail: Some(did_you_mean(&snapshot.names(), &call.name)),
+                };
+            }
+        };
+        let tool: Arc<dyn Tool> = Arc::clone(&entry.tool);
+
+        // One argument boundary for every tool: parse, coerce, validate against
+        // the compiled schema captured with the snapshot.
+        if let Some(error) = &entry.input_error {
+            return ToolOutput::Error {
+                message: format!("Tool `{}` has an invalid schema", call.name),
+                detail: Some(error.clone()),
+            };
+        }
+        let Some(input_schema) = &entry.input else {
+            return ToolOutput::Error {
+                message: format!("Tool `{}` has no input schema", call.name),
+                detail: None,
+            };
+        };
+        let arguments = match input_schema.prepare(&call.arguments) {
+            Ok(prepared) => prepared.value,
+            Err(reason) => {
+                return ToolOutput::Error {
+                    message: format!("Invalid arguments for tool `{}`", call.name),
+                    detail: Some(reason),
                 };
             }
         };
@@ -704,7 +887,7 @@ impl Agent {
         // the admitted roots is refused before the tool can touch the host.
         // `--unconfined` sessions skip it by design.
         if self.is_confined()
-            && PATH_BOUND_TOOLS.contains(&call.name.as_str())
+            && tool.path_bound()
             && let Some(violation) = self.check_model_path_boundary(call)
         {
             return violation;
@@ -720,7 +903,7 @@ impl Agent {
         //   • Approve → proceed under existing authority.
         //   • MissingAuthority → attended: ask once; delegated: fail now.
         //   • Pass    → (chain fallback) proceed.
-        let target = tool.scope_target(&call.arguments);
+        let target = tool.scope_target(&arguments);
         // Snapshot the disable masks and scope *before* the chain runs, then
         // drop the guards — the chain is async and MutexGuards are not Send, so
         // they must not live across the `.await`.
@@ -742,7 +925,7 @@ impl Agent {
         let pctx = guardrails::permission_policy::PolicyContext {
             tool: &tool,
             call_name: call.name.as_str(),
-            arguments: &call.arguments,
+            arguments: &arguments,
             scope_target: target.clone(),
             disabled: disabled_snapshot,
             scoped_disabled: scoped_snapshot,
@@ -758,7 +941,18 @@ impl Agent {
             }
             guardrails::permission_policy::PolicyDecision::MissingAuthority { request, rule } => {
                 if self.unattended() {
-                    // Under unattended mode, missing authority is auto-approved.
+                    return ToolOutput::Error {
+                        message: format!(
+                            "Tool `{}` requires approval, but this session is unattended.",
+                            request.tool
+                        ),
+                        detail: Some(
+                            "No human is present to grant authority. Pre-authorize the exact tool/scope \
+                             in `[permissions].allow` (a broad `*` grant is not enough for a dangerous \
+                             command), or run the session attended."
+                                .to_string(),
+                        ),
+                    };
                 } else {
                     // The single interactive-park path. Both the broker (a
                     // write/execute the user must approve) and the bash
@@ -893,12 +1087,13 @@ impl Agent {
                     call_id,
                     seq,
                 };
+                let journal_arguments = serde_json::to_string(&arguments).unwrap_or_default();
                 match crate::runtime::journal_begin(
                     journal.as_ref(),
                     self.workspace_root().as_deref(),
                     coordinates,
                     tool.as_ref(),
-                    &call.arguments,
+                    &journal_arguments,
                 )
                 .await
                 {
@@ -942,31 +1137,46 @@ impl Agent {
             agent: self,
             event_tx: event_tx.clone(),
         };
+        let call_ctx = self
+            .tool_context(call_id, &call_cancel)
+            .with_stream_sink(Arc::new(event_stream_sink(
+                event_tx.clone(),
+                call_id.to_string(),
+            )));
         let invocation = tool::ToolInvocation {
             call_id,
-            arguments: &call.arguments,
+            arguments: &arguments,
             input,
             input_handler: Some(&input_supervisor),
         };
-        let output = match tool
-            .call_structured_with_events(
-                invocation,
-                Box::new(|event| {
-                    let _ = event_tx.send(AgentEvent::Subagent {
-                        parent_call_id: parent_call_id.clone(),
-                        event,
-                    });
-                }),
-                &mut on_stream,
-            )
-            .await
-        {
-            Ok(output) => output,
-            Err(err) => ToolOutput::Error {
-                message: err,
-                detail: None,
+        let execution = tool.execute_streaming(
+            &call_ctx,
+            invocation,
+            Box::new(|event| {
+                let _ = event_tx.send(AgentEvent::Subagent {
+                    parent_call_id: parent_call_id.clone(),
+                    event,
+                });
+            }),
+            &mut on_stream,
+        );
+        let output = match tool.timeout() {
+            Some(budget) => match tokio::time::timeout(budget, execution).await {
+                Ok(result) => result,
+                Err(_) => {
+                    // Make the dropped future's work actually stop:
+                    // blocking-pool readers and protocol clients observe this
+                    // token and abort/cancel their in-flight operation.
+                    call_cancel.cancel();
+                    Err(tool::ToolError::timeout(tool.name()))
+                }
             },
-        };
+            None => execution.await,
+        }
+        .unwrap_or_else(|err| ToolOutput::Error {
+            message: err.to_string(),
+            detail: None,
+        });
 
         // Second half of the journal bracket: observe post-images and complete
         // the write-ahead rows. Runs on *both* success and failure because a tool
@@ -976,7 +1186,11 @@ impl Agent {
             crate::runtime::journal_finish(journal.as_ref(), pending).await;
         }
 
-        output
+        // Finalize first: schema validation may itself turn a nominally
+        // successful output into an error, and that error should still carry
+        // the last observed progress position.
+        let output = finalize_output(call, entry.as_ref(), output);
+        attach_last_progress(output, call_ctx.last_progress())
     }
 
     /// Single-call wrapper that forwards channel events to a mutable callback.
@@ -1000,7 +1214,7 @@ impl Agent {
     {
         let call_id = call.id.as_str();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let fut = self.execute_tool(call, &tx);
+        let fut = self.execute_tool(call, &tx, cancel);
         tokio::pin!(fut);
         loop {
             tokio::select! {
@@ -1026,8 +1240,8 @@ impl Agent {
                     // future against a bounded grace period. The subagent stops
                     // at its next safe boundary and returns its partial
                     // transcript as a terminal result.
-                    if let Some(sourced) = self.tools.tool_manager.find(&call.name) {
-                        sourced.tool.request_cancel(call_id);
+                    if let Some(entry) = self.current_tool_snapshot().find(&call.name) {
+                        entry.tool.request_cancel(call_id);
                     }
                     let grace = tokio::time::sleep(SUBAGENT_DRAIN_GRACE);
                     tokio::pin!(grace);
@@ -1089,17 +1303,13 @@ impl Agent {
     /// own "not found" error inside `execute_tool`; there's no point
     /// serializing an error.
     pub(crate) fn accesses_for_call(&self, call: &ToolCall) -> tool::ToolAccesses {
-        let tool: Option<Arc<dyn Tool>> = self
-            .tools
-            .resolved_tools
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .find(|t| t.matches_name(&call.name))
-            .cloned()
-            .or_else(|| self.tools.dynamic_tools.find(&call.name));
-        match tool {
-            Some(tool) => tool.accesses(&call.arguments),
+        let snapshot = self.current_tool_snapshot();
+        match snapshot.find(&call.name) {
+            Some(entry) => {
+                let value = serde_json::from_str::<serde_json::Value>(&call.arguments)
+                    .unwrap_or(serde_json::Value::Null);
+                entry.tool.accesses(&value)
+            }
             None => tool::ToolAccesses::none(),
         }
     }

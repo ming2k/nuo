@@ -5,10 +5,10 @@
 //! have to make before calling. See ADR-0176 for the contract and caps, and
 //! ADR-0193 for the bounded PDF text path.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,6 +29,18 @@ pub const MAX_READ_LINES: usize = 2_000;
 pub const MAX_READ_BYTES: usize = 50 * 1024;
 /// Hard cap on one rendered line. Longer lines are clamped and labelled.
 pub const MAX_LINE_CHARS: usize = 2_000;
+/// Maximum bytes a single read may scan before returning a page. A 1 GiB file
+/// with `offset = 900_000` must not be read end-to-end just to return 50 KiB.
+pub const MAX_READ_SCAN_BYTES: u64 = 64 * 1024 * 1024;
+/// Cancellation is observed at this line cadence inside the blocking scan.
+const CANCEL_CHECK_LINES: usize = 512;
+/// A single directory listing is bounded; millions of entries would spend more
+/// memory than the model can use and should be queried with `find_files`.
+const MAX_DIRECTORY_ENTRIES: usize = 100_000;
+/// Maximum bytes retained from one line. The model-facing clamp is 2000
+/// characters; 4 bytes per character covers the worst-case UTF-8 line without
+/// letting a minified single-line file exhaust memory.
+const MAX_LINE_BYTES: usize = MAX_LINE_CHARS * 4;
 /// Hard cap on an image file ingested into the transcript.
 pub const MAX_MEDIA_BYTES: u64 = 20 * 1024 * 1024;
 /// Hard cap on a PDF source read for text extraction. PDFs are parsed locally
@@ -44,6 +56,95 @@ const FIRST_CHUNK: usize = 256 * 1024;
 const PDF_HEADER_WINDOW: usize = 1024;
 /// Default tail length for a negative text offset.
 const TAIL_LINES: usize = 100;
+
+/// A sparse line checkpoint: byte offset of a line together with the number of
+/// complete lines before it. A later read can seek here instead of rescanning
+/// from byte zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LineCheckpoint {
+    offset: u64,
+    line: usize,
+}
+
+const LINE_INDEX_INTERVAL_BYTES: u64 = 1024 * 1024;
+const MAX_LINE_INDEX_FILES: usize = 16;
+const MAX_LINE_INDEX_CHECKPOINTS: usize = 128;
+
+struct CachedLineIndex {
+    version: String,
+    checkpoints: Vec<LineCheckpoint>,
+}
+
+/// Per-workspace sparse line index for large text reads.
+///
+/// The version token is the same cheap length+mtime fingerprint used for
+/// optimistic writes. A changed file invalidates its checkpoints rather than
+/// risking a page that starts at the wrong byte. Entries are bounded by file
+/// count and checkpoint count; this is a latency optimisation, never a source
+/// of truth.
+#[derive(Default)]
+pub(crate) struct LineIndexCache {
+    entries: std::sync::Mutex<HashMap<PathBuf, CachedLineIndex>>,
+}
+
+impl LineIndexCache {
+    fn load(&self, path: &Path, version: &str) -> Vec<LineCheckpoint> {
+        self.entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(path)
+            .filter(|entry| entry.version == version)
+            .map(|entry| entry.checkpoints.clone())
+            .unwrap_or_default()
+    }
+
+    /// Load the checkpoints for `path` and return the best checkpoint strictly
+    /// before `requested` (1-based line number), together with the checkpoint
+    /// set so the caller can merge newly observed positions back in.
+    fn resume(
+        &self,
+        path: &Path,
+        version: &str,
+        requested: usize,
+    ) -> Option<(u64, usize, Vec<LineCheckpoint>)> {
+        let checkpoints = self.load(path, version);
+        let checkpoint = checkpoints
+            .iter()
+            .rev()
+            .find(|checkpoint| checkpoint.line < requested)
+            .copied()?;
+        Some((checkpoint.offset, checkpoint.line, checkpoints))
+    }
+
+    fn store(&self, path: &Path, version: String, checkpoints: &mut Vec<LineCheckpoint>) {
+        if checkpoints.is_empty() {
+            return;
+        }
+        checkpoints.sort_by_key(|checkpoint| checkpoint.offset);
+        checkpoints.dedup_by_key(|checkpoint| checkpoint.offset);
+        if checkpoints.len() > MAX_LINE_INDEX_CHECKPOINTS {
+            let excess = checkpoints.len() - MAX_LINE_INDEX_CHECKPOINTS;
+            checkpoints.drain(..excess);
+        }
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if entries.len() >= MAX_LINE_INDEX_FILES
+            && !entries.contains_key(path)
+            && let Some(key) = entries.keys().next().cloned()
+        {
+            entries.remove(&key);
+        }
+        entries.insert(
+            path.to_path_buf(),
+            CachedLineIndex {
+                version,
+                checkpoints: checkpoints.clone(),
+            },
+        );
+    }
+}
 
 /// Typed parameters for [`ReadTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
@@ -89,6 +190,10 @@ impl Tool for ReadTool {
         BuiltinTool::Read.as_str()
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::Read.aliases()
+    }
+
     fn description(&self) -> &str {
         "Read a file (text, PDF, or image) or list one directory level. \
          Use find_files for recursive file discovery and search_text for content search."
@@ -106,7 +211,15 @@ impl Tool for ReadTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
+    fn path_bound(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
         read_accesses(arguments)
     }
 
@@ -140,7 +253,7 @@ impl Tool for ReadTool {
                 None
             };
             return match resolved {
-                Some(text) => self.text_output(&text, args.offset, limit, raw_path),
+                Some(text) => self.text_output(&text, args.offset, limit, raw_path, None),
                 None => {
                     let path = Path::new(raw_path);
                     if path.is_file() {
@@ -162,7 +275,17 @@ impl Tool for ReadTool {
     }
 }
 
+/// What the synchronous half of `read` produced. PDF is returned as a marker so
+/// the only async dependency (the document extractor) runs on the caller.
+enum BlockingRead {
+    Output(ToolOutput),
+    Pdf { size: u64, version: String },
+}
+
 impl ReadTool {
+    /// Async read: the blocking half runs on the blocking pool, so a slow
+    /// filesystem, a huge line scan, or a directory listing cannot stall a
+    /// Tokio worker shared by other sessions.
     async fn read_path(
         &self,
         path: &Path,
@@ -171,6 +294,42 @@ impl ReadTool {
         raw_path: &str,
         call_ctx: &ToolContext,
     ) -> Result<ToolOutput, ToolError> {
+        let normalizer = self.normalizer(call_ctx);
+        let ctx = Arc::clone(&self.ctx);
+        let blocking_path = path.to_path_buf();
+        let path = path.to_path_buf();
+        let raw = raw_path.to_string();
+        let tool_ctx = call_ctx.clone();
+        let blocking = tokio::task::spawn_blocking(move || {
+            let tool = ReadTool::new(ctx);
+            tool.read_path_sync(&blocking_path, offset, limit, &raw, normalizer, &tool_ctx)
+        })
+        .await
+        .map_err(|error| {
+            ToolError::execution(self.name(), format!("read worker failed: {error}"))
+        })??;
+        match blocking {
+            BlockingRead::Output(output) => Ok(output),
+            BlockingRead::Pdf { size, version } => {
+                self.document_output(&path, size, offset, limit, raw_path, &version, call_ctx)
+                    .await
+            }
+        }
+    }
+
+    /// The synchronous half: metadata, directory listing, text pagination, and
+    /// image ingest. PDF parsing is the only branch that needs the async
+    /// document extractor, so it returns a marker and the caller runs it.
+    fn read_path_sync(
+        &self,
+        path: &Path,
+        offset: Option<i64>,
+        limit: usize,
+        raw_path: &str,
+        normalizer: Option<Arc<dyn ImageNormalizer>>,
+        call_ctx: &ToolContext,
+    ) -> Result<BlockingRead, ToolError> {
+        call_ctx.check_cancelled(self.name())?;
         let meta = match fs::metadata(path) {
             Ok(meta) => meta,
             Err(err) => {
@@ -181,13 +340,25 @@ impl ReadTool {
             }
         };
 
+        let version = file_version(path, &meta);
         if meta.is_dir() {
-            return self.list_directory(path, offset, limit, raw_path);
+            return self
+                .list_directory(path, offset, limit, raw_path, call_ctx)
+                .map(BlockingRead::Output);
         }
         if !meta.is_file() {
             return Err(ToolError::execution(
                 self.name(),
                 format!("`{raw_path}` is neither a regular file nor a directory"),
+            ));
+        }
+
+        // Tail reads must scan to EOF; refuse a pathological scan before
+        // opening the file rather than after minutes of I/O.
+        if offset.unwrap_or(1) < 0 && meta.len() > MAX_READ_SCAN_BYTES {
+            return Err(ToolError::execution(
+                self.name(),
+                scan_budget_message(raw_path),
             ));
         }
 
@@ -203,12 +374,22 @@ impl ReadTool {
             })?;
 
         if let Some(mime) = image_mime(&first) {
-            return self.image_output(path, mime, meta.len(), raw_path, call_ctx);
+            return self
+                .image_output(
+                    path,
+                    mime,
+                    meta.len(),
+                    raw_path,
+                    normalizer.as_ref(),
+                    call_ctx,
+                )
+                .map(BlockingRead::Output);
         }
         if is_pdf(&first) {
-            return self
-                .document_output(path, meta.len(), offset, limit, raw_path, call_ctx)
-                .await;
+            return Ok(BlockingRead::Pdf {
+                size: meta.len(),
+                version,
+            });
         }
         if first.contains(&0) {
             return Err(ToolError::execution(
@@ -227,14 +408,48 @@ impl ReadTool {
                 ToolError::execution(self.name(), format!("cannot read `{raw_path}`: {err}"))
             })?;
             let text = decode_utf8(&bytes, raw_path, 1)?;
-            return self.text_output(&text, offset, limit, raw_path);
+            return self
+                .text_output(&text, offset, limit, raw_path, Some(version))
+                .map(BlockingRead::Output);
         }
 
-        file.seek(SeekFrom::Start(0)).map_err(|err| {
-            ToolError::execution(self.name(), format!("cannot rewind `{raw_path}`: {err}"))
+        let requested = offset.unwrap_or(1);
+        let resume = (requested > 1)
+            .then(|| {
+                self.ctx.line_index.resume(
+                    path,
+                    &version,
+                    usize::try_from(requested).unwrap_or(usize::MAX),
+                )
+            })
+            .flatten();
+        let (initial_line, base_offset, mut checkpoints) = match resume {
+            Some((offset, line, checkpoints)) => (line, offset, checkpoints),
+            None => (0, 0, Vec::new()),
+        };
+        file.seek(SeekFrom::Start(base_offset)).map_err(|err| {
+            ToolError::execution(
+                self.name(),
+                format!("cannot seek `{raw_path}` to byte {base_offset}: {err}"),
+            )
         })?;
         let reader = BufReader::new(file);
-        self.stream_text(reader, offset, limit, raw_path)
+        let version_for_cache = version.clone();
+        let result = self.stream_text(
+            reader,
+            offset,
+            limit,
+            raw_path,
+            Some(version),
+            call_ctx,
+            initial_line,
+            base_offset,
+            &mut checkpoints,
+        );
+        self.ctx
+            .line_index
+            .store(path, version_for_cache, &mut checkpoints);
+        result.map(BlockingRead::Output)
     }
 
     fn image_output(
@@ -243,8 +458,10 @@ impl ReadTool {
         mime: &str,
         size: u64,
         raw_path: &str,
+        normalizer: Option<&Arc<dyn ImageNormalizer>>,
         call_ctx: &ToolContext,
     ) -> Result<ToolOutput, ToolError> {
+        call_ctx.check_cancelled(self.name())?;
         if size > MAX_MEDIA_BYTES {
             return Err(ToolError::execution(
                 self.name(),
@@ -256,10 +473,7 @@ impl ReadTool {
         let bytes = fs::read(path).map_err(|err| {
             ToolError::execution(self.name(), format!("cannot read `{raw_path}`: {err}"))
         })?;
-        let (mime, bytes) = match self
-            .normalizer(call_ctx)
-            .and_then(|n| n.normalize(&bytes, mime))
-        {
+        let (mime, bytes) = match normalizer.and_then(|n| n.normalize(&bytes, mime)) {
             Some(normalized) => (normalized.mime, normalized.data),
             None => (mime.to_string(), bytes),
         };
@@ -267,6 +481,7 @@ impl ReadTool {
         Ok(ToolOutput::Image { mime, data })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn document_output(
         &self,
         path: &Path,
@@ -274,6 +489,7 @@ impl ReadTool {
         offset: Option<i64>,
         limit: usize,
         raw_path: &str,
+        version: &str,
         call_ctx: &ToolContext,
     ) -> Result<ToolOutput, ToolError> {
         if size > MAX_DOCUMENT_BYTES {
@@ -293,9 +509,12 @@ impl ReadTool {
             )
         })?;
 
-        let bytes = {
-            let file = fs::File::open(path).map_err(|err| {
-                ToolError::execution(self.name(), format!("cannot open `{raw_path}`: {err}"))
+        let path = path.to_path_buf();
+        let raw_owned = raw_path.to_string();
+        let tool_name = self.name().to_string();
+        let bytes = tokio::task::spawn_blocking(move || {
+            let file = fs::File::open(&path).map_err(|err| {
+                ToolError::execution(&tool_name, format!("cannot open `{raw_owned}`: {err}"))
             })?;
             // Read at most one byte past the ceiling: metadata is a hint, not a
             // guarantee that the file cannot grow before the read.
@@ -303,18 +522,22 @@ impl ReadTool {
             file.take(MAX_DOCUMENT_BYTES + 1)
                 .read_to_end(&mut bytes)
                 .map_err(|err| {
-                    ToolError::execution(self.name(), format!("cannot read `{raw_path}`: {err}"))
+                    ToolError::execution(&tool_name, format!("cannot read `{raw_owned}`: {err}"))
                 })?;
             if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
                 return Err(ToolError::execution(
-                    self.name(),
+                    &tool_name,
                     format!(
-                        "`{raw_path}` exceeds the PDF ingest ceiling of {MAX_DOCUMENT_BYTES} bytes"
+                        "`{raw_owned}` exceeds the PDF ingest ceiling of {MAX_DOCUMENT_BYTES} bytes"
                     ),
                 ));
             }
-            bytes
-        };
+            Ok::<Vec<u8>, ToolError>(bytes)
+        })
+        .await
+        .map_err(|error| {
+            ToolError::execution(self.name(), format!("PDF worker failed: {error}"))
+        })??;
 
         let document = run_document_extraction(
             extractor,
@@ -327,7 +550,7 @@ impl ReadTool {
 
         let page = page_from_text(&document.text, offset, limit, raw_path)
             .map_err(|message| ToolError::execution(self.name(), message))?;
-        Ok(page.into_output_for(None, raw_path, Some(&document)))
+        Ok(page.into_output_for(None, raw_path, Some(&document), Some(version.to_string())))
     }
 
     fn list_directory(
@@ -336,7 +559,9 @@ impl ReadTool {
         offset: Option<i64>,
         limit: usize,
         raw_path: &str,
+        call_ctx: &ToolContext,
     ) -> Result<ToolOutput, ToolError> {
+        call_ctx.check_cancelled(self.name())?;
         let offset = offset.unwrap_or(1);
         if offset < 1 {
             return Err(ToolError::execution(
@@ -352,7 +577,19 @@ impl ReadTool {
         let read_dir = fs::read_dir(path).map_err(|err| {
             ToolError::execution(self.name(), format!("cannot list `{raw_path}`: {err}"))
         })?;
-        for entry in read_dir {
+        for (index, entry) in read_dir.enumerate() {
+            if index % CANCEL_CHECK_LINES == 0 {
+                call_ctx.check_cancelled(self.name())?;
+            }
+            if index >= MAX_DIRECTORY_ENTRIES {
+                return Err(ToolError::execution(
+                    self.name(),
+                    format!(
+                        "`{raw_path}` has more than {MAX_DIRECTORY_ENTRIES} entries; \
+                         use find_files with a pattern to narrow it"
+                    ),
+                ));
+            }
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(_) => continue,
@@ -402,16 +639,32 @@ impl ReadTool {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn stream_text(
         &self,
         reader: impl BufRead,
         offset: Option<i64>,
         limit: usize,
         raw_path: &str,
+        version: Option<String>,
+        call_ctx: &ToolContext,
+        initial_line: usize,
+        base_offset: u64,
+        checkpoints: &mut Vec<LineCheckpoint>,
     ) -> Result<ToolOutput, ToolError> {
-        let page = stream_lines(reader, offset, limit, raw_path)
-            .map_err(|message| ToolError::execution(self.name(), message))?;
-        Ok(page.into_output_for(lang_for(raw_path), raw_path, None))
+        let page = stream_lines_indexed(
+            reader,
+            offset,
+            limit,
+            raw_path,
+            call_ctx,
+            MAX_READ_SCAN_BYTES,
+            initial_line,
+            base_offset,
+            checkpoints,
+        )
+        .map_err(|message| ToolError::execution(self.name(), message))?;
+        Ok(page.into_output_for(lang_for(raw_path), raw_path, None, version))
     }
 
     fn text_output(
@@ -420,14 +673,16 @@ impl ReadTool {
         offset: Option<i64>,
         limit: usize,
         raw_path: &str,
+        version: Option<String>,
     ) -> Result<ToolOutput, ToolError> {
         let page = page_from_text(text, offset, limit, raw_path)
             .map_err(|message| ToolError::execution(self.name(), message))?;
-        Ok(page.into_output_for(lang_for(raw_path), raw_path, None))
+        Ok(page.into_output_for(lang_for(raw_path), raw_path, None, version))
     }
 }
 
 /// One page of text plus the framing the model needs to continue.
+#[derive(Debug)]
 struct TextPage {
     text: String,
     start_line: usize,
@@ -441,6 +696,7 @@ impl TextPage {
         lang: Option<String>,
         raw_path: &str,
         document: Option<&ExtractedDocument>,
+        version: Option<String>,
     ) -> ToolOutput {
         let lines = self.text.lines().count();
         let end_line = self.start_line + lines.saturating_sub(1);
@@ -460,19 +716,25 @@ impl TextPage {
             format!(" — PDF text, {pages}")
         });
         let note = document_note.as_deref().unwrap_or("");
+        let version_note = version
+            .as_deref()
+            .map(|version| format!("; version {version}"))
+            .unwrap_or_default();
         let prefix = match self.total {
-            Some(total) if lines > 0 => format!(
-                "[Lines {}-{} of {} from `{raw_path}`{}]",
-                self.start_line, end_line, total, note
-            ),
-            Some(total) => format!("[0 lines of {total} from `{raw_path}`{note}]"),
+            Some(total) if lines > 0 => {
+                format!(
+                    "[Lines {}-{} of {} from `{raw_path}`{}]",
+                    self.start_line, end_line, total, note
+                ) + &version_note
+            }
+            Some(total) => format!("[0 lines of {total} from `{raw_path}`{note}{version_note}]"),
             None if lines > 0 => {
                 format!(
                     "[Lines {}-{} from `{raw_path}`{note}]",
                     self.start_line, end_line
-                )
+                ) + &version_note
             }
-            None => format!("[no lines from `{raw_path}`{note}]"),
+            None => format!("[no lines from `{raw_path}`{note}{version_note}]"),
         };
         let suffix = match (self.next, self.total) {
             (Some(next), Some(total)) => {
@@ -491,15 +753,115 @@ impl TextPage {
             start_line: self.start_line,
             prefix: Some(prefix),
             suffix,
+            version,
         }
     }
 }
 
-fn stream_lines(
+fn scan_budget_message(raw_path: &str) -> String {
+    format!(
+        "`{raw_path}` needs more than {} MiB of scanning to reach the requested offset. \
+         Use search_text or code_query to locate the line, or read the tail with a negative offset.",
+        MAX_READ_SCAN_BYTES / (1024 * 1024)
+    )
+}
+
+/// Read one `\n`-terminated line while retaining at most [`MAX_LINE_BYTES`].
+///
+/// `read_until` grows without bound on a single-line file; this helper consumes
+/// the rest of an oversized line without storing it, checks NUL bytes on every
+/// buffer chunk, and enforces the same scan budget during the read so one
+/// pathological line cannot defeat the budget.
+fn read_bounded_line(
+    reader: &mut impl BufRead,
+    out: &mut Vec<u8>,
+    raw_path: &str,
+    line_no: usize,
+    call_ctx: &ToolContext,
+) -> Result<usize, String> {
+    let mut consumed = 0usize;
+    let mut truncated = false;
+    loop {
+        if call_ctx.is_cancelled() {
+            return Err("tool `read` execution was cancelled".to_string());
+        }
+        let available = reader
+            .fill_buf()
+            .map_err(|err| format!("cannot read `{raw_path}`: {err}"))?;
+        if available.is_empty() {
+            break;
+        }
+        if available.contains(&0) {
+            return Err(format!(
+                "`{raw_path}` is a binary file (NUL byte on line {line_no})"
+            ));
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let take = newline.map(|index| index + 1).unwrap_or(available.len());
+        if !truncated {
+            let room = MAX_LINE_BYTES.saturating_sub(out.len());
+            let copy = take.min(room);
+            out.extend_from_slice(&available[..copy]);
+            if copy < take {
+                truncated = true;
+            }
+        }
+        reader.consume(take);
+        consumed = consumed.saturating_add(take);
+        if consumed as u64 > MAX_READ_SCAN_BYTES {
+            return Err(scan_budget_message(raw_path));
+        }
+        if newline.is_some() {
+            break;
+        }
+    }
+    if truncated {
+        // The byte ceiling can land inside a multi-byte UTF-8 character. Back
+        // off to the last valid boundary so `decode_line` reports a truncated
+        // line, not an invalid-UTF-8 file.
+        let mut end = out.len();
+        while end > 0 && std::str::from_utf8(&out[..end]).is_err() {
+            end -= 1;
+        }
+        out.truncate(end);
+    }
+    Ok(consumed)
+}
+
+#[cfg(test)]
+fn stream_lines_with_budget(
     reader: impl BufRead,
     offset: Option<i64>,
     limit: usize,
     raw_path: &str,
+    call_ctx: &ToolContext,
+    scan_budget: u64,
+) -> Result<TextPage, String> {
+    let mut checkpoints = Vec::new();
+    stream_lines_indexed(
+        reader,
+        offset,
+        limit,
+        raw_path,
+        call_ctx,
+        scan_budget,
+        0,
+        0,
+        &mut checkpoints,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_lines_indexed(
+    reader: impl BufRead,
+    offset: Option<i64>,
+    limit: usize,
+    raw_path: &str,
+    call_ctx: &ToolContext,
+    scan_budget: u64,
+    initial_line: usize,
+    base_offset: u64,
+    checkpoints: &mut Vec<LineCheckpoint>,
 ) -> Result<TextPage, String> {
     let offset = offset.unwrap_or(1);
     let tail = offset < 0;
@@ -510,20 +872,36 @@ fn stream_lines(
     };
 
     let mut reader = reader;
-    let mut line_no = 0usize;
+    let mut line_no = initial_line;
     let mut page: VecDeque<String> = VecDeque::new();
     let mut bytes = 0usize;
+    let mut scanned = 0u64;
+    let mut next_checkpoint = base_offset.saturating_add(LINE_INDEX_INTERVAL_BYTES);
     let mut buf = Vec::new();
 
     loop {
+        if line_no.is_multiple_of(CANCEL_CHECK_LINES) && call_ctx.is_cancelled() {
+            return Err("tool `read` execution was cancelled".to_string());
+        }
+        let absolute = base_offset.saturating_add(scanned);
+        if absolute >= next_checkpoint {
+            checkpoints.push(LineCheckpoint {
+                offset: absolute,
+                line: line_no,
+            });
+            next_checkpoint = absolute.saturating_add(LINE_INDEX_INTERVAL_BYTES);
+        }
         buf.clear();
-        let read = reader
-            .read_until(b'\n', &mut buf)
-            .map_err(|err| format!("cannot read `{raw_path}`: {err}"))?;
+        let read = read_bounded_line(&mut reader, &mut buf, raw_path, line_no + 1, call_ctx)?;
         if read == 0 {
             break;
         }
         line_no += 1;
+        scanned = scanned.saturating_add(read as u64);
+        let still_scanning = tail || line_no <= requested;
+        if still_scanning && scanned > scan_budget {
+            return Err(scan_budget_message(raw_path));
+        }
 
         if buf.contains(&0) {
             return Err(format!(
@@ -558,12 +936,13 @@ fn stream_lines(
         bytes += cost;
         page.push_back(line);
         if page.len() >= limit {
-            // Peek one line to decide whether a next page exists, then stop.
-            let mut probe = Vec::new();
+            // Peek one buffer-sized chunk to decide whether a next page
+            // exists, without consuming (or allocating) the next line.
             let found = reader
-                .read_until(b'\n', &mut probe)
-                .map_err(|err| format!("cannot read `{raw_path}`: {err}"))?;
-            let next = (found > 0).then_some(line_no + 1);
+                .fill_buf()
+                .map_err(|err| format!("cannot read `{raw_path}`: {err}"))?
+                .is_empty();
+            let next = (!found).then_some(line_no + 1);
             let text = page.into_iter().collect::<Vec<_>>().join("\n");
             return Ok(TextPage {
                 text,
@@ -574,7 +953,7 @@ fn stream_lines(
         }
     }
 
-    let start_line = if tail {
+    let page_start = if tail {
         line_no.saturating_sub(page.len()) + 1
     } else {
         requested.max(1)
@@ -582,7 +961,7 @@ fn stream_lines(
     let text = page.into_iter().collect::<Vec<_>>().join("\n");
     Ok(TextPage {
         text,
-        start_line,
+        start_line: page_start,
         total: Some(line_no),
         next: None,
     })
@@ -669,6 +1048,58 @@ fn decode_utf8(bytes: &[u8], raw_path: &str, start_line: usize) -> Result<String
         )
     })?;
     Ok(text.to_string())
+}
+
+/// Maximum file size for which a read computes a full content hash.
+///
+/// Optimistic concurrency should not double the I/O of every large read. Small
+/// files get a content-addressed token; large files get a metadata identity
+/// that includes inode and change time, which catches same-size rewrites
+/// without hashing gigabytes.
+const MAX_CONTENT_VERSION_BYTES: u64 = 1024 * 1024;
+
+/// Content-addressed version for small files, metadata identity for large ones.
+///
+/// This is an optimistic-concurrency token for the common "read, edit, write"
+/// sequence. A small file hashes its bytes, so a same-length replacement is
+/// always detected. A large file uses length, mtime, device, inode, and ctime
+/// (including nanoseconds on Unix); a writer that changes bytes necessarily
+/// advances ctime or replaces the inode.
+pub(crate) fn file_version(path: &Path, meta: &fs::Metadata) -> String {
+    if meta.is_file()
+        && meta.len() <= MAX_CONTENT_VERSION_BYTES
+        && let Ok(bytes) = fs::read(path)
+    {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(&bytes);
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut hex = String::with_capacity(12);
+        for byte in digest.iter().take(6) {
+            hex.push(HEX[(byte >> 4) as usize] as char);
+            hex.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+        return format!("c{hex}-{:x}", bytes.len());
+    }
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        format!(
+            "-{:x}-{:x}-{:x}-{:x}",
+            meta.dev(),
+            meta.ino(),
+            meta.ctime(),
+            meta.ctime_nsec()
+        )
+    };
+    #[cfg(not(unix))]
+    let identity = String::new();
+    format!("m{:x}-{mtime:x}{identity}", meta.len())
 }
 
 pub(crate) fn clamp_line_to(line: &str, max_chars: usize) -> String {
@@ -794,9 +1225,9 @@ mod tests;
 #[cfg(test)]
 mod stream_tests {
     use super::*;
+    use ::tool::ToolContext;
     use serde_json::json;
     use tempfile::tempdir;
-    use tool::ToolContext;
 
     #[tokio::test]
     async fn large_text_file_streams_the_requested_page() {
@@ -860,9 +1291,9 @@ mod stream_tests {
 #[cfg(test)]
 mod boundary_tests {
     use super::*;
+    use ::tool::ToolContext;
     use serde_json::json;
     use tempfile::tempdir;
-    use tool::ToolContext;
 
     #[tokio::test]
     async fn long_lines_are_clamped_and_labelled() {
@@ -894,5 +1325,155 @@ mod boundary_tests {
             ToolOutput::Code { text, .. } => assert_eq!(text, "alpha\nbeta"),
             other => panic!("expected Code, got {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod blocking_tests {
+    use super::*;
+    use serde_json::json;
+    use std::io::{BufReader, Cursor};
+    use tempfile::tempdir;
+
+    #[test]
+    fn a_single_long_line_is_consumed_but_not_retained() {
+        let text = format!("{}\n", "a".repeat(100_000));
+        let mut reader = BufReader::new(Cursor::new(text.into_bytes()));
+        let mut line = Vec::new();
+        let consumed = read_bounded_line(
+            &mut reader,
+            &mut line,
+            "long.log",
+            1,
+            &ToolContext::default(),
+        )
+        .expect("bounded line");
+        assert_eq!(consumed, 100_001);
+        assert!(line.len() <= MAX_LINE_BYTES);
+        let mut next = Vec::new();
+        assert_eq!(
+            read_bounded_line(
+                &mut reader,
+                &mut next,
+                "long.log",
+                2,
+                &ToolContext::default()
+            )
+            .expect("eof"),
+            0
+        );
+    }
+
+    #[test]
+    fn a_truncated_line_stays_on_a_utf8_boundary() {
+        let text = format!("{}\n", "€".repeat(3_000));
+        let mut reader = BufReader::new(Cursor::new(text.into_bytes()));
+        let mut line = Vec::new();
+        read_bounded_line(
+            &mut reader,
+            &mut line,
+            "utf8.log",
+            1,
+            &ToolContext::default(),
+        )
+        .expect("bounded line");
+        assert!(line.len() <= MAX_LINE_BYTES);
+        assert!(std::str::from_utf8(&line).is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_repeated_deep_read_uses_the_sparse_index() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("big.log");
+        let content = "line\n".repeat(300_000);
+        std::fs::write(&path, content).unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let tool = ReadTool::new(Arc::clone(&ctx));
+        let args = json!({"path": "big.log", "offset": 250_000, "limit": 2});
+
+        let first = tool
+            .execute(&ToolContext::default(), args.clone())
+            .await
+            .unwrap();
+        let version = file_version(&path, &std::fs::metadata(&path).unwrap());
+        let checkpoints = ctx.line_index.load(&path, &version);
+        assert!(
+            !checkpoints.is_empty(),
+            "the first scan must seed the index"
+        );
+
+        let second = tool.execute(&ToolContext::default(), args).await.unwrap();
+        assert_eq!(first.to_text(), second.to_text());
+        assert!(
+            second.to_text().contains("Lines 250000-250001"),
+            "{}",
+            second.to_text()
+        );
+    }
+
+    #[test]
+    fn small_files_use_a_content_addressed_version() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("versioned.txt");
+        std::fs::write(&path, "aaaa").unwrap();
+        let first = file_version(&path, &std::fs::metadata(&path).unwrap());
+        assert!(first.starts_with('c'), "{first}");
+
+        std::fs::write(&path, "bbbb").unwrap();
+        let second = file_version(&path, &std::fs::metadata(&path).unwrap());
+        assert_ne!(first, second, "same-length content must change the version");
+    }
+
+    #[test]
+    fn sparse_line_index_resumes_at_the_best_checkpoint() {
+        let cache = LineIndexCache::default();
+        let path = Path::new("indexed.log");
+        let version = "v1";
+        let mut checkpoints = vec![
+            LineCheckpoint {
+                offset: 200,
+                line: 20,
+            },
+            LineCheckpoint { offset: 0, line: 0 },
+            LineCheckpoint {
+                offset: 100,
+                line: 10,
+            },
+        ];
+        cache.store(path, version.to_string(), &mut checkpoints);
+
+        let (offset, line, all) = cache.resume(path, version, 15).expect("resume");
+        assert_eq!((offset, line), (100, 10));
+        assert_eq!(all.len(), 3);
+        let (offset, line, _) = cache.resume(path, version, 21).expect("resume");
+        assert_eq!((offset, line), (200, 20));
+        assert!(cache.resume(path, "v2", 21).is_none());
+    }
+
+    #[test]
+    fn a_forward_offset_beyond_the_scan_budget_is_refused() {
+        let text = "line\n".repeat(10_000);
+        let reader = BufReader::new(Cursor::new(text.into_bytes()));
+        let error = stream_lines_with_budget(
+            reader,
+            Some(9_000),
+            2,
+            "big.log",
+            &ToolContext::default(),
+            128,
+        )
+        .expect_err("scan budget must stop a far offset");
+        assert!(error.contains("scanning"), "{error}");
+    }
+
+    #[test]
+    fn a_cancelled_read_stops_before_scanning_further() {
+        let text = "line\n".repeat(10_000);
+        let reader = BufReader::new(Cursor::new(text.into_bytes()));
+        let ctx = ToolContext::default();
+        ctx.cancel_token.cancel();
+        let error = stream_lines_with_budget(reader, Some(5), 2, "big.log", &ctx, u64::MAX)
+            .expect_err("a cancelled context must abort the scan");
+        assert!(error.contains("cancelled"), "{error}");
     }
 }

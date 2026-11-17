@@ -246,8 +246,9 @@ impl Agent {
         // checkpoint replay): those calls' cards then still show what they *would*
         // have done, which is more informative than an empty card, and none of those
         // effects happen.
+        let snapshot = self.current_tool_snapshot();
         for call in tool_calls {
-            let Some(tool) = self.tool_manager().find(&call.name) else {
+            let Some(entry) = snapshot.find(&call.name) else {
                 continue;
             };
             let arguments = serde_json::from_str::<serde_json::Value>(&call.arguments)
@@ -256,7 +257,17 @@ impl Agent {
             // there is nothing to show, and a "preview unavailable" card for every
             // shell command would be noise rather than information. The approval
             // prompt still states the absence in prose where a decision is at stake.
-            if let Some(preview) = tool.tool.preview(&arguments) {
+            let preview =
+                tokio::time::timeout(tool::PREVIEW_TIMEOUT, entry.tool.preview(&arguments))
+                    .await
+                    .unwrap_or_else(|_| {
+                        tracing::debug!(
+                            tool = entry.tool.name(),
+                            "tool preview timed out; continuing without a diff"
+                        );
+                        None
+                    });
+            if let Some(preview) = preview {
                 on_event(AgentEvent::ToolPreview {
                     id: call.id.clone(),
                     name: call.name.clone(),
@@ -417,7 +428,7 @@ impl Agent {
                 // the SAME future to its drained terminal result instead of
                 // dropping and re-entering the tool (dropping mid-permission park
                 // or mid-subagent and re-running would duplicate side effects).
-                let fut = agent.execute_tool(&call, &tx);
+                let fut = agent.execute_tool(&call, &tx, &token);
                 tokio::pin!(fut);
                 let output = tokio::select! {
                     biased;
@@ -427,15 +438,15 @@ impl Agent {
                         // else is dropped here by returning early — its
                         // terminal ToolCancelled is emitted by the driver,
                         // which owns pairing for unproduced calls.
-                        let tool = agent.tool_manager().find(&call.name);
-                        let cancellable = tool
+                        let entry = agent.current_tool_snapshot().find(&call.name);
+                        let cancellable = entry
                             .as_ref()
-                            .is_some_and(|sourced| sourced.tool.supports_cooperative_cancel());
+                            .is_some_and(|entry| entry.tool.supports_cooperative_cancel());
                         if !cancellable {
                             return Err(crate::tool_scheduler::SchedulerError::Cancelled);
                         }
-                        if let Some(sourced) = &tool {
-                            sourced.tool.request_cancel(&call_id);
+                        if let Some(entry) = &entry {
+                            entry.tool.request_cancel(&call_id);
                         }
                         fut.await
                     }

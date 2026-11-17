@@ -14,6 +14,7 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -27,14 +28,16 @@ pub trait ToolStreamSink: Send + Sync {
 }
 
 /// Everything a tool needs for one invocation beyond its own state: the call
-/// identity, the raw arguments, the input-execution contract, and the runtime
-/// input supervisor (when the dispatch layer supplied one). Bundled so the
-/// trait method stays stable as per-call context grows.
+/// identity, the validated arguments, the input-execution contract, and the
+/// runtime input supervisor (when the dispatch layer supplied one). Bundled so
+/// the trait method stays stable as per-call context grows.
 pub struct ToolInvocation<'a> {
     /// The dispatch-generated call id (keys live streams and subagent views).
     pub call_id: &'a str,
-    /// Raw JSON tool arguments exactly as the model emitted them.
-    pub arguments: &'a str,
+    /// Validated, normalized JSON arguments. The dispatcher has already
+    /// compiled the tool's schema, coerced unambiguous model mistakes, and
+    /// rejected anything that still violates the declared shape.
+    pub arguments: &'a serde_json::Value,
     /// How the child's input channels are provisioned (command tool only;
     /// other tools ignore it).
     pub input: crate::stream::InputContract,
@@ -66,17 +69,12 @@ pub struct ToolContext {
     /// blobs, shared registries, harness event channels). The one seam that lets
     /// a tool reach a concrete dependency without the leaf depending on it.
     services: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
-    /// Set only by [`Tool::call`](crate::Tool::call)'s default when it re-enters
-    /// [`Tool::execute`](crate::Tool::execute) on behalf of a tool that keeps
-    /// only the legacy string entry point.
-    ///
-    /// It exists so the one programming error in that delegation cycle — a tool
-    /// that overrides *neither* entry point — is detectable at the moment it
-    /// actually happens. The two defaults call each other, so the defect is
-    /// visible only as "the *default* `execute` was reached again, carrying a
-    /// call that came from the *default* `call`": that is the cycle closing on
-    /// itself, and it would otherwise recurse until the stack dies.
-    legacy_call_delegation: bool,
+    /// Last progress-emission millisecond, shared across context clones. Keeps a
+    /// chatty MCP server from flooding the UI with updates no human can read.
+    progress_gate: Arc<AtomicU64>,
+    /// Last progress tick, retained even when the UI throttle drops it. A
+    /// failed call reports this so the operator can see where it stopped.
+    last_progress: Arc<std::sync::Mutex<Option<crate::ToolProgress>>>,
 }
 
 impl Default for ToolContext {
@@ -90,7 +88,8 @@ impl Default for ToolContext {
             workspace_roots: None,
             stream_sink: None,
             services: Arc::new(HashMap::new()),
-            legacy_call_delegation: false,
+            progress_gate: Arc::new(AtomicU64::new(0)),
+            last_progress: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }
@@ -153,6 +152,47 @@ impl ToolContext {
         if let Some(sink) = &self.stream_sink {
             sink.emit(stream);
         }
+    }
+
+    /// Emit one progress tick, if a sink is attached.
+    ///
+    /// Ticks are throttled to at most one per 100 ms per call context. A final
+    /// tick may be dropped; the terminal tool result is authoritative and lands
+    /// immediately after.
+    pub fn emit_progress(&self, progress: crate::ToolProgress) {
+        *self
+            .last_progress
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(progress.clone());
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let last = self.progress_gate.load(Ordering::Relaxed);
+        if now.saturating_sub(last) < 100 {
+            return;
+        }
+        if self
+            .progress_gate
+            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+        self.emit_stream(ToolStream::Progress(progress));
+    }
+
+    /// The most recent progress tick reported by this call, throttled or not.
+    ///
+    /// `emit_progress` records every tick before the UI throttle; a failure path
+    /// can therefore attach the last observed position even when the tick never
+    /// reached the event stream.
+    pub fn last_progress(&self) -> Option<crate::ToolProgress> {
+        self.last_progress
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 
     /// Look up a service by its exact type. `None` if none was provided.
@@ -238,23 +278,6 @@ impl ToolContext {
     pub fn with_services(mut self, map: ServiceMap) -> Self {
         self.services = map.services;
         self
-    }
-
-    /// Record that [`Tool::call`](crate::Tool::call)'s default is re-entering
-    /// [`Tool::execute`](crate::Tool::execute) on behalf of a legacy tool.
-    ///
-    /// The flag has to travel on the context because it describes the *edge*
-    /// between the two defaults, and that edge runs through a context this
-    /// crate constructs itself.
-    pub(crate) fn mark_legacy_call_delegation(mut self) -> Self {
-        self.legacy_call_delegation = true;
-        self
-    }
-
-    /// Whether this context is the re-entry of `execute`'s default immediately
-    /// after `call`'s default — the signature of a tool that overrides neither.
-    pub(crate) fn is_legacy_call_delegation(&self) -> bool {
-        self.legacy_call_delegation
     }
 }
 

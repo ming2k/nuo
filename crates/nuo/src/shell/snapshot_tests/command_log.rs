@@ -17,7 +17,7 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let structured = tool::ToolOutput::Shell {
+    let structured = ::tool::ToolOutput::Shell {
         command: "cargo build".into(),
         stdout,
         stderr: String::new(),
@@ -78,7 +78,7 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let structured = tool::ToolOutput::Shell {
+    let structured = ::tool::ToolOutput::Shell {
         command: "cargo build".into(),
         stdout,
         stderr: String::new(),

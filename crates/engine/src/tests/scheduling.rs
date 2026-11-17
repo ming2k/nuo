@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Value;
 
 #[test]
 fn hard_stop_turns_getter_round_trips_setter() {
@@ -312,12 +313,16 @@ impl Tool for DelayedReadTool {
     fn description(&self) -> &str {
         "delayed read probe"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
         tokio::time::sleep(self.delay).await;
-        Ok(self.output.clone())
+        Ok(::tool::ToolOutput::text(self.output.clone()))
     }
 }
 
@@ -406,10 +411,14 @@ async fn interrupted_batch_records_subagent_drain_and_cancels_unproduced_calls()
         fn description(&self) -> &str {
             "blocks until the turn is cancelled"
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
             self.started.notify_one();
             let _: () = pending().await;
             unreachable!("the turn is cancelled before this returns")
@@ -533,17 +542,22 @@ async fn scheduler_serializes_conflicting_writes() {
         fn description(&self) -> &str {
             "write probe"
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        fn scope_target(&self, arguments: &str) -> tool::ScopeTarget {
-            let path = serde_json::from_str::<serde_json::Value>(arguments)
-                .ok()
-                .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(str::to_string))
+        fn scope_target(&self, arguments: &Value) -> tool::ScopeTarget {
+            let path = arguments
+                .get("path")
+                .and_then(|p| p.as_str())
+                .map(str::to_string)
                 .unwrap_or_else(|| "/tmp/probe".to_string());
             tool::ScopeTarget::Path(std::path::PathBuf::from(path))
         }
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
             let prev = self.active.fetch_add(1, Ordering::SeqCst);
             self.max_concurrent.fetch_max(prev + 1, Ordering::SeqCst);
             self.log
@@ -556,7 +570,7 @@ async fn scheduler_serializes_conflicting_writes() {
                 .unwrap_or_else(|e| e.into_inner())
                 .push("exit");
             self.active.fetch_sub(1, Ordering::SeqCst);
-            Ok("wrote".to_string())
+            Ok(::tool::ToolOutput::text("wrote".to_string()))
         }
     }
 
@@ -616,14 +630,18 @@ async fn only_bounded_builtin_reads_are_eligible_for_early_dispatch() {
         fn description(&self) -> &str {
             "bounded builtin read"
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
         fn builtin(&self) -> Option<tool::BuiltinTool> {
             Some(tool::BuiltinTool::Read)
         }
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
-            Ok("READ".to_string())
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text("READ".to_string()))
         }
     }
     struct CustomRead;
@@ -635,11 +653,15 @@ async fn only_bounded_builtin_reads_are_eligible_for_early_dispatch() {
         fn description(&self) -> &str {
             "custom read with no bounded contract"
         }
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
-            Ok("CUSTOM".to_string())
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text("CUSTOM".to_string()))
         }
     }
 

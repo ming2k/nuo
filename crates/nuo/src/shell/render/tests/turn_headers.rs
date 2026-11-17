@@ -47,12 +47,14 @@ fn header_row<'a>(grid: &'a str, anchor: &str) -> &'a str {
 /// `finish_tool_step` produces in production (so the step renders its result
 /// rather than a bare invocation).
 fn finished_step(name: &str, arguments: &str, text: &str) -> TranscriptMessage {
-    let structured = tool::ToolOutput::Code {
+    let structured = ::tool::ToolOutput::Code {
         lang: None,
         text: text.to_string(),
         start_line: 1,
         prefix: None,
         suffix: None,
+
+        version: None,
     };
     let mut step = TranscriptMessage::tool_step("call_test", name, arguments);
     step.finish_tool_step("call_test", text, structured, 0);

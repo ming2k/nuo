@@ -269,12 +269,26 @@ fn debug_assert_safe_targets(tools: &[Arc<dyn Tool>]) {
     // `scope_target` to surface it for *some* input; sampling a handful keeps
     // the check cheap while catching the unconditional-write default mistake.
     let samples = [
-        "{}",
-        r#"{"path":"src/example.rs"}"#,
-        r#"{"command":"echo hi"}"#,
-        r#"{"path":"/tmp/x","content":"y"}"#,
+        serde_json::json!({}),
+        serde_json::json!({"path": "src/example.rs"}),
+        serde_json::json!({"command": "echo hi"}),
+        serde_json::json!({"path": "/tmp/x", "content": "y"}),
     ];
     for tool in tools {
+        // A built-in's canonical alias set is part of its dispatch identity.
+        // Forgetting to forward `BuiltinTool::aliases()` makes the alias work in
+        // role admission (which reads the enum) but fail at dispatch (which
+        // reads the instance), the worst kind of half-working compatibility.
+        if let Some(builtin) = tool.builtin() {
+            for alias in builtin.aliases() {
+                assert!(
+                    tool.aliases().contains(alias),
+                    "builtin tool {:?} is missing alias {:?} from its tool instance",
+                    tool.name(),
+                    alias,
+                );
+            }
+        }
         // Skip tools that never declare a write — read-only tools legitimately
         // use the `Unspecified` default (it is their auto-admit path).
         let any_write = samples
@@ -286,7 +300,7 @@ fn debug_assert_safe_targets(tools: &[Arc<dyn Tool>]) {
         // The tool declares a write for some sample input. For *that same*
         // sample, its scope_target must be non-Unspecified, otherwise the write
         // would bypass every permission gate.
-        for sample in samples {
+        for sample in &samples {
             let accesses = tool.accesses(sample);
             if !accesses.declares_write() {
                 continue;

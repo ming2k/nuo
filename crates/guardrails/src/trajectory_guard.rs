@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn covers_the_watched_set() {
         assert!(covers("execute_command"));
-        assert!(!covers("run_command"));
+        assert!(!covers("unknown_command"));
         assert!(covers("read"));
         assert!(covers("write_file"));
         assert!(!covers("view_image"));

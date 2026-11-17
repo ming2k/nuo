@@ -242,7 +242,7 @@ impl TranscriptMessage {
         &mut self,
         id: &str,
         output: impl Into<String>,
-        structured: tool::ToolOutput,
+        structured: ::tool::ToolOutput,
         duration_ms: u64,
     ) -> bool {
         let MessageKind::ToolStep {
@@ -269,11 +269,11 @@ impl TranscriptMessage {
         // an explicit `failed` flag — classification is now fully data-driven.
         // Permission denial gets its own status so the UI shows it distinctly
         // from a runtime error.
-        *status = if matches!(structured, tool::ToolOutput::PermissionDenied { .. }) {
+        *status = if matches!(structured, ::tool::ToolOutput::PermissionDenied { .. }) {
             ToolStepStatus::Denied
         } else if matches!(
             &structured,
-            tool::ToolOutput::Subagent {
+            ::tool::ToolOutput::Subagent {
                 interrupted: true,
                 ..
             }
@@ -296,13 +296,14 @@ impl TranscriptMessage {
 
     /// Accumulate an incremental stream chunk into a still-running tool step,
     /// so the UI can render partial output (e.g. bash stdout) live. The first
-    /// chunk initializes a partial [`tool::ToolOutput::Shell`]; the
+    /// chunk initializes a partial [`::tool::ToolOutput::Shell`]; the
     /// terminal `finish_tool_step` later overwrites it with the final result.
     /// Returns `false` if this isn't a matching running step.
     pub fn push_tool_stream(&mut self, id: &str, stream: &tool::ToolStream) -> bool {
         let MessageKind::ToolStep {
             id: step_id,
             arguments,
+            output,
             structured,
             status,
             ..
@@ -313,13 +314,21 @@ impl TranscriptMessage {
         if step_id != id || !status.is_running() {
             return false;
         }
-        if !matches!(structured.as_deref(), Some(tool::ToolOutput::Shell { .. })) {
+        if let tool::ToolStream::Progress(progress) = stream {
+            *output = Some(format!("[progress] {}", progress.render()));
+            self.refresh_tool_step();
+            return true;
+        }
+        if !matches!(
+            structured.as_deref(),
+            Some(::tool::ToolOutput::Shell { .. })
+        ) {
             let cmd = parse_arguments_kv(arguments)
                 .into_iter()
                 .find(|(k, _)| k == "command")
                 .map(|(_, v)| v)
                 .unwrap_or_default();
-            *structured = Some(Box::new(tool::ToolOutput::Shell {
+            *structured = Some(Box::new(::tool::ToolOutput::Shell {
                 command: cmd,
                 stdout: String::new(),
                 stderr: String::new(),
@@ -333,7 +342,7 @@ impl TranscriptMessage {
                 detached_job_id: None,
             }));
         }
-        if let Some(tool::ToolOutput::Shell {
+        if let Some(::tool::ToolOutput::Shell {
             stdout,
             stderr,
             lines,
@@ -353,9 +362,11 @@ impl TranscriptMessage {
             let stream_tag = match stream {
                 tool::ToolStream::Stdout(_) => tool::ShellStream::Out,
                 tool::ToolStream::Stderr(_) => tool::ShellStream::Err,
+                tool::ToolStream::Progress(_) => return true,
             };
             let text = match stream {
                 tool::ToolStream::Stdout(s) | tool::ToolStream::Stderr(s) => s,
+                tool::ToolStream::Progress(_) => return true,
             };
             for piece in text.split('\n') {
                 if !piece.is_empty() {
@@ -368,6 +379,7 @@ impl TranscriptMessage {
             match stream {
                 tool::ToolStream::Stdout(s) => stdout.push_str(s),
                 tool::ToolStream::Stderr(s) => stderr.push_str(s),
+                tool::ToolStream::Progress(_) => {}
             }
         }
         self.refresh_tool_step();
@@ -671,7 +683,7 @@ impl TranscriptMessage {
         let effective_args = if arguments.trim().is_empty() {
             if let Some(box_structured) = structured {
                 match &**box_structured {
-                    tool::ToolOutput::Patch { path, old, new, .. } => {
+                    ::tool::ToolOutput::Patch { path, old, new, .. } => {
                         effective_args_buf = serde_json::json!({
                             "path": path,
                             "old_string": old,

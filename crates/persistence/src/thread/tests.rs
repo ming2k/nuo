@@ -1062,6 +1062,42 @@ async fn thread_projection_is_canonical_for_messages_and_observations() {
     assert_eq!(view.messages[2].tool_call_id.as_deref(), Some("call-1"));
 }
 
+/// Regression: the 512-byte observation preview used to slice the tool body
+/// at a raw byte offset. A multibyte character straddling that offset (`┌`
+/// spans bytes 510..513 here) panicked the persistence writer with "end byte
+/// index 512 is not a char boundary", so the mid-round save failed. Saving
+/// through the real store and reloading covers the whole path.
+#[tokio::test]
+async fn tool_output_straddling_the_preview_limit_persists_across_reload() {
+    let dir = temp_dir("preview-boundary");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+    let content = format!("{}┌ tail", "a".repeat(510));
+    let mut tool = Message::new(Role::Tool, content.clone());
+    tool.tool_call_id = Some("call-1".to_string());
+    let mut call = Message::new(Role::Assistant, "running");
+    call.tool_calls = Some(vec![ToolCall::new("call-1", "read", "{}")]);
+    store
+        .replace_messages(vec![user("hello"), call, tool])
+        .await
+        .expect("a multibyte tool body at the preview limit must persist");
+
+    let reloaded = ThreadSession::for_path(path);
+    let thread = reloaded.thread().await;
+    let observation = thread
+        .path(&protocol::BranchId::main())
+        .unwrap()
+        .into_iter()
+        .find(|fact| matches!(&fact.payload, protocol::FactPayload::Observation { .. }))
+        .expect("tool message projects to an observation");
+    let protocol::FactPayload::Observation { output_ref, .. } = &observation.payload else {
+        unreachable!("the fact was just matched as an observation")
+    };
+    let preview = output_ref.preview.as_deref().expect("preview");
+    assert_eq!(preview, "a".repeat(510));
+    assert!(preview.len() <= 512);
+}
+
 #[tokio::test]
 async fn fork_branch_is_a_cursor_and_switch_projects_it() {
     let store = store("branch-cursors").await;

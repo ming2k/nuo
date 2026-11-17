@@ -41,6 +41,7 @@ impl DynamicToolRegistry {
         entries
     }
 
+    #[allow(dead_code)] // used by the registry's own tests and external probes
     pub fn find(&self, name: &str) -> Option<Arc<dyn Tool>> {
         let sources = self.sources.read().unwrap_or_else(|e| e.into_inner());
         for tools in sources.values() {
@@ -103,12 +104,16 @@ mod tests {
             self.0
         }
 
-        fn parameters(&self) -> serde_json::Value {
+        fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
 
-        async fn call(&self, _arguments: &str) -> Result<String, String> {
-            Ok(self.0.to_string())
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text(self.0.to_string()))
         }
     }
 
@@ -155,10 +160,10 @@ mod tests {
             }
             async fn execute(
                 &self,
-                _ctx: &tool::ToolContext,
+                _ctx: &::tool::ToolContext,
                 _args: serde_json::Value,
-            ) -> Result<tool::ToolOutput, tool::ToolError> {
-                Ok(tool::ToolOutput::success("42"))
+            ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+                Ok(::tool::ToolOutput::success("42"))
             }
         }
         let registry = DynamicToolRegistry::default();

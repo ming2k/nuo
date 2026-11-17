@@ -326,7 +326,7 @@ impl TranscriptMessage {
                     matches!(status, ToolStepStatus::Failed | ToolStepStatus::Denied);
                 let failed_output = structured
                     .as_deref()
-                    .is_some_and(tool::ToolOutput::is_error);
+                    .is_some_and(::tool::ToolOutput::is_error);
                 if failed_status || failed_output {
                     Facets::TOOL.union(Facets::ERROR)
                 } else {
@@ -564,7 +564,7 @@ impl TranscriptMessage {
             let effective_args = if arguments.trim().is_empty() {
                 if let Some(box_structured) = structured {
                     match &**box_structured {
-                        tool::ToolOutput::Patch { path, old, new, .. } => {
+                        ::tool::ToolOutput::Patch { path, old, new, .. } => {
                             effective_args_buf = serde_json::json!({
                                 "path": path,
                                 "old_string": old,

@@ -309,6 +309,7 @@ mod tests {
 
         let server_none = Discovery {
             pid: 1234,
+            version: None,
             process_birth_token: None,
             port: 9800,
             token: None,
@@ -316,7 +317,6 @@ mod tests {
             started_at: 0,
             uds_path: None,
             local_endpoint: None,
-            version: None,
             grace_secs: None,
             protocol: None,
             image_digest: None,

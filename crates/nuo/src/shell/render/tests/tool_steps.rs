@@ -150,7 +150,7 @@ fn subagent_step_and_view_render_without_panicking() {
     task.finish_tool_step(
         "task_1",
         "found 3 matches",
-        tool::ToolOutput::text("found 3 matches"),
+        ::tool::ToolOutput::text("found 3 matches"),
         1200,
     );
     let root_messages = vec![
@@ -432,7 +432,7 @@ fn expanded_edit_diff_height_is_scroll_independent() {
         "edit_text",
         r#"{"path":"a.rs","old_string":"…","new_string":"…"}"#,
     );
-    let structured = tool::ToolOutput::Patch {
+    let structured = ::tool::ToolOutput::Patch {
         path: "a.rs".into(),
         op: tool::PatchOp::Edit,
         old,
@@ -809,7 +809,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
     m.finish_tool_step(
         "todo_call",
         output.to_string(),
-        tool::ToolOutput::Text(output.to_string()),
+        ::tool::ToolOutput::Text(output.to_string()),
         0,
     );
     if let view::model::document::MessageKind::ToolStep { expanded, .. } = &mut m.kind {

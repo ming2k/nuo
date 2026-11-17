@@ -64,7 +64,10 @@ done
         assert_eq!(tool.description(), "A mock tool from substrate");
         assert_eq!(tool.hazard_level(), tool::HazardLevel::NetworkOrExternal);
 
-        let result = tool.call("{}").await.expect("execute tool");
+        let result = tool
+            .execute_text(&::tool::ToolContext::default(), "{}")
+            .await
+            .expect("execute tool");
         assert_eq!(result, "executed via substrate mcp");
     }
 }

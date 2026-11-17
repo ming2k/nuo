@@ -30,7 +30,6 @@ async fn control_create_observe_kill_roundtrip() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Control(serve::ControlRequest::CreateThread {
             project: "/tmp/x".into(),
             prompt: None,
@@ -38,6 +37,7 @@ async fn control_create_observe_kill_roundtrip() {
         }),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -61,12 +61,12 @@ async fn control_create_observe_kill_roundtrip() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Control(serve::ControlRequest::KillThread {
             thread_id: "nope".into(),
         }),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -132,13 +132,13 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
     let (mut wire_sink, mut wire_source) =
         server::transport::wire_channel::native_framed_split(stream);
     let select = Wire::Select {
-        version: None,
         action: AttachAction::Monitor(MonitorAction {
             watch: false,
             include_idle: true,
         }),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     };
     wire_sink.send(select).await.unwrap();
@@ -214,10 +214,10 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Control(serve::ControlRequest::Shutdown),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -406,10 +406,10 @@ async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Control(request),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();

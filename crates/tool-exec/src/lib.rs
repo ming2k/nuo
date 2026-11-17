@@ -441,21 +441,16 @@ impl Tool for ExecuteCommandTool {
         vec![ToolScope::Workspace]
     }
 
-    fn scope_target(&self, arguments: &str) -> ScopeTarget {
-        if let Ok(value) = serde_json::from_str::<Value>(arguments)
-            && let Some(cmd) = value.get("command").and_then(Value::as_str)
-        {
-            ScopeTarget::Command(cmd.to_string())
-        } else {
-            ScopeTarget::Unspecified
-        }
+    fn scope_target(&self, arguments: &Value) -> ScopeTarget {
+        arguments
+            .get("command")
+            .and_then(Value::as_str)
+            .map(|cmd| ScopeTarget::Command(cmd.to_string()))
+            .unwrap_or(ScopeTarget::Unspecified)
     }
 
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
-        let Ok(value) = serde_json::from_str::<Value>(arguments) else {
-            return ToolAccesses::all();
-        };
-        let Some(command) = value.get("command").and_then(Value::as_str) else {
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
+        let Some(command) = arguments.get("command").and_then(Value::as_str) else {
             return ToolAccesses::all();
         };
         command_accesses(command)
@@ -465,17 +460,20 @@ impl Tool for ExecuteCommandTool {
         self.execute_with_options(ctx, arguments, None, None).await
     }
 
-    async fn call_structured_with_events<'a>(
+    async fn execute_streaming<'a>(
         &self,
+        ctx: &ToolContext,
         invocation: ToolInvocation<'a>,
         _on_event: Box<dyn FnMut(tool::events::SubagentEvent) + Send + 'a>,
         on_stream: &mut (dyn FnMut(ToolStream) + Send + 'a),
-    ) -> std::result::Result<ToolOutput, String> {
-        let value: Value = serde_json::from_str(invocation.arguments).map_err(|e| e.to_string())?;
-        let ctx = ToolContext::default();
-        self.execute_with_options(&ctx, value, Some(on_stream), Some(&invocation.input))
-            .await
-            .map_err(|e| e.to_string())
+    ) -> Result<ToolOutput, ::tool::ToolError> {
+        self.execute_with_options(
+            ctx,
+            invocation.arguments.clone(),
+            Some(on_stream),
+            Some(&invocation.input),
+        )
+        .await
     }
 }
 

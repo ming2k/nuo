@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::sync::{OnceLock, RwLock};
 
 use async_trait::async_trait;
@@ -123,17 +124,20 @@ impl Tool for WebSearchTool {
         static DESC: OnceLock<String> = OnceLock::new();
         DESC.get_or_init(Self::description_text)
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
         WebSearchArgs::parameters_schema()
     }
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        self.call_structured(arguments)
-            .await
-            .map(|out| out.to_text())
-    }
-    async fn call_structured(&self, arguments: &str) -> Result<tool::ToolOutput, String> {
-        let args: WebSearchArgs =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        let args: WebSearchArgs = serde_json::from_value(arguments)
+            .map_err(|e| ::tool::ToolError::invalid_args(self.name(), e.to_string()))?;
         let query = &args.query;
         let (provider, client) = self.current_provider()?;
 
@@ -146,7 +150,7 @@ impl Tool for WebSearchTool {
                 crate::search::blob_to_hits(query, provider.name(), &text)
             }
         };
-        Ok(tool::ToolOutput::WebSearch {
+        Ok(::tool::ToolOutput::WebSearch {
             query: query.to_string(),
             provider: provider.name().to_string(),
             results,

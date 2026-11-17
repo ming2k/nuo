@@ -15,7 +15,7 @@ pub(crate) fn draw_web_search_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&tool::ToolOutput>,
+    structured: Option<&::tool::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -25,7 +25,7 @@ pub(crate) fn draw_web_search_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (query, _provider, hits, truncated) = match structured {
-        Some(tool::ToolOutput::WebSearch {
+        Some(::tool::ToolOutput::WebSearch {
             query,
             provider,
             results,
@@ -172,7 +172,7 @@ pub(crate) fn draw_web_article_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&tool::ToolOutput>,
+    structured: Option<&::tool::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -182,7 +182,7 @@ pub(crate) fn draw_web_article_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (url, title, _domain, markdown, reader, tokens, truncated) = match structured {
-        Some(tool::ToolOutput::WebArticle {
+        Some(::tool::ToolOutput::WebArticle {
             url,
             title,
             domain,

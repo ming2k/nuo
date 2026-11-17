@@ -11,7 +11,7 @@
 //! holds. Renderers attach styles and paint; the model-side projection keeps
 //! its own byte-budgeted folding in `tool`.
 
-use tool::ToolOutput;
+use ::tool::ToolOutput;
 use tool::{ShellTermination, normalize_carriage_returns};
 use ui_primitives::design::{BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, bash_fold_applies};
 

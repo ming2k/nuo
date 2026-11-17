@@ -83,7 +83,8 @@ async fn tools_running_on_system_tool_context() {
     // 1. WriteFileTool creates file
     let write_tool = WriteFileTool::new(ctx.clone());
     let _write_res = write_tool
-        .call_structured(
+        .execute_json(
+            &::tool::ToolContext::default(),
             r#"{"path":"lib.rs","content":"pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n"}"#,
         )
         .await
@@ -93,7 +94,7 @@ async fn tools_running_on_system_tool_context() {
     // 2. ReadTool reads file
     let read_tool = ReadTool::new(ctx.clone());
     let read_res = read_tool
-        .call_structured(r#"{"path":"lib.rs"}"#)
+        .execute_json(&::tool::ToolContext::default(), r#"{"path":"lib.rs"}"#)
         .await
         .unwrap();
     assert!(read_res.to_text().contains("pub fn add"));
@@ -101,7 +102,10 @@ async fn tools_running_on_system_tool_context() {
     // 3. EditTextTool edits file
     let edit_tool = EditTextTool::new(ctx.clone());
     let edit_res = edit_tool
-        .call_structured(r#"{"path":"lib.rs","old_string":"a + b","new_string":"a + b + 1"}"#)
+        .execute_json(
+            &::tool::ToolContext::default(),
+            r#"{"path":"lib.rs","old_string":"a + b","new_string":"a + b + 1"}"#,
+        )
         .await
         .unwrap();
     assert!(matches!(
@@ -117,7 +121,10 @@ async fn tools_running_on_system_tool_context() {
 
     // 4. FindFilesTool finds files in directory
     let find_tool = FindFilesTool::new(ctx.clone());
-    let find_res = find_tool.call_structured(r#"{"path":"."}"#).await.unwrap();
+    let find_res = find_tool
+        .execute_json(&::tool::ToolContext::default(), r#"{"path":"."}"#)
+        .await
+        .unwrap();
     assert!(find_res.to_text().contains("lib.rs"));
 }
 

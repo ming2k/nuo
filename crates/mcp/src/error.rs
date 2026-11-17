@@ -61,11 +61,11 @@ impl McpError {
     }
 }
 
-impl From<McpError> for tool::ToolError {
+impl From<McpError> for ::tool::ToolError {
     fn from(err: McpError) -> Self {
         match err {
-            McpError::Cancelled => tool::ToolError::Cancelled("mcp".into()),
-            other => tool::ToolError::Execution {
+            McpError::Cancelled => ::tool::ToolError::Cancelled("mcp".into()),
+            other => ::tool::ToolError::Execution {
                 name: "mcp".into(),
                 reason: other.to_string(),
             },

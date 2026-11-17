@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 use async_trait::async_trait;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tool::ToolAccesses;
@@ -18,7 +19,7 @@ fn default_chain_order_is_load_bearing() {
     let chain = PermissionChain::new(default_chain());
     assert_eq!(
         chain.policy_names(),
-        vec!["hook", "disabled", "schema", "bash-policy", "broker"]
+        vec!["hook", "disabled", "deny", "bash-policy", "broker"]
     );
 }
 #[async_trait]
@@ -29,16 +30,20 @@ impl Tool for StubTool {
     fn description(&self) -> &str {
         ""
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    async fn call(&self, _a: &str) -> Result<String, String> {
-        Ok("ok".into())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("ok"))
     }
-    fn scope_target(&self, _a: &str) -> ScopeTarget {
+    fn scope_target(&self, _a: &Value) -> ScopeTarget {
         self.target.clone()
     }
-    fn accesses(&self, _a: &str) -> ToolAccesses {
+    fn accesses(&self, _a: &Value) -> ToolAccesses {
         ToolAccesses::none()
     }
 }
@@ -65,12 +70,18 @@ impl PermissionContext for StubCtx {
 struct TestPolicyParams<'a> {
     tool: &'a Arc<dyn Tool>,
     name: &'a str,
-    args: &'a str,
+    args: &'a Value,
     target: ScopeTarget,
     unattended: bool,
     disabled: HashSet<String>,
     scoped: ScopedToolDisable,
     ctx: &'a dyn PermissionContext,
+}
+
+/// A shared empty argument object for policies that ignore the input.
+fn empty_args() -> &'static Value {
+    static EMPTY: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(|| serde_json::json!({}))
 }
 
 /// Build a [`PolicyContext`] for one policy evaluation in unit tests.
@@ -114,7 +125,7 @@ async fn disabled_policy_denies() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "execute_command",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Unspecified,
         unattended: false,
         disabled: disabled.clone(),
@@ -145,7 +156,7 @@ async fn chain_out_of_scope_approves_when_session_allowed() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(outside),
         unattended: false,
         disabled: disabled.clone(),
@@ -157,7 +168,62 @@ async fn chain_out_of_scope_approves_when_session_allowed() {
 }
 
 #[tokio::test]
-async fn broker_unattended_approves_automatically() {
+async fn declarative_deny_wins_over_a_bash_confirmation() {
+    let tool: Arc<dyn Tool> = Arc::new(DangerousCommandTool);
+    let perms = PermissionStore::new();
+    perms.seed_denies_from_config(&[protocol::policy_config::PermissionRuleConfig {
+        tool: "execute_command".to_string(),
+        scope: "git reset --hard".to_string(),
+    }]);
+    let ctxr = StubCtx { perms };
+    let args = serde_json::json!({"command": "git reset --hard"});
+    let c = pctx(TestPolicyParams {
+        tool: &tool,
+        name: "execute_command",
+        args: &args,
+        target: ScopeTarget::Command("git reset --hard".to_string()),
+        unattended: false,
+        disabled: HashSet::new(),
+        scoped: ScopedToolDisable::default(),
+        ctx: &ctxr,
+    });
+    let chain = PermissionChain::new(default_chain());
+    assert!(matches!(
+        chain.evaluate(&c).await,
+        PolicyDecision::Deny { .. }
+    ));
+}
+
+#[tokio::test]
+async fn broker_enforces_deny_for_a_targetless_read() {
+    let tool: Arc<dyn Tool> = Arc::new(StubTool {
+        name: "view_file".into(),
+        target: ScopeTarget::Unspecified,
+    });
+    let perms = PermissionStore::new();
+    perms.seed_denies_from_config(&[protocol::policy_config::PermissionRuleConfig {
+        tool: "view_file".to_string(),
+        scope: "*".to_string(),
+    }]);
+    let ctxr = StubCtx { perms };
+    let c = pctx(TestPolicyParams {
+        tool: &tool,
+        name: "view_file",
+        args: empty_args(),
+        target: ScopeTarget::Unspecified,
+        unattended: false,
+        disabled: HashSet::new(),
+        scoped: ScopedToolDisable::default(),
+        ctx: &ctxr,
+    });
+    assert!(matches!(
+        BrokerPolicy.evaluate(&c).await,
+        PolicyDecision::Deny { .. }
+    ));
+}
+
+#[tokio::test]
+async fn broker_unattended_does_not_auto_approve() {
     let tool: Arc<dyn Tool> = Arc::new(StubTool {
         name: "write_file".into(),
         target: ScopeTarget::Path(PathBuf::from("/anywhere")),
@@ -170,7 +236,7 @@ async fn broker_unattended_approves_automatically() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/anywhere")),
         unattended: true, // unattended
         disabled: disabled.clone(),
@@ -179,7 +245,7 @@ async fn broker_unattended_approves_automatically() {
     });
     assert!(matches!(
         BrokerPolicy.evaluate(&c).await,
-        PolicyDecision::Approve
+        PolicyDecision::MissingAuthority { .. }
     ));
 }
 
@@ -198,7 +264,7 @@ async fn broker_approves_session_and_always_allowed_rules() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/workspace/file")),
         unattended: true,
         disabled: HashSet::new(),
@@ -225,7 +291,7 @@ async fn broker_reports_missing_authority_when_not_allowed() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/tmp/x")),
         unattended: false,
         disabled: disabled.clone(),
@@ -254,7 +320,7 @@ async fn broker_in_scope_request_is_not_elevation() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(inside),
         unattended: false,
         disabled: disabled.clone(),
@@ -281,7 +347,7 @@ async fn chain_short_circuits() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/tmp/x")),
         unattended: false,
         disabled: disabled.clone(),
@@ -309,7 +375,7 @@ async fn chain_falls_back_to_approve() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "read",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Unspecified,
         unattended: false,
         disabled: disabled.clone(),
@@ -337,7 +403,7 @@ async fn chain_out_of_scope_attended_reaches_broker() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/etc/passwd")),
         unattended: false, // attended
         disabled: disabled.clone(),
@@ -352,7 +418,7 @@ async fn chain_out_of_scope_attended_reaches_broker() {
 }
 
 #[tokio::test]
-async fn chain_out_of_scope_unattended_approves() {
+async fn chain_out_of_scope_unattended_requires_authority() {
     let tool: Arc<dyn Tool> = Arc::new(StubTool {
         name: "write_file".into(),
         target: ScopeTarget::Path(PathBuf::from("/etc/passwd")),
@@ -365,7 +431,7 @@ async fn chain_out_of_scope_unattended_approves() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "write_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/etc/passwd")),
         unattended: true, // unattended
         disabled: disabled.clone(),
@@ -373,7 +439,10 @@ async fn chain_out_of_scope_unattended_approves() {
         ctx: &ctxr,
     });
     let chain = PermissionChain::new(vec![Box::new(BrokerPolicy)]);
-    assert!(matches!(chain.evaluate(&c).await, PolicyDecision::Approve));
+    assert!(matches!(
+        chain.evaluate(&c).await,
+        PolicyDecision::MissingAuthority { .. }
+    ));
 }
 
 struct SafeTool;
@@ -385,14 +454,18 @@ impl Tool for SafeTool {
     fn description(&self) -> &str {
         "View file content"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
     fn hazard_level(&self) -> tool::HazardLevel {
         tool::HazardLevel::Safe
     }
-    async fn call(&self, _args: &str) -> Result<String, String> {
-        Ok("ok".into())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("ok"))
     }
 }
 
@@ -405,35 +478,44 @@ impl Tool for DangerousCommandTool {
     fn description(&self) -> &str {
         "Run shell command"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
     fn hazard_level(&self) -> tool::HazardLevel {
         tool::HazardLevel::CommandExecution
     }
-    fn scope_target(&self, args: &str) -> ScopeTarget {
-        ScopeTarget::Command(args.to_string())
+    fn scope_target(&self, args: &Value) -> ScopeTarget {
+        let command = args
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        ScopeTarget::Command(command.to_string())
     }
-    fn permission_submission(&self, args: &str) -> Option<tool::ToolPermissionSubmission> {
+    fn permission_submission(&self, args: &Value) -> Option<tool::ToolPermissionSubmission> {
+        let command = args.get("command").and_then(Value::as_str).unwrap_or("sh");
         Some(tool::ToolPermissionSubmission {
             hazard_level: tool::HazardLevel::CommandExecution,
-            label: format!("Execute command: `{args}`"),
-            description: format!("Runs host shell command `{args}`"),
-            scope: args.to_string(),
+            label: format!("Execute command: `{command}`"),
+            description: format!("Runs host shell command `{command}`"),
+            scope: command.to_string(),
             payload: tool::ToolPermissionPayload::Command {
-                command: args.to_string(),
+                command: command.to_string(),
                 cwd: None,
                 kill_spec: tool::ProcessKillSpec {
-                    command: args.split_whitespace().next().unwrap_or("sh").to_string(),
+                    command: command.to_string(),
                     process_group_killable: true,
-                    pkill_target: format!("pkill -f '{args}'"),
+                    pkill_target: format!("pkill -f '{command}'"),
                     cwd: None,
                 },
             },
         })
     }
-    async fn call(&self, _args: &str) -> Result<String, String> {
-        Ok("ok".into())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("ok"))
     }
 }
 
@@ -446,7 +528,7 @@ async fn broker_passes_safe_tools_automatically() {
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "view_file",
-        args: "{}",
+        args: empty_args(),
         target: ScopeTarget::Unspecified,
         unattended: false,
         disabled: HashSet::new(),
@@ -465,10 +547,11 @@ async fn broker_submits_hazard_and_kill_spec_for_dangerous_commands() {
     let ctxr = StubCtx {
         perms: PermissionStore::new(),
     };
+    let args = serde_json::json!({"command": "cargo test"});
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "execute_command",
-        args: "cargo test",
+        args: &args,
         target: ScopeTarget::Command("cargo test".to_string()),
         unattended: false,
         disabled: HashSet::new(),
@@ -500,11 +583,12 @@ async fn broker_honours_session_grant_lifespan() {
     let tool: Arc<dyn Tool> = Arc::new(DangerousCommandTool);
     let perms = PermissionStore::new();
     let ctxr = StubCtx { perms };
+    let args = serde_json::json!({"command": "cargo build"});
 
     let c = pctx(TestPolicyParams {
         tool: &tool,
         name: "execute_command",
-        args: "cargo build",
+        args: &args,
         target: ScopeTarget::Command("cargo build".to_string()),
         unattended: false,
         disabled: HashSet::new(),

@@ -53,6 +53,9 @@ struct PermissionState {
     /// persisted (see `PersistedPermissions`) and is the complement of `always`:
     /// `add_always` removes from it, `revoke_allowed` adds to it. See #3.
     revoked: HashSet<PermissionRule>,
+    /// Hard denials from declarative config. Never persisted: they are a
+    /// deployment policy, not an interactive grant.
+    deny: HashSet<PermissionRule>,
 }
 
 /// In-memory permission state: the "always allow" allowlist, the pending
@@ -108,21 +111,23 @@ impl PermissionStore {
     /// (`PermissionRuleConfig.scope` documents this contract for config authors.)
     pub fn is_always_allowed(&self, rule: &PermissionRule) -> bool {
         let state = poison_lock(&self.state);
-        state.always.contains(rule)
-            || state.always.contains(&PermissionRule {
-                tool: rule.tool.clone(),
-                scope: "*".to_string(),
-            })
+        state.always.iter().any(|stored| rule_matches(stored, rule))
+    }
+
+    /// Whether a declarative deny rule matches this call. Denies are evaluated
+    /// before every allow path, including saved "always" grants.
+    pub fn is_denied(&self, rule: &PermissionRule) -> bool {
+        let state = poison_lock(&self.state);
+        state.deny.iter().any(|stored| rule_matches(stored, rule))
     }
 
     /// Check whether a rule is in the session allow set (granted for this session only).
     pub fn is_session_allowed(&self, rule: &PermissionRule) -> bool {
         let state = poison_lock(&self.state);
-        state.session.contains(rule)
-            || state.session.contains(&PermissionRule {
-                tool: rule.tool.clone(),
-                scope: "*".to_string(),
-            })
+        state
+            .session
+            .iter()
+            .any(|stored| rule_matches(stored, rule))
     }
 
     /// Check whether a rule is allowed either permanently or for the current session.
@@ -268,6 +273,18 @@ impl PermissionStore {
         }
     }
 
+    /// Install declarative hard denials. Unlike `allow`, these are never
+    /// revoked or persisted: they are deployment policy and always win.
+    pub fn seed_denies_from_config(&self, rules: &[protocol::policy_config::PermissionRuleConfig]) {
+        let mut state = poison_lock(&self.state);
+        for rule in rules {
+            state.deny.insert(PermissionRule {
+                tool: rule.tool.clone(),
+                scope: rule.scope.clone(),
+            });
+        }
+    }
+
     /// The persisted project root, if any.
     pub fn project_root(&self) -> Option<std::path::PathBuf> {
         poison_lock(&self.persistence)
@@ -385,6 +402,27 @@ impl Default for PermissionStore {
     }
 }
 
+/// Whether a stored rule matches a concrete call.
+///
+/// `*` matches anything; a trailing `*` is a prefix; every other pattern is
+/// exact. This is deliberately NOT a general glob: permission scopes are paths
+/// or command lines, and a `?`/`[]` engine would make a typo into a silent
+/// widening. The conservative direction is exact.
+fn rule_matches(stored: &PermissionRule, concrete: &PermissionRule) -> bool {
+    wildcard_matches(&stored.tool, &concrete.tool)
+        && wildcard_matches(&stored.scope, &concrete.scope)
+}
+
+fn wildcard_matches(pattern: &str, value: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    match pattern.strip_suffix('*') {
+        Some(prefix) => value.starts_with(prefix),
+        None => pattern == value,
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -454,6 +492,42 @@ mod tests {
             tool: "edit_text".to_string(),
             scope: "*".to_string(),
         }));
+    }
+
+    #[test]
+    fn a_trailing_wildcard_is_a_prefix_scope() {
+        let store = PermissionStore::new();
+        store.seed_from_config(&[PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "git *".to_string(),
+        }]);
+        assert!(store.is_always_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "git status".to_string(),
+        }));
+        assert!(!store.is_always_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "cargo test".to_string(),
+        }));
+    }
+
+    #[test]
+    fn declarative_deny_wins_over_a_saved_grant() {
+        let store = PermissionStore::new();
+        let denied = PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "git push *".to_string(),
+        };
+        store.add_always(denied.clone());
+        store.seed_denies_from_config(&[PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "git push *".to_string(),
+        }]);
+        assert!(store.is_denied(&denied));
+        assert!(
+            store.is_allowed(&denied),
+            "the grant still exists; deny is evaluated first"
+        );
     }
 
     #[test]

@@ -265,36 +265,42 @@ fn collapsed_tool_steps_stack_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"a.rs"}"#,
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: "x".into(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false,
         ),
         tool_step_structured(
             "read",
             r#"{"path":"b.rs"}"#,
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: "y".into(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false,
         ),
         tool_step_structured(
             "read",
             r#"{"path":"c.rs"}"#,
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: "z".into(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false,
         ),
@@ -331,19 +337,21 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"a.rs"}"#,
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: "x".into(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false, // collapsed — flush against the next step's header
         ),
         tool_step_structured(
             "search_text",
             r#"{"query":"foo","path":"src"}"#,
-            tool::ToolOutput::Matches {
+            ::tool::ToolOutput::Matches {
                 pattern: "foo".into(),
                 lines: vec!["src/a.rs:10:1:foo".into(), "src/b.rs:5:1:foo".into()],
             },
@@ -352,12 +360,14 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"c.rs"}"#,
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: "z".into(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false, // collapsed legacy step — starts below that separator
         ),
@@ -375,12 +385,14 @@ fn user_message_before_tool_step_has_single_separator_row() {
         tool_step_structured(
             "read",
             r#"{"path":"src/lib.rs"}"#,
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: "pub fn main() {}".into(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false,
         ),
@@ -865,12 +877,14 @@ fn default_turn_header_has_one_gap_before_first_tool() {
     let step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        tool::ToolOutput::Code {
+        ::tool::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
             prefix: None,
             suffix: None,
+
+            version: None,
         },
         false,
     )
@@ -907,12 +921,14 @@ fn turn_header_omits_effort_when_absent() {
     let step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        tool::ToolOutput::Code {
+        ::tool::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
             prefix: None,
             suffix: None,
+
+            version: None,
         },
         false,
     )
@@ -938,12 +954,14 @@ fn turn_header_with_model_effort_and_timestamp() {
     let mut step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        tool::ToolOutput::Code {
+        ::tool::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
             prefix: None,
             suffix: None,
+
+            version: None,
         },
         false,
     )
@@ -998,12 +1016,14 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let first = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        tool::ToolOutput::Code {
+        ::tool::ToolOutput::Code {
             lang: None,
             text: "a".into(),
             start_line: 1,
             prefix: None,
             suffix: None,
+
+            version: None,
         },
         false,
     )
@@ -1011,12 +1031,14 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let second = tool_step_structured(
         "read",
         r#"{"path":"b.rs"}"#,
-        tool::ToolOutput::Code {
+        ::tool::ToolOutput::Code {
             lang: None,
             text: "b".into(),
             start_line: 1,
             prefix: None,
             suffix: None,
+
+            version: None,
         },
         false,
     )
@@ -1059,12 +1081,14 @@ fn different_tool_turns_have_one_vertical_gap() {
         tool_step_structured(
             "read",
             format!(r#"{{"path":"{turn}.rs"}}"#).as_str(),
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: turn.to_string(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false,
         )
@@ -1119,12 +1143,14 @@ fn seam_steer_terminates_the_turn_band() {
         tool_step_structured(
             "read",
             format!(r#"{{"path":"{path}"}}"#).as_str(),
-            tool::ToolOutput::Code {
+            ::tool::ToolOutput::Code {
                 lang: None,
                 text: "a".into(),
                 start_line: 1,
                 prefix: None,
                 suffix: None,
+
+                version: None,
             },
             false,
         )
@@ -1222,12 +1248,14 @@ fn notice_still_splits_a_turn_band() {
     let step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        tool::ToolOutput::Code {
+        ::tool::ToolOutput::Code {
             lang: None,
             text: "a".into(),
             start_line: 1,
             prefix: None,
             suffix: None,
+
+            version: None,
         },
         false,
     )
@@ -1239,12 +1267,14 @@ fn notice_still_splits_a_turn_band() {
     let after = tool_step_structured(
         "read",
         r#"{"path":"b.rs"}"#,
-        tool::ToolOutput::Code {
+        ::tool::ToolOutput::Code {
             lang: None,
             text: "b".into(),
             start_line: 1,
             prefix: None,
             suffix: None,
+
+            version: None,
         },
         false,
     )

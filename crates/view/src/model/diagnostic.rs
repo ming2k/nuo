@@ -233,7 +233,7 @@ fn tool_status_label(status: ToolStepStatus) -> &'static str {
 fn command_exit(
     name: &str,
     output: Option<&str>,
-    structured: Option<&tool::ToolOutput>,
+    structured: Option<&::tool::ToolOutput>,
 ) -> Option<i32> {
     if !crate::tools::shell_output::is_command_body(name, structured) {
         return None;

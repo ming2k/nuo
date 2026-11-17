@@ -45,7 +45,7 @@ pub struct SearchHit {
 /// unstructured strings that a consumer would have to string-sniff.
 ///
 /// Serde uses the default externally-tagged representation, matching
-/// [`ToolOutput`](tool::ToolOutput) (ADR-0001) — the precedessor this type
+/// [`ToolOutput`](::tool::ToolOutput) (ADR-0001) — the precedessor this type
 /// mirrors. The ledger (`session.commands`) persists these directly, so resume
 /// and `/export` reconstruct the full result without re-running the command.
 #[derive(Debug, Clone, Serialize, Deserialize)]

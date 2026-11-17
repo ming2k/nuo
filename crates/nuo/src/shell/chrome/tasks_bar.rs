@@ -59,7 +59,7 @@ pub fn draw_tasks_bar(
 
         if let Some(first) = running_tasks.first() {
             let label = if first.label.len() > 24 {
-                format!("{}…", &first.label[..23])
+                format!("{}…", tool::truncate_utf8(&first.label, 23))
             } else {
                 first.label.clone()
             };
@@ -79,7 +79,7 @@ pub fn draw_tasks_bar(
             left.push(Span::styled(icon, style));
 
             let label = if last.label.len() > 20 {
-                format!("{}…", &last.label[..19])
+                format!("{}…", tool::truncate_utf8(&last.label, 19))
             } else {
                 last.label.clone()
             };

@@ -41,7 +41,7 @@ pub struct HookContext {
 
 /// The payload for one fire. Tool events carry a name + a reduced view of the
 /// input/output — commands read JSON on stdin, not live Rust values, so the
-/// full [`tool::ToolOutput`] (which may embed a subagent transcript) is not
+/// full [`::tool::ToolOutput`] (which may embed a subagent transcript) is not
 /// forwarded wholesale; its `to_text()` summary is.
 // Hook payloads are constructed once per fire and immediately serialized to
 // the hook process's stdin; boxing `PermissionRequest` would not reduce peak

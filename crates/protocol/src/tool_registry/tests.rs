@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Value;
 use tool::{ScopeTarget, ToolAccesses};
 
 use async_trait::async_trait;
@@ -13,11 +14,15 @@ impl Tool for PingTool {
     fn description(&self) -> &str {
         "test tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("pong".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("pong".to_string()))
     }
 }
 
@@ -30,11 +35,15 @@ impl Tool for DeclinedTool {
     fn description(&self) -> &str {
         "declined test tool"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("never".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("never".to_string()))
     }
 }
 
@@ -56,23 +65,27 @@ impl Tool for SafeWriteTool {
     fn description(&self) -> &str {
         "test write tool with a correct scope_target"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("wrote".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("wrote".to_string()))
     }
-    fn scope_target(&self, arguments: &str) -> ScopeTarget {
+    fn scope_target(&self, arguments: &Value) -> ScopeTarget {
         // Surface the path so the scope-gate / broker can check it.
-        serde_json::from_str::<serde_json::Value>(arguments)
-            .ok()
-            .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(PathBuf::from))
-            .map(ScopeTarget::Path)
+        arguments
+            .get("path")
+            .and_then(Value::as_str)
+            .map(|path| ScopeTarget::Path(PathBuf::from(path)))
             .unwrap_or(ScopeTarget::Unspecified)
     }
     // accesses is conditional in lockstep with scope_target: a write is only
     // declared when there is a real path to write — the realistic shape.
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
+    fn accesses(&self, arguments: &Value) -> ToolAccesses {
         match self.scope_target(arguments) {
             ScopeTarget::Path(p) => ToolAccesses::write_file(p.to_string_lossy().into_owned()),
             _ => ToolAccesses::none(),
@@ -91,14 +104,18 @@ impl Tool for UnsafeWriteTool {
     fn description(&self) -> &str {
         "test write tool that forgets scope_target"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok("wrote".to_string())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text("wrote".to_string()))
     }
     // scope_target defaults to Unspecified — the hole.
-    fn accesses(&self, _arguments: &str) -> ToolAccesses {
+    fn accesses(&self, _arguments: &Value) -> ToolAccesses {
         ToolAccesses::write_file("/sample".to_string())
     }
 }
@@ -186,11 +203,15 @@ impl Tool for VariantTool {
     fn description(&self) -> &str {
         self.desc
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok(String::new())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text(String::new()))
     }
 }
 
@@ -296,14 +317,18 @@ impl Tool for CapTool {
     fn description(&self) -> &str {
         self.variant
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
     fn requires_vision(&self) -> bool {
         self.requires_vision
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok(String::new())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text(String::new()))
     }
 }
 
@@ -575,11 +600,15 @@ impl Tool for AliasTool {
     fn description(&self) -> &str {
         "test tool with aliases"
     }
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
-    async fn call(&self, _arguments: &str) -> Result<String, String> {
-        Ok(String::new())
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        _arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        Ok(::tool::ToolOutput::text(String::new()))
     }
 }
 

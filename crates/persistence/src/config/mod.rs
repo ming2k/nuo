@@ -712,6 +712,10 @@ impl Config {
             allow_tools: Vec<String>,
             #[serde(default)]
             deny_tools: Vec<String>,
+            #[serde(default = "default_true")]
+            defer_tools: bool,
+            #[serde(default = "default_true")]
+            enable_resources: bool,
         }
         fn default_true() -> bool {
             true
@@ -735,6 +739,8 @@ impl Config {
                                 read_only: entry.read_only,
                                 allow_tools: entry.allow_tools,
                                 deny_tools: entry.deny_tools,
+                                defer_tools: entry.defer_tools,
+                                enable_resources: entry.enable_resources,
                                 sandbox_root: None,
                             },
                         );
@@ -783,6 +789,10 @@ impl Config {
                 allow_tools: Vec<String>,
                 #[serde(default)]
                 deny_tools: Vec<String>,
+                #[serde(default = "default_true")]
+                defer_tools: bool,
+                #[serde(default = "default_true")]
+                enable_resources: bool,
             }
             fn default_true() -> bool {
                 true
@@ -802,6 +812,8 @@ impl Config {
                             read_only: entry.read_only,
                             allow_tools: entry.allow_tools,
                             deny_tools: entry.deny_tools,
+                            defer_tools: entry.defer_tools,
+                            enable_resources: entry.enable_resources,
                             sandbox_root: None,
                         },
                     );

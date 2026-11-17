@@ -104,7 +104,7 @@ pub(crate) fn draw_command_content(
     mi: usize,
     block_idx: usize,
     content: &str,
-    structured: Option<&tool::ToolOutput>,
+    structured: Option<&::tool::ToolOutput>,
     command: &str,
     selection: &SelectionState,
     indent: usize,
@@ -810,12 +810,12 @@ pub(crate) fn emit_command_lines(
 }
 
 /// Resolve the shell command for a `bash` step: prefer the structured
-/// [`ToolOutput::Shell`](tool::ToolOutput) payload (set as soon as the
+/// [`ToolOutput::Shell`](::tool::ToolOutput) payload (set as soon as the
 /// call starts, so it is available even while streaming), falling back to
 /// parsing the JSON arguments for legacy / restored sessions without a
 /// structured payload.
-pub(crate) fn command_for(structured: Option<&tool::ToolOutput>, arguments: &str) -> String {
-    if let Some(tool::ToolOutput::Shell { command, .. }) = structured
+pub(crate) fn command_for(structured: Option<&::tool::ToolOutput>, arguments: &str) -> String {
+    if let Some(::tool::ToolOutput::Shell { command, .. }) = structured
         && !command.is_empty()
     {
         return command.clone();

@@ -112,6 +112,7 @@ mod lease_tests {
             &path,
             &Discovery {
                 pid: 1,
+                version: None,
                 process_birth_token: None,
                 port: 2,
                 token: None,
@@ -119,7 +120,6 @@ mod lease_tests {
                 started_at: 3,
                 uds_path: None,
                 local_endpoint: None,
-                version: None,
                 grace_secs: None,
                 protocol: None,
                 image_digest: None,
@@ -141,6 +141,7 @@ mod lease_tests {
             &path,
             &Discovery {
                 pid: 42,
+                version: None,
                 process_birth_token: None,
                 port: 2,
                 token: None,
@@ -148,7 +149,6 @@ mod lease_tests {
                 started_at: 3,
                 uds_path: None,
                 local_endpoint: None,
-                version: None,
                 grace_secs: None,
                 protocol: None,
                 image_digest: None,
@@ -168,6 +168,7 @@ mod lease_tests {
             &path,
             &Discovery {
                 pid: 99,
+                version: None,
                 process_birth_token: None,
                 port: 2,
                 token: None,
@@ -175,7 +176,6 @@ mod lease_tests {
                 started_at: 3,
                 uds_path: None,
                 local_endpoint: None,
-                version: None,
                 grace_secs: None,
                 protocol: None,
                 image_digest: None,

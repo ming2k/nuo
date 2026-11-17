@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::json;
-use tool::Tool;
+use tool::{BuiltinTool, Tool};
 
 use crate::runtime::host::{NoRoleMemory, RoleMemory};
 
@@ -57,11 +57,15 @@ impl Tool for RecallMemoryTool {
         "recall_memory"
     }
 
+    fn aliases(&self) -> &'static [&'static str] {
+        BuiltinTool::RecallMemory.aliases()
+    }
+
     fn description(&self) -> &str {
         "Search past cross-session dialogues and insights for this role."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -88,9 +92,12 @@ impl Tool for RecallMemoryTool {
         "Recall dialogue memory".to_string()
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let parsed: serde_json::Value =
-            serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {e}"))?;
+    async fn execute(
+        &self,
+        _ctx: &::tool::ToolContext,
+        arguments: serde_json::Value,
+    ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+        let parsed = arguments;
 
         let query = parsed
             .get("query")
@@ -114,9 +121,9 @@ impl Tool for RecallMemoryTool {
             .map_err(|e| format!("failed to recall memory: {e}"))?;
 
         if memories.is_empty() {
-            return Ok(format!(
+            return Ok(::tool::ToolOutput::text(format!(
                 "No past dialogues matching \"{query}\" were found in memory for role '{role}'."
-            ));
+            )));
         }
 
         let mut output = format!(
@@ -140,7 +147,7 @@ impl Tool for RecallMemoryTool {
             output.push_str("---\n\n");
         }
 
-        Ok(output)
+        Ok(::tool::ToolOutput::text(output))
     }
 }
 
@@ -207,7 +214,7 @@ mod tests {
         assert_eq!(tool.name(), "recall_memory");
         assert_eq!(tool.permission_label(), "Recall dialogue memory");
         assert!(
-            tool.parameters()
+            tool.parameters_schema()
                 .get("properties")
                 .and_then(|p| p.get("query"))
                 .is_some()
@@ -218,7 +225,10 @@ mod tests {
     async fn a_host_with_no_memory_reports_nothing_found_rather_than_erroring() {
         let tool = RecallMemoryTool::default();
         let text = tool
-            .call(r#"{"query": "eternal recurrence"}"#)
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"query": "eternal recurrence"}"#,
+            )
             .await
             .expect("an empty memory is not a failure");
         assert!(text.contains("No past dialogues"), "{text}");
@@ -227,7 +237,10 @@ mod tests {
     #[tokio::test]
     async fn a_missing_query_is_rejected() {
         let tool = RecallMemoryTool::default();
-        let error = tool.call("{}").await.expect_err("query is required");
+        let error = tool
+            .execute_text(&::tool::ToolContext::default(), "{}")
+            .await
+            .expect_err("query is required");
         assert!(error.contains("query"), "{error}");
     }
 
@@ -242,7 +255,13 @@ mod tests {
                 score: 0.87,
             },
         ])));
-        let text = tool.call(r#"{"query": "recurrence"}"#).await.unwrap();
+        let text = tool
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"query": "recurrence"}"#,
+            )
+            .await
+            .unwrap();
         assert!(text.contains("2h old"), "age comes from the host: {text}");
         assert!(text.contains("eternal recurrence"), "{text}");
         assert!(text.contains("ultimate existential test"), "{text}");

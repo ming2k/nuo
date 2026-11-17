@@ -249,7 +249,7 @@ fn tool_output_is_searchable_where_the_match_lives() {
     assert!(step.finish_tool_step(
         "call",
         "total 0\nimportant.log\n",
-        tool::ToolOutput::Text("total 0\nimportant.log\n".into()),
+        ::tool::ToolOutput::Text("total 0\nimportant.log\n".into()),
         0,
     ));
     let messages = vec![step];
@@ -272,7 +272,7 @@ fn a_failed_tool_step_is_selectable_as_an_error() {
     assert!(step.finish_tool_step(
         "call",
         "boom",
-        tool::ToolOutput::Error {
+        ::tool::ToolOutput::Error {
             message: "boom".into(),
             detail: None,
         },

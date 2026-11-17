@@ -122,6 +122,7 @@ impl Agent {
         let disabled_tools = Arc::new(std::sync::Mutex::new(HashSet::new()));
         let scoped_disabled_tools = Arc::new(std::sync::Mutex::new(ScopedToolDisable::default()));
         let admit_mcp = Arc::new(std::sync::RwLock::new(vec!["*".to_string()]));
+        let tool_activation = Arc::new(crate::tool_activation::ToolActivation::new());
         // The unified ToolManager view owns the single authority for
         // classification, per-turn schema, and dispatch lookup. It shares the
         // storage Arcs with the agent so both reach the same live state. See
@@ -132,6 +133,7 @@ impl Agent {
             Arc::clone(&disabled_tools),
             Arc::clone(&scoped_disabled_tools),
             Arc::clone(&admit_mcp),
+            Arc::clone(&tool_activation),
         );
 
         let pool = Arc::new(std::sync::RwLock::new(protocol::ToolPool::new(
@@ -150,6 +152,9 @@ impl Agent {
                 disabled_tools,
                 scoped_disabled_tools,
                 tool_manager,
+                tool_activation,
+                harness_tools: Arc::new(std::sync::Mutex::new(Vec::new())),
+                current_snapshot: Arc::new(std::sync::RwLock::new(None)),
                 tools: std::sync::Mutex::new(tools),
                 token_weights: std::sync::Arc::new(protocol::MessageTokenWeights::new()),
                 tool_schema_weights: std::sync::Arc::new(protocol::ToolSchemaWeights::new()),
@@ -387,14 +392,23 @@ impl Agent {
             .clone();
         let model_selection =
             protocol::ToolSelection::unrestricted().with_variants(model_variants.clone());
+        let mut resolved = self
+            .tools
+            .toolset
+            .resolve_for(&model, &tools, &model_selection);
+        resolved.extend(
+            self.tools
+                .harness_tools
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .cloned(),
+        );
         *self
             .tools
             .resolved_tools
             .write()
-            .unwrap_or_else(|e| e.into_inner()) =
-            self.tools
-                .toolset
-                .resolve_for(&model, &tools, &model_selection);
+            .unwrap_or_else(|e| e.into_inner()) = resolved;
     }
 
     /// Every currently installed tool, including dynamic sources. Static

@@ -30,13 +30,13 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Monitor(MonitorAction {
             watch: true,
             include_idle: true,
         }),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -165,13 +165,13 @@ async fn monitor_one_shot_closes_after_snapshot() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Monitor(MonitorAction {
             watch: false,
             include_idle: false,
         }),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -222,13 +222,13 @@ async fn attach_end_session_tears_down_and_notifies() {
         .await
         .unwrap();
     let select_monitor = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Monitor(MonitorAction {
             watch: true,
             include_idle: true,
         }),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();
@@ -257,10 +257,10 @@ async fn attach_end_session_tears_down_and_notifies() {
         .await
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
-        version: None,
         action: AttachAction::Attach(Some(id.clone())),
         project: None,
         posture: protocol::human_request::HumanChannelPosture::Interactive,
+        version: None,
         protocol: protocol::PROTOCOL_VERSION,
     })
     .unwrap();

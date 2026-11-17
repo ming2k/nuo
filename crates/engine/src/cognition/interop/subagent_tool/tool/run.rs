@@ -566,10 +566,7 @@ impl SubagentTool {
         let retry_config = *self.retry_config.lock().unwrap_or_else(|e| e.into_inner());
         let retry_limit = retry_config.max_attempts.clamp(1, 60);
         let short_id = call_id
-            .map(|id| {
-                let clean = id.trim_start_matches("call_");
-                &clean[..clean.len().min(6)]
-            })
+            .map(|id| ::tool::truncate_utf8(id.trim_start_matches("call_"), 6))
             .unwrap_or("subagent");
         ChildRetryPlan {
             limit: retry_limit,

@@ -27,7 +27,8 @@ async fn test_exec_tool() {
         .unwrap();
     assert!(res.content().contains("test"));
     assert!(tool.matches_name("execute_command"));
-    assert!(!tool.matches_name("run_command"));
+    assert!(tool.matches_name("run_command"));
+    assert!(!tool.matches_name("unknown_command"));
 }
 
 #[tokio::test]
@@ -392,14 +393,17 @@ fn scope_target_and_accesses_resolve_command() {
     let ctx = Arc::new(ExecToolContext::new("."));
     let tool = ExecuteCommandTool::new(ctx);
     assert_eq!(
-        tool.scope_target(r#"{"command": "cargo test"}"#),
+        tool.scope_target(&serde_json::json!({"command": "cargo test"})),
         ScopeTarget::Command("cargo test".to_string())
     );
     assert_eq!(
-        tool.accesses(r#"{"command": "cargo test"}"#),
+        tool.accesses(&serde_json::json!({"command": "cargo test"})),
         tool::ToolAccesses::all()
     );
-    assert_eq!(tool.scope_target(r#"{}"#), ScopeTarget::Unspecified);
+    assert_eq!(
+        tool.scope_target(&serde_json::json!({})),
+        ScopeTarget::Unspecified
+    );
 }
 
 #[test]
@@ -449,12 +453,12 @@ fn tool_accesses_reads_the_command_argument() {
     let tool = ExecuteCommandTool::new(Arc::new(ExecToolContext::new(".")));
     assert!(
         !tool
-            .accesses(r#"{"command":"git log --oneline -5"}"#)
+            .accesses(&serde_json::json!({"command":"git log --oneline -5"}))
             .declares_write()
     );
     assert!(
-        tool.accesses(r#"{"command":"git reset --hard"}"#)
+        tool.accesses(&serde_json::json!({"command":"git reset --hard"}))
             .declares_write()
     );
-    assert!(tool.accesses("not json").declares_write());
+    assert!(tool.accesses(&serde_json::json!({})).declares_write());
 }

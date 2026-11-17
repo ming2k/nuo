@@ -14,9 +14,10 @@ use serde::{Deserialize, Serialize};
 pub struct PermissionRuleConfig {
     /// Tool name (e.g. `"execute_command"`, `"read"`, `"mcp__fs__read"`).
     pub tool: String,
-    /// Permission scope. `"*"` matches every call to the tool. Any other value
-    /// must match the call's scope *exactly* (e.g. a full path, or the exact
-    /// command string for `bash`) — there is no prefix/substring matching.
+    /// Permission scope. `"*"` matches every call to the tool; a trailing `*`
+    /// is a prefix (for example `"git status *"`); every other value matches
+    /// exactly. There is deliberately no `?`/`[]` wildcard engine: a typo in a
+    /// permission pattern must not silently widen it.
     #[serde(default = "default_scope")]
     pub scope: String,
 }

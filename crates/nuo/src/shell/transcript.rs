@@ -467,7 +467,7 @@ fn transcript_from_core_inner(
                 // resume.
                 let (structured, duration_ms) = match &meta {
                     Some(meta) => (
-                        tool::ToolOutput::Subagent {
+                        ::tool::ToolOutput::Subagent {
                             summary: output.to_string(),
                             messages: Vec::new(),
                             usage: tool::TokenUsage::default(),
@@ -477,7 +477,7 @@ fn transcript_from_core_inner(
                         },
                         meta.duration_ms.unwrap_or(0),
                     ),
-                    None => (tool::ToolOutput::text(output), 0),
+                    None => (::tool::ToolOutput::text(output), 0),
                 };
                 if item.finish_tool_step(&step_id, output, structured, duration_ms) {
                     // Restore the subagent's nested transcript so its partial /

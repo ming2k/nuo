@@ -260,7 +260,7 @@ pub(crate) async fn jobs(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
                     };
                     let latest = j.latest_output.as_deref().unwrap_or(detail.as_str());
                     let truncated_latest = if latest.len() > 60 {
-                        format!("{}...", &latest[..57])
+                        format!("{}...", tool::truncate_utf8(latest, 57))
                     } else {
                         latest.to_string()
                     };

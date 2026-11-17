@@ -1,132 +1,563 @@
-//! Tool argument pre-validation.
+//! Tool argument preparation: parse, coerce, validate.
 //!
-//! Minimal structural validation of a tool call's `arguments` (a JSON string)
-//! against the top-level shape declared in the tool's `parameters` schema,
-//! performed by the dispatch layer *before* the [`Tool`](crate::Tool) impl
-//! runs. This is **not** a full JSON Schema implementation — it covers the
-//! common "did the model send the right top-level shape" checks, which catch
-//! the vast majority of bad-arguments bugs without pulling in a
-//! schema-validation dependency. Ported from praxion's `tool/validation.rs`
-//! (including its integer/number matching fix) and extended with top-level
-//! `required` / per-property primitive checks.
+//! This is the single argument boundary for every tool call. It replaces the
+//! former top-level-only shape check, which let malformed and mistyped model
+//! output reach each tool's own `serde_json::from_value` and surface as a raw
+//! deserializer error.
 //!
-//! Anything beyond (nested object shapes, `additionalProperties`, `format`,
-//! `enum`, semantic rules) stays the Tool impl's responsibility — every tool
-//! still parses and validates `arguments` itself; this layer never bypasses
-//! that, it only rejects calls it is sure violate the declared shape.
+//! The pipeline is deliberately ordered:
+//!
+//! 1. **Parse** the raw string. Unparseable arguments are a model error and
+//!    are reported as one, not forwarded to the tool.
+//! 2. **Coerce** only where the schema makes the intent unambiguous: numeric
+//!    strings for numeric fields, `"true"`/`"false"` for booleans, a single
+//!    value for an array field, a JSON-encoded object for an object field, and
+//!    optional `null` placeholders removed. Every repair is recorded so the
+//!    dispatcher can tell the model what was changed.
+//! 3. **Validate** against a compiled JSON Schema. The validator is compiled
+//!    once per tool snapshot; this module also offers a compile-free path for
+//!    tests and one-off callers.
+//!
+//! Unknown JSON Schema keywords are ignored (JSON Schema semantics). Local
+//! `$ref`s (`#/definitions/...`, `#/$defs/...`) are resolved by the validator;
+//! external refs are rejected so a tool schema cannot cause a network or file
+//! read at call time.
 
 use serde_json::Value;
+use std::sync::Arc;
 
-/// Validate the top-level shape of `arguments` against `schema`
-/// ([`Tool::parameters`](crate::Tool::parameters)). Returns `Err` with a
-/// model-actionable message when the arguments clearly violate the schema;
-/// the dispatch layer turns that into the same error shape a failing Tool
-/// impl would produce, and the tool never runs.
+/// Maximum coercion recursion depth. Deeply nested MCP schemas are still
+/// served; pathological self-referential structures are refused.
+const MAX_DEPTH: usize = 8;
+/// Maximum number of nodes visited by the coercion pass.
+const MAX_NODES: usize = 10_000;
+/// Maximum number of validation issues reported to the model.
+const MAX_ISSUES: usize = 5;
+/// Maximum bytes of received arguments echoed back in an error.
+const MAX_ECHO_BYTES: usize = 1024;
+
+/// The result of preparing one tool call.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreparedArguments {
+    /// The parsed, coerced, validated value.
+    pub value: Value,
+    /// Human-readable descriptions of every coercion applied, in order.
+    pub repairs: Vec<String>,
+}
+
+impl PreparedArguments {
+    /// Whether any coercion was applied.
+    pub fn repaired(&self) -> bool {
+        !self.repairs.is_empty()
+    }
+}
+
+/// A compiled input or output schema.
 ///
-/// Rules checked, in order:
+/// Compilation is the expensive half of validation; a per-request tool snapshot
+/// compiles each schema once and reuses it for every call in the request.
+#[derive(Clone)]
+pub struct CompiledSchema {
+    schema: Value,
+    validator: Arc<jsonschema::Validator>,
+    /// Whether the schema expects a top-level object. Used to accept a `null`
+    /// argument payload as `{}` for no-argument tools.
+    wants_object: bool,
+}
+
+impl std::fmt::Debug for CompiledSchema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompiledSchema")
+            .field("wants_object", &self.wants_object)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Compile `schema` once. External `$ref`s are rejected by the validator's
+/// default resolver; local refs work.
+pub fn compile_schema(schema: &Value) -> Result<CompiledSchema, String> {
+    let validator = jsonschema::validator_for(schema)
+        .map_err(|error| format!("invalid tool schema: {error}"))?;
+    Ok(CompiledSchema {
+        schema: schema.clone(),
+        validator: Arc::new(validator),
+        wants_object: schema_expects_object(schema),
+    })
+}
+
+/// Compile through a process-wide cache keyed by the serialized schema.
 ///
-/// - An **unparseable** argument string passes: the Tool impl's own parse
-///   error already reports that case in the tool's own words.
-/// - If the schema declares a top-level `"type"`, the arguments' JSON type
-///   must match. An integer value matches an `"integer"` schema and is also
-///   accepted for a `"number"` schema; a fractional number never matches
-///   `"integer"`. Top-level `null` is tolerated for `"object"` schemas (some
-///   providers send `null` instead of `{}` for no-arg tools).
-/// - If the arguments are an object, every key in the schema's top-level
-///   `"required"` must be present (JSON Schema `required` is key presence).
-/// - If the arguments are an object, every present property named in the
-///   schema's top-level `"properties"` must match that property's declared
-///   primitive `"type"` (`string`/`number`/`integer`/`boolean`/`array`/
-///   `object`), with the same integer/number rule as the top level. Explicit
-///   `null` property values are skipped (providers send `null` for unset
-///   optional fields, mirroring the top-level `null`-for-`object` rule).
-///
-/// Checks are **not** recursive: a property typed `"object"` is checked to be
-/// an object, but its nested contents are left to the Tool impl. A schema
-/// without a top-level `"type"`/`"required"`/`"properties"` admits anything.
-pub fn validate_tool_arguments(schema: &Value, arguments: &str) -> Result<(), String> {
-    let Ok(args) = serde_json::from_str::<Value>(arguments) else {
-        return Ok(());
+/// Tool schemas are stable across requests (MCP registration changes are the
+/// exception, and a changed schema produces a different key). Compiling the
+/// same 30 schemas on every turn is pure latency; the cache keeps the compiled
+/// validator and the parsed schema together.
+pub fn compile_schema_cached(schema: &Value) -> Result<Arc<CompiledSchema>, String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<CompiledSchema>>>> = OnceLock::new();
+    let Ok(key) = serde_json::to_string(schema) else {
+        return compile_schema(schema).map(Arc::new);
     };
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(compiled) = guard.get(&key) {
+        return Ok(Arc::clone(compiled));
+    }
+    let compiled = Arc::new(compile_schema(schema)?);
+    if guard.len() >= 512 {
+        guard.clear();
+    }
+    guard.insert(key, Arc::clone(&compiled));
+    Ok(compiled)
+}
 
-    // Top-level type check.
-    if let Some(expected) = schema.get("type").and_then(Value::as_str) {
-        let actual = json_type_of(&args);
-        if !(expected == "object" && actual == "null") {
-            let matches = expected == actual || (expected == "number" && actual == "integer");
-            if !matches {
-                return Err(format!(
-                    "invalid arguments: expected type `{expected}`, got `{actual}`"
-                ));
-            }
+impl CompiledSchema {
+    /// Parse, coerce, and validate one raw argument string.
+    pub fn prepare(&self, raw: &str) -> Result<PreparedArguments, String> {
+        let mut value: Value = if raw.trim().is_empty() {
+            Value::Object(serde_json::Map::new())
+        } else {
+            serde_json::from_str(raw).map_err(|error| {
+                format!("invalid arguments: not valid JSON: {error}. Send a JSON object.")
+            })?
+        };
+
+        if value.is_null() && self.wants_object {
+            value = Value::Object(serde_json::Map::new());
         }
+
+        let mut repairs = Vec::new();
+        let mut nodes = 0usize;
+        coerce(
+            &self.schema,
+            &self.schema,
+            &mut value,
+            "",
+            0,
+            &mut nodes,
+            &mut repairs,
+        )?;
+
+        self.validate(&value)?;
+        Ok(PreparedArguments { value, repairs })
     }
 
-    // `required` and per-property checks only apply to object arguments.
-    let Some(object) = args.as_object() else {
-        return Ok(());
-    };
+    /// Validate an already-parsed value against this schema.
+    pub fn validate(&self, value: &Value) -> Result<(), String> {
+        let errors: Vec<String> = self
+            .validator
+            .iter_errors(value)
+            .take(MAX_ISSUES)
+            .map(|error| format_issue(&error))
+            .collect();
+        if errors.is_empty() {
+            return Ok(());
+        }
+        let mut message = String::from("invalid arguments:");
+        for error in &errors {
+            message.push_str("\n  - ");
+            message.push_str(error);
+        }
+        if self.validator.iter_errors(value).nth(MAX_ISSUES).is_some() {
+            message.push_str("\n  - …and more issues");
+        }
+        message.push_str("\nReceived: ");
+        message.push_str(&compact_json(value));
+        message.push_str("\nUpdate the arguments and call the tool again.");
+        Err(message)
+    }
 
-    if let Some(required) = schema.get("required").and_then(Value::as_array) {
-        let missing: Vec<&str> = required
+    /// The original schema.
+    pub fn schema(&self) -> &Value {
+        &self.schema
+    }
+}
+
+/// One-shot preparation for callers that do not hold a compiled schema.
+///
+/// Prefer [`compile_schema`] + [`CompiledSchema::prepare`] in hot paths.
+pub fn prepare_tool_arguments(schema: &Value, raw: &str) -> Result<PreparedArguments, String> {
+    compile_schema_cached(schema)?.prepare(raw)
+}
+
+/// One-shot output validation. Used when a tool declares `output_schema`.
+pub fn validate_tool_output(schema: &Value, value: &Value) -> Result<(), String> {
+    compile_schema_cached(schema)?
+        .validate(value)
+        .map_err(|message| {
+            message
+                .replace("invalid arguments:", "invalid structured output:")
+                .replace("Update the arguments and call the tool again.", "")
+        })
+}
+
+fn format_issue(error: &jsonschema::ValidationError<'_>) -> String {
+    let path = error.instance_path().to_string();
+    let location = if path.is_empty() {
+        "/".to_string()
+    } else {
+        path
+    };
+    let mut detail = error.to_string();
+    if detail.len() > 300 {
+        let mut end = 300;
+        while !detail.is_char_boundary(end) {
+            end -= 1;
+        }
+        detail.truncate(end);
+        detail.push('…');
+    }
+    format!("at `{location}`: {detail}")
+}
+
+fn compact_json(value: &Value) -> String {
+    let mut text = serde_json::to_string(value).unwrap_or_else(|_| "<unserializable>".to_string());
+    if text.len() > MAX_ECHO_BYTES {
+        let mut end = MAX_ECHO_BYTES;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push_str("… (truncated)");
+    }
+    text
+}
+
+fn schema_expects_object(schema: &Value) -> bool {
+    matches!(
+        schema.get("type"),
+        Some(Value::String(kind)) if kind == "object"
+    ) || schema.get("properties").is_some()
+}
+
+/// Resolve a local `$ref` against the root schema. Returns `None` for external
+/// or unresolvable refs, in which case coercion leaves the value as-is and the
+/// compiled validator reports the final verdict.
+fn resolve_ref<'a>(root: &'a Value, reference: &str) -> Option<&'a Value> {
+    let pointer = reference.strip_prefix('#')?;
+    if pointer.is_empty() {
+        return Some(root);
+    }
+    let pointer = pointer.strip_prefix('/')?;
+    let mut current = root;
+    for segment in pointer.split('/') {
+        let segment = segment.replace("~1", "/").replace("~0", "~");
+        current = current.get(&segment)?;
+    }
+    Some(current)
+}
+
+fn effective_schema<'a>(root: &'a Value, schema: &'a Value, depth: usize) -> &'a Value {
+    if depth > MAX_DEPTH {
+        return schema;
+    }
+    match schema.get("$ref").and_then(Value::as_str) {
+        Some(reference) => resolve_ref(root, reference).unwrap_or(schema),
+        None => schema,
+    }
+}
+
+/// The non-null type declared by a schema, if it declares exactly one.
+fn primary_type(schema: &Value) -> Option<&str> {
+    match schema.get("type") {
+        Some(Value::String(kind)) => Some(kind),
+        Some(Value::Array(kinds)) => kinds
             .iter()
             .filter_map(Value::as_str)
-            .filter(|name| !object.contains_key(*name))
-            .collect();
-        if !missing.is_empty() {
-            let names = missing
-                .iter()
-                .map(|name| format!("`{name}`"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(format!(
-                "invalid arguments: missing required field(s): {names}"
-            ));
+            .find(|kind| *kind != "null"),
+        _ => {
+            if schema.get("properties").is_some() {
+                Some("object")
+            } else if schema.get("items").is_some() {
+                Some("array")
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn allows_null(schema: &Value) -> bool {
+    match schema.get("type") {
+        Some(Value::String(kind)) => kind == "null",
+        Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind == "null"),
+        _ => false,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn coerce(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &str,
+    depth: usize,
+    nodes: &mut usize,
+    repairs: &mut Vec<String>,
+) -> Result<(), String> {
+    if depth > MAX_DEPTH {
+        return Ok(());
+    }
+    *nodes = nodes.saturating_add(1);
+    if *nodes > MAX_NODES {
+        return Err("invalid arguments: argument structure is too large".to_string());
+    }
+
+    let schema = effective_schema(root, schema, depth);
+
+    // All branches of an `allOf` describe the same value; coerce through each.
+    if let Some(all_of) = schema.get("allOf").and_then(Value::as_array) {
+        for sub in all_of {
+            coerce(root, sub, value, path, depth + 1, nodes, repairs)?;
         }
     }
 
-    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
-        for (key, value) in object {
-            if value.is_null() {
-                continue;
-            }
-            let Some(expected) = properties
-                .get(key)
-                .and_then(|sub| sub.get("type"))
-                .and_then(Value::as_str)
-            else {
+    // Combinators: coerce through the first branch whose declared type matches
+    // the value. The compiled validator remains the authority on which branch
+    // actually accepts it.
+    for keyword in ["oneOf", "anyOf"] {
+        let Some(branches) = schema.get(keyword).and_then(Value::as_array) else {
+            continue;
+        };
+        let Some(branch) = branches
+            .iter()
+            .find(|branch| type_matches(root, branch, value, depth))
+        else {
+            continue;
+        };
+        coerce(root, branch, value, path, depth + 1, nodes, repairs)?;
+        break;
+    }
+
+    let Some(kind) = primary_type(schema) else {
+        return Ok(());
+    };
+
+    match kind {
+        "object" => coerce_object(root, schema, value, path, depth, nodes, repairs),
+        "array" => coerce_array(root, schema, value, path, depth, nodes, repairs),
+        "integer" | "number" => {
+            coerce_number(schema, value, path, kind, repairs);
+            Ok(())
+        }
+        "boolean" => {
+            coerce_boolean(value, path, repairs);
+            Ok(())
+        }
+        "string" => Ok(()),
+        _ => Ok(()),
+    }
+}
+
+fn type_matches(root: &Value, schema: &Value, value: &Value, depth: usize) -> bool {
+    let schema = effective_schema(root, schema, depth);
+    let Some(kind) = primary_type(schema) else {
+        return true;
+    };
+    match kind {
+        "object" => value.is_object(),
+        "array" => value.is_array(),
+        "string" => value.is_string(),
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "number" => value.is_number(),
+        "boolean" => value.is_boolean(),
+        "null" => value.is_null(),
+        _ => true,
+    }
+}
+
+fn coerce_object(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &str,
+    depth: usize,
+    nodes: &mut usize,
+    repairs: &mut Vec<String>,
+) -> Result<(), String> {
+    if let Value::String(text) = value
+        && let Ok(parsed @ Value::Object(_)) = serde_json::from_str::<Value>(text)
+    {
+        repairs.push(format!("{path}/: parsed a JSON-encoded object"));
+        *value = parsed;
+    }
+    let Value::Object(object) = value else {
+        return Ok(());
+    };
+
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+
+    // Optional `null` placeholders are providers' way of saying "unset".
+    if !required.is_empty() || schema.get("properties").is_some() {
+        object.retain(|key, item| !(item.is_null() && !required.contains(&key.as_str())));
+    }
+
+    let properties = schema.get("properties").and_then(Value::as_object);
+    if let Some(properties) = properties {
+        for (key, property_schema) in properties {
+            let property_path = format!("{path}/{key}");
+            let Some(item) = object.get_mut(key) else {
                 continue;
             };
-            let actual = json_type_of(value);
-            let matches = expected == actual || (expected == "number" && actual == "integer");
-            if !matches {
-                return Err(format!(
-                    "invalid argument `{key}`: expected type `{expected}`, got `{actual}`"
+            if item.is_null() {
+                if required.contains(&key.as_str()) && !allows_null(property_schema) {
+                    continue; // let the validator produce the precise error
+                }
+                if !required.contains(&key.as_str()) {
+                    object.remove(key);
+                    continue;
+                }
+            }
+            coerce(
+                root,
+                property_schema,
+                item,
+                &property_path,
+                depth + 1,
+                nodes,
+                repairs,
+            )?;
+        }
+    }
+
+    match schema.get("additionalProperties") {
+        Some(Value::Bool(false)) => {
+            let known: Vec<String> = properties
+                .map(|properties| properties.keys().cloned().collect())
+                .unwrap_or_default();
+            let before = object.len();
+            object.retain(|key, _| known.iter().any(|known| known == key));
+            if object.len() != before {
+                repairs.push(format!(
+                    "{path}: removed {} unknown field(s)",
+                    before - object.len()
                 ));
             }
         }
+        Some(additional @ Value::Object(_)) => {
+            let known: Vec<String> = properties
+                .map(|properties| properties.keys().cloned().collect())
+                .unwrap_or_default();
+            for (key, item) in object.iter_mut() {
+                if known.iter().any(|known| known == key) {
+                    continue;
+                }
+                coerce(
+                    root,
+                    additional,
+                    item,
+                    &format!("{path}/{key}"),
+                    depth + 1,
+                    nodes,
+                    repairs,
+                )?;
+            }
+        }
+        _ => {}
     }
-
     Ok(())
 }
 
-/// Return the JSON Schema type name for `value`, or `"null"` for
-/// `Value::Null`. Integers (any non-fractional number `serde_json` can
-/// represent exactly) report as `"integer"`, floats as `"number"`.
-fn json_type_of(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(n) => {
-            if n.is_i64() {
-                "integer"
-            } else {
-                "number"
+fn coerce_array(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &str,
+    depth: usize,
+    nodes: &mut usize,
+    repairs: &mut Vec<String>,
+) -> Result<(), String> {
+    let items = schema.get("items");
+    if !value.is_array() {
+        let mut single = value.clone();
+        let coerced = match items {
+            Some(items) => {
+                coerce(root, items, &mut single, path, depth + 1, nodes, repairs).is_ok()
+                    && type_matches(root, items, &single, depth + 1)
             }
+            None => true,
+        };
+        if coerced {
+            repairs.push(format!("{path}: wrapped a single value in an array"));
+            *value = Value::Array(vec![single]);
         }
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
+    }
+    if let (Value::Array(values), Some(items)) = (value, items) {
+        for (index, item) in values.iter_mut().enumerate() {
+            coerce(
+                root,
+                items,
+                item,
+                &format!("{path}/{index}"),
+                depth + 1,
+                nodes,
+                repairs,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn coerce_number(
+    schema: &Value,
+    value: &mut Value,
+    path: &str,
+    kind: &str,
+    repairs: &mut Vec<String>,
+) {
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let Ok(number) = trimmed.parse::<f64>() else {
+        return;
+    };
+    if !number.is_finite() {
+        return;
+    }
+    if kind == "integer" {
+        if number.fract() != 0.0 {
+            return;
+        }
+        if number < i64::MIN as f64 || number > i64::MAX as f64 {
+            return;
+        }
+        *value = Value::from(number as i64);
+    } else {
+        let Some(number) = serde_json::Number::from_f64(number) else {
+            return;
+        };
+        *value = Value::Number(number);
+    }
+    // A string that was already an exact integer/float is still a repair; the
+    // model should learn the declared type.
+    if schema.get("enum").is_none() {
+        repairs.push(format!("{path}: coerced a numeric string to a {kind}"));
+    }
+}
+
+fn coerce_boolean(value: &mut Value, path: &str, repairs: &mut Vec<String>) {
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    match text.trim().to_ascii_lowercase().as_str() {
+        "true" => {
+            *value = Value::Bool(true);
+            repairs.push(format!("{path}: coerced a string to a boolean"));
+        }
+        "false" => {
+            *value = Value::Bool(false);
+            repairs.push(format!("{path}: coerced a string to a boolean"));
+        }
+        _ => {}
     }
 }
 
@@ -135,175 +566,127 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Table-driven coverage of the validation contract. Each case is
-    /// `(schema, arguments, expected)`: `Ok(())` admits the call,
-    /// `Err(substring)` rejects it with a message containing the substring.
-    #[test]
-    fn validation_table() {
-        let cases: Vec<(Value, &str, Result<(), &str>)> = vec![
-            // Top-level type matching
-            (json!({"type": "object"}), "{}", Ok(())),
-            (
-                json!({"type": "object"}),
-                "[1, 2]",
-                Err("expected type `object`, got `array`"),
-            ),
-            (
-                json!({"type": "object"}),
-                "\"hi\"",
-                Err("expected type `object`, got `string`"),
-            ),
-            // Some providers send `null` instead of `{}` for no-arg tools.
-            (json!({"type": "object"}), "null", Ok(())),
-            (json!({"type": "string"}), "\"hi\"", Ok(())),
-            (
-                json!({"type": "string"}),
-                "42",
-                Err("expected type `string`, got `integer`"),
-            ),
-            (json!({"type": "array"}), "[1]", Ok(())),
-            (json!({"type": "boolean"}), "true", Ok(())),
-            // integer vs number (praxion fix #11 semantics)
-            // An integer value matches an `integer` schema...
-            (json!({"type": "integer"}), "42", Ok(())),
-            // ...and is also accepted for a `number` schema.
-            (json!({"type": "number"}), "42", Ok(())),
-            // A fractional value never matches an `integer` schema.
-            (
-                json!({"type": "integer"}),
-                "4.2",
-                Err("expected type `integer`, got `number`"),
-            ),
-            (json!({"type": "number"}), "4.2", Ok(())),
-            // Empty / typeless schema admits anything
-            (json!({}), "123", Ok(())),
-            (json!({}), "[1, 2]", Ok(())),
-            // required: key presence, top level only
-            (
-                json!({"type": "object", "required": ["path"]}),
-                "{}",
-                Err("missing required field(s): `path`"),
-            ),
-            (
-                json!({"type": "object", "required": ["path", "content"]}),
-                "{\"path\": \"f.rs\"}",
-                Err("missing required field(s): `content`"),
-            ),
-            (
-                json!({"type": "object", "required": ["path"]}),
-                "{\"path\": \"f.rs\"}",
-                Ok(()),
-            ),
-            // Empty required list admits anything.
-            (json!({"type": "object", "required": []}), "{}", Ok(())),
-            // Per-property primitive type checks
-            (
-                json!({"type": "object", "properties": {"command": {"type": "string"}}}),
-                "{\"command\": 123}",
-                Err("invalid argument `command`: expected type `string`, got `integer`"),
-            ),
-            (
-                json!({"type": "object", "properties": {"command": {"type": "string"}}}),
-                "{\"command\": \"ls\"}",
-                Ok(()),
-            ),
-            (
-                json!({"type": "object", "properties": {"limit": {"type": "integer"}}}),
-                "{\"limit\": 3}",
-                Ok(()),
-            ),
-            (
-                json!({"type": "object", "properties": {"limit": {"type": "integer"}}}),
-                "{\"limit\": 3.5}",
-                Err("invalid argument `limit`: expected type `integer`, got `number`"),
-            ),
-            (
-                json!({"type": "object", "properties": {"limit": {"type": "number"}}}),
-                "{\"limit\": 3}",
-                Ok(()),
-            ),
-            (
-                json!({"type": "object", "properties": {"recursive": {"type": "boolean"}}}),
-                "{\"recursive\": \"yes\"}",
-                Err("invalid argument `recursive`: expected type `boolean`, got `string`"),
-            ),
-            (
-                json!({"type": "object", "properties": {"items": {"type": "array"}}}),
-                "{\"items\": {}}",
-                Err("invalid argument `items`: expected type `array`, got `object`"),
-            ),
-            // Explicit null is tolerated for property values (unset optional).
-            (
-                json!({"type": "object", "properties": {"ext": {"type": "string"}}}),
-                "{\"ext\": null}",
-                Ok(()),
-            ),
-            // Properties absent from the schema are not checked
-            // (`additionalProperties` stays the Tool impl's business).
-            (
-                json!({"type": "object", "properties": {"a": {"type": "string"}}}),
-                "{\"a\": \"x\", \"b\": 123}",
-                Ok(()),
-            ),
-            // No recursion into nested objects
-            // `opts` must be an object, but its nested `required`/`properties`
-            // are NOT validated by this layer.
-            (
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "opts": {
-                            "type": "object",
-                            "properties": {"n": {"type": "integer"}},
-                            "required": ["n"]
-                        }
-                    }
-                }),
-                "{\"opts\": {}}",
-                Ok(()),
-            ),
-            (
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "opts": {
-                            "type": "object",
-                            "properties": {"n": {"type": "integer"}},
-                            "required": ["n"]
-                        }
-                    }
-                }),
-                "{\"opts\": {\"n\": \"wrong\"}}",
-                Ok(()),
-            ),
-            (
-                json!({"type": "object", "properties": {"opts": {"type": "object"}}}),
-                "{\"opts\": []}",
-                Err("invalid argument `opts`: expected type `object`, got `array`"),
-            ),
-            // required/properties with no top-level "type" still apply
-            (
-                json!({"required": ["a"]}),
-                "{}",
-                Err("missing required field(s): `a`"),
-            ),
-            // Unparseable argument strings pass through to the Tool impl
-            (json!({"type": "object", "required": ["a"]}), "", Ok(())),
-            (json!({"type": "object"}), "{not json", Ok(())),
-        ];
+    fn prepare(schema: Value, raw: &str) -> Result<PreparedArguments, String> {
+        prepare_tool_arguments(&schema, raw)
+    }
 
-        for (schema, arguments, expected) in cases {
-            let result = validate_tool_arguments(&schema, arguments);
-            match (&result, expected) {
-                (Ok(()), Ok(())) => {}
-                (Err(message), Err(substring)) => assert!(
-                    message.contains(substring),
-                    "schema {schema}, args {arguments:?}: error {message:?} must contain {substring:?}"
-                ),
-                _ => panic!(
-                    "schema {schema}, args {arguments:?}: got {result:?}, expected {expected:?}"
-                ),
+    #[test]
+    fn parses_and_validates_a_nested_object() {
+        let schema = json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": {"type": "string"},
+                "opts": {
+                    "type": "object",
+                    "required": ["n"],
+                    "properties": {"n": {"type": "integer"}}
+                }
             }
-        }
+        });
+        assert!(prepare(schema.clone(), r#"{"path":"a.rs","opts":{"n":1}}"#).is_ok());
+        let error = prepare(schema, r#"{"path":"a.rs","opts":{}}"#).unwrap_err();
+        assert!(error.contains("required"), "{error}");
+    }
+
+    #[test]
+    fn unparseable_arguments_are_an_error_not_a_pass_through() {
+        let error = prepare(json!({"type": "object"}), "{not json").unwrap_err();
+        assert!(error.contains("not valid JSON"), "{error}");
+    }
+
+    #[test]
+    fn null_root_becomes_an_empty_object() {
+        let prepared = prepare(json!({"type": "object"}), "null").unwrap();
+        assert_eq!(prepared.value, json!({}));
+    }
+
+    #[test]
+    fn numeric_strings_and_single_values_are_coerced() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer"},
+                "recursive": {"type": "boolean"},
+                "paths": {"type": "array", "items": {"type": "string"}}
+            }
+        });
+        let prepared = prepare(
+            schema,
+            r#"{"limit":"20","recursive":"true","paths":"src/lib.rs"}"#,
+        )
+        .unwrap();
+        assert_eq!(prepared.value["limit"], json!(20));
+        assert_eq!(prepared.value["recursive"], json!(true));
+        assert_eq!(prepared.value["paths"], json!(["src/lib.rs"]));
+        assert_eq!(prepared.repairs.len(), 3);
+    }
+
+    #[test]
+    fn optional_null_is_removed_but_required_null_is_not() {
+        let schema = json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}
+        });
+        let prepared = prepare(schema, r#"{"path":"a.rs","limit":null}"#).unwrap();
+        assert!(prepared.value.get("limit").is_none());
+        assert!(prepare(
+            json!({"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}}),
+            r#"{"path":null}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn additional_properties_false_drops_unknown_keys() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "additionalProperties": false
+        });
+        let prepared = prepare(schema, r#"{"path":"a","extra":1}"#).unwrap();
+        assert_eq!(prepared.value, json!({"path":"a"}));
+    }
+
+    #[test]
+    fn local_refs_are_resolved() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"limit": {"$ref": "#/$defs/limit"}},
+            "$defs": {"limit": {"type": "integer", "minimum": 1}}
+        });
+        let prepared = prepare(schema.clone(), r#"{"limit":"3"}"#).unwrap();
+        assert_eq!(prepared.value["limit"], json!(3));
+        assert!(prepare(schema, r#"{"limit":0}"#).is_err());
+    }
+
+    #[test]
+    fn one_of_selects_a_matching_branch() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {"oneOf": [{"type": "string"}, {"type": "integer"}]}
+            }
+        });
+        let prepared = prepare(schema, r#"{"value":"12"}"#).unwrap();
+        // A string is a valid member of the `oneOf`; coercion must not invent
+        // a numeric interpretation when the schema does not force one.
+        assert_eq!(prepared.value["value"], json!("12"));
+    }
+
+    #[test]
+    fn a_number_is_not_silently_turned_into_a_string() {
+        let schema = json!({"type": "object", "properties": {"x": {"type": "string"}}});
+        assert!(prepare(schema, r#"{"x":1}"#).is_err());
+    }
+
+    #[test]
+    fn error_echo_is_bounded() {
+        let schema = json!({"type": "object", "properties": {"x": {"type": "string"}}});
+        let raw = format!(r#"{{"x":{{"a":"{}"}}}}"#, "a".repeat(8 * 1024));
+        let error = prepare(schema, &raw).unwrap_err();
+        assert!(error.contains("truncated"), "{}", error.len());
+        assert!(error.len() < 4 * 1024);
     }
 }

@@ -155,16 +155,28 @@ impl OffstreamRegistry {
     }
 }
 
+/// Largest spool file inlined through the resolver. Larger files return
+/// `None`, which makes `read` fall back to its streaming path instead of
+/// loading the whole artifact into memory just to paginate it.
+const MAX_INLINE_SPOOL_BYTES: u64 = 4 * 1024 * 1024;
+
+async fn read_spool_inline(path: &std::path::Path) -> Option<String> {
+    let metadata = tokio::fs::metadata(path).await.ok()?;
+    if metadata.len() > MAX_INLINE_SPOOL_BYTES {
+        return None;
+    }
+    tokio::fs::read_to_string(path).await.ok()
+}
+
 #[async_trait]
 impl tool::VirtualFileResolver for OffstreamRegistry {
     async fn resolve_virtual(&self, path: &str) -> Option<String> {
         let handle = tool::extract_virtual_handle(path);
-
         // 1. Check physical execution spool directory (ADR-0093 [INV-SPOOL-01])
         let spool_dir = tool::spool_root_dir();
         for ext in ["log", "txt", "md"] {
             let candidate = spool_dir.join(format!("{handle}.{ext}"));
-            if let Ok(content) = tokio::fs::read_to_string(&candidate).await {
+            if let Some(content) = read_spool_inline(&candidate).await {
                 return Some(content);
             }
         }
@@ -173,7 +185,7 @@ impl tool::VirtualFileResolver for OffstreamRegistry {
         let log_dir = host::paths::get().exec_logs_dir();
         for prefix in ["", "exec_"] {
             let candidate = log_dir.join(format!("{prefix}{handle}.log"));
-            if let Ok(content) = tokio::fs::read_to_string(&candidate).await {
+            if let Some(content) = read_spool_inline(&candidate).await {
                 return Some(content);
             }
         }

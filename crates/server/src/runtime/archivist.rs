@@ -20,7 +20,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use engine::{Agent, AgentIdentity};
 use persistence::db::{DbReader, get_persistence_handle};
-use serde_json::json;
+use serde_json::{Value, json};
 use tool::Tool;
 
 use acp::{AgentAddress, AgentEnvelope, Fabric, MessageIntent, SteerAction};
@@ -100,7 +100,7 @@ impl Tool for ArchivistInstructSessionTool {
         "Dispatch a top-down instruction to a hosted workspace session for its agent to execute."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -117,8 +117,12 @@ impl Tool for ArchivistInstructSessionTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
         let session_id = args["session_id"]
             .as_str()
             .ok_or("Missing 'session_id' argument")?;
@@ -155,12 +159,14 @@ impl Tool for ArchivistInstructSessionTool {
             .await
             .map_err(|e| format!("ACP fabric dispatch failed: {e}"))?;
 
-        Ok(json!({
-            "status": "delegated",
-            "message_id": msg_id,
-            "target_session": resolved
-        })
-        .to_string())
+        Ok(tool::ToolOutput::text(
+            json!({
+                "status": "delegated",
+                "message_id": msg_id,
+                "target_session": resolved
+            })
+            .to_string(),
+        ))
     }
 }
 
@@ -179,7 +185,7 @@ impl Tool for ArchivistSearchHistoryTool {
         "Full-text BM25 search across persisted session transcripts, returning matching snippets and session metadata."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -200,8 +206,12 @@ impl Tool for ArchivistSearchHistoryTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
         let query = args["query"].as_str().ok_or("Missing 'query' argument")?;
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(20).clamp(1, 100) as usize;
@@ -236,13 +246,15 @@ impl Tool for ArchivistSearchHistoryTool {
             })
             .collect();
 
-        Ok(json!({
-            "query": query,
-            "recall": if relaxed { "relaxed" } else { "strict" },
-            "hit_count": hits_json.len(),
-            "hits": hits_json
-        })
-        .to_string())
+        Ok(tool::ToolOutput::text(
+            json!({
+                "query": query,
+                "recall": if relaxed { "relaxed" } else { "strict" },
+                "hit_count": hits_json.len(),
+                "hits": hits_json
+            })
+            .to_string(),
+        ))
     }
 }
 
@@ -260,7 +272,7 @@ impl Tool for ArchivistListSessionsTool {
         "List persisted sessions (newest activity first) with IDs, titles, digests, scopes, and message counts."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -276,8 +288,12 @@ impl Tool for ArchivistListSessionsTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(50).clamp(1, 500) as usize;
         let filter = match workspace {
@@ -309,11 +325,13 @@ impl Tool for ArchivistListSessionsTool {
             })
             .collect();
 
-        Ok(json!({
-            "session_count": sessions.len(),
-            "sessions": sessions
-        })
-        .to_string())
+        Ok(tool::ToolOutput::text(
+            json!({
+                "session_count": sessions.len(),
+                "sessions": sessions
+            })
+            .to_string(),
+        ))
     }
 }
 
@@ -331,7 +349,7 @@ impl Tool for ArchivistReadSessionTool {
         "Read the recent transcript messages of a session by ID."
     }
 
-    fn parameters(&self) -> serde_json::Value {
+    fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -348,8 +366,12 @@ impl Tool for ArchivistReadSessionTool {
         })
     }
 
-    async fn call(&self, arguments: &str) -> Result<String, String> {
-        let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        arguments: Value,
+    ) -> Result<tool::ToolOutput, tool::ToolError> {
+        let args = arguments;
         let session_id = args["session_id"]
             .as_str()
             .ok_or("Missing 'session_id' argument")?;
@@ -393,7 +415,7 @@ impl Tool for ArchivistReadSessionTool {
             })
             .collect();
 
-        Ok(json!({
+        Ok(tool::ToolOutput::text(json!({
             "session_id": view.id,
             "title": view.title,
             "digest": view.digest,
@@ -402,7 +424,7 @@ impl Tool for ArchivistReadSessionTool {
             "returned_messages": messages.len(),
             "messages": messages,
         })
-        .to_string())
+        .to_string()))
     }
 }
 
@@ -448,7 +470,10 @@ mod tests {
 
     #[tokio::test]
     async fn search_tool_reports_missing_query() {
-        let err = ArchivistSearchHistoryTool.call("{}").await.unwrap_err();
+        let err = ArchivistSearchHistoryTool
+            .execute_text(&::tool::ToolContext::default(), "{}")
+            .await
+            .unwrap_err();
         assert!(err.contains("query"), "{err}");
     }
 
@@ -456,7 +481,10 @@ mod tests {
     async fn search_tool_runs_against_the_real_store() {
         sandbox_once();
         let out = ArchivistSearchHistoryTool
-            .call(r#"{"query": "nonexistent-needle-xyz"}"#)
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"query": "nonexistent-needle-xyz"}"#,
+            )
             .await
             .unwrap();
         assert!(out.contains("hit_count"), "{out}");
@@ -465,7 +493,10 @@ mod tests {
     #[tokio::test]
     async fn list_tool_runs_against_the_real_store() {
         sandbox_once();
-        let out = ArchivistListSessionsTool.call("{}").await.unwrap();
+        let out = ArchivistListSessionsTool
+            .execute_text(&::tool::ToolContext::default(), "{}")
+            .await
+            .unwrap();
         assert!(out.contains("session_count"), "{out}");
     }
 
@@ -473,7 +504,10 @@ mod tests {
     async fn read_tool_reports_unknown_session() {
         sandbox_once();
         let err = ArchivistReadSessionTool
-            .call(r#"{"session_id": "ffffffff-ffff-ffff-ffff-ffffffffffff"}"#)
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"session_id": "ffffffff-ffff-ffff-ffff-ffffffffffff"}"#,
+            )
             .await
             .unwrap_err();
         assert!(
@@ -491,7 +525,10 @@ mod tests {
         let tool = ArchivistInstructSessionTool::new(fabric.clone(), archivist_address());
 
         let err = tool
-            .call(r#"{"session_id": "deadbeef", "instruction": "do the thing"}"#)
+            .execute_text(
+                &::tool::ToolContext::default(),
+                r#"{"session_id": "deadbeef", "instruction": "do the thing"}"#,
+            )
             .await
             .unwrap_err();
         assert!(

@@ -287,26 +287,30 @@ fn is_subtree(parent: &str, child: &str) -> bool {
 /// POSIX-first; kimi-code folds backslashes for Windows — we keep it simple
 /// and correct on Unix, which is the deployment target).
 pub fn normalize_access_path(path: impl Into<String>) -> String {
-    let mut raw = path.into();
-    // Strip trailing slashes (but keep "/" itself as the root).
-    while raw.len() > 1 && raw.ends_with('/') {
-        raw.pop();
-    }
-    // Collapse repeated separators.
-    let mut out = String::with_capacity(raw.len());
-    let mut prev_sep = false;
-    for ch in raw.chars() {
-        if ch == '/' {
-            if !prev_sep {
-                out.push(ch);
+    let raw = path.into();
+    let absolute = raw.starts_with('/');
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in raw.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.last().is_some_and(|last| *last != "..") {
+                    segments.pop();
+                } else if !absolute {
+                    // A leading `..` in a relative path is meaningful: the
+                    // call is intentionally addressing a parent. Keep it.
+                    segments.push("..");
+                }
             }
-            prev_sep = true;
-        } else {
-            out.push(ch);
-            prev_sep = false;
+            other => segments.push(other),
         }
     }
-    out
+    let body = segments.join("/");
+    match (absolute, body.is_empty()) {
+        (true, _) => format!("/{body}"),
+        (false, true) => ".".to_string(),
+        (false, false) => body,
+    }
 }
 
 #[cfg(test)]
@@ -415,7 +419,9 @@ mod tests {
         assert_eq!(normalize_access_path("src/a.rs/"), "src/a.rs");
         assert_eq!(normalize_access_path("src///"), "src");
         assert_eq!(normalize_access_path("/"), "/");
-        assert_eq!(normalize_access_path("a/b/../c.rs"), "a/b/../c.rs"); // no .. resolution (intentional)
+        assert_eq!(normalize_access_path("a/b/../c.rs"), "a/c.rs");
+        assert_eq!(normalize_access_path("../a"), "../a");
+        assert_eq!(normalize_access_path("/a/../b"), "/b");
     }
 
     #[test]
