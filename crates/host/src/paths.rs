@@ -611,15 +611,6 @@ impl Dirs {
             .join(format!("{id}.json"))
     }
 
-    /// Per-project persistent "always allow" permission rules. The cached
-    /// rules from `PermissionDecision::Always` are mirrored here so a new
-    /// session in the same project inherits prior approvals instead of
-    /// re-prompting for the same operations. Best-effort; absence or parse
-    /// failure is non-fatal (the agent just asks the user again).
-    pub fn project_permissions(&self, project_root: &Path) -> PathBuf {
-        self.project_dir(project_root).join("permissions.json")
-    }
-
     /// Structured log directory for the rolling appender, under
     /// `$XDG_STATE_HOME/nuo/log`. Used by `init_tracing` at startup
     /// and by `Self::ensure` in tests.
@@ -1493,20 +1484,6 @@ mod dir_tests {
         assert_eq!(
             dirs.project_dir(project_root),
             PathBuf::from(format!("/tmp/nd/nuo/projects/{bucket}"))
-        );
-    }
-
-    #[test]
-    fn project_permissions_under_project_bucket() {
-        let dirs = Dirs::resolve(&PathsOverride {
-            data_dir: Some(PathBuf::from("/tmp/nd")),
-            ..Default::default()
-        });
-        let project_root = Path::new("/home/me/proj");
-        let bucket = project_bucket_name(project_root);
-        assert_eq!(
-            dirs.project_permissions(project_root),
-            PathBuf::from(format!("/tmp/nd/nuo/projects/{bucket}/permissions.json"))
         );
     }
 

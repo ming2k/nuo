@@ -782,15 +782,20 @@ pub(crate) async fn handle_permission_submit(
     app: &mut App,
     _runtime: &crate::shell::event_loop::runtime::UiRuntime,
 ) {
-    let one_off = app
+    let (one_off, has_suggested_scope) = app
         .human
         .pending_permission
         .as_ref()
-        .is_some_and(|r| r.one_off);
+        .map_or((false, false), |r| (r.one_off, r.suggested_scope.is_some()));
     let reject_idx = if one_off { 1 } else { 2 };
     let details_idx = if one_off { 2 } else { 3 };
+    let confirm_cancel_idx = if !one_off && has_suggested_scope {
+        2
+    } else {
+        1
+    };
     if app.human.permission_confirm_always {
-        if app.surfaces.modal_index == 1 {
+        if app.surfaces.modal_index == confirm_cancel_idx {
             app.human.permission_confirm_always = false;
             app.surfaces.modal_index = 1;
             return;
@@ -810,7 +815,11 @@ pub(crate) async fn handle_permission_submit(
     }
     if let Some(request) = app.human.pending_permission.take() {
         let decision = if app.human.permission_confirm_always {
-            protocol::PermissionDecision::Always
+            if !one_off && has_suggested_scope && app.surfaces.modal_index == 1 {
+                protocol::PermissionDecision::AlwaysExact
+            } else {
+                protocol::PermissionDecision::Always
+            }
         } else {
             match app.surfaces.modal_index {
                 0 => protocol::PermissionDecision::Once,

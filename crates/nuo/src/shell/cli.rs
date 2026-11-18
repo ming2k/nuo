@@ -53,7 +53,7 @@ pub struct CliArgs {
     pub mode: Mode,
     /// `--project <path>`: operate on the project at `<path>`.
     pub project: Option<PathBuf>,
-    /// `--unattended`: run unattended without interactive human confirmations.
+    /// `--auto-approve` (alias `--unattended`): auto-approve tool permissions without confirmation.
     pub unattended: bool,
     /// `--role <id>`: staff the new session with a role (`developer`, `philosophist`, `ops`, or user role).
     pub role: Option<String>,
@@ -202,7 +202,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     thread = Some(None);
                 }
             }
-            "--unattended" => unattended = true,
+            "--auto-approve" | "--unattended" => unattended = true,
             "--role" | "-r" => role = Some(flag_value("-r/--role", inline, &mut iter)?),
             "--resume" => resume = true,
             "--no-confinement" => no_confinement = true,
@@ -439,7 +439,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
                 "      --resume           resume the most recent matching thread instead of a new one\n",
             );
             out.push_str(
-                "      --unattended       run unattended without interactive human confirmations\n",
+                "      --auto-approve     auto-approve permissions without confirmation\n",
             );
             out.push_str("      --no-confinement   disable workspace filesystem confinement (unconfined file access)\n");
             out.push_str("      --project <path>   operate on the project at <path>\n");
@@ -489,7 +489,7 @@ pub fn completion_script(shell: Shell) -> String {
              \x20   local cur\n\
              \x20   cur=\"${{COMP_WORDS[COMP_CWORD]}}\"\n\
              \x20   if [[ $COMP_CWORD -eq 1 ]]; then\n\
-             \x20       COMPREPLY=($(compgen -W \"{commands} --project --remote --token --prompt -p --interactive -i --json -j --role -r --resume --unattended --no-confinement --help --version\" -- \"$cur\"))\n\
+             \x20       COMPREPLY=($(compgen -W \"{commands} --project --remote --token --prompt -p --interactive -i --json -j --role -r --resume --auto-approve --unattended --no-confinement --help --version\" -- \"$cur\"))\n\
              \x20   fi\n\
              }}\n\
              complete -F _nuo nuo\n"
@@ -601,11 +601,15 @@ mod tests {
 
     #[test]
     fn posture_flags_parse_cleanly() {
+        let parsed = parse(&["--auto-approve"]).unwrap();
+        assert!(parsed.unattended);
+        assert!(!parsed.no_confinement);
+
         let parsed = parse(&["--unattended"]).unwrap();
         assert!(parsed.unattended);
         assert!(!parsed.no_confinement);
 
-        let parsed = parse(&["--unattended", "--no-confinement"]).unwrap();
+        let parsed = parse(&["--auto-approve", "--no-confinement"]).unwrap();
         assert!(parsed.unattended);
         assert!(parsed.no_confinement);
 

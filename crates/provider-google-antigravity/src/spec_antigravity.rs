@@ -6,7 +6,7 @@ use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
 use ::provider::*;
-use protocol::surface::{CatalogShape, RemoteCatalogSource};
+use protocol::surface::RemoteCatalogSource;
 
 /// Models served by Google Antigravity OAuth (Google One AI Premium / Pro).
 ///
@@ -191,7 +191,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     user_agent: Some(std::borrow::Cow::Borrowed(ANTIGRAVITY_USER_AGENT)),
     default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::GoogleGenerateContent,
-    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::GoogleCloudCode),
+    catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: Some(::provider::QuotaPort::Antigravity),
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,

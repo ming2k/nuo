@@ -64,8 +64,27 @@ pub fn trajectory_signature(name: &str, args: &str) -> String {
                 if s.is_empty() { "*".to_string() } else { s }
             }
         };
+        let max_depth = value
+            .get("max_depth")
+            .and_then(Value::as_u64)
+            .map(|d| d.to_string())
+            .unwrap_or_default();
+        let kind = value
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(|s| s.trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        let include_ignored = value
+            .get("include_ignored")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let sort = value
+            .get("sort")
+            .and_then(Value::as_str)
+            .map(|s| s.trim().to_ascii_lowercase())
+            .unwrap_or_default();
         return format!(
-            "{name}|{path}|include={patterns}|exclude={}",
+            "{name}|{path}|include={patterns}|exclude={}|depth={max_depth}|kind={kind}|ignored={include_ignored}|sort={sort}",
             normalized_string_array(&value, "exclude", false)
         );
     }
@@ -96,13 +115,17 @@ pub fn trajectory_signature(name: &str, args: &str) -> String {
             .and_then(Value::as_str)
             .map(normalize_path_locator)
             .unwrap_or_default();
-        let offset = value
-            .get("offset")
-            .and_then(Value::as_u64)
-            .unwrap_or(1)
-            .max(1);
+        let offset = value.get("offset").and_then(Value::as_i64).unwrap_or(1);
         let limit = value.get("limit").and_then(Value::as_u64).unwrap_or(0);
-        return format!("{name}|{path}|offset={offset}|limit={limit}");
+        let pages = value
+            .get("pages")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        return match pages {
+            Some(pages) => format!("{name}|{path}|offset={offset}|limit={limit}|pages={pages}"),
+            None => format!("{name}|{path}|offset={offset}|limit={limit}"),
+        };
     }
     // Prefer the most specific locator present, in priority order.
     for key in ["command", "cmd"] {

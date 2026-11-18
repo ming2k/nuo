@@ -161,6 +161,6 @@ pub const QODER_SURFACE: DialectSurface = DialectSurface {
         model_bindings: MODEL_BINDINGS,
     },
     catalog: Some(CatalogSpec {
-        shape: protocol::surface::CatalogShape::SceneMap,
+        source: protocol::surface::RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     }),
 };

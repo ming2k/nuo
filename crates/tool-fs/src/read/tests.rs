@@ -9,10 +9,17 @@ fn ctx(root: &std::path::Path) -> Arc<SystemToolContext> {
 
 struct FakeExtractor {
     result: Result<ExtractedDocument, DocumentError>,
+    seen_range: std::sync::Mutex<Option<Option<PageRange>>>,
 }
 
 impl DocumentExtractor for FakeExtractor {
-    fn extract(&self, _mime: &str, _data: &[u8]) -> Result<ExtractedDocument, DocumentError> {
+    fn extract(
+        &self,
+        _mime: &str,
+        _data: &[u8],
+        page_range: Option<PageRange>,
+    ) -> Result<ExtractedDocument, DocumentError> {
+        *self.seen_range.lock().unwrap() = Some(page_range);
         self.result.clone()
     }
 }
@@ -22,7 +29,10 @@ fn ctx_with_extractor(
     result: Result<ExtractedDocument, DocumentError>,
 ) -> Arc<SystemToolContext> {
     Arc::new(
-        SystemToolContext::new(root).with_document_extractor(Arc::new(FakeExtractor { result })),
+        SystemToolContext::new(root).with_document_extractor(Arc::new(FakeExtractor {
+            result,
+            seen_range: std::sync::Mutex::new(None),
+        })),
     )
 }
 
@@ -32,6 +42,7 @@ fn extracted(text: &str, pages: usize, total_pages: usize, truncated: bool) -> E
         pages,
         total_pages,
         truncated,
+        next_page: (truncated && pages < total_pages).then_some(pages + 1),
     }
 }
 
@@ -46,44 +57,17 @@ fn pdf_detection_distinguishes_prose_from_a_header_preamble() {
 }
 
 #[tokio::test]
-async fn directory_listing_is_one_level_sorted_and_paginated() {
+async fn directory_is_rejected_and_points_to_find_files() {
     let dir = tempdir().unwrap();
     std::fs::create_dir(dir.path().join("sub")).unwrap();
-    std::fs::write(dir.path().join("b.txt"), "b").unwrap();
-    std::fs::write(dir.path().join("a.txt"), "a").unwrap();
 
-    let out = ReadTool::new(ctx(dir.path()))
-        .execute(&ToolContext::default(), json!({"path": ".", "limit": 2}))
+    let err = ReadTool::new(ctx(dir.path()))
+        .execute(&ToolContext::default(), json!({"path": "sub"}))
         .await
-        .unwrap();
-
-    match out {
-        ToolOutput::Listing {
-            entries,
-            total,
-            offset,
-            next,
-        } => {
-            assert_eq!(total, Some(3));
-            assert_eq!(offset, 1);
-            assert_eq!(entries, vec!["sub/", "a.txt"]);
-            assert_eq!(next, Some(3));
-        }
-        other => panic!("expected Listing, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn empty_directory_reports_zero_entries() {
-    let dir = tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("empty")).unwrap();
-
-    let out = ReadTool::new(ctx(dir.path()))
-        .execute(&ToolContext::default(), json!({"path": "empty"}))
-        .await
-        .unwrap();
-
-    assert_eq!(out.to_text(), "[0 entries]");
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("is a directory"), "{msg}");
+    assert!(msg.contains("find_files"), "{msg}");
 }
 
 #[tokio::test]
@@ -240,6 +224,7 @@ async fn pdf_extractor_can_come_from_the_invocation_service_map() {
     let mut services = tool::ServiceMapBuilder::new();
     services.provide(Arc::new(FakeExtractor {
         result: Ok(extracted("from the service map", 1, 1, false)),
+        seen_range: std::sync::Mutex::new(None),
     }) as Arc<dyn DocumentExtractor>);
     let call_ctx = ToolContext::default().with_services(services.build());
 
@@ -254,10 +239,70 @@ async fn pdf_extractor_can_come_from_the_invocation_service_map() {
 }
 
 #[tokio::test]
+async fn pdf_pages_parameter_forwards_range_and_surfaces_next_page_hint() {
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("doc.pdf"), b"%PDF-1.7\n").unwrap();
+
+    let extractor = Arc::new(FakeExtractor {
+        result: Ok(ExtractedDocument {
+            text: "[page 2]\nsecond".to_string(),
+            pages: 1,
+            total_pages: 5,
+            truncated: false,
+            next_page: Some(3),
+        }),
+        seen_range: std::sync::Mutex::new(None),
+    });
+    let ctx = Arc::new(
+        SystemToolContext::new(dir.path())
+            .with_document_extractor(extractor.clone() as Arc<dyn DocumentExtractor>),
+    );
+
+    let out = ReadTool::new(ctx.clone())
+        .execute(
+            &ToolContext::default(),
+            json!({"path": "doc.pdf", "pages": "2"}),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *extractor.seen_range.lock().unwrap(),
+        Some(Some(PageRange {
+            start: 2,
+            end: Some(2)
+        }))
+    );
+    match out {
+        ToolOutput::Code { suffix, .. } => {
+            assert_eq!(
+                suffix.as_deref(),
+                Some("[more PDF pages remain — read with pages=\"3-\"]")
+            );
+        }
+        other => panic!("expected Code, got {other:?}"),
+    }
+
+    let err = ReadTool::new(ctx)
+        .execute(
+            &ToolContext::default(),
+            json!({"path": "doc.pdf", "pages": "5-2"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("invalid `pages` range"));
+}
+
+#[tokio::test]
 async fn document_extraction_timeout_is_a_named_failure() {
     struct SlowExtractor;
     impl DocumentExtractor for SlowExtractor {
-        fn extract(&self, _mime: &str, _data: &[u8]) -> Result<ExtractedDocument, DocumentError> {
+        fn extract(
+            &self,
+            _mime: &str,
+            _data: &[u8],
+            _page_range: Option<PageRange>,
+        ) -> Result<ExtractedDocument, DocumentError> {
             std::thread::sleep(std::time::Duration::from_millis(50));
             Ok(extracted("late", 1, 1, false))
         }
@@ -266,6 +311,7 @@ async fn document_extraction_timeout_is_a_named_failure() {
     let err = run_document_extraction(
         Arc::new(SlowExtractor),
         b"irrelevant".to_vec(),
+        None,
         std::time::Duration::from_millis(5),
         "read",
         "doc.pdf",

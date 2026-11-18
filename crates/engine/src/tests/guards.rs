@@ -427,7 +427,7 @@ async fn trajectory_guard_fail_open_on_provider_error_and_escalates() {
 }
 
 #[tokio::test]
-async fn command_policy_confirm_fails_closed_when_unattended() {
+async fn command_policy_confirm_auto_approves_when_auto_approve_enabled() {
     let command = RecordingTool::read("execute_command", "COMMAND-OUT");
     let calls = command.calls_handle();
     let agent = Arc::new(Agent::new(
@@ -447,17 +447,66 @@ async fn command_policy_confirm_fails_closed_when_unattended() {
 
     assert_eq!(
         calls.lock().unwrap().len(),
-        0,
-        "an unattended dangerous command must not run"
+        1,
+        "auto-approve must run confirmable commands without prompting"
+    );
+    assert!(
+        agent.allowed_tools().is_empty(),
+        "auto-approve must not persist commands into the always allowlist"
     );
     let tool_message = messages
         .iter()
         .find(|m| m.role == Role::Tool)
-        .expect("a refusal observation should be recorded");
+        .expect("command tool result should be recorded");
+    assert!(tool_message.content.contains("COMMAND-OUT"));
+    assert!(outcome.unwrap().message.content.contains("done"));
+}
+
+#[tokio::test]
+async fn auto_approve_executes_normal_commands_and_enforces_hard_deny() {
+    let command = RecordingTool::read("execute_command", "ECHO-OUT");
+    let calls = command.calls_handle();
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![
+            turn(&[
+                ("c1", "execute_command", r#"{"command":"echo hello"}"#),
+                ("c2", "execute_command", r#"{"command":"rm -rf /"}"#),
+            ]),
+            text_turn("done"),
+        ])),
+        vec![Arc::new(command)],
+        crate::AgentIdentity::default(),
+    ));
+    agent.seed_permissions_from_config(
+        &[],
+        &[persistence::config::PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "rm -rf /".to_string(),
+        }],
+    );
+    agent.set_unattended(true);
+
+    let mut messages = vec![Message::new(Role::User, "run echo and denied command")];
+    let outcome = agent
+        .run_streaming_with_events(&mut messages, &CancellationToken::new(), |_| {})
+        .await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1, "only echo hello should run");
     assert!(
-        tool_message.content.contains("unattended"),
-        "{}",
-        tool_message.content
+        agent.allowed_tools().is_empty(),
+        "auto-approved commands must not be persisted into always rules"
+    );
+    let tool_messages: Vec<&str> = messages
+        .iter()
+        .filter(|m| m.role == Role::Tool)
+        .map(|m| m.content.as_str())
+        .collect();
+    assert_eq!(tool_messages.len(), 2);
+    assert!(tool_messages[0].contains("ECHO-OUT"));
+    assert!(
+        tool_messages[1].contains("denied"),
+        "hard deny must still block under auto-approve: {}",
+        tool_messages[1]
     );
     assert!(outcome.unwrap().message.content.contains("done"));
 }
@@ -773,34 +822,28 @@ async fn unattended_preserves_schema_and_intercepts_ask_user_at_runtime() {
     );
 }
 
-// Persistent permissions (cross-session)
+// Persistent permissions (cross-session via SQLite `permission_rules`)
 //
-// Verifies the per-project `Always` allowlist round-trips through disk:
-// approving `Always` on one agent is visible to a fresh agent constructed
-// against the same project root, and revoking is mirrored to disk too.
-// Subagents (no project root) stay ephemeral and never touch the file.
+// Verifies the `(role_id, optional workspace)` allowlist round-trips through
+// `nuo.db`: approving `Always` on one agent is visible to a fresh agent
+// constructed with the same `(role_id, workspace)`, workspace-free roles like
+// `ops` persist globally, and revoking survives reopen.
 
 #[tokio::test]
-async fn always_permission_persists_across_agents_for_same_project() {
-    let tmp = std::env::temp_dir().join(format!("nuo-perms-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp).expect("create temp data dir");
-    let dirs = host::paths::Dirs {
-        config_dir: tmp.join("config"),
-        data_dir: tmp.join("data"),
-        state_dir: tmp.join("state"),
-        cache_dir: tmp.join("cache"),
-        runtime_dir: None,
-    };
+async fn always_permission_persists_across_agents_in_sqlite_for_role_and_workspace() {
+    let tmp = tempfile::tempdir().expect("create temp data dir");
+    let db_path = tmp.path().join("nuo.db");
+    let handle = persistence::db::PersistenceHandle::spawn(db_path.clone(), None);
     let project_root = std::path::PathBuf::from("/tmp/nuo-perms-fixture-project");
-    let perms_path = dirs.project_permissions(&project_root);
 
-    // First agent: prompt for a write_test permission and approve Always.
+    // First agent (`developer` + workspace): approve WriteTestTool with Always.
     let agent = Arc::new(Agent::new(
         Arc::new(TestProvider),
         vec![Arc::new(WriteTestTool)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_project_root_with_dirs(Some(project_root.clone()), &dirs);
+    agent.bind_permission_persistence(handle.clone());
+    agent.set_permission_scope("developer", Some(project_root.clone()));
     assert!(agent.allowed_tools().is_empty());
 
     let call = ToolCall {
@@ -824,94 +867,191 @@ async fn always_permission_persists_across_agents_for_same_project() {
     assert!(agent.reply_permission(&request.id, PermissionDecision::Always));
     let _ = task.await;
 
-    // The Always decision should have triggered an atomic write to disk.
-    assert!(
-        perms_path.exists(),
-        "permissions file should exist at {}",
-        perms_path.display()
-    );
-    let on_disk: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&perms_path).unwrap()).unwrap();
-    // Version 2 added the `revoked` list (#3); the allowlist shape is otherwise
-    // unchanged. A freshly-approved rule writes an empty revoked array.
-    assert_eq!(on_disk["version"].as_u64(), Some(2));
-    assert_eq!(on_disk["rules"].as_array().unwrap().len(), 1);
-    assert_eq!(on_disk["rules"][0]["tool"], "write_test");
-    assert_eq!(on_disk["rules"][0]["scope"], "/tmp/test");
-    assert_eq!(
-        on_disk["revoked"].as_array().unwrap().len(),
-        0,
-        "a fresh approval writes an empty revoked list"
-    );
-
-    // A brand-new agent in the same project should inherit the rule without
-    // ever prompting — that is the whole point of cross-session persistence.
+    // A brand-new agent for the same `(developer, project_root)` inherits it.
     let agent2 = Arc::new(Agent::new(
         Arc::new(TestProvider),
         vec![Arc::new(WriteTestTool)],
         crate::AgentIdentity::default(),
     ));
-    agent2.set_project_root_with_dirs(Some(project_root.clone()), &dirs);
+    agent2.bind_permission_persistence(handle.clone());
+    agent2.set_permission_scope("developer", Some(project_root.clone()));
     assert_eq!(
         agent2.allowed_tools(),
         vec!["write_test /tmp/test".to_string()],
-        "fresh agent in the same project should inherit persisted Always rule"
+        "fresh agent in the same (role, workspace) should inherit persisted Always rule"
     );
 
-    // Revoking on agent2 must remove the rule from disk as well, so the next
-    // session doesn't silently resurrect it.
-    assert!(agent2.revoke_allowed_tool("write_test", "/tmp/test"));
-    let after_revoke: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&perms_path).unwrap()).unwrap();
-    assert_eq!(after_revoke["rules"].as_array().unwrap().len(), 0);
+    // A different role (`ops` with no workspace) must NOT see `developer`'s grant,
+    // and can persist its own global rules.
+    let ops_agent = Arc::new(Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(WriteTestTool)],
+        crate::AgentIdentity::default(),
+    ));
+    ops_agent.bind_permission_persistence(handle.clone());
+    ops_agent.set_permission_scope("ops", None);
+    assert!(
+        ops_agent.allowed_tools().is_empty(),
+        "ops role must be isolated from developer rules"
+    );
 
-    // A different project root must NOT see the first project's rules.
+    // Revoking on agent2 must persist to SQLite too.
+    assert!(agent2.revoke_allowed_tool("write_test", "/tmp/test"));
+    let agent2_reopened = Arc::new(Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(WriteTestTool)],
+        crate::AgentIdentity::default(),
+    ));
+    agent2_reopened.bind_permission_persistence(handle.clone());
+    agent2_reopened.set_permission_scope("developer", Some(project_root.clone()));
+    assert!(agent2_reopened.allowed_tools().is_empty());
+
+    // A different workspace for `developer` must NOT see the first project's rules.
     let other_root = std::path::PathBuf::from("/tmp/nuo-perms-fixture-other-project");
     let agent3 = Agent::new(
         Arc::new(TestProvider),
         vec![Arc::new(WriteTestTool)],
         crate::AgentIdentity::default(),
     );
-    agent3.set_project_root_with_dirs(Some(other_root), &dirs);
+    agent3.bind_permission_persistence(handle);
+    agent3.set_permission_scope("developer", Some(other_root));
     assert!(
         agent3.allowed_tools().is_empty(),
-        "unrelated project must not inherit another project's rules"
+        "unrelated workspace must not inherit another workspace's rules"
     );
-
-    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[tokio::test]
-async fn agent_without_project_root_never_writes_permissions_file() {
-    let tmp = std::env::temp_dir().join(format!("nuo-perms-noset-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp).expect("create temp data dir");
-    let dirs = host::paths::Dirs {
-        config_dir: tmp.join("config"),
-        data_dir: tmp.join("data"),
-        state_dir: tmp.join("state"),
-        cache_dir: tmp.join("cache"),
-        runtime_dir: None,
-    };
-    let project_root = std::path::PathBuf::from("/tmp/nuo-perms-noset-fixture");
-    let perms_path = dirs.project_permissions(&project_root);
+async fn execute_command_always_generalizes_to_safe_prefix_and_blocks_chaining() {
+    let command = RecordingTool::read("execute_command", "OK");
+    let calls = command.calls_handle();
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![
+            turn(&[("c1", "execute_command", r#"{"command":"cargo test one"}"#)]),
+            turn(&[("c2", "execute_command", r#"{"command":"cargo test two"}"#)]),
+            text_turn("done"),
+        ])),
+        vec![Arc::new(command)],
+        crate::AgentIdentity::default(),
+    ));
 
-    // No set_project_root call: the agent stays ephemeral, so an Always
-    // approval must not write any file (subagents behave the same way).
+    let mut messages = vec![Message::new(Role::User, "run cargo test twice")];
+    let agent_clone = agent.clone();
+    let outcome = agent
+        .run_streaming_with_events(&mut messages, &CancellationToken::new(), |event| {
+            if let AgentEvent::PermissionRequest(req) = event {
+                assert_eq!(req.suggested_scope.as_deref(), Some("cargo test *"));
+                agent_clone.reply_permission(&req.id, PermissionDecision::Always);
+            }
+        })
+        .await;
+
+    assert_eq!(outcome.unwrap().message.content, "done");
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        2,
+        "second distinct cargo test invocation should execute without re-prompting"
+    );
+    assert_eq!(
+        agent.allowed_tools(),
+        vec!["execute_command cargo test *".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn execute_command_always_exact_persists_literal_command_only() {
+    let command = RecordingTool::read("execute_command", "OK");
+    let calls = command.calls_handle();
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![
+            turn(&[("c1", "execute_command", r#"{"command":"cargo test one"}"#)]),
+            turn(&[("c2", "execute_command", r#"{"command":"cargo test one"}"#)]),
+            turn(&[("c3", "execute_command", r#"{"command":"cargo test two"}"#)]),
+            text_turn("done"),
+        ])),
+        vec![Arc::new(command)],
+        crate::AgentIdentity::default(),
+    ));
+
+    let prompted = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let prompted_clone = prompted.clone();
+    let mut messages = vec![Message::new(Role::User, "test AlwaysExact")];
+    let agent_clone = agent.clone();
+    let outcome = agent
+        .run_streaming_with_events(&mut messages, &CancellationToken::new(), |event| {
+            if let AgentEvent::PermissionRequest(req) = event {
+                prompted_clone.lock().unwrap().push(req.scope.clone());
+                assert_eq!(req.suggested_scope.as_deref(), Some("cargo test *"));
+                agent_clone.reply_permission(&req.id, PermissionDecision::AlwaysExact);
+            }
+        })
+        .await;
+
+    assert_eq!(outcome.unwrap().message.content, "done");
+    assert_eq!(calls.lock().unwrap().len(), 3);
+    assert_eq!(
+        prompted.lock().unwrap().as_slice(),
+        ["cargo test one", "cargo test two"]
+    );
+    assert_eq!(
+        agent.allowed_tools(),
+        vec![
+            "execute_command cargo test one".to_string(),
+            "execute_command cargo test two".to_string(),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn execute_command_safe_readonly_runs_without_prompt_while_escape_prompts() {
+    let command = RecordingTool::read("execute_command", "OK");
+    let calls = command.calls_handle();
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![
+            turn(&[(
+                "c1",
+                "execute_command",
+                r#"{"command":"git status -s && ls -la crates"}"#,
+            )]),
+            turn(&[("c2", "execute_command", r#"{"command":"cat /etc/shadow"}"#)]),
+            text_turn("done"),
+        ])),
+        vec![Arc::new(command)],
+        crate::AgentIdentity::default(),
+    ));
+
+    let prompted = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let prompted_clone = prompted.clone();
+    let mut messages = vec![Message::new(Role::User, "run readonly and escape")];
+    let agent_clone = agent.clone();
+    let outcome = agent
+        .run_streaming_with_events(&mut messages, &CancellationToken::new(), |event| {
+            if let AgentEvent::PermissionRequest(req) = event {
+                prompted_clone.lock().unwrap().push(req.scope.clone());
+                agent_clone.reply_permission(&req.id, PermissionDecision::Reject);
+            }
+        })
+        .await;
+
+    assert_eq!(outcome.unwrap().message.content, "done");
+    assert_eq!(
+        prompted.lock().unwrap().as_slice(),
+        ["cat /etc/shadow"],
+        "only the workspace-escaping command should prompt"
+    );
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert!(agent.allowed_tools().is_empty());
+}
+
+#[tokio::test]
+async fn agent_without_backend_stays_ephemeral() {
     let agent = Arc::new(Agent::new(
         Arc::new(TestProvider),
         vec![Arc::new(WriteTestTool)],
         crate::AgentIdentity::default(),
     ));
-    // Mutations of the allowlist must be no-ops on disk when no project root
-    // is set: no panic, no file created.
     agent.clear_allowed_tools();
     assert!(!agent.revoke_allowed_tool("anything", "*"));
-    assert!(
-        !perms_path.exists(),
-        "ephemeral agent must not create a permissions file"
-    );
-
-    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 // Uncapped ReAct turns

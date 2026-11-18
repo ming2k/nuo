@@ -1707,7 +1707,9 @@ fn builtin_quotas_is_completable_from_the_composer() {
 fn advertised_aliases_complete_and_commit_their_canonical_target() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     for (typed, alias_label, canonical) in [
-        ("/yol", "/yolo", "/unattended"),
+        ("/yol", "/yolo", "/auto-approve"),
+        ("/unat", "/unattended", "/auto-approve"),
+        ("/aut", "/auto", "/auto-approve"),
         ("/jai", "/jail", "/confinement"),
         ("/set", "/setup", "/init"),
     ] {

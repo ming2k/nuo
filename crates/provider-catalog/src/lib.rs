@@ -1,20 +1,10 @@
-//! Live remote model-catalog discovery for Nuo provider channels (ADR-0027 §2).
+//! Live remote model-catalog discovery for standard industry catalog shapes
+//! (`OpenAi`, `Anthropic`, `Google`).
 //!
-//! Moved here from `nuo-provider-adapters/src/list_models.rs`. Owns the
-//! `CatalogShape` → parser map and the `CatalogDiscovery` implementation that
-//! the composition root registers.
-//!
-//! The `CatalogParser` family is shape-keyed, not provider-keyed: a provider
-//! that reuses a shape costs zero new code (``). Two parsers delegate
-//! to their owning provider crate, which is why this crate depends on them:
-//!
-//! - `OpenAiCatalogParser`/`AnthropicCatalogParser`/`GoogleCatalogParser`/`CodexCatalogParser`
-//!   are self-contained here.
-//! - `SceneMapCatalogParser` → `provider_qoder::parse_scene_catalog`.
-//! - `GoogleCloudCodeCatalogParser` → `provider_google_antigravity::catalog::parse_antigravity_catalog`.
-//!
-//! `ANTHROPIC_VERSION` is re-exported from `provider-anthropic` because the
-//! Anthropic parser stamps it on the catalog request.
+//! This crate is strictly vendor-neutral: it depends on no `provider-*` crate
+//! and carries no provider-specific request signing or private response formats.
+//! Providers with custom catalog protocols implement discovery in their own
+//! crate and are wired at the composition root.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
 // test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,

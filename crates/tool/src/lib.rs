@@ -61,7 +61,7 @@ pub use completion::{
     InputCompletion, InputCompletionKind,
 };
 pub use context::{ServiceMap, ServiceMapBuilder, ToolContext, ToolInvocation, ToolStreamSink};
-pub use document::{DocumentError, DocumentExtractor, ExtractedDocument};
+pub use document::{DocumentError, DocumentExtractor, ExtractedDocument, PageRange};
 pub use effect::EffectClass;
 pub use effect::reconciling;
 pub use error::{Result, ToolError};

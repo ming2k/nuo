@@ -14,6 +14,8 @@ negative_knowledge: true
 - Date: 2026-11-13
 - Amended: [ADR-0193](0193-pdf-reads-are-bounded-text-extraction-through-a-host-document-seam.md)
   (the PDF gap becomes bounded host text extraction)
+- Amended: [ADR-0213](0213-read-is-file-only-and-find-files-owns-directory-discovery.md)
+  (the directory-listing branch moves to `find_files`)
 - Deciders: Nuo Architecture Working Group
 - Consulted: Tool Runtime, Filesystem Tools, Context Lifecycle, Presentation, Security
 - Supersedes: the split `read_text` / `read_image` model-facing read surface, and the

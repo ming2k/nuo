@@ -263,6 +263,12 @@ impl Agent {
             .active_role
             .write()
             .unwrap_or_else(|e| e.into_inner()) = Some(profile.name.to_string());
+        if self.context.permissions.scope().is_some() {
+            let ws = self.context.permissions.workspace_root();
+            self.context
+                .permissions
+                .set_scope(profile.name.as_ref(), ws);
+        }
         self.set_identity(profile.identity.clone());
         self.set_tools(profile.tools.clone());
         self.set_admit_mcp(profile.admit_mcp.clone());
@@ -371,7 +377,13 @@ impl Agent {
             .context
             .active_role
             .write()
-            .unwrap_or_else(|e| e.into_inner()) = role;
+            .unwrap_or_else(|e| e.into_inner()) = role.clone();
+        if let Some(role_id) = role
+            && self.context.permissions.scope().is_some()
+        {
+            let ws = self.context.permissions.workspace_root();
+            self.context.permissions.set_scope(role_id, ws);
+        }
     }
 
     /// A snapshot of this agent's identity (name + mission, or a persona
@@ -982,7 +994,7 @@ tools = ["ask_user"]
             Vec::new(),
             crate::AgentIdentity::new("test", "test agent"),
         );
-        agent.set_project_root(Some(temp.path().to_path_buf()));
+        agent.set_permission_scope("developer", Some(temp.path().to_path_buf()));
 
         let switched = agent
             .apply_role("sec-auditor")

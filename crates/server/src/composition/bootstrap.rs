@@ -814,10 +814,11 @@ impl Assembler {
         if let Some(accountant) = self.human_channel.as_ref() {
             subagent_tool_handle.bind_human_channel(Arc::clone(accountant));
         }
-        // Wire the per-project "always allow" allowlist so prior `Always`
-        // approvals survive across sessions in this project. Best-effort: a
-        // missing or unreadable permissions.json just means we re-prompt.
-        agent.set_project_root(self.workspace_root.clone());
+        // Wire SQLite-backed `role + optional workspace` permission rules
+        // (`nuo.db`) so prior `Always` approvals survive across sessions for
+        // both workspace-bound roles (`developer`) and workspace-free roles (`ops`).
+        agent.bind_permission_persistence(self.session.persistence().clone());
+        agent.set_permission_scope(self.preset.name.as_ref(), self.workspace_root.clone());
         // Workspace effect journal (ADR-0125): bracket every mutating tool call with
         // capture and completion, writing through this session's own single-writer
         // door. Installed here rather than at agent construction because the port is
@@ -833,7 +834,7 @@ impl Assembler {
         }
         // Seed declarative permission rules from `[permissions]` config so default
         // policies are data-driven. Runtime "Always" decisions still write to
-        // permissions.json; these config rules re-apply on every start.
+        // `permission_rules` in `nuo.db`; these config rules re-apply on every start.
         agent.seed_permissions_from_config(
             &self.config.permissions.allow,
             &self.config.permissions.deny,
@@ -989,12 +990,12 @@ impl Assembler {
                     AgentNotice::new(
                         tool::NoticeKind::CommandAck,
                         tool::NoticeSeverity::Info,
-                        "Unattended mode ON",
+                        "Auto-approve mode ON",
                         tool::NoticeSource::Harness,
                     )
                     .with_body(
-                        "All tool permissions are auto-approved this session.\n\
-                         Use `/unattended off` to return to interactive mode.",
+                        "All tool permissions are auto-approved this session (not persisted to allowlist).\n\
+                         Use `/auto-approve off` to return to interactive mode.",
                     ),
                 ),
             ));

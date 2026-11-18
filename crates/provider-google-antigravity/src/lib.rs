@@ -32,6 +32,9 @@ use provider::transport::{decode_response_json, ensure_success};
 use provider::{Endpoint, NUO_USER_AGENT, PromptCacheConfig};
 
 pub mod catalog;
+
+/// Opaque custom catalog source identifier registered with `RemoteCatalogSource::Custom`.
+pub const CATALOG_SOURCE_ID: &str = "google-cloud-code";
 pub mod interactions;
 pub mod oauth;
 pub mod request;

@@ -300,12 +300,10 @@ pub fn sync_user_declared_providers(
             .default_protocol
             .unwrap_or(WireProtocol::OpenAiChatCompletions);
         let dialect = provider.dialect.unwrap_or_default();
-        let catalog_source = provider.catalog.unwrap_or_else(|| {
-            RemoteCatalogSource::Endpoint(match dialect {
-                ProviderDialect::Antigravity => CatalogShape::GoogleCloudCode,
-                ProviderDialect::ChatGpt => CatalogShape::Codex,
-                _ => CatalogShape::from_wire_protocol(wire),
-            })
+        let catalog_source = provider.catalog.unwrap_or_else(|| match dialect {
+            ProviderDialect::Antigravity => RemoteCatalogSource::Custom("google-cloud-code"),
+            ProviderDialect::ChatGpt => RemoteCatalogSource::Custom("codex"),
+            _ => RemoteCatalogSource::Endpoint(CatalogShape::from_wire_protocol(wire)),
         });
         let spec = ModelProviderSpec {
             id: Cow::Owned(id.clone()),

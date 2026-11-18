@@ -6,7 +6,6 @@
 //! use. Each has a null implementation whose behaviour is stated rather than
 //! implied, so an embedding that supplies nothing gets a documented outcome
 //! instead of a silent default.
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use protocol::CustomRole;
@@ -107,33 +106,6 @@ impl RoleCatalog for NoDeclaredRoles {
     }
 }
 
-/// Where the host keeps per-project state the kernel's guards persist.
-///
-/// The permission broker remembers a user's "always allow" answers in a
-/// per-project file. The kernel owns the *content* of that file (it is the
-/// broker's own record) and nothing else about it: not the directory layout, not
-/// the naming scheme, not whether the product keeps it on disk at all.
-pub trait ProjectPaths: Send + Sync + 'static {
-    /// The permission file for `project_root`.
-    fn permissions_file(&self, project_root: &Path) -> PathBuf;
-}
-
-/// A host with no per-project storage: guards work, nothing is remembered
-/// across runs.
-///
-/// The file path is deliberately *inside the project root* rather than in a
-/// temporary directory: it keeps the "no state outside the project" property
-/// obvious, and a caller that inspects it sees the truth (a path nobody
-/// created) instead of a stray temporary file.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NoProjectStorage;
-
-impl ProjectPaths for NoProjectStorage {
-    fn permissions_file(&self, project_root: &Path) -> PathBuf {
-        project_root.join(".nuo-permissions-not-persisted.json")
-    }
-}
-
 /// Where a generated session title is published (ADR-0022).
 ///
 /// The titler's only needs from the product are "what is the current title" and
@@ -228,16 +200,14 @@ impl CatalogMaintenance for NoCatalogMaintenance {
 #[derive(Clone)]
 pub struct KernelHost {
     roles: Arc<dyn RoleCatalog>,
-    project_paths: Arc<dyn ProjectPaths>,
     memory: Arc<dyn RoleMemory>,
     catalog: Arc<dyn CatalogMaintenance>,
 }
 
 impl KernelHost {
-    pub fn new(roles: Arc<dyn RoleCatalog>, project_paths: Arc<dyn ProjectPaths>) -> Self {
+    pub fn new(roles: Arc<dyn RoleCatalog>) -> Self {
         Self {
             roles,
-            project_paths,
             memory: Arc::new(NoRoleMemory),
             catalog: Arc::new(NoCatalogMaintenance),
         }
@@ -255,11 +225,10 @@ impl KernelHost {
         self
     }
 
-    /// The null host: no declared roles, no per-project storage, no memory.
+    /// The null host: no declared roles, no memory.
     pub fn none() -> Self {
         Self {
             roles: Arc::new(NoDeclaredRoles),
-            project_paths: Arc::new(NoProjectStorage),
             memory: Arc::new(NoRoleMemory),
             catalog: Arc::new(NoCatalogMaintenance),
         }
@@ -267,16 +236,6 @@ impl KernelHost {
 
     pub fn roles(&self) -> &dyn RoleCatalog {
         self.roles.as_ref()
-    }
-
-    pub fn project_paths(&self) -> &dyn ProjectPaths {
-        self.project_paths.as_ref()
-    }
-
-    /// The project-path policy as a shared handle, for a component that
-    /// outlives one borrow (the permission store holds it for its lifetime).
-    pub fn project_paths_arc(&self) -> Arc<dyn ProjectPaths> {
-        Arc::clone(&self.project_paths)
     }
 
     /// The role catalog as a shared handle.
@@ -336,18 +295,6 @@ mod tests {
                 .unwrap()
                 .is_empty(),
             "a host with no memory recalls nothing rather than erroring"
-        );
-    }
-
-    #[test]
-    fn the_null_host_persists_permissions_inside_the_project() {
-        let host = KernelHost::none();
-        let path = host
-            .project_paths()
-            .permissions_file(Path::new("/srv/project"));
-        assert!(
-            path.starts_with("/srv/project"),
-            "the null path stays inside the project it belongs to: {path:?}"
         );
     }
 }

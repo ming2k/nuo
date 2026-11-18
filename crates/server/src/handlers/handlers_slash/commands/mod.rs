@@ -15,7 +15,9 @@ mod security;
 mod thread;
 mod workspace;
 
-pub(crate) use automation::{confinement, jobs, unattended};
+#[cfg(test)]
+pub(crate) use automation::apply_auto_approve;
+pub(crate) use automation::{auto_approve, confinement, jobs};
 pub(crate) use misc::{exit, help, stats, trace, user_command};
 pub(crate) use provider::{compact, quota, retry, usage};
 pub(crate) use security::{permissions, skills};

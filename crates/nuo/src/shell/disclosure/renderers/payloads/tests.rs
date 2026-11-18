@@ -171,15 +171,18 @@ fn literal_query_rejects_regex_and_empty() {
 }
 
 #[test]
-fn parse_listing_header_reads_find_files_shape() {
-    // `find_files`: no scope path, so the band is just the file count.
+fn parse_listing_header_reads_listing_shapes() {
     assert_eq!(
-        parse_listing_header("Found 27 matching files:").as_deref(),
-        Some("Found 27 files")
+        parse_listing_header("[27 entries]").as_deref(),
+        Some("27 entries")
     );
     assert_eq!(
-        parse_listing_header("Found 1 matching files:").as_deref(),
-        Some("Found 1 file")
+        parse_listing_header("[1 entry]").as_deref(),
+        Some("1 entry")
+    );
+    assert_eq!(
+        parse_listing_header("[Showing 20 of 45 entries]").as_deref(),
+        Some("20 of 45 entries")
     );
 }
 

@@ -10,7 +10,7 @@ use super::*;
 async fn save_retrying(
     writer: &crate::db::PersistenceHandle,
     data: crate::thread::ThreadData,
-    full: bool,
+    mode: crate::db::SaveMode,
     usage_upserts: Vec<protocol::RequestUsageRecord>,
     mut guard: crate::db::CommitGuard,
 ) -> Result<u64, crate::db::PersistenceError> {
@@ -31,7 +31,7 @@ async fn save_retrying(
         // receipt (D3), so re-sending a possibly-delivered delta is
         // safe — that license is what makes the retry honest.
         match writer
-            .save_session(data.clone(), full, usage_upserts.clone(), guard.clone())
+            .save_session(data.clone(), mode, usage_upserts.clone(), guard.clone())
             .await
         {
             Ok(revision) => return Ok(revision),
@@ -583,51 +583,53 @@ impl ThreadSession {
         .map_err(|e| format!("session detail task failed: {e}"))?
     }
 
-    /// Run the persistence off the async runtime: append the
-    /// transcript delta above the durable watermark and upsert the session
-    /// row. The engine escalates to a full rewrite whenever `data`'s
-    /// transcript generation differs from the store's, so no caller-side
-    /// mode flag is needed.
-    pub(crate) async fn persist_off_runtime(
+    /// Persist a metadata-only mutation (`SaveMode::MetadataOnly`) under the
+    /// session commit gate. Callers pass [`ThreadData::clone_metadata_without_history`]
+    /// so cost stays O(1) in transcript length.
+    pub(crate) async fn persist_metadata_off_runtime(
         &self,
-        _path: PathBuf,
         data: ThreadData,
-        _blob_store: BlobStore,
     ) -> Result<(), String> {
-        self.persist_with_usage(_path, data, Vec::new()).await
-    }
-
-    /// Persist a transcript delta plus the usage-record upserts a commit
-    /// produced: the usage ledger is key-addressed, so only the
-    /// changed attempts are written.
-    ///
-    /// The delta save is idempotent by watermark (a replayed save escalates
-    /// by generation), so a `WriterDown` failure is retried across
-    /// the supervisor's respawn window before the round is failed
-    /// (D3). Engine-level rejections are not retried — they are
-    /// deterministic.
-    pub(crate) async fn persist_with_usage(
-        &self,
-        path: PathBuf,
-        data: ThreadData,
-        usage_upserts: Vec<protocol::RequestUsageRecord>,
-    ) -> Result<(), String> {
-        self.persist_with_usage_guarded(
-            path,
+        self.persist_with_mode_guarded(
             data,
-            usage_upserts,
+            crate::db::SaveMode::MetadataOnly,
+            Vec::new(),
             crate::db::CommitGuard::default(),
         )
         .await
         .map(|_| ())
     }
 
-    /// [`Self::persist_with_usage`] that carries an D3 commit guard
-    /// and returns the committed session revision.
-    pub(crate) async fn persist_with_usage_guarded(
+    /// Mutate session metadata in place under `self.state`, check the deferred-
+    /// persistence gate, and persist O(1) metadata without cloning transcript
+    /// history when the mutation reports `true`.
+    pub(crate) async fn mutate_metadata_and_persist<F>(&self, mutate: F) -> Result<(), String>
+    where
+        F: FnOnce(&mut ThreadData) -> bool,
+    {
+        let data = {
+            let mut state = self.state.lock().await;
+            if !mutate(&mut state.data) {
+                return Ok(());
+            }
+            state.data.updated_at = unix_timestamp();
+            if Self::should_skip_persist(&state) {
+                None
+            } else {
+                state.defer_persist = false;
+                Some(state.data.clone_metadata_without_history())
+            }
+        };
+        if let Some(data) = data {
+            self.persist_metadata_off_runtime(data).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn persist_with_mode_guarded(
         &self,
-        _path: PathBuf,
         mut data: ThreadData,
+        mode: crate::db::SaveMode,
         usage_upserts: Vec<protocol::RequestUsageRecord>,
         guard: crate::db::CommitGuard,
     ) -> Result<u64, String> {
@@ -635,7 +637,7 @@ impl ThreadSession {
         let session_id = data.id.clone();
         let _persist_gate = self.persist_gate.lock().await;
         data.checksum = Some(compute_checksum(&data)?);
-        let result = save_retrying(&self.writer, data, false, usage_upserts, guard)
+        let result = save_retrying(&self.writer, data, mode, usage_upserts, guard)
             .await
             .map_err(|e| format!("session persist task failed: {e}"));
         let elapsed = started.elapsed();
@@ -657,7 +659,7 @@ impl ThreadSession {
         save_retrying(
             &self.writer,
             data,
-            true,
+            crate::db::SaveMode::FullRewrite,
             Vec::new(),
             crate::db::CommitGuard::default(),
         )

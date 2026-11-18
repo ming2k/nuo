@@ -24,7 +24,7 @@ async fn main() {
     println!("=== 1. Live Catalog Fetch ===");
     let secret = SecretString::new(key.clone());
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::OpenAi,
+        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: "https://api.commandcode.ai/provider/v1",
         api_key: &secret,
         account_id: None,

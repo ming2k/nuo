@@ -1,6 +1,6 @@
 //! `PersistenceHandle`: the public front door and every typed verb (0231).
 //! The struct and its observability types live in `db.rs`.
-use super::actor::run_supervisor;
+use super::actor::{SupervisorContext, run_supervisor};
 use super::*;
 
 /// Summary of unified storage maintenance operations (ADR-0090).
@@ -44,6 +44,21 @@ pub fn get_persistence_handle() -> PersistenceHandle {
     handle
 }
 
+fn prepare_checked_out_reader(conn: &Connection) -> Result<()> {
+    conn.execute_batch("BEGIN DEFERRED")?;
+    // Reading `user_version` inside `BEGIN DEFERRED` both acquires the WAL
+    // read snapshot (surfacing any unlinked `-wal`/`-shm` wedge immediately)
+    // and enforces schema compatibility.
+    let version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version != CURRENT_DB_VERSION {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "reader schema mismatch: {version}"
+        )));
+    }
+    Ok(())
+}
+
 impl PersistenceHandle {
     /// Start the supervised persistence actor.
     ///
@@ -69,6 +84,7 @@ impl PersistenceHandle {
                     blob_store: owner.blob_store.clone(),
                     startup_error: None,
                     readers: owner.readers.clone(),
+                    reader_pool: owner.reader_pool.clone(),
                     reader_ages: owner.reader_ages.clone(),
                     reader_open_failures: owner.reader_open_failures.clone(),
                     rebuild_requested: owner.rebuild_requested.clone(),
@@ -99,6 +115,7 @@ impl PersistenceHandle {
         .join()
         .unwrap_or_else(|_| Err("database initialization panicked".into()));
         let readers = Arc::new(tokio::sync::Semaphore::new(READER_POOL_CAPACITY));
+        let reader_pool = Arc::new(ReaderPool::default());
         let reader_ages = Arc::new(ReaderAges::default());
         let reader_open_failures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let rebuild_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -111,6 +128,7 @@ impl PersistenceHandle {
                         health: health_rx.clone(),
                         blob_store: blob_store.clone(),
                         readers: readers.clone(),
+                        reader_pool: reader_pool.clone(),
                         reader_ages: reader_ages.clone(),
                         reader_open_failures: reader_open_failures.clone(),
                         rebuild_requested: rebuild_requested.clone(),
@@ -119,12 +137,15 @@ impl PersistenceHandle {
                 );
                 let run = run_supervisor(
                     front_rx,
-                    db_path.clone(),
-                    blob_store.clone(),
-                    health_tx,
-                    lease,
+                    SupervisorContext {
+                        db_path: db_path.clone(),
+                        blob_store: blob_store.clone(),
+                        health: health_tx,
+                        lease,
+                        reader_ages: reader_ages.clone(),
+                        reader_pool: reader_pool.clone(),
+                    },
                     Some(engine),
-                    reader_ages.clone(),
                 );
                 std::thread::Builder::new()
                     .name("nuo-persistence-supervisor".into())
@@ -155,6 +176,7 @@ impl PersistenceHandle {
             blob_store,
             startup_error,
             readers,
+            reader_pool,
             reader_ages,
             reader_open_failures,
             rebuild_requested,
@@ -192,7 +214,7 @@ impl PersistenceHandle {
     pub(crate) async fn save_session(
         &self,
         data: crate::thread::ThreadData,
-        full: bool,
+        mode: SaveMode,
         usage_upserts: Vec<protocol::RequestUsageRecord>,
         guard: CommitGuard,
     ) -> Result<u64, PersistenceError> {
@@ -200,7 +222,7 @@ impl PersistenceHandle {
         self.supervisor
             .send(PersistenceCommand::SaveSession {
                 data: Box::new(data),
-                full,
+                mode,
                 usage_upserts,
                 guard,
                 ack: ack_tx,
@@ -220,7 +242,7 @@ impl PersistenceHandle {
         self.run_blocking(
             PersistenceCommand::SaveSession {
                 data: Box::new(data),
-                full: true,
+                mode: SaveMode::FullRewrite,
                 usage_upserts: Vec::new(),
                 guard: CommitGuard::default(),
                 ack: ack_tx,
@@ -701,26 +723,34 @@ impl PersistenceHandle {
         let permit = self.readers.clone().try_acquire_owned().map_err(|_| {
             rusqlite::Error::InvalidParameterName("database reader capacity exhausted".into())
         })?;
-        // The whole construction sequence is wedge-sensitive: against a
-        // missing `-wal`/`-shm` pair, the open itself succeeds and the first
+        // The whole checkout/open sequence is wedge-sensitive: against a
+        // missing `-wal`/`-shm` pair, an open succeeds and the first
         // access that attaches the WAL index fails. Every fallible step is
         // therefore inside one scope so any failure counts toward the
         // rebuild threshold (and drops the permit with it).
+        let generation = self.reader_pool.current_generation();
         let outcome = (|| {
-            let conn = Connection::open_with_flags(
-                &self.db_path,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            )?;
-            conn.pragma_update(None, "query_only", true)?;
-            conn.busy_timeout(Duration::from_millis(250))?;
-            let version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-            if version != CURRENT_DB_VERSION {
-                return Err(rusqlite::Error::InvalidParameterName(format!(
-                    "reader schema mismatch: {version}"
-                )));
-            }
-            conn.execute_batch("BEGIN DEFERRED")?;
+            let conn = loop {
+                if let Some(pooled) = self.reader_pool.try_pop(generation) {
+                    if prepare_checked_out_reader(&pooled).is_ok() {
+                        break pooled;
+                    }
+                    // Stale or wedged pooled handle; discard and try another or cold-open.
+                    continue;
+                }
+                let fresh = Connection::open_with_flags(
+                    &self.db_path,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                )?;
+                fresh.pragma_update(None, "query_only", true)?;
+                fresh.busy_timeout(Duration::from_millis(250))?;
+                fresh.pragma_update(None, "cache_size", -8192)?; // 8 MiB page cache per reader
+                let _ = fresh.pragma_update(None, "mmap_size", 268_435_456_i64);
+                fresh.set_prepared_statement_cache_capacity(64);
+                prepare_checked_out_reader(&fresh)?;
+                break fresh;
+            };
             // Register only after every fallible step: an error must not leak a
             // registration whose guard was never constructed.
             let reader_ages = self.reader_ages.clone();
@@ -729,11 +759,10 @@ impl PersistenceHandle {
                 reader_ages,
             };
             Ok(DbReader {
-                engine: DatabaseEngine {
-                    conn,
-                    blob_store: self.blob_store.clone(),
-                },
+                conn: Some(conn),
                 db_path: self.db_path.clone(),
+                pool: Some(self.reader_pool.clone()),
+                generation,
                 _permit: Some(permit),
                 _age: Some(age),
             })
@@ -846,10 +875,20 @@ impl PersistenceHandle {
         &self,
         thread: protocol::Thread,
     ) -> Result<(), PersistenceError> {
+        self.save_thread_aggregate_with_generation(thread, None)
+            .await
+    }
+
+    pub(crate) async fn save_thread_aggregate_with_generation(
+        &self,
+        thread: protocol::Thread,
+        transcript_generation: Option<String>,
+    ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::SaveThreadAggregate {
                 thread: Box::new(thread),
+                transcript_generation,
                 ack: ack_tx,
             })
             .await
@@ -955,6 +994,78 @@ impl PersistenceHandle {
     pub fn optimize_blocking(&self) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.run_blocking(PersistenceCommand::Optimize { ack: ack_tx }, ack_rx)
+    }
+
+    /// Synchronously load all persisted permission rules for `target`.
+    pub fn load_permission_rules_blocking(
+        &self,
+        target: &crate::db::permissions::PermissionScopeTarget,
+    ) -> Result<Vec<crate::db::permissions::StoredPermissionRuleRow>, PersistenceError> {
+        self.with_reader(|reader| reader.load_permission_rules(target))
+            .map_err(PersistenceError::Engine)
+    }
+
+    /// Synchronously upsert one `allow` or `revoked` permission rule.
+    pub fn upsert_permission_rule_blocking(
+        &self,
+        target: crate::db::permissions::PermissionScopeTarget,
+        tool: String,
+        scope: String,
+        effect: crate::db::permissions::PermissionRuleEffect,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        let now_ms = unix_ms() as i64;
+        self.run_blocking(
+            PersistenceCommand::UpsertPermissionRule {
+                target,
+                tool,
+                scope,
+                effect,
+                now_ms,
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
+    }
+
+    /// Fire-and-forget update of `last_used_ms` on an allowed permission rule.
+    pub fn try_touch_permission_rule_last_used(
+        &self,
+        target: crate::db::permissions::PermissionScopeTarget,
+        tool: String,
+        scope: String,
+    ) {
+        let now_ms = unix_ms() as i64;
+        if let Err(error) =
+            self.supervisor
+                .try_send(PersistenceCommand::TouchPermissionRuleLastUsed {
+                    target,
+                    tool,
+                    scope,
+                    now_ms,
+                })
+        {
+            warn!(error = %error, "dropped fire-and-forget permission last_used_ms update");
+        }
+    }
+
+    /// Synchronously clear all `allow` rules in `target` and persist `revoked` markers.
+    pub fn clear_permission_rules_blocking(
+        &self,
+        target: crate::db::permissions::PermissionScopeTarget,
+        active_rules: Vec<(String, String)>,
+    ) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        let now_ms = unix_ms() as i64;
+        self.run_blocking(
+            PersistenceCommand::ClearPermissionRules {
+                target,
+                active_rules,
+                now_ms,
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
     }
 
     /// Unified storage maintenance (ADR-0090):

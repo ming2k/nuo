@@ -17,8 +17,8 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::Value;
 use tool::{
-    BuiltinTool, DocumentError, DocumentExtractor, ExtractedDocument, ImageNormalizer, RiskProfile,
-    Tool, ToolAccesses, ToolContext, ToolError, ToolOutput, ToolSchema, ToolScope,
+    BuiltinTool, DocumentError, DocumentExtractor, ExtractedDocument, ImageNormalizer, PageRange,
+    RiskProfile, Tool, ToolAccesses, ToolContext, ToolError, ToolOutput, ToolSchema, ToolScope,
 };
 
 use super::{SystemToolContext, read_accesses};
@@ -34,9 +34,6 @@ pub const MAX_LINE_CHARS: usize = 2_000;
 pub const MAX_READ_SCAN_BYTES: u64 = 64 * 1024 * 1024;
 /// Cancellation is observed at this line cadence inside the blocking scan.
 const CANCEL_CHECK_LINES: usize = 512;
-/// A single directory listing is bounded; millions of entries would spend more
-/// memory than the model can use and should be queried with `find_files`.
-const MAX_DIRECTORY_ENTRIES: usize = 100_000;
 /// Maximum bytes retained from one line. The model-facing clamp is 2000
 /// characters; 4 bytes per character covers the worst-case UTF-8 line without
 /// letting a minified single-line file exhaust memory.
@@ -149,12 +146,18 @@ impl LineIndexCache {
 /// Typed parameters for [`ReadTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct ReadArgs {
-    #[tool(desc = "File or directory path (relative to workspace root)")]
+    #[tool(desc = "File path (relative to workspace root)")]
     pub path: String,
-    #[tool(desc = "1-based line or entry offset; negative reads text tail (default 1)")]
+    #[tool(
+        desc = "1-based line offset for text or extracted PDF; negative reads text tail (default 1)"
+    )]
     pub offset: Option<i64>,
-    #[tool(desc = "Max lines or entries to return (default/max 2000)")]
+    #[tool(desc = "Max lines to return (default/max 2000)")]
     pub limit: Option<usize>,
+    #[tool(
+        desc = "1-based page range for PDFs (e.g. '1-5', '10', '12-'); ignored for non-PDF files"
+    )]
+    pub pages: Option<String>,
 }
 
 /// Reads a file or directory, dispatching on the actual content.
@@ -195,8 +198,8 @@ impl Tool for ReadTool {
     }
 
     fn description(&self) -> &str {
-        "Read a file (text, PDF, or image) or list one directory level. \
-         Use find_files for recursive file discovery and search_text for content search."
+        "Read a file (text, image, or PDF). \
+         Use find_files for directory listing and file discovery, and search_text for content search."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -239,6 +242,12 @@ impl Tool for ReadTool {
             .limit
             .unwrap_or(MAX_READ_LINES)
             .clamp(1, MAX_READ_LINES);
+        let page_range = args
+            .pages
+            .as_deref()
+            .map(PageRange::parse)
+            .transpose()
+            .map_err(|msg| ToolError::execution(self.name(), msg))?;
 
         // Virtual text (spool/artifact/compacted history) is an in-memory
         // source. It never carries media: the offstream registry owns that
@@ -257,7 +266,7 @@ impl Tool for ReadTool {
                 None => {
                     let path = Path::new(raw_path);
                     if path.is_file() {
-                        self.read_path(path, args.offset, limit, raw_path, call_ctx)
+                        self.read_path(path, args.offset, limit, page_range, raw_path, call_ctx)
                             .await
                     } else {
                         Err(ToolError::execution(
@@ -270,7 +279,7 @@ impl Tool for ReadTool {
         }
 
         let path = self.ctx.resolve_path(raw_path);
-        self.read_path(&path, args.offset, limit, raw_path, call_ctx)
+        self.read_path(&path, args.offset, limit, page_range, raw_path, call_ctx)
             .await
     }
 }
@@ -284,13 +293,14 @@ enum BlockingRead {
 
 impl ReadTool {
     /// Async read: the blocking half runs on the blocking pool, so a slow
-    /// filesystem, a huge line scan, or a directory listing cannot stall a
-    /// Tokio worker shared by other sessions.
+    /// filesystem or a huge line scan cannot stall a Tokio worker shared by
+    /// other sessions.
     async fn read_path(
         &self,
         path: &Path,
         offset: Option<i64>,
         limit: usize,
+        page_range: Option<PageRange>,
         raw_path: &str,
         call_ctx: &ToolContext,
     ) -> Result<ToolOutput, ToolError> {
@@ -311,15 +321,17 @@ impl ReadTool {
         match blocking {
             BlockingRead::Output(output) => Ok(output),
             BlockingRead::Pdf { size, version } => {
-                self.document_output(&path, size, offset, limit, raw_path, &version, call_ctx)
-                    .await
+                self.document_output(
+                    &path, size, offset, limit, page_range, raw_path, &version, call_ctx,
+                )
+                .await
             }
         }
     }
 
-    /// The synchronous half: metadata, directory listing, text pagination, and
-    /// image ingest. PDF parsing is the only branch that needs the async
-    /// document extractor, so it returns a marker and the caller runs it.
+    /// The synchronous half: metadata, text pagination, and image ingest.
+    /// PDF parsing is the only branch that needs the async document extractor,
+    /// so it returns a marker and the caller runs it.
     fn read_path_sync(
         &self,
         path: &Path,
@@ -342,9 +354,12 @@ impl ReadTool {
 
         let version = file_version(path, &meta);
         if meta.is_dir() {
-            return self
-                .list_directory(path, offset, limit, raw_path, call_ctx)
-                .map(BlockingRead::Output);
+            return Err(ToolError::execution(
+                self.name(),
+                format!(
+                    "`{raw_path}` is a directory; use `find_files` (e.g. with `max_depth=1`) to list its contents"
+                ),
+            ));
         }
         if !meta.is_file() {
             return Err(ToolError::execution(
@@ -488,6 +503,7 @@ impl ReadTool {
         size: u64,
         offset: Option<i64>,
         limit: usize,
+        page_range: Option<PageRange>,
         raw_path: &str,
         version: &str,
         call_ctx: &ToolContext,
@@ -542,6 +558,7 @@ impl ReadTool {
         let document = run_document_extraction(
             extractor,
             bytes,
+            page_range,
             DOCUMENT_EXTRACTION_TIMEOUT,
             self.name(),
             raw_path,
@@ -551,92 +568,6 @@ impl ReadTool {
         let page = page_from_text(&document.text, offset, limit, raw_path)
             .map_err(|message| ToolError::execution(self.name(), message))?;
         Ok(page.into_output_for(None, raw_path, Some(&document), Some(version.to_string())))
-    }
-
-    fn list_directory(
-        &self,
-        path: &Path,
-        offset: Option<i64>,
-        limit: usize,
-        raw_path: &str,
-        call_ctx: &ToolContext,
-    ) -> Result<ToolOutput, ToolError> {
-        call_ctx.check_cancelled(self.name())?;
-        let offset = offset.unwrap_or(1);
-        if offset < 1 {
-            return Err(ToolError::execution(
-                self.name(),
-                format!(
-                    "negative offset is only valid for text files; `{raw_path}` is a directory"
-                ),
-            ));
-        }
-        let offset = offset as usize;
-
-        let mut entries: Vec<(u8, String, String)> = Vec::new();
-        let read_dir = fs::read_dir(path).map_err(|err| {
-            ToolError::execution(self.name(), format!("cannot list `{raw_path}`: {err}"))
-        })?;
-        for (index, entry) in read_dir.enumerate() {
-            if index % CANCEL_CHECK_LINES == 0 {
-                call_ctx.check_cancelled(self.name())?;
-            }
-            if index >= MAX_DIRECTORY_ENTRIES {
-                return Err(ToolError::execution(
-                    self.name(),
-                    format!(
-                        "`{raw_path}` has more than {MAX_DIRECTORY_ENTRIES} entries; \
-                         use find_files with a pattern to narrow it"
-                    ),
-                ));
-            }
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let file_type = match entry.file_type() {
-                Ok(file_type) => file_type,
-                Err(_) => continue,
-            };
-            if file_type.is_dir() {
-                entries.push((0, name.to_lowercase(), format!("{name}/")));
-            } else if file_type.is_symlink() {
-                entries.push((2, name.to_lowercase(), format!("{name}@")));
-            } else {
-                entries.push((1, name.to_lowercase(), name));
-            }
-        }
-        entries.sort_by(|left, right| {
-            left.0
-                .cmp(&right.0)
-                .then_with(|| left.1.cmp(&right.1))
-                .then_with(|| left.2.cmp(&right.2))
-        });
-
-        let total = entries.len();
-        let start = (offset - 1).min(total);
-        let mut page = Vec::new();
-        let mut bytes = 0usize;
-        let mut index = start;
-        while index < total && page.len() < limit {
-            let display = entries[index].2.clone();
-            let cost = display.len() + 1;
-            if !page.is_empty() && bytes + cost > MAX_READ_BYTES {
-                break;
-            }
-            bytes += cost;
-            page.push(display);
-            index += 1;
-        }
-        let next = (index < total).then_some(index + 1);
-
-        Ok(ToolOutput::Listing {
-            entries: page,
-            total: Some(total),
-            offset,
-            next,
-        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -745,7 +676,11 @@ impl TextPage {
                 ))
             }
             (Some(next), None) => Some(format!("[more lines — read with offset={next}]")),
-            (None, _) => None,
+            (None, _) => document.and_then(|doc| {
+                doc.next_page.map(|next_page| {
+                    format!("[more PDF pages remain — read with pages=\"{next_page}-\"]")
+                })
+            }),
         };
         ToolOutput::Code {
             lang,
@@ -1166,6 +1101,13 @@ fn document_error_message(raw_path: &str, error: DocumentError) -> String {
         DocumentError::Malformed { detail } => {
             format!("`{raw_path}` could not be parsed as a PDF: {detail}")
         }
+        DocumentError::PageOutOfRange {
+            requested,
+            total_pages,
+        } => format!(
+            "`{raw_path}` has {total_pages} page{}; requested start page {requested} is out of range",
+            if total_pages == 1 { "" } else { "s" }
+        ),
     }
 }
 
@@ -1178,13 +1120,16 @@ fn document_error_message(raw_path: &str, error: DocumentError) -> String {
 async fn run_document_extraction(
     extractor: Arc<dyn DocumentExtractor>,
     bytes: Vec<u8>,
+    page_range: Option<PageRange>,
     timeout: Duration,
     tool_name: &str,
     raw_path: &str,
 ) -> Result<ExtractedDocument, ToolError> {
     let extraction = tokio::time::timeout(
         timeout,
-        tokio::task::spawn_blocking(move || extractor.extract("application/pdf", &bytes)),
+        tokio::task::spawn_blocking(move || {
+            extractor.extract("application/pdf", &bytes, page_range)
+        }),
     )
     .await;
 

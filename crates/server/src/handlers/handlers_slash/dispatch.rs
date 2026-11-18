@@ -78,8 +78,8 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
             commands::permissions(env, name, args, &parts).await;
             Routed::Handler
         }
-        Some(BuiltinCmd::Unattended) => {
-            commands::unattended(env, name, args, &parts).await;
+        Some(BuiltinCmd::AutoApprove) => {
+            commands::auto_approve(env, name, args, &parts).await;
             Routed::Handler
         }
         Some(BuiltinCmd::Confinement) => {

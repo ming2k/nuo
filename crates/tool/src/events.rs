@@ -224,6 +224,11 @@ pub struct PermissionRequest {
     pub description: String,
     pub arguments: String,
     pub scope: String,
+    /// Optional generalized scope pattern (e.g., `"cargo test *"`) that an
+    /// `Always` decision will persist instead of the exact one-shot string.
+    /// `None` when the call should only be persisted as `scope` (exact match).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_scope: Option<String>,
     /// Whether this call is an elevation the user, not a builtin limit, is
     /// being asked to grant (ADR-0028). The TUI renders such prompts with a
     /// distinct ⚠ treatment so the operator understands they are authorising

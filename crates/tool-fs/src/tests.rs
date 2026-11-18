@@ -475,6 +475,169 @@ async fn find_files_accepts_pattern_variations_and_slashless_globs() {
 }
 
 #[tokio::test]
+async fn find_files_supports_max_depth_1_as_directory_listing() {
+    let dir = tempdir().unwrap();
+    let ctx = Arc::new(SystemToolContext::new(dir.path()));
+    let t_ctx = ToolContext::default();
+
+    fs::create_dir_all(dir.path().join("src").join("nested")).unwrap();
+    fs::write(dir.path().join("src").join("nested").join("deep.rs"), "").unwrap();
+    fs::write(dir.path().join("Cargo.toml"), "").unwrap();
+    fs::write(dir.path().join(".env"), "SECRET=1").unwrap();
+
+    let out = FindFilesTool::new(ctx)
+        .execute(&t_ctx, json!({"path": ".", "max_depth": 1}))
+        .await
+        .unwrap();
+
+    match out {
+        ToolOutput::Listing {
+            entries,
+            total,
+            truncated,
+            ..
+        } => {
+            assert_eq!(total, Some(3));
+            assert!(!truncated);
+            // Directories first, then files case-insensitively; nested files excluded.
+            assert_eq!(entries, vec!["src/", ".env", "Cargo.toml"]);
+        }
+        other => panic!("expected Listing, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn find_files_supports_braces_exclusions_kind_and_include_ignored() {
+    let dir = tempdir().unwrap();
+    let ctx = Arc::new(SystemToolContext::new(dir.path()));
+    let t_ctx = ToolContext::default();
+
+    fs::write(dir.path().join(".gitignore"), "ignored.ts\n").unwrap();
+    fs::create_dir_all(dir.path().join("src").join("fixtures")).unwrap();
+    fs::create_dir_all(dir.path().join("target").join("debug")).unwrap();
+    fs::create_dir_all(dir.path().join(".git").join("objects")).unwrap();
+    fs::write(dir.path().join("src").join("app.ts"), "").unwrap();
+    fs::write(dir.path().join("src").join("view.tsx"), "").unwrap();
+    fs::write(dir.path().join("src").join("notes.md"), "").unwrap();
+    fs::write(dir.path().join("src").join("fixtures").join("mock.ts"), "").unwrap();
+    fs::write(dir.path().join("ignored.ts"), "").unwrap();
+    fs::write(dir.path().join("target").join("debug").join("out.ts"), "").unwrap();
+    fs::write(dir.path().join(".git").join("objects").join("obj.ts"), "").unwrap();
+
+    let tool = FindFilesTool::new(ctx);
+
+    // Brace expansion + exclude
+    let res = tool
+        .execute(
+            &t_ctx,
+            json!({
+                "pattern": "**/*.{ts,tsx}",
+                "exclude": ["**/fixtures/**"]
+            }),
+        )
+        .await
+        .unwrap();
+    let text = res.content();
+    assert!(text.contains("src/app.ts"), "{text}");
+    assert!(text.contains("src/view.tsx"), "{text}");
+    assert!(!text.contains("notes.md"), "{text}");
+    assert!(!text.contains("fixtures/mock.ts"), "{text}");
+    assert!(!text.contains("ignored.ts"), "{text}");
+
+    // kind=dirs
+    let dirs = tool
+        .execute(&t_ctx, json!({"kind": "dirs", "max_depth": 2}))
+        .await
+        .unwrap();
+    let dir_text = dirs.content();
+    assert!(dir_text.contains("src/"), "{dir_text}");
+    assert!(dir_text.contains("src/fixtures/"), "{dir_text}");
+    assert!(!dir_text.contains("app.ts"), "{dir_text}");
+
+    // include_ignored=true surfaces gitignored & target/ but skips .git internals
+    let ignored = tool
+        .execute(&t_ctx, json!({"pattern": "*.ts", "include_ignored": true}))
+        .await
+        .unwrap();
+    let ignored_text = ignored.content();
+    assert!(ignored_text.contains("ignored.ts"), "{ignored_text}");
+    assert!(
+        ignored_text.contains("target/debug/out.ts"),
+        "{ignored_text}"
+    );
+    assert!(!ignored_text.contains(".git/objects"), "{ignored_text}");
+}
+
+#[tokio::test]
+async fn find_files_discloses_truncation_and_sorts_recursive_by_mtime() {
+    let dir = tempdir().unwrap();
+    let ctx = Arc::new(SystemToolContext::new(dir.path()));
+    let t_ctx = ToolContext::default();
+
+    fs::write(dir.path().join("a_older.rs"), "old").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fs::write(dir.path().join("z_newer.rs"), "new").unwrap();
+    fs::write(dir.path().join("m_mid.rs"), "mid").unwrap();
+
+    let out = FindFilesTool::new(ctx)
+        .execute(&t_ctx, json!({"pattern": "*.rs", "limit": 2}))
+        .await
+        .unwrap();
+
+    match &out {
+        ToolOutput::Listing {
+            entries,
+            total,
+            truncated,
+            hint,
+        } => {
+            assert_eq!(*total, Some(3));
+            assert!(*truncated);
+            assert_eq!(entries.len(), 2);
+            assert!(
+                hint.as_deref()
+                    .is_some_and(|h| h.contains("Truncated at limit=2"))
+            );
+            // Newest file must not be starved by alphabetical order.
+            assert!(entries.contains(&"z_newer.rs".to_string()), "{entries:?}");
+        }
+        other => panic!("expected Listing, got {other:?}"),
+    }
+    let rendered = out.to_text();
+    assert!(rendered.contains("[Showing 2 of 3 entries]"), "{rendered}");
+    assert!(rendered.contains("Truncated at limit=2"), "{rendered}");
+}
+
+#[tokio::test]
+async fn find_files_rejects_zero_depth_and_invalid_enum_values() {
+    let dir = tempdir().unwrap();
+    let tool = FindFilesTool::new(Arc::new(SystemToolContext::new(dir.path())));
+    let t_ctx = ToolContext::default();
+
+    assert!(
+        tool.execute(&t_ctx, json!({"max_depth": 0}))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("at least 1")
+    );
+    assert!(
+        tool.execute(&t_ctx, json!({"kind": "sockets"}))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("invalid `kind`")
+    );
+    assert!(
+        tool.execute(&t_ctx, json!({"sort": "random"}))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("invalid `sort`")
+    );
+}
+
+#[tokio::test]
 async fn search_text_ignores_git_dir_and_gitignore() {
     let dir = tempdir().unwrap();
     let ctx = Arc::new(SystemToolContext::new(dir.path()));

@@ -1292,7 +1292,7 @@ impl Agent {
     }
 
     pub fn workspace_root(&self) -> Option<std::path::PathBuf> {
-        self.context.permissions.project_root()
+        self.context.permissions.workspace_root()
     }
 
     // Public hook entry points (ADR-0025)

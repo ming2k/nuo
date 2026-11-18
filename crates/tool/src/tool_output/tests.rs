@@ -349,27 +349,38 @@ fn code_prefix_suffix_frame_the_content_for_the_model() {
 }
 
 #[test]
-fn listing_to_text_frames_the_page() {
+fn listing_to_text_frames_complete_results() {
     let o = ToolOutput::Listing {
         entries: vec!["src/".into(), "Cargo.toml".into()],
         total: Some(2),
-        offset: 1,
-        next: None,
+        truncated: false,
+        hint: None,
     };
     assert_eq!(o.to_text(), "[2 entries]\nsrc/\nCargo.toml");
 }
 
 #[test]
-fn listing_to_text_frames_a_truncated_page() {
-    let o = ToolOutput::Listing {
+fn listing_to_text_frames_truncated_results_with_and_without_total() {
+    let with_total = ToolOutput::Listing {
         entries: vec!["a".into(), "b".into()],
         total: Some(5),
-        offset: 3,
-        next: Some(5),
+        truncated: true,
+        hint: None,
     };
     assert_eq!(
-        o.to_text(),
-        "[5 entries, showing 3-4]\na\nb\n[1 more entry — read with offset=5]"
+        with_total.to_text(),
+        "[Showing 2 of 5 entries]\na\nb\n[Truncated at limit — narrow 'path', add 'pattern', or set 'max_depth']"
+    );
+
+    let scan_capped = ToolOutput::Listing {
+        entries: vec!["a".into()],
+        total: None,
+        truncated: true,
+        hint: Some("Scan cap hit — narrow 'path' or add 'pattern'".into()),
+    };
+    assert_eq!(
+        scan_capped.to_text(),
+        "[Showing 1 entries (scan truncated)]\na\n[Scan cap hit — narrow 'path' or add 'pattern']"
     );
 }
 
@@ -378,8 +389,8 @@ fn restored_listing_without_coordinates_renders_bare_entries() {
     let o = ToolOutput::Listing {
         entries: vec!["old".into()],
         total: None,
-        offset: 1,
-        next: None,
+        truncated: false,
+        hint: None,
     };
     assert_eq!(o.to_text(), "old");
 }

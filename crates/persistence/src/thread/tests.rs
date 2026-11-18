@@ -1130,3 +1130,101 @@ async fn fork_branch_is_a_cursor_and_switch_projects_it() {
     assert_eq!(store.branches().await.unwrap().len(), 1);
     assert_eq!(store.model_window().await.len(), 2);
 }
+
+#[tokio::test]
+async fn incremental_commit_preserves_prior_fts_rows_and_no_duplicates_on_branch_save() {
+    let store = store("fts-incremental").await;
+    let t1 = vec![user("alpha_needle_one"), assistant("alpha_reply_one")];
+    store
+        .commit_turn(CommitTurn::new(&t1, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    let mut t2 = t1.clone();
+    t2.push(user("beta_needle_two"));
+    t2.push(assistant("beta_reply_two"));
+    store
+        .commit_turn(CommitTurn::new(&t2, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    // Branch save (SaveThreadAggregate) calls persist_thread_facts(..., false)
+    // with the full thread; it must not wipe or duplicate FTS rows.
+    let _branch = store.fork_branch("side", None).await.unwrap();
+
+    let mut t3 = t2.clone();
+    t3.push(user("gamma_needle_three"));
+    store
+        .commit_turn(CommitTurn::new(&t3, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    let reader = store.writer.reader().unwrap();
+    let alpha = reader.search_history("alpha_needle_one", None, 10).unwrap();
+    assert_eq!(
+        alpha.len(),
+        1,
+        "earlier turn must remain indexed after delta commits and branch saves"
+    );
+    let beta = reader.search_history("beta_needle_two", None, 10).unwrap();
+    assert_eq!(beta.len(), 1, "second turn must remain indexed once");
+    let gamma = reader
+        .search_history("gamma_needle_three", None, 10)
+        .unwrap();
+    assert_eq!(gamma.len(), 1, "latest turn must be indexed once");
+}
+
+#[tokio::test]
+async fn metadata_setters_preserve_facts_after_branch_switch_and_todos_across_delta_commits() {
+    let dir = temp_dir("meta-preserve");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+    let m1 = vec![user("branchable question"), assistant("branchable answer")];
+    store
+        .commit_turn(CommitTurn::new(&m1, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    let side = store.fork_branch("side", None).await.unwrap();
+    // switch_branch rotates state.data.generation in memory without rewriting
+    // threads.transcript_generation; metadata setters must not escalate to a
+    // full rewrite and wipe facts.
+    store.switch_branch(side).await.unwrap();
+
+    let mut todos = tool::TodoList::default();
+    todos.reconcile(
+        &[("keep durable todos".into(), tool::TodoStatus::Pending)],
+        0,
+        0,
+    );
+    store.set_todos(todos).await.unwrap();
+    store
+        .set_title(Some("Metadata Title".to_string()), true)
+        .await
+        .unwrap();
+    store
+        .set_disabled_tools(["bash".to_string()].into_iter().collect())
+        .await
+        .unwrap();
+    store.set_round_counter(7).await.unwrap();
+
+    // A subsequent delta commit must preserve previously stored todos and facts.
+    let mut m2 = m1.clone();
+    m2.push(user("follow-up after metadata"));
+    store
+        .commit_turn(CommitTurn::new(&m2, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    let reloaded = ThreadSession::for_path(path);
+    let window = reloaded.model_window().await;
+    assert_eq!(window.len(), 3);
+    assert_eq!(window[0].content, "branchable question");
+    assert_eq!(window[2].content, "follow-up after metadata");
+    assert_eq!(reloaded.title().await.0.as_deref(), Some("Metadata Title"));
+    assert!(reloaded.disabled_tools().await.contains("bash"));
+    assert_eq!(reloaded.round_counter().await, 7);
+    let reloaded_todos = reloaded.todos().await;
+    assert_eq!(reloaded_todos.items.len(), 1);
+    assert_eq!(reloaded_todos.items[0].content, "keep durable todos");
+}

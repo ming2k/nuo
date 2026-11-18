@@ -105,21 +105,20 @@ pub enum ToolOutput {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         version: Option<String>,
     },
-    /// A directory listing, as display-ready entry strings plus the page
-    /// coordinates that produced them.
+    /// A file/directory discovery listing produced by `find_files`.
     ///
-    /// `total` is the full entry count before pagination (`None` for a restored
-    /// pre-0176 listing that predates coordinates); `offset` is the 1-based
-    /// index of the first returned entry; `next` is the 1-based offset of the
-    /// next page when the listing was truncated.
+    /// `total` is the full match count when the traversal completed without
+    /// hitting the scan ceiling; `truncated` indicates results were cut at
+    /// `limit` or the scan ceiling; `hint` carries optional model-facing
+    /// convergence guidance.
     Listing {
         entries: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         total: Option<usize>,
-        #[serde(default = "one")]
-        offset: usize,
-        #[serde(default)]
-        next: Option<usize>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        truncated: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hint: Option<String>,
     },
     /// Ripgrep-style search matches, as raw `path:line:content` lines plus the
     /// pattern, so a future renderer can group/highlight without re-parsing.
@@ -542,46 +541,32 @@ fn number_code_lines(text: &str, start_line: usize) -> String {
 
 /// Default 1-based offset for a restored listing that predates pagination
 /// coordinates. Kept as a named serde default so the intent is explicit.
-fn one() -> usize {
-    1
-}
-
-/// Compose the model-facing text for a directory listing.
-///
-/// A page is framed with its coordinates; a complete listing is framed only
-/// with its count. `None` means the coordinates were not recorded (restored
-/// pre-0176 session), so the entries are rendered without a header rather than
-/// claiming the directory is empty.
+/// Compose the model-facing text for a file/directory discovery listing.
 fn listing_to_text(
     entries: &[String],
     total: Option<usize>,
-    offset: usize,
-    next: Option<usize>,
+    truncated: bool,
+    hint: Option<&str>,
 ) -> String {
-    let body = entries.join("\n");
-    let Some(total) = total else {
-        return body;
-    };
     if entries.is_empty() {
-        return "[0 entries]".to_string();
+        return hint
+            .map(str::to_string)
+            .unwrap_or_else(|| "[0 entries]".to_string());
     }
-    let offset = offset.max(1);
-    let end = offset + entries.len() - 1;
+    let body = entries.join("\n");
     let entry_word = |count: usize| if count == 1 { "entry" } else { "entries" };
-    let header = if offset == 1 && next.is_none() {
-        format!("[{total} {}]", entry_word(total))
-    } else {
-        format!("[{total} entries, showing {offset}-{end}]")
-    };
-    match next {
-        Some(next) => {
-            let remaining = total.saturating_sub(end);
-            format!(
-                "{header}\n{body}\n[{remaining} more {} — read with offset={next}]",
-                entry_word(remaining)
-            )
-        }
-        None => format!("{header}\n{body}"),
+    if truncated {
+        let header = match total {
+            Some(total) => format!("[Showing {} of {total} entries]", entries.len()),
+            None => format!("[Showing {} entries (scan truncated)]", entries.len()),
+        };
+        let footer =
+            hint.unwrap_or("Truncated at limit — narrow 'path', add 'pattern', or set 'max_depth'");
+        return format!("{header}\n{body}\n[{footer}]");
+    }
+    match total {
+        Some(total) => format!("[{total} {}]\n{body}", entry_word(total)),
+        None => body,
     }
 }
 
@@ -700,9 +685,9 @@ impl ToolOutput {
             ToolOutput::Listing {
                 entries,
                 total,
-                offset,
-                next,
-            } => listing_to_text(entries, *total, *offset, *next),
+                truncated,
+                hint,
+            } => listing_to_text(entries, *total, *truncated, hint.as_deref()),
             ToolOutput::Matches { lines, .. } => lines.join("\n"),
             ToolOutput::Patch {
                 path,

@@ -407,7 +407,7 @@ fn nested_agents_md_is_injected_once_per_subtree() {
     )
     .unwrap();
     let agent = agent();
-    agent.set_project_root(Some(root.path().to_path_buf()));
+    agent.set_permission_scope("developer", Some(root.path().to_path_buf()));
     let call = ToolCall::new(
         "read-1",
         "read",

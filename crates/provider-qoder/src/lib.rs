@@ -6,7 +6,11 @@
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod catalog;
 pub mod identity;
+
+/// Opaque custom catalog source identifier registered with `RemoteCatalogSource::Custom`.
+pub const CATALOG_SOURCE_ID: &str = "scene-map";
 pub mod oauth;
 pub mod pipeline;
 pub mod region;
@@ -78,7 +82,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     user_agent: None,
     default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::OpenAiChatCompletions,
-    catalog_source: RemoteCatalogSource::Endpoint(protocol::surface::CatalogShape::SceneMap),
+    catalog_source: RemoteCatalogSource::Custom(CATALOG_SOURCE_ID),
     quota: Some(provider::QuotaPort::Qoder),
     display_policy: provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,

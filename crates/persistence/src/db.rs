@@ -23,6 +23,7 @@ pub mod input_history;
 pub mod kv_store;
 pub mod migration_policy;
 pub mod migrations;
+pub mod permissions;
 mod reader;
 pub mod thread_session;
 pub mod thread_store;
@@ -232,12 +233,24 @@ pub(crate) struct DatabaseEngine {
 /// reviewable act in this file, not an incidental side effect of adding a
 /// `pub fn` to the engine.
 pub struct DbReader {
-    engine: DatabaseEngine,
+    /// `Some` for the reader's whole lifetime; `Drop` takes it to hand the
+    /// connection back to the pool. No method can observe the `None` state.
+    conn: Option<Connection>,
     db_path: PathBuf,
+    pool: Option<Arc<ReaderPool>>,
+    generation: u64,
     _permit: Option<tokio::sync::OwnedSemaphorePermit>,
     /// Registers this snapshot's age for the D7 measurement contract; releases
     /// the registration when the reader is dropped.
     _age: Option<ReaderAgeGuard>,
+}
+
+impl Drop for DbReader {
+    fn drop(&mut self) {
+        if let (Some(conn), Some(pool)) = (self.conn.take(), self.pool.as_ref()) {
+            pool.release(conn, self.generation);
+        }
+    }
 }
 
 // Asynchronous Persistence Actor (Single-Writer Pattern, supervised)
@@ -479,13 +492,10 @@ fn commit_payload_digest(
 
 /// The durable revision for a session (D3). Absent means revision 0.
 fn session_revision(conn: &Connection, session_id: &str) -> Result<u64> {
-    conn.query_row(
-        "SELECT revision FROM threads WHERE id=?1",
-        params![session_id],
-        |row| row.get::<_, i64>(0),
-    )
-    .optional()
-    .map(|revision| revision.unwrap_or(0).max(0) as u64)
+    conn.prepare_cached("SELECT revision FROM threads WHERE id=?1")?
+        .query_row(params![session_id], |row| row.get::<_, i64>(0))
+        .optional()
+        .map(|revision| revision.unwrap_or(0).max(0) as u64)
 }
 
 /// The latest retained commit receipt for a session, if any. Receipts are
@@ -495,15 +505,14 @@ fn latest_commit_receipt(
     conn: &Connection,
     session_id: &str,
 ) -> Result<Option<(String, String, u64)>> {
-    conn.query_row(
+    conn.prepare_cached(
         "SELECT operation_id, payload_hash, revision FROM commit_receipts
          WHERE thread_id=?1 ORDER BY revision DESC LIMIT 1",
-        params![session_id],
-        |row| {
-            let revision: i64 = row.get(2)?;
-            Ok((row.get(0)?, row.get(1)?, revision.max(0) as u64))
-        },
-    )
+    )?
+    .query_row(params![session_id], |row| {
+        let revision: i64 = row.get(2)?;
+        Ok((row.get(0)?, row.get(1)?, revision.max(0) as u64))
+    })
     .optional()
 }
 
@@ -514,17 +523,15 @@ fn record_commit_receipt(
     revision: u64,
     payload_hash: &str,
 ) -> Result<()> {
-    conn.execute(
-        "DELETE FROM commit_receipts WHERE thread_id=?1 AND operation_id<>?2",
-        params![session_id, operation_id],
-    )?;
-    conn.execute(
+    conn.prepare_cached("DELETE FROM commit_receipts WHERE thread_id=?1 AND operation_id<>?2")?
+        .execute(params![session_id, operation_id])?;
+    conn.prepare_cached(
         "INSERT INTO commit_receipts(operation_id, thread_id, revision, payload_hash)
          VALUES(?1, ?2, ?3, ?4)
          ON CONFLICT(operation_id) DO UPDATE SET
              thread_id=excluded.thread_id, revision=excluded.revision, payload_hash=excluded.payload_hash",
-        params![operation_id, session_id, revision as i64, payload_hash],
-    )?;
+    )?
+    .execute(params![operation_id, session_id, revision as i64, payload_hash])?;
     Ok(())
 }
 
@@ -558,11 +565,8 @@ pub(crate) fn insert_usage_record_tx(
         ));
     }
     let root: Option<String> = conn
-        .query_row(
-            "SELECT workspace_root FROM thread_policies WHERE thread_id=?1",
-            [session_id],
-            |r| r.get(0),
-        )
+        .prepare_cached("SELECT workspace_root FROM thread_policies WHERE thread_id=?1")?
+        .query_row([session_id], |r| r.get(0))
         .optional()?
         .flatten();
     let project = root
@@ -593,9 +597,10 @@ pub(crate) fn upsert_attempt(
 ) -> Result<bool> {
     use protocol::{RequestUsageRecord, RequestUsageSource};
     let key = &entry.record.key;
-    let previous: Option<String> = conn.query_row(
-        "SELECT payload FROM usage_records WHERE session_id=?1 AND actor_id=?2 AND round=?3 AND turn=?4 AND attempt=?5",
-        params![key.session_id,key.actor_id,key.round,key.turn,key.attempt], |r| r.get(0)).optional()?;
+    let previous: Option<String> = conn
+        .prepare_cached("SELECT payload FROM usage_records WHERE session_id=?1 AND actor_id=?2 AND round=?3 AND turn=?4 AND attempt=?5")?
+        .query_row(params![key.session_id,key.actor_id,key.round,key.turn,key.attempt], |r| r.get(0))
+        .optional()?;
     if let Some(previous) = previous {
         let old: RequestUsageRecord = decode_json(&previous)?;
         if old == entry.record {
@@ -628,31 +633,43 @@ pub(crate) fn upsert_attempt(
     }
     let payload = serde_json::to_string(&entry.record)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-    conn.execute("UPDATE usage_clock SET revision=revision+1 WHERE id=1", [])?;
-    let revision: i64 = conn.query_row("SELECT revision FROM usage_clock WHERE id=1", [], |r| {
-        r.get(0)
-    })?;
-    conn.execute("INSERT INTO usage_records(session_id,actor_id,round,turn,attempt,payload,day,recorded_at_ms,project,revision)
+    conn.prepare_cached("UPDATE usage_clock SET revision=revision+1 WHERE id=1")?
+        .execute([])?;
+    let revision: i64 = conn
+        .prepare_cached("SELECT revision FROM usage_clock WHERE id=1")?
+        .query_row([], |r| r.get(0))?;
+    conn.prepare_cached("INSERT INTO usage_records(session_id,actor_id,round,turn,attempt,payload,day,recorded_at_ms,project,revision)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
         ON CONFLICT(session_id,actor_id,round,turn,attempt) DO UPDATE SET payload=excluded.payload, revision=excluded.revision,
-        project=CASE WHEN usage_records.project='' THEN excluded.project ELSE usage_records.project END",
-        params![key.session_id,key.actor_id,key.round,key.turn,key.attempt,payload,entry.day,entry.recorded_at_ms,entry.project,revision])?;
-    conn.execute("INSERT INTO usage_dirty VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(session_id,actor_id,round,turn,attempt) DO UPDATE SET revision=excluded.revision",
-        params![key.session_id,key.actor_id,key.round,key.turn,key.attempt,revision])?;
+        project=CASE WHEN usage_records.project='' THEN excluded.project ELSE usage_records.project END")?
+        .execute(params![key.session_id,key.actor_id,key.round,key.turn,key.attempt,payload,entry.day,entry.recorded_at_ms,entry.project,revision])?;
+    conn.prepare_cached("INSERT INTO usage_dirty VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(session_id,actor_id,round,turn,attempt) DO UPDATE SET revision=excluded.revision")?
+        .execute(params![key.session_id,key.actor_id,key.round,key.turn,key.attempt,revision])?;
     Ok(true)
+}
+
+/// Granularity of a `SaveSession` commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SaveMode {
+    /// Update only session metadata (`threads` working columns, `thread_policies`,
+    /// optional usage upserts, and revision/receipt), without touching facts,
+    /// branches, blob refs, FTS, `active_leaf`, or `transcript_generation` on update.
+    MetadataOnly,
+    /// Append delta facts above the durable watermark, escalating to `FullRewrite`
+    /// on generation mismatch.
+    Delta,
+    /// Rewrite every branch, fact, blob reference, usage record, and FTS entry.
+    FullRewrite,
 }
 
 /// Command variants dispatched to the single-writer persistence actor.
 pub(crate) enum PersistenceCommand {
     SaveSession {
         data: Box<crate::thread::ThreadData>,
-        /// `true`: rewrite every membership/projection/blob reference from
-        /// `data`. `false`: append only rows above the durable watermark,
-        /// escalating to a full rewrite on generation mismatch.
-        full: bool,
-        /// Usage-record upserts to apply on a delta save (the durable usage
-        /// ledger lives in its own table; a full save rewrites it from
-        /// `data`).
+        /// How much of `data` to persist (`MetadataOnly`, `Delta`, or `FullRewrite`).
+        mode: SaveMode,
+        /// Usage-record upserts to apply on a delta/metadata save (the durable usage
+        /// ledger lives in its own table; a full save rewrites it from `data`).
         usage_upserts: Vec<protocol::RequestUsageRecord>,
         /// D3 idempotency identity and revision precondition.
         guard: CommitGuard,
@@ -798,6 +815,7 @@ pub(crate) enum PersistenceCommand {
     /// single writer. Used by branch commands.
     SaveThreadAggregate {
         thread: Box<protocol::Thread>,
+        transcript_generation: Option<String>,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
     /// Create an online hot backup snapshot using `VACUUM INTO`.
@@ -808,6 +826,29 @@ pub(crate) enum PersistenceCommand {
     /// Optimize SQLite internal indexes and statistics via `PRAGMA optimize`.
     Optimize {
         ack: oneshot::Sender<Result<(), PersistenceError>>,
+    },
+    /// Upsert a role+workspace permission rule (`allow` or `revoked`).
+    UpsertPermissionRule {
+        target: permissions::PermissionScopeTarget,
+        tool: String,
+        scope: String,
+        effect: permissions::PermissionRuleEffect,
+        now_ms: i64,
+        ack: oneshot::Sender<Result<(), PersistenceError>>,
+    },
+    /// Clear all `allow` rules in a role+workspace scope and mark active rules `revoked`.
+    ClearPermissionRules {
+        target: permissions::PermissionScopeTarget,
+        active_rules: Vec<(String, String)>,
+        now_ms: i64,
+        ack: oneshot::Sender<Result<(), PersistenceError>>,
+    },
+    /// Fire-and-forget update of `last_used_ms` when a persisted permission rule hits.
+    TouchPermissionRuleLastUsed {
+        target: permissions::PermissionScopeTarget,
+        tool: String,
+        scope: String,
+        now_ms: i64,
     },
 
     /// Test-only: the writer acks and then exits its loop, simulating actor
@@ -823,7 +864,7 @@ pub(crate) enum PersistenceCommand {
     #[allow(dead_code)]
     SaveSessionThenDie {
         data: Box<crate::thread::ThreadData>,
-        full: bool,
+        mode: SaveMode,
         usage_upserts: Vec<protocol::RequestUsageRecord>,
         guard: CommitGuard,
     },
@@ -890,6 +931,7 @@ pub struct PersistenceHandle {
     blob_store: Option<BlobStore>,
     startup_error: Option<Arc<str>>,
     readers: Arc<tokio::sync::Semaphore>,
+    reader_pool: Arc<ReaderPool>,
     reader_ages: Arc<ReaderAges>,
     /// Consecutive fresh-reader open failures (reader wedge
     /// detection). Reset on every successful open; crossing
@@ -901,6 +943,60 @@ pub struct PersistenceHandle {
 
 /// Reader-pool capacity (one lease per read session).
 const READER_POOL_CAPACITY: usize = 16;
+
+/// Maximum number of idle read-only SQLite connections kept warm with their
+/// `prepare_cached` statement caches intact.
+const READER_IDLE_POOL_CAPACITY: usize = 8;
+
+/// Pool of idle read-only connections, keyed by engine rebuild generation so a
+/// `RebuildEngine` cleanly invalidates pre-rebuild handles.
+#[derive(Default)]
+pub(crate) struct ReaderPool {
+    idle: std::sync::Mutex<Vec<PooledReader>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+struct PooledReader {
+    conn: Connection,
+    generation: u64,
+}
+
+impl ReaderPool {
+    fn current_generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn invalidate(&self) {
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.idle.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    fn try_pop(&self, generation: u64) -> Option<Connection> {
+        let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+        while let Some(entry) = idle.pop() {
+            if entry.generation == generation {
+                return Some(entry.conn);
+            }
+        }
+        None
+    }
+
+    fn release(&self, conn: Connection, generation: u64) {
+        if self.current_generation() != generation {
+            return;
+        }
+        // Ending the DEFERRED read transaction immediately frees the WAL read
+        // mark so idle pooled connections never pin the WAL or block TRUNCATE.
+        if conn.execute_batch("ROLLBACK").is_err() {
+            return;
+        }
+        let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+        if self.current_generation() == generation && idle.len() < READER_IDLE_POOL_CAPACITY {
+            idle.push(PooledReader { conn, generation });
+        }
+    }
+}
 
 /// Consecutive fresh-reader open failures tolerated before the handle asks
 /// the supervisor to rebuild the engine (reader-wedge self-heal).
@@ -985,6 +1081,7 @@ struct RegisteredOwner {
     health: watch::Receiver<WriterHealth>,
     blob_store: Option<BlobStore>,
     readers: Arc<tokio::sync::Semaphore>,
+    reader_pool: Arc<ReaderPool>,
     reader_ages: Arc<ReaderAges>,
     reader_open_failures: Arc<std::sync::atomic::AtomicUsize>,
     rebuild_requested: Arc<std::sync::atomic::AtomicBool>,

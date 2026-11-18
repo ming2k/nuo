@@ -1,29 +1,6 @@
 //! The `codebuddy-intl` provider channel: the **international** ingress of
 //! Tencent AI CodeBuddy (CodeBuddy AI), hosted at `www.codebuddy.ai/v2`
 //! ([ADR-0097] multi-realm channel bifurcation; ADR-0094 externalDomain).
-//!
-//! This crate owns everything specific to the international realm:
-//!
-//! - the provider id `codebuddy-intl` and the 1:1 physical root URL,
-//! - the client identity block whose `X-Domain` is this realm's own host
-//!   (`www.codebuddy.ai`), declared here rather than borrowed from any
-//!   domestic constant,
-//! - the international model baseline (the CLI's external-line catalog: the
-//!   global GPT-family flagships carried by the vendor's international
-//!   gateway, plus the `default` auto-router),
-//! - the subscription OAuth surface (`codebuddy-intl` ids, international
-//!   origin) driven by the realm-agnostic engine in
-//!   `provider-codebuddy-auth` — the identical vendor web-handoff
-//!   protocol as the domestic line, bound to a different identity realm,
-//! - the BYOK credential lane gated on the international realm
-//!   ([INV-PROV-REALM-01]): a CLI-stored token minted by the domestic line
-//!   (`*.codebuddy.cn` / `copilot.tencent.com`) is refused outright here.
-//!
-//! The login UX is the vendor's browser web-handoff: `auth/state` → browser
-//! open → `auth/token` state poll (and `auth/token/refresh` rotation), all
-//! mounted under the international origin.
-
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod oauth;
 pub mod spec;
@@ -49,11 +26,13 @@ pub use spec::{CODEBUDDY_INTL_BUILTIN_MODELS, INTL_MODEL_PROVIDER_SPEC};
 #[cfg(test)]
 mod realm_tests {
     use super::*;
+    use crate::auth::auth_file::{
+        CodeBuddyByokSource, CodeBuddyCredentialKind, StoredCredentials, realm_gate,
+    };
+    use crate::auth::handoff::CodeBuddyRealmSurface;
     use protocol::auth::CredentialSource as _;
     use provider::Endpoint;
     use provider::auth::OAuthProvider as _;
-    use provider_codebuddy_auth::auth_file::{CodeBuddyByokSource, StoredCredentials, realm_gate};
-    use provider_codebuddy_auth::handoff::CodeBuddyRealmSurface;
 
     /// The registered OAuth surface must be bound to exactly one realm and
     /// answer only this channel's id ([INV-PROV-CHANNEL-01]).
@@ -68,8 +47,7 @@ mod realm_tests {
     /// The *real* wire path: an endpoint built for this channel's root stamps
     /// this realm's host as `X-Domain` — derived from its own ingress URL, so
     /// the header cannot disagree with the host the request rides
-    /// ([INV-PROV-REALM-01]). This is the assertion the shared-constant world
-    /// could never make honestly.
+    /// ([INV-PROV-REALM-01]).
     #[test]
     fn endpoints_of_this_channel_stamp_the_international_realm() {
         let ep = Endpoint::from_static_key(
@@ -87,7 +65,7 @@ mod realm_tests {
         );
         // The shared preset itself must never have inherited a realm header.
         assert!(
-            !provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS
+            !crate::CODEBUDDY_CLIENT_HEADERS
                 .iter()
                 .any(|(k, _)| *k == "X-Domain")
         );
@@ -100,7 +78,7 @@ mod realm_tests {
     fn realm_gate_refuses_domestic_tokens() {
         let foreign = StoredCredentials {
             token: "cn-token".into(),
-            kind: provider_codebuddy_auth::auth_file::CodeBuddyCredentialKind::Bearer,
+            kind: CodeBuddyCredentialKind::Bearer,
             nickname: None,
             domain: Some("www.codebuddy.cn".into()),
         };
@@ -113,7 +91,7 @@ mod realm_tests {
     fn realm_gate_accepts_international_mints_and_unstamped_pastes() {
         let international = StoredCredentials {
             token: "intl-token".into(),
-            kind: provider_codebuddy_auth::auth_file::CodeBuddyCredentialKind::Bearer,
+            kind: CodeBuddyCredentialKind::Bearer,
             nickname: None,
             domain: Some("codebuddy.ai".into()),
         };
@@ -125,7 +103,7 @@ mod realm_tests {
         );
         let paste = StoredCredentials {
             token: "pasted".into(),
-            kind: provider_codebuddy_auth::auth_file::CodeBuddyCredentialKind::ApiKey,
+            kind: CodeBuddyCredentialKind::ApiKey,
             nickname: None,
             domain: None,
         };

@@ -48,12 +48,6 @@ pub enum CatalogShape {
     OpenAi,
     Anthropic,
     Google,
-    GoogleCloudCode,
-    Codex,
-    /// Qoder's scene-keyed map: `{"<scene>": [{"key": …}]}` over the signed
-    /// transport. The catalog rides the same COSY signing as inference, and
-    /// `scene` selects which catalog the server returns.
-    SceneMap,
 }
 impl CatalogShape {
     pub fn from_wire_protocol(protocol: inference_wire::WireProtocol) -> Self {
@@ -68,73 +62,48 @@ impl CatalogShape {
 
     /// The catalog path, relative to the provider's API root.
     ///
-    /// the endpoint is `root_url + path`. The path is a
-    /// property of the *shape*, so a new provider reusing an existing shape
-    /// inherits it with no new code.
+    /// The endpoint is `root_url + path`. The path is a property of the
+    /// *shape*, so a new provider reusing an existing shape inherits it with no
+    /// new code.
     pub fn path(self) -> &'static str {
-        match self {
-            Self::GoogleCloudCode => "v1internal:fetchAvailableModels",
-            Self::SceneMap => "algo/api/v2/model/list",
-            _ => "models",
-        }
-    }
-
-    /// The path form the request signature covers, when the shape's transport
-    /// signs (the URL pathname minus the service's routing prefix, no query).
-    /// `None` for shapes on an unsigned transport.
-    pub fn signed_path(self) -> Option<&'static str> {
-        match self {
-            Self::SceneMap => Some("/api/v2/model/list"),
-            _ => None,
-        }
-    }
-
-    /// Fixed query parameters for the catalog request, in wire order.
-    pub fn query(self) -> &'static [(&'static str, &'static str)] {
-        match self {
-            Self::SceneMap => &[("Encode", "1")],
-            _ => &[],
-        }
-    }
-
-    /// How the catalog request authenticates.
-    pub fn auth(self) -> CatalogAuth {
-        match self {
-            Self::SceneMap => CatalogAuth::Dialect,
-            _ => CatalogAuth::Bearer,
-        }
-    }
-
-    /// Request dimensions that select *which* catalog the server returns.
-    ///
-    /// These are part of the discovery identity hash, so two connections that
-    /// differ only here cache independently. A connection may override them
-    /// (e.g. Qoder's `scene`: `assistant` vs `experts`).
-    pub fn dimensions(self) -> &'static [(&'static str, &'static str)] {
-        match self {
-            Self::SceneMap => &[("scene", "assistant")],
-            _ => &[],
-        }
+        "models"
     }
 }
 
-/// How a catalog request authenticates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CatalogAuth {
-    /// Standard bearer token (or no header when keyless).
-    Bearer,
-    /// No auth (public catalog).
-    None,
-    /// The dialect's own inference signing (Qoder's COSY bundle). One signing
-    /// implementation serves both inference and catalog.
-    Dialect,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "source", content = "format", rename_all = "kebab-case")]
 pub enum RemoteCatalogSource {
     Endpoint(CatalogShape),
+    /// Provider-owned custom catalog discovery, keyed by an opaque surface id
+    /// (e.g. `"codex"`, `"google-cloud-code"`, `"scene-map"`). The protocol
+    /// and `provider-catalog` crates stay vendor-neutral; the owning provider
+    /// crate implements the fetch and parse.
+    Custom(&'static str),
     None,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(tag = "source", content = "format", rename_all = "kebab-case")]
+enum WireRemoteCatalogSource {
+    Endpoint(CatalogShape),
+    None,
+}
+
+impl serde::Serialize for RemoteCatalogSource {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match *self {
+            Self::Endpoint(shape) => WireRemoteCatalogSource::Endpoint(shape).serialize(serializer),
+            Self::Custom(_) | Self::None => WireRemoteCatalogSource::None.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RemoteCatalogSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match WireRemoteCatalogSource::deserialize(deserializer)? {
+            WireRemoteCatalogSource::Endpoint(shape) => Ok(Self::Endpoint(shape)),
+            WireRemoteCatalogSource::None => Ok(Self::None),
+        }
+    }
 }
 
 /// Declarative cache capabilities, with exact model exceptions over a default.

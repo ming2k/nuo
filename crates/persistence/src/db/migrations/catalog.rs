@@ -8,7 +8,7 @@
 use sha2::{Digest, Sha256};
 
 /// Current durable schema version. A new migration bumps this to its version.
-pub const CURRENT_DB_VERSION: u32 = 2;
+pub const CURRENT_DB_VERSION: u32 = 3;
 
 /// One immutable schema step.
 pub struct Migration {
@@ -73,6 +73,14 @@ pub const MIGRATIONS: &[Migration] = &[
         code_revision: 1,
         body: Body::Sql(include_str!(
             "../../../migrations/0002_drop_derived_thread_columns.sql"
+        )),
+    },
+    Migration {
+        version: 3,
+        name: "permission_rules",
+        code_revision: 1,
+        body: Body::Sql(include_str!(
+            "../../../migrations/0003_permission_rules.sql"
         )),
     },
 ];

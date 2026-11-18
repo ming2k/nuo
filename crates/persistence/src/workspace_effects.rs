@@ -318,26 +318,26 @@ pub fn append_effect(
     conn: &Connection,
     effect: &NewWorkspaceEffect<'_>,
 ) -> Result<i64, PersistenceError> {
-    conn.execute(
+    conn.prepare_cached(
         "INSERT INTO workspace_effects (
             thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
             effect_class, before_hash, irreversible_reason, created_at_ms
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            effect.thread_id,
-            effect.round_id,
-            effect.turn_id,
-            effect.call_id,
-            effect.seq,
-            effect.tool_name,
-            effect.path,
-            effect.op.as_str(),
-            effect.effect_class,
-            effect.before_hash,
-            effect.irreversible_reason,
-            effect.created_at_ms as i64,
-        ],
-    )?;
+    )?
+    .execute(params![
+        effect.thread_id,
+        effect.round_id,
+        effect.turn_id,
+        effect.call_id,
+        effect.seq,
+        effect.tool_name,
+        effect.path,
+        effect.op.as_str(),
+        effect.effect_class,
+        effect.before_hash,
+        effect.irreversible_reason,
+        effect.created_at_ms as i64,
+    ])?;
     Ok(conn.last_insert_rowid())
 }
 
@@ -352,29 +352,29 @@ pub fn append_completed_effect(
     effect: &NewWorkspaceEffect<'_>,
     completed_at_ms: u64,
 ) -> Result<i64, PersistenceError> {
-    conn.execute(
+    conn.prepare_cached(
         "INSERT INTO workspace_effects (
             thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
             effect_class, before_hash, after_hash, irreversible_reason,
             completed_at_ms, created_at_ms
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-        params![
-            effect.thread_id,
-            effect.round_id,
-            effect.turn_id,
-            effect.call_id,
-            effect.seq,
-            effect.tool_name,
-            effect.path,
-            effect.op.as_str(),
-            effect.effect_class,
-            effect.before_hash,
-            effect.after_hash,
-            effect.irreversible_reason,
-            completed_at_ms as i64,
-            effect.created_at_ms as i64,
-        ],
-    )?;
+    )?
+    .execute(params![
+        effect.thread_id,
+        effect.round_id,
+        effect.turn_id,
+        effect.call_id,
+        effect.seq,
+        effect.tool_name,
+        effect.path,
+        effect.op.as_str(),
+        effect.effect_class,
+        effect.before_hash,
+        effect.after_hash,
+        effect.irreversible_reason,
+        completed_at_ms as i64,
+        effect.created_at_ms as i64,
+    ])?;
     Ok(conn.last_insert_rowid())
 }
 
@@ -391,11 +391,12 @@ pub fn complete_effect(
     after_hash: Option<&str>,
     completed_at_ms: u64,
 ) -> Result<bool, PersistenceError> {
-    let changed = conn.execute(
-        "UPDATE workspace_effects SET after_hash = ?1, completed_at_ms = ?2 \
-         WHERE id = ?3 AND completed_at_ms IS NULL",
-        params![after_hash, completed_at_ms as i64, effect_id],
-    )?;
+    let changed = conn
+        .prepare_cached(
+            "UPDATE workspace_effects SET after_hash = ?1, completed_at_ms = ?2 \
+             WHERE id = ?3 AND completed_at_ms IS NULL",
+        )?
+        .execute(params![after_hash, completed_at_ms as i64, effect_id])?;
     Ok(changed == 1)
 }
 
@@ -448,7 +449,7 @@ pub fn list_effects(
         "SELECT {SELECT_COLUMNS} FROM workspace_effects \
          WHERE thread_id = ?1 ORDER BY seq ASC, id ASC"
     );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![thread_id], row_to_effect)?;
     let mut effects = Vec::new();
     for row in rows {
@@ -471,11 +472,10 @@ pub fn list_effects_from_round(
     // resume, so the boundary is resolved by position, not by numeric compare:
     // find the lowest `seq` in that round, then take everything at or above it.
     let boundary: Option<i64> = conn
-        .query_row(
+        .prepare_cached(
             "SELECT MIN(seq) FROM workspace_effects WHERE thread_id = ?1 AND round_id = ?2",
-            params![thread_id, round_id],
-            |row| row.get(0),
-        )
+        )?
+        .query_row(params![thread_id, round_id], |row| row.get(0))
         .optional()?
         .flatten();
     let Some(boundary) = boundary else {
@@ -485,7 +485,7 @@ pub fn list_effects_from_round(
         "SELECT {SELECT_COLUMNS} FROM workspace_effects \
          WHERE thread_id = ?1 AND seq >= ?2 ORDER BY seq ASC, id ASC"
     );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![thread_id, boundary], row_to_effect)?;
     let mut effects = Vec::new();
     for row in rows {
@@ -520,7 +520,7 @@ pub fn undoable_effects(
            AND irreversible_reason IS NULL \
          ORDER BY id DESC LIMIT ?2"
     );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![thread_id, limit as i64], row_to_effect)?;
     let mut effects = Vec::new();
     for row in rows {
@@ -541,22 +541,21 @@ pub fn mark_reversed(
     reversed_at_ms: u64,
     note: Option<&str>,
 ) -> Result<bool, PersistenceError> {
-    let changed = conn.execute(
-        "UPDATE workspace_effects SET reversed_at_ms = ?1, reversal_note = ?2 \
-         WHERE id = ?3 AND reversed_at_ms IS NULL",
-        params![reversed_at_ms as i64, note, effect_id],
-    )?;
+    let changed = conn
+        .prepare_cached(
+            "UPDATE workspace_effects SET reversed_at_ms = ?1, reversal_note = ?2 \
+             WHERE id = ?3 AND reversed_at_ms IS NULL",
+        )?
+        .execute(params![reversed_at_ms as i64, note, effect_id])?;
     Ok(changed == 1)
 }
 
 /// The journal's newest `seq` for a thread, so a caller can append densely
 /// without a read-modify-write race on the whole table.
 pub fn latest_seq(conn: &Connection, thread_id: &str) -> Result<i64, PersistenceError> {
-    let seq: Option<i64> = conn.query_row(
-        "SELECT MAX(seq) FROM workspace_effects WHERE thread_id = ?1",
-        params![thread_id],
-        |row| row.get(0),
-    )?;
+    let seq: Option<i64> = conn
+        .prepare_cached("SELECT MAX(seq) FROM workspace_effects WHERE thread_id = ?1")?
+        .query_row(params![thread_id], |row| row.get(0))?;
     Ok(seq.unwrap_or(0))
 }
 

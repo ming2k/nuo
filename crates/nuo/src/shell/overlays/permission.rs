@@ -32,9 +32,13 @@ const PERMISSION_COLLAPSED_BODY_CAP: u16 = 2;
 const PERMISSION_MAX_BODY_ROWS: u16 = 14;
 
 /// Total number of interactive actions in the permission sheet footer.
-pub fn permission_action_count(confirm_always: bool, one_off: bool) -> usize {
+pub fn permission_action_count(
+    confirm_always: bool,
+    one_off: bool,
+    has_suggested_scope: bool,
+) -> usize {
     if confirm_always && !one_off {
-        2
+        if has_suggested_scope { 3 } else { 2 }
     } else if one_off {
         3
     } else {
@@ -723,39 +727,19 @@ fn render_question_option(
 
 /// Draw a blocking tool permission request inline, replacing the composer
 /// (input box) area. The transcript above stays visible and scrollable.
-///
-/// Collapsed (the default) the sheet is a one-line summary — the tool name
-/// plus its scope (the specific path/command being touched) — followed by a
-/// footer of inline actions. Selecting "Details" expands the body upward to
-/// reveal the full description and arguments without leaving the prompt.
-#[allow(clippy::too_many_arguments)]
-pub fn draw_permission_sheet(
-    frame: &mut Frame,
-    hit_map: &mut ComponentTree,
+fn build_permission_body_lines(
     request: &PermissionRequest,
-    selected: usize,
     confirm_always: bool,
     show_details: bool,
-    scroll: usize,
     queue_depth: usize,
-    input_rect: Rect,
     theme: &Theme,
-    selection: &view::model::selection::SelectionState,
-    layout_map: &mut view::model::layout::LayoutMap,
-) -> usize {
-    let area_bottom = input_rect.y + input_rect.height;
-
+) -> Vec<Line<'static>> {
     let arguments = serde_json::from_str::<serde_json::Value>(&request.arguments)
         .ok()
         .and_then(|value| serde_json::to_string_pretty(&value).ok())
         .unwrap_or_else(|| request.arguments.clone());
     let scope_meaningful = !request.scope.is_empty() && request.scope != "*";
 
-    // Header line: human-friendly label (falling back to the raw tool name
-    // for safety), plus the concrete scope (path/command) when it adds
-    // information. The scope is the single most useful detail, so it earns a
-    // spot in the collapsed summary; everything else hides behind "Details".
-    // The left bar carries the severity cue.
     let label = if request.label.is_empty() {
         request.tool.clone()
     } else {
@@ -776,9 +760,6 @@ pub fn draw_permission_sheet(
             .fg(theme.brand())
             .add_modifier(Modifier::BOLD),
     ));
-    // #10: an elevation prompt (out-of-scope target) is flagged ⚠ so the
-    // operator understands they are authorising access *beyond* the configured
-    // boundary, not a routine in-scope call. Rendered in the error colour.
     if request.elevation {
         header.push(Span::styled("  ", Style::default()));
         header.push(Span::styled(
@@ -790,12 +771,10 @@ pub fn draw_permission_sheet(
     }
     if confirm_always {
         header.push(Span::styled(
-            " — always allow until exit?",
+            " — always allow?",
             Style::default().fg(theme.fg()),
         ));
     } else if request.one_off {
-        // A one-off dangerous-command confirm: flag that this grant will not be
-        // remembered, so the user is not surprised to be re-prompted next time.
         header.push(Span::styled(
             " — one-off (not remembered)",
             Style::default().fg(theme.warn()),
@@ -820,28 +799,37 @@ pub fn draw_permission_sheet(
     let mut body_lines: Vec<Line> = Vec::new();
     body_lines.push(Line::from(header));
 
-    // The preview, when the tool can compute one (ADR-0125). Rendered through the
-    // shared `similar`-backed diff so a previewed change and an applied change are
-    // the same rows — a second implementation here would eventually show something
-    // the execution does not do.
-    //
-    // It appears in **both** states, deliberately: an approval prompt whose most
-    // decision-relevant content is hidden behind a "Details" toggle is a prompt that
-    // gets approved without being read. The diff is the question, not the fine print.
-    // An absent preview is rendered as its own line rather than silently omitted,
-    // because "no description of the effect is possible" is exactly what the operator
-    // needs to know before granting authority to something unpredictable.
-    let preview_rows: Vec<String> = match &request.preview {
-        Some(preview) => view::tools::diff::unified_diff_rows(&preview.old, &preview.new, 3),
-        None => Vec::new(),
-    };
-
     if confirm_always {
-        body_lines.push(Line::from(Span::styled(
-            "Grants this tool until nuo exits.",
-            Style::default().fg(theme.muted()),
-        )));
-    } else if show_details {
+        if let Some(suggested) = request.suggested_scope.as_deref() {
+            body_lines.push(Line::from(Span::styled(
+                format!("Prefix: Grants `{suggested}` permanently for this role & workspace."),
+                Style::default().fg(theme.muted()),
+            )));
+            body_lines.push(Line::from(Span::styled(
+                format!(
+                    "Exact:  Grants `{}` permanently for this role & workspace.",
+                    request.scope
+                ),
+                Style::default().fg(theme.muted()),
+            )));
+        } else {
+            let msg = if request.scope.is_empty() || request.scope == "*" {
+                "Grants this tool permanently for this role & workspace.".to_string()
+            } else {
+                format!(
+                    "Grants `{}` permanently for this role & workspace.",
+                    request.scope
+                )
+            };
+            body_lines.push(Line::from(Span::styled(
+                msg,
+                Style::default().fg(theme.muted()),
+            )));
+        }
+        return body_lines;
+    }
+
+    if show_details {
         body_lines.push(Line::from(""));
         body_lines.push(Line::from(Span::styled(
             request.description.clone(),
@@ -849,10 +837,12 @@ pub fn draw_permission_sheet(
         )));
     }
 
+    let preview_rows: Vec<String> = match &request.preview {
+        Some(preview) => view::tools::diff::unified_diff_rows(&preview.old, &preview.new, 3),
+        None => Vec::new(),
+    };
     match &request.preview {
         Some(preview) if preview.is_unchanged() => {
-            // An idempotent write. Saying so is kinder than showing an empty diff,
-            // and it tells the operator this approval changes nothing.
             body_lines.push(Line::from(Span::styled(
                 "No change: this call rewrites the file with identical content.",
                 Style::default().fg(theme.muted()),
@@ -876,9 +866,6 @@ pub fn draw_permission_sheet(
                     Style::default().fg(theme.muted()),
                 ),
             ]));
-            // A bounded window: the sheet is anchored to the composer slot, so an
-            // unbounded diff would push its own footer off-screen. The user can
-            // still expand for the full argument JSON.
             const PREVIEW_ROWS: usize = 10;
             for row in preview_rows.iter().take(PREVIEW_ROWS) {
                 let style = if row.starts_with('+') {
@@ -903,9 +890,6 @@ pub fn draw_permission_sheet(
             }
         }
         None => {
-            // No preview is possible for this tool. State it rather than leaving a
-            // silent gap: the operator is being asked to authorize an effect that
-            // cannot be described in advance.
             body_lines.push(Line::from(Span::styled(
                 "This call's effect cannot be shown in advance.",
                 Style::default().fg(theme.muted()),
@@ -926,6 +910,33 @@ pub fn draw_permission_sheet(
         }));
     }
 
+    body_lines
+}
+
+///
+/// Collapsed (the default) the sheet is a one-line summary — the tool name
+/// plus its scope (the specific path/command being touched) — followed by a
+/// footer of inline actions. Selecting "Details" expands the body upward to
+/// reveal the full description and arguments without leaving the prompt.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_permission_sheet(
+    frame: &mut Frame,
+    hit_map: &mut ComponentTree,
+    request: &PermissionRequest,
+    selected: usize,
+    confirm_always: bool,
+    show_details: bool,
+    scroll: usize,
+    queue_depth: usize,
+    input_rect: Rect,
+    theme: &Theme,
+    selection: &view::model::selection::SelectionState,
+    layout_map: &mut view::model::layout::LayoutMap,
+) -> usize {
+    let area_bottom = input_rect.y + input_rect.height;
+    let body_lines =
+        build_permission_body_lines(request, confirm_always, show_details, queue_depth, theme);
+
     let fixed = PERMISSION_TOP_PADDING + PERMISSION_BODY_FOOTER_GAP + PERMISSION_FOOTER_HEIGHT;
     let content_w = input_rect
         .width
@@ -942,7 +953,9 @@ pub fn draw_permission_sheet(
     // How tall the body may grow. Collapsed stays compact; expanded climbs
     // into the transcript but never past the top of the viewport.
     let body_cap: u16 = if confirm_always {
-        body_total_rows.min(2).min(u16::MAX as usize) as u16
+        body_total_rows
+            .min(PERMISSION_COLLAPSED_BODY_CAP.max(4) as usize)
+            .min(u16::MAX as usize) as u16
     } else if show_details {
         let room = area_bottom.saturating_sub(fixed).max(1);
         PERMISSION_MAX_BODY_ROWS.min(room)
@@ -1013,8 +1026,14 @@ pub fn draw_permission_sheet(
     // is a UI/behaviour lie. The decision collapses to Allow once / Reject /
     // Details. (The confirm_always keyboard shortcut is also inert for these
     // prompts, since there is no Always choice to confirm.)
+    let has_suggested = !request.one_off && request.suggested_scope.is_some();
+    let cancel_idx = if has_suggested { 2 } else { 1 };
     let labels: Vec<&str> = if confirm_always && !request.one_off {
-        vec!["Confirm always", "Cancel"]
+        if has_suggested {
+            vec!["Always (prefix)", "Always (exact)", "Cancel"]
+        } else {
+            vec!["Confirm always", "Cancel"]
+        }
     } else if request.one_off {
         vec!["Allow once", "Reject", details_label]
     } else {
@@ -1024,7 +1043,7 @@ pub fn draw_permission_sheet(
     let mut footer_spans: Vec<Span> = Vec::new();
     let mut action_x = content_x;
     for (index, label) in labels.iter().enumerate() {
-        let is_cancel = confirm_always && index == 1;
+        let is_cancel = confirm_always && index == cancel_idx;
         let is_reject = !confirm_always && index == 2;
         let is_selected = index == selected;
         let bg = if is_selected {

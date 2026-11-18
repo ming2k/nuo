@@ -311,3 +311,68 @@ fn permission_sheet_wrapped_header_survives_wrap() {
         "wrapped header lost characters: {text:?}"
     );
 }
+
+#[test]
+fn confirm_always_splits_prefix_and_exact_when_suggested_scope_present() {
+    assert_eq!(permission_action_count(false, false, true), 4);
+    assert_eq!(permission_action_count(true, false, false), 2);
+    assert_eq!(permission_action_count(true, false, true), 3);
+
+    let request = PermissionRequest {
+        id: "perm-always-split".into(),
+        tool: "execute_command".into(),
+        label: "execute_command".into(),
+        description: "Run a command".into(),
+        arguments: r#"{"command":"cargo test --lib"}"#.into(),
+        scope: "cargo test --lib".into(),
+        suggested_scope: Some("cargo test *".into()),
+        elevation: false,
+        one_off: false,
+        origin: None,
+        ..Default::default()
+    };
+    let mut terminal = nuotc::TestTerminal::new(90, 24);
+    let mut hit_map = ComponentTree::new();
+    terminal.draw(|frame| {
+        hit_map.begin(frame.area());
+        let rect = Rect::new(0, 15, 90, 9);
+        let _ = draw_permission_sheet(
+            frame,
+            &mut hit_map,
+            &request,
+            0,
+            true,
+            false,
+            0,
+            0,
+            rect,
+            &Theme::default(),
+            &view::model::selection::SelectionState::None,
+            &mut view::model::layout::LayoutMap::new(),
+        );
+    });
+    hit_map.commit();
+    for action_index in 0..3 {
+        assert!(
+            find_permission_hit(&hit_map, 90, 24, action_index),
+            "missing confirm_always action {action_index}"
+        );
+    }
+    let text = sheet_text(&terminal);
+    assert!(
+        text.contains("cargo test *"),
+        "missing suggested scope: {text}"
+    );
+    assert!(
+        text.contains("cargo test --lib"),
+        "missing exact scope: {text}"
+    );
+    assert!(
+        text.contains("Always (prefix)"),
+        "missing prefix button: {text}"
+    );
+    assert!(
+        text.contains("Always (exact)"),
+        "missing exact button: {text}"
+    );
+}

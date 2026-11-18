@@ -138,7 +138,7 @@ mod tests {
             Vec::new(),
             crate::AgentIdentity::new("dev", "developer"),
         );
-        agent.set_project_root(Some(dir.path().to_path_buf()));
+        agent.set_permission_scope("developer", Some(dir.path().to_path_buf()));
 
         let source_messages = vec![tool::Message::new(tool::Role::User, "Hello")];
 

@@ -41,22 +41,22 @@ impl ThreadSession {
     /// Mirror the agent's todo list into the transcript as a `state` entry
     /// (latest wins on derivation) and persist.
     pub async fn set_todos(&self, todos: tool::TodoList) -> Result<(), String> {
-        let (path, data, should_persist) = {
+        let state_entry = protocol::TranscriptEntry::from_state(0, Some(todos));
+        let data = {
             let mut state = self.state.lock().await;
-            state
-                .data
-                .transcript
-                .push(protocol::TranscriptEntry::from_state(0, Some(todos)));
+            state.data.transcript.push(state_entry.clone());
             state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
+            if Self::should_skip_persist(&state) {
+                None
+            } else {
                 state.defer_persist = false;
+                let mut delta = state.data.clone_metadata_without_history();
+                delta.transcript.push(state_entry);
+                Some(delta)
             }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
         };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
+        if let Some(data) = data {
+            self.persist_metadata_off_runtime(data).await?;
         }
         Ok(())
     }
@@ -107,21 +107,11 @@ impl ThreadSession {
     /// Set (or clear) the title. A non-`NULL` title is terminal; AI
     /// generation must only call this when the title is currently `None`.
     pub async fn set_title(&self, title: Option<String>, _manual: bool) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            state.data.title = title;
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            data.title = title;
+            true
+        })
+        .await
     }
 
     /// Entries projected out of the view by the current directives — the
@@ -178,29 +168,22 @@ impl ThreadSession {
         anchor: Option<u64>,
         cas: Option<Option<u64>>,
     ) -> Result<bool, String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
+        let mut applied = false;
+        self.mutate_metadata_and_persist(|data| {
             if let Some(expected) = &cas
-                && state.data.digest_anchor != *expected
+                && data.digest_anchor != *expected
             {
-                return Ok(false);
+                return false;
             }
-            state.data.digest = digest;
+            data.digest = digest;
             // An anchor without a digest is meaningless (the anchor
             // watermarks *this* digest's transcript coverage).
-            state.data.digest_anchor = anchor.filter(|_| state.data.digest.is_some());
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(true)
+            data.digest_anchor = anchor.filter(|_| data.digest.is_some());
+            applied = true;
+            true
+        })
+        .await?;
+        Ok(applied)
     }
 
     pub async fn parent_id(&self) -> Option<String> {
@@ -215,21 +198,11 @@ impl ThreadSession {
         &self,
         tools: std::collections::HashSet<String>,
     ) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            state.data.disabled_tools = tools;
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            data.disabled_tools = tools;
+            true
+        })
+        .await
     }
 
     pub async fn unattended(&self) -> bool {
@@ -237,21 +210,11 @@ impl ThreadSession {
     }
 
     pub async fn set_unattended(&self, enabled: bool) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            state.data.unattended = enabled;
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            data.unattended = enabled;
+            true
+        })
+        .await
     }
 
     pub async fn active_role(&self) -> Option<String> {
@@ -266,21 +229,11 @@ impl ThreadSession {
             let mut ws_guard = self.workspace.write().unwrap_or_else(|e| e.into_inner());
             *ws_guard = workspace.clone();
         }
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            state.data.workspace = workspace;
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            data.workspace = workspace;
+            true
+        })
+        .await
     }
 
     pub async fn round_counter(&self) -> u64 {
@@ -288,21 +241,11 @@ impl ThreadSession {
     }
 
     pub async fn set_round_counter(&self, counter: u64) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            state.data.round_counter = counter;
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            data.round_counter = counter;
+            true
+        })
+        .await
     }
 
     pub async fn request_usage_records(&self) -> Vec<protocol::RequestUsageRecord> {
@@ -344,21 +287,11 @@ impl ThreadSession {
         &self,
         selection: Option<ProviderSelection>,
     ) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            state.data.provider_selection = selection;
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            data.provider_selection = selection;
+            true
+        })
+        .await
     }
 }
 

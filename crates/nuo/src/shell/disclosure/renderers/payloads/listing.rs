@@ -11,26 +11,38 @@ use view::text_layout::{
 };
 
 /// Parse a listing block's leading header line into the label for its count
-/// band. Recognizes the shape emitted by `find_files`: `Found N matching files:`
+/// band.
+///
+/// Recognizes the bracketed headers emitted by [`tool::ToolOutput::Listing`]:
+/// `[N entry/entries]`, `[Showing K of N entries]`, and
+/// `[Showing K entries (scan truncated)]`.
 ///
 /// Returns `None` when the first line is not a header (a restored session may start
 /// at the first entry), in which case no band is invented.
 pub(crate) fn parse_listing_header(first: &str) -> Option<String> {
     let first = first.trim_end();
-    if let Some(inner) = first
+    let inner = first
         .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-    {
-        let inner = inner.split(',').next().unwrap_or(inner).trim();
-        let count = inner
+        .and_then(|value| value.strip_suffix(']'))?;
+    if let Some(rest) = inner.strip_prefix("Showing ") {
+        if let Some((shown_str, total_str)) = rest
             .strip_suffix(" entries")
-            .or_else(|| inner.strip_suffix(" entry"))?;
-        let n: usize = count.parse().ok()?;
-        return Some(format!("{n} {}", plural(n, "entry", "entries")));
+            .and_then(|s| s.split_once(" of "))
+        {
+            let shown: usize = shown_str.trim().parse().ok()?;
+            let total: usize = total_str.trim().parse().ok()?;
+            return Some(format!("{shown} of {total} entries"));
+        }
+        if let Some(shown_str) = rest.strip_suffix(" entries (scan truncated)") {
+            let shown: usize = shown_str.trim().parse().ok()?;
+            return Some(format!("{shown} entries (truncated)"));
+        }
     }
-    let rest = first.strip_prefix("Found ")?;
-    let n: usize = rest.strip_suffix("matching files:")?.trim().parse().ok()?;
-    Some(format!("Found {} {}", n, plural(n, "file", "files")))
+    let count = inner
+        .strip_suffix(" entries")
+        .or_else(|| inner.strip_suffix(" entry"))?;
+    let n: usize = count.parse().ok()?;
+    Some(format!("{n} {}", plural(n, "entry", "entries")))
 }
 
 /// Split a listing path into its `(directory, leaf)` halves, where `directory`
@@ -83,10 +95,20 @@ pub(crate) fn draw_listing_content(
     let header_label = logical
         .first()
         .and_then(|(_, line)| parse_listing_header(line));
-    let body_idx = if header_label.is_some() { 1 } else { 0 };
+    let body_start = if header_label.is_some() { 1 } else { 0 };
+    let body_end = if header_label.is_some()
+        && logical
+            .last()
+            .is_some_and(|(_, line)| line.starts_with('[') && line.ends_with(']'))
+        && logical.len() > body_start
+    {
+        logical.len() - 1
+    } else {
+        logical.len()
+    };
 
     let mut current_dir: Option<&str> = None;
-    for (line_start_byte, raw) in &logical[body_idx..] {
+    for (line_start_byte, raw) in &logical[body_start..body_end] {
         if raw.is_empty() {
             continue;
         }
@@ -157,26 +179,22 @@ mod tests {
     use super::parse_listing_header;
 
     #[test]
-    fn parses_the_unified_read_listing_header() {
+    fn parses_complete_and_truncated_listing_headers() {
         assert_eq!(
             parse_listing_header("[3 entries]").as_deref(),
             Some("3 entries")
         );
         assert_eq!(
-            parse_listing_header("[5 entries, showing 3-4]").as_deref(),
-            Some("5 entries")
-        );
-        assert_eq!(
             parse_listing_header("[1 entry]").as_deref(),
             Some("1 entry")
         );
-    }
-
-    #[test]
-    fn keeps_the_find_files_header() {
         assert_eq!(
-            parse_listing_header("Found 2 matching files:").as_deref(),
-            Some("Found 2 files")
+            parse_listing_header("[Showing 200 of 350 entries]").as_deref(),
+            Some("200 of 350 entries")
+        );
+        assert_eq!(
+            parse_listing_header("[Showing 200 entries (scan truncated)]").as_deref(),
+            Some("200 entries (truncated)")
         );
     }
 

@@ -5,11 +5,58 @@
 //! (Abolition of Legacy Version Blacklists), and [INV-CATALOG-04] (Provider-Owned
 //! Dialect Ingestion) per ADR-0068.
 
+use protocol::ApiRoot;
 use protocol::Availability;
 use protocol::reasoning::ReasoningSupport;
-use provider::catalog::DiscoveredModel;
+use provider::catalog::{
+    DiscoveredModel, ModelListError, RemoteCatalogOptions, RemoteCatalogRequest,
+    RemoteCatalogUpdate, finalize_catalog_response,
+};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+
+/// Fetch and parse the Antigravity CloudCode `/v1internal:fetchAvailableModels` catalog.
+pub async fn fetch_remote_catalog(
+    req: RemoteCatalogRequest<'_>,
+    options: RemoteCatalogOptions<'_>,
+) -> Result<RemoteCatalogUpdate, ModelListError> {
+    let root = ApiRoot::parse(req.base_url).map_err(ModelListError::BadEndpoint)?;
+    let endpoint = root.append("v1internal:fetchAvailableModels");
+    let user_agent = req.user_agent.unwrap_or(provider::NUO_USER_AGENT);
+
+    let project = req
+        .account_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or("aicode-consumers");
+    let mut request = provider::transport::Request::new(netune::Method::POST, &endpoint)
+        .header("user-agent", user_agent)
+        .json(&serde_json::json!({ "project": project }));
+    if !req.api_key.expose_secret().trim().is_empty() {
+        request = request.header(
+            "authorization",
+            format!("Bearer {}", req.api_key.expose_secret()),
+        );
+    }
+    for (name, value) in req.extra_headers {
+        request = request.header(name, *value);
+    }
+
+    let response = provider::transport::Http::control_plane()
+        .map_err(ModelListError::Http)?
+        .send(request)
+        .await
+        .map_err(ModelListError::Http)?;
+
+    // CloudCode has semantic curation order (agentModelSorts), so preserve order while deduping.
+    finalize_catalog_response(response, options, false, |json| {
+        if !json.get("models").is_some_and(Value::is_object) {
+            return Err(ModelListError::Parse(
+                "response is missing the required models map".to_string(),
+            ));
+        }
+        Ok(parse_antigravity_catalog(json))
+    })
+}
 
 /// Effort suffixes in **shallow→deep wire order** — the canonical ordering
 /// the request builder's rank-into-entities relies on (ADR-0074). Upstream

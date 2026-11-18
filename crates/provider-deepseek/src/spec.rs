@@ -45,7 +45,7 @@ use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
 use ::provider::*;
-use protocol::surface::{CatalogShape, RemoteCatalogSource};
+use protocol::surface::RemoteCatalogSource;
 
 /// The model ids the built-in `deepseek` provider seeds. Each id exists in the
 /// model registry and floats with the upstream latest.
@@ -148,7 +148,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::OpenAiResponses,
     models: DEEPSEEK_BUILTIN_MODELS,
-    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+    catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: Some(::provider::QuotaPort::DeepSeekBalance),
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,

@@ -318,14 +318,12 @@ impl SubagentTool {
         {
             subagent.set_project_rules(rules.clone());
         }
-        if let Some(root) = self
+        let child_root = self
             .workspace_root
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .clone()
-        {
-            subagent.set_project_root(Some(root));
-        }
+            .clone();
+        subagent.set_permission_scope(profile.name, child_root);
 
         // Bind instance-scoped extensions according to the child's mission.
         match profile.name {

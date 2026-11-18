@@ -85,23 +85,23 @@ async fn slash_subcommand_options_expand_and_filter() {
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.is_empty());
 
-    // /unattended offers on and off
+    // /auto-approve offers on and off
     let AgentResponse::ComposerCompletions { items, .. } =
-        engine.complete(14, "/unattended ".into(), 12).await
+        engine.complete(14, "/auto-approve ".into(), 14).await
     else {
         panic!("unexpected response")
     };
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert_eq!(labels, vec!["/unattended on", "/unattended off"]);
+    assert_eq!(labels, vec!["/auto-approve on", "/auto-approve off"]);
 
-    // /unattended of filters to /unattended off
+    // /auto-approve of filters to /auto-approve off
     let AgentResponse::ComposerCompletions { items, .. } =
-        engine.complete(15, "/unattended of".into(), 14).await
+        engine.complete(15, "/auto-approve of".into(), 16).await
     else {
         panic!("unexpected response")
     };
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert_eq!(labels, vec!["/unattended off"]);
+    assert_eq!(labels, vec!["/auto-approve off"]);
 
     // /role expands subcommands
     let AgentResponse::ComposerCompletions { items, .. } =
@@ -209,12 +209,12 @@ async fn slash_subcommands_have_own_introductions_and_stop_at_depth_two() {
 
     // Subcommand matching and filtering for declared subcommands
     let AgentResponse::ComposerCompletions { items, .. } =
-        engine.complete(32, "/unattended o".into(), 13).await
+        engine.complete(32, "/auto-approve o".into(), 15).await
     else {
         panic!("unexpected response")
     };
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert_eq!(labels, vec!["/unattended on", "/unattended off"]);
+    assert_eq!(labels, vec!["/auto-approve on", "/auto-approve off"]);
 }
 
 #[test]

@@ -901,7 +901,7 @@ impl Agent {
         // async because some gates await (hooks, bash policy). Outcomes:
         //   • Deny    → short-circuit with the policy's output.
         //   • Approve → proceed under existing authority.
-        //   • MissingAuthority → attended: ask once; delegated: fail now.
+        //   • MissingAuthority → interactive: ask once; auto-approve: proceed without persisting; autonomous (no human channel): fail closed.
         //   • Pass    → (chain fallback) proceed.
         let target = tool.scope_target(&arguments);
         // Snapshot the disable masks and scope *before* the chain runs, then
@@ -941,18 +941,8 @@ impl Agent {
             }
             guardrails::permission_policy::PolicyDecision::MissingAuthority { request, rule } => {
                 if self.unattended() {
-                    return ToolOutput::Error {
-                        message: format!(
-                            "Tool `{}` requires approval, but this session is unattended.",
-                            request.tool
-                        ),
-                        detail: Some(
-                            "No human is present to grant authority. Pre-authorize the exact tool/scope \
-                             in `[permissions].allow` (a broad `*` grant is not enough for a dangerous \
-                             command), or run the session attended."
-                                .to_string(),
-                        ),
-                    };
+                    // Under auto-approve mode, missing authority is auto-approved
+                    // in-flight without persisting a rule to `PermissionStore`.
                 } else {
                     // The single interactive-park path. Both the broker (a
                     // write/execute the user must approve) and the bash
@@ -994,13 +984,20 @@ impl Agent {
                     // Charge the human-thinking pause to the round so the exit
                     // gate can subtract it for an honest tokens/sec.
                     self.book_pause(parked_at.elapsed().as_millis() as u64);
+                    let preferred_rule = guardrails::PermissionRule {
+                        tool: rule.tool.clone(),
+                        scope: request
+                            .suggested_scope
+                            .clone()
+                            .unwrap_or_else(|| rule.scope.clone()),
+                    };
                     match decision {
                         PermissionDecision::Once => {
                             tracing::info!(tool = %tool.name(), decision = "once", "permission granted for single invocation");
                         }
                         PermissionDecision::Session => {
-                            tracing::info!(tool = %tool.name(), decision = "session", "permission granted for current session");
-                            self.context.permissions.add_session(rule);
+                            tracing::info!(tool = %tool.name(), scope = %preferred_rule.scope, decision = "session", "permission granted for current session");
+                            self.context.permissions.add_session(preferred_rule);
                         }
                         PermissionDecision::Always => {
                             if one_off {
@@ -1016,7 +1013,29 @@ impl Agent {
                                     "one-off permission granted (not persisted)"
                                 );
                             } else {
-                                tracing::info!(tool = %tool.name(), decision = "always", "permission granted permanently for workspace");
+                                tracing::info!(
+                                    tool = %tool.name(),
+                                    scope = %preferred_rule.scope,
+                                    decision = "always",
+                                    "permission granted permanently for role & workspace"
+                                );
+                                self.context.permissions.add_always(preferred_rule);
+                            }
+                        }
+                        PermissionDecision::AlwaysExact => {
+                            if one_off {
+                                tracing::info!(
+                                    tool = %tool.name(),
+                                    decision = "always_exact",
+                                    "one-off permission granted (not persisted)"
+                                );
+                            } else {
+                                tracing::info!(
+                                    tool = %tool.name(),
+                                    scope = %rule.scope,
+                                    decision = "always_exact",
+                                    "exact permission granted permanently for role & workspace"
+                                );
                                 self.context.permissions.add_always(rule);
                             }
                         }
@@ -1040,7 +1059,7 @@ impl Agent {
             }
             if self.unattended() {
                 return ToolOutput::Text(
-                    "ask_user is unavailable: this session is running in Unattended mode and no human \
+                    "ask_user is unavailable: this session is running in auto-approve mode and no human \
                      is reachable to answer. Resolve the ambiguity yourself — pick the most \
                      reasonable default and proceed."
                         .to_string(),

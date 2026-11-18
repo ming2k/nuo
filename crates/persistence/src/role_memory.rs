@@ -189,18 +189,17 @@ impl RoleMemoryStore {
 
         // Deduplication: if the exact same interaction happened in the last 60 seconds, update access time instead
         let duplicate_id: Option<String> = conn
-            .query_row(
+            .prepare_cached(
                 "SELECT id FROM role_memories WHERE role = ?1 AND user_prompt = ?2 AND role_response = ?3 AND (?4 - created_at_s) < 60",
-                params![role, user_prompt, role_response, now_s],
-                |r| r.get(0),
-            )
+            )?
+            .query_row(params![role, user_prompt, role_response, now_s], |r| {
+                r.get(0)
+            })
             .optional()?;
 
         if let Some(id) = duplicate_id {
-            conn.execute(
-                "UPDATE role_memories SET last_accessed_at_s = ?1 WHERE id = ?2",
-                params![now_s, id],
-            )?;
+            conn.prepare_cached("UPDATE role_memories SET last_accessed_at_s = ?1 WHERE id = ?2")?
+                .execute(params![now_s, id])?;
             return Ok(None);
         }
 
@@ -233,22 +232,22 @@ impl RoleMemoryStore {
             importance,
         };
 
-        conn.execute(
+        conn.prepare_cached(
             "INSERT INTO role_memories (id, role, session_id, user_prompt, role_response, created_at_s, last_accessed_at_s, access_count, strength, importance)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                entry.id,
-                entry.role,
-                entry.session_id,
-                entry.user_prompt,
-                entry.role_response,
-                entry.created_at_s,
-                entry.last_accessed_at_s,
-                entry.access_count,
-                entry.strength,
-                entry.importance,
-            ],
-        )?;
+        )?
+        .execute(params![
+            entry.id,
+            entry.role,
+            entry.session_id,
+            entry.user_prompt,
+            entry.role_response,
+            entry.created_at_s,
+            entry.last_accessed_at_s,
+            entry.access_count,
+            entry.strength,
+            entry.importance,
+        ])?;
 
         drop(conn);
 
@@ -285,7 +284,7 @@ impl RoleMemoryStore {
 
         let fts_query = sanitize_fts_query(query);
         if !fts_query.is_empty() {
-            let mut stmt = conn.prepare(
+            let mut stmt = conn.prepare_cached(
                 "SELECT memory_id, bm25(fts_role_memories) AS score
                  FROM fts_role_memories
                  WHERE fts_role_memories MATCH ?1 AND role = ?2
@@ -326,7 +325,7 @@ impl RoleMemoryStore {
 
         for chunk in &cjk_chunks {
             let pattern = format!("%{chunk}%");
-            let mut stmt = conn.prepare(
+            let mut stmt = conn.prepare_cached(
                 "SELECT id FROM role_memories
                  WHERE role = ?1 AND (user_prompt LIKE ?2 OR role_response LIKE ?2)
                  ORDER BY last_accessed_at_s DESC LIMIT ?3",
@@ -363,25 +362,24 @@ impl RoleMemoryStore {
         let mut candidates = Vec::new();
         for id in &candidate_ids {
             let entry: Option<RoleMemoryEntry> = conn
-                .query_row(
+                .prepare_cached(
                     "SELECT id, role, session_id, user_prompt, role_response, created_at_s, last_accessed_at_s, access_count, strength, importance
                      FROM role_memories WHERE id = ?1",
-                    params![id],
-                    |row| {
-                        Ok(RoleMemoryEntry {
-                            id: row.get(0)?,
-                            role: row.get(1)?,
-                            session_id: row.get(2)?,
-                            user_prompt: row.get(3)?,
-                            role_response: row.get(4)?,
-                            created_at_s: row.get(5)?,
-                            last_accessed_at_s: row.get(6)?,
-                            access_count: row.get(7)?,
-                            strength: row.get(8)?,
-                            importance: row.get(9)?,
-                        })
-                    },
-                )
+                )?
+                .query_row(params![id], |row| {
+                    Ok(RoleMemoryEntry {
+                        id: row.get(0)?,
+                        role: row.get(1)?,
+                        session_id: row.get(2)?,
+                        user_prompt: row.get(3)?,
+                        role_response: row.get(4)?,
+                        created_at_s: row.get(5)?,
+                        last_accessed_at_s: row.get(6)?,
+                        access_count: row.get(7)?,
+                        strength: row.get(8)?,
+                        importance: row.get(9)?,
+                    })
+                })
                 .optional()?;
 
             if let Some(entry) = entry {
@@ -436,15 +434,18 @@ impl RoleMemoryStore {
         // Step 4: Spaced repetition reinforcement
         // Recalling a memory updates its access time and boosts its strength S,
         // making it more resistant to future forgetting.
-        for item in &candidates {
-            let _ = conn.execute(
+        if !candidates.is_empty()
+            && let Ok(mut reinforce_stmt) = conn.prepare_cached(
                 "UPDATE role_memories
                  SET access_count = access_count + 1,
                      last_accessed_at_s = ?1,
                      strength = strength + 1.0
                  WHERE id = ?2",
-                params![now_s, item.id],
-            );
+            )
+        {
+            for item in &candidates {
+                let _ = reinforce_stmt.execute(params![now_s, item.id]);
+            }
         }
 
         Ok(candidates)
@@ -457,7 +458,7 @@ impl RoleMemoryStore {
 
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
 
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             "SELECT id, last_accessed_at_s, strength, access_count, importance
              FROM role_memories WHERE role = ?1",
         )?;
@@ -505,9 +506,12 @@ impl RoleMemoryStore {
         }
 
         let pruned_count = to_delete.len();
-        if !to_delete.is_empty() {
+        if !to_delete.is_empty()
+            && let Ok(mut delete_stmt) =
+                conn.prepare_cached("DELETE FROM role_memories WHERE id = ?1")
+        {
             for id in &to_delete {
-                let _ = conn.execute("DELETE FROM role_memories WHERE id = ?1", params![id]);
+                let _ = delete_stmt.execute(params![id]);
             }
         }
 
@@ -526,11 +530,9 @@ impl RoleMemoryStore {
     pub fn count_memories(&self, role: &str) -> rusqlite::Result<usize> {
         let role = role.trim().to_lowercase();
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM role_memories WHERE role = ?1",
-            params![role],
-            |r| r.get(0),
-        )?;
+        let count: i64 = conn
+            .prepare_cached("SELECT COUNT(*) FROM role_memories WHERE role = ?1")?
+            .query_row(params![role], |r| r.get(0))?;
         Ok(count as usize)
     }
 
@@ -538,7 +540,9 @@ impl RoleMemoryStore {
     pub fn clear_role_memories(&self, role: &str) -> rusqlite::Result<usize> {
         let role = role.trim().to_lowercase();
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let count = conn.execute("DELETE FROM role_memories WHERE role = ?1", params![role])?;
+        let count = conn
+            .prepare_cached("DELETE FROM role_memories WHERE role = ?1")?
+            .execute(params![role])?;
         Ok(count)
     }
 }

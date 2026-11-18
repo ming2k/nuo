@@ -107,10 +107,11 @@ pub struct AgentConfig {
 /// scope = "git push *"
 /// ```
 ///
-/// These seed the allowlist at startup; runtime "Always" decisions still write
-/// to the persisted `permissions.json`. A config rule with scope `"*"` allows
-/// every call to that tool without prompting; a trailing `*` is a prefix. A
-/// deny always wins, including over an interactive "Always" grant.
+/// These seed the allowlist at startup; runtime "Always" decisions persist
+/// to `permission_rules` in `nuo.db` (scoped by `role + workspace`). A config
+/// rule with scope `"*"` allows every call to that tool without prompting; a
+/// trailing `*` is a prefix. A deny always wins, including over an interactive
+/// "Always" grant.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PermissionConfig {

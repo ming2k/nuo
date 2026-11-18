@@ -1,7 +1,7 @@
 //! Catalog fetch and request-construction tests, split by surface.
 
 pub(crate) use super::*;
-use protocol::{Availability, ReasoningSupport, WireProtocol};
+use protocol::{ReasoningSupport, WireProtocol};
 
 mod google;
 mod mapping;

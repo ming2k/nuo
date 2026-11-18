@@ -4,9 +4,9 @@
 use std::sync::Arc;
 
 use provider::auth::OAuthProvider;
-use provider_codebuddy_auth::handoff::CodeBuddyRealmSurface;
 
-use crate::{ALLOWED_CREDENTIAL_DOMAINS, CODEBUDDY_INTL_ORIGIN, PROVIDER_ID};
+use crate::auth::handoff::CodeBuddyRealmSurface;
+use crate::intl::{ALLOWED_CREDENTIAL_DOMAINS, CODEBUDDY_INTL_ORIGIN, PROVIDER_ID};
 
 /// Runtime sign-in prompt copy for the international line (CodeBuddy AI
 /// account), fixed at surface construction.
@@ -22,8 +22,7 @@ pub fn providers() -> Vec<Arc<dyn OAuthProvider>> {
     ))]
 }
 
-/// The domains this channel's credentials may originate from (re-exported for
-/// the server registry wiring).
+/// The domains this channel's credentials may originate from.
 pub fn allowed_credential_domains() -> &'static [&'static str] {
     ALLOWED_CREDENTIAL_DOMAINS
 }

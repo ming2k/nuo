@@ -11,7 +11,7 @@ use crate::blobs::BlobStore;
 
 /// Create or update a thread record.
 pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Result<()> {
-    conn.execute(
+    conn.prepare_cached(
         r#"
         INSERT INTO threads (
             id, parent_thread_id, origin, title, digest, created_at_ms, updated_at_ms
@@ -24,17 +24,17 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
             digest = excluded.digest,
             updated_at_ms = excluded.updated_at_ms;
         "#,
-        params![
-            session.id,
-            session.parent_id,
-            session.origin,
-            session.title.as_deref().unwrap_or(""),
-            session.digest,
-            session.created_at_s,
-            session.updated_at_s,
-        ],
-    )?;
-    conn.execute(
+    )?
+    .execute(params![
+        session.id,
+        session.parent_id,
+        session.origin,
+        session.title.as_deref().unwrap_or(""),
+        session.digest,
+        session.created_at_s,
+        session.updated_at_s,
+    ])?;
+    conn.prepare_cached(
         r#"
         INSERT INTO thread_policies (thread_id, workspace_root, system_role, updated_at_ms)
         VALUES (?1, ?2, ?3, ?4 * 1000)
@@ -43,13 +43,13 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
             system_role = excluded.system_role,
             updated_at_ms = excluded.updated_at_ms;
         "#,
-        params![
-            session.id,
-            session.workspace_root.as_deref().unwrap_or(""),
-            session.persona.as_deref().unwrap_or("developer"),
-            session.updated_at_s,
-        ],
-    )?;
+    )?
+    .execute(params![
+        session.id,
+        session.workspace_root.as_deref().unwrap_or(""),
+        session.persona.as_deref().unwrap_or("developer"),
+        session.updated_at_s,
+    ])?;
     Ok(())
 }
 
@@ -98,7 +98,8 @@ fn thread_filter_sql(
 /// Retrieve a single thread by id.
 pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<ThreadRecord>> {
     let sql = format!("SELECT {THREAD_RECORD_COLUMNS} FROM thread_list_view WHERE id = ?1");
-    conn.query_row(&sql, params![session_id], map_session_row)
+    conn.prepare_cached(&sql)?
+        .query_row(params![session_id], map_session_row)
         .optional()
 }
 
@@ -115,7 +116,7 @@ pub(crate) fn list_sessions(
     let sql = format!(
         "SELECT {THREAD_RECORD_COLUMNS} FROM thread_list_view{where_sql} ORDER BY updated_at_s DESC"
     );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(values), map_session_row)?;
     let mut sessions = Vec::new();
     for session in rows {
@@ -132,7 +133,7 @@ pub(crate) fn list_subagent_sessions(
     let sql = format!(
         "SELECT {THREAD_RECORD_COLUMNS} FROM thread_list_view WHERE parent_id = ?1 AND origin = 'subagent' ORDER BY created_at_s ASC"
     );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![parent_id], map_session_row)?;
     let mut sessions = Vec::new();
     for session in rows {
@@ -147,29 +148,27 @@ pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool
     // and `causal_nodes` predates the thread schema), so the membership trigger
     // was what used to reclaim FTS rows. With derived indexing off the hot path
     // the deletion is explicit and ordered before the owning row disappears.
-    conn.execute(
-        "DELETE FROM fts_thread_facts WHERE thread_id = ?1",
-        params![session_id],
-    )?;
+    conn.prepare_cached("DELETE FROM fts_thread_facts WHERE thread_id = ?1")?
+        .execute(params![session_id])?;
     // The workspace-effect journal is append-only evidence and deliberately has
     // no foreign key to `threads`: deleting the conversation must not rewrite
     // or erase what it did to the filesystem. Expiring the pre-image bytes lets
     // the CAS collector reclaim them without deleting the observation.
     let _ =
         crate::workspace_effects::expire_thread_preimages(conn, session_id, crate::db::unix_ms());
-    let affected = conn.execute("DELETE FROM threads WHERE id = ?1", params![session_id])?;
+    let affected = conn
+        .prepare_cached("DELETE FROM threads WHERE id = ?1")?
+        .execute(params![session_id])?;
     Ok(affected > 0)
 }
 
-/// Persist a complete [`crate::thread::ThreadData`] into SQLite in one
-/// transaction: the session row (identity + working state),
-/// the session's memberships and directives, and the entries themselves
-/// (upsert — facts are shared by identity across forks).
+/// Persist a complete or delta/metadata [`crate::thread::ThreadData`] into SQLite
+/// in one transaction.
 pub(crate) fn save_session_inner(
     conn: &Connection,
     blob_store: Option<&BlobStore>,
     data: &crate::thread::ThreadData,
-    force_full: bool,
+    mode: SaveMode,
     usage_upserts: &[protocol::RequestUsageRecord],
     guard: &CommitGuard,
 ) -> std::result::Result<u64, SaveError> {
@@ -181,10 +180,15 @@ pub(crate) fn save_session_inner(
         .digest
         .as_ref()
         .and_then(|d| serde_json::to_string(d).ok());
-    let mut thread = crate::thread::thread_from_session_data(data);
-    if let Some(blob_store) = blob_store {
-        offload_observation_blobs(&mut thread, blob_store)?;
-    }
+    let thread = if mode == SaveMode::MetadataOnly {
+        None
+    } else {
+        let mut built = crate::thread::thread_from_session_data(data);
+        if let Some(blob_store) = blob_store {
+            offload_observation_blobs(&mut built, blob_store)?;
+        }
+        Some(built)
+    };
 
     // Expensive, pure payload preparation runs before the transaction
     // (D3); only the receipt comparison runs inside it.
@@ -223,18 +227,21 @@ pub(crate) fn save_session_inner(
             });
         }
 
-        // Read the durable generation BEFORE the row upsert stamps the
-        // incoming one: the comparison decides full-rewrite vs append.
-        let stored_generation: Option<String> = conn
-            .query_row(
-                "SELECT transcript_generation FROM threads WHERE id = ?1",
-                params![data.id],
-                |row| row.get(0),
-            )
-            .unwrap_or(None);
-        // A `None` stored generation (never saved, or saved before the
-        // generation column existed) also forces the full rewrite.
-        let full = force_full || stored_generation.as_deref() != Some(data.generation.as_str());
+        let replace = match mode {
+            SaveMode::MetadataOnly => false,
+            SaveMode::FullRewrite => true,
+            SaveMode::Delta => {
+                // Read the durable generation BEFORE the row upsert stamps the
+                // incoming one: the comparison decides full-rewrite vs append.
+                let stored_generation: Option<String> = conn
+                    .prepare_cached("SELECT transcript_generation FROM threads WHERE id = ?1")?
+                    .query_row(params![data.id], |row| row.get(0))
+                    .unwrap_or(None);
+                // A `None` stored generation (never saved, or saved before the
+                // generation column existed) also forces the full rewrite.
+                stored_generation.as_deref() != Some(data.generation.as_str())
+            }
+        };
 
         let persona = data.role.clone();
         let workspace_root = data
@@ -247,26 +254,29 @@ pub(crate) fn save_session_inner(
         }
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
-        conn.execute(
-            r#"
-            INSERT INTO threads (
-                id, parent_thread_id, origin, title, status,
-                active_branch_id, round_counter,
-                transcript_generation, digest, digest_anchor, checksum,
-                created_at_ms, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
-            ON CONFLICT(id) DO UPDATE SET
-                parent_thread_id = excluded.parent_thread_id,
-                origin = excluded.origin,
-                title = excluded.title,
-                round_counter = excluded.round_counter,
-                transcript_generation = excluded.transcript_generation,
-                digest = excluded.digest,
-                digest_anchor = excluded.digest_anchor,
-                checksum = excluded.checksum,
-                updated_at_ms = excluded.updated_at_ms;
-            "#,
-            params![
+        if mode == SaveMode::MetadataOnly {
+            // Preserve `transcript_generation`, `active_branch_id`, and `active_leaf`
+            // on existing rows: metadata setters must never alter transcript lineage.
+            conn.prepare_cached(
+                r#"
+                INSERT INTO threads (
+                    id, parent_thread_id, origin, title, status,
+                    active_branch_id, round_counter,
+                    transcript_generation, digest, digest_anchor, checksum,
+                    created_at_ms, updated_at_ms
+                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
+                ON CONFLICT(id) DO UPDATE SET
+                    parent_thread_id = excluded.parent_thread_id,
+                    origin = excluded.origin,
+                    title = excluded.title,
+                    round_counter = excluded.round_counter,
+                    digest = excluded.digest,
+                    digest_anchor = excluded.digest_anchor,
+                    checksum = excluded.checksum,
+                    updated_at_ms = excluded.updated_at_ms;
+                "#,
+            )?
+            .execute(params![
                 data.id,
                 data.parent_id,
                 fork_str,
@@ -278,17 +288,64 @@ pub(crate) fn save_session_inner(
                 data.checksum.map(|c| c as i64),
                 data.created_at as i64,
                 data.updated_at as i64,
-            ],
-        )?;
+            ])?;
+        } else {
+            conn.prepare_cached(
+                r#"
+                INSERT INTO threads (
+                    id, parent_thread_id, origin, title, status,
+                    active_branch_id, round_counter,
+                    transcript_generation, digest, digest_anchor, checksum,
+                    created_at_ms, updated_at_ms
+                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
+                ON CONFLICT(id) DO UPDATE SET
+                    parent_thread_id = excluded.parent_thread_id,
+                    origin = excluded.origin,
+                    title = excluded.title,
+                    round_counter = excluded.round_counter,
+                    transcript_generation = excluded.transcript_generation,
+                    digest = excluded.digest,
+                    digest_anchor = excluded.digest_anchor,
+                    checksum = excluded.checksum,
+                    updated_at_ms = excluded.updated_at_ms;
+                "#,
+            )?
+            .execute(params![
+                data.id,
+                data.parent_id,
+                fork_str,
+                data.title.as_deref().unwrap_or(""),
+                data.round_counter as i64,
+                data.generation,
+                digest_str,
+                data.digest_anchor.map(|a| a as i64),
+                data.checksum.map(|c| c as i64),
+                data.created_at as i64,
+                data.updated_at as i64,
+            ])?;
+        }
 
-        conn.execute(
+        let todos_json: Option<String> = if replace {
+            Some(
+                serde_json::to_string(&data.transcript.derive_todos().unwrap_or_default())
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+            )
+        } else {
+            data.transcript
+                .derive_todos()
+                .map(|t| serde_json::to_string(&t))
+                .transpose()
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+        };
+
+        conn.prepare_cached(
             r#"
             INSERT INTO thread_policies (
                 thread_id, workspace_root, system_role, unattended, provider_pin,
                 disabled_tools_json, additional_roots_json, commands_json,
                 round_interrupts_json, retry_pending,
                 role_manifest, todos_json, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE(?12, '[]'),
                       ?13 * 1000)
             ON CONFLICT(thread_id) DO UPDATE SET
                 workspace_root = excluded.workspace_root,
@@ -301,44 +358,47 @@ pub(crate) fn save_session_inner(
                 round_interrupts_json = excluded.round_interrupts_json,
                 retry_pending = excluded.retry_pending,
                 role_manifest = COALESCE(excluded.role_manifest, thread_policies.role_manifest),
-                todos_json = excluded.todos_json,
+                todos_json = COALESCE(?12, thread_policies.todos_json),
                 updated_at_ms = excluded.updated_at_ms;
             "#,
-            params![
-                data.id,
-                workspace_root.as_deref().unwrap_or(""),
-                persona.as_deref().unwrap_or("developer"),
-                if data.unattended { 1 } else { 0 },
-                data.provider_selection
-                    .as_ref()
-                    .and_then(|s| serde_json::to_string(s).ok()),
-                serde_json::to_string(&data.disabled_tools.iter().collect::<Vec<_>>())
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                additional_roots,
-                serde_json::to_string(&data.commands)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                serde_json::to_string(&data.round_interrupts)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                data.retry_pending
-                    .as_ref()
-                    .and_then(|s| serde_json::to_string(s).ok()),
-                data.role_manifest
-                    .as_ref()
-                    .and_then(|m| serde_json::to_string(m).ok()),
-                serde_json::to_string(&data.transcript.derive_todos().unwrap_or_default())
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                data.updated_at as i64,
-            ],
-        )?;
+        )?
+        .execute(params![
+            data.id,
+            workspace_root.as_deref().unwrap_or(""),
+            persona.as_deref().unwrap_or("developer"),
+            if data.unattended { 1 } else { 0 },
+            data.provider_selection
+                .as_ref()
+                .and_then(|s| serde_json::to_string(s).ok()),
+            serde_json::to_string(&data.disabled_tools.iter().collect::<Vec<_>>())
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+            additional_roots,
+            serde_json::to_string(&data.commands)
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+            serde_json::to_string(&data.round_interrupts)
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+            data.retry_pending
+                .as_ref()
+                .and_then(|s| serde_json::to_string(s).ok()),
+            data.role_manifest
+                .as_ref()
+                .and_then(|m| serde_json::to_string(m).ok()),
+            todos_json,
+            data.updated_at as i64,
+        ])?;
 
         // The durable conversation is the fact graph. The transcript is a
         // projection rebuilt on read; nothing transcript-shaped is written.
-        crate::db::thread_store::persist_thread_facts(conn, &thread, full)
-            .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
+        if let Some(thread) = thread.as_ref()
+            && (replace || !thread.graph.is_empty())
+        {
+            crate::db::thread_store::persist_thread_facts(conn, thread, replace)
+                .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
+        }
         for record in usage_upserts {
             insert_usage_record_tx(conn, data.id.as_str(), record)?;
         }
-        if full {
+        if replace {
             for record in &data.request_usage_records {
                 insert_usage_record_tx(conn, data.id.as_str(), record)?;
             }
@@ -348,10 +408,8 @@ pub(crate) fn save_session_inner(
         // same transaction as the facts they describe, so recovery can
         // always resolve an unknown outcome by operation identity.
         let committed_revision = current_revision + 1;
-        conn.execute(
-            "UPDATE threads SET revision = ?2 WHERE id = ?1",
-            params![data.id, committed_revision as i64],
-        )?;
+        conn.prepare_cached("UPDATE threads SET revision = ?2 WHERE id = ?1")?
+            .execute(params![data.id, committed_revision as i64])?;
         if let (Some(operation_id), Some(payload_hash)) =
             (guard.operation_id.as_deref(), payload_hash.as_deref())
         {
@@ -455,7 +513,7 @@ fn load_usage_records(
     conn: &Connection,
     session_id: &str,
 ) -> Result<Vec<protocol::RequestUsageRecord>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT payload FROM usage_records WHERE session_id = ?1
          ORDER BY round ASC, turn ASC, attempt ASC, actor_id ASC",
     )?;
@@ -484,7 +542,7 @@ pub(crate) fn load_session_full(
     session_id: &str,
 ) -> Result<Option<crate::thread::ThreadData>> {
     let row = conn
-        .query_row(
+        .prepare_cached(
             r#"
             SELECT t.id, t.parent_thread_id, t.origin, t.title,
                    t.created_at_ms / 1000, t.updated_at_ms / 1000,
@@ -498,34 +556,33 @@ pub(crate) fn load_session_full(
             LEFT JOIN thread_policies p ON p.thread_id = t.id
             WHERE t.id = ?1
             "#,
-            params![session_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<i64>>(10)?,
-                    row.get::<_, Option<String>>(11)?,
-                    row.get::<_, Option<String>>(12)?,
-                    row.get::<_, i64>(13)?,
-                    row.get::<_, i64>(14)?,
-                    row.get::<_, String>(15)?,
-                    row.get::<_, String>(16)?,
-                    row.get::<_, String>(17)?,
-                    row.get::<_, Option<String>>(18)?,
-                    row.get::<_, Option<i64>>(19)?,
-                    row.get::<_, i64>(20)?,
-                    row.get::<_, Option<String>>(21)?,
-                ))
-            },
-        )
+        )?
+        .query_row(params![session_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<i64>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
+                row.get::<_, i64>(13)?,
+                row.get::<_, i64>(14)?,
+                row.get::<_, String>(15)?,
+                row.get::<_, String>(16)?,
+                row.get::<_, String>(17)?,
+                row.get::<_, Option<String>>(18)?,
+                row.get::<_, Option<i64>>(19)?,
+                row.get::<_, i64>(20)?,
+                row.get::<_, Option<String>>(21)?,
+            ))
+        })
         .optional()?;
     let Some((
         id,
@@ -655,11 +712,8 @@ pub(crate) fn load_session_full(
         unattended: unattended != 0,
     };
     let todos: tool::TodoList = conn
-        .query_row(
-            "SELECT todos_json FROM thread_policies WHERE thread_id = ?1",
-            params![session_id],
-            |row| row.get::<_, String>(0),
-        )
+        .prepare_cached("SELECT todos_json FROM thread_policies WHERE thread_id = ?1")?
+        .query_row(params![session_id], |row| row.get::<_, String>(0))
         .optional()
         .ok()
         .flatten()
@@ -727,7 +781,7 @@ pub(crate) fn resolve_session_prefix(
         "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id{where_sql}{separator}t.id LIKE ? ORDER BY t.updated_at_ms DESC"
     );
     values.push(rusqlite::types::Value::Text(pattern));
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| row.get(0))?;
     let mut matches = Vec::new();
     for id in rows {
@@ -745,17 +799,16 @@ pub(crate) fn lookup_session_workspace(
     session_id: &str,
 ) -> Result<Option<(Option<protocol::WorkspaceBinding>, Option<String>)>> {
     let row = conn
-        .query_row(
+        .prepare_cached(
             "SELECT workspace_root, additional_roots_json, system_role FROM thread_policies WHERE thread_id = ?1",
-            params![session_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            },
-        )
+        )?
+        .query_row(params![session_id], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
         .optional()?;
     let Some((workspace_root, additional_roots, persona)) = row else {
         return Ok(None);
@@ -773,11 +826,8 @@ pub(crate) fn lookup_session_manifest(
     session_id: &str,
 ) -> Result<Option<protocol::ThreadRoleManifest>> {
     let row: Option<Option<String>> = conn
-        .query_row(
-            "SELECT role_manifest FROM thread_policies WHERE thread_id = ?1",
-            params![session_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
+        .prepare_cached("SELECT role_manifest FROM thread_policies WHERE thread_id = ?1")?
+        .query_row(params![session_id], |row| row.get::<_, Option<String>>(0))
         .optional()?;
     let Some(Some(raw_manifest)) = row else {
         return Ok(None);
@@ -805,7 +855,7 @@ pub(crate) fn list_switch_candidates(
     );
     let mut params = values;
     params.push(rusqlite::types::Value::Text(active_id.to_string()));
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(params), map_summary_row)?;
     let mut summaries = Vec::new();
     for item in rows {
@@ -826,7 +876,7 @@ pub(crate) fn list_session_summaries(
                         msg_count, last_user_prompt, digest";
     let (where_sql, values) = thread_filter_sql(filter, false, "persona", "workspace_root");
     let sql = format!("SELECT {COLS} FROM thread_list_view{where_sql} ORDER BY updated_at_s DESC;");
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(values), map_summary_row)?;
     let mut summaries = Vec::new();
     for item in rows {
@@ -844,7 +894,7 @@ pub(crate) fn latest_session(
     let (where_sql, values) = thread_filter_sql(filter, false, "persona", "workspace_root");
     let sql =
         format!("SELECT id FROM thread_list_view{where_sql} ORDER BY updated_at_s DESC LIMIT 1");
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
     let get = |row: &Row| row.get::<_, String>(0);
     stmt.query_row(rusqlite::params_from_iter(values), get)
         .optional()
@@ -894,9 +944,8 @@ pub(crate) fn rename_session(
 ) -> Result<bool> {
     let _ = manual;
     let now_ms = (crate::thread::unix_timestamp() * 1000) as i64;
-    let affected = conn.execute(
-        "UPDATE threads SET title = ?1, updated_at_ms = ?2 WHERE id = ?3",
-        params![title, now_ms, session_id],
-    )?;
+    let affected = conn
+        .prepare_cached("UPDATE threads SET title = ?1, updated_at_ms = ?2 WHERE id = ?3")?
+        .execute(params![title, now_ms, session_id])?;
     Ok(affected > 0)
 }

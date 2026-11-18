@@ -1,18 +1,4 @@
-//! Shared Tencent CodeBuddy authentication kernel.
-//!
-//! This crate is the **realm-agnostic** protocol library behind the two
-//! physical CodeBuddy provider channels:
-//!
-//! - `provider-codebuddy-cn` — domestic line (`copilot.tencent.com`)
-//! - `provider-codebuddy-intl` — international line (`www.codebuddy.ai`)
-//!
-//! It registers **no** `ModelProviderSpec`, declares **no** endpoint constants,
-//! and embeds itself in **no** registry. Per [ADR-0097], the physical host
-//! binding is the exclusive property of a channel crate; this kernel exists
-//! because both lines drive the identical vendor web-handoff protocol
-//! (reverse-engineered from `@tencent-ai/codebuddy-code` v2.172.1) and the
-//! identical wrapped credential envelope — protocol shape is a *shared
-//! mechanism*, while origin/realm/model-catalog are *per-channel facts*.
+//! Shared, realm-agnostic Tencent CodeBuddy authentication kernel.
 //!
 //! # The CodeBuddy login protocol (not an RFC grant)
 //!
@@ -41,11 +27,9 @@
 //!
 //! Every credential envelope carries the vendor-declared `domain` field (the
 //! account line that minted it, e.g. `www.codebuddy.cn` or `codebuddy.ai`).
-//! [`StoredCredentials::domain`] surfaces it; channel crates MUST reject
+//! [`StoredCredentials::domain`] surfaces it; channel modules MUST reject
 //! credentials whose domain belongs to the other realm. Mixing lines across a
 //! rotation invalidates the pair at the identity provider.
-
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod auth_file;
 pub mod envelope;
@@ -68,5 +52,3 @@ pub const CODEBUDDY_CLIENT_HEADERS: &[(&str, &str)] = &[
 ];
 
 pub use auth_file::*;
-pub use envelope::*;
-pub use handoff::*;

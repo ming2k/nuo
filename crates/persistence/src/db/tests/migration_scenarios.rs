@@ -28,6 +28,7 @@ fn a_fresh_database_has_one_conversation_shape() {
         "request_projections",
         "workspace_effects",
         "fts_thread_facts",
+        "permission_rules",
     ] {
         assert!(
             tables.iter().any(|name| name == expected),
@@ -126,4 +127,117 @@ fn thread_delete_cascades_per_thread_state() {
             .unwrap();
         assert_eq!(count, 0, "{table} did not cascade with the thread");
     }
+}
+
+#[test]
+fn permission_rules_migration_upgrades_from_v2_and_enforces_scope_constraints() {
+    use crate::db::permissions::{
+        PermissionRuleEffect, PermissionScopeKind, PermissionScopeTarget, clear_permission_rules,
+        load_permission_rules, touch_permission_rule_last_used, upsert_permission_rule,
+    };
+
+    let mut conn = Connection::open_in_memory().unwrap();
+    migrate_to_for_tests(&mut conn, 2).unwrap();
+
+    // Migrate v2 -> v3.
+    migrate_schema(&mut conn).unwrap();
+    let version: u32 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, CURRENT_DB_VERSION);
+
+    // Negative constraint checks: global must have empty workspace_key, workspace must be non-empty.
+    assert!(
+        conn.execute(
+            "INSERT INTO permission_rules(role_id, scope_kind, workspace_key, tool, scope, effect, created_at_ms, updated_at_ms)
+             VALUES('ops', 'global', '/tmp', 'execute_command', 'ls *', 'allow', 1, 1)",
+            []
+        )
+        .is_err()
+    );
+    assert!(
+        conn.execute(
+            "INSERT INTO permission_rules(role_id, scope_kind, workspace_key, tool, scope, effect, created_at_ms, updated_at_ms)
+             VALUES('developer', 'workspace', '', 'execute_command', 'ls *', 'allow', 1, 1)",
+            []
+        )
+        .is_err()
+    );
+
+    // Role + workspace vs role + global isolation and merge.
+    let ops_scope = PermissionScopeTarget::from_role_and_workspace("ops", None);
+    let dev_ws =
+        PermissionScopeTarget::from_role_and_workspace("developer", Some(Path::new("/repo/a")));
+    let dev_global = PermissionScopeTarget::from_role_and_workspace("developer", None);
+
+    upsert_permission_rule(
+        &conn,
+        &ops_scope,
+        "execute_command",
+        "systemctl status *",
+        PermissionRuleEffect::Allow,
+        10,
+    )
+    .unwrap();
+    upsert_permission_rule(
+        &conn,
+        &dev_global,
+        "execute_command",
+        "git status *",
+        PermissionRuleEffect::Allow,
+        11,
+    )
+    .unwrap();
+    upsert_permission_rule(
+        &conn,
+        &dev_ws,
+        "execute_command",
+        "cargo test *",
+        PermissionRuleEffect::Allow,
+        12,
+    )
+    .unwrap();
+
+    let ops_rules = load_permission_rules(&conn, &ops_scope).unwrap();
+    assert_eq!(ops_rules.len(), 1);
+    assert_eq!(ops_rules[0].scope, "systemctl status *");
+    assert_eq!(ops_rules[0].scope_kind, PermissionScopeKind::Global);
+
+    let dev_rules = load_permission_rules(&conn, &dev_ws).unwrap();
+    assert_eq!(dev_rules.len(), 2);
+    assert_eq!(dev_rules[0].scope, "git status *");
+    assert_eq!(dev_rules[1].scope, "cargo test *");
+
+    touch_permission_rule_last_used(&conn, &dev_ws, "execute_command", "git status *", 99).unwrap();
+    touch_permission_rule_last_used(&conn, &dev_ws, "execute_command", "cargo test *", 88).unwrap();
+    let git_last_used: Option<i64> = conn
+        .query_row(
+            "SELECT last_used_ms FROM permission_rules WHERE role_id = 'developer' AND scope = 'git status *'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let cargo_last_used: Option<i64> = conn
+        .query_row(
+            "SELECT last_used_ms FROM permission_rules WHERE role_id = 'developer' AND scope = 'cargo test *'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(git_last_used, Some(99));
+    assert_eq!(cargo_last_used, Some(88));
+
+    clear_permission_rules(
+        &conn,
+        &dev_ws,
+        &[("execute_command".into(), "cargo test *".into())],
+        20,
+    )
+    .unwrap();
+    let after_clear = load_permission_rules(&conn, &dev_ws).unwrap();
+    assert!(
+        after_clear
+            .iter()
+            .any(|r| { r.scope == "cargo test *" && r.effect == PermissionRuleEffect::Revoked })
+    );
 }

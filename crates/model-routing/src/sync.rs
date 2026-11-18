@@ -14,7 +14,7 @@ use futures::stream::{self, StreamExt};
 use persistence::config::{FittedModelInfo, ModelListCacheState, RemoteCatalogCache};
 use persistence::connections::Connections;
 use protocol::WireProtocol;
-use protocol::{CatalogShape, ModelListError, RemoteCatalogSource};
+use protocol::{ModelListError, RemoteCatalogSource};
 use provider::ModelProviderSpec;
 use provider::{
     RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate, model_provider_spec,
@@ -31,20 +31,14 @@ const DISCOVERY_CONCURRENCY: usize = 8;
 /// network feeds normalized to the same [`RemoteCatalogUpdate`]; the axis is
 /// *who serves the data*, not the transport.
 enum CatalogFetchSource {
-    /// The provider's own catalog endpoint (first-party `GET /models`).
+    /// The provider's own catalog endpoint or custom discovery source.
     FirstParty {
-        protocol: CatalogShape,
+        source: RemoteCatalogSource,
         base_url: String,
         user_agent: String,
         headers: Vec<(String, String)>,
         cached_etag: Option<String>,
-        /// Whether the shape's catalog authenticates with the dialect's own
-        /// request signing (`CatalogAuth::Dialect`). When set, the fetch builds
-        /// the dialect signer (it has the resolved bearer) and hands it to the
-        /// generic fetcher as data.
-        needs_dialect_signing: bool,
-        /// The resolved request dimensions that select which catalog the server
-        /// returns (Qoder's `scene`), after any connection-level override.
+        /// Connection-level request dimensions (e.g. Qoder's `scene`).
         dimensions: Vec<(String, String)>,
     },
 }
@@ -57,7 +51,7 @@ impl CatalogFetchSource {
         digest.update(b"remote-catalog-request-v1\0");
         match self {
             Self::FirstParty {
-                protocol,
+                source,
                 base_url,
                 user_agent,
                 headers,
@@ -65,13 +59,8 @@ impl CatalogFetchSource {
                 ..
             } => {
                 digest.update(b"first-party\0");
-                digest.update(catalog_shape_id(*protocol).as_bytes());
+                digest.update(catalog_source_id(*source).as_bytes());
                 digest.update(b"\0");
-                if *protocol == CatalogShape::Codex {
-                    const CODEX_VERSION: &str = "0.153.4";
-                    digest.update(CODEX_VERSION.as_bytes());
-                    digest.update(b"\0");
-                }
                 digest.update(base_url.as_bytes());
                 digest.update(b"\0");
                 digest.update(user_agent.as_bytes());
@@ -105,14 +94,13 @@ impl CatalogFetchSource {
     }
 }
 
-const fn catalog_shape_id(protocol: CatalogShape) -> &'static str {
-    match protocol {
-        CatalogShape::OpenAi => "openai",
-        CatalogShape::Anthropic => "anthropic",
-        CatalogShape::Google => "google",
-        CatalogShape::GoogleCloudCode => "google-cloud-code",
-        CatalogShape::Codex => "codex",
-        CatalogShape::SceneMap => "scene-map",
+const fn catalog_source_id(source: RemoteCatalogSource) -> &'static str {
+    match source {
+        RemoteCatalogSource::Endpoint(protocol::CatalogShape::OpenAi) => "openai",
+        RemoteCatalogSource::Endpoint(protocol::CatalogShape::Anthropic) => "anthropic",
+        RemoteCatalogSource::Endpoint(protocol::CatalogShape::Google) => "google",
+        RemoteCatalogSource::Custom(id) => id,
+        RemoteCatalogSource::None => "none",
     }
 }
 
@@ -135,12 +123,11 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
     let source_identity = job.source.identity();
     match job.source {
         CatalogFetchSource::FirstParty {
-            protocol,
+            source,
             base_url,
             user_agent,
             headers,
             cached_etag,
-            needs_dialect_signing,
             dimensions,
         } => {
             let auth = if job.connection.auth.is_negotiated() {
@@ -180,25 +167,23 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect();
-            // Build the dialect signer with the freshly-resolved bearer, when
-            // the shape needs it. The generic fetcher receives it as data and
-            // never names a provider.
-            let catalog_signer = if needs_dialect_signing {
-                provider::build_catalog_signer(
-                    job.credentials.store().as_ref(),
-                    &job.connection.name,
-                    auth.token.expose_secret(),
-                )
-            } else {
-                None
-            };
+            // Build the signer with the freshly-resolved bearer. The builder
+            // decides per source/connection whether signing applies; the
+            // generic fetcher receives the result as data and never names a
+            // provider.
+            let catalog_signer = provider::build_catalog_signer(
+                job.credentials.store().as_ref(),
+                &job.connection.name,
+                auth.token.expose_secret(),
+                source,
+            );
             let catalog_signing: Option<&dyn provider::CatalogSigning> = catalog_signer.as_deref();
             let dimensions: Vec<(&str, &str)> = dimensions
                 .iter()
                 .map(|(name, value)| (name.as_str(), value.as_str()))
                 .collect();
             let request = RemoteCatalogRequest {
-                protocol,
+                source,
                 base_url: &base_url,
                 api_key: &auth.token,
                 account_id: auth
@@ -598,8 +583,8 @@ fn catalog_fetch_source(
     spec: &ModelProviderSpec,
 ) -> Option<CatalogFetchSource> {
     match spec.catalog_source {
-        RemoteCatalogSource::Endpoint(protocol) => {
-            build_first_party_source(credentials, connection, cache, spec, protocol)
+        RemoteCatalogSource::Endpoint(_) | RemoteCatalogSource::Custom(_) => {
+            build_first_party_source(credentials, connection, cache, spec, spec.catalog_source)
         }
         RemoteCatalogSource::None => None,
     }
@@ -632,7 +617,7 @@ fn build_first_party_source(
     connection: &persistence::connections::Connection,
     cache: &RemoteCatalogCache,
     spec: &ModelProviderSpec,
-    protocol: CatalogShape,
+    source: RemoteCatalogSource,
 ) -> Option<CatalogFetchSource> {
     // The elected endpoint when the provider's stored identity carries one
     // (Qoder's server-issued region map, §3.1a); every other provider keeps
@@ -664,45 +649,19 @@ fn build_first_party_source(
         .model_lists
         .get(&connection.name)
         .and_then(|state| state.etag.clone());
-    // The catalog signer is built at fetch time, once the connection's bearer
-    // is resolved (the signature embeds it). This only records that the shape
-    // needs dialect signing; the fetcher receives the built signer as data.
-    let needs_dialect_signing = protocol.auth().eq(&protocol::surface::CatalogAuth::Dialect);
-    let dimensions = resolved_catalog_dimensions(connection, protocol);
+    let dimensions = connection
+        .catalog_dimensions
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     Some(CatalogFetchSource::FirstParty {
-        protocol,
+        source,
         base_url,
         user_agent,
         headers,
         cached_etag,
-        needs_dialect_signing,
         dimensions,
     })
-}
-
-/// The request dimensions a shape selects its catalog by, after applying any
-/// connection-level override.
-///
-/// A shape declares its defaults ([`CatalogShape::dimensions`]); a connection
-/// may override any of them (Qoder's `scene`: `assistant` vs `experts`). The
-/// resolved set is part of the catalog identity, so an override caches
-/// independently of the default.
-fn resolved_catalog_dimensions(
-    connection: &persistence::connections::Connection,
-    protocol: CatalogShape,
-) -> Vec<(String, String)> {
-    let mut dimensions: Vec<(String, String)> = protocol
-        .dimensions()
-        .iter()
-        .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
-        .collect();
-    for (name, value) in &connection.catalog_dimensions {
-        match dimensions.iter_mut().find(|(existing, _)| existing == name) {
-            Some(slot) => slot.1 = value.clone(),
-            None => dimensions.push((name.clone(), value.clone())),
-        }
-    }
-    dimensions
 }
 
 /// Rebuild the fitted-model overlay (`protocol::model`) from the

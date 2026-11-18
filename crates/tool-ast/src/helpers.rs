@@ -174,34 +174,6 @@ pub(crate) fn resolve_workspace_path(base: &WorkspaceBase, path: &str) -> PathBu
     }
 }
 
-/// Directories that are almost never interesting to search or list and can be
-/// enormous: VCS metadata, dependency trees, and build output. These are shared
-/// by `find_files` and `search_text` so discovery and content search prune the
-/// same set of directories and never disagree about the searchable tree.
-pub(crate) const IGNORED_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    "target",
-    "__pycache__",
-    ".next",
-    "dist",
-    "build",
-    ".venv",
-    "venv",
-    ".cache",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".tox",
-    "coverage",
-    ".gradle",
-    ".idea",
-    ".vscode",
-    "proc",
-    "sys",
-    "dev",
-    "run",
-];
-
 /// Content-addressed version identity for a source snapshot.
 ///
 /// Deterministic over the bytes actually read, so the same content always

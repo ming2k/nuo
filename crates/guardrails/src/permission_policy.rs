@@ -34,9 +34,11 @@
 //!    `Unspecified` skips both.
 //! 3. **`Reject` is collective** — one reject rejects the whole pending batch
 //!    (owned by the permission store's `reply`, keyed on a reject decision).
-//! 4. **Unattended is not authority.** Scope, bash, and broker decisions are
-//!    identical for attended and unattended sessions; an unattended session
-//!    fails closed when a grant is missing because no human can supply one.
+//! 4. **`auto-approve` bypasses interactive prompts, never hard denials.**
+//!    Hook, disabled, declarative `[permissions].deny`, and bash `Deny` rules
+//!    always enforce even when `auto-approve` (`unattended`) is enabled. Only
+//!    missing-authority prompts (bash `Confirm` and broker allow-checks) are
+//!    auto-approved in-flight without persisting rules to the project allowlist.
 //! 5. **`PermissionDenied` vs `Error`** distinguish user-aborts from hard
 //!    failures.
 //! 6. **One prompt per call.** Both the bash confirm gate and the broker emit
@@ -190,7 +192,8 @@ pub struct PolicyContext<'a> {
     pub scope_target: ScopeTarget,
     pub disabled: std::collections::HashSet<String>,
     pub scoped_disabled: ScopedToolDisable,
-    /// When true (unattended execution mode), all permissions are auto-approved.
+    /// When true (`auto-approve` mode), non-denied tool permissions and
+    /// confirmable commands are auto-approved without persisting allow rules.
     pub unattended: bool,
     /// Agent capabilities (hooks, bash policy, permission parking). Sync
     /// policies ignore this; async policies call through it.
@@ -363,18 +366,11 @@ impl PermissionPolicy for BashPolicy {
             BashVerdict::Deny { output } => PolicyDecision::Deny { output },
             BashVerdict::Confirm { match_ } => {
                 if ctx.unattended {
-                    PolicyDecision::Deny {
-                        output: ToolOutput::Error {
-                            message: format!(
-                                "Dangerous command requires confirmation, but this session is unattended: `{command}`"
-                            ),
-                            detail: Some(
-                                "No human is present to approve a one-off command. Pre-authorize the exact \
-                                 command with `[bash_policy.rules]` (or run the session attended) to permit it."
-                                    .to_string(),
-                            ),
-                        },
-                    }
+                    // In auto-approve mode, confirmable commands proceed without
+                    // prompting (and without persisting a permanent rule). Hard
+                    // deny rules (`BashVerdict::Deny` and `DenyPolicy`) remain
+                    // enforced above.
+                    PolicyDecision::Pass
                 } else {
                     // Build the one-off dangerous-command prompt.
                     PolicyDecision::MissingAuthority {
@@ -392,6 +388,7 @@ impl PermissionPolicy for BashPolicy {
                             ),
                             arguments: serde_json::to_string(ctx.arguments).unwrap_or_default(),
                             scope: command.clone(),
+                            suggested_scope: None,
                             elevation: false,
                             one_off: true,
                             origin: None,
@@ -453,7 +450,18 @@ impl PermissionPolicy for BrokerPolicy {
             return PolicyDecision::Pass;
         }
 
-        if ctx.ctx.permissions().is_allowed(&rule) {
+        let admitted = if ctx.call_name == "execute_command" {
+            ctx.ctx.permissions().is_command_admitted(&rule.scope)
+        } else {
+            ctx.ctx.permissions().is_allowed(&rule)
+        };
+        if admitted {
+            return PolicyDecision::Approve;
+        }
+
+        if ctx.unattended {
+            // Auto-approve after hard denials and explicit rules, without
+            // persisting this call into `PermissionStore`'s `always` set.
             return PolicyDecision::Approve;
         }
 
@@ -488,6 +496,12 @@ impl PermissionPolicy for BrokerPolicy {
                 None
             });
 
+        let suggested_scope = if ctx.call_name == "execute_command" {
+            crate::command_parse::suggest_permission_scope(&rule.scope)
+        } else {
+            None
+        };
+
         PolicyDecision::MissingAuthority {
             request: Box::new(tool::PermissionRequest {
                 id: String::new(), // caller fills the generated id
@@ -496,6 +510,7 @@ impl PermissionPolicy for BrokerPolicy {
                 description,
                 arguments: serde_json::to_string(ctx.arguments).unwrap_or_default(),
                 scope: rule.scope.clone(),
+                suggested_scope,
                 elevation,
                 one_off: false,
                 origin: None,

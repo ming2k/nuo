@@ -9,7 +9,7 @@ fn fresh_db_migrates_to_baseline() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(CURRENT_DB_VERSION, 2);
+    assert_eq!(CURRENT_DB_VERSION, 3);
 
     let (name, checksum): (String, String) = conn
         .query_row(
@@ -24,7 +24,7 @@ fn fresh_db_migrates_to_baseline() {
     let ledger_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(ledger_rows, 2);
+    assert_eq!(ledger_rows, 3);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn reopening_a_baseline_database_is_a_noop() {
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(ledger_rows, 2);
+    assert_eq!(ledger_rows, MIGRATIONS.len() as i64);
 }
 
 #[test]
@@ -118,7 +118,11 @@ fn concurrent_openers_apply_the_baseline_once() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(ledger_rows, 2, "the catalog must be applied exactly once");
+    assert_eq!(
+        ledger_rows,
+        MIGRATIONS.len() as i64,
+        "the catalog must be applied exactly once"
+    );
 }
 
 #[test]

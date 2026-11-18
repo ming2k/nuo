@@ -6,7 +6,7 @@ use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
 use ::provider::*;
-use protocol::surface::{CatalogShape, RemoteCatalogSource};
+use protocol::surface::RemoteCatalogSource;
 
 /// The minimal model seed for a fresh GitHub Copilot instance, before its
 /// first live catalog sync completes. A Copilot instance uses a remote-catalog
@@ -62,7 +62,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // advertised id the client registry does not know is overlaid with its
     // advertised capability metadata, mirroring the kimi-code flow.
     protocol: WireProtocol::OpenAiChatCompletions,
-    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+    catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,

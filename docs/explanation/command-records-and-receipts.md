@@ -38,7 +38,7 @@ The vocabulary therefore splits along that line:
 
 | | **Act** | **Reading** |
 | :--- | :--- | :--- |
-| Examples | `/unattended on`, `/role ops`, `/trust deny`, `/compact`, `/fork`, `/undo`, `/init`, `/jobs kill` | `/usage`, `/stats`, `/jobs`, `/jobs logs`, `/diff`, `/search`, `/skills list`, `/trust status`, `/help`, `/export`, `/tree` |
+| Examples | `/auto-approve on`, `/role ops`, `/trust deny`, `/compact`, `/fork`, `/undo`, `/init`, `/jobs kill` | `/usage`, `/stats`, `/jobs`, `/jobs logs`, `/diff`, `/search`, `/skills list`, `/trust status`, `/help`, `/export`, `/tree` |
 | What it changes | durable state the thread must remember | nothing |
 | Answer after a week | still the history | may be entirely different |
 | Remembered | yes — a record | no — a receipt |
@@ -72,7 +72,7 @@ a poor subject: it mixes decisions with measurements, so the reader has to re-de
 decisions before they can reason about what happened.
 
 "Every act that changed this session" is a subject you can rely on. If a resumed thread shows
-`/unattended on`, the posture is on (or was turned off later — and that row is there too). If it shows a
+`/auto-approve on`, the posture is on (or was turned off later — and that row is there too). If it shows a
 `/trust` grant, the workspace was trusted at that point. Nothing in the record needs re-dating, because an
 act's date is part of the act.
 

@@ -4,7 +4,7 @@ use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
-use protocol::surface::{CatalogShape, RemoteCatalogSource};
+use protocol::surface::RemoteCatalogSource;
 use provider::effort_ladders;
 use provider::spec::ModelProviderSpec;
 
@@ -151,7 +151,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // for each account and its capability metadata is trusted.
     protocol: WireProtocol::OpenAiResponses,
     models: CHATGPT_BUILTIN_MODELS,
-    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Codex),
+    catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: None,
     display_policy: provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,

@@ -34,7 +34,7 @@ DEEPSEEK_API_KEY="sk-..." cargo run -p nuo -- --headless -p "Explain the workspa
 To allow tools to execute without interactive keyboard confirmation:
 
 ```bash
-cargo run -p nuo -- --headless --unattended -p "Read Cargo.toml and print the workspace version"
+cargo run -p nuo -- --headless --auto-approve -p "Read Cargo.toml and print the workspace version"
 ```
 
 ---
@@ -103,8 +103,8 @@ cargo run -p nuo -- --headless -p "Say hello"
 # Stdin pipeline
 echo "fn add(a: i32, b: i32) -> i32 { a + b }" | cargo run -p nuo -- --headless -p "Add rustdoc"
 
-# Unattended execution (tools auto-approved)
-cargo run -p nuo -- --headless --unattended -p "Check git status of this repository"
+# Auto-approve execution (tools auto-approved)
+cargo run -p nuo -- --headless --auto-approve -p "Check git status of this repository"
 ```
 
 ### Workflow C: Server Daemon & Lifecycle Verification

@@ -9,6 +9,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod bash_policy;
+pub mod command_parse;
 pub mod guard;
 pub mod interaction;
 pub mod permission_policy;
@@ -25,7 +26,9 @@ pub use permission_policy::{
     BashVerdict, HookSideEffects, PermissionChain, PermissionContext, PermissionPolicy,
     PolicyContext, PolicyDecision, PreToolUseVerdict, default_chain,
 };
-pub use permission_store::{PermissionRule, PermissionStore};
+pub use permission_store::{
+    LoadedPermissionRules, PermissionBackend, PermissionRule, PermissionScopeKey, PermissionStore,
+};
 pub use scoped_tools::ScopedToolDisable;
 pub use stream_loop_detector::{DegeneratePattern, StreamLoopDetector};
 pub use trajectory_guard::TrajectoryLoopGuard;

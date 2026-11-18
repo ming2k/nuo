@@ -64,25 +64,11 @@ use provider::catalog::{
 
 pub use self::fetch::{fetch_remote_catalog, list_models};
 #[allow(unused_imports)]
-pub use self::parsers::{CatalogParser, parser_for, parser_for_with_dimensions};
+pub use self::parsers::{CatalogParser, parser_for};
 
 #[cfg(test)]
-pub(crate) use self::parsers::{clean_display_label, deepseek_accepted_efforts, parse_models};
+pub(crate) use self::parsers::{clean_display_label, parse_models};
 pub(crate) use self::parsers::{parse_models_with_dimensions, validate_catalog_shape};
-
-fn append_query(url: &str, params: &[(&str, &str)]) -> String {
-    let mut out = String::from(url);
-    out.push(if out.contains('?') { '&' } else { '?' });
-    for (index, (name, value)) in params.iter().enumerate() {
-        if index > 0 {
-            out.push('&');
-        }
-        out.push_str(&provider::transport::encode_component(name));
-        out.push('=');
-        out.push_str(&provider::transport::encode_component(value));
-    }
-    out
-}
 
 /// Derive the `GET /models` endpoint from an API root URL.
 ///

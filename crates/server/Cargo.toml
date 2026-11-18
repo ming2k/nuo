@@ -30,9 +30,7 @@ provider-openrouter = { workspace = true }
 provider-xai = { workspace = true }
 provider-qianwen = { workspace = true }
 provider-glm-cn = { workspace = true }
-provider-codebuddy-auth = { workspace = true }
-provider-codebuddy-cn = { workspace = true }
-provider-codebuddy-intl = { workspace = true }
+provider-codebuddy = { workspace = true }
 provider-qoder = { workspace = true }
 inventory = { workspace = true }
 engine = { workspace = true }

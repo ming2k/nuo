@@ -6,6 +6,30 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.94] - 2026-11-18
+
+### Added
+
+- **Shell-aware command permissions over role-scoped SQLite rules.** `execute_command` inputs are tokenized with quote-aware shell parsing: chains and pipelines (`&&`, `||`, `;`, `|`, newlines) are evaluated segment by segment, redirections/substitutions/subshells/execution-hijacking env overrides never match prefix rules, and a trailing-`*` rule (`cargo test *`) matches only hazard-free simple segments on a word boundary. Interactive approvals now distinguish `Always` (persists the suggested prefix, e.g. `cargo test *`) from `AlwaysExact` (persists the literal command) ([ADR-0212](docs/adr/0212-shell-aware-command-permissions-and-role-scoped-sqlite-store.md)).
+- **Role- and workspace-scoped permission persistence in `nuo.db`.** A `STRICT` `permission_rules` table (migration v3) replaces the per-project `permissions.json` file. Rules are keyed by `(role_id, scope_kind, workspace_key)`, workspace-free roles (`ops`, `philosophist`) can now persist `Always`, global rules are inherited by workspace scopes, and `last_used_ms` is updated through a debounced fire-and-forget writer command.
+- **Zero-prompt safe read-only inspection.** `execute_command` auto-admits provably read-only workspace commands (`ls`, `cat`, `rg`, `git status/diff/log/show`, `cargo metadata/tree`, version queries, …) after every hard-deny gate, with shell variables (`$VAR`, `${VAR}`, `%VAR%`), Windows drive/UNC paths, and mutation flags (`date -s`, `hostname <name>`) rejected.
+- **One discovery tool.** `find_files` now owns shallow directory listing (`max_depth=1`), tree previews (`max_depth=2`), recursive globs, exclusions, entry-kind and sort filters, and ignore visibility over one ignore-aware walker ([ADR-0213](docs/adr/0213-read-is-file-only-and-find-files-owns-directory-discovery.md)).
+- **PDF page ranges.** `read.pages` accepts `N`, `N-M`, `N-`, and `-M`; out-of-range starts are typed failures and truncated results report the next unread page.
+- **Provider-owned custom catalog discovery.** Codex/ChatGPT Plan, Copilot, DeepSeek, Qoder, and Antigravity catalogs are implemented in their provider crates behind an opaque `RemoteCatalogSource::Custom(id)`; `provider-catalog` is vendor-neutral and depends on no provider crate. The CodeBuddy auth/CN/INTL crates are merged into `provider-codebuddy`.
+
+### Changed
+
+- **`/auto-approve` is the canonical posture command** (`/unattended`, `/auto`, `/delegate`, `/autopilot`, `/yolo` remain aliases; `--auto-approve` is canonical with `--unattended` still accepted). Auto-approve bypasses interactive confirmations in-flight without persisting allow rules, while `[permissions].deny`, hook, disabled, and bash hard-deny decisions remain enforced.
+- **`read` is file-only.** A directory path returns a typed error that directs the model to `find_files(max_depth=1)`; `read` arguments now mean lines (and PDF pages) only. `ToolOutput::Listing` carries `truncated`/`hint` instead of directory paging coordinates ([ADR-0213](docs/adr/0213-read-is-file-only-and-find-files-owns-directory-discovery.md)).
+- **Persistence throughput and write granularity.** Read-only connections are pooled with their prepared-statement caches, the writer/readers use a larger page cache and `mmap`, WAL uses SQLite's recommended `synchronous=NORMAL`, and session commits distinguish `MetadataOnly`, `Delta`, and `FullRewrite` so metadata updates never rewrite transcript lineage.
+- **Protocol 31.** `PermissionDecision::AlwaysExact` and `PermissionRequest.suggested_scope` extend the permission negotiation; custom catalog sources serialize as `None` on the wire so the protocol remains vendor-neutral. The floor moves with the ceiling.
+
+### Removed
+
+- `permissions.json` and its persistence plumbing (`ProjectPaths`, `NoProjectStorage`, `Agent::set_project_root`); legacy files are not auto-imported ([ADR-0212](docs/adr/0212-shell-aware-command-permissions-and-role-scoped-sqlite-store.md)).
+- The `read` directory-listing branch and `ToolOutput::Listing`'s `offset`/`next` paging coordinates.
+- The split `provider-codebuddy-auth` / `provider-codebuddy-cn` / `provider-codebuddy-intl` crates.
+
 ## [0.0.93] - 2026-11-17
 
 ### Added

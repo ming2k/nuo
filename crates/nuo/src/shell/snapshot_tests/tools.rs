@@ -704,7 +704,7 @@ fn edit_text_distant_changes_render_explicit_hunks() {
 #[test]
 fn find_files_expanded_groups_entries_under_directory_titles() {
     let output = concat!(
-        "Found 3 matching files:\n",
+        "[3 entries]\n",
         "docs/adr/0001-x.md\n",
         "docs/adr/0002-y.md\n",
         "src/main.rs",
@@ -718,7 +718,7 @@ fn find_files_expanded_groups_entries_under_directory_titles() {
     let grid = render_grid(&m, 80, 30);
 
     assert!(
-        !grid.contains("Found 3 files") && !grid.contains("Found 3 matching files"),
+        !grid.contains("[3 entries]") && !grid.contains("3 entries"),
         "count band must not be rendered: {grid}"
     );
     assert!(grid.contains("docs/adr/"), "directory title band: {grid}");

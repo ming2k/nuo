@@ -1,12 +1,9 @@
 //! Shared path-scope and ignore semantics for file discovery and text search.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
-use ignore::overrides::{Override as OverrideMatcher, OverrideBuilder};
 use protocol::ExecutionEnvironment;
-
-use crate::helpers::IGNORED_DIRS;
 
 pub(crate) const DEFAULT_SEARCH_LIMIT: usize = 200;
 pub(crate) const MAX_SEARCH_LIMIT: usize = 1000;
@@ -56,94 +53,13 @@ pub(crate) fn search_path_argument(arguments: &serde_json::Value) -> String {
         .unwrap_or_else(|| ".".to_string())
 }
 
-/// Compile include globs into a matcher with gitignore semantics: slashless
-/// globs match basenames at any depth, a leading slash anchors to `root`,
-/// and later exclusions win. `None` matches everything.
-pub(crate) fn build_include_matcher(
-    root: &Path,
-    include: &[String],
-    exclude: &[String],
-) -> Result<Option<OverrideMatcher>, String> {
-    if include.is_empty() && exclude.is_empty() {
-        return Ok(None);
-    }
-    let mut matcher = OverrideBuilder::new(root);
-    for pattern in include {
-        validate_override_pattern(pattern)?;
-        matcher
-            .add(pattern)
-            .map_err(|error| format!("Invalid include glob '{pattern}': {error}"))?;
-    }
-    for pattern in exclude {
-        validate_override_pattern(pattern)?;
-        matcher
-            .add(&format!("!{pattern}"))
-            .map_err(|error| format!("Invalid exclude glob '{pattern}': {error}"))?;
-    }
-    matcher
-        .build()
-        .map(Some)
-        .map_err(|error| format!("Invalid file glob: {error}"))
-}
-
-/// Build a ripgrep-style walker that applies project ignore rules
-/// (`.gitignore`, `.ignore`, `IGNORED_DIRS`) as the *first* filter.
+/// Build a ripgrep-style walker using the shared [`tool_fs::walker`] engine.
 pub(crate) fn build_file_walker(
     root: &Path,
     exclude: &[String],
     max_depth: Option<usize>,
 ) -> Result<WalkBuilder, String> {
-    // Validate globs eagerly so a bad pattern fails before any traversal,
-    // keeping error behavior identical to the previous override-based path.
-    let _ = build_include_matcher(root, &[], exclude)?;
-
-    let mut builder = WalkBuilder::new(root);
-    builder
-        .standard_filters(true)
-        // Configuration commonly lives in explicit hidden paths such as
-        // `.agents`; hard exclusions below still prune metadata/build trees.
-        .hidden(false)
-        .require_git(false)
-        .follow_links(false)
-        .sort_by_file_path(|left, right| left.cmp(right))
-        .filter_entry(|entry| {
-            if entry.depth() == 0 || !entry.file_type().is_some_and(|kind| kind.is_dir()) {
-                return true;
-            }
-            entry
-                .file_name()
-                .to_str()
-                .is_none_or(|name| !IGNORED_DIRS.contains(&name))
-        });
-    if let Some(depth) = max_depth {
-        builder.max_depth(Some(depth));
-    }
-    Ok(builder)
-}
-
-fn validate_override_pattern(pattern: &str) -> Result<(), String> {
-    if pattern.is_empty() {
-        return Err("File glob must not be empty".to_string());
-    }
-    if pattern.starts_with('!') {
-        return Err(format!(
-            "File glob '{pattern}' must not start with '!'; use the exclude field"
-        ));
-    }
-
-    // A single leading slash is a supported search-root anchor, not a
-    // filesystem root. Parent components are never meaningful in a scoped
-    // file selector and tend to signal an accidental workspace escape.
-    let relative = pattern.strip_prefix('/').unwrap_or(pattern);
-    if Path::new(relative)
-        .components()
-        .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
-    {
-        return Err(format!(
-            "File glob '{pattern}' must stay relative to the search root"
-        ));
-    }
-    Ok(())
+    tool_fs::walker::build_file_walker(root, exclude, max_depth, false)
 }
 
 #[cfg(test)]
@@ -173,9 +89,17 @@ mod tests {
 
     #[test]
     fn validates_override_patterns_before_traversal() {
-        assert!(build_include_matcher(Path::new("."), &["*.rs".into()], &[]).is_ok());
-        assert!(build_include_matcher(Path::new("."), &["[broken".into()], &[]).is_err());
-        assert!(build_include_matcher(Path::new("."), &["!*.rs".into()], &[]).is_err());
-        assert!(build_include_matcher(Path::new("."), &["../*.rs".into()], &[]).is_err());
+        assert!(
+            tool_fs::walker::PathFilter::compile(Path::new("."), &["*.rs".into()], &[]).is_ok()
+        );
+        assert!(
+            tool_fs::walker::PathFilter::compile(Path::new("."), &["[broken".into()], &[]).is_err()
+        );
+        assert!(
+            tool_fs::walker::PathFilter::compile(Path::new("."), &["!*.rs".into()], &[]).is_err()
+        );
+        assert!(
+            tool_fs::walker::PathFilter::compile(Path::new("."), &["../*.rs".into()], &[]).is_err()
+        );
     }
 }

@@ -11,7 +11,7 @@ impl PersistenceCommand {
         match self {
             Self::SaveSession {
                 data,
-                full,
+                mode,
                 usage_upserts,
                 guard,
                 ack,
@@ -21,7 +21,7 @@ impl PersistenceCommand {
                         &engine.conn,
                         engine.blob_store.as_ref(),
                         &data,
-                        full,
+                        mode,
                         &usage_upserts,
                         &guard,
                     )
@@ -196,14 +196,39 @@ impl PersistenceCommand {
             // the supervisor is its only sender, so this arm is unreachable
             // by construction.
             Self::RetireEngine { .. } => {}
-            Self::SaveThreadAggregate { thread, ack } => {
+            Self::SaveThreadAggregate {
+                thread,
+                transcript_generation,
+                ack,
+            } => {
                 let res = guarded(|| {
-                    engine.conn.execute(
-                        "DELETE FROM thread_branches WHERE thread_id = ?1",
-                        rusqlite::params![thread.id.0],
-                    )?;
-                    crate::db::thread_store::persist_thread_facts(&engine.conn, &thread, false)
-                        .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))
+                    engine.conn.execute("BEGIN IMMEDIATE", [])?;
+                    let outcome = (|| -> rusqlite::Result<()> {
+                        engine
+                            .conn
+                            .prepare_cached("DELETE FROM thread_branches WHERE thread_id = ?1")?
+                            .execute(rusqlite::params![thread.id.0])?;
+                        crate::db::thread_store::persist_thread_facts(&engine.conn, &thread, false)
+                            .map_err(|error| {
+                                rusqlite::Error::InvalidParameterName(error.to_string())
+                            })?;
+                        if let Some(generation) = transcript_generation.as_deref() {
+                            engine
+                                .conn
+                                .prepare_cached(
+                                    "UPDATE threads SET transcript_generation = ?2 WHERE id = ?1",
+                                )?
+                                .execute(rusqlite::params![thread.id.0, generation])?;
+                        }
+                        Ok(())
+                    })();
+                    match outcome {
+                        Ok(()) => engine.conn.execute("COMMIT", []).map(|_| ()),
+                        Err(err) => {
+                            let _ = engine.conn.execute("ROLLBACK", []);
+                            Err(err)
+                        }
+                    }
                 });
                 let _ = ack.send(res);
             }
@@ -217,6 +242,60 @@ impl PersistenceCommand {
                     Ok(())
                 });
                 let _ = ack.send(res);
+            }
+            Self::UpsertPermissionRule {
+                target,
+                tool,
+                scope,
+                effect,
+                now_ms,
+                ack,
+            } => {
+                let res = guarded(|| {
+                    crate::db::permissions::upsert_permission_rule(
+                        &engine.conn,
+                        &target,
+                        &tool,
+                        &scope,
+                        effect,
+                        now_ms,
+                    )
+                });
+                let _ = ack.send(res);
+            }
+            Self::ClearPermissionRules {
+                target,
+                active_rules,
+                now_ms,
+                ack,
+            } => {
+                let res = guarded(|| {
+                    crate::db::permissions::clear_permission_rules(
+                        &engine.conn,
+                        &target,
+                        &active_rules,
+                        now_ms,
+                    )
+                });
+                let _ = ack.send(res);
+            }
+            Self::TouchPermissionRuleLastUsed {
+                target,
+                tool,
+                scope,
+                now_ms,
+            } => {
+                if let Err(err) = guarded(|| {
+                    crate::db::permissions::touch_permission_rule_last_used(
+                        &engine.conn,
+                        &target,
+                        &tool,
+                        &scope,
+                        now_ms,
+                    )
+                }) {
+                    warn!(%err, "failed to update permission rule last_used_ms");
+                }
             }
             Self::RecordInputHistory { entry, dedup, ack } => {
                 let res = guarded(|| {
@@ -264,7 +343,7 @@ impl PersistenceCommand {
             #[cfg(test)]
             Self::SaveSessionThenDie {
                 data,
-                full,
+                mode,
                 usage_upserts,
                 guard,
             } => {
@@ -273,7 +352,7 @@ impl PersistenceCommand {
                         &engine.conn,
                         engine.blob_store.as_ref(),
                         &data,
-                        full,
+                        mode,
                         &usage_upserts,
                         &guard,
                     )
@@ -355,7 +434,11 @@ impl PersistenceCommand {
                     let _ = ack.send(Err(error));
                 }
             }
-            Self::CreateBackup { ack, .. } | Self::Optimize { ack, .. } => {
+            Self::TouchPermissionRuleLastUsed { .. } => {}
+            Self::CreateBackup { ack, .. }
+            | Self::Optimize { ack }
+            | Self::UpsertPermissionRule { ack, .. }
+            | Self::ClearPermissionRules { ack, .. } => {
                 let _ = ack.send(Err(error));
             }
             #[cfg(test)]
@@ -368,6 +451,16 @@ impl PersistenceCommand {
     }
 }
 
+/// Shared wiring passed to [`run_supervisor`].
+pub(super) struct SupervisorContext {
+    pub(super) db_path: PathBuf,
+    pub(super) blob_store: Option<BlobStore>,
+    pub(super) health: watch::Sender<WriterHealth>,
+    pub(super) lease: Arc<host::lock::ProcessLock>,
+    pub(super) reader_ages: Arc<ReaderAges>,
+    pub(super) reader_pool: Arc<ReaderPool>,
+}
+
 /// The supervised single writer (D1).
 ///
 /// Front-door commands land here; the supervisor forwards them to the
@@ -378,13 +471,17 @@ impl PersistenceCommand {
 /// (D5) — the bounded front channel cannot back-pressure turns into a hang.
 pub(super) async fn run_supervisor(
     mut front_rx: mpsc::Receiver<PersistenceCommand>,
-    db_path: PathBuf,
-    blob_store: Option<BlobStore>,
-    health: watch::Sender<WriterHealth>,
-    lease: Arc<host::lock::ProcessLock>,
+    ctx: SupervisorContext,
     mut initial_engine: Option<DatabaseEngine>,
-    reader_ages: Arc<ReaderAges>,
 ) {
+    let SupervisorContext {
+        db_path,
+        blob_store,
+        health,
+        lease,
+        reader_ages,
+        reader_pool,
+    } = ctx;
     /// Respawn attempts before `Recovering` escalates to `Down`
     /// (~1.55 s of cumulative backoff at the base schedule below).
     const RECOVERING_ATTEMPTS: u32 = 4;
@@ -416,6 +513,7 @@ pub(super) async fn run_supervisor(
                 };
                 true
             });
+            reader_pool.invalidate();
             // Retire the live generation with the deterministic handshake:
             // the ack resolves only after the engine is closed — a clean
             // close checkpoints any live WAL (including an unlinked one)
@@ -1139,5 +1237,45 @@ mod tests {
             &mut backoff,
         );
         assert_eq!(outcome, WalCheckpointOutcome::BelowThreshold);
+    }
+
+    /// Pooled read-only connections must release their WAL snapshot on `DbReader`
+    /// drop (`ROLLBACK`) so idle pooled handles never pin the WAL or block
+    /// `PRAGMA wal_checkpoint(TRUNCATE)`.
+    #[tokio::test]
+    async fn pooled_reader_releases_wal_snapshot_on_drop_so_truncate_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nuo.db");
+        let handle = PersistenceHandle::spawn(path.clone(), None);
+        handle
+            .set_kv("pool:k".to_string(), "v1".to_string())
+            .await
+            .unwrap();
+
+        // Check out a reader, read through prepare_cached, then drop it back to the pool.
+        let val = handle.with_reader(|r| r.get_kv("pool:k")).unwrap();
+        assert_eq!(val.as_deref(), Some("v1"));
+
+        // Write more data so new WAL frames exist after the reader checked in.
+        handle
+            .set_kv("pool:k".to_string(), "v2".to_string())
+            .await
+            .unwrap();
+
+        // Checkout again: must reuse the pooled connection and see v2 in a fresh snapshot.
+        let val2 = handle.with_reader(|r| r.get_kv("pool:k")).unwrap();
+        assert_eq!(val2.as_deref(), Some("v2"));
+
+        // Now maintenance runs with active_readers == 0; the idle pooled connection
+        // must not hold any WAL read mark blocking PASSIVE/TRUNCATE.
+        let maintenance = open_maintenance_connection(&path).unwrap();
+        let reader_ages = ReaderAges::default();
+        let mut backoff = WalBackoff::new();
+        let outcome =
+            maintain_storage_pressure(&path, &maintenance, &reader_ages, 0, u64::MAX, &mut backoff);
+        assert!(
+            matches!(outcome, WalCheckpointOutcome::FullyDrained { .. }),
+            "idle pooled readers must not pin WAL; got {outcome:?}"
+        );
     }
 }

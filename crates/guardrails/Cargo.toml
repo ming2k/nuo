@@ -9,7 +9,6 @@ publish = false
 [dependencies]
 tool = { workspace = true }
 protocol = { workspace = true }
-host = { workspace = true }
 inference-wire = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

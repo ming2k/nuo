@@ -966,7 +966,7 @@ async fn fable5_always_on_thinking_ignores_off_override() {
 
 use provider_catalog::{
     CatalogShape, ModelListError, RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate,
-    fetch_remote_catalog, list_models,
+    list_models,
 };
 
 #[tokio::test]
@@ -993,7 +993,7 @@ async fn openai_list_models_sends_bearer_and_returns_sorted_unique_ids() {
 
     let key = SecretString::from("sk-live");
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::OpenAi,
+        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &root_url,
         api_key: &key,
         account_id: None,
@@ -1024,7 +1024,7 @@ async fn openai_list_models_keyless_relay_sends_no_bearer_header() {
 
     let key = SecretString::default();
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::OpenAi,
+        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
@@ -1064,7 +1064,7 @@ async fn codex_list_models_sends_subscription_headers_and_preserves_priority() {
 
     let key = SecretString::from("chatgpt-access");
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::Codex,
+        source: protocol::RemoteCatalogSource::Custom(provider_chatgpt_plan::CATALOG_SOURCE_ID),
         base_url: &format!("{}/backend-api/codex", server.url()),
         api_key: &key,
         account_id: Some("acct-test"),
@@ -1073,9 +1073,12 @@ async fn codex_list_models_sends_subscription_headers_and_preserves_priority() {
         catalog_signing: None,
         dimensions: &[],
     };
-    let update = fetch_remote_catalog(req, RemoteCatalogOptions { etag: None })
-        .await
-        .expect("Codex discovery succeeds");
+    let update = provider_chatgpt_plan::catalog::fetch_remote_catalog(
+        req,
+        RemoteCatalogOptions { etag: None },
+    )
+    .await
+    .expect("Codex discovery succeeds");
     let RemoteCatalogUpdate::Modified { models, etag } = update else {
         panic!("expected a modified catalog");
     };
@@ -1105,7 +1108,7 @@ async fn codex_list_models_supports_etag_revalidation() {
 
     let key = SecretString::from("chatgpt-access");
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::Codex,
+        source: protocol::RemoteCatalogSource::Custom(provider_chatgpt_plan::CATALOG_SOURCE_ID),
         base_url: &format!("{}/backend-api/codex", server.url()),
         api_key: &key,
         account_id: None,
@@ -1114,7 +1117,7 @@ async fn codex_list_models_supports_etag_revalidation() {
         catalog_signing: None,
         dimensions: &[],
     };
-    let update = fetch_remote_catalog(
+    let update = provider_chatgpt_plan::catalog::fetch_remote_catalog(
         req,
         RemoteCatalogOptions {
             etag: Some("\"catalog-v2\""),
@@ -1154,7 +1157,7 @@ async fn anthropic_list_models_sends_api_key_and_version_headers() {
 
     let key = SecretString::from("sk-ant");
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::Anthropic,
+        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
@@ -1195,7 +1198,7 @@ async fn google_list_models_sends_api_key_header_and_filters_non_text() {
 
     let key = SecretString::from("gem-key");
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::Google,
+        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::Google),
         base_url: &format!("{}/v1beta", server.url()),
         api_key: &key,
         account_id: None,
@@ -1222,7 +1225,7 @@ async fn list_models_returns_status_error_on_non_2xx() {
 
     let key = SecretString::from("bad");
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::OpenAi,
+        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
@@ -1255,7 +1258,7 @@ async fn list_models_accepts_authoritative_empty_data_array() {
 
     let key = SecretString::from("k");
     let req = RemoteCatalogRequest {
-        protocol: CatalogShape::OpenAi,
+        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,

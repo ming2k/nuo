@@ -22,34 +22,25 @@
 // pre-condition is the point, not a defect to handle gracefully.
 #![allow(clippy::expect_used, clippy::panic)]
 
-use protocol::CatalogShape;
 use protocol::{ConnectionAuth, CredentialSource as _};
 use provider::CatalogSigning;
 use provider::auth::OAuthCredentialSource;
 use provider::catalog_root_for_connection;
 use provider::transport::{Http, Request};
 
-use provider_catalog::models_endpoint_for;
 use provider_qoder::QoderCatalogSigning;
+use provider_qoder::catalog::{CATALOG_PATH, CATALOG_SIGNED_PATH};
 use provider_qoder::oauth::stored_qoder_request_identity;
 
 /// The catalog URL, built from the connection's elected inference host (falling
 /// back to the pinned spec root) exactly as the catalog sync layer does, so the
 /// dump exercises the same transport the server uses.
 fn catalog_url(base: &str) -> Result<String, String> {
-    let endpoint = models_endpoint_for(CatalogShape::SceneMap, base).map_err(|e| e.to_string())?;
-    let mut url = endpoint;
-    for (index, (name, value)) in CatalogShape::SceneMap.query().iter().enumerate() {
-        url.push(if index == 0 && !url.contains('?') {
-            '?'
-        } else {
-            '&'
-        });
-        url.push_str(name);
-        url.push('=');
-        url.push_str(value);
-    }
-    Ok(url)
+    let root = protocol::ApiRoot::parse(base)?;
+    Ok(provider::catalog::append_query(
+        &root.append(CATALOG_PATH),
+        &[("Encode", "1")],
+    ))
 }
 
 #[tokio::main]
@@ -90,11 +81,10 @@ async fn main() {
     println!("uid={} base={base}", identity.uid);
 
     let signing: Box<dyn CatalogSigning> = Box::new(QoderCatalogSigning::new(identity, bearer));
-    let signed_path = CatalogShape::SceneMap
-        .signed_path()
-        .expect("the scene-map shape declares a signed path");
     let url = catalog_url(&base).expect("catalog url");
-    let signed = signing.sign(signed_path).expect("catalog signature");
+    let signed = signing
+        .sign(CATALOG_SIGNED_PATH)
+        .expect("catalog signature");
 
     let mut request = Request::new(http::Method::GET, &url)
         .header("authorization", signed.authorization)

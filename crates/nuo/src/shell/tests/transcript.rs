@@ -1149,7 +1149,7 @@ mod command_reply_filing {
         );
         // An act is staged.
         assert_eq!(
-            catalog.effect_for("/unattended", Some("on")),
+            catalog.effect_for("/auto-approve", Some("on")),
             CommandEffect::Mutation,
             "a known act stages its optimistic row"
         );

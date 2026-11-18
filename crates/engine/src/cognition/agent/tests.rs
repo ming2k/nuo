@@ -13,6 +13,7 @@ fn missing_command_authority_has_runtime_only_guidance() {
         description: String::new(),
         arguments: String::new(),
         scope: command.clone(),
+        suggested_scope: None,
         elevation: false,
         one_off: false,
         origin: None,

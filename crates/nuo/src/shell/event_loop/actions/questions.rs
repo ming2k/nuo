@@ -212,14 +212,15 @@ pub(super) async fn handle_question_action(
         }
         InputAction::PermissionPrevOption => {
             if app.active_sheet() == Some(crate::shell::sheet::SheetKind::Permission) {
-                let one_off = app
+                let (one_off, has_suggested) = app
                     .human
                     .pending_permission
                     .as_ref()
-                    .is_some_and(|r| r.one_off);
+                    .map_or((false, false), |r| (r.one_off, r.suggested_scope.is_some()));
                 let total = crate::shell::overlays::permission_action_count(
                     app.human.permission_confirm_always,
                     one_off,
+                    has_suggested,
                 );
                 if total > 0 {
                     app.surfaces.modal_index = if app.surfaces.modal_index == 0 {
@@ -232,14 +233,15 @@ pub(super) async fn handle_question_action(
         }
         InputAction::PermissionNextOption => {
             if app.active_sheet() == Some(crate::shell::sheet::SheetKind::Permission) {
-                let one_off = app
+                let (one_off, has_suggested) = app
                     .human
                     .pending_permission
                     .as_ref()
-                    .is_some_and(|r| r.one_off);
+                    .map_or((false, false), |r| (r.one_off, r.suggested_scope.is_some()));
                 let total = crate::shell::overlays::permission_action_count(
                     app.human.permission_confirm_always,
                     one_off,
+                    has_suggested,
                 );
                 if total > 0 {
                     app.surfaces.modal_index = (app.surfaces.modal_index + 1) % total;

@@ -18,9 +18,12 @@ use tool::{
 };
 
 mod edit;
+mod find;
 mod read;
+pub mod walker;
 
 pub use edit::{EditTextArgs, EditTextTool};
+pub use find::{FindFilesArgs, FindFilesTool};
 pub use read::{ReadArgs, ReadTool};
 
 /// The `path` argument of a file tool's raw JSON arguments, when present and
@@ -208,7 +211,11 @@ pub(crate) fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
 /// it yields an empty string, which would emit a pathless `:LINE: content`
 /// line (unreadable for both the model and the UI), so fall back first to the
 /// workspace-relative path and finally to the bare filename.
-fn display_match_path(file_path: &Path, search_root: &Path, workspace_root: &Path) -> String {
+pub(crate) fn display_match_path(
+    file_path: &Path,
+    search_root: &Path,
+    workspace_root: &Path,
+) -> String {
     for base in [search_root, workspace_root] {
         if let Ok(rel) = file_path.strip_prefix(base)
             && !rel.as_os_str().is_empty()
@@ -397,38 +404,6 @@ impl WriteFileTool {
     }
 }
 
-/// Directories that are almost never interesting to search or list and can be
-/// enormous: VCS metadata, dependency trees, and build output.
-pub(crate) const IGNORED_DIRS: &[&str] = &[
-    ".git",
-    ".svn",
-    ".hg",
-    "node_modules",
-    "target",
-    "__pycache__",
-    ".next",
-    ".nuxt",
-    ".turbo",
-    "dist",
-    "build",
-    ".venv",
-    "venv",
-    ".cache",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".tox",
-    "coverage",
-    ".gradle",
-    ".idea",
-    ".vscode",
-    "proc",
-    "sys",
-    "dev",
-    "run",
-];
-
-pub(crate) const IGNORED_FILES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini"];
-
 /// Preview is computed synchronously on the dispatch path. Reading a huge file
 /// to build an approval diff would block the async runtime; beyond this ceiling
 /// the prompt reports that no preview is available.
@@ -444,194 +419,6 @@ pub(crate) fn preview_input_allowed(path: &Path) -> bool {
     fs::metadata(path)
         .map(|metadata| metadata.len() <= MAX_PREVIEW_INPUT_BYTES)
         .unwrap_or(true)
-}
-
-/// Build a ripgrep-style walker that respects project ignore rules (`.gitignore`,
-/// `.ignore`, global gitignore) while pruning metadata and dependency trees (`.git`,
-/// `node_modules`, `target`, etc.).
-pub(crate) fn build_workspace_walker(root: &Path) -> ignore::WalkBuilder {
-    let mut builder = ignore::WalkBuilder::new(root);
-    builder
-        .standard_filters(true)
-        .hidden(false)
-        .require_git(false)
-        .sort_by_file_path(|left, right| left.cmp(right))
-        .filter_entry(|entry| {
-            if entry.depth() == 0 {
-                return true;
-            }
-            if let Some(name) = entry.file_name().to_str() {
-                if entry.file_type().is_some_and(|kind| kind.is_dir()) {
-                    return !IGNORED_DIRS.contains(&name);
-                }
-                return !IGNORED_FILES.contains(&name);
-            }
-            true
-        });
-    builder
-}
-
-/// Typed parameters for [`FindFilesTool`].
-#[derive(Debug, Clone, Deserialize, ToolSchema)]
-pub struct FindFilesArgs {
-    #[tool(desc = "Directory to search (default '.')")]
-    pub path: Option<String>,
-    #[serde(default, alias = "name", alias = "glob", alias = "query")]
-    #[tool(desc = "Glob pattern or filename (e.g. '*.rs', 'src/**'); omit to match all files")]
-    pub pattern: Option<String>,
-    #[serde(default, alias = "globs", alias = "includes")]
-    #[tool(desc = "Multiple glob patterns to match")]
-    pub patterns: Option<Vec<String>>,
-    #[tool(desc = "Max results to return (default 200)")]
-    pub limit: Option<usize>,
-}
-
-/// Finds files recursively matching glob patterns.
-pub struct FindFilesTool {
-    ctx: Arc<SystemToolContext>,
-}
-
-impl FindFilesTool {
-    pub fn new(ctx: Arc<SystemToolContext>) -> Self {
-        Self { ctx }
-    }
-}
-
-#[async_trait]
-impl Tool for FindFilesTool {
-    fn name(&self) -> &str {
-        BuiltinTool::FindFiles.as_str()
-    }
-
-    fn aliases(&self) -> &'static [&'static str] {
-        BuiltinTool::FindFiles.aliases()
-    }
-
-    fn description(&self) -> &str {
-        "Find files recursively by glob pattern or filename, respecting ignore rules."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        FindFilesArgs::parameters_schema()
-    }
-
-    fn risk_profile(&self) -> RiskProfile {
-        RiskProfile::ReadOnly
-    }
-
-    fn scopes(&self) -> Vec<ToolScope> {
-        vec![ToolScope::ReadOnly, ToolScope::Workspace]
-    }
-
-    fn path_bound(&self) -> bool {
-        true
-    }
-
-    fn timeout(&self) -> Option<std::time::Duration> {
-        Some(std::time::Duration::from_secs(30))
-    }
-
-    fn accesses(&self, arguments: &Value) -> ToolAccesses {
-        // Recursive walk: claims the whole subtree so a concurrent write
-        // anywhere under the search root serializes against this scan.
-        match path_argument(arguments) {
-            Some(path) => ToolAccesses::search_tree(path),
-            None => ToolAccesses::search_tree("."),
-        }
-    }
-
-    async fn execute(
-        &self,
-        call_ctx: &ToolContext,
-        arguments: Value,
-    ) -> Result<ToolOutput, ToolError> {
-        let mut arguments = arguments;
-        if let Some(obj) = arguments.as_object_mut()
-            && let Some(p) = obj.get("patterns").and_then(|v| v.as_str())
-        {
-            let p_str = p.to_string();
-            obj.insert("patterns".to_string(), serde_json::json!([p_str]));
-        }
-
-        let args: FindFilesArgs = serde_json::from_value(arguments).map_err(|err| {
-            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
-        })?;
-
-        let raw_path = args.path.as_deref().unwrap_or(".");
-        let limit = args.limit.unwrap_or(200).max(1);
-
-        let search_root = self.ctx.resolve_path(raw_path);
-        if !search_root.exists() {
-            return Err(ToolError::execution(
-                self.name(),
-                format!("path does not exist: `{raw_path}`"),
-            ));
-        }
-
-        let mut raw_patterns = args.patterns.unwrap_or_default();
-        if let Some(p) = args.pattern
-            && !raw_patterns.contains(&p)
-        {
-            raw_patterns.push(p);
-        }
-
-        // The walk is synchronous and can traverse a large tree; run it on the
-        // blocking pool so it never stalls a Tokio worker shared by sessions.
-        let root = search_root.clone();
-        let workspace_root = self.ctx.workspace_root.clone();
-        let blocking_ctx = call_ctx.clone();
-        let matches = tokio::task::spawn_blocking(move || {
-            let mut compiled_globs = Vec::new();
-            for pat in &raw_patterns {
-                if pat.is_empty() || pat == "*" || pat == "**/*" || pat == "**" {
-                    continue;
-                }
-                let glob = glob::Pattern::new(pat)
-                    .map_err(|err| format!("invalid glob pattern `{pat}`: {err}"))?;
-                compiled_globs.push((pat.clone(), glob));
-            }
-
-            let mut matches = Vec::new();
-            let walker = build_workspace_walker(&root).build();
-            for (seen, entry) in walker.flatten().enumerate() {
-                if seen % 256 == 0 && blocking_ctx.is_cancelled() {
-                    return Err("tool `find_files` execution was cancelled".to_string());
-                }
-                if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                    continue;
-                }
-                let path = entry.path();
-                let relative = display_match_path(path, &root, &workspace_root);
-                let matched = if compiled_globs.is_empty() {
-                    true
-                } else {
-                    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    compiled_globs.iter().any(|(pat_str, matcher)| {
-                        matcher.matches(&relative)
-                            || (!pat_str.contains('/') && matcher.matches(file_name))
-                    })
-                };
-                if matched {
-                    matches.push(relative);
-                    if matches.len() >= limit {
-                        break;
-                    }
-                }
-            }
-            Ok::<_, String>(matches)
-        })
-        .await
-        .map_err(|error| ToolError::execution(self.name(), format!("find worker failed: {error}")))?
-        .map_err(|error| ToolError::execution(self.name(), error))?;
-
-        if matches.is_empty() {
-            Ok(ToolOutput::success(format!(
-                "No matching files found under `{raw_path}`."
-            )))
-        } else {
-            Ok(ToolOutput::success(matches.join("\n")))
-        }
-    }
 }
 
 /// Typed parameters for [`SearchTextTool`].
@@ -799,15 +586,8 @@ fn scan_text_blocking(
         .build()
         .map_err(|err| format!("invalid regex pattern: {err}"))?;
 
-    let mut includes = Vec::with_capacity(include.len());
-    for glob in include {
-        includes.push(
-            glob::Pattern::new(glob)
-                .map_err(|err| format!("invalid include glob `{glob}`: {err}"))?,
-        );
-    }
-
-    let walker = build_workspace_walker(root).build();
+    let include_filter = walker::PathFilter::compile(root, include, &[])?;
+    let walker = walker::build_file_walker(root, &[], None, false)?.build();
     let mut matches = Vec::new();
     let mut total_bytes = 0usize;
     let mut emitted_hits = 0usize;
@@ -820,17 +600,10 @@ fn scan_text_blocking(
         }
         let file_path = entry.path();
         let relative = display_match_path(file_path, root, &ctx.workspace_root);
-        if !includes.is_empty() {
-            let name = file_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default();
-            if !includes
-                .iter()
-                .any(|pattern| pattern.matches(&relative) || pattern.matches(name))
-            {
-                continue;
-            }
+        if let Some(filter) = &include_filter
+            && !filter.matches(Path::new(&relative), false)
+        {
+            continue;
         }
         if entry
             .metadata()

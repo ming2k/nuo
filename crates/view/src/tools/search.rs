@@ -67,7 +67,11 @@ impl ToolPresenter for FindFilesPresenter {
                 .iter()
                 .all(|p| p == "*" || p == "**/*" || p == "**");
 
-        let selection = if is_all_files {
+        let max_depth = view.args.get("max_depth").and_then(|v| v.as_u64());
+        let is_shallow_list = max_depth == Some(1) && is_all_files;
+        let selection = if is_shallow_list {
+            "entries".to_string()
+        } else if is_all_files {
             "all files".to_string()
         } else {
             match raw_patterns.as_slice() {
@@ -81,14 +85,15 @@ impl ToolPresenter for FindFilesPresenter {
 
         let raw_path = view.str("path").unwrap_or(".");
         let path = if raw_path.is_empty() { "." } else { raw_path };
+        let verb = if is_shallow_list { "List " } else { "Find " };
         if path == "." {
             SemanticLine::new()
-                .push_fixed("Find ")
+                .push_fixed(verb)
                 .push_flexible(selection)
                 .push_fixed(" in .")
         } else {
             SemanticLine::new()
-                .push_fixed("Find ")
+                .push_fixed(verb)
                 .push_flexible(selection)
                 .push_fixed(" in ")
                 .push_path(PathView::from_str(path).maybe_base_dir(view.workspace_root))
@@ -155,5 +160,10 @@ mod tests {
         let args = json!({"patterns": ["*.rs", "*.toml", "*.md"], "path": "."});
         let view = tool_view("find_files", &args);
         assert_eq!(presenter.summary(&view), "Find *.rs +2 in .");
+
+        // 7. Shallow directory listing (max_depth=1 without pattern)
+        let args = json!({"path": "crates", "max_depth": 1});
+        let view = tool_view("find_files", &args);
+        assert_eq!(presenter.summary(&view), "List entries in crates");
     }
 }

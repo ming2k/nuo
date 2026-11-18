@@ -460,6 +460,7 @@ async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
         description: String::new(),
         arguments: "{}".into(),
         scope: String::new(),
+        suggested_scope: None,
         elevation: false,
         one_off: false,
         origin: None,

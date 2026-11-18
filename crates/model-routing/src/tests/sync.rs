@@ -103,13 +103,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         .await;
 
     let provider_id = "test-mock-agy";
-    register_mock_provider(
-        provider_id,
-        &server.url().to_string(),
-        WireProtocol::GoogleGenerateContent,
-        &[],
-        protocol::CatalogShape::GoogleCloudCode,
-    );
+    register_mock_antigravity_provider(provider_id, &server.url().to_string());
     let mut conn = instance("agy-live", Some(provider_id));
     conn.auth = ConnectionAuth::negotiated("google-antigravity");
     let connections = Connections {

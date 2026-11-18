@@ -10,6 +10,7 @@ use provider::auth::TokenResponse;
 /// The wrapped credential payload CodeBuddy returns from state-login and
 /// refresh.
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct CodeBuddyAuthEnvelope {
     #[serde(rename = "accessToken")]
     pub access_token: SecretString,

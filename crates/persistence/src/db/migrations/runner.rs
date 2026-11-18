@@ -90,13 +90,21 @@ pub fn configure_connection(conn: &mut Connection) -> Result<()> {
     if let Err(error) = conn.pragma_update(None, "journal_mode", "WAL") {
         warn!(%error, "could not set WAL journal mode; continuing");
     }
-    conn.pragma_update(None, "synchronous", "FULL")?;
+    // WAL + synchronous=NORMAL is SQLite's recommended WAL durability/throughput
+    // balance: avoids per-commit WAL fsyncs while remaining immune to app
+    // crashes and database corruption across power loss.
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "journal_size_limit", 16777216)?; // 16MB WAL recycling
     // Checkpointing is owned by the storage-maintenance thread; SQLite's
     // automatic checkpoint runs inside the writer's commit path.
     conn.pragma_update(None, "wal_autocheckpoint", 0)?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
+    conn.pragma_update(None, "cache_size", -32768)?; // 32 MiB page cache
+    if let Err(error) = conn.pragma_update(None, "mmap_size", 268_435_456_i64) {
+        warn!(%error, "could not set mmap_size; continuing");
+    }
+    conn.set_prepared_statement_cache_capacity(64);
     Ok(())
 }
 

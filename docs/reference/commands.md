@@ -26,7 +26,7 @@ The **Recorded** column states whether an invocation is kept in the thread's his
 | `/compact` | Compact older rounds into durable context memory | act |
 | `/new` | Start a fresh thread tab (or reset in-place if current thread is empty), preserving history | act |
 | `/permissions` | Show or clear always-allowed tool rules | reading |
-| `/unattended` | Toggle unattended execution posture | act |
+| `/auto-approve` | Toggle auto-approve mode (skip interactive permission prompts) | act |
 | `/confinement` | Toggle workspace filesystem confinement (confine file tools to workspace) | act |
 | `/role` | Switch agent role (identity, capability, and workspace) | reading (bare) / act (role id) |
 | `/search` | Semantic search over session history | reading |
@@ -60,7 +60,7 @@ A verb carries its own class: it mutates or reads independently of its parent co
 | :--- | :--- | :--- | :--- |
 | `/permissions` | `clear` | Clear all always-allowed tool rules | act |
 | `/permissions` | *(anything else)* | List the current rules | reading |
-| `/unattended` | `on` / `off` | Enable / disable unattended decisions and tool auto-approval | act |
+| `/auto-approve` | `on` / `off` | Enable / disable auto-approve mode (not persisted to allowlist) | act |
 | `/confinement` | `on` / `off` | Enable / disable workspace filesystem confinement | act |
 | `/jobs` | `kill` | Terminate an active background job | act |
 | `/jobs` | `logs` | Show a background job's recent output | reading |
@@ -83,7 +83,7 @@ the canonical command, so the transcript only ever records the canonical form.
 | Alias | Canonical |
 | :--- | :--- |
 | `/resume`, `/session`, `/sessions` | `/threads` |
-| `/auto`, `/delegate`, `/autopilot`, `/yolo` | `/unattended` |
+| `/unattended`, `/auto`, `/delegate`, `/autopilot`, `/yolo` | `/auto-approve` |
 | `/unconfine`, `/unconfined`, `/jail`, `/escape` | `/confinement` |
 | `/setup` | `/init` |
 

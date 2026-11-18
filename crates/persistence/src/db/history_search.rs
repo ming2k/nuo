@@ -51,7 +51,7 @@ fn search_history_inner(
                 "SELECT {cols} FROM fts_thread_facts f JOIN thread_list_view s ON f.thread_id = s.id \
                  WHERE fts_thread_facts MATCH ?1 AND s.workspace_root = ?2 ORDER BY score ASC LIMIT ?3;"
             );
-            let mut stmt = conn.prepare(&sql)?;
+            let mut stmt = conn.prepare_cached(&sql)?;
             let rows = stmt.query_map(
                 params![clean_query, path.to_string_lossy(), limit as i64],
                 map_search_row,
@@ -65,7 +65,7 @@ fn search_history_inner(
                 "SELECT {cols} FROM fts_thread_facts f JOIN thread_list_view s ON f.thread_id = s.id \
                  WHERE fts_thread_facts MATCH ?1 AND (s.workspace_root IS NULL OR s.workspace_root = '') ORDER BY score ASC LIMIT ?2;"
             );
-            let mut stmt = conn.prepare(&sql)?;
+            let mut stmt = conn.prepare_cached(&sql)?;
             let rows = stmt.query_map(params![clean_query, limit as i64], map_search_row)?;
             for item in rows {
                 results.push(item?);
@@ -76,7 +76,7 @@ fn search_history_inner(
                 "SELECT {cols} FROM fts_thread_facts f JOIN thread_list_view s ON f.thread_id = s.id \
                  WHERE fts_thread_facts MATCH ?1 ORDER BY score ASC LIMIT ?2;"
             );
-            let mut stmt = conn.prepare(&sql)?;
+            let mut stmt = conn.prepare_cached(&sql)?;
             let rows = stmt.query_map(params![clean_query, limit as i64], map_search_row)?;
             for item in rows {
                 results.push(item?);

@@ -305,15 +305,15 @@ define_builtin_commands! {
             ("clear", "Clear all always-allowed tool rules", Mutation),
         ],
     },
-    Unattended = "/unattended" : {
-        summary: "Toggle unattended execution posture",
-        usage: ["/unattended", "/unattended on", "/unattended off"],
-        examples: [("/unattended on", "Enable unattended execution mode"), ("/unattended off", "Return to interactive confirmation mode")],
-        intent_keywords: ["unattended", "auto", "autopilot", "yolo", "delegate", "autonomous", "headless", "skip-confirm", "auto-approve", "bypass"],
+    AutoApprove = "/auto-approve" : {
+        summary: "Toggle auto-approve mode (skip interactive permission prompts)",
+        usage: ["/auto-approve", "/auto-approve on", "/auto-approve off"],
+        examples: [("/auto-approve on", "Enable auto-approve mode"), ("/auto-approve off", "Return to interactive confirmation mode")],
+        intent_keywords: ["auto-approve", "unattended", "auto", "autopilot", "yolo", "delegate", "autonomous", "headless", "skip-confirm", "bypass"],
         effect: { bare: Mutation, verb: Mutation },
         category: Automation,
         subcommands: [
-            ("on", "Enable unattended decisions and tool auto-approval", Mutation),
+            ("on", "Auto-approve tool permissions without prompting (not persisted to allowlist)", Mutation),
             ("off", "Return to interactive confirmation mode", Mutation),
         ],
     },
@@ -561,8 +561,10 @@ impl BuiltinCmd {
             // `/resume`, `/session`, and `/sessions` map to `/threads` for seamless
             // backward compatibility (ADR-0043).
             "/resume" | "/session" | "/sessions" => Some(BuiltinCmd::Threads),
-            // `/auto`, `/delegate`, `/autopilot`, `/yolo` are aliases for `/unattended`.
-            "/auto" | "/delegate" | "/autopilot" | "/yolo" => Some(BuiltinCmd::Unattended),
+            // `/unattended`, `/auto`, `/delegate`, `/autopilot`, `/yolo` are aliases for `/auto-approve`.
+            "/unattended" | "/auto" | "/delegate" | "/autopilot" | "/yolo" => {
+                Some(BuiltinCmd::AutoApprove)
+            }
             // `/unconfine`, `/unconfined`, `/jail`, `/escape` are aliases for `/confinement`.
             "/unconfine" | "/unconfined" | "/jail" | "/escape" => Some(BuiltinCmd::Confinement),
             // `/setup` was documented and completed for as long as the TUI kept
@@ -784,10 +786,11 @@ pub fn command_catalog(custom: &[(String, String)]) -> tool::CommandCatalog {
             ("/resume", "/threads"),
             ("/session", "/threads"),
             ("/sessions", "/threads"),
-            ("/auto", "/unattended"),
-            ("/delegate", "/unattended"),
-            ("/autopilot", "/unattended"),
-            ("/yolo", "/unattended"),
+            ("/unattended", "/auto-approve"),
+            ("/auto", "/auto-approve"),
+            ("/delegate", "/auto-approve"),
+            ("/autopilot", "/auto-approve"),
+            ("/yolo", "/auto-approve"),
             ("/unconfine", "/confinement"),
             ("/unconfined", "/confinement"),
             ("/jail", "/confinement"),
@@ -889,10 +892,11 @@ mod tests {
             ("/resume", "/threads"),
             ("/session", "/threads"),
             ("/sessions", "/threads"),
-            ("/auto", "/unattended"),
-            ("/delegate", "/unattended"),
-            ("/autopilot", "/unattended"),
-            ("/yolo", "/unattended"),
+            ("/unattended", "/auto-approve"),
+            ("/auto", "/auto-approve"),
+            ("/delegate", "/auto-approve"),
+            ("/autopilot", "/auto-approve"),
+            ("/yolo", "/auto-approve"),
             ("/unconfine", "/confinement"),
             ("/unconfined", "/confinement"),
             ("/jail", "/confinement"),

@@ -157,3 +157,25 @@ pub(crate) fn register_mock_provider(
     provider::sync_user_declared_providers(&persistence::model_providers::ModelProviders::load())
         .unwrap();
 }
+
+pub(crate) fn register_mock_antigravity_provider(id: &'static str, base_url: &str) {
+    let mut store = persistence::model_providers::ModelProviders::load();
+    store.set_provider(
+        id,
+        persistence::model_providers::UserDeclaredProvider {
+            label: Some(id.to_string()),
+            root_url: base_url.to_string(),
+            default_protocol: Some(WireProtocol::GoogleGenerateContent),
+            user_agent: None,
+            headers: None,
+            catalog: None,
+            dialect: Some(protocol::ProviderDialect::Antigravity),
+            protocol_roots: vec![],
+            catalog_root_url: None,
+            prompt_cache: None,
+        },
+    );
+    persistence::model_providers::ModelProviders::save(&store).unwrap();
+    provider::sync_user_declared_providers(&persistence::model_providers::ModelProviders::load())
+        .unwrap();
+}

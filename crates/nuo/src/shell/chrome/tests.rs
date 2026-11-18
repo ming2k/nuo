@@ -1124,8 +1124,8 @@ fn completion_menu_caps_width_and_stays_anchored() {
         ("/models", "Switch the active model"),
         ("/tools", "Manage session tools (enable/disable)"),
         (
-            "/unattended",
-            "Toggle unattended mode — agent runs without human intervention (on/off)",
+            "/auto-approve",
+            "Toggle auto-approve mode — skip permission prompts (on/off)",
         ),
     ]
     .iter()
@@ -1170,7 +1170,10 @@ fn completion_menu_caps_width_and_stays_anchored() {
     let row_text: String = (first..=last)
         .filter_map(|x| buf.get(x, y).map(|c| c.symbol.as_str().to_string()))
         .collect();
-    assert!(row_text.starts_with("/unattended"), "row was {row_text:?}");
+    assert!(
+        row_text.starts_with("/auto-approve"),
+        "row was {row_text:?}"
+    );
 }
 
 #[test]
@@ -1198,9 +1201,9 @@ fn completion_menu_marks_alias_rows_with_canonical_target() {
     let theme = Theme::default();
     let completions = vec![
         crate::shell::completion::Completion {
-            label: "/unattended".to_string(),
-            description: "Toggle unattended mode".to_string(),
-            insert_text: "/unattended".to_string(),
+            label: "/auto-approve".to_string(),
+            description: "Toggle auto-approve mode".to_string(),
+            insert_text: "/auto-approve".to_string(),
             replace_start: 0,
             replace_end: 2,
             kind: crate::shell::completion::CompletionItemKind::Slash,
@@ -1209,12 +1212,12 @@ fn completion_menu_marks_alias_rows_with_canonical_target() {
         },
         crate::shell::completion::Completion {
             label: "/auto".to_string(),
-            description: "Toggle unattended mode".to_string(),
-            insert_text: "/unattended".to_string(),
+            description: "Toggle auto-approve mode".to_string(),
+            insert_text: "/auto-approve".to_string(),
             replace_start: 0,
             replace_end: 2,
             kind: crate::shell::completion::CompletionItemKind::SlashAlias,
-            alias_of: Some("/unattended".to_string()),
+            alias_of: Some("/auto-approve".to_string()),
             doc: None,
         },
     ];
@@ -1244,7 +1247,7 @@ fn completion_menu_marks_alias_rows_with_canonical_target() {
     );
     let canonical_row = row_text(8);
     assert!(
-        canonical_row.trim_start().starts_with("/unattended"),
+        canonical_row.trim_start().starts_with("/auto-approve"),
         "canonical row is plain: {canonical_row:?}"
     );
     assert!(
@@ -1330,20 +1333,20 @@ fn completion_menu_hover_doc_flyout_only_appears_when_entry_is_selected() {
 fn completion_menu_hover_doc_flyout_shows_alias_to_target_header() {
     let theme = Theme::default();
     let doc = crate::shell::completion::CommandDoc {
-        name: "/unattended".to_string(),
-        summary: "Toggle unattended mode".to_string(),
-        usage: vec!["/unattended".to_string()],
+        name: "/auto-approve".to_string(),
+        summary: "Toggle auto-approve mode".to_string(),
+        usage: vec!["/auto-approve".to_string()],
         category: Some("Agent".to_string()),
         subcommands: vec![],
     };
     let completions = vec![crate::shell::completion::Completion {
         label: "/auto".to_string(),
-        description: "Toggle unattended mode".to_string(),
-        insert_text: "/unattended".to_string(),
+        description: "Toggle auto-approve mode".to_string(),
+        insert_text: "/auto-approve".to_string(),
         replace_start: 0,
         replace_end: 2,
         kind: crate::shell::completion::CompletionItemKind::SlashAlias,
-        alias_of: Some("/unattended".to_string()),
+        alias_of: Some("/auto-approve".to_string()),
         doc: Some(doc),
     }];
 
@@ -1366,12 +1369,14 @@ fn completion_menu_hover_doc_flyout_shows_alias_to_target_header() {
             .filter_map(|x| buf.get(x, y).map(|c| c.symbol.as_str().to_string()))
             .collect()
     };
-    // Check that the flyout header contains "/auto -> /unattended"
+    // Check that the flyout header contains "/auto -> /auto-approve"
     let full_text: Vec<String> = (0..12).map(row_text).collect();
-    let found_header = full_text.iter().any(|r| r.contains("/auto -> /unattended"));
+    let found_header = full_text
+        .iter()
+        .any(|r| r.contains("/auto -> /auto-approve"));
     assert!(
         found_header,
-        "flyout header should show `/auto -> /unattended`, got buffer:\n{}",
+        "flyout header should show `/auto -> /auto-approve`, got buffer:\n{}",
         full_text.join("\n")
     );
 }

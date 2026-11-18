@@ -152,8 +152,11 @@ race.
 - `[permissions].deny` is a hard rule evaluated **before** bash confirmation
   and every allow path. A trailing `*` is a prefix; there is no `?`/`[]`
   wildcard engine.
-- Unattended sessions fail closed when authority is missing: dangerous commands
-  are refused, and other calls require an explicit config grant.
+- Explicit `/auto-approve` (`--auto-approve`, with `/unattended`, `/auto`,
+  `/delegate`, `/autopilot`, `/yolo` as aliases) bypasses interactive
+  confirmations (`BashPolicy::Confirm` and `BrokerPolicy` grants) in-flight
+  without persisting rules into `PermissionStore`, while hard denials
+  (`[permissions].deny` and `BashPolicy::Deny`) remain enforced.
 
 ## Consequences
 
@@ -163,8 +166,7 @@ race.
   context; writes can detect stale reads.
 - **Negative & Incurred Costs**: `jsonschema` adds a real dependency to the
   tool leaf; `Tool` implementors must migrate to `execute` and `&Value`
-  metadata; deferred MCP tools require a `tool_search` turn before first use;
-  unattended autonomous workflows must pre-authorize their tools.
+  metadata; deferred MCP tools require a `tool_search` turn before first use.
 - **Neutral**: this is an intentional clean break. No legacy `call`, no
   compatibility shims, no dual schema spellings.
 
@@ -180,5 +182,6 @@ race.
   the UI and scripted consumers need.
 - **Order-dependent `_2` name suffixes**: unstable across reconnects; a stable
   hash of the raw identity is deterministic.
-- **Auto-approve in unattended mode**: treats the absence of a human as
-  authority; explicit config grants are the only safe unattended path.
+- **Persist auto-approved invocations into `PermissionStore`**: conflates
+  temporary session-level `/auto-approve` with permanent project allowlist
+  grants; only explicit `Always` replies persist specific rules.

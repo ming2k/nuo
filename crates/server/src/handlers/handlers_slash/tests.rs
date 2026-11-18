@@ -1,6 +1,6 @@
 use super::security_ops::{TrustRoute, parse_trust_domain, trust_route};
 use super::session_route::{
-    SessionRoute, parse_confinement_arg, parse_unattended_arg, session_route,
+    SessionRoute, parse_auto_approve_arg, parse_confinement_arg, session_route,
 };
 
 #[cfg(test)]
@@ -270,33 +270,48 @@ mod trust_route_tests {
 }
 
 #[cfg(test)]
-mod unattended_arg_tests {
-    use super::parse_unattended_arg;
+mod auto_approve_arg_tests {
+    use super::parse_auto_approve_arg;
 
     #[test]
     fn empty_arg_is_toggle() {
-        assert_eq!(parse_unattended_arg(""), Ok(None));
+        assert_eq!(parse_auto_approve_arg(""), Ok(None));
     }
 
     #[test]
     fn truthy_forms() {
-        for s in ["on", "true", "1", "unattended", "auto", "delegate", "yolo"] {
-            assert_eq!(parse_unattended_arg(s), Ok(Some(true)), "failed on {s:?}");
+        for s in [
+            "on",
+            "true",
+            "1",
+            "auto-approve",
+            "unattended",
+            "auto",
+            "delegate",
+            "yolo",
+        ] {
+            assert_eq!(parse_auto_approve_arg(s), Ok(Some(true)), "failed on {s:?}");
         }
     }
 
     #[test]
     fn falsy_forms() {
-        for s in ["off", "false", "0", "disable", "disabled", "attended"] {
-            assert_eq!(parse_unattended_arg(s), Ok(Some(false)), "failed on {s:?}");
+        for s in [
+            "off", "false", "0", "disable", "disabled", "attended", "manual",
+        ] {
+            assert_eq!(
+                parse_auto_approve_arg(s),
+                Ok(Some(false)),
+                "failed on {s:?}"
+            );
         }
     }
 
     #[test]
     fn unknown_forms_error() {
-        assert!(parse_unattended_arg("yes").is_err());
-        assert!(parse_unattended_arg("no").is_err());
-        assert!(parse_unattended_arg("random").is_err());
+        assert!(parse_auto_approve_arg("yes").is_err());
+        assert!(parse_auto_approve_arg("no").is_err());
+        assert!(parse_auto_approve_arg("random").is_err());
     }
 }
 
@@ -750,7 +765,7 @@ mod command_effect_tests {
             "/mcp",
             "/compact",
             "/new",
-            "/unattended",
+            "/auto-approve",
             "/confinement",
             "/fork",
             "/undo",
@@ -1118,6 +1133,88 @@ mod command_effect_tests {
                 "x",
                 tool::NoticeSource::Harness,
             )),
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_approve_and_all_aliases_route_and_toggle_agent_state() {
+        use super::super::commands::apply_auto_approve;
+        use crate::composition::startup::BuiltinCmd;
+
+        let dir = tempfile::tempdir().unwrap();
+        let session = store(&dir);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let agent = Arc::new(engine::Agent::new(
+            Arc::new(engine::NoProvider),
+            vec![],
+            protocol::AgentIdentity::default(),
+        ));
+        assert!(!agent.unattended());
+
+        let drain_all = |rx: &mut mpsc::UnboundedReceiver<AgentResponse>| -> Vec<RoundEvent> {
+            let mut out = Vec::new();
+            while let Ok(resp) = rx.try_recv() {
+                if let AgentResponse::Round { scope, .. } = resp {
+                    out.push(scope.into_event());
+                }
+            }
+            out
+        };
+
+        for slash in [
+            "/auto-approve",
+            "/unattended",
+            "/auto",
+            "/delegate",
+            "/autopilot",
+            "/yolo",
+        ] {
+            assert_eq!(
+                BuiltinCmd::from_slash(slash),
+                Some(BuiltinCmd::AutoApprove),
+                "{slash} must resolve to BuiltinCmd::AutoApprove"
+            );
+            let name = slash.trim_start_matches('/');
+            apply_auto_approve(&agent, &tx, &session, name, "on", &[slash, "on"]).await;
+            assert!(agent.unattended(), "{slash} on must enable auto-approve");
+
+            let events = drain_all(&mut rx);
+            assert!(
+                events.iter().any(|ev| matches!(
+                    ev,
+                    RoundEvent::CommandResult {
+                        result: CommandResult::Ack { title, .. },
+                        ..
+                    } if title == "Auto-approve mode ON"
+                )),
+                "{slash} on must emit Auto-approve mode ON ack: {events:?}"
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|ev| matches!(ev, RoundEvent::UnattendedChanged(true))),
+                "{slash} on must emit UnattendedChanged(true)"
+            );
+
+            apply_auto_approve(&agent, &tx, &session, name, "off", &[slash, "off"]).await;
+            assert!(!agent.unattended(), "{slash} off must disable auto-approve");
+            drain_all(&mut rx);
+        }
+
+        // Bare `/auto-approve` toggles cleanly.
+        apply_auto_approve(
+            &agent,
+            &tx,
+            &session,
+            "auto-approve",
+            "",
+            &["/auto-approve"],
+        )
+        .await;
+        assert!(agent.unattended());
+        assert!(
+            agent.allowed_tools().is_empty(),
+            "auto-approve toggling must not seed any persistent command allowlist rules"
         );
     }
 }

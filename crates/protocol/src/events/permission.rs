@@ -8,8 +8,12 @@ pub enum PermissionDecision {
     Once,
     /// Allow for the duration of the current session (in-memory).
     Session,
-    /// Allow permanently for this workspace (persisted).
+    /// Allow permanently using the generalized rule (e.g. `suggested_scope`
+    /// when offered, or `scope` otherwise).
     Always,
+    /// Allow permanently for the exact concrete `scope` only, ignoring any
+    /// generalized `suggested_scope`.
+    AlwaysExact,
     /// Deny / reject this execution.
     Reject,
 }

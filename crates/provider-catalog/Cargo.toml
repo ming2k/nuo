@@ -16,14 +16,6 @@ provider = { workspace = true }
 # Http transport, NUO_USER_AGENT, Request builder, netune Method.
 inference-wire = { workspace = true }
 
-# list_models.rs:330 — `crate::protocol::anthropic::request::ANTHROPIC_VERSION`.
-# NOT optional: the Anthropic catalog parser stamps this version header.
-provider-anthropic = { workspace = true }
-# list_models.rs:387 — `crate::registry::qoder::parse_scene_catalog`.
-provider-qoder = { workspace = true }
-# ADR-0068: Google Antigravity catalog parsing owned by its provider crate
-provider-google-antigravity = { workspace = true }
-
 http = { workspace = true }
 serde_json = { workspace = true }
 netune = { workspace = true }

@@ -95,35 +95,38 @@ fn insert_fact(
     conn: &Connection,
     thread_id: &ThreadId,
     fact: &ThreadFact,
-) -> Result<(), ThreadStoreError> {
+) -> Result<bool, ThreadStoreError> {
     let payload = encode(&fact.payload)?;
     let context = encode(&fact.context)?;
     let inserted = conn
-        .execute(
+        .prepare_cached(
             r#"
             INSERT OR IGNORE INTO causal_nodes (
                 id, thread_id, parent_id, seq, kind, payload_json, timestamp_ms, context_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             "#,
-            params![
-                fact.id.0,
-                thread_id.0,
-                fact.parent_id.as_ref().map(|id| id.0.as_str()),
-                fact.seq as i64,
-                kind_to_sql(fact.kind),
-                payload,
-                fact.timestamp_ms as i64,
-                context,
-            ],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![
+            fact.id.0,
+            thread_id.0,
+            fact.parent_id.as_ref().map(|id| id.0.as_str()),
+            fact.seq as i64,
+            kind_to_sql(fact.kind),
+            payload,
+            fact.timestamp_ms as i64,
+            context,
+        ])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     if inserted == 0 {
         let existing: Option<(String, String)> = conn
-            .query_row(
+            .prepare_cached(
                 "SELECT payload_json, context_json FROM causal_nodes WHERE thread_id = ?1 AND id = ?2",
-                params![thread_id.0, fact.id.0],
-                |row| Ok((row.get(0)?, row.get(1)?)),
             )
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![thread_id.0, fact.id.0], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         let Some((existing_payload, existing_context)) = existing else {
@@ -131,14 +134,14 @@ fn insert_fact(
                 "fact insert was ignored".to_string(),
             ));
         };
-        if existing_payload != encode(&fact.payload)? || existing_context != encode(&fact.context)?
-        {
+        if existing_payload != payload || existing_context != context {
             return Err(ThreadStoreError::Invalid(ThreadError::DuplicateFact(
                 fact.id.clone(),
             )));
         }
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }
 
 fn upsert_branch(
@@ -146,7 +149,7 @@ fn upsert_branch(
     thread_id: &ThreadId,
     branch: &BranchState,
 ) -> Result<(), ThreadStoreError> {
-    conn.execute(
+    conn.prepare_cached(
         r#"
         INSERT INTO thread_branches (
             thread_id, branch_id, name, head_fact_id, forked_from_fact_id,
@@ -160,18 +163,19 @@ fn upsert_branch(
             policy_json = excluded.policy_json,
             updated_at_ms = excluded.updated_at_ms
         "#,
-        params![
-            thread_id.0,
-            branch.id.0,
-            branch.name,
-            branch.head.as_ref().map(|id| id.0.as_str()),
-            branch.forked_from.as_ref().map(|id| id.0.as_str()),
-            branch.compaction_horizon.as_ref().map(|id| id.0.as_str()),
-            encode(&branch.policy)?,
-            branch.created_at_ms as i64,
-            branch.updated_at_ms as i64,
-        ],
     )
+    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+    .execute(params![
+        thread_id.0,
+        branch.id.0,
+        branch.name,
+        branch.head.as_ref().map(|id| id.0.as_str()),
+        branch.forked_from.as_ref().map(|id| id.0.as_str()),
+        branch.compaction_horizon.as_ref().map(|id| id.0.as_str()),
+        encode(&branch.policy)?,
+        branch.created_at_ms as i64,
+        branch.updated_at_ms as i64,
+    ])
     .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     Ok(())
 }
@@ -181,7 +185,7 @@ fn load_branches(
     thread_id: &ThreadId,
 ) -> Result<BTreeMap<BranchId, BranchState>, ThreadStoreError> {
     let mut stmt = conn
-        .prepare(
+        .prepare_cached(
             r#"
             SELECT branch_id, name, head_fact_id, forked_from_fact_id,
                    compaction_horizon_fact_id, policy_json, created_at_ms, updated_at_ms
@@ -228,7 +232,7 @@ fn load_facts(
     thread_id: &ThreadId,
 ) -> Result<Vec<ThreadFact>, ThreadStoreError> {
     let mut stmt = conn
-        .prepare(
+        .prepare_cached(
             r#"
             SELECT id, parent_id, seq, payload_json, timestamp_ms, context_json
               FROM causal_nodes
@@ -279,44 +283,46 @@ impl SqliteThreadStore {
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         let id = &thread.id.0;
         let exists: Option<String> = tx
-            .query_row("SELECT id FROM threads WHERE id = ?1", params![id], |row| {
-                row.get(0)
-            })
+            .prepare_cached("SELECT id FROM threads WHERE id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![id], |row| row.get(0))
             .optional()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         if exists.is_some() {
             return Err(ThreadStoreError::AlreadyExists(thread.id));
         }
-        tx.execute(
+        tx.prepare_cached(
             r#"
             INSERT INTO threads (
                 id, status, parent_thread_id, spawned_from_fact_id, active_branch_id,
                 active_leaf, round_counter, created_at_ms, updated_at_ms, revision
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
-            params![
-                id,
-                status_to_sql(thread.state.status),
-                thread.parent_thread_id.as_ref().map(|id| id.0.as_str()),
-                thread.spawned_from_fact_id.as_ref().map(|id| id.0.as_str()),
-                thread.state.active_branch.0,
-                thread
-                    .state
-                    .active_branch()
-                    .ok()
-                    .and_then(|branch| branch.head.as_ref())
-                    .map(|id| id.0.as_str()),
-                thread.state.round_counter as i64,
-                thread.created_at_ms as i64,
-                thread.updated_at_ms as i64,
-                thread.revision.0 as i64,
-            ],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![
+            id,
+            status_to_sql(thread.state.status),
+            thread.parent_thread_id.as_ref().map(|id| id.0.as_str()),
+            thread.spawned_from_fact_id.as_ref().map(|id| id.0.as_str()),
+            thread.state.active_branch.0,
+            thread
+                .state
+                .active_branch()
+                .ok()
+                .and_then(|branch| branch.head.as_ref())
+                .map(|id| id.0.as_str()),
+            thread.state.round_counter as i64,
+            thread.created_at_ms as i64,
+            thread.updated_at_ms as i64,
+            thread.revision.0 as i64,
+        ])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO thread_policies (thread_id, workspace_root, thread_policy_json, updated_at_ms) VALUES (?1, '', ?2, ?3)",
-            params![id, encode(&thread.policy)?, thread.updated_at_ms as i64],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![id, encode(&thread.policy)?, thread.updated_at_ms as i64])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         for branch in thread.state.branches.values() {
             upsert_branch(&tx, &thread.id, branch)?;
@@ -352,27 +358,27 @@ pub(crate) fn load_thread(
     id: &ThreadId,
 ) -> Result<Option<Thread>, ThreadStoreError> {
     let row: Option<ThreadRow> = conn
-        .query_row(
+        .prepare_cached(
             r#"
                 SELECT parent_thread_id, spawned_from_fact_id, status, active_branch_id,
                        active_leaf, round_counter, created_at_ms, updated_at_ms, revision
                   FROM threads WHERE id = ?1
                 "#,
-            params![id.0],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                    row.get(8)?,
-                ))
-            },
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .query_row(params![id.0], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+            ))
+        })
         .optional()
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     let Some((
@@ -412,11 +418,9 @@ pub(crate) fn load_thread(
         branches.get_mut(&first);
     }
     let policy: ThreadPolicy = conn
-        .query_row(
-            "SELECT thread_policy_json FROM thread_policies WHERE thread_id = ?1",
-            params![id.0],
-            |row| row.get::<_, String>(0),
-        )
+        .prepare_cached("SELECT thread_policy_json FROM thread_policies WHERE thread_id = ?1")
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .query_row(params![id.0], |row| row.get::<_, String>(0))
         .optional()
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
         .map(|value| decode(&value, "thread policy"))
@@ -480,11 +484,13 @@ impl SqliteThreadStore {
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
 
         let receipt: Option<String> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT ack_json FROM thread_commands WHERE thread_id = ?1 AND command_id = ?2",
-                params![thread_id.0, command.meta.command_id],
-                |row| row.get(0),
             )
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![thread_id.0, command.meta.command_id], |row| {
+                row.get(0)
+            })
             .optional()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         if let Some(receipt) = receipt {
@@ -514,15 +520,16 @@ impl SqliteThreadStore {
             outcome,
             replayed: false,
         };
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO thread_commands (thread_id, command_id, ack_json, created_at_ms) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                thread_id.0,
-                ack.command_id,
-                encode(&ack)?,
-                crate::db::unix_ms() as i64
-            ],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![
+            thread_id.0,
+            ack.command_id,
+            encode(&ack)?,
+            crate::db::unix_ms() as i64
+        ])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         tx.commit()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
@@ -540,11 +547,9 @@ impl SqliteThreadStore {
             .transaction()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         let exists: Option<String> = tx
-            .query_row(
-                "SELECT id FROM threads WHERE id = ?1",
-                params![thread.0],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT id FROM threads WHERE id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![thread.0], |row| row.get(0))
             .optional()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         if exists.is_none() {
@@ -552,11 +557,13 @@ impl SqliteThreadStore {
         }
         let now = crate::db::unix_ms();
         let current: Option<(String, i64, i64)> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT owner_id, fencing_token, expires_at_ms FROM thread_leases WHERE thread_id = ?1",
-                params![thread.0],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![thread.0], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         if let Some((current_owner, _, expires)) = &current
@@ -569,20 +576,19 @@ impl SqliteThreadStore {
             });
         }
         let token: i64 = tx
-            .query_row(
-                "SELECT last_token FROM thread_lease_counters WHERE thread_id = ?1",
-                params![thread.0],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT last_token FROM thread_lease_counters WHERE thread_id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![thread.0], |row| row.get(0))
             .optional()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
             .unwrap_or(0)
             + 1;
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO thread_lease_counters (thread_id, last_token) VALUES (?1, ?2)
              ON CONFLICT(thread_id) DO UPDATE SET last_token = excluded.last_token",
-            params![thread.0, token],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![thread.0, token])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         let lease = protocol::WriterLease {
             thread_id: thread.clone(),
@@ -590,15 +596,16 @@ impl SqliteThreadStore {
             fencing_token: token as u64,
             expires_at_ms: now.saturating_add(ttl.as_millis() as u64),
         };
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO thread_leases (thread_id, owner_id, fencing_token, expires_at_ms)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(thread_id) DO UPDATE SET
                  owner_id = excluded.owner_id,
                  fencing_token = excluded.fencing_token,
                  expires_at_ms = excluded.expires_at_ms",
-            params![thread.0, owner, token, lease.expires_at_ms as i64],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![thread.0, owner, token, lease.expires_at_ms as i64])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         tx.commit()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
@@ -611,20 +618,17 @@ impl SqliteThreadStore {
     ) -> Result<(), ThreadStoreError> {
         let conn = self.lock();
         let current: Option<i64> = conn
-            .query_row(
-                "SELECT fencing_token FROM thread_leases WHERE thread_id = ?1",
-                params![lease.thread_id.0],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT fencing_token FROM thread_leases WHERE thread_id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![lease.thread_id.0], |row| row.get(0))
             .optional()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         match current {
             Some(token) if token as u64 == lease.fencing_token => {
-                conn.execute(
-                    "DELETE FROM thread_leases WHERE thread_id = ?1",
-                    params![lease.thread_id.0],
-                )
-                .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+                conn.prepare_cached("DELETE FROM thread_leases WHERE thread_id = ?1")
+                    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+                    .execute(params![lease.thread_id.0])
+                    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
                 Ok(())
             }
             Some(_) => Err(ThreadStoreError::WriterLeaseLost),
@@ -656,25 +660,24 @@ impl SqliteThreadStore {
             .collect();
         let mut facts_removed = 0;
         for id in eligible {
-            tx.execute(
-                "DELETE FROM causal_nodes WHERE thread_id = ?1 AND id = ?2",
-                params![thread_id.0, id.0],
-            )
-            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
-            tx.execute(
-                "DELETE FROM thread_blob_refs WHERE thread_id = ?1 AND fact_id = ?2",
-                params![thread_id.0, id.0],
-            )
-            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+            tx.prepare_cached("DELETE FROM causal_nodes WHERE thread_id = ?1 AND id = ?2")
+                .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+                .execute(params![thread_id.0, id.0])
+                .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+            tx.prepare_cached("DELETE FROM thread_blob_refs WHERE thread_id = ?1 AND fact_id = ?2")
+                .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+                .execute(params![thread_id.0, id.0])
+                .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
             facts_removed += 1;
         }
         // Blob liveness is global: a hash shared by another thread must not
         // be swept because this thread stopped referencing it.
         let blobs_removed = tx
-            .execute(
+            .prepare_cached(
                 "DELETE FROM thread_blobs WHERE hash NOT IN (SELECT hash FROM thread_blob_refs)",
-                [],
             )
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute([])
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         tx.commit()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
@@ -691,11 +694,11 @@ fn append_in_tx(
     expected_revision: ThreadRevision,
 ) -> Result<Ack, ThreadStoreError> {
     let current: Option<(i64, i64)> = tx
-        .query_row(
+        .prepare_cached(
             "SELECT revision, COALESCE((SELECT MAX(seq) FROM causal_nodes WHERE thread_id = ?1), 0) FROM threads WHERE id = ?1",
-            params![delta.thread_id.0],
-            |row| Ok((row.get(0)?, row.get(1)?)),
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .query_row(params![delta.thread_id.0], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional()
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     let Some((current_revision, current_seq)) = current else {
@@ -707,12 +710,14 @@ fn append_in_tx(
     if delta.revision <= ThreadRevision(current_revision as u64) {
         for fact in &delta.new_facts {
             let durable: Option<(String, String, i64)> = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT payload_json, COALESCE(context_json, '{}'), seq FROM causal_nodes
                       WHERE thread_id = ?1 AND id = ?2",
-                    params![delta.thread_id.0, fact.id.0],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
+                .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+                .query_row(params![delta.thread_id.0, fact.id.0], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
                 .optional()
                 .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
             let Some((payload, context, seq)) = durable else {
@@ -755,7 +760,7 @@ fn append_in_tx(
         .find(|branch| branch.id == active_branch)
         .and_then(|branch| branch.head.as_ref())
         .map(|id| id.0.clone());
-    tx.execute(
+    tx.prepare_cached(
         r#"
         UPDATE threads
            SET active_branch_id = ?2,
@@ -766,58 +771,60 @@ fn append_in_tx(
                updated_at_ms = ?7
          WHERE id = ?1
         "#,
-        params![
-            delta.thread_id.0,
-            active_branch.0,
-            active_head,
-            delta.state_update.status.map(status_to_sql),
-            delta.state_update.round_counter.map(|value| value as i64),
-            delta.revision.0 as i64,
-            delta.updated_at_ms as i64,
-        ],
     )
+    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+    .execute(params![
+        delta.thread_id.0,
+        active_branch.0,
+        active_head,
+        delta.state_update.status.map(status_to_sql),
+        delta.state_update.round_counter.map(|value| value as i64),
+        delta.revision.0 as i64,
+        delta.updated_at_ms as i64,
+    ])
     .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     for branch in &delta.state_update.branches {
         upsert_branch(tx, &delta.thread_id, branch)?;
     }
     for branch in &delta.state_update.removed_branches {
-        tx.execute(
-            "DELETE FROM thread_branches WHERE thread_id = ?1 AND branch_id = ?2",
-            params![delta.thread_id.0, branch.0],
-        )
-        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+        tx.prepare_cached("DELETE FROM thread_branches WHERE thread_id = ?1 AND branch_id = ?2")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![delta.thread_id.0, branch.0])
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     }
     for fact in &delta.new_facts {
         insert_fact(tx, &delta.thread_id, fact)?;
         if let Some(reference) = fact.payload.blob_ref() {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO thread_blob_refs (thread_id, fact_id, hash, size, mime, preview, trust)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(thread_id, fact_id) DO UPDATE SET
                      hash = excluded.hash, size = excluded.size, mime = excluded.mime,
                      preview = excluded.preview, trust = excluded.trust",
-                params![
-                    delta.thread_id.0,
-                    fact.id.0,
-                    reference.hash,
-                    reference.size as i64,
-                    reference.mime,
-                    reference.preview,
-                    trust_to_sql(reference.trust),
-                ],
             )
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![
+                delta.thread_id.0,
+                fact.id.0,
+                reference.hash,
+                reference.size as i64,
+                reference.mime,
+                reference.preview,
+                trust_to_sql(reference.trust),
+            ])
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         }
     }
     if let Some(policy) = &delta.policy_update {
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE thread_policies SET thread_policy_json = ?2, updated_at_ms = ?3 WHERE thread_id = ?1",
-            params![
-                delta.thread_id.0,
-                encode(policy)?,
-                delta.updated_at_ms as i64
-            ],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![
+            delta.thread_id.0,
+            encode(policy)?,
+            delta.updated_at_ms as i64
+        ])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     }
     Ok(Ack {
@@ -845,11 +852,11 @@ fn trust_to_sql(trust: Trust) -> &'static str {
 
 fn check_lease(conn: &Connection, thread: &ThreadId, token: u64) -> Result<(), ThreadStoreError> {
     let lease: Option<(i64, i64)> = conn
-        .query_row(
+        .prepare_cached(
             "SELECT fencing_token, expires_at_ms FROM thread_leases WHERE thread_id = ?1",
-            params![thread.0],
-            |row| Ok((row.get(0)?, row.get(1)?)),
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .query_row(params![thread.0], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional()
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     match lease {
@@ -894,39 +901,40 @@ impl protocol::BlobStore for SqliteBlobStore {
             trust,
         };
         let conn = self.conn.lock().unwrap_or_else(|error| error.into_inner());
-        conn.execute(
+        conn.prepare_cached(
             "INSERT INTO thread_blobs (hash, size, mime, data, preview, trust, created_at_ms)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(hash) DO NOTHING",
-            params![
-                reference.hash,
-                reference.size as i64,
-                reference.mime,
-                bytes,
-                reference.preview,
-                trust_to_sql(reference.trust),
-                crate::db::unix_ms() as i64,
-            ],
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![
+            reference.hash,
+            reference.size as i64,
+            reference.mime,
+            bytes,
+            reference.preview,
+            trust_to_sql(reference.trust),
+            crate::db::unix_ms() as i64,
+        ])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         Ok(reference)
     }
 
     async fn get(&self, hash: &str) -> Result<Option<Vec<u8>>, ThreadStoreError> {
         let conn = self.conn.lock().unwrap_or_else(|error| error.into_inner());
-        conn.query_row(
-            "SELECT data FROM thread_blobs WHERE hash = ?1",
-            params![hash],
-            |row| row.get::<_, Vec<u8>>(0),
-        )
-        .optional()
-        .map_err(|error| ThreadStoreError::Backend(error.to_string()))
+        conn.prepare_cached("SELECT data FROM thread_blobs WHERE hash = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .query_row(params![hash], |row| row.get::<_, Vec<u8>>(0))
+            .optional()
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))
     }
 
     async fn delete(&self, hash: &str) -> Result<bool, ThreadStoreError> {
         let conn = self.conn.lock().unwrap_or_else(|error| error.into_inner());
         let removed = conn
-            .execute("DELETE FROM thread_blobs WHERE hash = ?1", params![hash])
+            .prepare_cached("DELETE FROM thread_blobs WHERE hash = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![hash])
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         Ok(removed > 0)
     }
@@ -940,7 +948,7 @@ impl protocol::BlobStore for SqliteBlobStore {
             .transaction()
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         let mut stmt = tx
-            .prepare("SELECT hash FROM thread_blobs")
+            .prepare_cached("SELECT hash FROM thread_blobs")
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
         let existing: Vec<String> = stmt
             .query_map([], |row| row.get(0))
@@ -949,11 +957,16 @@ impl protocol::BlobStore for SqliteBlobStore {
             .collect();
         drop(stmt);
         let mut removed = 0;
-        for hash in existing {
-            if !hashes.contains(&hash) {
-                removed += tx
-                    .execute("DELETE FROM thread_blobs WHERE hash = ?1", params![hash])
-                    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+        {
+            let mut del_stmt = tx
+                .prepare_cached("DELETE FROM thread_blobs WHERE hash = ?1")
+                .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+            for hash in existing {
+                if !hashes.contains(&hash) {
+                    removed += del_stmt
+                        .execute(params![hash])
+                        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+                }
             }
         }
         tx.commit()
@@ -1054,35 +1067,72 @@ impl SqliteThreadStore {
 #[cfg(test)]
 mod tests;
 
+/// Index one fact into `fts_thread_facts` when it carries searchable text.
+fn insert_fts_fact(
+    conn: &Connection,
+    thread_id: &str,
+    fact: &ThreadFact,
+) -> Result<(), ThreadStoreError> {
+    let (role, content) = match &fact.payload {
+        FactPayload::Message { message } => (role_to_sql(message.role), message.content.clone()),
+        FactPayload::Observation {
+            call_id,
+            tool_name,
+            lifecycle,
+            ..
+        } => (
+            "tool",
+            lifecycle.lower_to_message(call_id, tool_name).content,
+        ),
+        FactPayload::Compaction { summary, .. } => ("system", summary.clone()),
+        FactPayload::Termination { .. } | FactPayload::SystemNotice { .. } => return Ok(()),
+    };
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+    conn.prepare_cached(
+        "INSERT INTO fts_thread_facts (fact_id, thread_id, role, content) VALUES (?1, ?2, ?3, ?4)",
+    )
+    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+    .execute(params![fact.id.0, thread_id, role, content])
+    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+    Ok(())
+}
+
 /// Write a thread's facts, branches, blob references, and the derived FTS
 /// index in the current transaction.
 ///
-/// `replace` drops the previous graph first (a full transcript rewrite). A
-/// delta write inserts only missing facts; the branch cursors are always
-/// upserted. FTS is a derived index over the same facts and is rebuilt for the
-/// thread either way.
+/// `replace` drops the previous graph and FTS rows first (a full transcript
+/// rewrite). A delta write (`replace == false`) inserts only missing facts
+/// without deleting prior turns' FTS entries: only newly inserted facts are
+/// appended to `fts_thread_facts`, and the branch cursors are updated only when
+/// present.
 pub(crate) fn persist_thread_facts(
     conn: &Connection,
     thread: &Thread,
     replace: bool,
 ) -> Result<(), ThreadStoreError> {
     if replace {
-        conn.execute(
-            "DELETE FROM causal_nodes WHERE thread_id = ?1",
-            params![thread.id.0],
-        )
-        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
-        conn.execute(
-            "DELETE FROM thread_branches WHERE thread_id = ?1",
-            params![thread.id.0],
-        )
-        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
-        conn.execute(
-            "DELETE FROM thread_blob_refs WHERE thread_id = ?1",
-            params![thread.id.0],
-        )
-        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+        conn.prepare_cached("DELETE FROM causal_nodes WHERE thread_id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![thread.id.0])
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+        conn.prepare_cached("DELETE FROM thread_branches WHERE thread_id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![thread.id.0])
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+        conn.prepare_cached("DELETE FROM thread_blob_refs WHERE thread_id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![thread.id.0])
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+        conn.prepare_cached("DELETE FROM fts_thread_facts WHERE thread_id = ?1")
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![thread.id.0])
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+    } else if thread.graph.is_empty() && thread.state.branches.is_empty() {
+        return Ok(());
     }
+
     // A delta save carries only the appended slice, so its first fact has no
     // in-memory parent. Read the durable branch head *before* upserting the
     // incoming cursors (which already name the new tail); a full rewrite
@@ -1090,11 +1140,13 @@ pub(crate) fn persist_thread_facts(
     let mut link_parent: Option<String> = if replace {
         None
     } else {
-        conn.query_row(
+        conn.prepare_cached(
             "SELECT head_fact_id FROM thread_branches WHERE thread_id = ?1 AND branch_id = ?2",
-            params![thread.id.0, thread.state.active_branch.0],
-            |row| row.get::<_, Option<String>>(0),
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .query_row(params![thread.id.0, thread.state.active_branch.0], |row| {
+            row.get::<_, Option<String>>(0)
+        })
         .optional()
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
         .flatten()
@@ -1108,25 +1160,29 @@ pub(crate) fn persist_thread_facts(
             fact.parent_id = link_parent.as_ref().map(|id| FactId::from_raw(id.clone()));
         }
         link_parent = Some(fact.id.0.clone());
-        insert_fact(conn, &thread.id, &fact)?;
+        let newly_inserted = insert_fact(conn, &thread.id, &fact)?;
         if let Some(reference) = fact.payload.blob_ref() {
-            conn.execute(
+            conn.prepare_cached(
                 "INSERT INTO thread_blob_refs (thread_id, fact_id, hash, size, mime, preview, trust)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(thread_id, fact_id) DO UPDATE SET
                      hash = excluded.hash, size = excluded.size, mime = excluded.mime,
                      preview = excluded.preview, trust = excluded.trust",
-                params![
-                    thread.id.0,
-                    fact.id.0,
-                    reference.hash,
-                    reference.size as i64,
-                    reference.mime,
-                    reference.preview,
-                    trust_to_sql(reference.trust),
-                ],
             )
+            .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+            .execute(params![
+                thread.id.0,
+                fact.id.0,
+                reference.hash,
+                reference.size as i64,
+                reference.mime,
+                reference.preview,
+                trust_to_sql(reference.trust),
+            ])
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+        }
+        if replace || newly_inserted {
+            insert_fts_fact(conn, &thread.id.0, &fact)?;
         }
     }
     let head = thread
@@ -1135,48 +1191,18 @@ pub(crate) fn persist_thread_facts(
         .ok()
         .and_then(|branch| branch.head.as_ref())
         .map(|id| id.0.clone());
-    conn.execute(
-        "UPDATE threads SET active_leaf = ?2, active_branch_id = ?3 WHERE id = ?1",
-        params![thread.id.0, head, thread.state.active_branch.0],
-    )
-    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
-    conn.execute(
-        "UPDATE thread_policies SET thread_policy_json = ?2 WHERE thread_id = ?1",
-        params![thread.id.0, encode(&thread.policy)?],
-    )
-    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
-
-    // Derived FTS: rebuild this thread's rows from the facts just written.
-    conn.execute(
-        "DELETE FROM fts_thread_facts WHERE thread_id = ?1",
-        params![thread.id.0],
-    )
-    .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
-    for fact in thread.all_facts() {
-        let (role, content) = match &fact.payload {
-            FactPayload::Message { message } => {
-                (role_to_sql(message.role), message.content.clone())
-            }
-            FactPayload::Observation {
-                call_id,
-                tool_name,
-                lifecycle,
-                ..
-            } => (
-                "tool",
-                lifecycle.lower_to_message(call_id, tool_name).content,
-            ),
-            FactPayload::Compaction { summary, .. } => ("system", summary.clone()),
-            FactPayload::Termination { .. } | FactPayload::SystemNotice { .. } => continue,
-        };
-        if content.trim().is_empty() {
-            continue;
-        }
-        conn.execute(
-            "INSERT INTO fts_thread_facts (fact_id, thread_id, role, content) VALUES (?1, ?2, ?3, ?4)",
-            params![fact.id.0, thread.id.0, role, content],
+    if replace || head.is_some() || !thread.state.branches.is_empty() {
+        conn.prepare_cached(
+            "UPDATE threads SET active_leaf = ?2, active_branch_id = ?3 WHERE id = ?1",
         )
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![thread.id.0, head, thread.state.active_branch.0])
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
     }
+    conn.prepare_cached("UPDATE thread_policies SET thread_policy_json = ?2 WHERE thread_id = ?1")
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
+        .execute(params![thread.id.0, encode(&thread.policy)?])
+        .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
+
     Ok(())
 }

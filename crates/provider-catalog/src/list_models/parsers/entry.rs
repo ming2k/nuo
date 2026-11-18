@@ -7,22 +7,15 @@ use serde_json::Value;
 
 use super::super::{DiscoveredModel, ModelListError};
 use super::clean_display_label;
-use super::copilot::copilot_model_from_capabilities;
-use super::effort::deepseek_accepted_efforts;
-use super::parser_for_with_dimensions;
+use super::parser_for;
 
-/// Parse a catalog response, passing the request dimensions a shape may need
-/// to select its sub-catalog (Qoder's `scene`).
+/// Parse a standard catalog response.
 pub(crate) fn parse_models_with_dimensions(
     protocol: CatalogShape,
     json: &Value,
-    dimensions: &[(&str, &str)],
+    _dimensions: &[(&str, &str)],
 ) -> Vec<DiscoveredModel> {
-    let owned: Vec<(&str, String)> = dimensions
-        .iter()
-        .map(|(name, value)| (*name, (*value).to_string()))
-        .collect();
-    parser_for_with_dimensions(protocol, &owned).parse_json(json)
+    parser_for(protocol).parse_json(json)
 }
 
 pub(crate) fn validate_catalog_shape(
@@ -33,15 +26,7 @@ pub(crate) fn validate_catalog_shape(
         CatalogShape::OpenAi | CatalogShape::Anthropic => {
             json.get("data").is_some_and(Value::is_array)
         }
-        CatalogShape::Google | CatalogShape::GoogleCloudCode => json
-            .get("models")
-            .is_some_and(|models| models.is_array() || models.is_object()),
-        CatalogShape::Codex => json.get("models").is_some_and(Value::is_array),
-        // A scene map is an object whose values are arrays. An empty object is
-        // structurally valid (an account may have no models in any scene).
-        CatalogShape::SceneMap => json
-            .as_object()
-            .is_some_and(|scenes| scenes.values().all(Value::is_array)),
+        CatalogShape::Google => json.get("models").is_some_and(Value::is_array),
     };
     valid.then_some(()).ok_or_else(|| {
         ModelListError::Parse(
@@ -49,11 +34,7 @@ pub(crate) fn validate_catalog_shape(
                 CatalogShape::OpenAi | CatalogShape::Anthropic => {
                     "response is missing the required data array"
                 }
-                CatalogShape::Google | CatalogShape::Codex => {
-                    "response is missing the required models collection"
-                }
-                CatalogShape::GoogleCloudCode => "response is missing the required models map",
-                CatalogShape::SceneMap => "response is not a scene-keyed map of model arrays",
+                CatalogShape::Google => "response is missing the required models collection",
             }
             .to_string(),
         )
@@ -79,17 +60,10 @@ pub(crate) fn parse_data_models(json: &Value) -> Vec<DiscoveredModel> {
 /// surfaced with empty capabilities.
 pub(crate) fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
     let id = entry.get("id").and_then(Value::as_str)?.to_string();
-    // Some OpenAI-compatible gateways (OpenDesign Cloud) publish limits and
-    // modalities under a nested `metadata` object instead of the flat
-    // OpenRouter/OpenAI fields. Read both shapes; absence still means "the
-    // endpoint did not say".
+    // Some OpenAI-compatible gateways publish limits and modalities under a
+    // nested `metadata` object instead of flat fields. Read both shapes;
+    // absence still means "the endpoint did not say".
     let metadata = entry.get("metadata");
-    if let Some(capabilities) = entry.get("capabilities") {
-        return copilot_model_from_capabilities(id, entry, capabilities);
-    }
-    // OpenRouter's catalog also contains image generators and embedding
-    // models. This route is Chat Completions, so only surface entries that
-    // can return text when the catalog advertises output modalities.
     if let Some(output_modalities) = entry
         .get("architecture")
         .and_then(|architecture| architecture.get("output_modalities"))
@@ -100,18 +74,14 @@ pub(crate) fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredMod
     {
         return None;
     }
-    // Thinking-type precedence mirrors the kimi-code client: the newer
-    // three-state field wins over the legacy boolean when present.
     let openrouter_reasoning = entry.get("reasoning").filter(|value| value.is_object());
-    let deepseek_effort = entry.get("effort").filter(|value| value.is_object());
     let reasoning = match entry.get("supports_thinking_type").and_then(Value::as_str) {
         Some("only") | Some("both") => Some(true),
         Some("no") => Some(false),
         _ => entry
             .get("supports_reasoning")
             .and_then(Value::as_bool)
-            .or_else(|| openrouter_reasoning.map(|_| true))
-            .or_else(|| deepseek_effort.map(|_| true)),
+            .or_else(|| openrouter_reasoning.map(|_| true)),
     };
     let string_list = |value: Option<&Value>| -> Option<Vec<String>> {
         value.and_then(Value::as_array).map(|levels| {
@@ -127,14 +97,7 @@ pub(crate) fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredMod
             .get("think_efforts")
             .and_then(|efforts| efforts.get("valid_efforts"))
             .or_else(|| openrouter_reasoning.and_then(|value| value.get("supported_efforts"))),
-    )
-    .or_else(|| {
-        // DeepSeek advertises a *narrower* set than its parameter accepts (see
-        // [`deepseek_accepted_efforts`]); expand it so the clamp range is the
-        // accepted set, not the advertised subset.
-        string_list(deepseek_effort.and_then(|value| value.get("supported_levels")))
-            .map(|levels| deepseek_accepted_efforts(&levels))
-    });
+    );
     let protocol = entry
         .get("supported_endpoints")
         .and_then(Value::as_array)
@@ -199,9 +162,7 @@ pub(crate) fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredMod
             .and_then(Value::as_u64)
             .and_then(|length| u32::try_from(length).ok()),
         reasoning,
-        thinking: openrouter_reasoning
-            .or(deepseek_effort)
-            .map(|_| ReasoningSupport::ReasoningContent),
+        thinking: openrouter_reasoning.map(|_| ReasoningSupport::ReasoningContent),
         tool_call: entry
             .get("supported_parameters")
             .and_then(Value::as_array)

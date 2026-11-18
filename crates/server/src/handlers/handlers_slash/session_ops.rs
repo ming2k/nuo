@@ -163,7 +163,10 @@ pub(crate) async fn switch_or_start_session_with_role(
         agent.clear_todos();
 
         if let Some(switched) = agent.apply_role(role_id) {
-            agent.set_project_root(target_workspace.as_ref().map(|w| w.root.clone()));
+            agent.set_permission_scope(
+                switched.id.as_str(),
+                target_workspace.as_ref().map(|w| w.root.clone()),
+            );
             if let Some(ws) = &target_workspace {
                 let sec_snapshot = workspace_security.snapshot(&ws.root);
                 agent.set_workspace_security(sec_snapshot);
@@ -305,7 +308,10 @@ pub(crate) async fn start_fresh_session_with_role(
             return;
         }
     };
-    agent.set_project_root(target_workspace.as_ref().map(|w| w.root.clone()));
+    agent.set_permission_scope(
+        switched.id.as_str(),
+        target_workspace.as_ref().map(|w| w.root.clone()),
+    );
     if let Some(ws) = &target_workspace {
         let sec_snapshot = workspace_security.snapshot(&ws.root);
         agent.set_workspace_security(sec_snapshot);
@@ -425,7 +431,10 @@ pub(crate) async fn restore_session_runtime(
     } else if let Some(role_id) = session.role() {
         let _ = agent.apply_role(&role_id);
     }
-    agent.set_project_root(session.workspace_root());
+    let permission_role = agent
+        .active_role()
+        .unwrap_or_else(|| "developer".to_string());
+    agent.set_permission_scope(permission_role, session.workspace_root());
 
     let todos = session.todos().await;
     agent.set_todos(todos.clone());
@@ -445,7 +454,8 @@ pub(crate) async fn restore_session_runtime(
             .iter()
             .rev()
             .find_map(|rec| {
-                if (rec.name == "unattended"
+                if (rec.name == "auto-approve"
+                    || rec.name == "unattended"
                     || rec.name == "auto"
                     || rec.name == "delegate"
                     || rec.name == "autopilot"
@@ -475,12 +485,12 @@ pub(crate) async fn restore_session_runtime(
             let notice = AgentNotice::new(
                 tool::NoticeKind::CommandAck,
                 tool::NoticeSeverity::Warning,
-                "Unattended mode restored",
+                "Auto-approve mode restored",
                 tool::NoticeSource::Harness,
             )
             .with_body(
-                "This session was previously running in unattended execution mode. \
-                 Use `/unattended off` to return to interactive mode.",
+                "This session was previously running in auto-approve mode. \
+                 Use `/auto-approve off` to return to interactive mode.",
             );
             let _ = resp_tx.send(round_response(
                 &session.id().await,

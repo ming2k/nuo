@@ -4,8 +4,8 @@
 //! Model baseline = the **external-line** universe served by the vendor's
 //! international gateway (`product.json` external environment of the npm
 //! `@tencent-ai/codebuddy-code` CLI). The domestic line's Hunyuan/GLM/MiniMax
-//! catalog is a *different universe* and lives in `provider-codebuddy-cn`
-//! — the two baselines never share a const ([ADR-0097],
+//! catalog is a *different universe* and lives in the `cn` module of this
+//! crate — the two baselines never share a const ([ADR-0097],
 //! `[INV-PROV-CHANNEL-01]`).
 //!
 //! The upstream catalog is server-published (`/v3/config`, `product.json
@@ -78,10 +78,8 @@ pub const INTL_MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("codebuddy-intl"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://www.codebuddy.ai/v2"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        provider_codebuddy_auth::CODEBUDDY_USER_AGENT,
-    )),
-    default_headers: std::borrow::Cow::Borrowed(provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS),
+    user_agent: Some(std::borrow::Cow::Borrowed(crate::CODEBUDDY_USER_AGENT)),
+    default_headers: std::borrow::Cow::Borrowed(crate::CODEBUDDY_CLIENT_HEADERS),
     protocol: WireProtocol::OpenAiChatCompletions,
     catalog_source: RemoteCatalogSource::None,
     quota: None,
@@ -111,11 +109,11 @@ mod tests {
         );
         assert_eq!(
             INTL_MODEL_PROVIDER_SPEC.user_agent.as_deref(),
-            Some(provider_codebuddy_auth::CODEBUDDY_USER_AGENT)
+            Some(crate::CODEBUDDY_USER_AGENT)
         );
         assert_eq!(
             INTL_MODEL_PROVIDER_SPEC.default_headers.as_ref(),
-            provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS
+            crate::CODEBUDDY_CLIENT_HEADERS
         );
     }
 

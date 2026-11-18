@@ -1,25 +1,16 @@
 //! The application plane's kernel host: the product's implementations of the
 //! ports the runtime (`nuo-harness`) needs but must not resolve itself.
 //!
-//! Two ports, both about durable material the kernel reads or writes without
-//! owning:
-//!
 //! - [`ProductRoles`] resolves a role *declaration* from `roles.toml` plus the
 //!   workspace's `.nuo/roles.toml` override, which is the product's file layout
 //!   and merge policy.
-//! - [`ProductProjectPaths`] says where a project's permission file lives, which
-//!   is the product's path topology (ADR-0013).
 //!
-//! Both are thin: they exist to keep the kernel's vocabulary free of the words
-//! `roles.toml`, `permissions.json`, and `.nuo`, not to add behaviour.
-use std::path::{Path, PathBuf};
+//! This adapter keeps the kernel's vocabulary free of `roles.toml` and `.nuo`,
+//! without adding behaviour.
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use engine::{
-    CatalogMaintenance, KernelHost, ProjectPaths, RecalledMemory, RoleCatalog, RoleMemory,
-    TitleSink,
-};
-use host::paths;
+use engine::{CatalogMaintenance, KernelHost, RecalledMemory, RoleCatalog, RoleMemory, TitleSink};
 use persistence::roles::RolesConfig;
 use persistence::thread::ThreadSession;
 use protocol::CustomRole;
@@ -45,15 +36,6 @@ impl RoleCatalog for ProductRoles {
         RolesConfig::load_for_workspace(self.workspace.as_deref())
             .get(role)
             .cloned()
-    }
-}
-
-/// The product's per-project file layout.
-pub struct ProductProjectPaths;
-
-impl ProjectPaths for ProductProjectPaths {
-    fn permissions_file(&self, project_root: &Path) -> PathBuf {
-        paths::get().project_permissions(project_root)
     }
 }
 
@@ -206,10 +188,7 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
 /// One call site, so an agent cannot be assembled with the null host by
 /// accident: the workspace is the only variable.
 pub fn kernel_host(workspace: Option<PathBuf>) -> KernelHost {
-    KernelHost::new(
-        Arc::new(ProductRoles::new(workspace)),
-        Arc::new(ProductProjectPaths),
-    )
-    .with_memory(Arc::new(ProductRoleMemory::default()))
-    .with_catalog(Arc::new(ProductCatalogMaintenance))
+    KernelHost::new(Arc::new(ProductRoles::new(workspace)))
+        .with_memory(Arc::new(ProductRoleMemory::default()))
+        .with_catalog(Arc::new(ProductCatalogMaintenance))
 }

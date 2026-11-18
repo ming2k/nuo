@@ -474,7 +474,15 @@ async fn handle_permission_request(
         "\n\x1b[33m[Permission Request]\x1b[0m Tool: {} ({})\nDetails: {}",
         req.tool, req.scope, req.description
     );
-    eprint!("Allow execution? [y]es, [a]lways, [n]o: ");
+    let can_split_exact = !req.one_off && req.suggested_scope.is_some();
+    if let Some(suggested) = req.suggested_scope.as_deref().filter(|_| !req.one_off) {
+        eprint!(
+            "Allow execution? [y]es, [a]lways ({suggested}), [e]xact always ({}), [n]o: ",
+            req.scope
+        );
+    } else {
+        eprint!("Allow execution? [y]es, [a]lways, [n]o: ");
+    }
     io::stderr().flush()?;
 
     let mut line = String::new();
@@ -485,6 +493,7 @@ async fn handle_permission_request(
         "y" | "yes" => PermissionDecision::Once,
         "s" | "session" => PermissionDecision::Session,
         "a" | "always" => PermissionDecision::Always,
+        "e" | "exact" if can_split_exact => PermissionDecision::AlwaysExact,
         _ => PermissionDecision::Reject,
     };
 

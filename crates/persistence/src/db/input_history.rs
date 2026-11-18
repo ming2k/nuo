@@ -12,44 +12,41 @@ pub(crate) fn record_input_history(
     conn.execute("BEGIN IMMEDIATE", [])?;
     let res = (|| -> Result<()> {
         if dedup {
-            conn.execute(
-                "DELETE FROM input_history WHERE text = ?1",
-                params![entry.text],
-            )?;
+            conn.prepare_cached("DELETE FROM input_history WHERE text = ?1")?
+                .execute(params![entry.text])?;
         } else if let Some(session_id) = &entry.session_id {
             let latest_same: bool = conn
-                .query_row(
+                .prepare_cached(
                     "SELECT text = ?1 FROM input_history WHERE session_id = ?2 ORDER BY created_at_ms DESC, id DESC LIMIT 1",
-                    params![entry.text, session_id],
-                    |row| row.get(0),
-                )
+                )?
+                .query_row(params![entry.text, session_id], |row| row.get(0))
                 .unwrap_or(false);
             if latest_same {
                 return Ok(());
             }
         }
 
-        conn.execute(
+        conn.prepare_cached(
             r#"
             INSERT INTO input_history (text, session_id, workspace, created_at_ms)
             VALUES (?1, ?2, ?3, ?4)
             "#,
-            params![
-                entry.text,
-                entry.session_id,
-                entry.workspace,
-                entry.created_at_ms as i64,
-            ],
-        )?;
+        )?
+        .execute(params![
+            entry.text,
+            entry.session_id,
+            entry.workspace,
+            entry.created_at_ms as i64,
+        ])?;
 
-        conn.execute(
+        conn.prepare_cached(
             r#"
             DELETE FROM input_history WHERE id NOT IN (
                 SELECT id FROM input_history ORDER BY created_at_ms DESC, id DESC LIMIT ?1
             )
             "#,
-            params![protocol::HISTORY_CAP as i64],
-        )?;
+        )?
+        .execute(params![protocol::HISTORY_CAP as i64])?;
 
         Ok(())
     })();
@@ -71,7 +68,7 @@ pub(crate) fn load_input_history(
     conn: &Connection,
     limit: usize,
 ) -> Result<Vec<protocol::HistoryEntry>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         r#"
         SELECT text, session_id, workspace, created_at_ms
         FROM input_history

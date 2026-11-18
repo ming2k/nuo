@@ -95,29 +95,27 @@ impl Agent {
         self.context.permissions.allowed_tools_structured()
     }
 
-    /// Designate the project whose bucket backs the persistent "always"
-    /// allowlist, and load any rules already on disk into the in-memory set.
-    /// Pass `None` to disable persistence (subagents and most tests do this).
-    ///
-    /// Loading is best-effort: a missing, unreadable, or unsupported file is
-    /// silently ignored — the agent simply starts with an empty allowlist and
-    /// re-prompts the user. This is the cross-session hook: a fresh session in
-    /// the same project inherits prior `Always` approvals without re-asking.
-    pub fn set_project_root(&self, root: Option<std::path::PathBuf>) {
-        self.context.permissions.set_project_root(root);
+    /// Bind the SQLite persistence handle used to load and save `Always` /
+    /// `Revoked` permission rules for the active `(role_id, workspace)` scope.
+    pub fn bind_permission_persistence(&self, handle: persistence::db::PersistenceHandle) {
+        let backend: Arc<dyn guardrails::PermissionBackend> =
+            Arc::new(crate::runtime::permission_backend::SqlitePermissionBackend::new(handle));
+        self.context.permissions.set_backend(Some(backend));
     }
 
-    /// Test seam for binding project persistence to an explicit directory
-    /// capability without mutating process-wide path state.
-    #[cfg(test)]
-    pub(crate) fn set_project_root_with_dirs(
+    /// Install or clear a custom [`guardrails::PermissionBackend`] (test seam).
+    pub fn set_permission_backend(&self, backend: Option<Arc<dyn guardrails::PermissionBackend>>) {
+        self.context.permissions.set_backend(backend);
+    }
+
+    /// Bind `(role_id, workspace_root)` as the permission durability scope and
+    /// reload persisted rules from the bound backend (if any).
+    pub fn set_permission_scope(
         &self,
-        root: Option<std::path::PathBuf>,
-        dirs: &host::paths::Dirs,
+        role_id: impl Into<String>,
+        workspace_root: Option<std::path::PathBuf>,
     ) {
-        self.context
-            .permissions
-            .set_project_root_with_dirs(root, dirs);
+        self.context.permissions.set_scope(role_id, workspace_root);
     }
 
     /// Seed declarative permission rules from `[permissions]` config. Delegates

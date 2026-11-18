@@ -1,15 +1,22 @@
-//! Permission allowlist + pending-request registry, extracted from the
-//! `Agent` god-object.
+//! Permission allowlist + role/workspace-scoped backend bridge.
 //!
-//! Owns the "always allow" rule set (optionally persisted to disk per
-//! project), the map of pending permission requests awaiting a user reply,
-//! and the project root used for persistence. The `Agent` owns a
-//! single `PermissionStore` and delegates its permission-related public
-//! methods here.
-use std::collections::HashSet;
-use std::sync::Mutex;
+//! Owns the in-memory `session` and `always` allow sets, the `revoked`
+//! suppression set, declarative `deny` rules, and the `(role_id, workspace)`
+//! scope binding backed by SQLite via [`PermissionBackend`] (ADR-0212).
+//!
+//! `guardrails` depends on contracts only (ADR-0188), never directly on
+//! `persistence`; `engine` / `server` inject the concrete SQLite backend.
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
+use crate::command_parse::{
+    CommandSegment, is_segment_safe_readonly, parse_shell_commands, segment_matches_prefix,
+};
 use crate::poison_lock;
+
+const LAST_USED_TOUCH_DEBOUNCE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PermissionRule {
@@ -17,27 +24,34 @@ pub struct PermissionRule {
     pub scope: String,
 }
 
-/// On-disk shape of the persisted "always allow" allowlist, versioned for
-/// future schema evolution. Readers reject unknown future versions rather
-/// than guessing, so a downgrade silently ignores the file.
-///
-/// Version 2 adds `revoked`: the rules a user has explicitly revoked, kept so a
-/// declarative `[permissions]` seed cannot resurrect them (#3). A v1 file (no
-/// `revoked`) loads with an empty revoked set via `#[serde(default)]`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct PersistedPermissions {
-    version: u32,
-    rules: Vec<PermissionRule>,
-    #[serde(default)]
-    revoked: Vec<PermissionRule>,
+/// Composite durability scope for permission rules: `role_id` + optional
+/// normalized `workspace_root` (`None` for workspace-free roles like `ops`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PermissionScopeKey {
+    pub role_id: String,
+    pub workspace_root: Option<PathBuf>,
 }
 
-impl PersistedPermissions {
-    /// The on-disk version this build writes and accepts.
-    const CURRENT_VERSION: u32 = 2;
-    /// The version this build still reads for back-compat (older files lacking
-    /// the `revoked` list). `CURRENT_VERSION` is preferred on write.
-    const V1_VERSION: u32 = 1;
+/// Rules hydrated from durable storage for one `(role_id, workspace_root)` scope.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoadedPermissionRules {
+    pub allow: Vec<PermissionRule>,
+    pub revoked: Vec<PermissionRule>,
+}
+
+/// Storage port implemented by the host persistence layer (`nuo.db`).
+pub trait PermissionBackend: Send + Sync {
+    fn load(&self, key: &PermissionScopeKey) -> Result<LoadedPermissionRules, String>;
+    fn upsert_allow(&self, key: &PermissionScopeKey, rule: &PermissionRule) -> Result<(), String>;
+    fn revoke(&self, key: &PermissionScopeKey, rule: &PermissionRule) -> Result<(), String>;
+    fn clear_all(
+        &self,
+        key: &PermissionScopeKey,
+        active_rules: &[PermissionRule],
+    ) -> Result<(), String>;
+    /// Non-blocking hint to bump `last_used_ms` when a persisted `Always` rule
+    /// is matched at runtime.
+    fn touch_last_used(&self, _key: &PermissionScopeKey, _rule: &PermissionRule) {}
 }
 
 #[derive(Default)]
@@ -47,47 +61,52 @@ struct PermissionState {
     session: HashSet<PermissionRule>,
     /// Rules the user has **explicitly revoked** (via `revoke_allowed` /
     /// `clear_allowed`), remembered so a later `seed_from_config` cannot
-    /// silently re-grant them. Without this, a rule sourced from `[permissions]`
-    /// config would resurrect on every restart after the user revoked it — the
-    /// declarative seed re-applying past an interactive decision. The set is
-    /// persisted (see `PersistedPermissions`) and is the complement of `always`:
-    /// `add_always` removes from it, `revoke_allowed` adds to it. See #3.
+    /// silently re-grant them.
     revoked: HashSet<PermissionRule>,
+    /// Declarative `[permissions].allow` rules remembered so rebinding scopes
+    /// re-applies config defaults against the new scope's `revoked` set.
+    config_allow: Vec<PermissionRule>,
     /// Hard denials from declarative config. Never persisted: they are a
     /// deployment policy, not an interactive grant.
     deny: HashSet<PermissionRule>,
 }
 
-/// In-memory permission state: the "always allow" allowlist, the pending
-/// request channels, and the optional project root for on-disk persistence.
+/// In-memory permission state plus optional `(role_id, workspace)` persistence
+/// backend.
 pub struct PermissionStore {
     state: Mutex<PermissionState>,
-    persistence: Mutex<Option<PermissionPersistence>>,
-    /// When true, the agent runs in unattended mode — all tool permissions are auto-approved.
+    scope: Mutex<Option<PermissionScopeKey>>,
+    backend: Mutex<Option<Arc<dyn PermissionBackend>>>,
+    /// Debounces `touch_last_used` notifications so repeated tool hits do not
+    /// spam SQLite writes.
+    last_touched: Mutex<HashMap<(PermissionScopeKey, PermissionRule), Instant>>,
+    /// When true (`auto-approve` mode), non-denied tool permissions are
+    /// auto-approved in-flight without persisting rules.
     unattended: Mutex<bool>,
-}
-
-/// Stable on-disk target for one project's permissions.
-///
-/// Resolve the concrete file once when the project is bound. Re-reading the
-/// process-wide path resolver on every mutation would let a later environment
-/// or test override silently redirect one store between different files.
-#[derive(Clone)]
-struct PermissionPersistence {
-    project_root: std::path::PathBuf,
-    file: std::path::PathBuf,
 }
 
 impl PermissionStore {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(PermissionState::default()),
-            persistence: Mutex::new(None),
+            scope: Mutex::new(None),
+            backend: Mutex::new(None),
+            last_touched: Mutex::new(HashMap::new()),
             unattended: Mutex::new(false),
         }
     }
 
-    // unattended execution posture
+    pub fn with_backend(backend: Arc<dyn PermissionBackend>) -> Self {
+        Self {
+            state: Mutex::new(PermissionState::default()),
+            scope: Mutex::new(None),
+            backend: Mutex::new(Some(backend)),
+            last_touched: Mutex::new(HashMap::new()),
+            unattended: Mutex::new(false),
+        }
+    }
+
+    // auto-approve / unattended posture
 
     pub fn unattended(&self) -> bool {
         *poison_lock(&self.unattended)
@@ -97,42 +116,194 @@ impl PermissionStore {
         *poison_lock(&self.unattended) = value;
     }
 
-    // Pending-request parking moved to the human-request broker
-    // (`engine::human_broker`): one owner for permission /
-    // ask_user / interactive-input oneshots, uniform exactly-once
-    // settlement, per-kind metrics. The store keeps only rules + the delegated flag.
+    // backend & scope binding
 
-    // allowlist
+    /// Install or replace the persistence backend. If a `(role_id, workspace)`
+    /// scope is already bound, reloads durable rules for that scope.
+    pub fn set_backend(&self, backend: Option<Arc<dyn PermissionBackend>>) {
+        *poison_lock(&self.backend) = backend;
+        let current_scope = poison_lock(&self.scope).clone();
+        if let Some(key) = current_scope {
+            self.reload_scope_from_backend(&key);
+        }
+    }
 
-    /// Check whether a rule is in the "always allow" set. A stored scope of
-    /// `"*"` is a wildcard for that tool (matches any scope). Any other stored
-    /// scope must match `rule.scope` **exactly** — there is no prefix or
-    /// substring matching, so `bash git` does not allow `bash git status`.
-    /// (`PermissionRuleConfig.scope` documents this contract for config authors.)
+    /// Bind the `(role_id, workspace_root)` bucket for durable `Always` /
+    /// `Revoked` rules and reload rules from the backend (if installed).
+    pub fn set_scope(&self, role_id: impl Into<String>, workspace_root: Option<PathBuf>) {
+        let normalized_root = workspace_root.map(|p| {
+            let norm = tool::normalize_access_path(p.to_string_lossy().into_owned());
+            PathBuf::from(norm)
+        });
+        let new_key = PermissionScopeKey {
+            role_id: role_id.into(),
+            workspace_root: normalized_root,
+        };
+        let changed = {
+            let mut scope_guard = poison_lock(&self.scope);
+            let changed = scope_guard.as_ref() != Some(&new_key);
+            *scope_guard = Some(new_key.clone());
+            changed
+        };
+        if changed {
+            self.reload_scope_from_backend(&new_key);
+        }
+    }
+
+    pub fn scope(&self) -> Option<PermissionScopeKey> {
+        poison_lock(&self.scope).clone()
+    }
+
+    pub fn workspace_root(&self) -> Option<PathBuf> {
+        poison_lock(&self.scope)
+            .as_ref()
+            .and_then(|s| s.workspace_root.clone())
+    }
+
+    fn reload_scope_from_backend(&self, key: &PermissionScopeKey) {
+        let backend = poison_lock(&self.backend).clone();
+        let loaded = backend.and_then(|b| match b.load(key) {
+            Ok(loaded) => Some(loaded),
+            Err(err) => {
+                tracing::warn!(
+                    role = %key.role_id,
+                    workspace = ?key.workspace_root,
+                    error = %err,
+                    "failed to load persisted permission rules from backend"
+                );
+                None
+            }
+        });
+
+        let mut state = poison_lock(&self.state);
+        state.always.clear();
+        state.revoked.clear();
+        if let Some(loaded) = loaded {
+            for rule in loaded.revoked {
+                state.revoked.insert(rule);
+            }
+            for rule in loaded.allow {
+                state.always.insert(rule);
+            }
+        }
+        let config_rules = state.config_allow.clone();
+        for rule in config_rules {
+            if !state.revoked.contains(&rule) {
+                state.always.insert(rule);
+            }
+        }
+    }
+
+    // allowlist & evaluation
+
+    /// Check whether a rule is in the "always allow" set.
     pub fn is_always_allowed(&self, rule: &PermissionRule) -> bool {
         let state = poison_lock(&self.state);
-        state.always.iter().any(|stored| rule_matches(stored, rule))
+        rules_match_concrete(&state.always, rule)
     }
 
     /// Whether a declarative deny rule matches this call. Denies are evaluated
     /// before every allow path, including saved "always" grants.
     pub fn is_denied(&self, rule: &PermissionRule) -> bool {
         let state = poison_lock(&self.state);
+        if rule.tool == "execute_command" {
+            return command_matches_any_deny(&state.deny, &rule.scope);
+        }
         state.deny.iter().any(|stored| rule_matches(stored, rule))
     }
 
     /// Check whether a rule is in the session allow set (granted for this session only).
     pub fn is_session_allowed(&self, rule: &PermissionRule) -> bool {
         let state = poison_lock(&self.state);
-        state
-            .session
-            .iter()
-            .any(|stored| rule_matches(stored, rule))
+        rules_match_concrete(&state.session, rule)
     }
 
     /// Check whether a rule is allowed either permanently or for the current session.
+    ///
+    /// For compound `execute_command` invocations (`cmd1 && cmd2`), every
+    /// segment is evaluated across the union of `session` and `always` so a
+    /// session grant on `cmd1` and a persistent grant on `cmd2` compose cleanly.
     pub fn is_allowed(&self, rule: &PermissionRule) -> bool {
-        self.is_session_allowed(rule) || self.is_always_allowed(rule)
+        let (allowed, hits) = self.evaluate_rule_with_hits(rule, false);
+        if allowed {
+            self.record_always_hits(hits);
+        }
+        allowed
+    }
+
+    /// Evaluate an `execute_command` invocation against the union of `session`,
+    /// `always`, and provably read-only workspace inspection segments.
+    ///
+    /// Returns `true` when every parsed segment is either covered by `session` /
+    /// `always` or classified as safe read-only (`is_segment_safe_readonly`).
+    /// Denies (`is_denied`) must still be checked before calling this method.
+    pub fn is_command_admitted(&self, command: &str) -> bool {
+        let rule = PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: command.to_string(),
+        };
+        let (allowed, hits) = self.evaluate_rule_with_hits(&rule, true);
+        if allowed {
+            self.record_always_hits(hits);
+        }
+        allowed
+    }
+
+    fn evaluate_rule_with_hits(
+        &self,
+        rule: &PermissionRule,
+        allow_readonly_segments: bool,
+    ) -> (bool, Vec<PermissionRule>) {
+        let state = poison_lock(&self.state);
+        if rule.tool != "execute_command" {
+            if state.session.iter().any(|s| rule_matches(s, rule)) {
+                return (true, Vec::new());
+            }
+            if let Some(matched) = state.always.iter().find(|s| rule_matches(s, rule)) {
+                return (true, vec![matched.clone()]);
+            }
+            return (false, Vec::new());
+        }
+        let mut hits = Vec::new();
+        let allowed = command_matches_with_hits(
+            &state.session,
+            &state.always,
+            &rule.scope,
+            allow_readonly_segments,
+            &mut hits,
+        );
+        (allowed, hits)
+    }
+
+    fn record_always_hits(&self, hits: Vec<PermissionRule>) {
+        if hits.is_empty() {
+            return;
+        }
+        let (Some(key), Some(backend)) = (
+            poison_lock(&self.scope).clone(),
+            poison_lock(&self.backend).clone(),
+        ) else {
+            return;
+        };
+        let now = Instant::now();
+        let to_touch: Vec<PermissionRule> = {
+            let mut touched = poison_lock(&self.last_touched);
+            let mut out = Vec::new();
+            for rule in hits {
+                let cache_key = (key.clone(), rule.clone());
+                let should_touch = touched.get(&cache_key).is_none_or(|prev| {
+                    now.saturating_duration_since(*prev) >= LAST_USED_TOUCH_DEBOUNCE
+                });
+                if should_touch {
+                    touched.insert(cache_key, now);
+                    out.push(rule);
+                }
+            }
+            out
+        };
+        for rule in to_touch {
+            backend.touch_last_used(&key, &rule);
+        }
     }
 
     /// Add a rule to the session-scoped allow set (in-memory only, not written to disk).
@@ -148,17 +319,26 @@ impl PermissionStore {
         state.session.clear();
     }
 
-    /// Add a rule to the "always allow" set and persist. Re-approving a rule
-    /// also clears it from the `revoked` set (the user has reversed their
-    /// earlier revocation), so a subsequent `seed_from_config` will re-grant
-    /// it as expected rather than treating it as still-revoked.
+    /// Add a rule to the "always allow" set and persist to the bound backend.
     pub fn add_always(&self, rule: PermissionRule) {
         {
             let mut state = poison_lock(&self.state);
             state.always.insert(rule.clone());
             state.revoked.remove(&rule);
         }
-        self.persist();
+        if let (Some(key), Some(backend)) = (
+            poison_lock(&self.scope).clone(),
+            poison_lock(&self.backend).clone(),
+        ) && let Err(err) = backend.upsert_allow(&key, &rule)
+        {
+            tracing::warn!(
+                role = %key.role_id,
+                tool = %rule.tool,
+                scope = %rule.scope,
+                error = %err,
+                "failed to persist Always permission rule"
+            );
+        }
     }
 
     pub fn allowed_tools(&self) -> Vec<String> {
@@ -186,27 +366,30 @@ impl PermissionStore {
 
     /// Clear the entire "always allow" set. Every cleared rule is added to the
     /// `revoked` set so a `[permissions]` config seed cannot silently resurrect
-    /// it — the user's blanket revocation must survive a restart. (#3)
+    /// it.
     pub fn clear_allowed(&self) {
-        {
+        let drained = {
             let mut state = poison_lock(&self.state);
-            // Record each revoked rule so the declarative seed cannot re-grant
-            // it on the next start. Collect before inserting into `revoked`:
-            // `drain` holds a mutable borrow of `state.always` for its whole
-            // duration, so mutating `state.revoked` inside the loop would
-            // borrow `state` twice at once.
             let drained: Vec<PermissionRule> = state.always.drain().collect();
-            for rule in drained {
-                state.revoked.insert(rule);
+            for rule in &drained {
+                state.revoked.insert(rule.clone());
             }
+            drained
+        };
+        if let (Some(key), Some(backend)) = (
+            poison_lock(&self.scope).clone(),
+            poison_lock(&self.backend).clone(),
+        ) && let Err(err) = backend.clear_all(&key, &drained)
+        {
+            tracing::warn!(
+                role = %key.role_id,
+                error = %err,
+                "failed to persist cleared permission rules"
+            );
         }
-        self.persist();
     }
 
-    /// Revoke one rule. Returns whether it was present. The rule is added to the
-    /// `revoked` set so a `[permissions]` config seed cannot resurrect it on the
-    /// next start — an interactive revocation must survive a restart, even for
-    /// rules originally sourced from config. (#3)
+    /// Revoke one rule. Returns whether it was present.
     pub fn revoke_allowed(&self, tool: &str, scope: &str) -> bool {
         let rule = PermissionRule {
             tool: tool.to_string(),
@@ -216,33 +399,31 @@ impl PermissionStore {
             let mut state = poison_lock(&self.state);
             let removed = state.always.remove(&rule);
             if removed {
-                // Remember the revocation so the declarative seed does not
-                // re-grant it.
-                state.revoked.insert(rule);
+                state.revoked.insert(rule.clone());
             }
             removed
         };
-        if removed {
-            self.persist();
+        if removed
+            && let (Some(key), Some(backend)) = (
+                poison_lock(&self.scope).clone(),
+                poison_lock(&self.backend).clone(),
+            )
+            && let Err(err) = backend.revoke(&key, &rule)
+        {
+            tracing::warn!(
+                role = %key.role_id,
+                tool = %rule.tool,
+                scope = %rule.scope,
+                error = %err,
+                "failed to persist permission rule revocation"
+            );
         }
         removed
     }
 
-    // persistence
+    // config seeding
 
-    /// Seed the allowlist from declarative `[permissions]` config rules. Called
-    /// at startup after `set_project_root` (so persistent rules are already
-    /// loaded). Config rules are **not** persisted to `permissions.json` — they
-    /// are re-applied on every start from `config.toml`, keeping them
-    /// declarative and version-controllable. Rules already present (from disk)
-    /// are not duplicated.
-    ///
-    /// #3 — a rule present in the `revoked` set is **skipped**: the user has
-    /// already revoked it interactively (or via `clear_allowed`), and the
-    /// declarative seed must not silently reverse that decision. The revocation
-    /// is itself persisted, so this holds across restarts. Re-approving the
-    /// rule later (`add_always`) clears the revocation and lets the seed apply
-    /// again.
+    /// Seed the allowlist from declarative `[permissions]` config rules.
     pub fn seed_from_config(&self, rules: &[protocol::policy_config::PermissionRuleConfig]) {
         let mut state = poison_lock(&self.state);
         let mut added = 0;
@@ -252,6 +433,9 @@ impl PermissionStore {
                 tool: rule.tool.clone(),
                 scope: rule.scope.clone(),
             };
+            if !state.config_allow.contains(&permission_rule) {
+                state.config_allow.push(permission_rule.clone());
+            }
             if state.revoked.contains(&permission_rule) {
                 skipped_revoked += 1;
                 continue;
@@ -284,116 +468,6 @@ impl PermissionStore {
             });
         }
     }
-
-    /// The persisted project root, if any.
-    pub fn project_root(&self) -> Option<std::path::PathBuf> {
-        poison_lock(&self.persistence)
-            .as_ref()
-            .map(|target| target.project_root.clone())
-    }
-
-    /// Designate the project whose bucket backs the persistent "always"
-    /// allowlist, and load any rules already on disk into the in-memory set.
-    /// Pass `None` to disable persistence (subagents and most tests do this).
-    pub fn set_project_root(&self, root: Option<std::path::PathBuf>) {
-        self.set_project_root_with_dirs(root, &host::paths::get());
-    }
-
-    /// Bind a project using an explicit path capability.
-    ///
-    /// Production callers normally use [`Self::set_project_root`], which
-    /// snapshots the installed application directories. The explicit form is
-    /// also the hermetic test seam: tests can supply isolated directories
-    /// without mutating process-wide environment or path overrides.
-    pub fn set_project_root_with_dirs(
-        &self,
-        root: Option<std::path::PathBuf>,
-        dirs: &host::paths::Dirs,
-    ) {
-        let target = root.map(|project_root| PermissionPersistence {
-            file: dirs.project_permissions(&project_root),
-            project_root,
-        });
-        *poison_lock(&self.persistence) = target.clone();
-        if let Some(target) = target {
-            self.load_persistent(&target.file);
-        }
-    }
-
-    fn load_persistent(&self, path: &std::path::Path) {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return;
-        };
-        match serde_json::from_str::<PersistedPermissions>(&text) {
-            Ok(persisted)
-                if persisted.version == PersistedPermissions::CURRENT_VERSION
-                    || persisted.version == PersistedPermissions::V1_VERSION =>
-            {
-                // v1 files predate the `revoked` list; the `#[serde(default)]`
-                // on that field yields an empty vec, so they load cleanly with
-                // no revocations remembered (the pre-#3 behaviour).
-                let mut perms = poison_lock(&self.state);
-                let count = persisted.rules.len();
-                for rule in persisted.rules {
-                    perms.always.insert(rule);
-                }
-                let revoked_count = persisted.revoked.len();
-                for rule in persisted.revoked {
-                    perms.revoked.insert(rule);
-                }
-                tracing::info!(
-                    count,
-                    revoked_count,
-                    path = %path.display(),
-                    "loaded persistent permission rules",
-                );
-            }
-            Ok(other) => {
-                tracing::warn!(
-                    version = other.version,
-                    path = %path.display(),
-                    "unsupported persisted permissions version; ignoring file",
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "could not parse persistent permissions file; ignoring",
-                );
-            }
-        }
-    }
-
-    /// Atomically mirror the current `always` allowlist **and** `revoked` set
-    /// into the project bucket. Best-effort: logs on failure and never
-    /// propagates the error.
-    fn persist(&self) {
-        let target = poison_lock(&self.persistence).clone();
-        let Some(target) = target else {
-            return;
-        };
-        let path = target.file;
-        let snapshot = {
-            let perms = poison_lock(&self.state);
-            let mut rules: Vec<PermissionRule> = perms.always.iter().cloned().collect();
-            rules.sort_by(|a, b| a.tool.cmp(&b.tool).then_with(|| a.scope.cmp(&b.scope)));
-            let mut revoked: Vec<PermissionRule> = perms.revoked.iter().cloned().collect();
-            revoked.sort_by(|a, b| a.tool.cmp(&b.tool).then_with(|| a.scope.cmp(&b.scope)));
-            PersistedPermissions {
-                version: PersistedPermissions::CURRENT_VERSION,
-                rules,
-                revoked,
-            }
-        };
-        if let Err(e) = host::fsutil::atomic_write_json(&path, &snapshot) {
-            tracing::warn!(
-                path = %path.display(),
-                error = %e,
-                "could not persist permission rules",
-            );
-        }
-    }
 }
 
 impl Default for PermissionStore {
@@ -402,12 +476,112 @@ impl Default for PermissionStore {
     }
 }
 
-/// Whether a stored rule matches a concrete call.
+fn rules_match_concrete(rules: &HashSet<PermissionRule>, concrete: &PermissionRule) -> bool {
+    if concrete.tool == "execute_command" {
+        return command_matches_rules(rules, &concrete.scope);
+    }
+    rules.iter().any(|stored| rule_matches(stored, concrete))
+}
+
+fn command_matches_with_hits(
+    session: &HashSet<PermissionRule>,
+    always: &HashSet<PermissionRule>,
+    command: &str,
+    allow_readonly_segments: bool,
+    touched_always: &mut Vec<PermissionRule>,
+) -> bool {
+    let exact = PermissionRule {
+        tool: "execute_command".to_string(),
+        scope: command.to_string(),
+    };
+    if session.iter().any(|s| command_direct_match(s, &exact)) {
+        return true;
+    }
+    if let Some(matched) = always.iter().find(|s| command_direct_match(s, &exact)) {
+        touched_always.push(matched.clone());
+        return true;
+    }
+    let parsed = parse_shell_commands(command);
+    if parsed.malformed || parsed.segments.is_empty() {
+        return false;
+    }
+    parsed.segments.iter().all(|seg| {
+        if session.iter().any(|s| command_segment_allowed(s, seg)) {
+            return true;
+        }
+        if let Some(matched) = always.iter().find(|s| command_segment_allowed(s, seg)) {
+            touched_always.push(matched.clone());
+            return true;
+        }
+        allow_readonly_segments && is_segment_safe_readonly(seg)
+    })
+}
+
+fn command_matches_rules(rules: &HashSet<PermissionRule>, command: &str) -> bool {
+    let empty = HashSet::new();
+    let mut unused_hits = Vec::new();
+    command_matches_with_hits(rules, &empty, command, false, &mut unused_hits)
+}
+
+fn command_matches_any_deny(denies: &HashSet<PermissionRule>, command: &str) -> bool {
+    let exact = PermissionRule {
+        tool: "execute_command".to_string(),
+        scope: command.to_string(),
+    };
+    if denies.iter().any(|stored| rule_matches(stored, &exact)) {
+        return true;
+    }
+    let parsed = parse_shell_commands(command);
+    parsed.segments.iter().any(|seg| {
+        denies.iter().any(|stored| {
+            if !wildcard_matches(&stored.tool, "execute_command") {
+                return false;
+            }
+            if stored.scope == "*" || stored.scope == seg.raw {
+                return true;
+            }
+            if stored.scope.ends_with('*') {
+                // For hard denials, match prefix even if the segment has redirections.
+                let prefix = stored.scope.trim_end_matches('*').trim_end();
+                !prefix.is_empty()
+                    && (seg.normalized_command == prefix
+                        || seg
+                            .normalized_command
+                            .strip_prefix(prefix)
+                            .is_some_and(|rest| rest.starts_with(' '))
+                        || seg.raw.starts_with(stored.scope.trim_end_matches('*')))
+            } else {
+                false
+            }
+        })
+    })
+}
+
+/// Direct full-string or `"*"` match (without compound splitting).
+fn command_direct_match(stored: &PermissionRule, concrete: &PermissionRule) -> bool {
+    if !wildcard_matches(&stored.tool, &concrete.tool) {
+        return false;
+    }
+    stored.scope == "*" || stored.scope == concrete.scope
+}
+
+fn command_segment_allowed(stored: &PermissionRule, seg: &CommandSegment) -> bool {
+    if !wildcard_matches(&stored.tool, "execute_command") {
+        return false;
+    }
+    if stored.scope == "*" || stored.scope == seg.raw {
+        return true;
+    }
+    if stored.scope.ends_with('*') {
+        return segment_matches_prefix(&stored.scope, seg);
+    }
+    false
+}
+
+/// Whether a stored rule matches a concrete call for non-command tools.
 ///
 /// `*` matches anything; a trailing `*` is a prefix; every other pattern is
-/// exact. This is deliberately NOT a general glob: permission scopes are paths
-/// or command lines, and a `?`/`[]` engine would make a typo into a silent
-/// widening. The conservative direction is exact.
+/// exact.
 fn rule_matches(stored: &PermissionRule, concrete: &PermissionRule) -> bool {
     wildcard_matches(&stored.tool, &concrete.tool)
         && wildcard_matches(&stored.scope, &concrete.scope)
@@ -425,249 +599,267 @@ fn wildcard_matches(pattern: &str, value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use protocol::policy_config::PermissionRuleConfig;
+    use std::collections::HashMap;
 
-    /// A unique temp directory for a test, with no external `tempfile` dep.
-    /// Cleaned up (best-effort) on drop.
-    struct ScratchDir(std::path::PathBuf);
-    impl ScratchDir {
-        fn new() -> Self {
-            use std::sync::atomic::{AtomicU64, Ordering};
-            static COUNTER: AtomicU64 = AtomicU64::new(0);
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let dir =
-                std::env::temp_dir().join(format!("nuo-permstore-{}-{n}", std::process::id()));
-            std::fs::create_dir_all(&dir).expect("create temp dir");
-            ScratchDir(dir)
-        }
-        fn path(&self) -> &std::path::Path {
-            &self.0
-        }
+    #[derive(Default)]
+    struct InMemoryBackend {
+        rows: Mutex<HashMap<PermissionScopeKey, LoadedPermissionRules>>,
+        touches: Mutex<Vec<(PermissionScopeKey, PermissionRule)>>,
     }
-    impl Drop for ScratchDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+
+    impl PermissionBackend for InMemoryBackend {
+        fn load(&self, key: &PermissionScopeKey) -> Result<LoadedPermissionRules, String> {
+            let map = poison_lock(&self.rows);
+            let mut merged = LoadedPermissionRules::default();
+            if key.workspace_root.is_some() {
+                let global_key = PermissionScopeKey {
+                    role_id: key.role_id.clone(),
+                    workspace_root: None,
+                };
+                if let Some(g) = map.get(&global_key) {
+                    merged.allow.extend(g.allow.clone());
+                    merged.revoked.extend(g.revoked.clone());
+                }
+            }
+            if let Some(local) = map.get(key) {
+                merged.allow.extend(local.allow.clone());
+                merged.revoked.extend(local.revoked.clone());
+            }
+            Ok(merged)
+        }
+
+        fn upsert_allow(
+            &self,
+            key: &PermissionScopeKey,
+            rule: &PermissionRule,
+        ) -> Result<(), String> {
+            let mut map = poison_lock(&self.rows);
+            let entry = map.entry(key.clone()).or_default();
+            entry.revoked.retain(|r| r != rule);
+            if !entry.allow.contains(rule) {
+                entry.allow.push(rule.clone());
+            }
+            Ok(())
+        }
+
+        fn revoke(&self, key: &PermissionScopeKey, rule: &PermissionRule) -> Result<(), String> {
+            let mut map = poison_lock(&self.rows);
+            let entry = map.entry(key.clone()).or_default();
+            entry.allow.retain(|r| r != rule);
+            if !entry.revoked.contains(rule) {
+                entry.revoked.push(rule.clone());
+            }
+            Ok(())
+        }
+
+        fn clear_all(
+            &self,
+            key: &PermissionScopeKey,
+            active_rules: &[PermissionRule],
+        ) -> Result<(), String> {
+            let mut map = poison_lock(&self.rows);
+            let entry = map.entry(key.clone()).or_default();
+            let drained = std::mem::take(&mut entry.allow);
+            for rule in drained.into_iter().chain(active_rules.iter().cloned()) {
+                if !entry.revoked.contains(&rule) {
+                    entry.revoked.push(rule);
+                }
+            }
+            Ok(())
+        }
+
+        fn touch_last_used(&self, key: &PermissionScopeKey, rule: &PermissionRule) {
+            poison_lock(&self.touches).push((key.clone(), rule.clone()));
         }
     }
 
     #[test]
     fn seed_from_config_adds_rules_to_allowlist() {
         let store = PermissionStore::new();
-        // No project root → no persistence, so seeding is purely in-memory.
         let rules = vec![
             PermissionRuleConfig {
                 tool: "execute_command".to_string(),
-                scope: "*".to_string(),
+                scope: "cargo test".to_string(),
             },
             PermissionRuleConfig {
-                tool: "read".to_string(),
+                tool: "write_file".to_string(),
                 scope: "*".to_string(),
             },
         ];
         store.seed_from_config(&rules);
         assert!(store.is_always_allowed(&PermissionRule {
             tool: "execute_command".to_string(),
-            scope: "*".to_string(),
-        }));
-        assert!(store.is_always_allowed(&PermissionRule {
-            tool: "read".to_string(),
-            scope: "*".to_string(),
-        }));
-    }
-
-    #[test]
-    fn wildcard_scope_allows_any_scope_for_same_tool() {
-        let store = PermissionStore::new();
-        store.seed_from_config(&[PermissionRuleConfig {
-            tool: "execute_command".to_string(),
-            scope: "*".to_string(),
-        }]);
-        assert!(store.is_always_allowed(&PermissionRule {
-            tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
-        }));
-        assert!(!store.is_always_allowed(&PermissionRule {
-            tool: "edit_text".to_string(),
-            scope: "*".to_string(),
-        }));
-    }
-
-    #[test]
-    fn a_trailing_wildcard_is_a_prefix_scope() {
-        let store = PermissionStore::new();
-        store.seed_from_config(&[PermissionRuleConfig {
-            tool: "execute_command".to_string(),
-            scope: "git *".to_string(),
-        }]);
-        assert!(store.is_always_allowed(&PermissionRule {
-            tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
-        }));
-        assert!(!store.is_always_allowed(&PermissionRule {
-            tool: "execute_command".to_string(),
             scope: "cargo test".to_string(),
         }));
+        assert!(store.is_always_allowed(&PermissionRule {
+            tool: "write_file".to_string(),
+            scope: "/tmp/any".to_string(),
+        }));
+        assert!(!store.is_always_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "rm -rf /".to_string(),
+        }));
     }
 
     #[test]
-    fn declarative_deny_wins_over_a_saved_grant() {
+    fn command_prefix_blocks_chaining_redirection_and_word_boundary_bypass() {
         let store = PermissionStore::new();
-        let denied = PermissionRule {
+        store.seed_from_config(&[PermissionRuleConfig {
             tool: "execute_command".to_string(),
-            scope: "git push *".to_string(),
-        };
-        store.add_always(denied.clone());
+            scope: "git status *".to_string(),
+        }]);
+
+        assert!(store.is_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "git status".to_string(),
+        }));
+        assert!(store.is_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "git status -s".to_string(),
+        }));
+
+        for bypass in [
+            "git status && curl evil.com",
+            "git status; rm -rf .",
+            "git status | sh",
+            "git status > /tmp/out",
+            "git status $(whoami)",
+            "git statusx",
+            "LD_PRELOAD=/tmp/evil.so git status",
+        ] {
+            assert!(
+                !store.is_allowed(&PermissionRule {
+                    tool: "execute_command".to_string(),
+                    scope: bypass.to_string(),
+                }),
+                "prefix rule must NOT admit {bypass:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compound_command_passes_when_every_segment_is_allowed() {
+        let store = PermissionStore::new();
+        store.add_always(PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "git status *".to_string(),
+        });
+        store.add_session(PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "cargo test *".to_string(),
+        });
+        assert!(store.is_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "git status -s && cargo test --lib".to_string(),
+        }));
+        assert!(!store.is_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "git status -s && cargo publish".to_string(),
+        }));
+    }
+
+    #[test]
+    fn declarative_deny_wins_across_compound_commands() {
+        let store = PermissionStore::new();
+        store.add_always(PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "*".to_string(),
+        });
         store.seed_denies_from_config(&[PermissionRuleConfig {
             tool: "execute_command".to_string(),
             scope: "git push *".to_string(),
         }]);
-        assert!(store.is_denied(&denied));
-        assert!(
-            store.is_allowed(&denied),
-            "the grant still exists; deny is evaluated first"
-        );
-    }
-
-    #[test]
-    fn seed_from_config_does_not_duplicate_existing_rules() {
-        let store = PermissionStore::new();
-        let rule = PermissionRuleConfig {
+        assert!(store.is_denied(&PermissionRule {
             tool: "execute_command".to_string(),
-            scope: "*".to_string(),
-        };
-        store.seed_from_config(std::slice::from_ref(&rule));
-        store.seed_from_config(std::slice::from_ref(&rule)); // idempotent
-        assert_eq!(store.allowed_tools().len(), 1);
-    }
-
-    // Parking moved to the human-request broker; the
-    // receiver-and-timestamp behavior now lives there — see
-    // `human_broker::tests::park_reply_settles_exactly_once` and
-    // `human_broker::tests::cancel_all_settles_every_kind_with_none_or_reject`.
-    // The store keeps only rules + the delegated flag.
-
-    // #3: revoked config rules must not resurrect on re-seed
-
-    #[test]
-    fn revoke_then_reseed_does_not_resurrect_config_rule() {
-        // The core #3 fix: a config-sourced rule the user revoked must NOT come
-        // back when seed_from_config runs again (e.g. on restart).
-        let store = PermissionStore::new();
-        let rule = PermissionRuleConfig {
-            tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
-        };
-        store.seed_from_config(std::slice::from_ref(&rule));
-        assert!(store.is_always_allowed(&PermissionRule {
-            tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
+            scope: "git status && git push origin main".to_string(),
         }));
-        // User revokes it.
-        assert!(store.revoke_allowed("execute_command", "git status"));
-        assert!(!store.is_always_allowed(&PermissionRule {
-            tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
-        }));
-        // Re-seed (simulating a restart): the revoked rule stays revoked.
-        store.seed_from_config(std::slice::from_ref(&rule));
-        assert!(
-            !store.is_always_allowed(&PermissionRule {
-                tool: "execute_command".to_string(),
-                scope: "git status".to_string(),
-            }),
-            "a revoked config rule must not resurrect on re-seed"
-        );
     }
 
     #[test]
-    fn re_approving_a_revoked_rule_lets_seed_apply_it_again() {
-        // add_always clears the revocation, so a later seed re-grants the rule.
-        // The user reversed their revocation; the declarative seed wins again.
-        let store = PermissionStore::new();
-        let rule = PermissionRuleConfig {
+    fn workspace_free_role_persists_globally_and_is_isolated_from_other_roles() {
+        let backend = Arc::new(InMemoryBackend::default());
+        let ops = PermissionStore::with_backend(backend.clone());
+        ops.set_scope("ops", None);
+        ops.add_always(PermissionRule {
             tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
-        };
-        store.seed_from_config(std::slice::from_ref(&rule));
-        store.revoke_allowed("execute_command", "git status");
-        // Re-approve interactively.
-        store.add_always(PermissionRule {
-            tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
+            scope: "systemctl status *".to_string(),
         });
-        // A subsequent seed is idempotent (rule present) but no longer blocked.
-        store.seed_from_config(std::slice::from_ref(&rule));
-        assert!(store.is_always_allowed(&PermissionRule {
+
+        let ops_reloaded = PermissionStore::with_backend(backend.clone());
+        ops_reloaded.set_scope("ops", None);
+        assert!(ops_reloaded.is_allowed(&PermissionRule {
             tool: "execute_command".to_string(),
-            scope: "git status".to_string(),
+            scope: "systemctl status nginx".to_string(),
+        }));
+
+        let dev = PermissionStore::with_backend(backend);
+        dev.set_scope("developer", Some(PathBuf::from("/repo/a")));
+        assert!(!dev.is_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "systemctl status nginx".to_string(),
         }));
     }
 
     #[test]
-    fn clear_allowed_revokes_every_rule_against_future_seed() {
-        // clear_allowed is a blanket revocation: every rule is added to the
-        // revoked set, so a config seed cannot resurrect any of them.
-        let store = PermissionStore::new();
-        store.seed_from_config(&[
-            PermissionRuleConfig {
-                tool: "execute_command".to_string(),
-                scope: "*".to_string(),
-            },
-            PermissionRuleConfig {
-                tool: "edit_text".to_string(),
-                scope: "/src".to_string(),
-            },
-        ]);
-        store.clear_allowed();
-        // Re-seed: neither rule comes back.
-        store.seed_from_config(&[
-            PermissionRuleConfig {
-                tool: "execute_command".to_string(),
-                scope: "*".to_string(),
-            },
-            PermissionRuleConfig {
-                tool: "edit_text".to_string(),
-                scope: "/src".to_string(),
-            },
-        ]);
-        assert_eq!(store.allowed_tools().len(), 0);
+    fn role_workspace_isolation_and_revocation_survive_reopen() {
+        let backend = Arc::new(InMemoryBackend::default());
+        let rule = PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "cargo test *".to_string(),
+        };
+
+        let store = PermissionStore::with_backend(backend.clone());
+        store.set_scope("developer", Some(PathBuf::from("/repo/a")));
+        store.add_always(rule.clone());
+
+        let same_ws = PermissionStore::with_backend(backend.clone());
+        same_ws.set_scope("developer", Some(PathBuf::from("/repo/a")));
+        assert!(same_ws.is_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "cargo test --lib".to_string(),
+        }));
+
+        let other_ws = PermissionStore::with_backend(backend.clone());
+        other_ws.set_scope("developer", Some(PathBuf::from("/repo/b")));
+        assert!(!other_ws.is_allowed(&PermissionRule {
+            tool: "execute_command".to_string(),
+            scope: "cargo test --lib".to_string(),
+        }));
+
+        assert!(same_ws.revoke_allowed("execute_command", "cargo test *"));
+        let after_revoke = PermissionStore::with_backend(backend);
+        after_revoke.set_scope("developer", Some(PathBuf::from("/repo/a")));
+        after_revoke.seed_from_config(&[PermissionRuleConfig {
+            tool: "execute_command".to_string(),
+            scope: "cargo test *".to_string(),
+        }]);
+        assert!(after_revoke.allowed_tools().is_empty());
     }
 
     #[test]
-    fn revoked_set_persists_across_load() {
-        // The revoked set round-trips through the on-disk file: revoke, persist,
-        // reload into a fresh store, and the seed still skips the rule.
-        let tmp = ScratchDir::new();
-        let dirs = host::paths::Dirs {
-            config_dir: tmp.path().join("config"),
-            data_dir: tmp.path().join("data"),
-            state_dir: tmp.path().join("state"),
-            cache_dir: tmp.path().join("cache"),
-            runtime_dir: None,
-        };
-        let project_root = tmp.path().to_path_buf();
-
-        let store = PermissionStore::new();
-        store.set_project_root_with_dirs(Some(project_root.clone()), &dirs);
-        let rule = PermissionRuleConfig {
+    fn debounces_last_used_touch_and_skips_failed_compound_commands() {
+        let backend = Arc::new(InMemoryBackend::default());
+        let store = PermissionStore::with_backend(backend.clone());
+        store.set_scope("developer", Some(PathBuf::from("/repo/a")));
+        let rule = PermissionRule {
             tool: "execute_command".to_string(),
-            scope: "git push".to_string(),
+            scope: "cargo test *".to_string(),
         };
-        store.seed_from_config(std::slice::from_ref(&rule));
-        store.revoke_allowed("execute_command", "git push");
+        store.add_always(rule.clone());
 
-        // A fresh store pointed at the same bucket loads the revoked set.
-        let reloaded = PermissionStore::new();
-        reloaded.set_project_root_with_dirs(Some(project_root), &dirs);
-        reloaded.seed_from_config(std::slice::from_ref(&rule));
-        assert!(
-            !reloaded.is_always_allowed(&PermissionRule {
-                tool: "execute_command".to_string(),
-                scope: "git push".to_string(),
-            }),
-            "revocation must survive a restart (persisted revoked set)"
-        );
+        // Compound command where the second segment is denied/unknown must not
+        // admit or emit a `touch_last_used`.
+        assert!(!store.is_command_admitted("cargo test --lib && rm -rf target"));
+        assert!(poison_lock(&backend.touches).is_empty());
+
+        // Compound command combining read-only `git status` and allowed
+        // `cargo test --lib` succeeds and records exactly one debounced touch.
+        assert!(store.is_command_admitted("git status -s && cargo test --lib"));
+        assert!(store.is_command_admitted("cargo test --bins"));
+        let touches = poison_lock(&backend.touches);
+        assert_eq!(touches.len(), 1);
+        assert_eq!(touches[0].1, rule);
     }
 }

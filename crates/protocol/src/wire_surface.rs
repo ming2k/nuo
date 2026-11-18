@@ -210,9 +210,8 @@ pub struct InferenceSpec {
 /// that reuses a shape costs zero Rust code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CatalogSpec {
-    /// The response shape to parse (also carries the path, query, auth, signed
-    /// path, and dimensions).
-    pub shape: crate::surface::CatalogShape,
+    /// The catalog discovery source for this dialect.
+    pub source: crate::surface::RemoteCatalogSource,
 }
 
 /// The complete declarative description of one wire dialect.

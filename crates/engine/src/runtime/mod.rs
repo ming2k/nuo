@@ -10,6 +10,7 @@ pub mod inflight;
 pub(crate) mod message;
 pub mod no_provider;
 pub mod offstream;
+pub mod permission_backend;
 pub mod retry;
 pub(crate) mod sync;
 pub(crate) mod time;

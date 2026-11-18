@@ -105,28 +105,18 @@ impl ThreadSession {
         &self,
         record: protocol::RoundInterrupt,
     ) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            let already =
-                state.data.round_interrupts.iter().any(|existing| {
-                    existing.reason == record.reason && existing.round == record.round
-                });
+        self.mutate_metadata_and_persist(|data| {
+            let already = data
+                .round_interrupts
+                .iter()
+                .any(|existing| existing.reason == record.reason && existing.round == record.round);
             if already {
-                return Ok(());
+                return false;
             }
-            state.data.round_interrupts.push(record);
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+            data.round_interrupts.push(record);
+            true
+        })
+        .await
     }
 
     /// The durable request-projection archive: forensic snapshots
@@ -184,24 +174,14 @@ impl ThreadSession {
     /// Clear every round-interrupt record (C11). Called when the interrupted
     /// round's outcome is superseded.
     pub async fn clear_round_interrupts(&self) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            if state.data.round_interrupts.is_empty() {
-                return Ok(());
+        self.mutate_metadata_and_persist(|data| {
+            if data.round_interrupts.is_empty() {
+                return false;
             }
-            state.data.round_interrupts.clear();
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+            data.round_interrupts.clear();
+            true
+        })
+        .await
     }
 
     /// The durable `/retry` resume point (C12).
@@ -212,43 +192,23 @@ impl ThreadSession {
     /// Arm the `/retry` resume point (C12). Snapshot semantics: the single
     /// slot is replaced (arming for a newer round retires an older point).
     pub async fn arm_retry_pending(&self, point: protocol::RetryPoint) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            state.data.retry_pending = Some(point);
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            data.retry_pending = Some(point);
+            true
+        })
+        .await
     }
 
     /// Clear the `/retry` resume point (C12). A no-op when nothing is armed.
     pub async fn clear_retry_pending(&self) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            if state.data.retry_pending.is_none() {
-                return Ok(());
+        self.mutate_metadata_and_persist(|data| {
+            if data.retry_pending.is_none() {
+                return false;
             }
-            state.data.retry_pending = None;
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+            data.retry_pending = None;
+            true
+        })
+        .await
     }
 
     /// Replace the durable dialogue with exactly `messages`: the
@@ -256,7 +216,7 @@ impl ThreadSession {
     /// decision history is cleared — the caller asserts the window is the
     /// whole truth.
     pub async fn replace_messages(&self, messages: Vec<Message>) -> Result<(), String> {
-        let (path, data, children, should_persist) = {
+        let (data, children, should_persist) = {
             let mut state = self.state.lock().await;
             state.data.transcript = rebuild_transcript_from_messages(&messages);
             state.data.generation = uuid::Uuid::new_v4().to_string();
@@ -267,17 +227,11 @@ impl ThreadSession {
             if !empty_unpersisted {
                 state.defer_persist = false;
             }
-            (
-                state.path.clone(),
-                state.data.clone(),
-                children,
-                !empty_unpersisted,
-            )
+            (state.data.clone(), children, !empty_unpersisted)
         };
         persist_subagent_children(&self.writer, &self.blob_store, &children);
         if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
+            self.persist_full_rewrite(data).await?;
         }
         Ok(())
     }
@@ -292,21 +246,11 @@ impl ThreadSession {
     where
         F: FnOnce(&mut Vec<protocol::CommandRecord>),
     {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            f(&mut state.data.commands);
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
+        self.mutate_metadata_and_persist(|data| {
+            f(&mut data.commands);
+            true
+        })
+        .await
     }
 
     /// Incrementally persist new messages appended since the last durable
@@ -314,7 +258,7 @@ impl ThreadSession {
     /// on divergence the transcript is rebuilt (the caller's window is the
     /// truth).
     pub async fn append_turn(&self, current: &[Message]) -> Result<(), String> {
-        let (path, data, children) = {
+        let (data, mode, children) = {
             let mut state = self.state.lock().await;
             let durable_len = state.get_or_project_messages().len();
             if current.len() <= durable_len && !wire_eq(current, state.get_or_project_messages()) {
@@ -345,19 +289,25 @@ impl ThreadSession {
             state.data.updated_at = unix_timestamp();
             state.defer_persist = false;
 
-            let data = if full_rewrite {
-                state.data.clone()
+            let (data, mode) = if full_rewrite {
+                (state.data.clone(), crate::db::SaveMode::FullRewrite)
+            } else if old_entries_len == state.data.transcript.entries.len() {
+                (
+                    state.data.clone_metadata_without_history(),
+                    crate::db::SaveMode::MetadataOnly,
+                )
             } else {
                 let mut delta = state.data.clone_metadata_without_history();
                 delta.transcript.entries =
                     state.data.transcript.entries[old_entries_len..].to_vec();
-                delta
+                (delta, crate::db::SaveMode::Delta)
             };
-            (state.path.clone(), data, children)
+            (data, mode, children)
         };
         persist_subagent_children(&self.writer, &self.blob_store, &children);
-        self.persist_off_runtime(path, data, self.blob_store.clone())
+        self.persist_with_mode_guarded(data, mode, Vec::new(), crate::db::CommitGuard::default())
             .await
+            .map(|_| ())
     }
 
     /// Commit everything a finished ReAct turn changed, in **one** lock
@@ -368,7 +318,7 @@ impl ThreadSession {
             operation_id: commit.operation_id.clone(),
             expected_revision: commit.expected_revision,
         };
-        let (path, data, children, usage_upserts) = {
+        let (data, mode, children, usage_upserts) = {
             let mut state = self.state.lock().await;
 
             // 1. Message-tail delta against the projection.
@@ -492,18 +442,23 @@ impl ThreadSession {
             }
 
             state.defer_persist = false;
-            let data = if full_rewrite {
-                state.data.clone()
+            let (data, mode) = if full_rewrite {
+                (state.data.clone(), crate::db::SaveMode::FullRewrite)
+            } else if old_entries_len == state.data.transcript.entries.len() {
+                (
+                    state.data.clone_metadata_without_history(),
+                    crate::db::SaveMode::MetadataOnly,
+                )
             } else {
                 let mut delta = state.data.clone_metadata_without_history();
                 delta.transcript.entries =
                     state.data.transcript.entries[old_entries_len..].to_vec();
-                delta
+                (delta, crate::db::SaveMode::Delta)
             };
-            (state.path.clone(), data, children, usage_upserts)
+            (data, mode, children, usage_upserts)
         };
         persist_subagent_children(&self.writer, &self.blob_store, &children);
-        self.persist_with_usage_guarded(path, data, usage_upserts, guard)
+        self.persist_with_mode_guarded(data, mode, usage_upserts, guard)
             .await
     }
 
@@ -518,7 +473,7 @@ impl ThreadSession {
     /// second call finds nothing to settle.
     pub async fn settle_abandoned_attempts(&self) -> Result<usize, String> {
         use protocol::{RequestUsageSource, RequestUsageStatus};
-        let (path, data, settled): (PathBuf, ThreadData, Vec<protocol::RequestUsageRecord>) = {
+        let (data, settled): (ThreadData, Vec<protocol::RequestUsageRecord>) = {
             let mut state = self.state.lock().await;
             let mut settled = Vec::new();
             for record in state.data.request_usage_records.iter_mut() {
@@ -535,15 +490,16 @@ impl ThreadSession {
             }
             state.data.updated_at = unix_timestamp();
             state.defer_persist = false;
-            (
-                state.path.clone(),
-                state.data.clone_metadata_without_history(),
-                settled,
-            )
+            (state.data.clone_metadata_without_history(), settled)
         };
         let count = settled.len();
-        self.persist_with_usage_guarded(path, data, settled, crate::db::CommitGuard::default())
-            .await?;
+        self.persist_with_mode_guarded(
+            data,
+            crate::db::SaveMode::MetadataOnly,
+            settled,
+            crate::db::CommitGuard::default(),
+        )
+        .await?;
         Ok(count)
     }
 
@@ -597,14 +553,15 @@ impl ThreadSession {
             )
             .map_err(|error| error.to_string())?;
         thread.state.active_branch = id.clone();
+        let generation = uuid::Uuid::new_v4().to_string();
         self.writer
-            .save_thread_aggregate(thread.clone())
+            .save_thread_aggregate_with_generation(thread.clone(), Some(generation.clone()))
             .await
             .map_err(|error| error.to_string())?;
         let mut state = self.state.lock().await;
         state.data.active_branch = id.clone();
         state.data.transcript = transcript_from_thread(&thread);
-        state.data.generation = uuid::Uuid::new_v4().to_string();
+        state.data.generation = generation;
         state.invalidate_projection_cache();
         Ok(id)
     }
@@ -695,14 +652,15 @@ impl ThreadSession {
             return Err(format!("unknown branch '{}'", branch.0));
         }
         thread.state.active_branch = branch.clone();
+        let generation = uuid::Uuid::new_v4().to_string();
         self.writer
-            .save_thread_aggregate(thread.clone())
+            .save_thread_aggregate_with_generation(thread.clone(), Some(generation.clone()))
             .await
             .map_err(|error| error.to_string())?;
         let mut state = self.state.lock().await;
         state.data.active_branch = branch;
         state.data.transcript = transcript_from_thread(&thread);
-        state.data.generation = uuid::Uuid::new_v4().to_string();
+        state.data.generation = generation;
         state.invalidate_projection_cache();
         Ok(())
     }
@@ -731,7 +689,7 @@ impl ThreadSession {
     /// migration; the transcript is a projection of the facts, never an
     /// independent source.
     pub async fn commit_thread(&self, thread: &protocol::Thread) -> Result<u64, String> {
-        let (path, data, revision) = {
+        let (data, revision) = {
             let mut state = self.state.lock().await;
             state.data.transcript = transcript_from_thread(thread);
             state.data.active_branch = thread.state.active_branch.clone();
@@ -740,10 +698,9 @@ impl ThreadSession {
             state.data.updated_at = thread.updated_at_ms / 1000;
             state.invalidate_projection_cache();
             state.defer_persist = false;
-            (state.path.clone(), state.data.clone(), thread.revision.0)
+            (state.data.clone(), thread.revision.0)
         };
-        self.persist_off_runtime(path, data, self.blob_store.clone())
-            .await?;
+        self.persist_full_rewrite(data).await?;
         Ok(revision)
     }
 }

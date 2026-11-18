@@ -4,7 +4,7 @@
 //! for the npm `@tencent-ai/codebuddy-code` v2.172.1 CLI): Hunyuan 4/3,
 //! DeepSeek V4 Flash/Pro, Kimi K3.1, GLM 5.3 Flash, MiniMax M2.5, plus the
 //! `default` auto-router. The international line's catalog is a *different
-//! universe* and lives in `provider-codebuddy-intl` — the two baselines
+//! universe* and lives in the `intl` module of this crate — the two baselines
 //! never share a const ([ADR-0097]).
 
 use ::provider::*;
@@ -150,10 +150,8 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("codebuddy-cn"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://copilot.tencent.com/v2"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        provider_codebuddy_auth::CODEBUDDY_USER_AGENT,
-    )),
-    default_headers: std::borrow::Cow::Borrowed(provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS),
+    user_agent: Some(std::borrow::Cow::Borrowed(crate::CODEBUDDY_USER_AGENT)),
+    default_headers: std::borrow::Cow::Borrowed(crate::CODEBUDDY_CLIENT_HEADERS),
     protocol: WireProtocol::OpenAiChatCompletions,
     catalog_source: RemoteCatalogSource::None,
     quota: None,
@@ -183,11 +181,11 @@ mod tests {
         );
         assert_eq!(
             MODEL_PROVIDER_SPEC.user_agent.as_deref(),
-            Some(provider_codebuddy_auth::CODEBUDDY_USER_AGENT)
+            Some(crate::CODEBUDDY_USER_AGENT)
         );
         assert_eq!(
             MODEL_PROVIDER_SPEC.default_headers.as_ref(),
-            provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS
+            crate::CODEBUDDY_CLIENT_HEADERS
         );
     }
 

@@ -8,7 +8,7 @@ pub(super) fn save_session_full(
         &engine.conn,
         engine.blob_store.as_ref(),
         data,
-        true,
+        crate::db::SaveMode::FullRewrite,
         &[],
         &crate::db::CommitGuard::default(),
     )

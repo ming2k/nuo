@@ -44,8 +44,8 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     provider_glm_cn::MODEL_PROVIDER_SPEC,
     provider_qianwen::MODEL_PROVIDER_SPEC,
     provider_qoder::MODEL_PROVIDER_SPEC,
-    provider_codebuddy_cn::MODEL_PROVIDER_SPEC,
-    provider_codebuddy_intl::INTL_MODEL_PROVIDER_SPEC,
+    provider_codebuddy::CN_MODEL_PROVIDER_SPEC,
+    provider_codebuddy::INTL_MODEL_PROVIDER_SPEC,
     provider_opencode_go::MODEL_PROVIDER_SPEC,
     provider_opencode_zen::MODEL_PROVIDER_SPEC,
     provider_opendesign_go::MODEL_PROVIDER_SPEC,
@@ -294,7 +294,35 @@ impl provider::CatalogDiscovery for NuoCatalogDiscovery {
         request: provider::RemoteCatalogRequest<'_>,
         options: provider::RemoteCatalogOptions<'_>,
     ) -> Result<provider::RemoteCatalogUpdate, protocol::ModelListError> {
-        provider_catalog::fetch_remote_catalog(request, options).await
+        match request.source {
+            protocol::RemoteCatalogSource::Endpoint(_) => {
+                provider_catalog::fetch_remote_catalog(request, options).await
+            }
+            protocol::RemoteCatalogSource::Custom(id) => match id {
+                provider_chatgpt_plan::CATALOG_SOURCE_ID => {
+                    provider_chatgpt_plan::catalog::fetch_remote_catalog(request, options).await
+                }
+                provider_copilot::CATALOG_SOURCE_ID => {
+                    provider_copilot::catalog::fetch_remote_catalog(request, options).await
+                }
+                provider_deepseek::CATALOG_SOURCE_ID => {
+                    provider_deepseek::catalog::fetch_remote_catalog(request, options).await
+                }
+                provider_google_antigravity::CATALOG_SOURCE_ID => {
+                    provider_google_antigravity::catalog::fetch_remote_catalog(request, options)
+                        .await
+                }
+                provider_qoder::CATALOG_SOURCE_ID => {
+                    provider_qoder::catalog::fetch_remote_catalog(request, options).await
+                }
+                other => Err(protocol::ModelListError::BadEndpoint(format!(
+                    "no custom catalog handler registered for '{other}'"
+                ))),
+            },
+            protocol::RemoteCatalogSource::None => Err(protocol::ModelListError::BadEndpoint(
+                "provider declares no remote catalog".to_string(),
+            )),
+        }
     }
 }
 
@@ -326,15 +354,7 @@ pub fn build_credential_source(
         // channel's account line. The channel is selected by the connection's
         // provider id — both realms share the `CodeBuddy` dialect, so the
         // dialect alone cannot discriminate (ADR-0097).
-        let allowed = match provider_id {
-            "codebuddy-intl" => provider_codebuddy_intl::ALLOWED_CREDENTIAL_DOMAINS,
-            _ => provider_codebuddy_cn::ALLOWED_CREDENTIAL_DOMAINS,
-        };
-        std::sync::Arc::new(provider_codebuddy_auth::CodeBuddyByokSource::new(
-            connection_name,
-            api_key,
-            allowed,
-        ))
+        provider_codebuddy::byok_credential_source(provider_id, connection_name, api_key)
     } else {
         protocol::static_credential(api_key)
     }
@@ -346,8 +366,17 @@ pub fn build_credential_source(
 pub fn init() {
     provider::register_provider_factory(Box::new(NuoProviderFactory));
     provider::register_catalog_discovery(Box::new(NuoCatalogDiscovery));
-    provider::register_catalog_signer_builder(Box::new(|store, connection_id, bearer| {
-        provider_qoder::build_catalog_signer(store, connection_id, bearer)
+    provider::register_catalog_signer_builder(Box::new(|store, connection_id, bearer, source| {
+        match source {
+            // Qoder's COSY bundle serves both inference and its scene-map
+            // catalog; every other custom source is unsigned.
+            protocol::RemoteCatalogSource::Custom(id)
+                if id == provider_qoder::CATALOG_SOURCE_ID =>
+            {
+                provider_qoder::build_catalog_signer(store, connection_id, bearer)
+            }
+            _ => None,
+        }
     }));
     provider::register_provider_specs(MODEL_PROVIDER_SPECS.iter().cloned());
     // Seed user-declared providers now, so the registry is complete from boot
@@ -371,8 +400,7 @@ fn register_oauth_providers() {
         provider_chatgpt_plan::oauth::providers(),
         provider_copilot::oauth::providers(),
         provider_qoder::oauth_provider::providers(),
-        provider_codebuddy_cn::oauth::providers(),
-        provider_codebuddy_intl::oauth::providers(),
+        provider_codebuddy::oauth::providers(),
     ];
     for providers in surfaces {
         for provider in providers {

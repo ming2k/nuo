@@ -1039,7 +1039,7 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
             out.push_str("  -r, --role <ROLE>      agent role (developer, ops, etc.)\n");
             out.push_str("      --resume           resume the most recent matching thread\n");
             out.push_str(
-                "      --unattended       auto-approve permissions without confirmation\n",
+                "      --auto-approve     auto-approve permissions without confirmation\n",
             );
             out.push_str("      --no-confinement   disable workspace filesystem confinement\n");
             out.push_str("      --project <PATH>   operate on the project at <PATH>\n");

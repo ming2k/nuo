@@ -223,7 +223,7 @@ async fn broker_enforces_deny_for_a_targetless_read() {
 }
 
 #[tokio::test]
-async fn broker_unattended_does_not_auto_approve() {
+async fn broker_auto_approve_approves_without_persisting_and_respects_deny() {
     let tool: Arc<dyn Tool> = Arc::new(StubTool {
         name: "write_file".into(),
         target: ScopeTarget::Path(PathBuf::from("/anywhere")),
@@ -238,14 +238,28 @@ async fn broker_unattended_does_not_auto_approve() {
         name: "write_file",
         args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/anywhere")),
-        unattended: true, // unattended
+        unattended: true,
         disabled: disabled.clone(),
         scoped: scoped.clone(),
         ctx: &ctxr,
     });
     assert!(matches!(
         BrokerPolicy.evaluate(&c).await,
-        PolicyDecision::MissingAuthority { .. }
+        PolicyDecision::Approve
+    ));
+    assert!(
+        ctxr.perms.allowed_tools().is_empty(),
+        "auto-approve must not persist rules into the always allowlist"
+    );
+
+    ctxr.perms
+        .seed_denies_from_config(&[protocol::policy_config::PermissionRuleConfig {
+            tool: "write_file".to_string(),
+            scope: "/anywhere".to_string(),
+        }]);
+    assert!(matches!(
+        BrokerPolicy.evaluate(&c).await,
+        PolicyDecision::Deny { .. }
     ));
 }
 
@@ -418,7 +432,7 @@ async fn chain_out_of_scope_attended_reaches_broker() {
 }
 
 #[tokio::test]
-async fn chain_out_of_scope_unattended_requires_authority() {
+async fn chain_out_of_scope_auto_approve_approves() {
     let tool: Arc<dyn Tool> = Arc::new(StubTool {
         name: "write_file".into(),
         target: ScopeTarget::Path(PathBuf::from("/etc/passwd")),
@@ -433,16 +447,13 @@ async fn chain_out_of_scope_unattended_requires_authority() {
         name: "write_file",
         args: empty_args(),
         target: ScopeTarget::Path(PathBuf::from("/etc/passwd")),
-        unattended: true, // unattended
+        unattended: true,
         disabled: disabled.clone(),
         scoped: scoped.clone(),
         ctx: &ctxr,
     });
     let chain = PermissionChain::new(vec![Box::new(BrokerPolicy)]);
-    assert!(matches!(
-        chain.evaluate(&c).await,
-        PolicyDecision::MissingAuthority { .. }
-    ));
+    assert!(matches!(chain.evaluate(&c).await, PolicyDecision::Approve));
 }
 
 struct SafeTool;
@@ -619,5 +630,64 @@ async fn broker_honours_session_grant_lifespan() {
     assert!(matches!(
         BrokerPolicy.evaluate(&c).await,
         PolicyDecision::MissingAuthority { .. }
+    ));
+}
+
+#[tokio::test]
+async fn broker_auto_approves_safe_readonly_commands_unless_denied_or_escaping() {
+    let tool: Arc<dyn Tool> = Arc::new(DangerousCommandTool);
+    let perms = PermissionStore::new();
+    perms.seed_denies_from_config(&[protocol::policy_config::PermissionRuleConfig {
+        tool: "execute_command".into(),
+        scope: "git status *".into(),
+    }]);
+    let ctxr = StubCtx { perms };
+
+    let ls_args = serde_json::json!({"command": "ls -la crates && cargo metadata --no-deps"});
+    let ls_ctx = pctx(TestPolicyParams {
+        tool: &tool,
+        name: "execute_command",
+        args: &ls_args,
+        target: ScopeTarget::Command("ls -la crates && cargo metadata --no-deps".to_string()),
+        unattended: false,
+        disabled: HashSet::new(),
+        scoped: ScopedToolDisable::default(),
+        ctx: &ctxr,
+    });
+    assert!(matches!(
+        BrokerPolicy.evaluate(&ls_ctx).await,
+        PolicyDecision::Approve
+    ));
+
+    let escape_args = serde_json::json!({"command": "cat /etc/shadow"});
+    let escape_ctx = pctx(TestPolicyParams {
+        tool: &tool,
+        name: "execute_command",
+        args: &escape_args,
+        target: ScopeTarget::Command("cat /etc/shadow".to_string()),
+        unattended: false,
+        disabled: HashSet::new(),
+        scoped: ScopedToolDisable::default(),
+        ctx: &ctxr,
+    });
+    assert!(matches!(
+        BrokerPolicy.evaluate(&escape_ctx).await,
+        PolicyDecision::MissingAuthority { .. }
+    ));
+
+    let denied_args = serde_json::json!({"command": "git status -s"});
+    let denied_ctx = pctx(TestPolicyParams {
+        tool: &tool,
+        name: "execute_command",
+        args: &denied_args,
+        target: ScopeTarget::Command("git status -s".to_string()),
+        unattended: false,
+        disabled: HashSet::new(),
+        scoped: ScopedToolDisable::default(),
+        ctx: &ctxr,
+    });
+    assert!(matches!(
+        BrokerPolicy.evaluate(&denied_ctx).await,
+        PolicyDecision::Deny { .. }
     ));
 }

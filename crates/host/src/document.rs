@@ -17,7 +17,7 @@
 //! - encrypted documents and pages without a text layer are typed failures,
 //!   not empty strings. OCR is not performed here.
 use pdf_extract::{Document, PlainTextOutput};
-use tool::{DocumentError, DocumentExtractor, ExtractedDocument};
+use tool::{DocumentError, DocumentExtractor, ExtractedDocument, PageRange};
 
 /// Maximum number of pages inspected from one PDF.
 pub const MAX_DOCUMENT_PAGES: usize = 1_000;
@@ -33,7 +33,12 @@ pub const MAX_EXTRACTED_TEXT_BYTES: usize = 4 * 1024 * 1024;
 pub struct HostDocumentExtractor;
 
 impl DocumentExtractor for HostDocumentExtractor {
-    fn extract(&self, mime: &str, data: &[u8]) -> Result<ExtractedDocument, DocumentError> {
+    fn extract(
+        &self,
+        mime: &str,
+        data: &[u8],
+        page_range: Option<PageRange>,
+    ) -> Result<ExtractedDocument, DocumentError> {
         if mime != "application/pdf" {
             return Err(DocumentError::Unsupported {
                 mime: mime.to_string(),
@@ -43,7 +48,12 @@ impl DocumentExtractor for HostDocumentExtractor {
         // panics at the seam so a malformed document becomes a typed failure
         // instead of poisoning the blocking-thread join or the runtime.
         match std::panic::catch_unwind(|| {
-            extract_pdf(data, MAX_DOCUMENT_PAGES, MAX_EXTRACTED_TEXT_BYTES)
+            extract_pdf(
+                data,
+                MAX_DOCUMENT_PAGES,
+                MAX_EXTRACTED_TEXT_BYTES,
+                page_range,
+            )
         }) {
             Ok(result) => result,
             Err(_) => Err(DocumentError::Malformed {
@@ -57,6 +67,7 @@ fn extract_pdf(
     data: &[u8],
     page_limit: usize,
     byte_limit: usize,
+    page_range: Option<PageRange>,
 ) -> Result<ExtractedDocument, DocumentError> {
     let mut doc =
         Document::load_mem(data).map_err(|err| malformed(format!("cannot load PDF: {err}")))?;
@@ -73,16 +84,34 @@ fn extract_pdf(
     if total_pages == 0 {
         return Err(malformed("PDF has no pages".to_string()));
     }
+    if let Some(range) = page_range
+        && range.start > total_pages
+    {
+        return Err(DocumentError::PageOutOfRange {
+            requested: range.start,
+            total_pages,
+        });
+    }
     let page_numbers: Vec<u32> = pages.keys().copied().collect();
 
     let mut text = String::new();
     let mut inspected = 0usize;
     let mut included = 0usize;
     let mut truncated = false;
+    let mut next_page = None;
 
-    for page_number in page_numbers {
+    for (idx, page_number) in page_numbers.into_iter().enumerate() {
+        let ordinal = idx + 1;
+        if page_range.is_some_and(|range| range.before_start(ordinal)) {
+            continue;
+        }
+        if page_range.is_some_and(|range| range.past_end(ordinal)) {
+            next_page = Some(ordinal);
+            break;
+        }
         if inspected >= page_limit {
             truncated = true;
+            next_page = Some(ordinal);
             break;
         }
         inspected += 1;
@@ -97,11 +126,15 @@ fn extract_pdf(
         let complete = append_page(&mut text, page_number, &page, byte_limit);
         if text.len() == before {
             truncated = true;
+            next_page = Some(ordinal);
             break;
         }
         included += 1;
         if !complete {
             truncated = true;
+            if ordinal < total_pages {
+                next_page = Some(ordinal + 1);
+            }
             break;
         }
     }
@@ -118,6 +151,7 @@ fn extract_pdf(
         pages: included,
         total_pages,
         truncated,
+        next_page,
     })
 }
 
@@ -220,7 +254,7 @@ mod tests {
 
     fn extract(data: &[u8]) -> ExtractedDocument {
         HostDocumentExtractor
-            .extract("application/pdf", data)
+            .extract("application/pdf", data, None)
             .expect("extract PDF text")
     }
 
@@ -251,7 +285,7 @@ mod tests {
     #[test]
     fn no_text_layer_is_a_typed_failure() {
         let error = HostDocumentExtractor
-            .extract("application/pdf", NO_TEXT)
+            .extract("application/pdf", NO_TEXT, None)
             .expect_err("scanned/empty PDF must not look like a successful read");
         assert!(matches!(error, DocumentError::NoText { pages: 1 }));
     }
@@ -278,7 +312,7 @@ mod tests {
             .expect("serialize encrypted PDF");
 
         let error = HostDocumentExtractor
-            .extract("application/pdf", &encrypted)
+            .extract("application/pdf", &encrypted, None)
             .expect_err("a password-protected PDF must not read as empty text");
         assert_eq!(error, DocumentError::Encrypted);
     }
@@ -286,7 +320,7 @@ mod tests {
     #[test]
     fn malformed_bytes_are_a_typed_failure_not_a_panic() {
         let error = HostDocumentExtractor
-            .extract("application/pdf", b"%PDF-1.7\nnot a real document")
+            .extract("application/pdf", b"%PDF-1.7\nnot a real document", None)
             .expect_err("truncated PDF must be reported");
         assert!(matches!(error, DocumentError::Malformed { .. }));
     }
@@ -294,7 +328,7 @@ mod tests {
     #[test]
     fn unsupported_mime_is_named() {
         let error = HostDocumentExtractor
-            .extract("application/msword", b"whatever")
+            .extract("application/msword", b"whatever", None)
             .expect_err("only PDF is registered");
         assert_eq!(
             error,
@@ -306,17 +340,63 @@ mod tests {
 
     #[test]
     fn page_limit_reports_truncation_without_hiding_the_total() {
-        let document = extract_pdf(TWO_PAGE, 1, MAX_EXTRACTED_TEXT_BYTES).expect("one page");
+        let document = extract_pdf(TWO_PAGE, 1, MAX_EXTRACTED_TEXT_BYTES, None).expect("one page");
         assert_eq!(document.total_pages, 2);
         assert_eq!(document.pages, 1);
         assert!(document.truncated);
+        assert_eq!(document.next_page, Some(2));
         assert!(document.text.contains("Page one hello"));
         assert!(!document.text.contains("Page two world"));
     }
 
     #[test]
+    fn page_range_selects_requested_slice_and_reports_next_page() {
+        let range = PageRange::parse("2").unwrap();
+        let document = extract_pdf(
+            TWO_PAGE,
+            MAX_DOCUMENT_PAGES,
+            MAX_EXTRACTED_TEXT_BYTES,
+            Some(range),
+        )
+        .expect("second page");
+        assert_eq!(document.total_pages, 2);
+        assert_eq!(document.pages, 1);
+        assert!(!document.truncated);
+        assert_eq!(document.next_page, None);
+        assert!(!document.text.contains("Page one hello"));
+        assert!(document.text.contains("Page two world"));
+
+        let first_only = PageRange::parse("1").unwrap();
+        let document = extract_pdf(
+            TWO_PAGE,
+            MAX_DOCUMENT_PAGES,
+            MAX_EXTRACTED_TEXT_BYTES,
+            Some(first_only),
+        )
+        .expect("first page");
+        assert!(!document.truncated);
+        assert_eq!(document.next_page, Some(2));
+
+        let oob = PageRange::parse("5").unwrap();
+        let err = extract_pdf(
+            TWO_PAGE,
+            MAX_DOCUMENT_PAGES,
+            MAX_EXTRACTED_TEXT_BYTES,
+            Some(oob),
+        )
+        .expect_err("page 5 out of range");
+        assert_eq!(
+            err,
+            DocumentError::PageOutOfRange {
+                requested: 5,
+                total_pages: 2
+            }
+        );
+    }
+
+    #[test]
     fn byte_limit_keeps_a_utf8_prefix_and_reports_truncation() {
-        let document = extract_pdf(TWO_PAGE, MAX_DOCUMENT_PAGES, 32).expect("prefix");
+        let document = extract_pdf(TWO_PAGE, MAX_DOCUMENT_PAGES, 32, None).expect("prefix");
         assert!(document.truncated);
         assert!(document.text.len() <= 32);
         assert!(std::str::from_utf8(document.text.as_bytes()).is_ok());

@@ -14,12 +14,12 @@ use super::*;
 /// state they assert — so no tooltip layer is needed. The authoritative
 /// long-form wording (usage, subcommands, examples) lives in the slash-command
 /// catalog (`BuiltinCmd::SPECS` in `server`), which is where
-/// `/unattended on|off` and `/confinement on|off` explain themselves. Adding a
+/// `/auto-approve on|off` and `/confinement on|off` explain themselves. Adding a
 /// second explanation surface here would fork that text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 
 pub(crate) enum PostureToken {
-    /// Tool calls are approved without asking (`--unattended` / `/unattended on`).
+    /// Tool calls are approved without asking (`--auto-approve` / `/auto-approve on`).
     Auto,
     /// File tools may leave the workspace (`/confinement off`).
     Open,

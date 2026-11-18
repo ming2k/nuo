@@ -18,7 +18,7 @@ use provider::auth::{
 };
 use provider::transport::Http;
 
-use crate::envelope::{CodeBuddyAuthEnvelope, CodeBuddyEnvelope};
+use super::envelope::{CodeBuddyAuthEnvelope, CodeBuddyEnvelope};
 
 /// Route base every auth surface path is prefixed with
 /// (the CLI's `product.json authentication.attributes.prefixPath`).
@@ -71,11 +71,13 @@ impl CodeBuddyRealmSurface {
     }
 
     /// The plugin route base for this surface's auth lane.
+    #[cfg(test)]
     pub fn route_base(&self) -> String {
         format!("{}{PLUGIN_PREFIX}", self.base)
     }
 
     /// The bare origin this surface's credentials are bound to.
+    #[cfg(test)]
     pub fn origin(&self) -> &'static str {
         self.base
     }

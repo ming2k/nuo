@@ -68,8 +68,8 @@ pub struct Config {
     /// Declarative permission rules (`[permissions]` table). Each entry is a
     /// `[[permissions.allow]]` rule (`tool` + `scope`) pre-seeded into the
     /// allowlist at startup, so default policies are data-driven rather than
-    /// only interactive. Runtime "Always" decisions still add to the persisted
-    /// `permissions.json`; these config rules are re-applied on every start.
+    /// only interactive. Runtime "Always" decisions persist to `permission_rules`
+    /// in `nuo.db`; these config rules are re-applied on every start.
     #[serde(default)]
     pub permissions: PermissionConfig,
     /// Filesystem roots admitted in addition to the active project root.

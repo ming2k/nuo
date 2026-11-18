@@ -3,6 +3,15 @@
 use super::*;
 
 impl DbReader {
+    fn conn(&self) -> &Connection {
+        match &self.conn {
+            // `conn` is only taken by `Drop`; no `DbReader` method can run
+            // after its destructor starts.
+            Some(conn) => conn,
+            None => unreachable!("DbReader connection is present until Drop"),
+        }
+    }
+
     /// The database file this reader is bound to.
     pub fn db_path(&self) -> &Path {
         &self.db_path
@@ -13,7 +22,7 @@ impl DbReader {
     /// [`crate::thread::CommitTurn::expected_revision`] to make its next write
     /// conditional on the revision it actually read.
     pub fn session_revision(&self, session_id: &str) -> Result<u64> {
-        session_revision(&self.engine.conn, session_id)
+        session_revision(self.conn(), session_id)
     }
 
     /// The latest durable commit receipt for a session (D3):
@@ -21,22 +30,21 @@ impl DbReader {
     /// lost an acknowledgement resolves its outcome here by operation
     /// identity before replaying dependent work.
     pub fn commit_receipt(&self, session_id: &str) -> Result<Option<(String, u64)>> {
-        latest_commit_receipt(&self.engine.conn, session_id)
+        latest_commit_receipt(self.conn(), session_id)
             .map(|receipt| receipt.map(|(operation_id, _hash, revision)| (operation_id, revision)))
     }
 
     /// Load the canonical durable thread aggregate.
     pub fn load_thread(&self, thread_id: &str) -> Result<Option<protocol::Thread>> {
-        crate::db::thread_store::load_thread(&self.engine.conn, &protocol::ThreadId::new(thread_id))
+        crate::db::thread_store::load_thread(self.conn(), &protocol::ThreadId::new(thread_id))
             .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))
     }
 
     #[allow(dead_code)]
     pub(crate) fn usage_days(&self, limit: usize) -> Result<Vec<String>> {
         let mut stmt = self
-            .engine
-            .conn
-            .prepare("SELECT DISTINCT day FROM usage_records ORDER BY day DESC LIMIT ?1")?;
+            .conn()
+            .prepare_cached("SELECT DISTINCT day FROM usage_records ORDER BY day DESC LIMIT ?1")?;
         stmt.query_map([limit as i64], |r| r.get(0))?.collect()
     }
 
@@ -45,7 +53,7 @@ impl DbReader {
         days: usize,
         limit: usize,
     ) -> Result<Vec<protocol::usage_stats::UsageStatRecord>> {
-        let mut stmt = self.engine.conn.prepare("SELECT payload,day,recorded_at_ms,project FROM usage_records
+        let mut stmt = self.conn().prepare_cached("SELECT payload,day,recorded_at_ms,project FROM usage_records
             WHERE day IN (SELECT DISTINCT day FROM usage_records ORDER BY day DESC LIMIT ?1)
             AND json_extract(payload,'$.status') != 'in_flight' ORDER BY recorded_at_ms DESC,session_id,actor_id,round,turn,attempt LIMIT ?2")?;
         let rows = stmt
@@ -82,7 +90,7 @@ impl DbReader {
         let mut report = UsageStatsReport::default();
         let mut day_map = std::collections::BTreeMap::<String, UsageModelTotals>::new();
         let mut model_map = std::collections::BTreeMap::<(String, String), UsageModelTotals>::new();
-        let mut stmt = self.engine.conn.prepare("SELECT day,provider,model,SUM(requests),SUM(completed),SUM(prompt_tokens),SUM(completion_tokens),SUM(total_tokens),SUM(cache_write_tokens),SUM(cache_read_tokens),SUM(estimated_tokens)
+        let mut stmt = self.conn().prepare_cached("SELECT day,provider,model,SUM(requests),SUM(completed),SUM(prompt_tokens),SUM(completion_tokens),SUM(total_tokens),SUM(cache_write_tokens),SUM(cache_read_tokens),SUM(estimated_tokens)
             FROM usage_contributions WHERE requests>0 AND day IN (SELECT DISTINCT day FROM usage_records ORDER BY day DESC LIMIT ?1) GROUP BY day,provider,model")?;
         let rows = stmt.query_map([days as i64], |r| {
             Ok((
@@ -138,16 +146,14 @@ impl DbReader {
         report.last_day = report.days.last().map(|r| r.day.clone());
         report.events = self.usage_records(days, event_cap.min(1000))?;
         report.events.reverse();
-        report.source_revision =
-            self.engine
-                .conn
-                .query_row("SELECT revision FROM usage_clock WHERE id=1", [], |r| {
-                    r.get(0)
-                })?;
-        let oldest: Option<u64> =
-            self.engine
-                .conn
-                .query_row("SELECT MIN(revision) FROM usage_dirty", [], |r| r.get(0))?;
+        report.source_revision = self
+            .conn()
+            .prepare_cached("SELECT revision FROM usage_clock WHERE id=1")?
+            .query_row([], |r| r.get(0))?;
+        let oldest: Option<u64> = self
+            .conn()
+            .prepare_cached("SELECT MIN(revision) FROM usage_dirty")?
+            .query_row([], |r| r.get(0))?;
         report.projection_revision = oldest
             .map(|r| r.saturating_sub(1))
             .unwrap_or(report.source_revision);
@@ -158,7 +164,7 @@ impl DbReader {
 
     /// One thread's header row, if it exists.
     pub fn get_session(&self, session_id: &str) -> Result<Option<ThreadRecord>> {
-        crate::db::thread_session::get_session(&self.engine.conn, session_id)
+        crate::db::thread_session::get_session(self.conn(), session_id)
     }
 
     /// Threads matching a role-scoped filter, newest first.
@@ -167,12 +173,12 @@ impl DbReader {
         filter: &protocol::ThreadFilter,
         include_subagents: bool,
     ) -> Result<Vec<ThreadRecord>> {
-        crate::db::thread_session::list_sessions(&self.engine.conn, filter, include_subagents)
+        crate::db::thread_session::list_sessions(self.conn(), filter, include_subagents)
     }
 
     /// Subagent threads spawned by `parent_id`.
     pub fn list_subagent_sessions(&self, parent_id: &str) -> Result<Vec<ThreadRecord>> {
-        crate::db::thread_session::list_subagent_sessions(&self.engine.conn, parent_id)
+        crate::db::thread_session::list_subagent_sessions(self.conn(), parent_id)
     }
 
     /// Candidate sessions for switching, strictly excluding the active session.
@@ -181,7 +187,7 @@ impl DbReader {
         filter: &protocol::ThreadFilter,
         active_id: &str,
     ) -> Result<Vec<crate::thread::ThreadSummary>> {
-        crate::db::thread_session::list_switch_candidates(&self.engine.conn, filter, active_id)
+        crate::db::thread_session::list_switch_candidates(self.conn(), filter, active_id)
     }
 
     /// Picker-facing summaries for a role-scoped filter, newest first.
@@ -190,17 +196,17 @@ impl DbReader {
         filter: &protocol::ThreadFilter,
         active_id: &str,
     ) -> Result<Vec<crate::thread::ThreadSummary>> {
-        crate::db::thread_session::list_session_summaries(&self.engine.conn, filter, active_id)
+        crate::db::thread_session::list_session_summaries(self.conn(), filter, active_id)
     }
 
     /// The most recently updated session id in `filter` (`--resume`).
     pub fn latest_session(&self, filter: &protocol::ThreadFilter) -> Result<Option<String>> {
-        crate::db::thread_session::latest_session(&self.engine.conn, filter)
+        crate::db::thread_session::latest_session(self.conn(), filter)
     }
 
     /// The most recently updated session id in an exact scope (`--resume`).
     pub fn latest_session_in_scope(&self, scope: &protocol::ThreadScope) -> Result<Option<String>> {
-        crate::db::thread_session::latest_session_in_scope(&self.engine.conn, scope)
+        crate::db::thread_session::latest_session_in_scope(self.conn(), scope)
     }
 
     /// A session's inherited workspace binding plus its persona.
@@ -208,7 +214,7 @@ impl DbReader {
         &self,
         session_id: &str,
     ) -> Result<Option<(Option<protocol::WorkspaceBinding>, Option<String>)>> {
-        crate::db::thread_session::lookup_session_workspace(&self.engine.conn, session_id)
+        crate::db::thread_session::lookup_session_workspace(self.conn(), session_id)
     }
 
     /// A session's immutable role manifest snapshot.
@@ -216,7 +222,7 @@ impl DbReader {
         &self,
         session_id: &str,
     ) -> Result<Option<protocol::ThreadRoleManifest>> {
-        crate::db::thread_session::lookup_session_manifest(&self.engine.conn, session_id)
+        crate::db::thread_session::lookup_session_manifest(self.conn(), session_id)
     }
 
     /// Resolve an id prefix to every matching session id.
@@ -225,7 +231,7 @@ impl DbReader {
         prefix: &str,
         filter: &protocol::ThreadFilter,
     ) -> Result<Vec<String>> {
-        crate::db::thread_session::resolve_session_prefix(&self.engine.conn, prefix, filter)
+        crate::db::thread_session::resolve_session_prefix(self.conn(), prefix, filter)
     }
 
     /// Full detail for one session (the session-info sub-view).
@@ -234,12 +240,12 @@ impl DbReader {
         session_id: &str,
         active_id: &str,
     ) -> Result<Option<protocol::ThreadDetail>> {
-        crate::db::thread_session::get_session_detail(&self.engine.conn, session_id, active_id)
+        crate::db::thread_session::get_session_detail(self.conn(), session_id, active_id)
     }
 
     /// One session's raw durable data (the load path of `ThreadSession`).
     pub fn load_session_full(&self, session_id: &str) -> Result<Option<crate::thread::ThreadData>> {
-        crate::db::thread_session::load_session_full(&self.engine.conn, session_id)
+        crate::db::thread_session::load_session_full(self.conn(), session_id)
     }
 
     /// A session's projected transcript tail as wire rows (the Archivist's
@@ -249,14 +255,14 @@ impl DbReader {
         session_id: &str,
         tail: usize,
     ) -> Result<Option<ThreadTranscriptView>> {
-        crate::db::thread_session::read_session_transcript(&self.engine.conn, session_id, tail)
+        crate::db::thread_session::read_session_transcript(self.conn(), session_id, tail)
     }
 
     /// Every blob hash the durable reference ledger still mentions. The sweep
     /// that consumes this is a *filesystem* pass, so it runs on the caller's
     /// thread rather than blocking the writer.
     pub fn live_blob_hashes(&self) -> Result<std::collections::HashSet<String>> {
-        crate::db::garbage_collection::live_blob_hashes(&self.engine.conn)
+        crate::db::garbage_collection::live_blob_hashes(self.conn())
     }
 
     // -- recall / history --------------------------------------------------
@@ -268,7 +274,7 @@ impl DbReader {
         filter: Option<&protocol::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
-        crate::db::history_search::search_history(&self.engine.conn, query, filter, limit)
+        crate::db::history_search::search_history(self.conn(), query, filter, limit)
     }
 
     /// [`Self::search_history`] with the words OR-joined (recall fallback).
@@ -278,12 +284,12 @@ impl DbReader {
         filter: Option<&protocol::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
-        crate::db::history_search::search_history_relaxed(&self.engine.conn, query, filter, limit)
+        crate::db::history_search::search_history_relaxed(self.conn(), query, filter, limit)
     }
 
     /// The prompt history, oldest first, capped at `limit`.
     pub fn load_input_history(&self, limit: usize) -> Result<Vec<protocol::HistoryEntry>> {
-        crate::db::input_history::load_input_history(&self.engine.conn, limit)
+        crate::db::input_history::load_input_history(self.conn(), limit)
     }
 
     /// Archived request projections for one session, oldest first.
@@ -292,23 +298,31 @@ impl DbReader {
         session_id: &str,
         limit: usize,
     ) -> Result<Vec<protocol::RequestProjection>> {
-        crate::db::usage_projection::load_request_projections(&self.engine.conn, session_id, limit)
+        crate::db::usage_projection::load_request_projections(self.conn(), session_id, limit)
     }
 
     // -- typed key/value ---------------------------------------------------
 
     /// A raw key-value entry.
     pub fn get_kv(&self, key: &str) -> Result<Option<String>> {
-        crate::db::kv_store::get_kv(&self.engine.conn, key)
+        crate::db::kv_store::get_kv(self.conn(), key)
     }
 
     /// A JSON-encoded key-value entry.
     pub fn get_json<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Result<Option<T>> {
-        crate::db::kv_store::get_json(&self.engine.conn, key)
+        crate::db::kv_store::get_json(self.conn(), key)
     }
 
     /// Every key with the given prefix.
     pub fn list_kv_keys_with_prefix(&self, prefix: &str) -> Result<Vec<String>> {
-        crate::db::kv_store::list_kv_keys_with_prefix(&self.engine.conn, prefix)
+        crate::db::kv_store::list_kv_keys_with_prefix(self.conn(), prefix)
+    }
+
+    /// Load all persisted `allow` and `revoked` permission rules for `(role_id, workspace)`.
+    pub fn load_permission_rules(
+        &self,
+        target: &crate::db::permissions::PermissionScopeTarget,
+    ) -> Result<Vec<crate::db::permissions::StoredPermissionRuleRow>> {
+        crate::db::permissions::load_permission_rules(self.conn(), target)
     }
 }

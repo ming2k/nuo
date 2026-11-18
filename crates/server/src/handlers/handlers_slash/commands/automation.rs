@@ -1,33 +1,48 @@
 //! Automation and background-job commands.
 
 use super::super::record::{record_ack, record_command, record_error};
-use super::super::session_route::{parse_confinement_arg, parse_unattended_arg};
+use super::super::session_route::{parse_auto_approve_arg, parse_confinement_arg};
 use crate::handlers::handlers_slash::SlashEnv;
+use engine::Agent;
 use engine::orchestration::round_response;
-use protocol::{CommandResult, RoundEvent};
+use persistence::thread::ThreadSession;
+use protocol::{AgentResponse, CommandResult, RoundEvent};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
-pub(crate) async fn unattended(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
+pub(crate) async fn auto_approve(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
     let SlashEnv {
         agent,
         resp_tx,
         session,
         ..
     } = env;
+    apply_auto_approve(agent, resp_tx, session, name, args, parts).await;
+}
+
+pub(crate) async fn apply_auto_approve(
+    agent: &Arc<Agent>,
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    session: &Arc<ThreadSession>,
+    name: &str,
+    args: &str,
+    parts: &[&str],
+) {
     let arg = parts.get(1).map(|s| s.to_lowercase()).unwrap_or_default();
-    let next = match parse_unattended_arg(&arg) {
+    let next = match parse_auto_approve_arg(&arg) {
         Ok(next) => next,
         Err(msg) => {
             record_error(session, resp_tx, name, args, msg).await;
             return;
         }
     };
-    // A bare `/unattended` (`None`) toggles the current state.
+    // A bare `/auto-approve` (`None`) toggles the current state.
     let enabled = next.unwrap_or_else(|| !agent.unattended());
     agent.set_unattended(enabled);
     if let Err(error) = session.set_unattended(enabled).await {
         tracing::warn!(
             error = %error,
-            "could not persist unattended posture; it will not survive a restart"
+            "could not persist auto-approve posture; it will not survive a restart"
         );
     }
     // The ack is a headline plus dimmed explanation lines (never a
@@ -37,15 +52,16 @@ pub(crate) async fn unattended(env: SlashEnv<'_>, name: &str, args: &str, parts:
     // second transcript entry.
     let (title, detail) = if enabled {
         (
-            "Unattended mode ON",
+            "Auto-approve mode ON",
             vec![
-                "Autonomous decision-making & tool execution enabled".to_string(),
-                "Ambiguities resolved self-reliantly without interruptions".to_string(),
+                "Tool permissions and confirmable commands are auto-approved without prompts"
+                    .to_string(),
+                "Not persisted to allowlist; hard deny rules remain enforced".to_string(),
             ],
         )
     } else {
         (
-            "Unattended mode OFF",
+            "Auto-approve mode OFF",
             vec![
                 "Interactive confirmation prompts restored".to_string(),
                 "Questions and approval prompts are available".to_string(),

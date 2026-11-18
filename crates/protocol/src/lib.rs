@@ -324,9 +324,15 @@ pub use policy_schema::*;
 ///
 /// 30: `AgentResponse` and `RoundEvent` wire shapes updated (background job
 /// outbox / measured-usage telemetry).
-pub const PROTOCOL_VERSION: u32 = 30;
+///
+/// 31: Permission negotiation carries a suggested prefix scope and an exact
+/// `Always` variant (ADR-0212), so a client can choose between a generalized
+/// `cargo test *` grant and the literal command. The variant is not decodable
+/// by a v30 peer and the new server must not interpret a v30 client's `Always`
+/// as the generalized grant it never saw, so the floor moves with the ceiling.
+pub const PROTOCOL_VERSION: u32 = 31;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 30;
+pub const MIN_PROTOCOL_VERSION: u32 = 31;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

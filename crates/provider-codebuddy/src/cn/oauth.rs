@@ -4,9 +4,9 @@
 use std::sync::Arc;
 
 use provider::auth::OAuthProvider;
-use provider_codebuddy_auth::handoff::CodeBuddyRealmSurface;
 
-use crate::{ALLOWED_CREDENTIAL_DOMAINS, CODEBUDDY_CN_ORIGIN, PROVIDER_ID};
+use crate::auth::handoff::CodeBuddyRealmSurface;
+use crate::cn::{ALLOWED_CREDENTIAL_DOMAINS, CODEBUDDY_CN_ORIGIN, PROVIDER_ID};
 
 /// The sign-in prompt copy for the domestic line (Tencent Cloud account).
 const LOGIN_MESSAGE: &str = "Open the URL and sign in to your Tencent CodeBuddy (CN) account.";
@@ -22,8 +22,7 @@ pub fn providers() -> Vec<Arc<dyn OAuthProvider>> {
     ))]
 }
 
-/// The domains this channel's credentials may originate from (re-exported for
-/// the server registry wiring).
+/// The domains this channel's credentials may originate from.
 pub fn allowed_credential_domains() -> &'static [&'static str] {
     ALLOWED_CREDENTIAL_DOMAINS
 }
