@@ -3,20 +3,8 @@
 
 use persistence::config::{Config, Credentials, resolve_web_config};
 use protocol::{
-    SecretString, WebCredentialStatus, WebProviderAxis, WebReaderProvider, WebSearchProvider,
+    SecretString, WebCredentialStatus, WebProviderAxis, WebSearchProvider,
 };
-
-fn sandbox() -> (host::paths::TestDirsGuard, tempfile::TempDir) {
-    let root = tempfile::tempdir().unwrap();
-    let dirs = host::paths::Dirs {
-        config_dir: root.path().join("config"),
-        data_dir: root.path().join("data"),
-        state_dir: root.path().join("state"),
-        cache_dir: root.path().join("cache"),
-        runtime_dir: None,
-    };
-    (host::paths::TestDirsGuard::install(dirs), root)
-}
 
 #[test]
 fn config_is_behavior_only_and_uses_web_table() {
@@ -58,19 +46,6 @@ fn provider_credentials_round_trip_by_axis_and_id() {
 }
 
 #[test]
-fn legacy_builtin_reader_canonicalizes_to_disabled() {
-    let (_sandbox, _root) = sandbox();
-    std::fs::create_dir_all(&host::paths::get().config_dir).unwrap();
-    std::fs::write(
-        Config::config_file_path(),
-        "[websearch]\nreader = 'builtin'\n",
-    )
-    .unwrap();
-    let config = Config::load();
-    assert_eq!(config.web.reader, WebReaderProvider::Disabled);
-}
-
-#[test]
 fn required_credential_readiness_is_explicit() {
     let mut config = Config::default();
     config.web.provider = WebSearchProvider::Tavily;
@@ -82,55 +57,3 @@ fn required_credential_readiness_is_explicit() {
     assert!(resolved.runtime.search_credential.is_none());
 }
 
-#[test]
-fn legacy_connection_selection_and_token_migrate_without_deleting_source() {
-    let (_sandbox, _root) = sandbox();
-    let dirs = host::paths::get();
-    std::fs::create_dir_all(&dirs.config_dir).unwrap();
-    std::fs::create_dir_all(&dirs.state_dir).unwrap();
-    std::fs::write(
-        Config::config_file_path(),
-        "[websearch]\nprovider = 'team-search'\nreader = 'builtin'\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dirs.web_connections_file(),
-        "[[search_connections]]\nid = 'team-search'\npreset_id = 'tavily'\nenabled = true\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dirs.credentials_file(),
-        "[connections]\nteam-search = 'legacy-secret'\n",
-    )
-    .unwrap();
-
-    let config = Config::load();
-    let credentials = Credentials::load();
-    assert_eq!(config.web.provider, WebSearchProvider::Tavily);
-    assert_eq!(config.web.reader, WebReaderProvider::Disabled);
-    assert_eq!(
-        credentials
-            .web_credential(WebProviderAxis::Search, "tavily")
-            .map(SecretString::expose_secret),
-        Some("legacy-secret")
-    );
-    assert!(
-        dirs.web_connections_file().exists(),
-        "legacy source is archival, not deleted"
-    );
-
-    let mut credentials = credentials;
-    credentials.set_web_credential(WebProviderAxis::Search, "tavily", None);
-    credentials.save().unwrap();
-    let reloaded = Credentials::load();
-    assert!(
-        reloaded
-            .web_credential(WebProviderAxis::Search, "tavily")
-            .is_none(),
-        "the one-shot migration marker must prevent a cleared token from being resurrected"
-    );
-    assert!(
-        reloaded.connections.contains_key("team-search"),
-        "the preserved source credential remains available for manual recovery"
-    );
-}

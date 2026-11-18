@@ -1,7 +1,7 @@
 //! User configuration schema and persistence.
 use host::fsutil;
 use host::paths;
-use protocol::{CompactionPolicy, McpServerConfig, WebConfig};
+use protocol::{McpServerConfig, WebConfig};
 use tool::SkillsConfig;
 
 pub use protocol::ConnectionAuth as ConfigChannelAuth;
@@ -24,8 +24,6 @@ pub use types::*;
 pub struct Config {
     pub default_connection: String,
     pub mcp: HashMap<String, McpServerConfig>,
-    /// Versioned context lifecycle and admission policy.
-    pub context: protocol::context_policy::ContextPolicy,
     /// Maximum number of attempts for a single model request when the connection returns a
     /// transient error (HTTP 408/429/5xx, connection, timeout). The initial try
     /// counts as the first attempt, so this is the *total* attempts, not extra
@@ -110,158 +108,11 @@ pub struct Config {
     pub server: ServerConfig,
 }
 
-#[derive(Deserialize)]
-pub(super) struct RawConfig {
-    #[serde(default)]
-    default_connection: Option<String>,
-    #[serde(default)]
-    default_model: Option<String>,
-    #[serde(default)]
-    mcp: Option<HashMap<String, McpServerConfig>>,
-    #[serde(default)]
-    context: Option<protocol::context_policy::ContextPolicy>,
-    #[serde(default)]
-    compaction: Option<CompactionPolicy>,
-    #[serde(default)]
-    compaction_preserve_rounds: Option<usize>,
-    #[serde(default)]
-    compaction_summarize: Option<bool>,
-    #[serde(default)]
-    compaction_prune: Option<bool>,
-    #[serde(default)]
-    compaction_prune_protect_tokens: Option<usize>,
-    #[serde(default)]
-    connection_retry_max_attempts: Option<usize>,
-    #[serde(default)]
-    connection_stream_restart_max_attempts: Option<usize>,
-    #[serde(default)]
-    connection_retry_base_ms: Option<u64>,
-    #[serde(default)]
-    connection_retry_max_ms: Option<u64>,
-    #[serde(default)]
-    favorites: Option<Vec<String>>,
-    #[serde(default)]
-    hidden_models: Option<Vec<String>>,
-    #[serde(default)]
-    skills: Option<SkillsConfig>,
-    #[serde(default)]
-    permissions: Option<PermissionConfig>,
-    #[serde(default)]
-    workspace: Option<WorkspaceConfig>,
-    #[serde(default)]
-    bash_policy: Option<BashPolicyConfig>,
-    #[serde(default)]
-    web: Option<WebConfig>,
-    #[serde(default)]
-    agent: Option<AgentConfig>,
-    #[serde(default)]
-    hooks: Option<Vec<HookSpec>>,
-    #[serde(default)]
-    tool_variants: Option<ToolVariantsConfig>,
-    #[serde(default)]
-    instructions: Option<UserInstructionsConfig>,
-    /// Retired key: recognized only to fail with a precise migration message.
-    #[serde(default)]
-    model_guidance: Option<toml::Value>,
-    #[serde(default)]
-    server: Option<ServerConfig>,
-}
-
-impl<'de> Deserialize<'de> for Config {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = RawConfig::deserialize(deserializer)?;
-        let mut cfg = Config::default();
-        if let Some(c) = raw.default_connection {
-            cfg.default_connection = c;
-        }
-        if let Some(m) = raw.default_model {
-            cfg.default_model = Some(m);
-        }
-        if let Some(mcp) = raw.mcp {
-            cfg.mcp = mcp;
-        }
-        if raw.compaction.is_some()
-            || raw.compaction_preserve_rounds.is_some()
-            || raw.compaction_summarize.is_some()
-            || raw.compaction_prune.is_some()
-            || raw.compaction_prune_protect_tokens.is_some()
-        {
-            return Err(serde::de::Error::custom(
-                "legacy 'compaction.*' configuration is retired [INV-POLICY-01]; run `nuo context migrate` to convert to versioned `context.*` policy",
-            ));
-        }
-        if let Some(ctx) = raw.context {
-            ctx.validate().map_err(serde::de::Error::custom)?;
-            cfg.context = ctx;
-        }
-        if let Some(a) = raw.connection_retry_max_attempts {
-            cfg.connection_retry_max_attempts = a;
-        }
-        if let Some(a) = raw.connection_stream_restart_max_attempts {
-            cfg.connection_stream_restart_max_attempts = a;
-        }
-        if let Some(b) = raw.connection_retry_base_ms {
-            cfg.connection_retry_base_ms = b;
-        }
-        if let Some(m) = raw.connection_retry_max_ms {
-            cfg.connection_retry_max_ms = m;
-        }
-        if let Some(f) = raw.favorites {
-            cfg.favorites = f;
-        }
-        if let Some(h) = raw.hidden_models {
-            cfg.hidden_models = h;
-        }
-        if let Some(s) = raw.skills {
-            cfg.skills = s;
-        }
-        if let Some(p) = raw.permissions {
-            cfg.permissions = p;
-        }
-        if let Some(w) = raw.workspace {
-            cfg.workspace = w;
-        }
-        if let Some(b) = raw.bash_policy {
-            cfg.bash_policy = b;
-        }
-        if let Some(web) = raw.web {
-            cfg.web = web;
-        }
-        if let Some(a) = raw.agent {
-            cfg.agent = a;
-        }
-        if let Some(h) = raw.hooks {
-            cfg.hooks = h;
-        }
-        if let Some(tv) = raw.tool_variants {
-            cfg.tool_variants = tv;
-        }
-        if raw.model_guidance.is_some() {
-            return Err(serde::de::Error::custom(
-                "`[model_guidance]` is retired; move its entries to `[[instructions.user]]` \
-                 (provider/connection/model selectors, model is a glob)",
-            ));
-        }
-        if let Some(instructions) = raw.instructions {
-            instructions.validate().map_err(serde::de::Error::custom)?;
-            cfg.instructions = instructions;
-        }
-        if let Some(d) = raw.server {
-            cfg.server = d;
-        }
-        Ok(cfg)
-    }
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
             default_connection: String::new(),
             mcp: HashMap::new(),
-            context: protocol::context_policy::ContextPolicy::default(),
             connection_retry_max_attempts: 30,
             connection_stream_restart_max_attempts: 3,
             connection_retry_base_ms: 1_000,
@@ -290,8 +141,6 @@ struct DomainServerFile {
     lifecycle: Option<DomainServerLifecycle>,
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<DomainServerNetwork>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    server: Option<ServerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -357,8 +206,11 @@ struct DomainClientModels {
 struct DomainAgentFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<AgentConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    context: Option<protocol::context_policy::ContextPolicy>,
+    /// Retired key: context thresholds always follow the active model's
+    /// window and are not user-tunable. Accepted (and ignored) so files written
+    /// by older builds still load; never written back.
+    #[serde(skip_serializing)]
+    context: Option<toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     permissions: Option<PermissionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -377,9 +229,6 @@ struct DomainAgentFile {
     tool_variants: Option<ToolVariantsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<UserInstructionsConfig>,
-    /// Retired key: recognized only to fail with a precise migration message.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model_guidance: Option<toml::Value>,
 }
 
 /// Fail-fast boundary for the configuration matrix (`[INV-CONF-04]`).
@@ -396,55 +245,9 @@ fn fatal_config(message: std::fmt::Arguments<'_>) -> ! {
 
 impl Config {
     pub fn load() -> Self {
-        Self::promote_legacy_config_if_needed();
         let mut cfg = Config::default();
         Self::apply_domain_overlays(&mut cfg);
         cfg
-    }
-
-    /// One-way promotion (ADR-0031 `[INV-CONF-04]`). If the retired monolithic
-    /// `config.toml` is present and no domain file has been written yet, it is
-    /// translated into the domain matrix and then removed. There is no runtime
-    /// fallback: after promotion `config.toml` is gone for good.
-    fn promote_legacy_config_if_needed() {
-        let legacy = Self::config_file_path();
-        if !legacy.exists() {
-            return;
-        }
-        let domains_exist = Self::server_config_file_path().exists()
-            || Self::client_config_file_path().exists()
-            || Self::agent_config_file_path().exists();
-        if domains_exist {
-            // The domain matrix is authoritative; the legacy file is a stale
-            // artifact from a previous install.
-            let _ = fs::remove_file(&legacy);
-            return;
-        }
-        if let Err(error) = Self::migrate_legacy_config() {
-            fatal_config(format_args!(
-                "could not migrate legacy config.toml: {error}"
-            ));
-        }
-        let _ = fs::remove_file(&legacy);
-    }
-
-    /// Translate the legacy `config.toml` into the ADR-0031 domain matrix.
-    /// Deterministic and offline: writes `server.toml`, `client.toml`, and
-    /// `agent.toml`. `terminal.toml` is owned by `nuo-tui` and is not touched.
-    pub fn migrate_legacy_config() -> Result<(), String> {
-        let legacy = Self::config_file_path();
-        let source = fs::read_to_string(&legacy).map_err(|e| e.to_string())?;
-        let source = crate::web_migration::migrate_config_source(&source);
-        let cfg = Self::parse_legacy_config(&source)?;
-        cfg.save_domain_files().map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    /// Parse a legacy monolithic `config.toml` source into the aggregate. Used
-    /// only by the one-way promotion; the active runtime parses the domain
-    /// files with `deny_unknown_fields` via [`Self::apply_domain_overlays`].
-    fn parse_legacy_config(source: &str) -> Result<Config, String> {
-        toml::from_str::<Config>(source).map_err(|e| e.to_string())
     }
 
     /// Strictly validate one domain file's source against its schema. Used by
@@ -495,9 +298,6 @@ impl Config {
             {
                 cfg.server.local_auth = la;
             }
-            if let Some(d) = server.server {
-                cfg.server = d;
-            }
         }
 
         // 2. client.toml
@@ -543,11 +343,12 @@ impl Config {
             if let Some(a) = agent_doc.agent {
                 cfg.agent = a;
             }
-            if let Some(c) = agent_doc.context {
-                if let Err(error) = c.validate() {
-                    fatal_config(format_args!("invalid agent.toml [context]: {error}"));
-                }
-                cfg.context = c;
+            if agent_doc.context.is_some() {
+                tracing::warn!(
+                    "agent.toml `[context]` is retired and ignored: compaction thresholds \
+                     follow the active model's context window; the section is dropped on the \
+                     next config save"
+                );
             }
             if let Some(p) = agent_doc.permissions {
                 cfg.permissions = p;
@@ -569,12 +370,6 @@ impl Config {
             }
             if let Some(tv) = agent_doc.tool_variants {
                 cfg.tool_variants = tv;
-            }
-            if agent_doc.model_guidance.is_some() {
-                fatal_config(format_args!(
-                    "agent.toml `[model_guidance]` is retired; move its entries to \
-                     `[[instructions.user]]` (provider/connection/model selectors, model is a glob)"
-                ));
             }
             if let Some(instructions) = agent_doc.instructions {
                 if let Err(error) = instructions.validate() {
@@ -601,7 +396,6 @@ impl Config {
             network: Some(DomainServerNetwork {
                 local_auth: Some(self.server.local_auth),
             }),
-            server: None,
         };
         fsutil::atomic_write_bytes(
             &Self::server_config_file_path(),
@@ -631,7 +425,7 @@ impl Config {
 
         let agent = DomainAgentFile {
             agent: Some(self.agent.clone()),
-            context: Some(self.context.clone()),
+            context: None,
             permissions: Some(self.permissions.clone()),
             workspace: Some(self.workspace.clone()),
             bash_policy: Some(self.bash_policy.clone()),
@@ -645,7 +439,6 @@ impl Config {
             } else {
                 Some(self.instructions.clone())
             },
-            model_guidance: None,
         };
         fsutil::atomic_write_bytes(
             &Self::agent_config_file_path(),
@@ -1110,10 +903,6 @@ impl Config {
 
         out.save_domain_files()?;
         Ok(())
-    }
-
-    pub fn config_file_path() -> PathBuf {
-        paths::get().config_file()
     }
 
     /// Primary server server configuration path (`$XDG_CONFIG_HOME/nuo/server.toml`, ADR-0031).

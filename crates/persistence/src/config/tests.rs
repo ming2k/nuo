@@ -1,91 +1,78 @@
 use super::*;
 
 #[test]
-fn agent_table_round_trips_through_toml() {
-    // The `[agent]` table must round-trip: partial TOML keeps defaults,
-    // full TOML preserves explicit overrides.
-    let toml_canonical = r#"
-            [agent]
-            hard_stop_turns = 40
-        "#;
-    let cfg: Config = toml::from_str(toml_canonical).unwrap();
+fn agent_table_round_trips_through_domain_file() {
+    let _sandbox = sandbox_config_dir();
+    std::fs::write(
+        Config::agent_config_file_path(),
+        "[agent]
+hard_stop_turns = 40
+",
+    )
+    .unwrap();
+    let cfg = Config::load();
     assert_eq!(cfg.agent.hard_stop_turns, 40);
 
-    // Missing `[agent]` table → defaults match the documented values.
-    let cfg: Config = toml::from_str("").unwrap();
-    assert_eq!(cfg.agent.hard_stop_turns, 0);
-
-    // Round-trip through save+load format (serialize then parse).
+    // Round-trip through save_domain_files + load.
     let mut cfg = Config::default();
     cfg.agent.hard_stop_turns = 99;
-    let serialised = toml::to_string(&cfg).unwrap();
-    let parsed: Config = toml::from_str(&serialised).unwrap();
+    cfg.save_domain_files().unwrap();
+    let parsed = Config::load();
     assert_eq!(parsed.agent.hard_stop_turns, 99);
 }
 
 #[test]
-fn compaction_round_count_writes_canonical_key_and_drops_legacy_key() {
-    // The pre-ADR-0047 key is not aliased. It parses as
-    // an unknown key (warned and ignored) and the field stays at its
-    // default — the stale value must not carry through.
-    let legacy: Config = toml::from_str("compaction_preserve_turns = 9").unwrap();
-    assert_eq!(
-        legacy.context.preferred_recent_rounds,
-        Config::default().context.preferred_recent_rounds
-    );
-
-    let serialized = toml::to_string(&legacy).unwrap();
-    assert!(serialized.contains("preferred_recent_rounds ="));
-    assert!(!serialized.contains("compaction_preserve_turns ="));
-    assert!(!serialized.contains("[compaction]"));
-}
-
-#[test]
-fn legacy_compaction_keys_are_refused_under_inv_policy_01() {
-    let err = toml::from_str::<Config>("[compaction]\nutilization = 0.85\n").unwrap_err();
-    assert!(err.to_string().contains("retired [INV-POLICY-01]"));
-
-    let err2 = toml::from_str::<Config>("compaction_preserve_rounds = 6\n").unwrap_err();
-    assert!(err2.to_string().contains("retired [INV-POLICY-01]"));
+fn retired_context_section_in_agent_toml_is_ignored_and_dropped_on_save() {
+    let _sandbox = sandbox_config_dir();
+    let source = "[context]\nschema_version = 1\nmax_input_tokens = 128000\n\
+                  [context.watermarks]\nsoft_bp = 6500\nhard_bp = 8500\ntarget_bp = 5000\n";
+    Config::validate_domain_source("agent.toml", source).unwrap();
+    std::fs::write(Config::agent_config_file_path(), source).unwrap();
+    let loaded = Config::load();
+    loaded.save().unwrap();
+    let saved = std::fs::read_to_string(Config::agent_config_file_path()).unwrap();
+    assert!(!saved.contains("[context]"), "got: {saved}");
+    assert!(!saved.contains("max_input_tokens"), "got: {saved}");
 }
 
 #[test]
 fn trajectory_guard_table_writes_canonical_key() {
-    let canonical: Config =
-        toml::from_str("[agent.trajectory_guard]\nenabled = false\nwindow = 24\n").unwrap();
+    let _sandbox = sandbox_config_dir();
+    std::fs::write(
+        Config::agent_config_file_path(),
+        "[agent.trajectory_guard]\nenabled = false\nwindow = 24\n",
+    )
+    .unwrap();
+    let canonical = Config::load();
     assert!(!canonical.agent.trajectory_guard.enabled);
     assert_eq!(canonical.agent.trajectory_guard.window, 24);
-
-    let serialized = toml::to_string(&canonical).unwrap();
-    assert!(
-        serialized.contains("[agent.trajectory_guard]"),
-        "got: {serialized}"
-    );
+    canonical.save_domain_files().unwrap();
+    let saved = std::fs::read_to_string(Config::agent_config_file_path()).unwrap();
+    assert!(saved.contains("[agent.trajectory_guard]"), "got: {saved}");
 }
 
 #[test]
 fn restart_budget_parses_canonically() {
-    let canonical: Config = toml::from_str(
-        "connection_retry_max_attempts = 12\n\
-             connection_stream_restart_max_attempts = 1\n",
+    let _sandbox = sandbox_config_dir();
+    std::fs::write(
+        Config::client_config_file_path(),
+        "[resilience]\nretry_max_attempts = 12\nstream_restart_max_attempts = 1\n",
     )
     .unwrap();
+    let canonical = Config::load();
     assert_eq!(canonical.connection_retry_max_attempts, 12);
     assert_eq!(canonical.connection_stream_restart_max_attempts, 1);
-
-    let serialized = toml::to_string(&canonical).unwrap();
+    canonical.save_domain_files().unwrap();
+    let saved = std::fs::read_to_string(Config::client_config_file_path()).unwrap();
     assert!(
-        serialized.contains("connection_stream_restart_max_attempts = 1"),
-        "got: {serialized}"
+        saved.contains("stream_restart_max_attempts = 1"),
+        "got: {saved}"
     );
 }
 
 #[test]
 fn tool_variants_table_parses_and_resolves_per_model() {
-    // The table name mirrors the Config field name (`tool_variants`), as
-    // serde maps struct fields to TOML keys verbatim. The model id is
-    // quoted because it contains dots/hyphens. Each entry maps a capability
-    // name to the variant id chosen for that model.
+    let _sandbox = sandbox_config_dir();
     let toml_src = r#"
             [tool_variants."kimi-k2.7-code"]
             read = "terse"
@@ -94,9 +81,9 @@ fn tool_variants_table_parses_and_resolves_per_model() {
             [tool_variants."glm-5.2"]
             read = "verbose"
         "#;
-    let cfg: Config = toml::from_str(toml_src).unwrap();
+    std::fs::write(Config::agent_config_file_path(), toml_src).unwrap();
+    let cfg = Config::load();
 
-    // Known model → its map; unlisted capability within a known model → absent.
     let kimi = cfg.tool_variants.for_model("kimi-k2.7-code");
     assert_eq!(kimi.get("read").map(String::as_str), Some("terse"));
     assert_eq!(
@@ -105,21 +92,16 @@ fn tool_variants_table_parses_and_resolves_per_model() {
     );
     assert!(kimi.get("grep").is_none());
 
-    // A different model gets its own independent map.
     let glm = cfg.tool_variants.for_model("glm-5.2");
     assert_eq!(glm.get("read").map(String::as_str), Some("verbose"));
     assert!(glm.get("execute_command").is_none());
 
-    // Unknown model → empty (but borrowable without an Option).
     assert!(cfg.tool_variants.for_model("does-not-exist").is_empty());
-
-    // Absent table entirely → empty config, every lookup is empty.
-    let cfg: Config = toml::from_str("").unwrap();
-    assert!(cfg.tool_variants.for_model("kimi-k2.7-code").is_empty());
 }
 
 #[test]
 fn tool_variants_round_trip_through_serialise() {
+    let _sandbox = sandbox_config_dir();
     let mut cfg = Config::default();
     let mut sel = protocol::VariantSelection::new();
     sel.insert("read".to_string(), "terse".to_string());
@@ -127,8 +109,8 @@ fn tool_variants_round_trip_through_serialise() {
     cfg.tool_variants
         .0
         .insert("kimi-k2.7-code".to_string(), ModelToolVariants(sel));
-    let serialised = toml::to_string(&cfg).unwrap();
-    let parsed: Config = toml::from_str(&serialised).unwrap();
+    cfg.save_domain_files().unwrap();
+    let parsed = Config::load();
     let resolved = parsed.tool_variants.for_model("kimi-k2.7-code");
     assert_eq!(resolved.get("read").map(String::as_str), Some("terse"));
     assert_eq!(resolved.get("bash").map(String::as_str), Some("strict"));
@@ -136,6 +118,7 @@ fn tool_variants_round_trip_through_serialise() {
 
 #[test]
 fn user_instructions_parse_and_validate() {
+    let _sandbox = sandbox_config_dir();
     let toml_src = r#"
             [[instructions.user]]
             model = "*deepseek*"
@@ -148,7 +131,8 @@ fn user_instructions_parse_and_validate() {
             model = "deepseek/deepseek-v4-flash-fast"
             text = "Review tightly."
         "#;
-    let cfg: Config = toml::from_str(toml_src).unwrap();
+    std::fs::write(Config::agent_config_file_path(), toml_src).unwrap();
+    let cfg = Config::load();
     assert_eq!(cfg.instructions.user.len(), 2);
     let scoped = cfg.instructions.scoped();
     assert_eq!(scoped.len(), 2);
@@ -159,37 +143,26 @@ fn user_instructions_parse_and_validate() {
     assert_eq!(scoped[1].selector.role.as_deref(), Some("reviewer"));
     assert_eq!(scoped[1].selector.connection.as_deref(), Some("cc-fox"));
 
-    let serialized = toml::to_string(&cfg).unwrap();
-    assert!(serialized.contains("[[instructions.user]]"), "{serialized}");
-    let reparsed: Config = toml::from_str(&serialized).unwrap();
+    cfg.save_domain_files().unwrap();
+    let reparsed = Config::load();
     assert_eq!(reparsed.instructions, cfg.instructions);
 }
 
 #[test]
 fn user_instruction_validation_rejects_empty_text_and_bad_patterns() {
     let missing_text =
-        toml::from_str::<Config>("[[instructions.user]]\nmodel = '*x*'\n").unwrap_err();
+        toml::from_str::<DomainAgentFile>("[[instructions.user]]\nmodel = '*x*'\n").unwrap_err();
     assert!(missing_text.to_string().contains("text"), "{missing_text}");
 
-    let bad_pattern =
-        toml::from_str::<Config>("[[instructions.user]]\nmodel = '['\ntext = 'x'\n").unwrap_err();
-    assert!(
-        bad_pattern.to_string().contains("invalid `model` pattern"),
-        "{bad_pattern}"
-    );
+    let doc: DomainAgentFile =
+        toml::from_str("[[instructions.user]]\nmodel = '['\ntext = 'x'\n").unwrap();
+    let bad_pattern = doc.instructions.unwrap().validate().unwrap_err();
+    assert!(bad_pattern.contains("invalid `model` pattern"), "{bad_pattern}");
 
-    let empty_text = toml::from_str::<Config>("[[instructions.user]]\ntext = '   '\n").unwrap_err();
-    assert!(empty_text.to_string().contains("empty"), "{empty_text}");
-}
-
-#[test]
-fn retired_model_guidance_is_rejected_with_migration() {
-    let error = toml::from_str::<Config>("[model_guidance]\n\"*x*\" = \"y\"\n").unwrap_err();
-    assert!(error.to_string().contains("retired"), "{error}");
-    assert!(
-        error.to_string().contains("[[instructions.user]]"),
-        "{error}"
-    );
+    let doc: DomainAgentFile =
+        toml::from_str("[[instructions.user]]\ntext = '   '\n").unwrap();
+    let empty_text = doc.instructions.unwrap().validate().unwrap_err();
+    assert!(empty_text.contains("empty"), "{empty_text}");
 }
 
 /// A sandboxed config root: a fresh throwaway directory with the
@@ -272,9 +245,11 @@ fn credentials_ignore_legacy_sections_and_read_connections() {
     // `[user.<id>]`) is superseded by the canonical `[connections.<id>]`.
     // The retired `[providers]` spelling is no longer an alias
     // (ADR-0031 `[INV-CONF-01]`).
-    let sandbox = sandbox_config_dir();
+    let _sandbox = sandbox_config_dir();
+    let creds_path = host::paths::get().credentials_file();
+    std::fs::create_dir_all(creds_path.parent().unwrap()).unwrap();
     std::fs::write(
-        sandbox.path().join("credentials.toml"),
+        &creds_path,
         r#"[builtins]
 openai = "old-builtin"
 [user.my-relay]
@@ -350,23 +325,11 @@ fn catalog_cache_and_remote_round_trip() {
 #[test]
 fn config_save_writes_domain_files_only() {
     let sandbox = sandbox_config_dir();
-    std::fs::write(
-        sandbox.path().join("config.toml"),
-        "default_connection = \"deepseek\"\n[[providers]]\nid = \"deepseek\"\n",
-    )
-    .unwrap();
-    let loaded = Config::load();
-    assert_eq!(loaded.default_connection, "deepseek");
-    assert!(
-        !sandbox.path().join("config.toml").exists(),
-        "the legacy monolith is retired on promotion"
-    );
-    let mut cfg = loaded;
+    let mut cfg = Config::load();
     cfg.default_connection = "glm-cn".to_string();
     cfg.save().unwrap();
     let client = std::fs::read_to_string(Config::client_config_file_path()).unwrap();
     assert!(client.contains("default_connection = \"glm-cn\""));
-    assert!(!client.contains("providers"));
     assert!(!sandbox.path().join("config.toml").exists());
 }
 

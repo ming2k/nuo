@@ -31,24 +31,14 @@ impl ContextProjectionSettings {
     pub const PRUNE_MIN_RECLAIM_TOKENS: usize = protocol::PRUNE_QUANTUM_FLOOR_TOKENS;
 
     /// Resolve settings for the active model's context window. `window_tokens`
-    /// is the live model's context window (tokens); `0` means unknown and the
-    /// policy's fallback window is substituted.
-    /// Resolve settings from a modern versioned context policy.
-    pub fn from_context_policy(
-        policy: &protocol::context_policy::ContextPolicy,
-        window_tokens: usize,
-    ) -> Self {
-        Self {
-            budget: policy.resolve_budget(window_tokens),
-            preserve_rounds: policy.preferred_recent_rounds as usize,
-            summarize: policy.checkpoint_enabled,
-            prune: policy.lightweight_degradation_enabled,
-            prune_protect_tokens: policy.recent_observation_protect_tokens as usize,
-            request_overhead_tokens: 0,
-        }
+    /// is the live model's declared context window; `0` means unknown and the
+    /// policy's fallback window is substituted. This is the production entry
+    /// point: thresholds are internal and always model-relative.
+    pub fn for_window(window_tokens: usize) -> Self {
+        Self::from_policy(&protocol::CompactionPolicy::default(), window_tokens)
     }
 
-    /// Resolve settings from a compaction policy (historical compatibility).
+    /// Resolve settings from an explicit policy (tests and tuning experiments).
     pub fn from_policy(policy: &protocol::CompactionPolicy, window_tokens: usize) -> Self {
         Self {
             budget: policy.resolve(window_tokens),
@@ -58,10 +48,6 @@ impl ContextProjectionSettings {
             prune_protect_tokens: policy.prune_protect_tokens,
             request_overhead_tokens: 0,
         }
-    }
-
-    pub fn from_config(config: &Config, window_tokens: usize) -> Self {
-        Self::from_context_policy(&config.context, window_tokens)
     }
 
     /// Adjust the post-compaction history target so the complete projected

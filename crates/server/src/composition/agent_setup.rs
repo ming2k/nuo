@@ -18,16 +18,11 @@ pub fn active_context_window(agent: &Agent) -> usize {
 /// Re-seed the agent's model-relative context controls.
 ///
 /// Called at startup and after every provider/model switch so the mid-turn prune
-/// threshold (pressure relief; `0` when lightweight degradation is disabled)
-/// tracks the live model instead of a frozen, model-agnostic budget.
-pub fn reseed_context_policy(agent: &Agent, config: &Config) {
+/// threshold tracks the live model's window instead of a frozen budget.
+pub fn reseed_context_policy(agent: &Agent) {
     let window = active_context_window(agent);
-    let budget = config.context.resolve_budget(window);
-    agent.set_context_prune_threshold(if config.context.lightweight_degradation_enabled {
-        budget.prune_threshold_tokens
-    } else {
-        0
-    });
+    let budget = engine::orchestration::ContextProjectionSettings::for_window(window).budget;
+    agent.set_context_prune_threshold(budget.prune_threshold_tokens);
 }
 
 /// Install the mid-turn projection gate for `session`.
@@ -45,15 +40,8 @@ pub fn reseed_context_policy(agent: &Agent, config: &Config) {
 pub fn install_projection_gate(
     agent: &Agent,
     session: &Arc<ThreadSession>,
-    config: &Config,
     settings: engine::SettingsForWindow,
 ) {
-    if !config.context.lightweight_degradation_enabled {
-        // Gate removed, not merely idle: a stale gate would project against a
-        // window it no longer tracks.
-        agent.set_context_projection_gate(None);
-        return;
-    }
     agent.set_context_projection_gate(Some(Arc::new(engine::PruningProjectionGate::new(
         Arc::clone(session),
         settings,

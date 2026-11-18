@@ -62,13 +62,6 @@ pub struct Connection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
     /// Legacy client identity field, silently tolerated on load and pruned on save.
-    #[serde(
-        default,
-        skip_serializing,
-        alias = "client_identity",
-        alias = "client_profile"
-    )]
-    pub _legacy_client_identity: Option<serde_json::Value>,
     /// Optional HTTP headers to attach to requests for this connection.
     /// Used primarily by custom/proxy endpoints that require specific headers
     /// (e.g. User-Agent, X-Title, or gateway routing keys).
@@ -100,7 +93,6 @@ impl Default for Connection {
             provider: String::new(),
             auth: ConnectionAuth::Static,
             api_key_env: None,
-            _legacy_client_identity: None,
             headers: std::collections::BTreeMap::new(),
             models: ModelScopeConfig::default(),
             catalog_dimensions: std::collections::BTreeMap::new(),
@@ -366,7 +358,6 @@ mod tests {
             provider: "anthropic".into(),
             auth: ConnectionAuth::Static,
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
-            _legacy_client_identity: None,
             headers: std::collections::BTreeMap::from([(
                 "User-Agent".to_string(),
                 "custom-agent/1.0".to_string(),
@@ -539,21 +530,4 @@ period = "session"
         assert_eq!(connections, round_tripped);
     }
 
-    #[test]
-    fn legacy_client_identity_is_tolerated_on_load_and_pruned_on_save() {
-        let legacy_toml = r#"
-[[connections]]
-name = "legacy-conn"
-provider = "openai"
-client_identity = "claude-code"
-"#;
-        let connections: Connections = toml::from_str(legacy_toml).unwrap();
-        assert_eq!(connections.connections.len(), 1);
-        let conn = &connections.connections[0];
-        assert_eq!(conn.name, "legacy-conn");
-
-        let serialized = toml::to_string(&connections).unwrap();
-        assert!(!serialized.contains("client_identity"));
-        assert!(!serialized.contains("client_profile"));
-    }
 }

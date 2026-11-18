@@ -304,7 +304,7 @@ pub(crate) async fn activate(
         .write()
         .unwrap_or_else(|error| error.into_inner()) = new_p;
 
-    reseed_context_policy(agent, config);
+    reseed_context_policy(agent);
     // The gate itself needs no re-install: its settings closure resolves the
     // window from the live provider on every projection, so the thresholds already
     // follow this switch.

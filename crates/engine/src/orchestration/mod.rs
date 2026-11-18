@@ -35,7 +35,6 @@ use tokio_util::sync::CancellationToken;
 use crate::{Agent, RequestTokenEstimate, RoundBegin, RoundLifecycle};
 use persistence::{
     CommitTurn,
-    config::Config,
     thread::{CommitBasis, ContextProjectionCheckpoint, ContextProjectionResult, ThreadSession},
 };
 use protocol::{

@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// One MCP server entry from the `[mcp.<name>]` table of `config.toml`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One MCP server entry from the `[mcp.<name>]` table of `agent.toml`.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct McpServerConfig {
     pub url: Option<String>,
@@ -31,6 +31,24 @@ pub struct McpServerConfig {
     pub enable_resources: bool,
     #[serde(skip)]
     pub sandbox_root: Option<PathBuf>,
+}
+
+impl std::fmt::Debug for McpServerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let env_keys: Vec<&String> = self.environment.keys().collect();
+        f.debug_struct("McpServerConfig")
+            .field("url", &self.url)
+            .field("command", &self.command)
+            .field("environment_keys", &env_keys)
+            .field("enabled", &self.enabled)
+            .field("read_only", &self.read_only)
+            .field("allow_tools", &self.allow_tools)
+            .field("deny_tools", &self.deny_tools)
+            .field("defer_tools", &self.defer_tools)
+            .field("enable_resources", &self.enable_resources)
+            .field("sandbox_root", &self.sandbox_root)
+            .finish()
+    }
 }
 
 impl Default for McpServerConfig {

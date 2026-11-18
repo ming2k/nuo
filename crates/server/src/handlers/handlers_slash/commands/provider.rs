@@ -51,18 +51,14 @@ pub(crate) async fn quota(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
 
 pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
     let SlashEnv {
-        config,
         agent,
         resp_tx,
         session,
         ..
     } = env;
     let mut current = session.model_window().await;
-    let settings = ContextProjectionSettings::from_context_policy(
-        &config.context,
-        active_context_window(agent),
-    )
-    .for_request(agent.estimate_next_request_tokens(&current));
+    let settings = ContextProjectionSettings::for_window(active_context_window(agent))
+        .for_request(agent.estimate_next_request_tokens(&current));
 
     let _ = resp_tx.send(round_response(
         &session.id().await,

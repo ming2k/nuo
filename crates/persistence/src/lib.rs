@@ -47,7 +47,6 @@ pub mod roles;
 pub mod route_settings;
 pub mod thread;
 pub mod usage_stats;
-mod web_migration;
 pub mod workspace_effects;
 pub mod workspace_security;
 

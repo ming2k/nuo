@@ -265,36 +265,6 @@ fn policy_falls_back_for_unknown_window() {
 }
 
 #[test]
-fn policy_round_trips_through_serde_with_defaults() {
-    // A config with no compaction table keeps the documented defaults.
-    let policy: CompactionPolicy = toml::from_str("").unwrap();
-    assert_eq!(policy, CompactionPolicy::default());
-
-    // Explicit overrides survive a round-trip.
-    let toml = r#"
-        utilization = 0.9
-        target_utilization = 0.2
-        prune_utilization = 0.7
-        fallback_window_tokens = 64_000
-    "#;
-    let policy: CompactionPolicy = toml::from_str(toml).unwrap();
-    let budget = policy.resolve(100_000);
-    assert_eq!(budget.prune_threshold_tokens, 70_000);
-    assert_eq!(budget.compaction_threshold_tokens, 90_000);
-}
-
-#[test]
-fn removed_working_set_keys_are_ignored_for_compatibility() {
-    let policy: CompactionPolicy =
-        toml::from_str("max_active_tokens = 96000\nprompt_reserve_tokens = 8000\n").unwrap();
-
-    assert_eq!(policy, CompactionPolicy::default());
-    let serialized = toml::to_string(&policy).unwrap();
-    assert!(!serialized.contains("max_active_tokens"));
-    assert!(!serialized.contains("prompt_reserve_tokens"));
-}
-
-#[test]
 fn default_policy_uses_the_full_large_model_window() {
     let budget = CompactionPolicy::default().resolve(1_000_000);
     assert_eq!(budget.window_tokens, 1_000_000);

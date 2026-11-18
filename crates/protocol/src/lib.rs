@@ -186,12 +186,6 @@ pub use workspace::{
 
 pub mod session_title;
 
-pub mod context_policy;
-pub use context_policy::{
-    CONTEXT_POLICY_SCHEMA_VERSION, ContextPolicy, DEFAULT_MAX_INPUT_TOKENS,
-    DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS, PolicyError, WatermarkError, WatermarkPolicy,
-};
-
 pub mod session_tree;
 pub use session_tree::{
     CompactionPayload, ThreadEntry, ThreadEntryId, ThreadEntryKind, ThreadTree,

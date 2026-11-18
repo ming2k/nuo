@@ -47,16 +47,13 @@ const TRUNCATE_MIN_TOKENS: usize = 512;
 /// Tokens of head and of tail preserved when truncating a candidate.
 const TRUNCATE_KEEP_EACH_SIDE_TOKENS: usize = 128;
 
-/// Declarative context-compaction policy expressed as fractions of the active
-/// model's full context window, plus a fallback window for models whose size
-/// the registry does not know. Pure data; resolved into absolute token
-/// thresholds for one concrete model by [`CompactionPolicy::resolve`].
-///
-/// Request pressure is estimated in tokens from prepared messages and tool
-/// schemas, so these thresholds compare directly against a model's
-/// token-denominated context window.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+/// Internal context-compaction policy: fractions of the active model's declared
+/// context window, plus a fallback window for models whose size is unknown.
+/// Not user-configurable — thresholds always follow the live model's window,
+/// so a 1M-token model compacts near 850k, not at an arbitrary fixed cap.
+/// Pure data; resolved into absolute token thresholds for one concrete model by
+/// [`CompactionPolicy::resolve`].
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CompactionPolicy {
     /// Trigger a full summarizing compaction once pressure reaches this fraction
     /// of the window. The remaining headroom absorbs finishing the current round
@@ -75,19 +72,15 @@ pub struct CompactionPolicy {
     /// still relieve pressure instead of overflowing.
     pub fallback_window_tokens: usize,
     /// Number of recent complete user rounds preserved verbatim by full compaction.
-    #[serde(alias = "compaction_preserve_rounds")]
     pub preserve_rounds: usize,
     /// Use the active model to produce an anchored, structured summary when
     /// compacting. When `false` (or when summarization fails) compaction falls
     /// back to deterministic message excerpts.
-    #[serde(alias = "compaction_summarize")]
     pub summarize: bool,
     /// Enable cheap tool-result pruning (pre-turn and mid-turn) that clears old
     /// tool outputs in place to relieve context pressure before a full compaction.
-    #[serde(alias = "compaction_prune")]
     pub prune: bool,
     /// Token budget of the most recent tool results protected from pruning.
-    #[serde(alias = "compaction_prune_protect_tokens")]
     pub prune_protect_tokens: usize,
 }
 

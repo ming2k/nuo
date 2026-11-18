@@ -6,6 +6,16 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [Unreleased]
+
+### Fixed
+
+- **Large-window models no longer compact at ~10% of their window.** A hidden default `max_input_tokens = 128000` capped every model, so a 1M-token model compacted at ~109k tokens while the status bar showed ~11% used. Context thresholds now derive only from the active model's declared window (1M → compaction near 850k) ([ADR-0214](docs/adr/0214-context-thresholds-follow-the-model-window-and-are-not-user-configuration.md)).
+
+### Removed
+
+- The user-facing `agent.toml [context]` policy (watermarks, `max_input_tokens`, enable flags, protect budgets, schema version), `ContextPolicy`/`WatermarkPolicy`, and the unused offline `migration_policy` converter. Existing `[context]` sections and legacy `compaction*` keys are ignored with a warning and dropped on the next config save.
+
 ## [0.0.94] - 2026-11-18
 
 ### Added

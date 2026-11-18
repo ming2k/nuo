@@ -21,7 +21,6 @@ mod handle;
 pub mod history_search;
 pub mod input_history;
 pub mod kv_store;
-pub mod migration_policy;
 pub mod migrations;
 pub mod permissions;
 mod reader;

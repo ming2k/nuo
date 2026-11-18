@@ -73,10 +73,7 @@ pub(crate) async fn start_turn(env: ChatEnv<'_>, mut input: RoundInput) {
         };
         input = RoundInput::resume(pending);
     }
-    let projection = ContextProjectionSettings::from_context_policy(
-        &config.context,
-        active_context_window(agent),
-    );
+    let projection = ContextProjectionSettings::for_window(active_context_window(agent));
     let retry_max_attempts = config.connection_retry_max_attempts;
     let stream_restart_max_attempts = config.connection_stream_restart_max_attempts;
     let retry_base_ms = config.connection_retry_base_ms;

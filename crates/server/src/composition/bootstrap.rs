@@ -788,21 +788,18 @@ impl Assembler {
         // The relief closure is supplied here because the gate lives in
         // `orchestration`, above `cognition` (`[INV-HARNESS-04]`); the dispatch layer
         // only knows *that* a child needs relief, not what it is made of.
-        let subagent_context_policy = self.config.context.clone();
         subagent_tool_handle.bind_session(
             Arc::clone(&self.session),
             Arc::new(move |child: &Agent, child_session: Arc<ThreadSession>| {
                 let window = child.provider.model_capabilities().context_window;
-                let budget = subagent_context_policy.resolve_budget(window);
+                let budget =
+                    engine::orchestration::ContextProjectionSettings::for_window(window).budget;
                 child.set_context_prune_threshold(budget.prune_threshold_tokens);
-                let policy = subagent_context_policy.clone();
                 child.set_context_projection_gate(Some(Arc::new(
                     engine::PruningProjectionGate::new(
                         child_session,
                         Arc::new(move || {
-                            engine::orchestration::ContextProjectionSettings::from_context_policy(
-                                &policy, window,
-                            )
+                            engine::orchestration::ContextProjectionSettings::for_window(window)
                         }),
                         child.token_weights_handle(),
                         Some(child.provider.clone()),
@@ -1044,30 +1041,25 @@ impl Assembler {
         // `nuo attach <id>` loads eagerly as before.
         let is_picker = matches!(self.startup, ThreadStart::Picker);
 
-        // Mid-turn context projection: when pruning is enabled, install the gate that
-        // relieves pressure between ReAct turns. Without it, `project_context_if_needed`
+        // Mid-turn context projection: install the gate that relieves pressure
+        // between ReAct turns. Without it, `project_context_if_needed`
         // took its `let Some(gate) = gate else { return }` early return on every turn —
         // so a long single round had no relief valve, and neither did a subagent (which
         // runs one round to completion and never reaches `execute_round`'s pre-round
         // prune or compaction).
-        if self.config.context.lightweight_degradation_enabled {
-            crate::composition::agent_setup::reseed_context_policy(agent, &self.config);
-            // The settings closure resolves the window from the *live* provider each
-            // time the gate runs, so a `/model` switch needs no re-install.
-            let config_for_settings = self.config.clone();
-            let agent_for_settings = Arc::clone(&built.agent);
-            crate::composition::agent_setup::install_projection_gate(
-                agent,
-                &self.session,
-                &self.config,
-                Arc::new(move || {
-                    engine::orchestration::ContextProjectionSettings::from_context_policy(
-                        &config_for_settings.context,
-                        crate::composition::agent_setup::active_context_window(&agent_for_settings),
-                    )
-                }),
-            );
-        }
+        crate::composition::agent_setup::reseed_context_policy(agent);
+        // The settings closure resolves the window from the *live* provider each
+        // time the gate runs, so a `/model` switch needs no re-install.
+        let agent_for_settings = Arc::clone(&built.agent);
+        crate::composition::agent_setup::install_projection_gate(
+            agent,
+            &self.session,
+            Arc::new(move || {
+                engine::orchestration::ContextProjectionSettings::for_window(
+                    crate::composition::agent_setup::active_context_window(&agent_for_settings),
+                )
+            }),
+        );
 
         // Seed per-model tool-variant selection for the startup model. Each listed
         // capability is realized by its chosen variant in the schemas sent to the
@@ -1312,7 +1304,7 @@ fn spawn_mcp_config_watcher(
     };
 
     // 1. Watch user config directory
-    let user_config_file = host::paths::get().config_file();
+    let user_config_file = host::paths::get().agent_config_file();
     let canon_user_config = user_config_file.canonicalize().ok();
     if let Some(user_config_dir) = user_config_file.parent()
         && user_config_dir.exists()

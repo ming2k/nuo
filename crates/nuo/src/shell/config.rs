@@ -79,7 +79,6 @@ impl KeybindingsConfig {
     }
 }
 
-pub type MutxConfig = TuiConfig;
 
 impl Default for TuiConfig {
     fn default() -> Self {

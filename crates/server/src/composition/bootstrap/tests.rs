@@ -136,7 +136,7 @@ async fn test_mcp_watcher_user_config_does_not_trigger_workspace_warning() {
         .path()
         .canonicalize()
         .unwrap_or_else(|_| tmp.path().to_path_buf());
-    let user_config_file = host::paths::get().config_file();
+    let user_config_file = host::paths::get().agent_config_file();
 
     let sec_file = tmp.path().join("workspace_security.json");
     let security = Arc::new(WorkspaceSecurityStore::load_from(sec_file));

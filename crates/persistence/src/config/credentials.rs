@@ -42,27 +42,9 @@ pub struct Credentials {
     /// Credentials keyed by compiled web provider id, not connection id.
     #[serde(default, skip_serializing_if = "WebCredentials::is_empty")]
     pub web: WebCredentials,
-    /// One-shot migration markers. These prevent preserved legacy secrets from
-    /// being re-imported after a user deliberately clears their new value.
-    #[serde(default, skip_serializing_if = "CredentialMigrations::is_empty")]
-    pub migrations: CredentialMigrations,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct CredentialMigrations {
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub web_connections_v1: bool,
-}
-
-impl CredentialMigrations {
-    fn is_empty(&self) -> bool {
-        !self.web_connections_v1
-    }
-}
-
-/// Web credentials. Flat fields are accepted only as legacy migration input;
-/// serialization emits the search and reader maps.
+/// Web credentials keyed by compiled web provider id.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WebCredentials {
@@ -70,47 +52,11 @@ pub struct WebCredentials {
     pub search: BTreeMap<String, SecretString>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub reader: BTreeMap<String, SecretString>,
-    #[serde(default, skip_serializing)]
-    pub exa_api_key: Option<SecretString>,
-    #[serde(default, skip_serializing)]
-    pub parallel_api_key: Option<SecretString>,
-    #[serde(default, skip_serializing)]
-    pub tavily_api_key: Option<SecretString>,
-    #[serde(default, skip_serializing)]
-    pub bocha_api_key: Option<SecretString>,
-    #[serde(default, skip_serializing)]
-    pub jina_api_key: Option<SecretString>,
 }
 
 impl WebCredentials {
     pub fn is_empty(&self) -> bool {
-        self.search.is_empty()
-            && self.reader.is_empty()
-            && self.exa_api_key.is_none()
-            && self.parallel_api_key.is_none()
-            && self.tavily_api_key.is_none()
-            && self.bocha_api_key.is_none()
-            && self.jina_api_key.is_none()
-    }
-
-    fn normalize_legacy(&mut self) -> bool {
-        let mut changed = false;
-        for (id, secret) in [
-            ("exa", self.exa_api_key.take()),
-            ("parallel", self.parallel_api_key.take()),
-            ("tavily", self.tavily_api_key.take()),
-            ("bocha", self.bocha_api_key.take()),
-        ] {
-            if let Some(secret) = secret {
-                self.search.entry(id.to_string()).or_insert(secret);
-                changed = true;
-            }
-        }
-        if let Some(secret) = self.jina_api_key.take() {
-            self.reader.entry("jina".to_string()).or_insert(secret);
-            changed = true;
-        }
-        changed
+        self.search.is_empty() && self.reader.is_empty()
     }
 }
 
@@ -120,44 +66,13 @@ impl Credentials {
     }
 
     /// Read `credentials.toml` from `$XDG_STATE_HOME/nuo/credentials.toml` (ADR-0032).
-    /// If absent, automatically promotes any legacy file from `$XDG_CONFIG_HOME/nuo/credentials.toml`.
     pub fn load() -> Self {
         let path = Self::path();
-        let content = if let Ok(c) = fs::read_to_string(&path) {
-            c
-        } else {
-            // Check and auto-promote legacy credentials in config_dir
-            let legacy_path = paths::get().legacy_credentials_file();
-            if let Ok(c) = fs::read_to_string(&legacy_path) {
-                tracing::info!(
-                    legacy = %legacy_path.display(),
-                    target = %path.display(),
-                    "promoting legacy credentials.toml from config directory into state directory (ADR-0032)"
-                );
-                // Save immediately into modern path
-                let _ = fsutil::atomic_write_bytes(&path, c.as_bytes());
-                // Remove or clean legacy file to prevent dotfiles accidental git leaks
-                let _ = fs::remove_file(&legacy_path);
-                c
-            } else {
-                return Self::default();
-            }
+        let Ok(content) = fs::read_to_string(&path) else {
+            return Self::default();
         };
         match toml::from_str::<Self>(&content) {
-            Ok(mut credentials) => {
-                let mut changed = credentials.web.normalize_legacy();
-                if !credentials.migrations.web_connections_v1
-                    && crate::web_migration::migrate_connection_credentials(&mut credentials)
-                        .is_some()
-                {
-                    credentials.migrations.web_connections_v1 = true;
-                    changed = true;
-                }
-                if changed && let Err(error) = credentials.save() {
-                    tracing::warn!(%error, "could not persist migrated web credentials");
-                }
-                credentials
-            }
+            Ok(credentials) => credentials,
             Err(e) => {
                 tracing::warn!(
                     path = %path.display(),

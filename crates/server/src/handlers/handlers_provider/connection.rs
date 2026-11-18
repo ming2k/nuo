@@ -284,7 +284,6 @@ pub(crate) async fn add(
         provider: provider.clone(),
         auth: auth.clone(),
         api_key_env: None,
-        _legacy_client_identity: None,
         headers: headers.unwrap_or_default(),
         models: model_rules,
         catalog_dimensions: Default::default(),
