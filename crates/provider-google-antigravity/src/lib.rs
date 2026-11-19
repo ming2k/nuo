@@ -99,6 +99,32 @@ fn stamp_signature_origin(meta: &mut Map<String, Value>, origin: &str) {
     }
 }
 
+/// Sequence stamp for the emulated `agent` request ids.
+///
+/// The shipped CLI numbers requests per conversation cascade; the provider
+/// has no cascade notion, so a process-wide counter stands in. The id is an
+/// opaque tracing token to the backend — shape fidelity is what the capture
+/// pinned, not the counter's scope.
+static AGENT_REQUEST_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Build the `requestId` the shipped `agy` stamps on a main agent turn
+/// (live 1.5.12 capture, 2026-11-19):
+/// `agent/{uuid4}/{epoch-ms}/{uuid4}/{counter}`.
+fn antigravity_agent_request_id() -> String {
+    let seq = AGENT_REQUEST_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!(
+        "agent/{}/{}/{}/{}",
+        uuid::Uuid::new_v4(),
+        epoch_ms,
+        uuid::Uuid::new_v4(),
+        seq
+    )
+}
+
 /// Google native provider.
 ///
 /// Embeds the shared [`Endpoint`] (connection config). The provider holds no wire-format-unique fields:
@@ -749,9 +775,20 @@ impl GoogleProvider {
                 headers.insert("Authorization", bearer);
             }
 
-            // Wire truth (live capture 2026-10-14): the shipped `agy` sends no
-            // `x-goog-api-client` (nor any other client-identity header) on
-            // Cloud Code calls — the four-header set above is the whole story.
+            // Per-lane header identity (live decrypted capture of `agy`
+            // 1.5.12, 2026-11-19): **both** Cloud Code lanes carry the brand
+            // `antigravity/cli/…` UA over HTTP/1.1. The streaming call is no
+            // longer the Go-default h2 lane it was in the 1.5.9 lineage, so
+            // the `Go-http-client/2.0` override is gone; that stock UA now
+            // only ever appears on the h2 telemetry lane
+            // (`play.googleapis.com /log`), which this provider does not
+            // drive. A relay-configured custom UA stays on every lane
+            // unchanged.
+
+            // Wire truth (live capture 2026-10-14, re-verified 1.5.12):
+            // the shipped `agy` sends no `x-goog-api-client` (nor any other
+            // client-identity header) on Cloud Code calls — the four-header
+            // set above is the whole story.
 
             let project = auth
                 .extension::<protocol::auth::GoogleAuthMetadata>()
@@ -766,11 +803,25 @@ impl GoogleProvider {
                 &self.endpoint.model,
                 effective_effort,
             );
+            // Envelope body facts (live decrypted capture of `agy` 1.5.12,
+            // 2026-11-19, `--print` main agent turn):
+            // - `userAgent` is the bare brand echo `"antigravity"`, never the
+            //   header UA string;
+            // - `requestId` and `requestType` are present on main agent turns
+            //   too (`"agent/{uuid}/{epoch-ms}/{uuid}/{counter}"` and
+            //   `"agent"`) — the 1.5.9-era note that they belonged only to
+            //   the title/checkpoint lane no longer holds;
+            // - the shipped client also carries agent-runtime internals
+            //   inside `request` (`labels`, `sessionId`) that belong to the
+            //   CLI's cascade bookkeeping, not to the transport shape, and
+            //   are deliberately not faked here.
+            let request_id = antigravity_agent_request_id();
             let wrapped_body = serde_json::json!({
                 "project": project,
-                "requestId": uuid::Uuid::new_v4().to_string(),
-                "userAgent": self.endpoint.user_agent(),
+                "requestId": request_id,
+                "userAgent": crate::spec_antigravity::ANTIGRAVITY_ENVELOPE_USER_AGENT,
                 "model": effective_model,
+                "requestType": "agent",
                 "request": raw_body
             });
 

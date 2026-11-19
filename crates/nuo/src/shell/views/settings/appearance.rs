@@ -19,7 +19,7 @@
 
 use std::path::Path;
 
-use nuotc::{
+use graticule::{
     Borders, Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style, Wrap, widgets::Block,
 };
 use unicode_width::UnicodeWidthStr;
@@ -31,7 +31,7 @@ use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};
 const LABEL_COL: usize = 22;
 
 /// Dynamic count of selectable items in the Appearance panel for the active terminal profile.
-pub fn item_count(ws_path: Option<&Path>, profile: &nuotc::TerminalProfile) -> usize {
+pub fn item_count(ws_path: Option<&Path>, profile: &graticule::TerminalProfile) -> usize {
     if profile.supports_color_themes() {
         crate::shell::config::available_color_schemes(ws_path)
             .len()
@@ -426,15 +426,15 @@ fn draw_live_specimen_gallery(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuotc::TestTerminal;
+    use graticule::TestTerminal;
     use ui_primitives::theme::Theme;
 
     #[test]
     fn test_appearance_item_count() {
-        let direct = nuotc::TerminalProfile::direct_color();
+        let direct = graticule::TerminalProfile::direct_color();
         assert!(item_count(None, &direct) >= 6);
 
-        let mono = nuotc::TerminalProfile::dec_vt100_monochrome();
+        let mono = graticule::TerminalProfile::dec_vt100_monochrome();
         assert_eq!(item_count(None, &mono), 1);
     }
 
@@ -442,7 +442,7 @@ mod tests {
     fn test_appearance_dual_pane_live_specimen_wide_terminal() {
         let mut term = TestTerminal::new(100, 30);
         let theme = Theme::default();
-        let profile = nuotc::TerminalProfile::direct_color();
+        let profile = graticule::TerminalProfile::direct_color();
         let mut scroll = 0;
         let tui_config = crate::shell::config::TuiConfig::default();
         let mut cat_scroll = 0;
@@ -495,7 +495,7 @@ mod tests {
     fn test_appearance_single_pane_fallback_narrow_terminal() {
         let mut term = TestTerminal::new(60, 20);
         let theme = Theme::default();
-        let profile = nuotc::TerminalProfile::direct_color();
+        let profile = graticule::TerminalProfile::direct_color();
         let mut scroll = 0;
         let tui_config = crate::shell::config::TuiConfig::default();
         let mut cat_scroll = 0;

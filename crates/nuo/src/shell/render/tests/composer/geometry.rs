@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn draw_composer_records_composer_rect_enabling_whole_component_focus() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(40, 6);
+    let mut terminal = graticule::TestTerminal::new(40, 6);
     let mut layout_map = LayoutMap::new();
     let input_rect = Rect::new(0, 1, 40, 4);
 
@@ -87,7 +87,7 @@ fn draw_composer_records_composer_rect_enabling_whole_component_focus() {
 #[test]
 fn calculate_composer_height_matches_draw_transcript_geometry() {
     use crate::shell::render::calculate_composer_height;
-    use nuotc::Rect;
+    use graticule::Rect;
 
     let viewport = Rect::new(0, 0, 80, 24);
 
@@ -118,7 +118,7 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
 
     let width = 80u16;
     let height = 24u16;
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     let theme = Theme::default();
 
     let test_inputs = [
@@ -186,7 +186,7 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
         });
 
         let expected_h = calculate_composer_height(
-            nuotc::Rect::new(
+            graticule::Rect::new(
                 0,
                 0,
                 width,
@@ -212,8 +212,8 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
 #[test]
 fn composer_non_chromatic_renders_top_divider_border() {
     let mut theme = Theme::monochrome();
-    theme.glyphs = nuotc::ASCII_GLYPHS;
-    let mut terminal = nuotc::TestTerminal::new(60, 6);
+    theme.glyphs = graticule::ASCII_GLYPHS;
+    let mut terminal = graticule::TestTerminal::new(60, 6);
     let mut layout_map = LayoutMap::new();
     let mut scroll = 0;
     terminal.draw(|f| {

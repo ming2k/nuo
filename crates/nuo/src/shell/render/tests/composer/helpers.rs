@@ -4,7 +4,7 @@ use super::super::*;
 
 // Tinted-panel composer geometry (the four-row redesign)
 
-pub(super) fn frame_row_text(terminal: &mut nuotc::TestTerminal, y: u16) -> String {
+pub(super) fn frame_row_text(terminal: &mut graticule::TestTerminal, y: u16) -> String {
     let buffer = terminal.buffer();
     let width = buffer.area().width;
     (0..width)
@@ -16,8 +16,8 @@ pub(super) fn draw_frame_composer(
     input: &str,
     focused: bool,
     hints: crate::shell::composer_hints::ComposerHints,
-) -> nuotc::TestTerminal {
-    let mut terminal = nuotc::TestTerminal::new(60, 6);
+) -> graticule::TestTerminal {
+    let mut terminal = graticule::TestTerminal::new(60, 6);
     let theme = Theme::default();
     terminal.draw(|f| {
         draw_composer(

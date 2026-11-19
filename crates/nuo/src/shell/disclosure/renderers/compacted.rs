@@ -1,5 +1,5 @@
 //! Collapsible, inspectable compaction checkpoint card renderer.
-use nuotc::{
+use graticule::{
     Modifier, Style, {Line, Span},
 };
 

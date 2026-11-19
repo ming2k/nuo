@@ -18,7 +18,7 @@
 //! in the running round's admission window (it is cancelled, never reordered).
 //! An *admitted* steer is transcript-owned and never appears here (ADR-0137).
 
-use nuotc::{
+use graticule::{
     Frame, {Line, Span},
 };
 
@@ -50,7 +50,7 @@ pub fn draw_queue_modal(
     scroll: &mut usize,
     follow_selection: bool,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let body_width =
         ui_primitives::components::modal::modal_body_width(frame, ContentModalSpec::QUEUE);
 
@@ -101,22 +101,27 @@ pub fn draw_queue_modal(
             let left_w = GUTTER_W + TIME_W + 2 + label.len() + 1 + text.width();
             let pad = body_width.saturating_sub(left_w);
             body.push(Line::from(vec![
-                Span::styled(" ".repeat(GUTTER_W), nuotc::Style::default().bg(style.bg)),
+                Span::styled(
+                    " ".repeat(GUTTER_W),
+                    graticule::Style::default().bg(style.bg),
+                ),
                 Span::styled(
                     format!("{time}  "),
-                    nuotc::Style::default().bg(style.bg).fg(style.dim),
+                    graticule::Style::default().bg(style.bg).fg(style.dim),
                 ),
                 Span::styled(
                     label,
-                    nuotc::Style::default().bg(style.bg).fg(if item.is_steer {
-                        theme.warn()
-                    } else {
-                        style.dim
-                    }),
+                    graticule::Style::default()
+                        .bg(style.bg)
+                        .fg(if item.is_steer {
+                            theme.warn()
+                        } else {
+                            style.dim
+                        }),
                 ),
-                Span::styled(" ", nuotc::Style::default().bg(style.bg)),
-                Span::styled(text, nuotc::Style::default().bg(style.bg).fg(style.fg)),
-                Span::styled(" ".repeat(pad), nuotc::Style::default().bg(style.bg)),
+                Span::styled(" ", graticule::Style::default().bg(style.bg)),
+                Span::styled(text, graticule::Style::default().bg(style.bg).fg(style.fg)),
+                Span::styled(" ".repeat(pad), graticule::Style::default().bg(style.bg)),
             ]));
         }
     }

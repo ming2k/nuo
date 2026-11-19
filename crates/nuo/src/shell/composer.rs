@@ -5,8 +5,8 @@
 //! 12 chars`). Inside the panel, in-box text wrapping with vertical scroll
 //! keeps the caret visible, and per-row layout-map recording drives semantic
 //! selection / copy.
-use nuotc::str_len;
-use nuotc::{
+use graticule::str_len;
+use graticule::{
     Color, Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };
 

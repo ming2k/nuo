@@ -744,7 +744,7 @@ fn execute_command_running_streams_live_preview() {
         r#"{"command":"cargo build"}"#,
         ::tool::ToolOutput::Shell {
             command: "cargo build".into(),
-            stdout: "Compiling nuotc v0.1.0\nCompiling nuo v0.1.0".into(),
+            stdout: "Compiling graticule v0.1.0\nCompiling nuo v0.1.0".into(),
             stderr: String::new(),
             lines: Vec::new(),
             exit: None,

@@ -128,10 +128,10 @@ fn char_to_byte(input: &str, char_index: usize) -> Option<usize> {
 pub fn completion_anchor(
     input: &str,
     byte_cursor: usize,
-    input_rect: nuotc::Rect,
+    input_rect: graticule::Rect,
     input_scroll: usize,
     kind: CompletionKind,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let text_width = composer_text_width(input_rect.width as usize);
     let trigger_byte = match kind {
         CompletionKind::Path => mention_range_at(input, byte_cursor)
@@ -156,13 +156,13 @@ pub fn completion_anchor(
         input_rect.y + ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + visible_row as u16
     };
 
-    nuotc::Rect::new(x, anchor_y, 1, 1)
+    graticule::Rect::new(x, anchor_y, 1, 1)
 }
 
 pub fn completion_anchor_x(
     input: &str,
     byte_cursor: usize,
-    input_rect: nuotc::Rect,
+    input_rect: graticule::Rect,
     kind: CompletionKind,
 ) -> u16 {
     completion_anchor(input, byte_cursor, input_rect, 0, kind).x

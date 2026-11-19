@@ -1,6 +1,6 @@
 //! Sessions picker.
 use chrono::{Local, TimeZone};
-use nuotc::{
+use graticule::{
     Frame, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;
@@ -327,7 +327,7 @@ pub fn draw_sessions_modal(
     theme: &Theme,
     selection: &view::model::selection::SelectionState,
     layout_map: &mut view::model::layout::LayoutMap,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let SessionsModalProps {
         sessions,
         expanded_sessions,
@@ -560,7 +560,7 @@ pub fn draw_sessions_modal(
 
     // The window is already the visible slice, so render it at scroll 0 and
     // draw the scrollbar against the true `max_scroll` of the full list.
-    let mut para = nuotc::Paragraph::new(body);
+    let mut para = graticule::Paragraph::new(body);
     frame.render_widget(&mut para, f.body);
     draw_scrollbar(frame, f.body, start, max_scroll, theme);
 

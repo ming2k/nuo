@@ -1,11 +1,11 @@
 //! Terminal user interface, presentation substrate, and interactive rendering engine for Nuo.
 //!
-//! Subsystem architecture ratified under ADR-0003 (Nuotc Canvas Substrate),
-//! ADR-0072 (Elm Architecture Declarative Component Paradigm), ADR-0073 (Storybook Protocol),
+//! Subsystem architecture ratified under ADR-0223 (Graticule Terminal Substrate),
+//! ADR-0072 (Elm Architecture Declarative Component Paradigm), ADR-0185 (Single Render Path),
 //! and ADR-0103 (Presentation Substrate Purification).
 //!
 //! Layer structure:
-//! - The in-house grid engine (`nuotc`) — a retained cell grid with dirty tracking and a back/front diff.
+//! - The in-house grid engine (`graticule`) — a retained cell grid with dirty tracking and a back/front diff.
 //! - The view and component tree — painting `protocol` domain types into the engine grid:
 //!   `model`, `render`, `components`, `overlays`, `tools`, `disclosure`, `layout`,
 //!   `declarative` (ADR-0072), `theme`, `design`, `chrome`, `composer`, `primitives`.
@@ -46,8 +46,8 @@ pub mod input;
 pub mod interaction;
 pub mod keymap;
 pub mod modal_keys;
-pub mod mouse_mode;
 pub mod overlays;
+pub(crate) mod palette;
 pub mod pre_attach;
 pub mod question_model;
 pub mod render;
@@ -80,7 +80,7 @@ pub use view::{
 
 /// Test support: flatten a rendered grid into one string per row.
 #[cfg(test)]
-pub(crate) fn grid_rows(grid: &nuotc::CellGrid) -> Vec<String> {
+pub(crate) fn grid_rows(grid: &graticule::CellGrid) -> Vec<String> {
     let (w, h) = grid.size();
     (0..h)
         .map(|y| {
@@ -99,7 +99,7 @@ use protocol::{AgentRequest, AgentResponse, LoopStatus, ProviderPickerSnapshot, 
 
 use tool::{Message, Role};
 
-use nuotc::{Backend, Terminal};
+use graticule::{Backend, Terminal};
 use std::{collections::HashMap, error::Error, io, sync::Arc, sync::atomic::AtomicBool};
 use tokio::sync::{Mutex, mpsc};
 
@@ -314,14 +314,14 @@ pub async fn run_tui(
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
     let profile = terminal::detect_terminal_profile();
-    terminal::enter_terminal(&profile)?;
+    let mut session_guard = terminal::enter_terminal(&profile)?;
     let stdout = io::stdout();
     let backend = Backend::new(stdout).with_profile(profile);
-    let mut terminal = Terminal::new(backend);
+    let mut terminal = graticule::live_terminal(backend);
     terminal::spawn_signal_guard();
     ensure_panic_hook();
     let outcome = run_tui_with_terminal(&mut terminal, tx, rx, link_lost, config).await;
-    terminal::restore_terminal();
+    session_guard.restore();
     outcome
 }
 
@@ -484,7 +484,7 @@ struct AppBoot<'a> {
     input_history: Vec<protocol::HistoryEntry>,
     input_history_config: config::InputHistoryConfig,
     startup_overlay: StartupOverlay,
-    profile: nuotc::TerminalProfile,
+    profile: graticule::TerminalProfile,
     token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
     tx: mpsc::UnboundedSender<AgentRequest>,
     should_quit: Arc<AtomicBool>,
@@ -565,7 +565,6 @@ fn build_app(boot: AppBoot<'_>) -> App {
         },
         composer: ComposerState {
             last_submit_ms: None,
-            recent_commands: Vec::new(),
             input: String::new(),
             backend_completion_signal: None,
             suggestion_index: None,
@@ -685,6 +684,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
             host_kill_confirm_id: None,
             switch_to_target: None,
             pending_help_action: None,
+            palette_recents: Default::default(),
             switch_to_new: false,
             switch_to_new_prompt: None,
             switch_to_prompt: None,
@@ -758,6 +758,8 @@ fn build_app(boot: AppBoot<'_>) -> App {
             token_ledger: boot.token_ledger,
             token_report: None,
             context_tokens: None,
+            context_plan: None,
+            context_plan_loaded: false,
             usage_stats: None,
             usage_loading: false,
             usage_scroll: 0,
@@ -912,25 +914,14 @@ pub(crate) async fn run_tui_with_input(
         force_refresh: false,
     });
 
-    // Negotiate progressive keyboard enhancement *off* the first-frame path.
-    //
-    // The probe writes `ESC[?u ESC[c` and waits for the terminal to answer,
-    // bounded by a 2 s timeout inside crossterm. A terminal that never answers
-    // (multiplexers, CI ptys, emulators without kitty-protocol support) used to
-    // stall the very first frame for that entire budget — measured at ~2057 ms
-    // versus ~53 ms when the terminal replies. Running it here, after a short
-    // delay that lets the UI paint, makes a silent terminal cost the operator
-    // nothing; the flags then land a few hundred ms into the session.
-    //
-    // Safe against the input reader: crossterm's internal reader does not drop
-    // events that fail this thread's filter — it parks them in `skipped_events`
-    // and re-offers them to the next reader (crossterm `event/read.rs`), so no
-    // keystroke is swallowed. Only the two protocol replies are consumed.
+    // Negotiate progressive keyboard enhancement *off* the first-frame path
+    // through the single-reader `ProbeHandle`.
+    let probe = input.probe_handle();
     std::thread::Builder::new()
         .name("nuo-kbd-enhance".into())
         .spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(400));
-            crate::shell::terminal::negotiate_keyboard_enhancement(&profile);
+            crate::shell::terminal::negotiate_keyboard_enhancement(&profile, &probe);
         })?;
 
     // Run app

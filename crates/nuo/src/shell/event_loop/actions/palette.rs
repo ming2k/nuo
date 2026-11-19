@@ -1,4 +1,9 @@
-//! Command palette execution handlers.
+//! Command palette execution (RFC-0005 §2.7) and the registry executor.
+//!
+//! [`run_selected`] implements no verb: it resolves the highlighted entry from
+//! the same projection the palette drew, pops the palette, and hands the
+//! entry's command to [`execute_command_by_id`] or its action back to the
+//! ordinary dispatcher (`[INV-PAL-CTX-03]`).
 use super::commands::handle_esc_interrupt_with_runtime;
 use super::config::open_active_connection_detail;
 use super::navigation::{enter_panel, enter_scene};
@@ -7,33 +12,49 @@ use super::{ActionContext, ActionFlow, commands, modals};
 use crate::shell::App;
 use crate::shell::clipboard_ops;
 use crate::shell::event_loop::sync::show_local_toast;
-use crate::shell::render;
 use protocol::AgentRequest;
 use std::sync::atomic::Ordering;
 
-fn copy_focused_entry(
+/// Run the palette's highlighted entry.
+///
+/// A blocked entry explains itself and leaves the palette open: Enter on it is
+/// a question ("why can't I?"), and the answer is the reason, not silence.
+pub(crate) async fn run_selected<W: std::io::Write>(
     app: &mut App,
-    viewed_session_id: &str,
-    copy_tx: &tokio::sync::mpsc::UnboundedSender<
-        Result<crate::shell::clipboard::CopyOutcome, String>,
-    >,
-    copy_pending: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
-) {
-    if let Some(target) = app.transcript.focus.entry() {
-        clipboard_ops::copy(
+    terminal: &mut graticule::Terminal<W>,
+    ctx: &mut ActionContext<'_>,
+) -> ActionFlow {
+    use crate::shell::keymap::Availability;
+    use crate::shell::palette::Effect;
+    use crate::shell::surfaces::{DialogKind, PaletteDialog};
+
+    if app.active_dialog() != Some(DialogKind::Palette) {
+        return ActionFlow::Handled;
+    }
+    let dialog = app.surfaces.surfaces.dlg::<PaletteDialog>();
+    let (query, selected) = (dialog.query.text.clone(), dialog.selected);
+    let projection = crate::shell::palette::project(app, &query);
+    let Some(entry) = projection.selected(selected).map(|r| r.entry.clone()) else {
+        return ActionFlow::Handled;
+    };
+    if let Availability::Unavailable(reason) = entry.availability {
+        show_local_toast(
             app,
-            crate::shell::copy::CopyRequest::Entry {
-                message_idx: target.message_idx,
-            },
-            viewed_session_id,
-            copy_tx,
-            copy_pending,
+            format!("{}: {reason}", entry.title),
+            true,
+            std::time::Duration::from_millis(2500),
         );
-    } else {
-        clipboard_ops::show_copy_failure(
-            app,
-            crate::shell::copy::CopyError::MissingEntry.message(),
-        );
+        return ActionFlow::Handled;
+    }
+    // Pop first, so the surface under the palette is the active one again and
+    // the entry acts on it exactly as its key would.
+    app.pop_transient_surface();
+    app.surfaces.palette_recents.touch(&entry.key);
+    match entry.effect {
+        Effect::Command(id) => execute_command_by_id(app, ctx, id).await,
+        Effect::Action(action) => {
+            Box::pin(super::dispatch_action(app, terminal, action, ctx)).await
+        }
     }
 }
 
@@ -105,9 +126,6 @@ pub(crate) async fn execute_command_by_id(
             app.send_intent(AgentRequest::EndThread);
             return ActionFlow::Exit;
         }
-        CommandId::CopyFocusedEntry => {
-            copy_focused_entry(app, viewed_session_id, copy_tx, copy_pending);
-        }
         CommandId::CopyRecentDiagnostics => {
             // The escape hatch for everything that never had (or no longer has)
             // a transcript row: transient bubbles, failed local actions, the
@@ -122,17 +140,6 @@ pub(crate) async fn execute_command_by_id(
                         Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 }
                 None => clipboard_ops::show_copy_failure(app, "no notices retained yet"),
-            }
-        }
-        CommandId::CopyDiagnostic => {
-            // The palette's verb form of `Shift-y`.
-            if let Some(request) = crate::shell::copy::diagnostic_for_current_focus(app) {
-                clipboard_ops::copy(app, request, viewed_session_id, copy_tx, copy_pending);
-            } else {
-                clipboard_ops::show_copy_failure(
-                    app,
-                    crate::shell::copy::CopyError::MissingEntry.message(),
-                );
             }
         }
         CommandId::CopySelection => {
@@ -219,31 +226,6 @@ pub(crate) async fn execute_command_by_id(
                 runtime,
                 viewed_session_id,
             );
-        }
-        CommandId::ThreadStatsOpenTrace => {
-            enter_panel(
-                app,
-                crate::shell::surfaces::DialogKind::SessionTrace,
-                runtime,
-                viewed_session_id,
-            );
-        }
-        CommandId::TraceInspectDetail => {
-            if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::SessionTrace) {
-                let has_rounds = app
-                    .token_source_report(viewed_session_id)
-                    .map(|report| render::telemetry_round_count(&report) > 0)
-                    .unwrap_or(false);
-                if has_rounds {
-                    let d = app
-                        .surfaces
-                        .surfaces
-                        .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>();
-                    d.detail = true;
-                    d.turn_cursor = 0;
-                    d.scroll = 0;
-                }
-            }
         }
         CommandId::OpenModels => {
             enter_panel(

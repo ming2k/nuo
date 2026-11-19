@@ -14,5 +14,6 @@ This surface is the authoritative companion to the presentation substrate (`crat
 | [Visual Language](visual-language.md) | How labels are joined: peer enumeration, breadcrumbs, secondary measures, and cause/reason. |
 | [Modals](modals.md) | The overlay/dialog framework, modal sizing presets, the provider model list's name-first/id-fallback rule, and the universal multi-column budget + text-overflow + focus-reveal contract (ADR-0152). |
 | [Interaction](interaction.md) | The input → router → action → apply → render pipeline and hit-testing registry. |
+| [Trust Gate](trust-gate.md) | The pre-attach workspace trust surface: its composition, its status vocabulary, its adaptive footer, and the closed-question model behind it (ADR-0221). |
 
 For the cross-domain action matrix (which actions each scene supports), consult the [Lifecycle and Action Semantics Reference](../lifecycle-and-action-semantics.md#3-domain-specific-action-matrix).

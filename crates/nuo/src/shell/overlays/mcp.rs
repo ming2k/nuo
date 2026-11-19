@@ -8,7 +8,7 @@
 //! session, and `r` reconnects it. Data comes from the session-context
 //! snapshot's `mcp` pane (the same snapshot `/session` and `/tools` use).
 
-use nuotc::{
+use graticule::{
     Frame, Modifier, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;
@@ -31,7 +31,7 @@ pub fn draw_mcp_modal(
     scroll: &mut usize,
     follow_selection: bool,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     // Width is independent of height: probe a full-height rect for the content
     // width, build the list, then size the panel to the content (clamped).
     let body_width = modal_body_width(frame, ContentModalSpec::MCP);
@@ -204,7 +204,7 @@ mod tests {
             permissions: vec![],
             skills: vec![],
         };
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule::TestTerminal::new(80, 24);
         let mut scroll = 0;
         terminal.draw(|f| {
             draw_mcp_modal(f, Some(&context), 0, &mut scroll, true, &theme_mono);

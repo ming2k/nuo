@@ -44,7 +44,7 @@ fn input_box_grows_with_wrapped_content() {
     let messages: Vec<TranscriptMessage> = Vec::new();
 
     fn render_with(theme: &Theme, messages: &[TranscriptMessage], input: &str) -> Rect {
-        let mut terminal = nuotc::TestTerminal::new(46, 24);
+        let mut terminal = graticule::TestTerminal::new(46, 24);
         let mut rect = Rect::default();
         terminal.draw(|f| {
             let mut layout_map = LayoutMap::new();

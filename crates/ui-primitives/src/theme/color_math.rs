@@ -1,5 +1,5 @@
 //! Color arithmetic, interpolation, distance metrics, and adjustments.
-use nuotc::Color;
+use graticule_canvas::Color;
 
 /// have no defined RGB to compute with.
 ///

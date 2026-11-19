@@ -557,8 +557,8 @@ impl App {
             {
                 return CaretOwner::Overlay;
             }
-            // Unified Command Palette (Switcher) and Custom Provider forms
-            if matches!(self.active_dialog(), Some(DialogKind::Switcher))
+            // The command palette query and the Custom Provider forms
+            if matches!(self.active_dialog(), Some(DialogKind::Palette))
                 || self
                     .surfaces
                     .surfaces

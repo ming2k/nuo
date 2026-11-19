@@ -22,7 +22,12 @@ pub async fn fetch_remote_catalog(
 ) -> Result<RemoteCatalogUpdate, ModelListError> {
     let root = ApiRoot::parse(req.base_url).map_err(ModelListError::BadEndpoint)?;
     let endpoint = root.append("v1internal:fetchAvailableModels");
-    let user_agent = req.user_agent.unwrap_or(provider::NUO_USER_AGENT);
+    // This surface is exclusively the Antigravity Cloud Code dialect: when a
+    // caller does not pin a UA, the emulated `agy` brand is the wire truth,
+    // not nuo's own stock identity.
+    let user_agent = req
+        .user_agent
+        .unwrap_or(crate::spec_antigravity::ANTIGRAVITY_USER_AGENT);
 
     let project = req
         .account_id
@@ -30,7 +35,13 @@ pub async fn fetch_remote_catalog(
         .unwrap_or("aicode-consumers");
     let mut request = provider::transport::Request::new(netune::Method::POST, &endpoint)
         .header("user-agent", user_agent)
-        .json(&serde_json::json!({ "project": project }));
+        .json(&serde_json::json!({ "project": project }))
+        // `fetchAvailableModels` is a unary `/v1internal:` JSON call: the real
+        // client drives it through the Cloud Code HTTP client, which strips
+        // HTTP/2 from its ALPN offer (`stripHTTP2NextProto`), so the wire
+        // identity is the unary lane — HTTP/1.1, no h2 pairing
+        // (`netune::Preset::AntigravityCliUnary`, netune ADR-0047).
+        .tls_profile(crate::spec_antigravity::ANTIGRAVITY_TLS_PROFILE_UNARY);
     if !req.api_key.expose_secret().trim().is_empty() {
         request = request.header(
             "authorization",

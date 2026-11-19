@@ -14,6 +14,7 @@
 
 mod command_log;
 mod context_bar;
+mod context_plan;
 pub(crate) mod helpers;
 mod pre_attach;
 mod tools;

@@ -1,6 +1,6 @@
 use super::base::truncate_to_width;
 use super::payloads::{semantic_tool_summary_line, tool_summary_line};
-use nuotc::{Color, Style};
+use graticule::{Color, Style};
 use ui_primitives::components::inline_layout::SemanticLine;
 use ui_primitives::components::path::PathView;
 use ui_primitives::theme::Theme;

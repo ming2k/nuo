@@ -321,7 +321,6 @@ pub(crate) async fn search(
 
 pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
     let SlashEnv {
-        config,
         agent,
         resp_tx,
         session,
@@ -433,7 +432,7 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                         // The live provider tracks the opened session's
                         // own provider pin (or the global default).
                         crate::handlers::handlers_provider::reapply_session_selection(
-                            config,
+                            env.config,
                             agent,
                             provider_for_task,
                             session,

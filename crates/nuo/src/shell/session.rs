@@ -542,6 +542,12 @@ fn resolve_enter(
             "/quota" | "/quotas" => InputAction::OpenQuotas,
             "/stats" => InputAction::OpenThreadStats,
             "/trace" => InputAction::OpenSessionTrace,
+            // Bare `/context` is the inspector. Every variant — `--json`, or any
+            // future subcommand — stays a slash command: the machine form is
+            // rendered by the server, and a client that swallowed the argument
+            // would answer a different question than the one asked
+            // (ADR-0220 §7).
+            "/context" if trimmed == cmd => InputAction::OpenContextPlan,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,
             "/notices" | "/logs" => InputAction::OpenNotices,

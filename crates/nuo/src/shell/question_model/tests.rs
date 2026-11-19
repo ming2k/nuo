@@ -693,7 +693,7 @@ fn full_script_multi_select_then_other_then_submit() {
 fn render_question_grid(model: &QuestionModel, width: u16, height: u16) -> String {
     use crate::shell::render::{Theme, draw_question_modal};
 
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     terminal.draw(|f| {
         let mut hit_map = crate::shell::ui::ComponentTree::new();
         hit_map.begin(f.area());
@@ -711,7 +711,7 @@ fn render_question_grid(model: &QuestionModel, width: u16, height: u16) -> Strin
             0,
             // Slot-anchored sheet: the bottom band of the
             // terminal, as if the composer slot it replaces sat there.
-            nuotc::Rect::new(0, height * 5 / 8, width, height * 3 / 8),
+            graticule::Rect::new(0, height * 5 / 8, width, height * 3 / 8),
             true,
             &Theme::default(),
         );
@@ -839,4 +839,91 @@ fn question_modal_film_two_question_header() {
     film.push_str(&render_question_grid(&m, 64, 16));
 
     insta::assert_snapshot!(film);
+}
+
+// Closed questions (no synthetic free-text row)
+
+/// A closed question exists because the answer is a subset of a known set. The
+/// trust gate is the caller: it offers assets, and "none of these, here is my
+/// own answer" is not one of the answers.
+#[test]
+fn a_closed_question_has_no_free_text_row_so_navigation_never_leaves_the_options() {
+    let mut m = QuestionModel::open_closed(multi_select_req());
+    assert_eq!(m.free_text(), FreeText::Suppressed);
+    // Three options, so the highlight cycles 0 -> 1 -> 2 -> 0 and never lands
+    // on the phantom fourth row.
+    for expected in [1usize, 2, 0, 1] {
+        m = m.update(QuestionAction::Down).0;
+        assert_eq!(m.highlight(), expected);
+    }
+    // The same holds upward.
+    let mut m = QuestionModel::open_closed(multi_select_req());
+    for expected in [2usize, 1, 0, 2] {
+        m = m.update(QuestionAction::Up).0;
+        assert_eq!(m.highlight(), expected);
+    }
+}
+
+/// The defect the closed form closes: a next step used to land on a row the
+/// surface does not paint, leaving no highlighted row at all while `Enter`
+/// there submitted a decision the user could not see.
+#[test]
+fn a_closed_question_never_parks_the_highlight_on_an_unpainted_row() {
+    let mut m = QuestionModel::open_closed(single_select_req());
+    let options = m.request().questions[0].options.len();
+    for _ in 0..12 {
+        m = m.update(QuestionAction::Down).0;
+        assert!(
+            m.highlight() < options,
+            "the highlight must name a painted row, got {}",
+            m.highlight()
+        );
+    }
+    for _ in 0..12 {
+        m = m.update(QuestionAction::Up).0;
+        assert!(m.highlight() < options);
+    }
+}
+
+#[test]
+fn a_closed_question_ignores_free_text_actions() {
+    let m = QuestionModel::open_closed(single_select_req());
+    let m = m.update(QuestionAction::InsertChar('x')).0;
+    let m = m.update(QuestionAction::Paste("pasted".into())).0;
+    let m = m.update(QuestionAction::Backspace).0;
+    assert!(
+        m.other_text().iter().all(|text| text.is_empty()),
+        "a closed question has no text field to write into: {:?}",
+        m.other_text()
+    );
+    assert!(!m.is_other_highlighted());
+}
+
+#[test]
+fn an_open_question_still_offers_the_free_text_row() {
+    // The `ask_user` path is unchanged: an AI-authored question may need an
+    // answer the options do not contain.
+    let mut m = QuestionModel::open(single_select_req());
+    assert_eq!(m.free_text(), FreeText::Allowed);
+    m = m.update(QuestionAction::Down).0;
+    m = m.update(QuestionAction::Down).0;
+    assert_eq!(
+        m.highlight(),
+        2,
+        "the second option's 'Other' row is reachable"
+    );
+    assert!(m.is_other_highlighted());
+    m = m.update(QuestionAction::InsertChar('q')).0;
+    assert_eq!(m.other_text(), &[String::from("q")]);
+}
+
+#[test]
+fn the_free_text_policy_survives_the_in_place_update() {
+    // `update_mut` swaps a placeholder model in to move the real one out. A
+    // placeholder built by `open` would silently restore the free-text row on
+    // the first keystroke of a closed question.
+    let mut m = QuestionModel::open_closed(multi_select_req());
+    m.update_mut(QuestionAction::Down);
+    assert_eq!(m.free_text(), FreeText::Suppressed);
+    assert_eq!(m.highlight(), 1);
 }

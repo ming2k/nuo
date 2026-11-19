@@ -1,5 +1,5 @@
 //! The persistent single-line model bar pinned below composer input.
-use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;

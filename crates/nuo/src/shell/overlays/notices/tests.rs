@@ -4,7 +4,7 @@ fn notice(status: LineStatus, topic: &str, text: &str, at_ms: u64) -> SurfaceLin
     SurfaceLine::disclosure(status, text, at_ms).with_label(topic)
 }
 
-fn all_text(terminal: &nuotc::TestTerminal) -> String {
+fn all_text(terminal: &graticule::TestTerminal) -> String {
     let buf = terminal.buffer();
     let area = buf.area();
     let mut out = String::new();
@@ -41,7 +41,7 @@ fn notices_modal_renders_header_fault_count_and_items() {
         ..Default::default()
     };
     let mut layout_map = LayoutMap::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 30);
+    let mut terminal = graticule::TestTerminal::new(100, 30);
     terminal.draw(|f| {
         draw_notices_modal(
             f,
@@ -79,7 +79,7 @@ fn a_long_message_is_truncated_on_the_row_and_wrapped_in_the_detail() {
         ..Default::default()
     };
     let mut layout_map = LayoutMap::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 30);
+    let mut terminal = graticule::TestTerminal::new(100, 30);
     terminal.draw(|f| {
         draw_notices_modal(
             f,
@@ -108,7 +108,7 @@ fn an_empty_log_explains_itself_instead_of_showing_a_blank_panel() {
     let theme = Theme::default();
     let mut dialog = NoticesDialog::default();
     let mut layout_map = LayoutMap::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 30);
+    let mut terminal = graticule::TestTerminal::new(100, 30);
     terminal.draw(|f| {
         draw_notices_modal(
             f,
@@ -137,7 +137,7 @@ fn severity_band_conveys_severity_without_glyph_or_text_badge() {
     ];
     let mut dialog = NoticesDialog::default();
     let mut layout_map = LayoutMap::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 30);
+    let mut terminal = graticule::TestTerminal::new(100, 30);
     terminal.draw(|f| {
         draw_notices_modal(
             f,
@@ -189,7 +189,7 @@ fn monochrome_still_names_severity_after_the_glyph_removal() {
     // nothing there, so the band must fall back to a textual marker or
     // severity becomes invisible on exactly the profile the glyph served.
     let theme = Theme {
-        glyphs: nuotc::ASCII_GLYPHS,
+        glyphs: graticule::ASCII_GLYPHS,
         ..Theme::from_color_scheme(
             "monochrome",
             &ui_primitives::color_scheme::ColorSchemeConfig::default(),
@@ -202,7 +202,7 @@ fn monochrome_still_names_severity_after_the_glyph_removal() {
     ];
     let mut dialog = NoticesDialog::default();
     let mut layout_map = LayoutMap::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 30);
+    let mut terminal = graticule::TestTerminal::new(100, 30);
     terminal.draw(|f| {
         draw_notices_modal(
             f,
@@ -238,7 +238,7 @@ fn notice_content_registers_selectable_regions_and_paints_selection() {
     )];
     let mut dialog = NoticesDialog::default();
     let mut layout_map = LayoutMap::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 30);
+    let mut terminal = graticule::TestTerminal::new(100, 30);
     terminal.draw(|f| {
         draw_notices_modal(
             f,

@@ -4,7 +4,7 @@
 //! - L1: Compact summary `name provider [92%/5h 99%/week]`
 //! - L2: Expanded detail with progress bars (Enter to toggle)
 
-use nuotc::{Color, Frame, Line, Modifier, Span, Style};
+use graticule::{Color, Frame, Line, Modifier, Span, Style};
 use protocol::{
     ConnectionQuotaEntry, ConnectionUsageState, ProviderQuotaData, ProviderQuotaSnapshot,
     QuotaWindowKind,
@@ -36,7 +36,7 @@ pub fn draw_quotas_modal(
     theme: &Theme,
     selection: &SelectionState,
     layout_map: &mut LayoutMap,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let geometry = ContentModalSpec::USAGE_STATS;
     let probe = content_modal_probe(frame, geometry);
     let body_width = (probe.width as usize)

@@ -281,14 +281,14 @@ pub(crate) fn fmt_tps(tps: Option<f64>) -> String {
 pub(crate) fn status_style(
     status: RequestUsageStatus,
     theme: &crate::shell::render::Theme,
-) -> nuotc::Style {
+) -> graticule::Style {
     match status {
-        RequestUsageStatus::Completed => nuotc::Style::default().fg(theme.success),
-        RequestUsageStatus::Interrupted => nuotc::Style::default().fg(theme.warning),
+        RequestUsageStatus::Completed => graticule::Style::default().fg(theme.success),
+        RequestUsageStatus::Interrupted => graticule::Style::default().fg(theme.warning),
         RequestUsageStatus::Failed | RequestUsageStatus::Abandoned => {
-            nuotc::Style::default().fg(theme.error_fg)
+            graticule::Style::default().fg(theme.error_fg)
         }
-        RequestUsageStatus::InFlight => nuotc::Style::default().fg(theme.brand()),
+        RequestUsageStatus::InFlight => graticule::Style::default().fg(theme.brand()),
     }
 }
 

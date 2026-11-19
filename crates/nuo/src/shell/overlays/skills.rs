@@ -6,7 +6,7 @@
 //! expansion (full description, version, source, tags, and quarantine action if
 //! unverified).
 
-use nuotc::{
+use graticule::{
     Frame, Style, {Line, Span},
 };
 
@@ -30,7 +30,7 @@ pub fn draw_skills_modal(
     expanded: Option<usize>,
     scroll: &mut usize,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let geometry = ContentModalSpec::SKILLS;
     let probe = content_modal_probe(frame, geometry);
     let body_w = (probe.width as usize)

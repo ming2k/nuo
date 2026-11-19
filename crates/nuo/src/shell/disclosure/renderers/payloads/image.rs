@@ -8,7 +8,7 @@
 //! paint them.
 
 use ::tool::ToolOutput;
-use nuotc::{Line, Modifier, Span, Style};
+use graticule::{Line, Modifier, Span, Style};
 use view::model::selection::SelectionState;
 
 use crate::shell::disclosure::renderers::base::RenderCtx;

@@ -153,7 +153,7 @@ pub fn draw_session_preview(
 ) {
     let area = ui_primitives::primitives::centered_rect(70, 75, frame.area());
     // Occlude the dashboard beneath and paint the panel.
-    frame.render_widget(&mut nuotc::Clear::default(), area);
+    frame.render_widget(&mut graticule::Clear::default(), area);
     let inner = ElevationContainer::overlay().render(frame, area, theme);
 
     // Vertical chrome: title / gap / body / gap / footer-hint.

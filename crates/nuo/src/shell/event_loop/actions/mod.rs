@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use nuotc::Terminal;
+use graticule::Terminal;
 use tokio::sync::mpsc;
 
 use protocol::AgentRequest;
@@ -50,7 +50,6 @@ pub(crate) use modals::{
     modal_page_step, question_effects,
 };
 pub(crate) use navigation::{enter_panel, enter_scene};
-pub(crate) use palette::execute_command_by_id;
 pub(crate) use scroll::{
     handle_wheel, scroll_tick, scroll_transcript_page, scroll_transcript_to_edge,
 };
@@ -94,7 +93,6 @@ pub(crate) struct ActionContext<'a> {
     pub copy_tx: &'a mpsc::UnboundedSender<Result<clipboard::CopyOutcome, String>>,
     pub copy_pending: &'a Arc<AtomicUsize>,
     pub paste_tx: &'a mpsc::UnboundedSender<clipboard::ClipboardRead>,
-    pub sgr_guard: &'a mut input::SgrLeakGuard,
     /// Whether the resolved action came from a **keystroke** (as opposed to a
     /// pointer, wheel, hover, or resize event).
     ///
@@ -121,6 +119,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
     action: input::InputAction,
     ctx: &mut ActionContext<'_>,
 ) -> ActionFlow {
+    if action == input::InputAction::PaletteRun {
+        return palette::run_selected(app, terminal, ctx).await;
+    }
     let ActionContext {
         runtime,
         session,
@@ -128,7 +129,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         copy_tx,
         copy_pending,
         paste_tx,
-        sgr_guard,
         key_event,
     } = ctx;
     let runtime = *runtime;
@@ -138,7 +138,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
     let copy_pending = *copy_pending;
     let paste_tx = *paste_tx;
     let key_event = *key_event;
-    let sgr_guard = &mut **sgr_guard;
     // While the dashboard's kill confirm is armed, only the confirming `k`
     // (or the confirm-cancelling paths inside the dashboard arms) keeps it
     // alive: any other keystroke — navigation, prompt, focus toggle, Esc —
@@ -167,14 +166,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
     }
     match classify_action(&action) {
         ActionFamily::None => ActionFlow::Handled,
-        ActionFamily::Terminal => handle_terminal_tab_action(
-            app,
-            terminal,
-            action,
-            runtime,
-            viewed_session_id,
-            &mut *sgr_guard,
-        ),
+        ActionFamily::Terminal => {
+            handle_terminal_tab_action(app, terminal, action, runtime, viewed_session_id)
+        }
         ActionFamily::Composer => {
             handle_composer_input_action(app, action, runtime, session, viewed_session_id, paste_tx)
                 .await
@@ -252,7 +246,9 @@ enum ActionFamily {
 
 fn classify_action(action: &input::InputAction) -> ActionFamily {
     match action {
-        input::InputAction::None => ActionFamily::None,
+        // `PaletteRun` never reaches classification: `dispatch_action` resolves
+        // it to the entry's own command or action first.
+        input::InputAction::None | input::InputAction::PaletteRun => ActionFamily::None,
         input::InputAction::TerminalResized { .. }
         | input::InputAction::Quit
         | input::InputAction::SelectTab(_)
@@ -332,14 +328,12 @@ fn classify_action(action: &input::InputAction) -> ActionFamily {
         | input::InputAction::CreateNewSession
         | input::InputAction::OpenSessionInfo
         | input::InputAction::ToggleSessionTimelineExpand
-        | input::InputAction::ViewSwitcherFilter { .. }
-        | input::InputAction::ViewSwitcherBackspace
+        | input::InputAction::PaletteInsert { .. }
+        | input::InputAction::PaletteBackspace
         | input::InputAction::OpenPortPalette
         | input::InputAction::TogglePortListener
         | input::InputAction::CopyPortConnectInfo
-        | input::InputAction::ViewSwitcherToggle
-        | input::InputAction::ViewSwitchActivate
-        | input::InputAction::ViewCloseSelected => ActionFamily::Session,
+        | input::InputAction::PaletteToggle => ActionFamily::Session,
         input::InputAction::HostPreviewSelected
         | input::InputAction::HostSwitchSelected
         | input::InputAction::HostToggleUsage
@@ -367,6 +361,8 @@ fn classify_action(action: &input::InputAction) -> ActionFamily {
         | input::InputAction::SkillsToggleDetail
         | input::InputAction::OpenConfig
         | input::InputAction::OpenToolDetail
+        | input::InputAction::OpenContextPlan
+        | input::InputAction::ContextPlanToggleBody
         | input::InputAction::SceneBack
         | input::InputAction::ViewFocusedTargetOutput
         | input::InputAction::FocusNextTarget
@@ -464,26 +460,17 @@ fn handle_terminal_tab_action<W: std::io::Write>(
     action: input::InputAction,
     runtime: &UiRuntime,
     viewed_session_id: &str,
-    sgr_guard: &mut input::SgrLeakGuard,
 ) -> ActionFlow {
     match action {
         input::InputAction::TerminalResized { cols, rows } => {
-            // A resize is the prime trigger for crossterm splitting an
-            // in-flight SGR mouse sequence across reads (issue #854).
-            // Re-arm mouse capture so both crossterm's parser and the
-            // terminal's mouse-tracking state start from a clean slate.
             terminal.resize_to(cols, rows);
             app.transcript.layout_height_cache.clear();
             if !app.transcript.follow_bottom {
                 app.transcript.scroll_settle_pending = true;
             }
             if app.surfaces.profile.supports_mouse {
-                let _ = crossterm::execute!(
-                    std::io::stdout(),
-                    crate::shell::mouse_mode::EnableButtonMouse
-                );
+                graticule::rearm_active_mouse();
             }
-            sgr_guard.reset();
         }
         input::InputAction::Quit => {
             // ADR-0038 [INV-ACTION-02]: Quitting the TUI client is strictly a non-destructive Detach.
@@ -958,14 +945,12 @@ async fn handle_session_thread_action(
                 return flow;
             }
         }
-        input::InputAction::ViewSwitcherFilter { .. }
-        | input::InputAction::ViewSwitcherBackspace
+        input::InputAction::PaletteInsert { .. }
+        | input::InputAction::PaletteBackspace
         | input::InputAction::OpenPortPalette
         | input::InputAction::TogglePortListener
         | input::InputAction::CopyPortConnectInfo
-        | input::InputAction::ViewSwitcherToggle
-        | input::InputAction::ViewSwitchActivate
-        | input::InputAction::ViewCloseSelected => {
+        | input::InputAction::PaletteToggle => {
             if let Some(flow) =
                 sessions::handle_session_action(app, viewed_session_id, ctx, action).await
             {
@@ -1092,6 +1077,26 @@ fn handle_navigation_focus_action(
                 Some(idx)
             };
             app.set_active_follow(true);
+        }
+        input::InputAction::ContextPlanToggleBody => {
+            // Expand the selected block's rendered body in place. A body is a
+            // disclosure of the row the cursor is on, so collapsing one row never
+            // moves the cursor and never re-queries the server: the bytes are
+            // already in the reply (ADR-0220 §6).
+            let has_plan = app
+                .telemetry
+                .context_plan
+                .as_ref()
+                .is_some_and(|plan| !plan.blocks.is_empty());
+            if has_plan {
+                let e = app
+                    .surfaces
+                    .surfaces
+                    .dlg_mut::<crate::shell::surfaces::ContextPlanDialog>();
+                e.body_open = !e.body_open;
+                e.scroll = 0;
+                e.follow = true;
+            }
         }
         input::InputAction::OpenConfig => {
             enter_scene(app, crate::shell::surfaces::SceneKind::Settings, runtime);
@@ -1388,6 +1393,14 @@ fn handle_telemetry_usage_action(
             enter_panel(
                 app,
                 crate::shell::surfaces::DialogKind::SessionTrace,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        input::InputAction::OpenContextPlan => {
+            enter_panel(
+                app,
+                crate::shell::surfaces::DialogKind::ContextPlan,
                 runtime,
                 viewed_session_id,
             );

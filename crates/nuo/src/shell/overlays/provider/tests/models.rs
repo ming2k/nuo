@@ -84,7 +84,7 @@ fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String 
     let theme = Theme::default();
     let picker = sectioned_snapshot();
     let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", query);
-    let mut terminal = nuotc::TestTerminal::new(72, 28);
+    let mut terminal = graticule::TestTerminal::new(72, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -188,7 +188,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
     assert!(ranked.iter().any(|r| r.model == "gmodel" && !r.usable));
     assert!(ranked.iter().any(|r| r.model == "qfmodel" && r.usable));
-    let mut terminal = nuotc::TestTerminal::new(72, 28);
+    let mut terminal = graticule::TestTerminal::new(72, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -237,7 +237,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
             continue;
         }
         assert!(
-            !span.style.add.contains(nuotc::Modifier::BOLD),
+            !span.style.add.contains(graticule::Modifier::BOLD),
             "locked model text must not be bold: {:?}",
             span.content
         );
@@ -304,7 +304,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
         auth: Default::default(),
     });
     let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
-    let mut terminal = nuotc::TestTerminal::new(96, 28);
+    let mut terminal = graticule::TestTerminal::new(96, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -825,7 +825,7 @@ fn render_labelled_models_modal(width: u16) -> String {
         }
     }
     let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
-    let mut terminal = nuotc::TestTerminal::new(width, 40);
+    let mut terminal = graticule::TestTerminal::new(width, 40);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -916,7 +916,7 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
         }],
     };
     let ranked = view::providers::models_flat_filtered_from(&picker, "qoder", "qfmodel", query);
-    let mut terminal = nuotc::TestTerminal::new(width, 20);
+    let mut terminal = graticule::TestTerminal::new(width, 20);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -1149,7 +1149,7 @@ fn models_modal_search_matches_id_name_and_connection() {
 #[test]
 fn models_modal_empty_state_centered_copy_and_footer() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(72, 24);
+    let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -1187,7 +1187,7 @@ fn models_modal_empty_state_centered_copy_and_footer() {
 #[test]
 fn models_modal_refreshing_state_renders_spinner_and_indicator() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(72, 24);
+    let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -1223,7 +1223,7 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
 #[test]
 fn models_modal_search_empty_state() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(72, 24);
+    let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut lm = view::model::layout::LayoutMap::new();
@@ -1260,14 +1260,14 @@ fn picker_search_viewport_keeps_long_query_and_caret_inside_row() {
     let theme = Theme::default();
     let rect = Rect::new(2, 3, 16, 1);
     let query = "abcdefghijklmnopqrstuvwxyz";
-    let mut terminal = nuotc::TestTerminal::new(24, 8);
+    let mut terminal = graticule::TestTerminal::new(24, 8);
     terminal.draw(|frame| {
         draw_picker_search_row(frame, rect, query, query.chars().count(), &theme);
         place_picker_search_cursor(frame, rect, query, query.chars().count());
     });
 
     let (x, y) = match terminal.cursor() {
-        nuotc::CursorState::Visible(x, y) => (x, y),
+        graticule::CursorState::Visible(x, y) => (x, y),
         other => panic!("search field must own a caret, got {other:?}"),
     };
     assert!(x >= rect.x && x < rect.right());

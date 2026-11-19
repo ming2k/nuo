@@ -215,7 +215,7 @@ fn render_grid(messages: &[TranscriptMessage], width: u16, height: u16) -> Strin
 
     let theme = Theme::default();
     let selection = SelectionState::default();
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     let mut layout_map = LayoutMap::new();
     terminal.draw(|f| {
         let _ = draw_transcript(

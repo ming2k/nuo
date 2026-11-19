@@ -407,6 +407,7 @@ fn living_docs_use_current_crate_names() {
         "nuo-client",
         "nuo-model-codec",
         "nuo-catalog",
+        "nuotc",
     ];
     let mut violations = Vec::new();
     for file in living {

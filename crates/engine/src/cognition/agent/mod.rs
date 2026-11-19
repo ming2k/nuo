@@ -901,9 +901,12 @@ pub struct AgentBuilder {
     toolset: protocol::ToolSet,
     skills_registry: skills::SkillRegistry,
     identity: AgentIdentity,
-    model_request_assembler: crate::cognition::model_request::ModelRequestAssembler,
+    /// Declared context sources. Compiled at [`Self::build`]; every
+    /// builder-configured composition is validated before it gets there.
+    context_sources: Vec<Box<dyn crate::ContextSource + Send + Sync>>,
     extensions: Vec<Arc<dyn protocol::Extension>>,
     user_instructions: Vec<protocol::ScopedInstruction>,
+    response_language: Option<protocol::ResponseLanguage>,
     install_agent_owned_tools: bool,
 }
 
@@ -919,11 +922,10 @@ impl AgentBuilder {
             host: crate::runtime::host::KernelHost::none(),
             skills_registry: skills::SkillRegistry::empty(),
             identity,
-            model_request_assembler: crate::cognition::model_request::ModelRequestAssembler::new(
-                crate::cognition::model_request::default_instruction_registry(),
-            ),
+            context_sources: crate::cognition::context::default_sources(),
             extensions: Vec::new(),
             user_instructions: Vec::new(),
+            response_language: None,
             install_agent_owned_tools: true,
         }
     }
@@ -982,42 +984,51 @@ impl AgentBuilder {
         self
     }
 
-    /// Add an embedding-owned section to the default system-prompt policy.
-    pub fn register_instruction_section<S: crate::InstructionSection + 'static>(
+    /// Add an embedding-owned context source to the default policy.
+    ///
+    /// Validates the whole declaration set immediately, so a duplicate topic, a
+    /// missing anchor, or a cross-band anchor is reported here rather than at
+    /// agent construction (ADR-0215).
+    pub fn add_context_source<S: crate::ContextSource + 'static>(
         mut self,
-        section: S,
-    ) -> Result<Self, crate::InstructionRegistryError> {
-        self.model_request_assembler
-            .registry_mut()
-            .try_register(section)?;
+        source: S,
+    ) -> Result<Self, crate::ContextPolicyError> {
+        self.context_sources.push(Box::new(source));
+        match crate::cognition::context::Policy::compile(self.context_sources) {
+            Ok(policy) => {
+                self.context_sources = policy.into_sources();
+                Ok(self)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Replace the default context composition wholesale.
+    ///
+    /// Validated on the spot: a composition that cannot be compiled never reaches
+    /// an agent.
+    pub fn with_context_sources(
+        mut self,
+        sources: Vec<Box<dyn crate::ContextSource + Send + Sync>>,
+    ) -> Result<Self, crate::ContextPolicyError> {
+        let policy = crate::cognition::context::Policy::compile(sources)?;
+        self.context_sources = policy.into_sources();
         Ok(self)
     }
 
-    /// Disable a registered default or custom section by its stable id.
-    pub fn disable_instruction_section(
-        mut self,
-        id: &str,
-    ) -> Result<Self, crate::InstructionRegistryError> {
-        self.model_request_assembler.registry_mut().disable(id)?;
+    /// Remove a context source by its stable id.
+    ///
+    /// This is the break-clean replacement for the retired
+    /// `disable_instruction_section`: disabling is a policy mutation, so it must
+    /// happen before the policy is compiled.
+    pub fn disable_context_source(mut self, id: &str) -> Result<Self, crate::ContextPolicyError> {
+        let position = self
+            .context_sources
+            .iter()
+            .position(|source| source.id() == id)
+            .ok_or(crate::ContextPolicyError::UnknownSource(id.to_owned()))?;
+        self.context_sources.remove(position);
         Ok(self)
-    }
-
-    /// Override a registered section's semantic ordering in the final composition.
-    pub fn order_instruction_section(
-        mut self,
-        id: &str,
-        order: crate::InstructionOrder,
-    ) -> Result<Self, crate::InstructionRegistryError> {
-        self.model_request_assembler
-            .registry_mut()
-            .set_order(id, order)?;
-        Ok(self)
-    }
-
-    /// Replace the default composition wholesale.
-    pub fn with_instruction_registry(mut self, registry: crate::InstructionRegistry) -> Self {
-        self.model_request_assembler.replace_registry(registry);
-        self
     }
 
     /// Set initial user-authored scoped instructions (ADR-0165).
@@ -1029,14 +1040,31 @@ impl AgentBuilder {
         self
     }
 
+    /// Declare the language the agent answers in (ADR-0222).
+    ///
+    /// Builder-shaped like [`Self::with_user_instructions`] so an embedding that
+    /// constructs its policy wholesale declares the language the same way it
+    /// declares everything else. The value is already validated
+    /// ([`protocol::ResponseLanguage`]), so `build()` has nothing to reject.
+    pub fn with_response_language(mut self, language: Option<protocol::ResponseLanguage>) -> Self {
+        self.response_language = language;
+        self
+    }
+
     /// Freeze the configuration and construct the agent.
     pub fn build(self) -> Agent {
+        // Infallible by construction. `add_context_source` / `with_context_sources`
+        // validate every edit through `Policy::compile` and hand back an
+        // already-ordered set, and the compiled-in default is pinned by a test,
+        // so nothing is left to prove here. No request path — and no constructor —
+        // may fail on a layout condition (`[INV-CTXSRC-05]`).
+        let policy = crate::cognition::context::Policy::from_declared(self.context_sources);
         let mut agent = Agent::from_toolset_with_model_request_assembler(
             self.provider,
             self.toolset,
             self.skills_registry,
             self.identity,
-            self.model_request_assembler,
+            crate::cognition::model_request::ModelRequestAssembler::new(policy),
             self.install_agent_owned_tools,
         );
         agent.host = self.host;
@@ -1049,6 +1077,9 @@ impl AgentBuilder {
         }
         if !self.user_instructions.is_empty() {
             agent.set_user_instructions(self.user_instructions);
+        }
+        if self.response_language.is_some() {
+            agent.set_response_language(self.response_language);
         }
         agent
     }

@@ -1,5 +1,5 @@
 //! Model settings editor (effort + thinking toggles), connection-template chooser, and custom provider editor.
-use nuotc::{
+use graticule::{
     Alignment, Frame, {Line, Span}, {Modifier, Style},
 };
 use unicode_width::UnicodeWidthStr;
@@ -256,7 +256,7 @@ pub fn draw_model_editor(
     thinking: Option<bool>,
     overrides: Option<(Option<bool>, Option<bool>)>,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let geometry = ContentModalSpec::MODEL_EDITOR;
 
     let body_width = content_modal_probe(frame, geometry)
@@ -436,7 +436,7 @@ pub fn draw_web_value_editor(
     // The frame-level caret verdict.
     show_caret: bool,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let geometry = ContentModalSpec::MODEL_EDITOR;
     let desired = 1 + modal_chrome_rows(geometry.modal_spec());
     let area = content_modal_area(frame, geometry, desired);
@@ -563,7 +563,7 @@ pub fn draw_preset_chooser(
     frame: &mut Frame,
     theme: &Theme,
     scroll: &mut usize,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let area = modal_area(frame, FixedModalSpec::PROVIDER);
     let f = modal_frame(frame, area, theme, true, true);
 
@@ -643,7 +643,7 @@ pub fn draw_custom_provider_editor(
     scroll: &mut usize,
     // The frame-level caret verdict.
     show_caret: bool,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let CustomEditorProps {
         fields,
         field,

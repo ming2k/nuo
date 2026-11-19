@@ -15,7 +15,7 @@ use super::*;
 #[test]
 fn subagent_view_groups_children_into_turn_bands() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
     let mut task = TranscriptMessage::tool_step(
         "task_1",
         "spawn_agent",
@@ -129,7 +129,7 @@ fn subagent_view_groups_children_into_turn_bands() {
 #[test]
 fn subagent_step_and_view_render_without_panicking() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
 
     // Root view: a completed subagent task renders as a compact step.
     let mut task = TranscriptMessage::tool_step(
@@ -272,11 +272,12 @@ fn subagent_step_and_view_render_without_panicking() {
             .map(|cell| cell.symbol.as_str())
             .collect()
     };
-    // Row 1 is the Client TabBar (ADR-0062), carrying client C-x menu on the right.
+    // Row 1 is the Client TabBar (ADR-0062); its right edge no longer carries a
+    // standing help keycap (ADR-0219).
     let tab_row = row_text(0);
     assert!(
-        tab_row.contains("F1 help"),
-        "the client row offers the help affordance: {tab_row:?}"
+        !tab_row.contains("F1"),
+        "the client row drops the standing help affordance: {tab_row:?}"
     );
     // Row 2 is the Polymorphic SceneBar (ADR-0062): scene name + context.
     let scene_row = row_text(1);
@@ -337,7 +338,7 @@ fn height_cache_skip_path_matches_full_layout() {
     let (width, height, scroll) = (80u16, 24u16, 30usize);
 
     let dump = |cache: &mut HeightCache| -> (String, usize) {
-        let mut terminal = nuotc::TestTerminal::new(width, height);
+        let mut terminal = graticule::TestTerminal::new(width, height);
         let mut layout_map = LayoutMap::new();
         let mut content_lines = 0usize;
         terminal.draw(|f| {
@@ -448,7 +449,7 @@ fn expanded_edit_diff_height_is_scroll_independent() {
 
     let (width, height) = (80u16, 24u16);
     let measure = |scroll: usize, cache: &mut HeightCache| -> usize {
-        let mut terminal = nuotc::TestTerminal::new(width, height);
+        let mut terminal = graticule::TestTerminal::new(width, height);
         let mut layout_map = LayoutMap::new();
         let mut lines = 0usize;
         terminal.draw(|f| {
@@ -549,7 +550,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
         is_steer: false,
     }];
 
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
     let mut render_opt: Option<TranscriptRender> = None;
     terminal.draw(|f| {
         render_opt = Some(draw_transcript(
@@ -607,7 +608,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     let footer_w = 80 - 2 * ui_primitives::design::FOOTER_H_INSET;
     let status_y = band_y + ui_primitives::design::FOOTER_TOP_GAP_ROWS;
 
-    let expect = |y: u16, h: u16| nuotc::Rect::new(footer_x, y, footer_w, h);
+    let expect = |y: u16, h: u16| graticule::Rect::new(footer_x, y, footer_w, h);
     assert_eq!(
         footer_stack::rect_of(&rendered.footer, FooterRowId::ActivityStrip),
         Some(expect(status_y, 1)),
@@ -664,8 +665,8 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
     let terminal = render_full_view(80, 24, &[], Some(hints));
     let row0 = grid_row(&terminal, 0);
     assert!(
-        row0.contains("F1 help"),
-        "client row carries help affordance: {row0:?}"
+        !row0.contains("F1"),
+        "client row drops the help keycap (ADR-0219): {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
     assert!(
@@ -819,7 +820,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
     let theme = Theme::default();
 
     let render_with_sel = |selection: &SelectionState| {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule::TestTerminal::new(80, 24);
         let mut layout_map = LayoutMap::new();
         terminal.draw(|f| {
             let _ = draw_transcript(

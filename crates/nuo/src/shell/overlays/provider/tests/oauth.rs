@@ -7,7 +7,7 @@ fn oauth_pending_records_selectable_regions_in_layout_map() {
     use view::model::selection::{SelectionDrag, SelectionState};
 
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let mut layout_map = view::model::layout::LayoutMap::new();
     let mut scroll = 0;
     let url = "https://github.com/login/oauth/authorize?client_id=Iv1.test12345678&scope=user%3Aemail&state=xyz987";

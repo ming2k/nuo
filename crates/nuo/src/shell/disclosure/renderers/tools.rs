@@ -8,7 +8,7 @@
 //! - `[INV-TUI-TIER-02]` (Canonical Presenter Bridge Invariant): Connected with
 //!   `ToolCard` to guarantee zero drift between production transcript and Storybook.
 
-use nuotc::{
+use graticule::{
     Color, Modifier, Rect, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;

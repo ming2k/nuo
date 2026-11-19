@@ -2,7 +2,7 @@
 //! TUI shows while the server's persistence writer is degraded, cleared by
 //! the next `Healthy` transition. This is a *banner*, not a transcript
 //! notice — the condition outlives any message and must not scroll away.
-use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 
 use crate::shell::render::Theme;
 

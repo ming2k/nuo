@@ -14,7 +14,7 @@ This is what makes the renderer cheap to reason about. A bug in what is on scree
 
 ## The Engine Diffs; the UI Does Not
 
-The retained-mode canvas engine (`nuotc`) holds the authority over the desired visual state (see [ADR-0003](../adr/0003-autonomous-terminal-canvas-substrate-nuotc.md)). It is a retained cell grid with dirty tracking and a **back/front diff**. Each frame, the UI produces a fresh grid; the engine compares the back grid against the front grid and walks only the dirty rows, repainting from each row's dirty column onward.
+The retained-mode canvas engine (`graticule-canvas`) holds the authority over the desired visual state (see [ADR-0223](../adr/0223-graticule-substrate-vt-input-parser-and-all-motion-hover.md)). It is a retained cell grid with dirty tracking and a **back/front diff**. Each frame, the UI produces a fresh grid; the engine compares the back grid against the front grid and walks only the dirty rows, repainting from each row's dirty column onward.
 
 Because diffing is centralized in the engine, the UI never tracks "what did I draw last time". Per-frame rebuild keeps invalidation trivial: there is nothing to invalidate.
 

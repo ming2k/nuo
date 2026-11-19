@@ -165,7 +165,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             carousel_epoch: std::time::Instant::now(),
         },
         composer: ComposerState {
-            recent_commands: Vec::new(),
             input: String::new(),
             caret_motion: Default::default(),
             suggestion_index: None,
@@ -249,6 +248,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             host_kill_confirm_id: None,
             switch_to_target: None,
             pending_help_action: None,
+            palette_recents: Default::default(),
             pending_fold_copy: None,
             command_log_scroll: 0,
             switch_to_new: false,
@@ -275,7 +275,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             key_status: HashMap::new(),
             provider_picker: ProviderPickerSnapshot::default(),
             theme: Theme::default(),
-            profile: nuotc::TerminalProfile::direct_color(),
+            profile: graticule::TerminalProfile::direct_color(),
             logo: None,
         },
         provider_editor: ProviderEditorState {
@@ -320,6 +320,8 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             token_ledger: None,
             token_report: None,
             context_tokens: None,
+            context_plan: None,
+            context_plan_loaded: false,
             usage_stats: None,
             usage_loading: false,
             usage_scroll: 0,
@@ -424,13 +426,13 @@ fn app_with_input_selection(input: &str) -> App {
 
 fn relay_probe(
     app: &mut App,
-    code: crossterm::event::KeyCode,
+    code: graticule::event::KeyCode,
 ) -> Option<crate::shell::input::InputAction> {
     crate::shell::event_loop::component_input::route(
         app,
-        &crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        &graticule::event::Event::Key(graticule::event::KeyEvent::new(
             code,
-            crossterm::event::KeyModifiers::NONE,
+            graticule::event::KeyModifiers::NONE,
         )),
         &[crate::shell::ui::UiKey::Composer],
     )

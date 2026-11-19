@@ -31,7 +31,9 @@
 //! [`CommandLog::copy_text`](view::model::command_log::CommandLog::copy_text),
 //! the same derivation the receipt toast is built from.
 
-use nuotc::{Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule::{
+    Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect, Span, Style,
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::truncate_to_width;
@@ -63,7 +65,6 @@ pub struct LogSceneRects {
     pub tab_next_rect: Option<Rect>,
     pub tab_overflow_rect: Option<Rect>,
     pub tab_notices_rect: Option<Rect>,
-    pub tab_help_rect: Option<Rect>,
 }
 
 /// What the scene needs to paint itself.
@@ -102,9 +103,9 @@ pub fn draw_command_log_scene(
     // A true full-screen surface: clear the whole frame and paint our own
     // backdrop, exactly as the dashboard does, so no transcript pixel shows
     // through a short log.
-    frame.render_widget(&mut nuotc::Clear::default(), frame.area());
+    frame.render_widget(&mut graticule::Clear::default(), frame.area());
     frame.render_widget(
-        &mut nuotc::Block::default().style(Style::default().bg(theme.app_bg)),
+        &mut graticule::Block::default().style(Style::default().bg(theme.app_bg)),
         frame.area(),
     );
 
@@ -238,7 +239,6 @@ pub fn draw_command_log_scene(
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,
         tab_notices_rect: tab_rects.notices_rect,
-        tab_help_rect: tab_rects.help_rect,
     }
 }
 

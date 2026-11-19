@@ -310,6 +310,14 @@ impl SubagentTool {
             subagent.bind_instruction_provider_kind(Arc::clone(handle));
         }
         if let Some(handle) = self
+            .parent_response_language
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+        {
+            subagent.bind_response_language(Arc::clone(handle));
+        }
+        if let Some(handle) = self
             .parent_project_rules
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -675,6 +683,7 @@ impl SubagentTool {
         // interruption, a hard terminal error, or a non-retryable one.
         let mut round = subagent.begin_streaming_round();
         let mut attempt: usize = 0;
+        let mut consecutive_unreachable: usize = 0;
         loop {
             attempt += 1;
             let run = subagent
@@ -688,13 +697,36 @@ impl SubagentTool {
             match run {
                 Ok(outcome) => return (Ok(outcome), round.token_usage()),
                 Err(protocol::HarnessError::Provider(provider_err))
-                    if {
-                        matches!(
-                            provider_err.retry_disposition(),
-                            protocol::RetryDisposition::Retry { .. }
-                        )
-                    } && attempt < retry.limit =>
+                    if matches!(
+                        provider_err.retry_disposition(),
+                        protocol::RetryDisposition::Retry { .. }
+                    ) =>
                 {
+                    let error_kind = provider_err.kind();
+                    let effective_limit = if error_kind == protocol::ProviderErrorKind::Unreachable
+                    {
+                        consecutive_unreachable += 1;
+                        retry
+                            .limit
+                            .min(crate::runtime::retry::UNREACHABLE_MAX_ATTEMPTS)
+                    } else {
+                        consecutive_unreachable = 0;
+                        retry.limit
+                    };
+                    let current_count = if error_kind == protocol::ProviderErrorKind::Unreachable {
+                        consecutive_unreachable
+                    } else {
+                        attempt
+                    };
+                    if current_count >= effective_limit || attempt >= retry.limit {
+                        return (
+                            Err(protocol::HarnessError::Provider(provider_err)),
+                            round.token_usage(),
+                        );
+                    }
+                    if crate::runtime::retry::should_flush_pools(error_kind) {
+                        provider::transport::clear_shared_pools();
+                    }
                     let retry_after_ms = match provider_err.retry_disposition() {
                         protocol::RetryDisposition::Retry { retry_after_ms } => retry_after_ms,
                         _ => unreachable!(),
@@ -710,8 +742,9 @@ impl SubagentTool {
                         fastrand::u64(0..base_ms)
                     });
                     tracing::warn!(
-                        attempt,
-                        max_attempts = retry.limit,
+                        attempt = current_count,
+                        total_attempts = attempt,
+                        max_attempts = effective_limit,
                         delay_ms,
                         error = %message,
                         "subagent hit a transient provider error; retrying"
@@ -720,8 +753,8 @@ impl SubagentTool {
                     // parent renders `retry N in Xs` from these numbers, phrased
                     // by the same owner as the principal round's clause.
                     on_event(::tool::SubagentEvent::RetryScheduled {
-                        attempt,
-                        max_attempts: retry.limit,
+                        attempt: current_count,
+                        max_attempts: effective_limit,
                         delay_ms,
                         message: message.to_string(),
                     });

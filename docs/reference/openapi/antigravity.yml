@@ -1,7 +1,72 @@
 # OpenAPI 3.1 reference for the Google Antigravity (Cloud Code) v1internal surface,
-# reverse engineered from Google Antigravity CLI (`agy`) 1.5.3
-# (/home/ming/.local/bin/agy, stripped Go ELF, 246,837,648 bytes)
+# reverse engineered from Google Antigravity CLI (`agy`) 1.5.12
+# (/home/ming/.local/bin/agy, stripped Go ELF, 269,443,784 bytes,
+# sha256 94104f028e6962fa2f71d393a7ae27d835ceba1c4898422a103e22c6a5fd6828)
 # and live-verified against a real consumer (Google One) account.
+#
+# 2026-11-19 (later, same day) DECRYPTED-MITM revision — supersedes the
+# transport-split claims below and every "stream lane rides h2" statement in
+# this file. A transparent MITM relay (CONNECT proxy + locally trusted CA +
+# live upstream forwarding) captured the full decrypted business flow of the
+# shipped 1.5.12: `agy models` and a complete `--print` inference turn.
+# Ground truth recorded:
+#   - EVERY Cloud Code call to daily-cloudcode-pa.googleapis.com — unary
+#     /v1internal:* JSON calls AND the model-streaming
+#     `v1internal:streamGenerateContent?alt=sse` — is HTTP/1.1 with the
+#     branded UA `antigravity/cli/1.5.12 (…)`. The streaming call carries
+#     `Transfer-Encoding: chunked` (already documented below) and the same
+#     four headers as the unary lane. The 1.5.9-era per-path split is gone
+#     in 1.5.12's observed behaviour: `stripHTTP2NextProto` present in the
+#     pclntab was a bundle fact, but the decrypted wire shows it applies to
+#     the streaming lane too.
+#   - h2 (with Go's stock UA `Go-http-client/2.0`) is negotiated ONLY by
+#     the Clearcut telemetry lane (play.googleapis.com /log, POST
+#     application/octet-stream) and the auto-updater
+#     (antigravity-cli-auto-updater-…run.app /manifests/linux_amd64.json).
+#     Their h2 framing matches `x-network-fingerprint.http2` exactly
+#     (re-verified: SETTINGS [(2,0),(4,4194304),(5,1048576),(6,10485760)],
+#     connection WINDOW_UPDATE 1073741824, no PRIORITY frames,
+#     pseudo-headers :authority,:method,:path,:scheme).
+#   - requestId/requestType ARE present on main agent turns (contradicting
+#     the earlier sampled-live note): `agent/{uuid-v4}/{epoch-ms}/{uuid-v4}/
+#     {counter}` and `requestType: "agent"`.
+#   - Unary HTTP/1.1 header order is deterministic (Go's Header.writeSubset
+#     sorts caller keys): Host, User-Agent, Content-Length (or
+#     Transfer-Encoding), then caller headers sorted, then the
+#     transport-stamped `Accept-Encoding: gzip` last. Host carries NO
+#     default port.
+#   - `signatureAlgorithmsCert` (below, tls section) ends with the SHA-1 tail
+#     `0x0201, 0x0203` — confirmed again on every lane.
+#   - New verbs observed live on the unary lane: `/v1internal:listExperiments`
+#     (POST `{}`), `/v1internal:fetchAdminControls`, `/v1internal:fetchUserInfo`,
+#     `/v1internal:recordTrajectoryAnalytics` (POST, large JSON), plus
+#     `aicode.googleapis.com/v1alpha:fetchConfig` (GET, already documented).
+#
+# 2026-11-19 revision (agy 1.5.3 -> 1.5.12, bundle re-extraction): no request/
+# response schema on the documented core surface changed; what changed is the
+# transport identity and the build stamp. What this revision records:
+#   - identity: UA cl counter is now 1024904911 (the google3 build id of the
+#     1.5.12 bundle; the UA is assembled at runtime from "%s/%s (%s)" +
+#     "os_type=%s; arch=%s; cl=%d; auth_method=%s", so the counter exists in
+#     the image only as the build id, file:/google_src/files/1024904911).
+#     Toolchain is go1.28-20261102-RC01 (was RC00). `agy --version` prints
+#     "1.5.12".
+#   - transport split (measured live on the 1.5.9 lineage, netune ADR-0047;
+#     `codeassistclient.stripHTTP2NextProto` + `isHTTP2NextProto` confirmed
+#     present in the 1.5.12 pclntab): the single-h2 capture of 1.5.3 is
+#     superseded. The unary Cloud Code lane (/v1internal: JSON calls, incl.
+#     loadCodeAssist/fetchAvailableModels/quota) offers ALPN `http/1.1` only
+#     and brands `antigravity/cli/{version}`; the model-streaming lane keeps
+#     `h2, http/1.1` with Go's stock UA `Go-http-client/2.0` and go-nethttp
+#     framing. The header User-Agent is therefore per-path.
+#   - oauth: all three client pairs and secrets are byte-identical in 1.5.12;
+#     the candidate business/BAIC numeric prefix is 12 digits
+#     (1098991175725-…): an earlier transcription dropped the leading `1`.
+#     Scopes and endpoints are unchanged.
+#   - rpc table: every verb documented below is still present in the 1.5.12
+#     RPC table; the bundle adds lanes this file never documented (battle
+#     mode, mesh/signaling, registerInteraction, proxyCommand, upload
+#     performance profile, …). Additions only, no removals observed.
 #
 # 2026-11-07 revision (agy 1.5.2 -> 1.5.3): live capture of a full inference
 # turn under an intercepting HTTPS proxy (mitmproxy) plus TLS ClientHello and
@@ -9,12 +74,12 @@
 #   - identity: UA cl counter is now 1016078699 (was 999748552); release stamp
 #     1.5.3-6604829099950080; toolchain go1.28-20261102-RC00 cl/1012564305
 #     +298f53e483 X:fieldtrack,boringcrypto,simd,nogolistexportnewformat.
-#   - transport: every Cloud Code call is HTTP/2 (`h2` ALPN); the 1.3.x capture
-#     was HTTP/1.1 over a browser-shaped stack. The wire fingerprint (TLS
-#     ClientHello + h2 SETTINGS/WINDOW_UPDATE + pseudo-header order) is recorded
-#     under `x-network-fingerprint`; the matching implementation is netune's
-#     `Preset::AntigravityCli` + `H2Fingerprint::go`.
-#   - a third OAuth client pair exists in 1.5.3 (business/BAIC lane); its role is
+#   - transport: every Cloud Code call was HTTP/2 (`h2` ALPN) on that build;
+#     the wire fingerprint (TLS ClientHello + h2 SETTINGS/WINDOW_UPDATE +
+#     pseudo-header order) is recorded under `x-network-fingerprint`; the
+#     matching implementation is netune's split presets (see the 2026-11-19
+#     note above: unary/stream have since diverged).
+#   - a third OAuth client pair exists in 1.5.x (business/BAIC lane); its role is
 #     inferential (`SetBusinessOAuthClientIDOverride`) and is marked as such.
 #   - risk control: this account was served `403 TOS_VIOLATION` at the inference
 #     verb while every account/catalog verb stayed 200. The exact rejection shape
@@ -48,7 +113,7 @@
 openapi: 3.1.0
 info:
   title: Google Antigravity (Cloud Code) Internal API
-  version: 1.5.3
+  version: 1.5.12
   summary: >-
     The Cloud Code companion surface behind the `agy` CLI: an OAuth2 (Google
     Cloud Platform scope set) authenticated envelope that wraps Google-native
@@ -111,14 +176,22 @@ info:
     `SetBusinessOAuthClientIDOverride` symbol (see `x-cli-constants`).
 
     Client identity (the admission gate): the backend routes inference only for
-    requests whose `User-Agent` carries the `antigravity/cli/` brand. The full
-    observed form is
+    requests whose `User-Agent` carries the `antigravity/cli/` brand on the
+    **unary** lane. The full observed form is
     `antigravity/cli/{version} (aidev_client; os_type={os}; arch={arch}; cl={build}; auth_method={method})`
-    — live capture of 1.5.3:
-    `antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)`.
-    Since 1.5.x the CLI speaks **HTTP/2** to every Cloud Code endpoint (the
-    TLS ClientHello and HTTP/2 framing are part of its observable identity; see
-    `x-network-fingerprint`). Differential probing (live) established:
+    — bundle-extracted 1.5.12:
+    `antigravity/cli/1.5.12 (aidev_client; os_type=linux; arch=amd64; cl=1024904911; auth_method=consumer)`.
+    Since the decrypted 1.5.12 wire (2026-11-19) the CLI's Cloud Code
+    transport identity is one lane, not a per-path split: unary
+    `/v1internal:*` JSON calls AND the model-streaming call speak HTTP/1.1
+    (`http/1.1`-only ALPN) with the branded UA. The 1.5.9-era claim that
+    the streaming lane rode HTTP/2 (`h2, http/1.1`) with Go's stock UA
+    `Go-http-client/2.0` (netune ADR-0047) is superseded: the stock UA and
+    the h2 framing appear only on the telemetry lane
+    (`play.googleapis.com /log`, the auto-updater). The TLS ClientHello is
+    part of the observable identity on every lane (see
+    `x-network-fingerprint`). Differential
+    probing (live, on the unary lane) established:
     - `cl=` is **not** discriminated (`cl=0` and the real build number are both admitted).
     - `auth_method=consumer` matches subscription accounts; `business` exists in
       the bundle for enterprise surfaces.
@@ -132,12 +205,17 @@ info:
       distinguishability debt, not fidelity.
   x-provenance: live + bundle
   x-cli-constants:
-    cliVersion: 1.5.3
-    # The `cl=` counter stamped into the User-Agent, live-captured 2026-11-07.
-    cliBuildNumber: "1016078699"
-    releaseStamp: 1.5.3-6604829099950080
-    toolchain: go1.28-20261102-RC00 cl/1012564305 +298f53e483 X:fieldtrack,boringcrypto,simd,nogolistexportnewformat
-    binarySizeBytes: 246837648
+    cliVersion: 1.5.12
+    # The `cl=` counter stamped into the User-Agent. Bundle-extracted
+    # 2026-11-19 from the 1.5.12 google3 build id (`--version` prints only
+    # "1.5.12"; the UA is runtime-assembled, so this counter exists in the
+    # image as the build id alone).
+    cliBuildNumber: "1024904911"
+    # Release stamps of the 1.5.3 form (1.5.3-6604829099950080) appear nowhere
+    # in the 1.5.12 bundle; the version surfaces only via `agy --version`.
+    releaseStamp: none-in-bundle (observed via `agy --version` -> 1.5.12)
+    toolchain: go1.28-20261102-RC01 cl/1012564305 +298f53e483 X:fieldtrack,boringcrypto,simd,nogolistexportnewformat
+    binarySizeBytes: 269443784
     clientKind: aidev_client
     authMethodConsumer: consumer
     oauth:
@@ -170,6 +248,10 @@ info:
       # SetOAuthClientIDOverride and SetBusinessOAuthClientIDOverride. The pair
       # below is therefore recorded as the *candidate business/BAIC* pair, not
       # as a consumer-flow fact.
+      # 2026-11-19: re-extracted from the 1.5.12 bundle — the numeric prefix
+      # is 12 digits and byte-identical across 1.5.3 and 1.5.12 (an earlier
+      # nuo transcription dropped the leading digit; oauth.rs is corrected in
+      # step). All three secrets are byte-identical in 1.5.12.
       businessClientId:
         value: "<redacted: Google OAuth client id>"
         provenance: bundle
@@ -198,19 +280,45 @@ info:
     defaultTierId: free-tier
     minAdmittedProductVersion: "1.2"
     userAgents:
-      real153: antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)
-      nuoEmulated: antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)
+      real1512: antigravity/cli/1.5.12 (aidev_client; os_type=linux; arch=amd64; cl=1024904911; auth_method=consumer)
+      nuoEmulated: antigravity/cli/1.5.12 (aidev_client; os_type=linux; arch=amd64; cl=1024904911; auth_method=consumer)
+      streamLane1512: Go-http-client/2.0
+      streamLaneNote: >-
+        CORRECTED by the 2026-11-19 decrypted capture: `Go-http-client/2.0`
+        describes only the h2 telemetry lane (play.googleapis.com /log) and
+        the auto-updater. The model-streaming call
+        `v1internal:streamGenerateContent?alt=sse` is HTTP/1.1 with the
+        branded UA above. The 1.5.9-era per-path UA split no longer holds;
+        the constant is kept for the telemetry lane's identity.
+      real153Legacy: antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)
       real136Legacy: antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
     requestHeaders:
       summary: >-
-        The shipped 1.5.3 client sends exactly four request headers on every
-        Cloud Code call: Authorization, Content-Type, Accept-Encoding,
-        User-Agent. No `x-goog-api-client`, no other client-identity marker.
-        Plus the HTTP/2 transport's implicit `:authority`, `:method`, `:path`,
-        `:scheme` and `content-length`. Header insertion order across the four
-        is not stable (Go map iteration); four permutations were observed on
-        the wire (see `x-network-fingerprint.headerOrder`).
-      transport: h2
+        The shipped client sends exactly four request headers on every Cloud
+        Code call: Authorization, Content-Type, Accept-Encoding, User-Agent.
+        No `x-goog-api-client`, no other client-identity marker. Plus the
+        transport's implicit `Host`, the request line, and
+        `Content-Length` (or `Transfer-Encoding: chunked` on the streaming
+        call). On the decrypted 1.5.12 wire the order is deterministic:
+        `Host`, `User-Agent`, `Content-Length`/`Transfer-Encoding`, the
+        caller headers sorted by canonical key, `Accept-Encoding: gzip` last
+        (Go's `Header.writeSubset` sorts; the transport appends its own).
+        Host carries no scheme-default port. On the h2 telemetry lane the
+        four caller headers follow Go's map-iteration random order with the
+        transport-stamped tail (`content-length`, `accept-encoding`, default
+        `user-agent`) fixed after them (see
+        `x-network-fingerprint.headerOrder`).
+      transport:
+        unary: http/1.1
+        stream: http/1.1
+        telemetryH2: h2
+        note: >-
+          CORRECTED 2026-11-19 (decrypted capture): every Cloud Code lane —
+          unary and model-streaming — is HTTP/1.1 in the shipped 1.5.12; the
+          streaming call uploads chunked. h2 is the telemetry lane's
+          transport only. The earlier "stream: h2" claim came from the 1.5.9
+          lineage and from pclntab strings, and the decrypted 1.5.12 wire
+          supersedes it.
     otherHosts:
       aicode: https://aicode.googleapis.com
       aicodeConfigVerb: https://aicode.googleapis.com/v1alpha:fetchConfig
@@ -828,7 +936,11 @@ paths:
         `?alt=sse`; the request uses chunked transfer encoding (no
         Content-Length) and exactly four headers: `Authorization`,
         `Content-Type: application/json`, `Accept-Encoding: gzip`,
-        `User-Agent`.
+        `User-Agent`. On the decrypted 1.5.12 wire this lane is HTTP/1.1
+        (`http/1.1`-only ALPN) with the branded `antigravity/cli/…` UA — the
+        same transport identity as the unary lane (corrected 2026-11-19;
+        the 1.5.9-era claim that it rode h2 with Go's stock UA is
+        superseded).
 
         Envelope (all fields observed live, top level):
         - `model` — the wire model id. **Routing is by registered
@@ -852,10 +964,13 @@ paths:
           documented 429 trigger under load.
         - `request` — a standard Google `GenerateContentRequest`.
         - `requestId` — `checkpoint/{uuid-v4}` when the turn is a title/
-          checkpoint generation (`requestType: "checkpoint"`); absent on
-          main agent turns (sampled live).
-        - `requestType` — `"checkpoint"` on title/checkpoint lanes; absent on
-          main agent turns.
+          checkpoint generation (`requestType: "checkpoint"`);
+          `agent/{uuid-v4}/{epoch-ms}/{uuid-v4}/{counter}` with
+          `requestType: "agent"` on main agent turns (decrypted 1.5.12
+          capture, 2026-11-19 — the earlier "absent on main agent turns"
+          note is superseded).
+        - `requestType` — `"checkpoint"` on title/checkpoint lanes;
+          `"agent"` on main agent turns.
         - `userAgent` — the string `"antigravity"` (brand echo, not the UA
           header value).
         - `sessionId` — numeric string id (negative int64 observed), constant
@@ -1801,10 +1916,13 @@ components:
           $ref: "#/components/schemas/GenerateContentRequest"
         requestId:
           type: string
-          description: "`checkpoint/{uuid-v4}` on title/checkpoint lanes."
+          description: >-
+            `checkpoint/{uuid-v4}` on title/checkpoint lanes;
+            `agent/{uuid-v4}/{epoch-ms}/{uuid-v4}/{counter}` on main agent
+            turns (decrypted 1.5.12 capture, 2026-11-19).
         requestType:
           type: string
-          enum: [checkpoint]
+          enum: [checkpoint, agent]
         userAgent:
           type: string
           description: Brand echo `"antigravity"` (not the UA header value); title lane only.
@@ -1954,12 +2072,24 @@ x-admission-band:
 x-network-fingerprint:
   summary: >-
     Wire identity beyond headers: the TLS ClientHello and HTTP/2 framing of
-    `agy` 1.5.3 (Go 1.28, boringcrypto). Captured 2026-11-07 on a fresh
-    connection to daily-cloudcode-pa.googleapis.com by peeking the raw
-    ClientHello record (MSG_PEEK, TLS untouched) and decoding the h2 frames
-    before mitmproxy terminated TLS.
-  provenance: live
-  transport: h2
+    `agy` (Go 1.28, boringcrypto). Captured 2026-11-07 on a fresh connection
+    to daily-cloudcode-pa.googleapis.com by peeking the raw ClientHello
+    record (MSG_PEEK, TLS untouched) and decoding the h2 frames before
+    mitmproxy terminated TLS. That capture rode a 1.5.3 build, where every
+    Cloud Code call negotiated h2; since 1.5.9 the identity is per-path
+    (netune ADR-0047, re-confirmed against the 1.5.12 bundle:
+    `codeassistclient.stripHTTP2NextProto` + `isHTTP2NextProto` in the
+    pclntab, `ForceAttemptHTTP2` + `Go-http-client/2.0` strings present).
+    CORRECTED by the decrypted 1.5.12 capture (2026-11-19): the unary lane
+    offers `http/1.1` only AND SO DOES the model-streaming lane; the h2
+    offer, the stock UA and the framing below belong to the Clearcut
+    telemetry lane (play.googleapis.com /log) and the auto-updater only,
+    where every value below was re-verified exactly.
+  provenance: live + bundle
+  transport:
+    unary: http/1.1 (since 1.5.9)
+    stream: http/1.1 (since the observed 1.5.12 wire; corrected)
+    telemetry: h2
   headerOrder:
     summary: >-
       Go's h2 client does not stabilise header order: four permutations of the
@@ -2038,35 +2168,52 @@ x-network-fingerprint:
     ja3Md5: 047514f2ccd8b013647df2d9e189c231
     ja4: t13d1312h1_7864b4adc6a0_cd1b3511567d_7117e252e3bb
   nuoImplementation:
-    tlsProfile: netune::Preset::AntigravityCli ("antigravity-cli")
-    http2Fingerprint: netune_http2::H2Fingerprint::go()
+    tlsProfileUnary: netune::Preset::AntigravityCliUnary ("antigravity-cli-unary")
+    tlsProfileStream: netune::Preset::AntigravityCliStream ("antigravity-cli-stream")
+    http2Fingerprint: netune_http2::H2Fingerprint::go() ("go-nethttp", paired via H2Registry::default_for_tls)
     selection: >-
-      providers/nuo-provider-google-antigravity stamps
-      RequestBuilder::tls_profile(ANTIGRAVITY_TLS_PROFILE) on every Cloud Code
-      inference, retry, quota, loadCodeAssist and onboardUser request. The
-      shared netune client uses TlsRouterConnector and enable_http2, so the same
-      name selects the TLS hello and the h2 framing; netune keys its connection
-      pool on the profile name, so a profiled request never reuses a
-      default-identity socket. The generic fetchAvailableModels catalog fetch
-      still presents the stock identity (it carries the 1.5.3 UA but not the
-      named profile).
+      providers/nuo-provider-google-antigravity stamps the unary profile
+      (`antigravity_tls_profile(is_stream)` resolves to it for both lanes
+      since the decrypted 1.5.12 capture) on every Cloud Code inference,
+      retry, loadCodeAssist, onboardUser, retrieveUserQuotaSummary and
+      fetchAvailableModels request. The name pairs with no h2 connection
+      profile, so the transport routes it to the process-wide HTTP/1.1-only
+      netune client — which since this revision also pairs the
+      `antigravity-cli` HTTP/1.1 wire profile (Go header order, Title-Case,
+      gzip offer, port-free Host) and enables netune's transparent gzip
+      decode. The `antigravity-cli-stream` preset stays registered as the
+      h2 telemetry lane identity, unused by the inference path. netune keys
+      its connection pool on the profile name, so a profiled request never
+      reuses a default-identity socket. The header User-Agent is the
+      branded `antigravity/cli/1.5.12` UA on every lane; a relay-configured
+      UA is respected everywhere. The envelope body carries the brand echo
+      `antigravity` in `userAgent`, plus `requestId`
+      (`agent/{uuid-v4}/{epoch-ms}/{uuid-v4}/{counter}`) and
+      `requestType: "agent"` on inference turns.
     residualDivergences:
       - >-
-        rustls cannot offer Go's four CBC suites; the other nine are the same
-        set but rustls emits them in provider order, so the JA3 cipher hash
-        differs even though the set matches.
+        None on the TLS layer for the owned-engine path: netune's
+        `antigravity-cli-*` presets feed the owned `netune-tls` engine, whose
+        serialized ClientHello was byte-diffed against the captured 1.5.12
+        hello — cipher order, extension order and payloads (including the
+        fifteen-scheme `signatureAlgorithmsCert` with its SHA-1 tail) all
+        match; only the per-connection randoms, session id and key-share
+        bodies differ, as they must.
       - >-
-        rustls has no renegotiation_info (ff01), extended_master_secret (0017),
-        SCT (0012), status_request (0005), or ML-DSA (0904/0905/0906)
-        implementations, and owns extension order — the JA3/JA4 extension hash
-        cannot match Go's.
+        The model-streaming upload is `Content-Length` framed in nuo today,
+        where the shipped CLI streams the request body chunked
+        (`Transfer-Encoding: chunked`). The server accepts both framings;
+        netune already streams chunked when a caller supplies a
+        `RequestBody::Stream`.
       - >-
-        rustls has no SecP256r1MLKEM768 / SecP384r1MLKEM1024 (0x11eb/0x11ed),
-        so two of Go's seven supported groups are absent.
+        The CLI's agent-runtime internals inside `request` (`labels`,
+        `sessionId`) belong to its cascade bookkeeping and are not faked by
+        nuo.
     verdict: >-
-      Negotiates like the CLI (h2 first, TLS 1.3, no GREASE, no browser
-      extensions) and frames like Go; a byte-exact Go hello needs a Go-shaped
-      TLS engine, not a rustls profile.
+      Byte-exact on the decrypted HTTP/1.1 head (order, casing, Host without
+      port, gzip offer) and on the TLS ClientHello via the owned engine; the
+      residual divergences are the request-body framing choice and the
+      un-faked cascade analytics fields.
 
 x-risk-control:
   summary: >-

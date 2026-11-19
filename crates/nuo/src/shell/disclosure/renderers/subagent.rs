@@ -1,6 +1,6 @@
 //! Inline step renderer for Tier-2 Subagent tasks.
 
-use nuotc::{
+use graticule::{
     Modifier, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;

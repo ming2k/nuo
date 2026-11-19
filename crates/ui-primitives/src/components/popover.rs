@@ -3,7 +3,7 @@
 //! Provides a clean floating popover shell with auto-flip geometry, viewport boundary
 //! clamping, elevation styling, title and footer affordances, and inner layout solving.
 
-use nuotc::{
+use graticule_canvas::{
     Alignment, AnchorAlignment, AnchorConstraints, AnchorPlacement, AnchorTarget, Block as RtBlock,
     BorderType, Borders, Clear, Frame, Line, Margin, Modifier, Paragraph, Rect, Span, Style,
     compute_anchored_rect,
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_popover_render_produces_inner_content_rect() {
-        use nuotc::TestTerminal;
+        use graticule_canvas::TestTerminal;
 
         let mut terminal = TestTerminal::new(80, 24);
         let theme = Theme::default();

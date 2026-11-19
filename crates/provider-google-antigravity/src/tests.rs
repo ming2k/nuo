@@ -548,3 +548,184 @@ fn request_reasoning_effort_cap_and_override_respect_route_state() {
         "includeThoughts must be omitted when overridden to None"
     );
 }
+
+/// Freeze the 1.5.12 identity bundle (bundle-extracted 2026-11-19, see
+/// `docs/reference/openapi/antigravity.yml`): the version, the `cl=` counter
+/// (the bundle's google3 build id), and the runtime-assembled UA form.
+#[test]
+fn antigravity_identity_freezes_the_1_5_12_bundle() {
+    use crate::spec_antigravity as spec;
+    assert_eq!(spec::ANTIGRAVITY_VERSION, "1.5.12");
+    assert_eq!(spec::ANTIGRAVITY_BUILD_NUMBER, "1024904911");
+    let ua = spec::ANTIGRAVITY_USER_AGENT;
+    assert!(ua.starts_with("antigravity/cli/1.5.12 (aidev_client; "));
+    assert!(ua.contains("os_type=linux; arch=amd64; "));
+    assert!(ua.ends_with("cl=1024904911; auth_method=consumer)"));
+}
+
+/// The named TLS profiles must resolve in netune with their per-lane ALPN
+/// offers (netune ADR-0047, `[INV-TLS-10]`), and the provider's model
+/// requests must land on the HTTP/1.1 identity on **every** lane: the live
+/// 1.5.12 capture shows `v1internal:streamGenerateContent?alt=sse` is an
+/// HTTP/1.1 call, so the 1.5.9-era h2 stream lane is gone. The
+/// `antigravity-cli-stream` preset stays registered as the h2 *telemetry*
+/// lane identity (Clearcut `play.googleapis.com`, the auto-updater), which
+/// the provider's request paths never select.
+#[test]
+fn antigravity_model_lanes_all_resolve_to_the_http1_identity() {
+    use crate::spec_antigravity as spec;
+    for is_stream in [false, true] {
+        assert_eq!(
+            spec::antigravity_tls_profile(is_stream),
+            spec::ANTIGRAVITY_TLS_PROFILE_UNARY,
+            "the {} model lane is HTTP/1.1 (1.5.12 capture)",
+            if is_stream { "streaming" } else { "unary" }
+        );
+    }
+
+    let unary = netune::Preset::by_name(spec::ANTIGRAVITY_TLS_PROFILE_UNARY)
+        .expect("antigravity-cli-unary is a registered netune preset")
+        .profile();
+    assert_eq!(
+        unary.blueprint.alpn,
+        vec![b"http/1.1".to_vec()],
+        "the HTTP/1.1 lanes strip HTTP/2 from the ALPN offer (stripHTTP2NextProto)"
+    );
+
+    let stream = netune::Preset::by_name(spec::ANTIGRAVITY_TLS_PROFILE_STREAM)
+        .expect("antigravity-cli-stream stays registered for the telemetry lane")
+        .profile();
+    assert_eq!(
+        stream.blueprint.alpn,
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()],
+        "the h2 telemetry lane offers h2 first"
+    );
+}
+
+/// Per-lane header identity (live decrypted capture of `agy` 1.5.12,
+/// 2026-11-19): **both** Cloud Code lanes — unary and
+/// `:streamGenerateContent?alt=sse` — carry the branded UA over HTTP/1.1.
+/// The 1.5.9-era split, where streaming rode h2 with Go's stock UA, no
+/// longer holds; that stock UA now only ever appears on the h2 telemetry
+/// lane (`play.googleapis.com /log`), which this provider does not drive.
+/// A relay-configured custom UA is an explicit user choice and survives on
+/// every lane.
+#[test]
+fn antigravity_header_user_agent_is_the_brand_on_every_lane() {
+    let branded = || {
+        GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "gemini-3.8-flash".to_string(),
+            "https://daily-cloudcode-pa.googleapis.com",
+            crate::spec_antigravity::ANTIGRAVITY_USER_AGENT,
+        )
+        .with_dialect(protocol::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_project_id("proj-1")
+    };
+
+    for is_stream in [false, true] {
+        let (_, headers, _) =
+            branded().prepare_request(&ModelRequest::new(Vec::new()), is_stream, false);
+        assert_eq!(
+            headers.get("user-agent").and_then(|v| v.to_str().ok()),
+            Some(crate::spec_antigravity::ANTIGRAVITY_USER_AGENT),
+            "the {} lane keeps the branded UA (1.5.12 capture)",
+            if is_stream { "streaming" } else { "unary" }
+        );
+    }
+
+    let relay = GoogleProvider::with_base_url_and_user_agent(
+        "k".to_string(),
+        "gemini-3.8-flash".to_string(),
+        "https://daily-cloudcode-pa.googleapis.com",
+        "relay-agent/1.0",
+    )
+    .with_dialect(protocol::dialects::GoogleGenerateContentDialect::Antigravity)
+    .with_project_id("proj-1");
+    for is_stream in [false, true] {
+        let (_, relay_headers, _) =
+            relay.prepare_request(&ModelRequest::new(Vec::new()), is_stream, false);
+        assert_eq!(
+            relay_headers
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok()),
+            Some("relay-agent/1.0"),
+            "an explicitly configured relay UA is respected on the {} lane",
+            if is_stream { "stream" } else { "unary" }
+        );
+    }
+}
+
+/// The provider's Cloud Code requests pair the antigravity TLS identity
+/// with netune's matching HTTP/1.1 wire profile, and that pairing must
+/// resolve in netune's default registry — the two names live in different
+/// repositories, so a silent rename on one side would degrade the wire
+/// shape instead of failing loudly.
+#[test]
+fn antigravity_h1_wire_profile_pairs_and_resolves_in_netune() {
+    use crate::spec_antigravity as spec;
+    let client = netune::Client::builder().build();
+    let target = netune::Target::tls(
+        "daily-cloudcode-pa.googleapis.com:443",
+        "daily-cloudcode-pa.googleapis.com",
+    )
+    .with_tls_profile(spec::antigravity_tls_profile(false))
+    .with_h1_profile("antigravity-cli");
+    let plan = client.plan(&target).expect("the pairing resolves");
+    assert_eq!(plan.h1.id().as_str(), "antigravity-cli");
+}
+
+/// Envelope body facts (live decrypted capture of `agy` 1.5.12,
+/// 2026-11-19): the body `userAgent` field is the bare brand echo
+/// `"antigravity"` — never the header UA string — and a main agent turn
+/// carries `requestId` (`agent/{uuid}/{epoch-ms}/{uuid}/{counter}`) plus
+/// `requestType: "agent"`. The 1.5.9-era note that those belonged only to
+/// the title/checkpoint lane no longer holds.
+#[test]
+fn antigravity_envelope_body_carries_the_brand_echo_not_the_header_ua() {
+    let p = GoogleProvider::with_base_url_and_user_agent(
+        "k".to_string(),
+        "gemini-3.8-flash".to_string(),
+        "https://daily-cloudcode-pa.googleapis.com",
+        crate::spec_antigravity::ANTIGRAVITY_USER_AGENT,
+    )
+    .with_dialect(protocol::dialects::GoogleGenerateContentDialect::Antigravity)
+    .with_project_id("proj-1");
+
+    for is_stream in [false, true] {
+        let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), is_stream, false);
+        assert_eq!(
+            body.body["userAgent"],
+            serde_json::json!(crate::spec_antigravity::ANTIGRAVITY_ENVELOPE_USER_AGENT)
+        );
+        assert_eq!(body.body["requestType"], serde_json::json!("agent"));
+        let request_id = body
+            .body
+            .get("requestId")
+            .and_then(serde_json::Value::as_str)
+            .expect("a main agent turn carries requestId (1.5.12 capture)");
+        let segments: Vec<&str> = request_id.split('/').collect();
+        assert_eq!(
+            segments.len(),
+            5,
+            "requestId is agent/{{uuid}}/{{epoch-ms}}/{{uuid}}/{{counter}}"
+        );
+        assert_eq!(segments[0], "agent");
+        assert!(
+            segments[1].parse::<uuid::Uuid>().is_ok(),
+            "the first id segment is a uuid-v4: {request_id}"
+        );
+        assert!(
+            segments[2].parse::<u128>().is_ok(),
+            "the second segment is the epoch-ms stamp: {request_id}"
+        );
+        assert!(
+            segments[3].parse::<uuid::Uuid>().is_ok(),
+            "the third id segment is a uuid-v4: {request_id}"
+        );
+        assert!(
+            segments[4].parse::<u64>().is_ok(),
+            "the last segment is the per-cascade counter: {request_id}"
+        );
+    }
+}

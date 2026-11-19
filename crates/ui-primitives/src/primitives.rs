@@ -9,7 +9,7 @@ pub enum Recess {
     Dim,
     Takeover,
 }
-use nuotc::{
+use graticule_canvas::{
     Alignment, Constraint, Direction, Frame, Layout, Line, Rect,
     {Block as RtBlock, Clear, Paragraph}, {Color, Style},
 };
@@ -237,6 +237,11 @@ impl ContentModalSpec {
     pub const THREAD_STATS: Self = Self::new(76, 11, 80);
     /// Session Trace inspector (hierarchical rounds -> turns -> attempt waterfall).
     pub const SESSION_TRACE: Self = Self::new(80, 11, 92);
+    /// Context Plan inspector (`/context`): request accounting, one row per
+    /// declared source, and the selected block's rendered body. Wide enough for
+    /// the `id / topic / band / tokens` columns at their natural widths
+    /// (ADR-0220 §6).
+    pub const CONTEXT_PLAN: Self = Self::new(84, 12, 92);
     /// The usage-statistics overlay (`/usage`): three stacked sections
     /// (summary, daily chart + table, model breakdown, event log) in one
     /// scrolling body. Wider than the context-usage modal so the four-column
@@ -606,7 +611,7 @@ pub fn render_body(
 
     let mut para = Paragraph::new(lines).scroll(*scroll as u16, 0);
     if wrap {
-        para = para.wrap(nuotc::Wrap { trim: false });
+        para = para.wrap(graticule_canvas::Wrap { trim: false });
     }
     frame.render_widget(&mut para, body_rect);
 
@@ -690,7 +695,7 @@ pub fn draw_scrollbar(
             paint.put(
                 track_x,
                 track_top,
-                nuotc::Fit::Clip,
+                graticule_canvas::Fit::Clip,
                 Style::default().fg(theme.dim()),
                 "▲",
             );
@@ -699,7 +704,7 @@ pub fn draw_scrollbar(
             paint.put(
                 track_x,
                 track_top + track - 1,
-                nuotc::Fit::Clip,
+                graticule_canvas::Fit::Clip,
                 Style::default().fg(theme.dim()),
                 "▼",
             );
@@ -710,7 +715,7 @@ pub fn draw_scrollbar(
                 paint.put(
                     track_x,
                     y,
-                    nuotc::Fit::Clip,
+                    graticule_canvas::Fit::Clip,
                     Style::default().bg(theme.muted()),
                     " ",
                 );
@@ -752,7 +757,7 @@ pub fn rgb(color: Color) -> (u8, u8, u8) {
 mod tests {
     use super::*;
     use crate::design::MODAL_INNER_H_PADDING;
-    use nuotc::{Frame, Rect, Style};
+    use graticule_canvas::{Frame, Rect, Style};
 
     #[test]
     fn fixed_and_content_modal_specs_preserve_their_sizing_modes() {
@@ -769,14 +774,18 @@ mod tests {
     #[test]
     fn dim_surface_preserves_more_code_text_contrast() {
         let theme = Theme::default();
-        let mut grid = nuotc::CellGrid::new(2, 1);
-        let mut damage = nuotc::Damage::new(1);
+        let mut grid = graticule_canvas::CellGrid::new(2, 1);
+        let mut damage = graticule_canvas::Damage::new(1);
         {
-            let mut paint = nuotc::Paint::new(&mut grid, &mut damage, nuotc::Rect::new(0, 0, 2, 1));
+            let mut paint = graticule_canvas::Paint::new(
+                &mut grid,
+                &mut damage,
+                graticule_canvas::Rect::new(0, 0, 2, 1),
+            );
             paint.set(
                 0,
                 0,
-                nuotc::Cell::narrow(
+                graticule_canvas::Cell::narrow(
                     "c",
                     Style::default()
                         .fg(theme.code_text())
@@ -786,7 +795,10 @@ mod tests {
             paint.set(
                 1,
                 0,
-                nuotc::Cell::narrow("p", Style::default().fg(theme.fg()).bg(theme.surface())),
+                graticule_canvas::Cell::narrow(
+                    "p",
+                    Style::default().fg(theme.fg()).bg(theme.surface()),
+                ),
             );
         }
 
@@ -866,8 +878,8 @@ mod tests {
         // Use a real grid + frame the way the renderers do, across odd and
         // even terminal widths.
         for &cols in &[79u16, 80, 81, 119, 120, 121, 200] {
-            let mut grid = nuotc::CellGrid::new(cols, 50);
-            let mut damage = nuotc::Damage::new(50);
+            let mut grid = graticule_canvas::CellGrid::new(cols, 50);
+            let mut damage = graticule_canvas::Damage::new(50);
             let frame = Frame::new(&mut grid, &mut damage);
             let area = modal_area(&frame, FixedModalSpec::SESSIONS);
             assert_eq!(
@@ -944,8 +956,8 @@ mod tests {
     #[test]
     fn modal_area_is_vertically_centered_within_frame() {
         for &rows in &[30u16, 40, 45, 50, 60] {
-            let mut grid = nuotc::CellGrid::new(100, rows);
-            let mut damage = nuotc::Damage::new(rows);
+            let mut grid = graticule_canvas::CellGrid::new(100, rows);
+            let mut damage = graticule_canvas::Damage::new(rows);
             let frame = Frame::new(&mut grid, &mut damage);
             let area = modal_area(&frame, FixedModalSpec::SESSIONS);
             let top_gap = area.y;
@@ -960,8 +972,8 @@ mod tests {
     #[test]
     fn content_modal_area_is_vertically_centered_within_frame() {
         for &rows in &[30u16, 40, 45, 50, 60] {
-            let mut grid = nuotc::CellGrid::new(100, rows);
-            let mut damage = nuotc::Damage::new(rows);
+            let mut grid = graticule_canvas::CellGrid::new(100, rows);
+            let mut damage = graticule_canvas::Damage::new(rows);
             let frame = Frame::new(&mut grid, &mut damage);
             let area = content_modal_area(&frame, ContentModalSpec::PERMISSIONS, 15);
             let top_gap = area.y;

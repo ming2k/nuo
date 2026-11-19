@@ -1,6 +1,6 @@
 //! Collapsible reasoning / thinking trace renderer.
 
-use nuotc::{
+use graticule::{
     Color, Modifier, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;

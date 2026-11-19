@@ -494,7 +494,7 @@ fn entry_focus_is_reverse_video_on_a_structured_profile() {
     assert!(
         mono.pane_marker_style()
             .add
-            .contains(nuotc::Modifier::REVERSE),
+            .contains(graticule_canvas::Modifier::REVERSE),
         "a VT100 says \"the keyboard is on this entry\" with reverse video"
     );
 
@@ -1068,12 +1068,12 @@ fn severity_band_tints_toward_the_accent_and_falls_back_on_reset_surfaces() {
 
 #[test]
 fn test_resolve_with_profile_adapts_defaults() {
-    let vt100_prof = nuotc::TerminalProfile::dec_vt100_monochrome();
+    let vt100_prof = graticule_canvas::TerminalProfile::dec_vt100_monochrome();
     let theme = Theme::resolve_with_profile("zen", &ColorSchemeConfig::default(), &[], &vt100_prof);
     assert_eq!(theme.app_bg, Color::Reset);
     assert_eq!(theme.text, Color::Reset);
 
-    let linux_prof = nuotc::TerminalProfile::ecma48_ansi16();
+    let linux_prof = graticule_canvas::TerminalProfile::ecma48_ansi16();
     let theme_linux =
         Theme::resolve_with_profile("zen", &ColorSchemeConfig::default(), &[], &linux_prof);
     assert_eq!(theme_linux.app_bg, Color::Reset);

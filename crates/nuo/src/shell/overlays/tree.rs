@@ -1,6 +1,6 @@
 //! Interactive Thread Tree (DAG) visualization and navigation overlay.
 
-use nuotc::{
+use graticule::{
     Frame, Rect, Style, {Line, Span},
 };
 use protocol::{ThreadEntry, ThreadEntryKind, ThreadTree};
@@ -195,11 +195,14 @@ pub fn draw_tree_modal(
             let mut brand_st = Style::default().bg(style.bg).fg(theme.brand());
             let mut label_st = Style::default().bg(style.bg).fg(style.fg);
             if is_sel && !theme.elevation.is_chromatic() {
-                gutter_st = gutter_st.add_modifier(nuotc::Modifier::REVERSE);
-                dim_st = dim_st.add_modifier(nuotc::Modifier::REVERSE);
-                glyph_st = glyph_st.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
-                brand_st = brand_st.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
-                label_st = label_st.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
+                gutter_st = gutter_st.add_modifier(graticule::Modifier::REVERSE);
+                dim_st = dim_st.add_modifier(graticule::Modifier::REVERSE);
+                glyph_st =
+                    glyph_st.add_modifier(graticule::Modifier::REVERSE | graticule::Modifier::BOLD);
+                brand_st =
+                    brand_st.add_modifier(graticule::Modifier::REVERSE | graticule::Modifier::BOLD);
+                label_st =
+                    label_st.add_modifier(graticule::Modifier::REVERSE | graticule::Modifier::BOLD);
             }
 
             body.push(Line::from(vec![

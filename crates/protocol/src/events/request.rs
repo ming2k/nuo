@@ -430,6 +430,15 @@ pub enum AgentRequest {
     /// skills / mcp). The harness replies with [`AgentResponse::ThreadContext`].
     /// Sent by the TUI when a manager modal opens.
     QueryThreadContext,
+    /// Request the most recent measured context plan for this thread
+    /// (ADR-0220). The harness replies with [`AgentResponse::ContextPlan`].
+    ///
+    /// A plan belongs to exactly one live `Agent`, so the request names no
+    /// thread: it is answered by the driver that owns the sender, and a reply is
+    /// tagged with the thread it came from instead. Pure reading over live
+    /// process state — no ledger row, no second measurement
+    /// (`[INV-CTXPLAN-07]`).
+    QueryContextPlan,
     /// Query server endpoints (port, active, token, local socket) (ADR-0045).
     QueryServerEndpoints,
     /// Toggle TCP listener on/off or set port (ADR-0045).

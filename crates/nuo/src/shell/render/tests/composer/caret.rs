@@ -10,7 +10,7 @@ use super::*;
 #[test]
 fn draw_composer_records_region_for_empty_input() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(30, 5);
+    let mut terminal = graticule::TestTerminal::new(30, 5);
     let mut layout_map = LayoutMap::new();
     let input_rect = Rect::new(0, 0, 30, 3);
     terminal.draw(|f| {
@@ -52,7 +52,7 @@ fn draw_composer_records_region_for_empty_input() {
 #[test]
 fn draw_composer_wraps_and_positions_caret() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(20, 12);
+    let mut terminal = graticule::TestTerminal::new(20, 12);
     // "aaaa bbbb cccc dddd eeee" wraps within the ~17-wide inner area; cursor at the
     // very end should be on a later line, not off the box.
     let input = "aaaa bbbb cccc dddd eeee";
@@ -79,7 +79,7 @@ fn draw_composer_wraps_and_positions_caret() {
         );
     });
     let cursor = match terminal.cursor() {
-        nuotc::CursorState::Visible(x, y) => (x, y),
+        graticule::CursorState::Visible(x, y) => (x, y),
         other => panic!("caret should be visible, got {other:?}"),
     };
     // The tail of a 24-char input cannot fit the first wrapped line, so the
@@ -106,7 +106,7 @@ fn draw_composer_caret_flush_against_final_grapheme() {
         ("ascii", "ab", 2),
         ("mixed", "a中", 3),
     ] {
-        let mut terminal = nuotc::TestTerminal::new(20, 5);
+        let mut terminal = graticule::TestTerminal::new(20, 5);
         terminal.draw(|f| {
             draw_composer(
                 ComposerProps {
@@ -130,7 +130,7 @@ fn draw_composer_caret_flush_against_final_grapheme() {
             );
         });
         let cursor = match terminal.cursor() {
-            nuotc::CursorState::Visible(x, y) => (x, y),
+            graticule::CursorState::Visible(x, y) => (x, y),
             other => panic!("{label}: caret should be visible, got {other:?}"),
         };
         // The text row sits one line below the box's top padding row, and
@@ -152,7 +152,7 @@ fn draw_composer_caret_flush_against_final_grapheme() {
 #[test]
 fn draw_composer_highlighted_accents_only_the_command_token() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(30, 4);
+    let mut terminal = graticule::TestTerminal::new(30, 4);
     let input = "/repeat every minute";
     terminal.draw(|f| {
         draw_composer_highlighted(
@@ -194,7 +194,7 @@ fn draw_composer_highlighted_accents_only_the_command_token() {
             "command glyph {ch} lost the accent"
         );
         assert!(
-            cell.style.add.contains(nuotc::Modifier::BOLD),
+            cell.style.add.contains(graticule::Modifier::BOLD),
             "command glyph {ch} lost bold"
         );
     }
@@ -215,7 +215,7 @@ fn draw_composer_highlighted_accents_only_the_command_token() {
 #[test]
 fn draw_composer_highlight_clamps_at_wrap_boundary() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(15, 6);
+    let mut terminal = graticule::TestTerminal::new(15, 6);
     // 9-column text area (15 - 4 prefix - 2 right pad): `/sessions` wraps
     // mid-token; the continuation row must render in the normal text color.
     let input = "/sessions abc";
@@ -294,7 +294,7 @@ fn cursor_screen_pos_matches_drawn_caret() {
     for (label, input, byte_cursor) in cases {
         let byte_cursor = *byte_cursor;
         // What the draw path places.
-        let mut terminal = nuotc::TestTerminal::new(24, 8);
+        let mut terminal = graticule::TestTerminal::new(24, 8);
         terminal.draw(|f| {
             draw_composer(
                 ComposerProps {
@@ -315,7 +315,7 @@ fn cursor_screen_pos_matches_drawn_caret() {
             );
         });
         let drawn = match terminal.cursor() {
-            nuotc::CursorState::Visible(x, y) => (x, y),
+            graticule::CursorState::Visible(x, y) => (x, y),
             other => panic!("{label}: caret should be visible, got {other:?}"),
         };
 
@@ -374,7 +374,7 @@ fn composer_render_preserves_scroll_excursion_until_caret_follow_rearms() {
 
     let mut scroll = 0usize;
     let mut layout_map = LayoutMap::new();
-    let mut terminal = nuotc::TestTerminal::new(rect.width, rect.height);
+    let mut terminal = graticule::TestTerminal::new(rect.width, rect.height);
     terminal.draw(|f| {
         draw_composer_with_options(
             ComposerProps {
@@ -404,7 +404,7 @@ fn composer_render_preserves_scroll_excursion_until_caret_follow_rearms() {
 
     assert_eq!(scroll, 0, "render must preserve the user's top viewport");
     assert!(
-        matches!(terminal.cursor(), nuotc::CursorState::Hidden),
+        matches!(terminal.cursor(), graticule::CursorState::Hidden),
         "a caret outside the preserved viewport must not leak into another surface"
     );
     let text_x = rect.x + COMPOSER_PROMPT_PREFIX_COLS as u16;
@@ -425,7 +425,7 @@ fn composer_render_preserves_scroll_excursion_until_caret_follow_rearms() {
     );
 
     let mut follow_scroll = 0usize;
-    let mut follow_terminal = nuotc::TestTerminal::new(rect.width, rect.height);
+    let mut follow_terminal = graticule::TestTerminal::new(rect.width, rect.height);
     follow_terminal.draw(|f| {
         draw_composer_with_options(
             ComposerProps {
@@ -455,7 +455,7 @@ fn composer_render_preserves_scroll_excursion_until_caret_follow_rearms() {
     assert_eq!(follow_scroll, 6, "re-armed following must reveal the caret");
     assert!(matches!(
         follow_terminal.cursor(),
-        nuotc::CursorState::Visible(_, _)
+        graticule::CursorState::Visible(_, _)
     ));
 }
 
@@ -472,7 +472,7 @@ fn caret_paints_on_the_empty_line_a_newline_creates() {
     // "a\n\nb" is the draft Ctrl-J leaves when it opens a line between "a" and
     // "b"; byte 2 is the empty row itself.
     let input = "a\n\nb";
-    let mut terminal = nuotc::TestTerminal::new(20, 6);
+    let mut terminal = graticule::TestTerminal::new(20, 6);
     terminal.draw(|f| {
         draw_composer(
             ComposerProps {
@@ -496,7 +496,7 @@ fn caret_paints_on_the_empty_line_a_newline_creates() {
         );
     });
     let (x, y) = match terminal.cursor() {
-        nuotc::CursorState::Visible(x, y) => (x, y),
+        graticule::CursorState::Visible(x, y) => (x, y),
         other => panic!("caret should be visible, got {other:?}"),
     };
     assert_eq!(

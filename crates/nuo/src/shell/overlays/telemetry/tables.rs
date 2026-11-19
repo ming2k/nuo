@@ -1,6 +1,6 @@
 //! Activity tab tables: L1 rounds list and L2 turns list (sticky headers).
 
-use nuotc::{Line, Modifier, Span, Style};
+use graticule::{Line, Modifier, Span, Style};
 
 use super::model::*;
 use crate::shell::render::Theme;

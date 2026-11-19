@@ -34,7 +34,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 
-use nuotc::{Span, Style};
+use graticule_canvas::{Span, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 

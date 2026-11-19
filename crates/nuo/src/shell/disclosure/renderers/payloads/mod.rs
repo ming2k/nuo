@@ -49,7 +49,7 @@ pub(crate) use listing::{parse_listing_header, split_dir_leaf};
 pub(crate) use matches::{is_matches_header, literal_query, segment_matches};
 
 use crate::shell::disclosure::renderers::base::RenderCtx;
-use nuotc::{Modifier, Style};
+use graticule::{Modifier, Style};
 use view::model::selection::SelectionState;
 use view::text_layout::block_selection_range;
 use view::tools::{DiffCache, ResultKind};

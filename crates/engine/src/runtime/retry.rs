@@ -4,6 +4,31 @@
 //! the round policy (`orchestration`) and the subagent retry loop (`cognition`)
 //! share one backoff definition without a layering cycle.
 
+/// Maximum total attempts for consecutive local/routing network unreachability
+/// (`ProviderErrorKind::Unreachable`) before fast-failing and parking a durable
+/// `/retry` point (ADR-0224 `[INV-RESILIENCE-01]`).
+///
+/// Offline runs must not burn the 30-attempt transient upstream budget
+/// (3.5–9 minutes of dead waits): 3 attempts absorb a momentary Wi-Fi/VPN
+/// handoff (~3 s on immediate `ENETUNREACH`, ~23 s on a blackhole) and then
+/// return control to the operator with a parked `RetryPoint`.
+pub const UNREACHABLE_MAX_ATTEMPTS: usize = 3;
+
+/// Whether a retryable failure warrants flushing the shared provider connection
+/// pools before the next attempt dials (ADR-0224 `[INV-RESILIENCE-02]`).
+///
+/// Transport, reachability, and timeout failures may leave half-open sockets
+/// behind after a Wi-Fi or VPN switch; HTTP 429/5xx arrived cleanly over a
+/// healthy socket, so flushing the pool there would only waste TLS handshakes.
+pub const fn should_flush_pools(kind: protocol::ProviderErrorKind) -> bool {
+    matches!(
+        kind,
+        protocol::ProviderErrorKind::Transport
+            | protocol::ProviderErrorKind::Unreachable
+            | protocol::ProviderErrorKind::Timeout
+    )
+}
+
 /// Stepped backoff delay for a retry attempt.
 pub fn retry_delay_ms(
     attempt: usize,
@@ -56,5 +81,32 @@ pub fn public_retry_reason(message: &str) -> String {
         let mut compact: String = first.chars().take(MAX_CHARS.saturating_sub(1)).collect();
         compact.push('…');
         compact
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::ProviderErrorKind;
+
+    #[test]
+    fn unreachable_budget_and_pool_flush_policy() {
+        assert_eq!(UNREACHABLE_MAX_ATTEMPTS, 3);
+        assert!(should_flush_pools(ProviderErrorKind::Transport));
+        assert!(should_flush_pools(ProviderErrorKind::Unreachable));
+        assert!(should_flush_pools(ProviderErrorKind::Timeout));
+        // HTTP 429 / 5xx arrived cleanly over a healthy socket; keep the pool.
+        assert!(!should_flush_pools(ProviderErrorKind::RateLimited));
+        assert!(!should_flush_pools(ProviderErrorKind::Upstream));
+        assert!(!should_flush_pools(ProviderErrorKind::Authentication));
+    }
+
+    #[test]
+    fn stepped_backoff_advances_on_1_based_attempts() {
+        assert_eq!(retry_delay_ms(1, None, 1_000, 10_000), 1_000);
+        assert_eq!(retry_delay_ms(2, None, 1_000, 10_000), 2_000);
+        assert_eq!(retry_delay_ms(3, None, 1_000, 10_000), 5_000);
+        assert_eq!(retry_delay_ms(4, None, 1_000, 10_000), 10_000);
+        assert_eq!(retry_delay_ms(5, None, 1_000, 10_000), 10_000);
     }
 }

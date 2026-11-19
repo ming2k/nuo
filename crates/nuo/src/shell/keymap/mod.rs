@@ -1,7 +1,9 @@
 //! Authoritative Action & Command Registry — Single Source of Truth (SSOT).
 //!
-//! Every action, shortcut, command palette entry, slash command, and footer
-//! hint across the application is declared here as a [`CommandSpec`].
+//! Every global and session command, with its shortcut, slash alias and
+//! footer hint, is declared here as a [`CommandSpec`]. Verbs that belong to one
+//! scene or dialog are declared beside their resolvers' contract in
+//! `palette::verbs`, as the exact `InputAction` their key produces.
 //!
 //! ## Core Architectural Principles
 //!
@@ -15,7 +17,9 @@
 //!    restores source, and crossing between peer planes is one symmetric chord.
 //! 4. **Single semantic origin**: one action has one semantic source.
 //! 5. **Unified derivation**: shortcuts, Footer, and Command Palette are derived from this registry.
-//! 6. **Discovery over memorization**: rare actions are found via the `C-x p` Command Palette.
+//! 6. **Discovery over memorization**: rare actions are found via the contextual
+//!    command palette (`Ctrl-Shift-p`, RFC-0005), which also lists each scene's
+//!    and dialog's own verbs from `palette::verbs`.
 //! 7. **No modal penetration**: overlays strictly isolate input from background views.
 //! 8. **Zero silent typing**: a printable key on the transcript plane is inert,
 //!    never absorbed into a draft the user is not looking at.
@@ -23,7 +27,7 @@
 //! 10. **Zero legacy baggage**: breaking clean from leader chords and modal keymaps.
 use std::collections::{HashMap, HashSet};
 
-use crossterm::event::KeyEvent;
+use graticule::event::KeyEvent;
 
 use crate::shell::surfaces::{DialogKind, SceneKind};
 
@@ -47,33 +51,33 @@ pub use ui_primitives::chord::{Key, KeyCode, KeyModifiers, chord_token, display_
 /// lowercased regardless of the terminal's case reporting.
 pub fn key_from_event(event: KeyEvent) -> Key {
     let mut code = match event.code {
-        crossterm::event::KeyCode::Char(c) => KeyCode::Char(c),
-        crossterm::event::KeyCode::Enter => KeyCode::Enter,
-        crossterm::event::KeyCode::Esc => KeyCode::Esc,
-        crossterm::event::KeyCode::Tab => KeyCode::Tab,
-        crossterm::event::KeyCode::BackTab => KeyCode::BackTab,
-        crossterm::event::KeyCode::Backspace => KeyCode::Backspace,
-        crossterm::event::KeyCode::Delete => KeyCode::Delete,
-        crossterm::event::KeyCode::Up => KeyCode::Up,
-        crossterm::event::KeyCode::Down => KeyCode::Down,
-        crossterm::event::KeyCode::Left => KeyCode::Left,
-        crossterm::event::KeyCode::Right => KeyCode::Right,
-        crossterm::event::KeyCode::Home => KeyCode::Home,
-        crossterm::event::KeyCode::End => KeyCode::End,
-        crossterm::event::KeyCode::PageUp => KeyCode::PageUp,
-        crossterm::event::KeyCode::PageDown => KeyCode::PageDown,
-        crossterm::event::KeyCode::F(n) => KeyCode::F(n),
+        graticule::event::KeyCode::Char(c) => KeyCode::Char(c),
+        graticule::event::KeyCode::Enter => KeyCode::Enter,
+        graticule::event::KeyCode::Esc => KeyCode::Esc,
+        graticule::event::KeyCode::Tab => KeyCode::Tab,
+        graticule::event::KeyCode::BackTab => KeyCode::BackTab,
+        graticule::event::KeyCode::Backspace => KeyCode::Backspace,
+        graticule::event::KeyCode::Delete => KeyCode::Delete,
+        graticule::event::KeyCode::Up => KeyCode::Up,
+        graticule::event::KeyCode::Down => KeyCode::Down,
+        graticule::event::KeyCode::Left => KeyCode::Left,
+        graticule::event::KeyCode::Right => KeyCode::Right,
+        graticule::event::KeyCode::Home => KeyCode::Home,
+        graticule::event::KeyCode::End => KeyCode::End,
+        graticule::event::KeyCode::PageUp => KeyCode::PageUp,
+        graticule::event::KeyCode::PageDown => KeyCode::PageDown,
+        graticule::event::KeyCode::F(n) => KeyCode::F(n),
         _ => KeyCode::Other,
     };
     let mut modifiers = KeyModifiers::NONE;
     for (flag, ours) in [
-        (crossterm::event::KeyModifiers::SHIFT, KeyModifiers::SHIFT),
+        (graticule::event::KeyModifiers::SHIFT, KeyModifiers::SHIFT),
         (
-            crossterm::event::KeyModifiers::CONTROL,
+            graticule::event::KeyModifiers::CONTROL,
             KeyModifiers::CONTROL,
         ),
-        (crossterm::event::KeyModifiers::ALT, KeyModifiers::ALT),
-        (crossterm::event::KeyModifiers::SUPER, KeyModifiers::SUPER),
+        (graticule::event::KeyModifiers::ALT, KeyModifiers::ALT),
+        (graticule::event::KeyModifiers::SUPER, KeyModifiers::SUPER),
     ] {
         if event.modifiers.contains(flag) {
             modifiers.insert(ours);
@@ -118,8 +122,6 @@ pub enum CommandId {
     CloseTab,
     NewTab,
     CopySelection,
-    CopyFocusedEntry,
-    CopyDiagnostic,
     CopyRecentDiagnostics,
     /// Open the notice log viewer: every disclosure this client surfaced,
     /// retained after its bubble faded.
@@ -141,6 +143,8 @@ pub enum CommandId {
     OpenQueue,
     OpenThreadStats,
     OpenSessionTrace,
+    /// Open the measured context-plan inspector (`/context`, ADR-0220).
+    OpenContextPlan,
     OpenModels,
     OpenConnections,
     OpenActiveConnectionDetail,
@@ -161,55 +165,6 @@ pub enum CommandId {
     PermissionsClearAll,
     ProviderAddConnection,
     RedrawScreen,
-
-    // Dialog Actions: Sessions
-    SessionOpenSelected,
-    SessionDeleteSelected,
-    SessionCreateNew,
-    SessionOpenInfo,
-
-    // Dialog Actions: Models
-    ModelSelect,
-    ModelEnterSearch,
-    ModelToggleFavorite,
-    ModelBlock,
-    ModelEditSettings,
-    ModelRefresh,
-
-    // Dialog Actions: Connections
-    ConnectionOpenDetail,
-    ConnectionEnterSearch,
-    ConnectionOpenPreset,
-    ConnectionOpenCustom,
-    ConnectionEdit,
-    ConnectionRefresh,
-    ConnectionDelete,
-
-    // Dialog Actions: MCP
-    McpToggleServer,
-    McpReconnectServer,
-
-    // Dialog Actions: Permissions
-    PermissionToggleRule,
-
-    // Dialog Actions: Queue
-    QueueRecallItem,
-    QueueDeleteItem,
-    QueueMoveItemUp,
-    QueueMoveItemDown,
-
-    // Dialog Actions: Thread Stats
-    ThreadStatsOpenTrace,
-
-    // Dialog Actions: Session Trace
-    TraceInspectDetail,
-
-    // Dialog Actions: Skills
-    SkillsToggleDetail,
-
-    // Dialog Actions: History Search
-    HistorySearchInsert,
-    HistorySearchDelete,
 }
 
 /// Scope context where a command is applicable.
@@ -218,7 +173,6 @@ pub enum Scope {
     Global,
     Session,
     Composer,
-    Dialog(DialogKind),
 }
 
 /// Category of the command for palette grouping and reference presentation.
@@ -258,7 +212,7 @@ pub enum DisclosurePriority {
     L0Footer,
     /// L1: Local action displayed in a focused region bar.
     L1FocusRegion,
-    /// L2: Searchable through the `C-x p` Command Palette.
+    /// L2: Offered by the command palette (`Ctrl-Shift-p`).
     L2Palette,
     /// L3: Full contextual reference retained for exhaustive command coverage.
     L3Reference,
@@ -372,9 +326,6 @@ fn avail_copyable(ctx: &AppContext) -> Availability {
     }
 }
 
-/// Diagnostic copy needs an entry: a free-floating text selection has no
-/// provenance to report (no kind, severity, route or attempt), so a
-/// "diagnostic" of it would be a header full of nothing.
 /// Recent-fault copy needs at least one retained receipt: with none, the
 /// command has nothing to hand over and says so rather than copying an empty
 /// block.
@@ -383,14 +334,6 @@ fn avail_has_notices(ctx: &AppContext) -> Availability {
         Availability::Available
     } else {
         Availability::Unavailable("no notices retained yet")
-    }
-}
-
-fn avail_focused_entry(ctx: &AppContext) -> Availability {
-    if ctx.has_focused_entry {
-        Availability::Available
-    } else {
-        Availability::Unavailable("no focused entry")
     }
 }
 
@@ -510,6 +453,7 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
         CommandId::OpenThreadStats => None,
         CommandId::OpenSessionTrace => None,
+        CommandId::OpenContextPlan => None,
         CommandId::OpenActiveConnectionDetail => None,
         CommandId::CancelOrBack => Some(Key::ESC),
         // The chord exists (so chrome, the Help dialog, and the registry table
@@ -583,11 +527,12 @@ pub fn command_id_from_name(name: &str) -> Option<CommandId> {
         "stats" | "thread_stats" | "thread-stats" | "open_thread_stats" | "open-thread-stats" => {
             CommandId::OpenThreadStats
         }
-        "thread_stats_open_trace" => CommandId::ThreadStatsOpenTrace,
         "trace" | "session_trace" | "session-trace" | "open_session_trace"
         | "open-session-trace" | "telemetry" | "open_telemetry" | "open-telemetry" => {
             CommandId::OpenSessionTrace
         }
+        "context" | "context_plan" | "context-plan" | "open_context_plan" | "open-context-plan"
+        | "prompt" | "instructions" => CommandId::OpenContextPlan,
         "connection"
         | "connection_detail"
         | "active_connection_detail"
@@ -664,7 +609,7 @@ pub fn parse_key(spec: &str) -> Option<Key> {
     if cmd {
         modifiers |= KeyModifiers::SUPER;
     }
-    // crossterm reports Shift+Tab as the dedicated BackTab code, not
+    // Graticule reports Shift+Tab as the dedicated BackTab code, not
     // Tab-with-Shift; mirror that so comparisons with real keystrokes hold.
     let code = if code == Some(KeyCode::Tab) && shift {
         Some(KeyCode::BackTab)
@@ -889,15 +834,6 @@ impl SurfaceOverrides {
 /// Returns `Some(CommandId)` only when the key matches a designated global binding.
 pub fn resolve_global_key(key: Key) -> Option<CommandId> {
     resolve_global_key_with(key, &GlobalOverrides::default())
-}
-
-/// Derive command palette entries with current availability flags.
-pub fn commands_for_palette(ctx: &AppContext) -> Vec<(&'static CommandSpec, Availability)> {
-    COMMAND_REGISTRY
-        .iter()
-        .filter(|cmd| cmd.scope == Scope::Global && cmd.disclosure == DisclosurePriority::L2Palette)
-        .map(|cmd| (cmd, (cmd.availability)(ctx)))
-        .collect()
 }
 
 // Tests

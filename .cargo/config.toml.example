@@ -14,8 +14,10 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 rustc-wrapper = "sccache"
 
 # 3. Optional local path overrides for co-development:
-# [patch."https://github.com/ming2k/nuotc.git"]
-# nuotc = { path = "../nuotc" }
+# [patch.crates-io]
+# graticule = { path = "../graticule/crates/graticule" }
+# graticule-canvas = { path = "../graticule/crates/graticule-canvas" }
+# graticule-tty = { path = "../graticule/crates/graticule-tty" }
 # [patch."https://github.com/ming2k/netune.git"]
 # netune = { path = "../netune/crates/netune" }
 # netune-trace = { path = "../netune/crates/netune-trace" }

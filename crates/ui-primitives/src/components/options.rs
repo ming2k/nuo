@@ -17,7 +17,7 @@
 //! [`ChoiceMarker`]) is independent of the cursor, so a row can be "checked
 //! but not currently highlighted" or vice-versa.
 
-use nuotc::{Color, Line, Modifier, Span, Style};
+use graticule_canvas::{Color, Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::super::Theme;

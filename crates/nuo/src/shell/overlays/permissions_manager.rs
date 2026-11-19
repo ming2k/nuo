@@ -5,7 +5,7 @@
 //! command. It lists every cached "always allow" rule for the session, with
 //! per-row revoke (`Space`) and a clear-all action (`c`).
 
-use nuotc::{Frame, Line};
+use graticule::{Frame, Line};
 
 use super::common::{placeholder, selectable_row};
 use crate::shell::render::Theme;
@@ -24,7 +24,7 @@ pub fn draw_permissions_manager(
     modal_index: usize,
     scroll: &mut usize,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let geometry = ContentModalSpec::PERMISSIONS;
     let rules = session_context
         .map(|s| s.permissions.as_slice())

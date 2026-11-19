@@ -208,3 +208,76 @@ fn command_ack_kind_round_trips() {
     let back: AgentNotice = serde_json::from_str(&json).expect("deserialise");
     assert_eq!(back.kind, NoticeKind::CommandAck);
 }
+
+/// The context-plan reply round-trips with its bodies (ADR-0220 §1).
+///
+/// The reply is the one place a rendered prompt crosses the wire, so the shape
+/// must survive serde intact: an active block that lost its `body` in transit
+/// would render a blank inspector, and a dropped `thread_id` would let a reply
+/// that raced a switch populate the wrong thread.
+#[test]
+fn a_context_plan_reply_round_trips_with_its_bodies() {
+    use crate::context::{ContextPlanView, PlannedBlockView, Position, Stability, Topic};
+
+    let plan = ContextPlanView {
+        blocks: vec![PlannedBlockView {
+            id: "project.rules".to_owned(),
+            topic: Topic::ProjectAuthority,
+            rank: Topic::ProjectAuthority.rank(),
+            position: Position::Body,
+            stability: Stability::Workspace,
+            tokens: 12,
+            elision: None,
+            active: true,
+            inactive_reason: None,
+            body: Some("<policy source=\"AGENTS.md\">\nFollow the rules.\n</policy>".to_owned()),
+        }],
+        fixed_tokens: 12,
+        window_tokens: 200_000,
+        instructions_ceiling_tokens: 16_000,
+        ..ContextPlanView::default()
+    };
+    let expected = plan.clone();
+    let reply = AgentResponse::ContextPlan {
+        thread_id: "s1".to_owned(),
+        plan: Some(plan),
+    };
+    let json = serde_json::to_string(&reply).expect("serialise");
+    let back: AgentResponse = serde_json::from_str(&json).expect("deserialise");
+    match back {
+        AgentResponse::ContextPlan { thread_id, plan } => {
+            assert_eq!(thread_id, "s1");
+            assert_eq!(plan, Some(expected), "the plan must survive intact");
+            let body = plan
+                .expect("plan")
+                .blocks
+                .first()
+                .and_then(|block| block.body.clone())
+                .expect("the inactive filter must not have dropped an active body");
+            assert!(body.contains("Follow the rules."), "{body}");
+        }
+        other => panic!("expected a ContextPlan reply, got {other:?}"),
+    }
+
+    // `None` is a real answer (no request assembled yet), not a malformed frame.
+    let empty = serde_json::to_string(&AgentResponse::ContextPlan {
+        thread_id: "s1".to_owned(),
+        plan: None,
+    })
+    .expect("serialise");
+    let back: AgentResponse = serde_json::from_str(&empty).expect("deserialise");
+    assert!(matches!(
+        back,
+        AgentResponse::ContextPlan { plan: None, .. }
+    ));
+}
+
+/// The request is a unit verb: it names no thread, because the driver that owns
+/// the sender answers for its own session (ADR-0220 §3).
+#[test]
+fn the_context_plan_query_carries_no_thread() {
+    let json = serde_json::to_string(&AgentRequest::QueryContextPlan).expect("serialise");
+    assert_eq!(json, "\"QueryContextPlan\"", "got {json}");
+    let back: AgentRequest = serde_json::from_str(&json).expect("deserialise");
+    assert!(matches!(back, AgentRequest::QueryContextPlan));
+}

@@ -1,7 +1,7 @@
 //! Application component composition. Structural behavior belongs to the
 //! engine runtime; this module supplies typed identities and surface policy.
-use nuotc::Rect;
-use nuotc::ui::{Component, InputPolicy, LayoutBox, PointerPolicy, Scene, UiRuntime};
+use graticule::Rect;
+use graticule::ui::{Component, InputPolicy, LayoutBox, PointerPolicy, Scene, UiRuntime};
 
 use crate::shell::sheet::SheetKind;
 use crate::shell::surfaces::{DialogKind, OverlaySurface, SheetKind as SurfaceSheetKind};
@@ -48,8 +48,6 @@ pub enum UiKey {
     Toast,
     /// The unread-fault badge in the TabBar right cluster (ADR-0131).
     NoticesBadge,
-    /// The persistent help affordance (`F1 help`) in the TabBar right cluster (ADR-0131).
-    HelpBadge,
     PreAttach,
     SettingsCategory(usize),
     SettingsOption(usize),
@@ -344,7 +342,6 @@ impl ComponentTree {
             | UiKey::TabBarNext
             | UiKey::TabBarOverview
             | UiKey::NoticesBadge
-            | UiKey::HelpBadge
             | UiKey::SceneHistoryBack
             | UiKey::SceneHistoryForward
             | UiKey::SceneBreadcrumb(_) => (
@@ -397,9 +394,9 @@ impl ComponentTree {
     ///
     /// # Clipping
     ///
-    /// `nuotc::Paint` exposes cell writes but not the [`Widget`](nuotc::Widget)
+    /// `graticule::Paint` exposes cell writes but not the [`Widget`](graticule::Widget)
     /// contract, while this shell's renderers are widget-based and take a
-    /// [`nuotc::Frame`]. The scene's clip is therefore honoured by rendering into
+    /// [`graticule::Frame`]. The scene's clip is therefore honoured by rendering into
     /// a scratch grid the size of the frame — so every absolute coordinate is
     /// unchanged — and blitting only the clip region back. When the node's clip
     /// covers the whole frame the blit is skipped and the painter writes
@@ -407,9 +404,9 @@ impl ComponentTree {
     #[allow(clippy::panic)]
     pub fn paint<R>(
         &self,
-        frame: &mut nuotc::Frame<'_>,
+        frame: &mut graticule::Frame<'_>,
         key: UiKey,
-        painter: impl FnOnce(&mut nuotc::Frame<'_>) -> R,
+        painter: impl FnOnce(&mut graticule::Frame<'_>) -> R,
     ) -> R {
         let clip = self
             .clip_of(key)
@@ -418,10 +415,10 @@ impl ComponentTree {
         if clip == area {
             return painter(frame);
         }
-        let mut scratch = nuotc::CellGrid::new(area.width, area.height);
-        let mut damage = nuotc::Damage::new(area.height);
+        let mut scratch = graticule::CellGrid::new(area.width, area.height);
+        let mut damage = graticule::Damage::new(area.height);
         let painted = {
-            let mut scratch_frame = nuotc::Frame::new(&mut scratch, &mut damage);
+            let mut scratch_frame = graticule::Frame::new(&mut scratch, &mut damage);
             painter(&mut scratch_frame)
         };
         frame.paint(clip, |paint| {

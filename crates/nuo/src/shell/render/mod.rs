@@ -1,5 +1,5 @@
 //! Transcript-area renderer: draws the transcript (and footer chrome) into the
-//! nuotc grid while recording semantic-to-screen layout
+//! Graticule grid while recording semantic-to-screen layout
 //! information. This is the entry point the app drives each frame
 //! ([`draw_transcript`] / [`TranscriptProps`]); it also re-exports the drawing
 //! surface (chrome, composer, overlays, theme, …) the shell consumes.
@@ -26,7 +26,7 @@ pub(crate) use crate::shell::view_header::{
 #[allow(unused_imports)]
 pub use crate::shell::views::settings::*;
 #[cfg(test)]
-use nuotc::{prohibited_line_end, prohibited_line_start};
+use graticule::{prohibited_line_end, prohibited_line_start};
 pub(crate) use ui_primitives::design::{
     ACTIVITY_STRIP_ROWS, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
@@ -63,7 +63,7 @@ use view::tools::DiffCache;
 use crate::shell::composer_grid::TextGrid;
 use view::empty_state;
 
-use nuotc::{
+use graticule::{
     Alignment, Block as RtBlock, Constraint, Direction, Frame, Layout, Line, Paragraph, Rect, Span,
     Style,
 };
@@ -359,8 +359,6 @@ pub struct TranscriptRender {
     pub tab_overflow_rect: Option<Rect>,
     /// Bounding rect for unread fault notice badge (`[!N]`), if present (ADR-0131).
     pub tab_notices_rect: Option<Rect>,
-    /// Bounding rect for help affordance button (`F1 help`), if present (ADR-0131).
-    pub tab_help_rect: Option<Rect>,
     /// Full bounding rect for the Tier 2 SceneBar row.
     pub scene_bar_rect: Option<Rect>,
     /// Interactive navigation bounding rects on Tier 2 SceneBar (ADR-0092 [INV-INTERACT-01]).
@@ -1030,7 +1028,6 @@ pub fn draw_transcript(
             tab_next_rect: None,
             tab_overflow_rect: None,
             tab_notices_rect: None,
-            tab_help_rect: None,
             scene_bar_rect: None,
             scene_nav_rects: SceneNavRects::default(),
         };
@@ -1301,7 +1298,6 @@ pub fn draw_transcript(
         tab_next_rect: tab.next_rect,
         tab_overflow_rect: tab.overview_rect,
         tab_notices_rect: tab.notices_rect,
-        tab_help_rect: tab.help_rect,
         scene_bar_rect: head_band.scene,
         scene_nav_rects: scene,
     }

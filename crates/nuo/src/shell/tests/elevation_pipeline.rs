@@ -5,7 +5,7 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuotc::{CellGrid, Damage, Frame, Modifier, Rect, TerminalProfile};
+use graticule::{CellGrid, Damage, Frame, Modifier, Rect, TerminalProfile};
 
 use ui_primitives::elevation::ElevationArchetype;
 use ui_primitives::primitives::{ElevationContainer, LayoutTier, modal_frame};

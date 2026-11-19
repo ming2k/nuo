@@ -84,16 +84,31 @@ fn diagnostic_from_snapshot(
 }
 
 fn attempt_error(label: &'static str, error: &netune::AttemptError) -> TransportError {
+    let diagnostic = diagnostic_from_snapshot(error.trace());
+    if error.error().is_unreachable() {
+        return TransportError::Unreachable {
+            label,
+            message: error.to_string(),
+            diagnostic,
+        };
+    }
     let retryable = error.error().is_retryable();
     TransportError::Transport {
         label,
         message: error.to_string(),
         retryable,
-        diagnostic: diagnostic_from_snapshot(error.trace()),
+        diagnostic,
     }
 }
 
 fn net_error(label: &'static str, error: netune::NetError) -> TransportError {
+    if error.is_unreachable() {
+        return TransportError::Unreachable {
+            label,
+            message: error.to_string(),
+            diagnostic: None,
+        };
+    }
     let retryable = error.is_retryable();
     TransportError::Transport {
         label,
@@ -220,6 +235,13 @@ mod owned {
                 snapshot.clone(),
                 endpoint.clone(),
             ));
+        }
+        if error.error().is_unreachable() {
+            return TransportError::Unreachable {
+                label,
+                message: error.to_string(),
+                diagnostic,
+            };
         }
         TransportError::Stream {
             label,
@@ -385,6 +407,14 @@ mod owned {
             })?;
             if let Some(profile) = parts.tls_profile {
                 target = target.with_tls_profile(profile);
+                // The antigravity TLS profiles describe a Go `net/http`
+                // client: pair them with netune's matching HTTP/1.1 wire
+                // profile (Title-Case, Go's header order — live `agy`
+                // 1.5.12 capture) so the decrypted head matches the emulated
+                // client instead of netune's own lower-case identity.
+                if matches!(profile, "antigravity-cli-unary" | "antigravity-cli-stream") {
+                    target = target.with_h1_profile("antigravity-cli");
+                }
             }
             let authority = target.authority.clone();
 

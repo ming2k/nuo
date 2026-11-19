@@ -4,15 +4,16 @@
 //! Conforms to the active dialog's design, hierarchy, and layout:
 //! - Geometry matches the parent dialog (FixedModalSpec or ContentModalSpec).
 //! - Header uses breadcrumb hierarchy: `{Dialog} › Keys`.
-//! - Body lists registry-derived verbs scoped to the dialog (`Scope::Dialog(dialog)`),
-//!   followed by common navigation verbs.
+//! - Body lists the dialog's verbs from `palette::verbs` — the same table the
+//!   command palette runs them from — followed by common navigation verbs.
 //! - Footer provides standard navigation hints (`↑↓ scroll`, `?/Esc close`).
 
-use nuotc::{
+use graticule::{
     Frame, Modifier, Rect, Span, {Line, Style},
 };
 
-use crate::shell::keymap::{AppContext, Availability, COMMAND_REGISTRY, Scope};
+use crate::shell::keymap::Availability;
+use crate::shell::palette::PaletteContext;
 use crate::shell::render::Theme;
 use crate::shell::surfaces::DialogKind;
 use ui_primitives::components::footer::{FooterHint, render_modal_footer};
@@ -31,7 +32,7 @@ fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16
         DialogKind::Threads => modal_area(frame, FixedModalSpec::SESSIONS),
         DialogKind::Models => modal_area(frame, FixedModalSpec::MODELS),
         DialogKind::Connections
-        | DialogKind::Switcher
+        | DialogKind::Palette
         | DialogKind::PortShare
         | DialogKind::Help
         | DialogKind::Notices => modal_area(frame, FixedModalSpec::PROVIDER),
@@ -70,6 +71,11 @@ fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
             content_modal_area(frame, spec, desired)
         }
+        DialogKind::ContextPlan => {
+            let spec = ContentModalSpec::CONTEXT_PLAN;
+            let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
+            content_modal_area(frame, spec, desired)
+        }
         DialogKind::Queue => {
             let spec = ContentModalSpec::QUEUE;
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());
@@ -84,11 +90,11 @@ fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16
 }
 
 /// Draw the localized dialog key reference overlay for `parent`.
-pub fn draw_dialog_keys(
+pub(crate) fn draw_dialog_keys(
     frame: &mut Frame,
     parent: DialogKind,
     scroll: &mut usize,
-    ctx: &AppContext,
+    ctx: &PaletteContext,
     theme: &Theme,
     selection: &SelectionState,
     layout_map: &mut LayoutMap,
@@ -114,38 +120,23 @@ pub fn draw_dialog_keys(
 
     let mut rows: Vec<SelectableRow> = Vec::new();
 
-    // 1. Scoped Commands from Registry
-    let scoped_cmds: Vec<_> = COMMAND_REGISTRY
-        .iter()
-        .filter(|c| {
-            if parent == DialogKind::Switcher {
-                c.scope == Scope::Composer || c.scope == Scope::Session
-            } else {
-                c.scope == Scope::Dialog(parent)
-            }
-        })
-        .collect();
-
-    if !scoped_cmds.is_empty() {
-        let section_title = if parent == DialogKind::Switcher {
-            "Composer & Session Actions".to_string()
-        } else {
-            format!("{} Actions", parent.label())
-        };
-        rows.push(SelectableRow::from_line(Line::from(section_fmt(
-            &section_title,
-        ))));
-        for cmd in scoped_cmds {
-            let key_str = if !cmd.bindings.is_empty() {
-                cmd.bindings[0].display()
-            } else {
-                cmd.hint
+    // 1. The dialog's own verbs.
+    let verbs = crate::shell::palette::verbs::dialog_verbs(parent);
+    if !verbs.is_empty() {
+        rows.push(SelectableRow::from_line(Line::from(section_fmt(&format!(
+            "{} Actions",
+            parent.label()
+        )))));
+        for verb in verbs {
+            let key = verb
+                .effective_keycap(ctx)
+                .map(|key| key.display())
+                .unwrap_or("");
+            let desc = match verb.requires.check(ctx) {
+                Availability::Available => verb.title.to_string(),
+                Availability::Unavailable(reason) => format!("{} ({reason})", verb.title),
             };
-            let desc = match (cmd.availability)(ctx) {
-                Availability::Available => cmd.description.to_string(),
-                Availability::Unavailable(reason) => format!("{} ({})", cmd.description, reason),
-            };
-            rows.push(SelectableRow::from_line(row_fmt(key_str, &desc)));
+            rows.push(SelectableRow::from_line(row_fmt(key, &desc)));
         }
         rows.push(SelectableRow::from_line(Line::from("")));
     }

@@ -12,7 +12,7 @@
 //! the focused button; Esc / Ctrl+C cancel. All of that is handled in the
 //! scene-routed component handler — this module only paints the result.
 
-use nuotc::{
+use graticule::{
     Alignment, Block as RtBlock, Color, Constraint, Direction, Frame, Layout, Line, Modifier,
     Paragraph, Rect, Span, Style,
 };
@@ -144,7 +144,7 @@ fn button(frame: &mut Frame, area: Rect, label: &str, focused: bool, danger: boo
     } else {
         Style::default().fg(fg).bg(bg)
     };
-    frame.render_widget(&mut nuotc::Clear::default(), area);
+    frame.render_widget(&mut graticule::Clear::default(), area);
     frame.render_widget(
         &mut RtBlock::default().style(if focused {
             Style::default().bg(bg)

@@ -21,15 +21,15 @@ engine = { workspace = true }
 server = { workspace = true }
 ui-primitives = { workspace = true, optional = true }
 view = { workspace = true, optional = true }
-crossterm = { workspace = true, optional = true }
-nuotc = { workspace = true, optional = true }
+graticule = { workspace = true, optional = true }
 unicode-width = { workspace = true, optional = true }
 unicode-segmentation = { workspace = true, optional = true }
 tool = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { workspace = true }
-tokio-tungstenite = { workspace = true }
+netune = { workspace = true }
+fastrand = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -61,8 +61,7 @@ interactive = [
     "host/clipboard",
     "dep:ui-primitives",
     "dep:view",
-    "dep:crossterm",
-    "dep:nuotc",
+    "dep:graticule",
     "dep:unicode-width",
     "dep:unicode-segmentation",
 ]

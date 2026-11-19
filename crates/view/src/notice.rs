@@ -10,7 +10,7 @@
 //!
 //! [`NoticeSeverity`]: crate::model::document::NoticeSeverity
 
-use nuotc::{Frame, Rect};
+use graticule_canvas::{Frame, Rect};
 
 use crate::model::document::TranscriptMessage;
 use crate::model::layout::LayoutMap;

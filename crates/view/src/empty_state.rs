@@ -21,6 +21,11 @@
 //! contextual tours. A missing provider replaces the carousel with a pinned
 //! setup blocker (ADR-0057 → ADR-0104) — nothing rotates until the blocker clears.
 //!
+//! The carousel is also where the Help dialog is advertised (ADR-0219): the
+//! TabBar's former constant `F1 help` keycap is retired, so one page reads
+//! "See every shortcut with `F1` or `Alt-h`". Teaching it here costs nothing
+//! on any other row and can say what the key is for, which a keycap cannot.
+//!
 //! The logo source is pluggable: a caller may pass user-supplied lines (loaded
 //! from `$XDG_CONFIG_HOME/nuo/logo.txt`); when absent the built-in figlet
 //! wordmark is used. Either way the art is clamped to a [`MIN_LOGO_COLS`] ×
@@ -29,7 +34,7 @@
 //! clipping ([`plan_hero`]). When the terminal is too short (or the art too
 //! large) the wordmark is dropped and the guidance line is shown alone,
 //! vertically centred — never a squashed or truncated logo.
-use nuotc::{
+use graticule_canvas::{
     Alignment, Frame, Paragraph, Rect, {Line, Span}, {Modifier, Style},
 };
 
@@ -76,11 +81,12 @@ pub const CAROUSEL_SLIDE_SECS: u64 = 8;
 /// reads as an affordance the way the hint bar's `◆ effort` tag does.
 ///
 /// The copy is intentionally **durable**: every page teaches a capability
-/// that remains true for the life of the product (send, steer/queue, forking,
-/// history, models, mentions, the command palette, sessions), never a
-/// transient state. The list is static — there is nothing session-specific to
-/// compute — and new pages can be appended freely: the modulo rotation is
-/// derived from the slice length, so no other code needs to know the count.
+/// that remains true for the life of the product (send, steer/queue, the help
+/// dialog's `F1` / `Alt-h`, forking, history, models, mentions, the command
+/// palette, sessions), never a transient state. The list is static — there is
+/// nothing session-specific to compute — and new pages can be appended freely:
+/// the modulo rotation is derived from the slice length, so no other code needs
+/// to know the count.
 ///
 /// Every page is kept short enough to fit the minimum terminal width on one
 /// centered line (`carousel_pages_fit_the_minimum_terminal_width` asserts
@@ -92,6 +98,19 @@ pub fn carousel_pages() -> Vec<CarouselPage> {
         CarouselPage {
             lead: "Send a message, or type ",
             tokens: vec![Tok::Key("/"), Tok::Text(" for commands")],
+        },
+        // Help discovery lives here rather than in a standing TabBar keycap
+        // (ADR-0219): the empty state can spend a whole line teaching *why* to
+        // press the key, while a permanent keycap in the TabBar spent the row's
+        // scarcest budget — tab titles — on a key pressed once. It sits second
+        // so a first-time user meets it inside the first minute.
+        CarouselPage {
+            lead: "See every shortcut with ",
+            tokens: vec![
+                Tok::Key(ui_primitives::chord::Key::F1.display()),
+                Tok::Text(" or "),
+                Tok::Key(ui_primitives::chord::Key::ALT_H.display()),
+            ],
         },
         CarouselPage {
             lead: "Mid-round, ",
@@ -482,7 +501,7 @@ mod tests {
 
     #[test]
     fn empty_state_renders_builtin_without_panicking() {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         let theme = Theme::default();
         terminal.draw(|f| {
             draw_empty_state(f, f.area(), None, EmptyStateGuidance::Tour, 0, &theme);
@@ -491,7 +510,7 @@ mod tests {
 
     #[test]
     fn empty_state_renders_user_logo_without_panicking() {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         let theme = Theme::default();
         // A logo at or above the floor so this exercises the logo path, not
         // the drop-to-guidance fallback.
@@ -514,7 +533,7 @@ mod tests {
 
     #[test]
     fn empty_state_renders_needs_provider_guidance_without_panicking() {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         let theme = Theme::default();
         terminal.draw(|f| {
             draw_empty_state(
@@ -530,7 +549,7 @@ mod tests {
 
     #[test]
     fn empty_state_renders_loading_session_guidance() {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         let theme = Theme::default();
         terminal.draw(|f| {
             draw_empty_state(
@@ -614,6 +633,34 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(!joined.contains('●'), "no dot indicator: {joined}");
+    }
+
+    #[test]
+    fn tour_advertises_the_help_dialog_chords() {
+        // ADR-0219: the TabBar's standing `F1 help` keycap is retired, so the
+        // tour is the only surface that names the chords before a session has
+        // content. Assert both activation chords are advertised and the page
+        // stays within the minimum terminal width.
+        let theme = Theme::default();
+        let pages = carousel_pages();
+        let help_page = (0..pages.len())
+            .map(|index| {
+                guidance_section(EmptyStateGuidance::Tour, index, &theme)
+                    .iter()
+                    .flat_map(|line| line.spans.iter())
+                    .map(|span| span.content.clone().into_owned())
+                    .collect::<String>()
+            })
+            .find(|line| line.contains(ui_primitives::chord::Key::F1.display()))
+            .expect("the tour must advertise the help dialog");
+        assert!(
+            help_page.contains(ui_primitives::chord::Key::ALT_H.display()),
+            "the help page names both activation chords: {help_page}"
+        );
+        assert!(
+            help_page.width() <= ui_primitives::design::MIN_TERMINAL_COLS as usize,
+            "the help page fits the minimum terminal width: {help_page}"
+        );
     }
 
     #[test]

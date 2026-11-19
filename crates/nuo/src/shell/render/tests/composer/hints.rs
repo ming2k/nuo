@@ -90,7 +90,7 @@ fn composer_hint_row_collapses_to_f1_when_even_compact_overflows() {
         compose_target: ComposeTarget::Running(crate::shell::app::ComposerSendMode::Steer),
         ..Default::default()
     };
-    let mut terminal = nuotc::TestTerminal::new(30, 6);
+    let mut terminal = graticule::TestTerminal::new(30, 6);
     let theme = Theme::default();
     terminal.draw(|f| {
         draw_composer(
@@ -137,7 +137,7 @@ fn composer_overflow_indicates_hidden_lines_and_position() {
     // leaves room for exactly one visible text row.
     let input = "one two three four five six seven eight nine ten eleven twelve ";
     let draw = |byte_cursor: usize, scroll: &mut usize| {
-        let mut terminal = nuotc::TestTerminal::new(60, 6);
+        let mut terminal = graticule::TestTerminal::new(60, 6);
         terminal.draw(|f| {
             draw_composer(
                 ComposerProps {
@@ -232,7 +232,7 @@ fn composer_panel_blurred_sheds_the_hint_row() {
 fn composer_panel_degrades_gracefully_on_narrow_widths() {
     let theme = Theme::default();
     for width in [12u16, 9, 7] {
-        let mut terminal = nuotc::TestTerminal::new(width, 6);
+        let mut terminal = graticule::TestTerminal::new(width, 6);
         terminal.draw(|f| {
             draw_composer(
                 ComposerProps {
@@ -347,7 +347,7 @@ fn composer_recall_badge_degrades_with_width() {
     };
 
     // Narrow panel: pointer only.
-    let mut terminal = nuotc::TestTerminal::new(20, 6);
+    let mut terminal = graticule::TestTerminal::new(20, 6);
     let theme = Theme::default();
     terminal.draw(|f| {
         draw_composer(

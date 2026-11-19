@@ -24,7 +24,7 @@
 //! chrome on the activity bar (`view::retry`), and what reaches this
 //! component is either a settled diagnostic or a turn-outcome anchor.
 
-use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule_canvas::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::disclosure::{Disclosure, Interaction, summary_text_color};

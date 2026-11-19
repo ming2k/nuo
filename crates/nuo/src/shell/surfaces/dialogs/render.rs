@@ -160,6 +160,28 @@ fn render_inspection_dialog(
                 ctx.layout_map,
             ))
         }
+        DialogKind::ContextPlan => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<ContextPlanDialog>()
+                .expect("kind");
+            // A reply that has not arrived is not an empty plan: an unassembled
+            // request and an in-flight query look the same on screen only if the
+            // dialog lies about one of them.
+            let loading = app.context_plan_pending();
+            Some(crate::shell::overlays::draw_context_plan_modal(
+                frame,
+                app.telemetry.context_plan.as_ref(),
+                loading,
+                d.index,
+                d.body_open,
+                &mut d.scroll,
+                &mut d.block_rows,
+                ctx.theme,
+                ctx.selection,
+                ctx.layout_map,
+            ))
+        }
         DialogKind::Queue => {
             let d = view
                 .as_any_mut()
@@ -346,41 +368,21 @@ pub(super) fn render_dialog(
                 ctx.theme,
             )
         }
-        DialogKind::Switcher => {
+        DialogKind::Palette => {
             let d = view
                 .as_any_mut()
-                .downcast_mut::<SwitcherDialog>()
+                .downcast_mut::<PaletteDialog>()
                 .expect("kind");
-            let app_ctx = crate::shell::keymap::AppContext {
-                has_overlay: true,
-                active_dialog: app
-                    .surfaces
-                    .surfaces
-                    .underlying_dialog()
-                    .or_else(|| app.active_dialog()),
-                is_responding: app.viewed_chrome().responding,
-                has_selection: !matches!(app.transcript.selection, SelectionState::None),
-                has_running_task: app.viewed_chrome().responding,
-                has_notices: !!app.has_notices(),
-                has_focused_entry: app.transcript.focus.entry().is_some(),
-                queue_count: app.outbox_total(),
-                has_session: app.has_session(),
-                scene: app.current_scene(),
-            };
-            let entries = crate::shell::overlays::command_palette::filter_palette_commands(
-                &d.query.text,
-                &app.composer.recent_commands,
-                &app_ctx,
-            );
+            let projection = crate::shell::palette::project(app, &d.query.text);
             let show_caret =
                 app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Overlay;
-            Some(crate::shell::overlays::draw_command_palette(
+            Some(crate::shell::palette::view::draw(
                 frame,
-                crate::shell::overlays::command_palette::CommandPaletteProps {
+                crate::shell::palette::view::PaletteProps {
                     query: &d.query.text,
                     cursor_position: d.query.cursor,
-                    entries: &entries,
-                    selected_index: d.selected,
+                    projection: &projection,
+                    selected: d.selected,
                     scroll: &mut d.scroll,
                     show_caret,
                 },

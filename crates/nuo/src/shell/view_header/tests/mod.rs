@@ -7,8 +7,8 @@ fn render_row1(width: u16, tab_bar: TabBarProps<'_>) -> String {
     cells.iter().map(|c| c.symbol.as_str()).collect()
 }
 
-fn render_row1_cells(width: u16, tab_bar: TabBarProps<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
-    let mut terminal = nuotc::TestTerminal::new(width, 1);
+fn render_row1_cells(width: u16, tab_bar: TabBarProps<'_>, theme: &Theme) -> Vec<graticule::Cell> {
+    let mut terminal = graticule::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
         draw_tab_bar(frame, frame.area(), &tab_bar, theme);
     });
@@ -25,8 +25,8 @@ fn render_row2_cells(
     thread_id: Option<&str>,
     hints: ViewHints<'_>,
     theme: &Theme,
-) -> Vec<nuotc::Cell> {
-    let mut terminal = nuotc::TestTerminal::new(width, 1);
+) -> Vec<graticule::Cell> {
+    let mut terminal = graticule::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
         draw_scene_bar(frame, frame.area(), thread_id, &hints, theme);
     });
@@ -38,8 +38,12 @@ fn render_row3(width: u16, context: ThreadContext<'_>) -> String {
     cells.iter().map(|c| c.symbol.as_str()).collect()
 }
 
-fn render_row3_cells(width: u16, context: ThreadContext<'_>, theme: &Theme) -> Vec<nuotc::Cell> {
-    let mut terminal = nuotc::TestTerminal::new(width, 1);
+fn render_row3_cells(
+    width: u16,
+    context: ThreadContext<'_>,
+    theme: &Theme,
+) -> Vec<graticule::Cell> {
+    let mut terminal = graticule::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
         draw_thread_context_bar(frame, frame.area(), &context, theme);
     });
@@ -76,15 +80,15 @@ fn header_tiers_exhibit_distinct_micro_elevation_ladder() {
     );
 
     let (r1, g1, b1) = match theme.tabbar_bg() {
-        nuotc::Color::Rgb(r, g, b) => (r, g, b),
+        graticule::Color::Rgb(r, g, b) => (r, g, b),
         _ => panic!("RGB expected"),
     };
     let (r2, g2, b2) = match theme.scenebar_bg() {
-        nuotc::Color::Rgb(r, g, b) => (r, g, b),
+        graticule::Color::Rgb(r, g, b) => (r, g, b),
         _ => panic!("RGB expected"),
     };
     let (r3, g3, b3) = match theme.contextbar_bg() {
-        nuotc::Color::Rgb(r, g, b) => (r, g, b),
+        graticule::Color::Rgb(r, g, b) => (r, g, b),
         _ => panic!("RGB expected"),
     };
 

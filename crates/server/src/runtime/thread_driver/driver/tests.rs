@@ -79,6 +79,7 @@ fn control_plane_requests_need_the_driver_reconcile() {
     }));
     assert!(!round_owned_request(&AgentRequest::RefreshProviderModels));
     assert!(!round_owned_request(&AgentRequest::QueryThreadContext));
+    assert!(!round_owned_request(&AgentRequest::QueryContextPlan));
     assert!(!round_owned_request(&AgentRequest::PermissionReply {
         request_id: "r".to_string(),
         decision: protocol::PermissionDecision::Always,

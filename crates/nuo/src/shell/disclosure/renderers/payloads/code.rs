@@ -1,5 +1,5 @@
 //! Code content renderer and normalization.
-use nuotc::{Color, Line, Span, Style};
+use graticule::{Color, Line, Span, Style};
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};
 use ui_primitives::design::{CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH};

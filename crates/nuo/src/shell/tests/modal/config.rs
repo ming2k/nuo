@@ -214,7 +214,7 @@ fn config_view_navigation_and_theme_preview() {
 #[test]
 fn config_view_monochrome_profile_navigation_and_item_counts() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.surfaces.profile = nuotc::TerminalProfile::dec_vt100_monochrome();
+    app.surfaces.profile = graticule::TerminalProfile::dec_vt100_monochrome();
     app.surfaces.theme = crate::shell::render::Theme::monochrome();
 
     app.switch_scene(crate::shell::surfaces::SceneKind::Settings);

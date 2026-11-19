@@ -2,8 +2,6 @@
 
 use super::attach::{AttachError, AttachResult, connect, finish_handshake_with_project};
 use super::*;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::http::HeaderValue;
 
 static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
@@ -151,17 +149,10 @@ impl RemoteServer {
         project: Option<std::path::PathBuf>,
     ) -> AttachResult {
         let url = self.url();
-        let mut request = url
-            .as_str()
-            .into_client_request()
-            .map_err(|e| AttachError::transport(format!("bad ws url {url}: {e}")))?;
-        let value = HeaderValue::from_str(&format!("Bearer {}", self.token))
-            .map_err(|e| AttachError::transport(format!("bad bearer token: {e}")))?;
-        request.headers_mut().insert("Authorization", value);
-        let (ws, _) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(|e| AttachError::transport(format!("ws connect to {url}: {e}")))?;
-        let (sink, source) = websocket_split(ws);
+        let (sink, source) =
+            connect_ws_wire(&url, Some(&self.token), netune::WsSessionConfig::default())
+                .await
+                .map_err(AttachError::transport)?;
         finish_handshake_with_project((sink, source), action, project).await
     }
 }

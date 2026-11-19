@@ -151,11 +151,11 @@ pub(crate) fn draw_fleet_table(
         };
 
         if is_selected {
-            frame.render_widget(&mut nuotc::Clear::default(), cell);
+            frame.render_widget(&mut graticule::Clear::default(), cell);
             let style = theme.selection_style(true);
             frame.render_widget(&mut RtBlock::default().style(style), cell);
         } else if is_current {
-            frame.render_widget(&mut nuotc::Clear::default(), cell);
+            frame.render_widget(&mut graticule::Clear::default(), cell);
             let style = Style::default().bg(theme.panel());
             frame.render_widget(&mut RtBlock::default().style(style), cell);
         }

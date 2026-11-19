@@ -283,5 +283,13 @@ fn changed_content_after_a_refusal_is_asked_again() {
         1,
         "only the domain that changed is offered, not the one already refused"
     );
-    assert_eq!(options[0].label, "Project instructions  |  [Changed]");
+    assert_eq!(
+        options[0].label, "Project instructions",
+        "the option names the asset; its status lives on the row, not in the label"
+    );
+    assert_eq!(
+        gate.rows().first().map(|row| row.status),
+        Some(view::trust_gate::TrustStatus::Changed),
+        "the row carries the reason it is being asked about"
+    );
 }

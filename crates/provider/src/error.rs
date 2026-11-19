@@ -73,6 +73,18 @@ impl From<crate::transport::TransportError> for ProviderError {
                     None => pe,
                 }
             }
+            crate::transport::TransportError::Unreachable {
+                label,
+                message,
+                diagnostic,
+            } => {
+                let pe = ProviderError::new(label, ProviderErrorKind::Unreachable, message)
+                    .retryable(None);
+                match diagnostic {
+                    Some(diagnostic) => pe.with_diagnostic(mirror_diagnostic(*diagnostic)),
+                    None => pe,
+                }
+            }
             crate::transport::TransportError::Timeout { label, diagnostic } => {
                 let pe = ProviderError::new(
                     label,
@@ -174,6 +186,37 @@ mod diagnostic_tests {
         assert_eq!(
             decoded.diagnostic().map(TransportDiagnostic::code),
             Some("NET-E-TIMEOUT")
+        );
+    }
+
+    #[test]
+    fn unreachable_transport_error_maps_to_retryable_unreachable_provider_error() {
+        let error: ProviderError = TransportError::Unreachable {
+            label: "Test",
+            message: "resolve failed: api.example.com".into(),
+            diagnostic: Some(Box::new(NetuneDiagnostic {
+                code: DiagnosticCode::EGRESS_DNS_FAILED,
+                phase: DiagnosticPhase::Dns,
+                retry: NetuneRetry::Retryable,
+                message: "resolve failed: api.example.com".into(),
+                trace_id: TraceId::new("01924f4e-0000-7000-8000-000000000002"),
+                dropped_events: 0,
+                dropped_diagnostics: 0,
+            })),
+        }
+        .into();
+
+        assert_eq!(error.kind(), ProviderErrorKind::Unreachable);
+        assert!(error.is_unreachable());
+        assert_eq!(
+            error.retry_disposition(),
+            RetryDisposition::Retry {
+                retry_after_ms: None
+            }
+        );
+        assert_eq!(
+            error.diagnostic().map(TransportDiagnostic::code),
+            Some("NET-E-DNS-FAILED")
         );
     }
 }

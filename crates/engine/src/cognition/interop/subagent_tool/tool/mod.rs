@@ -43,6 +43,10 @@ pub struct SubagentTool {
     /// Provider type behind the parent's active connection (ADR-0164).
     parent_instruction_provider_kind:
         std::sync::Mutex<Option<Arc<std::sync::RwLock<Option<String>>>>>,
+    /// The parent's declared answer language (ADR-0222). Shared by handle so a
+    /// child answers in the same language as the session it reports into.
+    parent_response_language:
+        std::sync::Mutex<Option<Arc<std::sync::RwLock<Option<protocol::ResponseLanguage>>>>>,
     /// The parent's live project-rules text (the root `AGENTS.md` composition).
     /// Shared by handle so nested rules and `/trust` updates reach children.
     parent_project_rules: std::sync::Mutex<Option<Arc<std::sync::RwLock<String>>>>,
@@ -188,6 +192,7 @@ impl SubagentTool {
             parent_user_instructions: std::sync::Mutex::new(None),
             parent_project_instructions: std::sync::Mutex::new(None),
             parent_instruction_provider_kind: std::sync::Mutex::new(None),
+            parent_response_language: std::sync::Mutex::new(None),
             parent_project_rules: std::sync::Mutex::new(None),
             parent_workspace_security: std::sync::Mutex::new(None),
             parent_human_channel: std::sync::Mutex::new(None),
@@ -225,6 +230,7 @@ impl SubagentTool {
             parent_user_instructions: std::sync::Mutex::new(None),
             parent_project_instructions: std::sync::Mutex::new(None),
             parent_instruction_provider_kind: std::sync::Mutex::new(None),
+            parent_response_language: std::sync::Mutex::new(None),
             parent_project_rules: std::sync::Mutex::new(None),
             parent_workspace_security: std::sync::Mutex::new(None),
             parent_human_channel: std::sync::Mutex::new(None),
@@ -350,6 +356,19 @@ impl SubagentTool {
     ) {
         *self
             .parent_project_instructions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(handle);
+    }
+
+    /// Bind the parent's declared answer language so a child answers in the
+    /// session's language rather than inventing one from its English task
+    /// prompt (ADR-0222).
+    pub fn bind_response_language(
+        &self,
+        handle: Arc<std::sync::RwLock<Option<protocol::ResponseLanguage>>>,
+    ) {
+        *self
+            .parent_response_language
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = Some(handle);
     }

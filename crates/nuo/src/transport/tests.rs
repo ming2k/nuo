@@ -218,10 +218,10 @@ async fn discover_never_parks_the_worker() {
 /// but "die".
 #[test]
 fn attach_refusal_preserves_code() {
-    let gone = AttachError {
-        code: Some(protocol::ERR_SESSION_GONE.to_string()),
-        message: "server rejected the attach: session 'x' no longer exists".to_string(),
-    };
+    let gone = AttachError::server_refusal(
+        Some(protocol::ERR_SESSION_GONE.to_string()),
+        "server rejected the attach: session 'x' no longer exists",
+    );
     assert_eq!(gone.code(), Some(protocol::ERR_SESSION_GONE));
     assert!(gone.is_session_gone());
     assert!(
@@ -229,10 +229,10 @@ fn attach_refusal_preserves_code() {
         "the two recoveries are mutually exclusive"
     );
 
-    let unresumable = AttachError {
-        code: Some(protocol::ERR_SESSION_UNRESUMABLE.to_string()),
-        message: "server rejected the attach: could not resume session x: boom".to_string(),
-    };
+    let unresumable = AttachError::server_refusal(
+        Some(protocol::ERR_SESSION_UNRESUMABLE.to_string()),
+        "server rejected the attach: could not resume session x: boom",
+    );
     assert!(unresumable.is_session_unresumable());
     assert!(
         !unresumable.is_session_gone(),
@@ -583,6 +583,385 @@ async fn an_unmodelled_frame_after_welcome_does_not_end_the_attachment() {
     let next = tokio::time::timeout(Duration::from_millis(600), resp_rx.recv()).await;
     assert!(
         next.is_err(),
-        "a skewed frame must not terminate the session; the reader must simply              continue waiting for the next frame"
+        "a skewed frame must not terminate the session; the reader must simply \
+         continue waiting for the next frame"
     );
+}
+
+/// Minimal RFC 6455 `Sec-WebSocket-Accept` (SHA-1 + standard Base64) for tests,
+/// keeping `crates/nuo` completely free of `tokio-tungstenite` even in tests.
+fn test_ws_accept_key(client_key: &str) -> String {
+    let mut data = format!("{client_key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").into_bytes();
+    let bit_len = (data.len() as u64) * 8;
+    data.push(0x80);
+    while (data.len() % 64) != 56 {
+        data.push(0);
+    }
+    data.extend_from_slice(&bit_len.to_be_bytes());
+
+    let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+    for chunk in data.as_chunks::<64>().0 {
+        let mut w = [0u32; 80];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
+        }
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e] = h;
+        for (i, &word) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | ((!b) & d), 0x5A827999),
+                20..=39 => (b ^ c ^ d, 0x6ED9EBA1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
+                _ => (b ^ c ^ d, 0xCA62C1D6),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(word);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+    }
+    let mut digest = [0u8; 20];
+    for (i, word) in h.iter().enumerate() {
+        digest[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(28);
+    for chunk in digest.chunks(3) {
+        let b0 = u32::from(chunk[0]);
+        let b1 = u32::from(*chunk.get(1).unwrap_or(&0));
+        let b2 = u32::from(*chunk.get(2).unwrap_or(&0));
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(B64[((n >> 18) & 0x3F) as usize] as char);
+        out.push(B64[((n >> 12) & 0x3F) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            B64[((n >> 6) & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64[(n & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+async fn read_masked_ws_frame(
+    socket: &mut tokio::net::TcpStream,
+) -> std::io::Result<(u8, Vec<u8>)> {
+    use tokio::io::AsyncReadExt;
+    let mut head = [0u8; 2];
+    socket.read_exact(&mut head).await?;
+    let opcode = head[0] & 0x0F;
+    let masked = (head[1] & 0x80) != 0;
+    let len = match head[1] & 0x7F {
+        126 => {
+            let mut ext = [0u8; 2];
+            socket.read_exact(&mut ext).await?;
+            u16::from_be_bytes(ext) as usize
+        }
+        127 => {
+            let mut ext = [0u8; 8];
+            socket.read_exact(&mut ext).await?;
+            u64::from_be_bytes(ext) as usize
+        }
+        small => small as usize,
+    };
+    let mask = if masked {
+        let mut m = [0u8; 4];
+        socket.read_exact(&mut m).await?;
+        Some(m)
+    } else {
+        None
+    };
+    let mut payload = vec![0u8; len];
+    socket.read_exact(&mut payload).await?;
+    if let Some(m) = mask {
+        for (i, byte) in payload.iter_mut().enumerate() {
+            *byte ^= m[i % 4];
+        }
+    }
+    Ok((opcode, payload))
+}
+
+async fn write_server_ws_frame(
+    socket: &mut tokio::net::TcpStream,
+    opcode: u8,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let mut frame = Vec::with_capacity(10 + payload.len());
+    frame.push(0x80 | (opcode & 0x0F));
+    if payload.len() < 126 {
+        frame.push(payload.len() as u8);
+    } else if payload.len() <= u16::MAX as usize {
+        frame.push(126);
+        frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    } else {
+        frame.push(127);
+        frame.extend_from_slice(&(payload.len() as u64).to_be_bytes());
+    }
+    frame.extend_from_slice(payload);
+    socket.write_all(&frame).await?;
+    socket.flush().await
+}
+
+/// `[INV-RESILIENCE-03]` (ADR-0224): client WebSocket links run over `netune`'s
+/// owned `WsSession` with bearer auth and real Ping/Pong liveness, surviving
+/// multiple heartbeat cycles while carrying `Wire` frames.
+#[tokio::test]
+async fn netune_ws_session_wire_roundtrip_and_liveness() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut req = Vec::new();
+        let mut buf = [0u8; 2048];
+        loop {
+            let n = socket.read(&mut buf).await.unwrap();
+            assert!(n > 0);
+            req.extend_from_slice(&buf[..n]);
+            if req.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let req_str = String::from_utf8_lossy(&req);
+        assert!(
+            req_str
+                .lines()
+                .any(|l| l.eq_ignore_ascii_case("authorization: Bearer test-secret")),
+            "expected bearer authorization header, got:\n{req_str}"
+        );
+        let key = req_str
+            .lines()
+            .find_map(|line| {
+                let (k, v) = line.split_once(':')?;
+                k.eq_ignore_ascii_case("sec-websocket-key")
+                    .then(|| v.trim().to_string())
+            })
+            .unwrap();
+        let accept = test_ws_accept_key(&key);
+        let reply = format!(
+            "HTTP/1.1 101 Switching Protocols\r\n\
+             Upgrade: websocket\r\n\
+             Connection: Upgrade\r\n\
+             Sec-WebSocket-Accept: {accept}\r\n\r\n"
+        );
+        socket.write_all(reply.as_bytes()).await.unwrap();
+        socket.flush().await.unwrap();
+
+        let mut pings = 0usize;
+        while let Ok((opcode, payload)) = read_masked_ws_frame(&mut socket).await {
+            match opcode {
+                0x1 => {
+                    // Answer the client's `Select` with `Welcome`, then stay
+                    // open to echo at least 2 heartbeat pings.
+                    let wire: Wire = serde_json::from_slice(&payload).unwrap();
+                    assert!(matches!(wire, Wire::Select { .. }));
+                    let welcome = serde_json::to_vec(&Wire::Welcome {
+                        thread_id: "ws-live".to_string(),
+                        phase: protocol::ThreadPhase::Ready,
+                    })
+                    .unwrap();
+                    write_server_ws_frame(&mut socket, 0x1, &welcome)
+                        .await
+                        .unwrap();
+                }
+                0x9 => {
+                    pings += 1;
+                    write_server_ws_frame(&mut socket, 0xA, &payload)
+                        .await
+                        .unwrap();
+                    if pings >= 2 {
+                        let notice = serde_json::to_vec(&Wire::Response {
+                            response: AgentResponse::Error("heartbeat-survived".to_string()),
+                        })
+                        .unwrap();
+                        write_server_ws_frame(&mut socket, 0x1, &notice)
+                            .await
+                            .unwrap();
+                    }
+                }
+                0x8 => break,
+                _ => {}
+            }
+        }
+        pings
+    });
+
+    let url = format!("ws://127.0.0.1:{port}/");
+    let (sink, source) = connect_ws_wire(
+        &url,
+        Some("test-secret"),
+        netune::WsSessionConfig::default()
+            .with_ping_interval(Duration::from_millis(45))
+            .with_pong_timeout(Duration::from_millis(150)),
+    )
+    .await
+    .expect("connect_ws_wire must succeed");
+
+    let handshake = finish_handshake_with_project((sink, source), AttachAction::Attach(None), None)
+        .await
+        .expect("handshake over netune WsSession must succeed");
+
+    let Handshake::Attached {
+        req_tx,
+        mut resp_rx,
+        session_id,
+        ..
+    } = handshake
+    else {
+        panic!("expected Attached");
+    };
+    assert_eq!(session_id, "ws-live");
+
+    // Wait for the server's post-2-ping message, proving the session stayed
+    // alive across multiple ping/pong cycles well past `pong_timeout`.
+    let msg = tokio::time::timeout(Duration::from_secs(3), resp_rx.recv())
+        .await
+        .expect("must survive heartbeat cycles")
+        .expect("channel open");
+    assert!(matches!(msg, AgentResponse::Error(ref text) if text == "heartbeat-survived"));
+
+    drop(req_tx);
+    let pings = tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .expect("server completes")
+        .expect("server join");
+    assert!(
+        pings >= 2,
+        "expected at least 2 heartbeat pings, got {pings}"
+    );
+}
+
+/// `[INV-RESILIENCE-03]` (ADR-0224): end-to-end interoperability between
+/// `nuo::transport::connect_ws_wire` (`netune::WsSession`) and the real
+/// `server::transport::serve` WebSocket server (`run_monitor`).
+///
+/// Proves that `run_monitor` keeps polling `wire_source` so `tokio-tungstenite`
+/// flushes Pong replies immediately on an idle monitor stream — before that fix,
+/// an idle WebSocket monitor client timed out at its first `pong_timeout`.
+#[tokio::test]
+async fn connect_ws_wire_survives_idle_monitor_heartbeats_against_real_server() {
+    let registry = Arc::new(server::runtime::registry::ThreadRegistry::prehost_only());
+    let mut handle = server::transport::serve::start_server(
+        server::transport::serve::ServeOptions {
+            port: 0,
+            token: Some("live-tok".to_string()),
+            ..server::transport::serve::ServeOptions::default()
+        },
+        registry,
+    );
+    let port = handle
+        .startup
+        .port
+        .take()
+        .expect("tcp startup receiver")
+        .await
+        .expect("startup channel")
+        .expect("bound ephemeral port");
+
+    let url = format!("ws://127.0.0.1:{port}/");
+    let (sink, source) = connect_ws_wire(
+        &url,
+        Some("live-tok"),
+        netune::WsSessionConfig::default()
+            .with_ping_interval(Duration::from_millis(45))
+            .with_pong_timeout(Duration::from_millis(120)),
+    )
+    .await
+    .expect("connect to real server ws");
+
+    let mut rx = finish_monitor(
+        (sink, source),
+        MonitorAction {
+            watch: true,
+            include_idle: true,
+        },
+        &url,
+    )
+    .await
+    .expect("monitor handshake");
+
+    let first = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("snapshot timeout")
+        .expect("snapshot frame");
+    assert!(matches!(first, MonitorEvent::Snapshot(_)));
+
+    // Stay completely idle for >2.5x pong_timeout (~6 ping/pong cycles).
+    // If the server dropped `wire_source` or failed to flush Pongs, the stream
+    // would close here instead of staying open until ServerDraining.
+    tokio::time::sleep(Duration::from_millis(320)).await;
+
+    handle.gate.request(
+        server::runtime::shutdown::ShutdownReason::ControlVerb,
+        false,
+    );
+    let draining = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("draining event must arrive on live stream")
+        .expect("stream must still be open after idle heartbeat cycles");
+    assert!(
+        matches!(draining, MonitorEvent::ServerDraining),
+        "expected ServerDraining, got {draining:?}"
+    );
+    handle.cancel.cancel();
+}
+
+#[tokio::test]
+async fn attach_error_distinguishes_transport_failures_from_uncoded_server_refusals() {
+    let (client_io, server_io) = tokio::io::duplex(4096);
+    let server_task = tokio::spawn(async move {
+        let (mut sink, mut source) = native_framed_split(server_io);
+        let _select = source.next().await;
+        sink.send(Wire::Error {
+            message: "unauthorized".to_string(),
+            code: None,
+        })
+        .await
+        .unwrap();
+    });
+
+    let err = finish_handshake_with_project(
+        native_framed_split(client_io),
+        AttachAction::Attach(None),
+        None,
+    )
+    .await
+    .err()
+    .expect("uncoded server Wire::Error must fail handshake");
+    server_task.await.unwrap();
+
+    assert_eq!(err.code(), None);
+    assert!(
+        !err.is_transport_failure(),
+        "explicit server Wire::Error without a code must NOT be retried as a transport outage"
+    );
+
+    let dial_err = AttachError::transport("connection refused");
+    assert!(dial_err.is_transport_failure());
 }

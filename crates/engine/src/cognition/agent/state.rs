@@ -165,6 +165,7 @@ impl Agent {
                 permissions: Arc::new(guardrails::permission_store::PermissionStore::new()),
                 additional_workspace_roots: Vec::new(),
                 workspace_topology_cache: std::sync::Mutex::new(None),
+                last_measurement: std::sync::Mutex::new(None),
                 workspace_security: Arc::new(std::sync::Mutex::new(
                     protocol::WorkspaceSecuritySnapshot::default(),
                 )),
@@ -196,6 +197,7 @@ impl Agent {
                 active_role: std::sync::RwLock::new(Some("developer".to_string())),
                 project_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
                 user_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
+                response_language: Arc::new(std::sync::RwLock::new(None)),
                 instruction_provider_kind: Arc::new(std::sync::RwLock::new(None)),
             },
             control: substate::ControlState {
@@ -300,6 +302,43 @@ impl Agent {
             .project_instructions
             .write()
             .unwrap_or_else(|error| error.into_inner()) = instructions;
+    }
+
+    /// Declare the language this session answers in (`agent.language`, ADR-0222).
+    ///
+    /// `None` clears the declaration, which removes the block entirely rather
+    /// than replacing it with a default: an undeclared session has no declared
+    /// language, and the harness never invents one.
+    pub fn set_response_language(&self, language: Option<protocol::ResponseLanguage>) {
+        *self
+            .context
+            .response_language
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = language;
+    }
+
+    /// The declared answer language, if any.
+    pub fn response_language(&self) -> Option<protocol::ResponseLanguage> {
+        self.context
+            .response_language
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    /// Handle for the shared answer-language cell, inherited by subagents.
+    pub fn response_language_handle(
+        &self,
+    ) -> Arc<std::sync::RwLock<Option<protocol::ResponseLanguage>>> {
+        Arc::clone(&self.context.response_language)
+    }
+
+    /// Bind this agent to share an existing answer-language handle.
+    pub fn bind_response_language(
+        &mut self,
+        handle: Arc<std::sync::RwLock<Option<protocol::ResponseLanguage>>>,
+    ) {
+        self.context.response_language = handle;
     }
 
     /// Handle for the shared project-instruction set, allowing subagents to
@@ -471,11 +510,8 @@ impl Agent {
         topology
     }
 
-    /// Snapshot the live state available to declarative system-prompt policy.
-    fn instruction_context(&self, tools: &[Arc<dyn Tool>]) -> crate::InstructionContext {
-        let mut tool_names: Vec<String> =
-            tools.iter().map(|tool| tool.name().to_string()).collect();
-        tool_names.sort();
+    /// Snapshot the live state available to declared context sources.
+    fn context_inputs(&self, tools: &[Arc<dyn Tool>]) -> crate::ContextInputs {
         let provider_guidance = self.provider.prompt_hints().system_guidance;
         let role = self.active_role();
         let connection = self.provider.provider_id();
@@ -521,18 +557,24 @@ impl Agent {
                 })
                 .collect::<Vec<_>>();
             skills.sort_by(|left, right| left.0.cmp(&right.0));
-            skills.truncate(64);
+            // No truncation here: the catalog source bounds itself and discloses
+            // what it left out ([`INV-CTXSRC-02`], ADR-0199).
             skills
         };
+        let deferred_active = self.tools.tool_activation.len();
+        let tool_surface = crate::ToolSurface::new(
+            tools.iter().map(|tool| tool.as_ref()),
+            self.provider.supports_parallel_tool_calls(),
+            deferred_active,
+        );
 
-        crate::InstructionContext {
+        crate::ContextInputs {
             identity_preamble: self
                 .identity
                 .read()
                 .map(|guard| guard.preamble())
                 .unwrap_or_default(),
-            tool_names,
-            has_subagent_tool: tools.iter().any(|tool| tool.spawns_subagent()),
+            tool_surface,
             user_instructions,
             provider_guidance,
             project_rules: self
@@ -549,9 +591,14 @@ impl Agent {
                 .collect(),
             workspace_topology: self.workspace_topology(),
             workspace_root: self.workspace_root().map(|p| p.display().to_string()),
-            supports_parallel_tool_calls: self.provider.supports_parallel_tool_calls(),
             project_instructions,
             skill_catalog,
+            response_language: self
+                .context
+                .response_language
+                .read()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone(),
         }
     }
 }
@@ -672,15 +719,117 @@ impl Agent {
         }
 
         let tools = self.visible_tools();
-        let context = self.instruction_context(&tools);
+        let context = self.context_inputs(&tools);
+        let route = self.provider.route_fingerprint();
+        let plan = self.context.model_request_assembler.plan(
+            &context,
+            route.0.as_str(),
+            self.instruction_ceiling(),
+        );
+        self.record_context_plan(&plan);
         self.context
             .model_request_assembler
-            .assemble_prepared(enriched, temporary_context, &context, &tools)
-            .with_route_state(
-                &self.provider.route_fingerprint(),
-                self.provider.continuation_mode(),
-            )
+            .build(plan, enriched, temporary_context, &tools)
+            .with_route_state(&route, self.provider.continuation_mode())
             .with_reasoning_effort(self.reasoning_effort_override())
+    }
+
+    /// The instruction-region ceiling for the active model.
+    ///
+    /// Derived from the declared context window through the one compaction
+    /// policy, so it moves with `/model` exactly like every other threshold
+    /// (`[INV-CONTEXT-01]`, ADR-0214).
+    fn instruction_ceiling(&self) -> usize {
+        protocol::CompactionPolicy::default()
+            .resolve(self.provider.model_capabilities().context_window)
+            .instructions_ceiling_tokens
+    }
+
+    /// Remember the measured plan for `/context` and log a prefix-drift defect.
+    ///
+    /// A fresh plan always clears `estimate`: the token shape belongs to the
+    /// request that *sends* this plan, and carrying the previous attempt's
+    /// numbers forward would make the inspector agree with a request that no
+    /// longer exists (ADR-0220 §4).
+    fn record_context_plan(&self, plan: &protocol::ContextPlan) {
+        if plan.drift.is_defect() {
+            tracing::warn!(
+                drift = ?plan.drift,
+                "prefix drift in a frame or frozen block with no route change; \
+                 a context source is impure or misclassified ([INV-CTXSRC-08])"
+            );
+        }
+        if !plan.notices.is_empty() {
+            tracing::debug!(notices = ?plan.notices, "context projection disclosed a loss");
+        }
+        let mut slot = self
+            .context
+            .last_measurement
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *slot = Some(protocol::ContextMeasurement {
+            plan: plan.clone(),
+            estimate: None,
+        });
+    }
+
+    /// Record the token shape of the request built from the stored plan.
+    ///
+    /// Called at the attempt boundary, after the request is assembled and just
+    /// before it is sent, so the numbers describe exactly the bytes that left
+    /// the process.
+    pub(crate) fn record_request_estimate(&self, estimate: protocol::RequestTokenEstimate) {
+        let mut slot = self
+            .context
+            .last_measurement
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(measurement) = slot.as_mut() {
+            measurement.estimate = Some(estimate);
+        }
+    }
+
+    /// The context measurement for the most recent request, if any.
+    ///
+    /// This is the `/context` surface: the same value the request was built from,
+    /// so the table cannot disagree with the prompt the model received
+    /// (`[INV-CTXPLAN-01]`, ADR-0217).
+    pub fn context_measurement(&self) -> Option<protocol::ContextMeasurement> {
+        self.context
+            .last_measurement
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    /// The most recently measured context plan, if any.
+    ///
+    /// The plan alone, for callers that do not render costs (the durable
+    /// projection archive). Prefer [`Self::context_measurement`] when the
+    /// request's token shape matters.
+    pub fn context_plan(&self) -> Option<protocol::ContextPlan> {
+        self.context_measurement().map(|m| m.plan)
+    }
+
+    /// The operator-facing projection of the stored measurement (ADR-0220).
+    ///
+    /// The window and ceiling are resolved here, from the live provider, so a
+    /// caller never has to guess which model's limits a plan was measured
+    /// against.
+    pub fn context_plan_view(&self) -> Option<protocol::ContextPlanView> {
+        let measurement = self.context_measurement()?;
+        let window = self.provider.model_capabilities().context_window;
+        Some(crate::cognition::context::inspect::view(
+            &measurement,
+            window,
+            self.instruction_ceiling(),
+        ))
+    }
+
+    /// Render the most recent context plan as an operator table.
+    pub fn render_context_table(&self) -> Option<String> {
+        let view = self.context_plan_view()?;
+        Some(crate::render_context_table(&view))
     }
 
     /// Assemble a [`protocol::ModelRequest`] from a durable thread branch.
@@ -707,19 +856,23 @@ impl Agent {
             }
         }
         let tools = self.visible_tools();
-        let context = self.instruction_context(&tools);
-        let request = self.context.model_request_assembler.assemble_thread(
+        let context = self.context_inputs(&tools);
+        let route = self.provider.route_fingerprint();
+        let plan = self.context.model_request_assembler.plan(
+            &context,
+            route.0.as_str(),
+            self.instruction_ceiling(),
+        );
+        self.record_context_plan(&plan);
+        let request = self.context.model_request_assembler.build_from_thread(
+            plan,
             thread,
             branch,
             temporary_context,
-            &context,
             &tools,
         )?;
         Ok(request
-            .with_route_state(
-                &self.provider.route_fingerprint(),
-                self.provider.continuation_mode(),
-            )
+            .with_route_state(&route, self.provider.continuation_mode())
             .with_reasoning_effort(self.reasoning_effort_override()))
     }
     /// Project inline images away when this route cannot be given them
@@ -841,22 +994,37 @@ impl Agent {
         // Per-message wire weight (not `estimate_tokens`, which intentionally
         // includes persisted subagent children the provider never sees).
         let history_tokens = weights.history_tokens(&request.messages);
-        let prepared_message_tokens = weights.prepared_tokens();
-        let tool_schema_tokens = weights.tool_schema_tokens;
-        let total_tokens = prepared_message_tokens.saturating_add(tool_schema_tokens);
-
-        RequestTokenEstimate {
+        // The layers are named, not summed into an opaque `overhead`: the
+        // instruction region and the tool surface are independently actionable
+        // costs, and collapsing them made a large toolset indistinguishable from
+        // a long prompt (ADR-0220 §2).
+        //
+        // The total comes from the measurement, not from the layers: a
+        // system-role row in `messages` is history to nobody and belongs to no
+        // layer, so summing the parts would understate the request by exactly
+        // that row. `overhead = total - history` absorbs it and keeps the
+        // identity exact.
+        RequestTokenEstimate::measured(
             history_tokens,
-            overhead_tokens: total_tokens.saturating_sub(history_tokens),
-            total_tokens,
-            temporary_context_tokens: weights.temporary_context_tokens,
-        }
+            weights.instructions_tokens,
+            weights.tool_schema_tokens,
+            weights.temporary_context_tokens,
+            weights.total_tokens(),
+        )
     }
 
     /// Estimate the complete next request at the same immutable request
     /// boundary the provider call uses.
+    ///
+    /// The plan and the estimate are recorded together, because this call builds
+    /// exactly one request and measures it: leaving the stored measurement with a
+    /// plan but no estimate would show an operator a context whose cost column is
+    /// blank for a request the harness already knows the shape of (ADR-0220 §4).
     pub fn estimate_next_request_tokens(&self, messages: &[Message]) -> RequestTokenEstimate {
-        self.estimate_model_request(&self.model_request(messages))
+        let request = self.model_request(messages);
+        let estimate = self.estimate_model_request(&request);
+        self.record_request_estimate(estimate);
+        estimate
     }
 
     /// Dev-only dry run: rebuild the head system message and auto-load any
@@ -1584,6 +1752,8 @@ mod budget_tests {
             conversation_messages: 0,
             temporary_context_tokens: 0,
             temporary_context: Vec::new(),
+            blocks: Vec::new(),
+            drift: protocol::PrefixDrift::None,
         });
 
         assert_eq!(count.load(Ordering::SeqCst), 1);

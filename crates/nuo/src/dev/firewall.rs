@@ -21,7 +21,14 @@ const TIERS: &[&str] = &["crates"];
 const SANCTIONED_MEMBERS: &[&str] = &["crates/*"];
 const HOST_PATH: &str = "crates/nuo/Cargo.toml";
 
-const TERMINAL_SUBSTRATE: &[&str] = &["nuotc", "crossterm"];
+const TERMINAL_SUBSTRATE: &[&str] = &[
+    "graticule-vt",
+    "graticule-canvas",
+    "graticule-tty",
+    "graticule",
+    "nuotc",
+    "crossterm",
+];
 const PRESENTATION_CRATES: &[&str] = &["ui-primitives", "view"];
 const RETIRED_CRATES: &[&str] = &[
     "nuo-client",
@@ -36,6 +43,8 @@ const RETIRED_CRATES: &[&str] = &[
 const UI_FORBIDDEN: &[&str] = &[
     "tokio-tungstenite", // async websocket transport
     "netune",            // outbound egress
+    "graticule-tty",     // physical TTY host transport (raw mode / stdin)
+    "graticule",         // umbrella crate pulling `graticule-tty`
     "crossterm",         // terminal raw-mode driver
     "arboard",           // clipboard
     "libc",              // raw OS calls (terminal/process)
@@ -271,6 +280,19 @@ pub fn check_presentation_firewall(root: &Path) -> Result<(), String> {
             ));
         }
 
+        // R2b: Host binary (`nuo`) substrate & transport purity (ADR-0223, ADR-0224)
+        if name == "nuo" {
+            for forbidden_host_dep in ["tokio-tungstenite", "crossterm", "nuotc"] {
+                if deps.contains(forbidden_host_dep) {
+                    problems.push(format!(
+                        "R2b: nuo ({}) depends on retired/forbidden client dependency '{forbidden_host_dep}' \
+                         ([INV-GRATICULE-02], [INV-RESILIENCE-03])",
+                        info.rel_path
+                    ));
+                }
+            }
+        }
+
         // R2: Presentation layer isolation
         if !presentation_layer.contains(name.as_str()) {
             let mut bad_term: Vec<&str> = deps.intersection(&terminal_substrate).copied().collect();
@@ -357,6 +379,10 @@ pub fn check_lean_cli_link(root: &Path) -> Result<(), String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let forbidden = [
+        "graticule",
+        "graticule-vt",
+        "graticule-canvas",
+        "graticule-tty",
         "nuotc",
         "crossterm",
         "ui-primitives",

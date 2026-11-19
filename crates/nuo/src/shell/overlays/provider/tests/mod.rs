@@ -1,14 +1,14 @@
 use super::common::{draw_picker_search_row, place_picker_search_cursor};
 use super::*;
 use crate::shell::render::Theme;
-use nuotc::Rect;
+use graticule::Rect;
 use ui_primitives::components::columns::{ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
 use ui_primitives::components::row::{GROUP_GAP, GUTTER};
 use unicode_width::UnicodeWidthStr;
 
 /// Render the whole frame buffer back to a single string (rows joined by
 /// `\n`), the standard readback helper for layout-level modal assertions.
-pub(super) fn buffer_text(terminal: &nuotc::TestTerminal) -> String {
+pub(super) fn buffer_text(terminal: &graticule::TestTerminal) -> String {
     let buf = terminal.buffer();
     let area = buf.area();
     (0..area.height)

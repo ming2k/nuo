@@ -6,7 +6,7 @@
 //! badges, shortcuts, multi-line descriptions, and scroll indicators.
 
 use crate::key::{Key, KeyStroke};
-use nuotc::{
+use graticule_canvas::{
     Alignment, AnchorAlignment, AnchorConstraints, AnchorPlacement, Block as RtBlock, BorderType,
     Borders, Clear, Frame, Line, Modifier, Paragraph, Rect, Span, Style, compute_anchored_rect,
 };
@@ -627,7 +627,7 @@ pub fn draw_dropdown<T>(
                 Style::default().bg(if is_selected {
                     style.bg
                 } else {
-                    nuotc::Color::Reset
+                    graticule_canvas::Color::Reset
                 }),
             );
 
@@ -638,7 +638,7 @@ pub fn draw_dropdown<T>(
                         .bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         })
                         .fg(if is_selected { style.fg } else { theme.ok() }),
                 ),
@@ -648,7 +648,7 @@ pub fn draw_dropdown<T>(
                         .bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         })
                         .fg(if is_selected { style.fg } else { theme.warn() }),
                 ),
@@ -658,7 +658,7 @@ pub fn draw_dropdown<T>(
                         .bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         })
                         .fg(if is_selected { style.dim } else { theme.err() }),
                 ),
@@ -668,7 +668,7 @@ pub fn draw_dropdown<T>(
                         .bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         })
                         .fg(if is_selected { style.fg } else { theme.brand() }),
                 ),
@@ -680,7 +680,7 @@ pub fn draw_dropdown<T>(
                     .bg(if is_selected {
                         style.bg
                     } else {
-                        nuotc::Color::Reset
+                        graticule_canvas::Color::Reset
                     })
                     .fg(if is_selected { style.dim } else { theme.dim() })
                     .add_modifier(Modifier::STRIKETHROUGH)
@@ -712,7 +712,7 @@ pub fn draw_dropdown<T>(
                     Style::default().bg(if is_selected {
                         style.bg
                     } else {
-                        nuotc::Color::Reset
+                        graticule_canvas::Color::Reset
                     }),
                 ));
                 header_spans.push(Span::styled(
@@ -721,7 +721,7 @@ pub fn draw_dropdown<T>(
                         .bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         })
                         .fg(badge_color),
                 ));
@@ -733,7 +733,7 @@ pub fn draw_dropdown<T>(
                     Style::default().bg(if is_selected {
                         style.bg
                     } else {
-                        nuotc::Color::Reset
+                        graticule_canvas::Color::Reset
                     }),
                 ));
                 header_spans.push(Span::styled(
@@ -742,7 +742,7 @@ pub fn draw_dropdown<T>(
                         .bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         })
                         .fg(if is_selected { style.dim } else { theme.dim() }),
                 ));
@@ -759,7 +759,7 @@ pub fn draw_dropdown<T>(
                     Style::default().bg(if is_selected {
                         style.bg
                     } else {
-                        nuotc::Color::Reset
+                        graticule_canvas::Color::Reset
                     }),
                 ));
             }
@@ -785,7 +785,7 @@ pub fn draw_dropdown<T>(
                         Style::default().bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         }),
                     ),
                     Span::styled(desc_text, desc_style),
@@ -798,7 +798,7 @@ pub fn draw_dropdown<T>(
                         Style::default().bg(if is_selected {
                             style.bg
                         } else {
-                            nuotc::Color::Reset
+                            graticule_canvas::Color::Reset
                         }),
                     ));
                 }
@@ -898,7 +898,7 @@ pub fn draw_dropdown<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuotc::TestTerminal;
+    use graticule_canvas::TestTerminal;
 
     #[test]
     fn test_dropdown_state_navigation() {

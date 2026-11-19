@@ -63,8 +63,14 @@ pub fn reseed_tool_variants(agent: &Agent, config: &Config) {
 /// Re-seed the user instruction source and the provider-type fact for the
 /// active route (ADR-0165). Called at startup and after every provider/model
 /// switch; prompt composition itself never reads the connections store.
+///
+/// Also seeds the declared answer language (ADR-0222). It is a session fact, not
+/// a route fact, but it rides this function because this is the one place the
+/// live config is folded into a live agent, and two seed paths for one prompt
+/// input is how they drift.
 pub fn reseed_instructions(agent: &Agent, config: &Config) {
     agent.set_user_instructions(config.instructions.scoped());
+    agent.set_response_language(config.response_language.clone());
     let provider_id = agent.provider.provider_id();
     let provider_kind = persistence::connections::Connections::load()
         .get(&provider_id)

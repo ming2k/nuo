@@ -577,9 +577,15 @@ impl McpClient {
             // connect time with a clear message, not on first request.
             netune::Target::from_url(url)
                 .map_err(|error| format!("invalid MCP url '{url}': {error}"))?;
+            let default_http = || {
+                let socket = netune::SocketConfig::default();
+                #[cfg(unix)]
+                let socket = socket.with_keepalive(provider::transport::TCP_KEEPALIVE_IDLE);
+                netune::Client::builder().socket_config(socket).build()
+            };
             McpConnection::Http(Box::new(HttpTransport {
                 url: url.to_string(),
-                client: http_client.unwrap_or_else(|| netune::Client::builder().build()),
+                client: http_client.unwrap_or_else(default_http),
                 session_id: Arc::new(std::sync::Mutex::new(None)),
                 reinit: Arc::new(tokio::sync::Mutex::new(())),
             }))

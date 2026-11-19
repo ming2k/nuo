@@ -1,14 +1,15 @@
-//! Public-API tests for embedding-owned request composition.
+//! Public-API tests for embedding-owned request composition (ADR-0215).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use engine::{
-    Agent, AgentIdentity, Block, InstructionContext, InstructionRegistryError, InstructionSection,
-    Message, Provider, Role,
+    Agent, AgentIdentity, Block, Budget, ContextInputs, ContextPolicyError, ContextSource,
+    InputKey, Message, Provider, Role, SourceOrder, ToolSurface, Topic,
 };
 use futures::stream::{self, BoxStream};
+use tool::BuiltinTool;
 
 struct IdleProvider;
 
@@ -34,18 +35,43 @@ impl Provider for IdleProvider {
     }
 }
 
+/// An embedding-owned context source.
 struct ProductPolicy {
     id: &'static str,
+    topic: Topic,
     text: &'static str,
+    order: SourceOrder,
 }
 
-impl InstructionSection for ProductPolicy {
+impl ProductPolicy {
+    fn new(id: &'static str, topic: Topic, text: &'static str) -> Self {
+        Self {
+            id,
+            topic,
+            text,
+            order: SourceOrder::Tail,
+        }
+    }
+}
+
+impl ContextSource for ProductPolicy {
     fn id(&self) -> &'static str {
         self.id
     }
-
-    fn render(&self, _ctx: &InstructionContext) -> Option<Block> {
+    fn topic(&self) -> Topic {
+        self.topic
+    }
+    fn inputs(&self) -> &'static [InputKey] {
+        &[]
+    }
+    fn order(&self) -> SourceOrder {
+        self.order.clone()
+    }
+    fn render(&self, _inputs: &ContextInputs) -> Option<Block> {
         Some(Block::new(self.id, self.text))
+    }
+    fn budget(&self) -> Budget {
+        Budget::elide_to_operator(500)
     }
 }
 
@@ -53,93 +79,141 @@ fn builder() -> engine::AgentBuilder {
     Agent::builder(Arc::new(IdleProvider), Vec::new(), AgentIdentity::default())
 }
 
+fn system_of(agent: &Agent) -> String {
+    let mut messages = vec![Message::new(Role::User, "hello")];
+    agent.prepare_request_messages_debug(&mut messages);
+    messages
+        .into_iter()
+        .find(|message| message.role == Role::System)
+        .map(|message| message.content)
+        .unwrap_or_default()
+}
+
 #[test]
-fn embedding_can_extend_and_disable_prompt_policy_before_build() {
+fn embedding_can_extend_and_remove_prompt_policy_before_build() {
     let agent = builder()
-        .register_instruction_section(ProductPolicy {
-            id: "embedding.test.policy",
-            text: "PRODUCT-POLICY",
-        })
+        .add_context_source(ProductPolicy::new(
+            "embedding.test.policy",
+            Topic::Memory,
+            "PRODUCT-POLICY",
+        ))
         .unwrap()
-        .disable_instruction_section("project.rules")
+        .disable_context_source("project.rules")
         .unwrap()
         .build();
 
-    let mut messages = vec![Message::new(Role::User, "hello")];
-    agent.prepare_request_messages_debug(&mut messages);
-
-    assert_eq!(messages[0].role, Role::System);
-    assert!(messages[0].content.contains("PRODUCT-POLICY"));
+    let content = system_of(&agent);
+    assert!(content.contains("PRODUCT-POLICY"), "{content}");
+    assert!(
+        agent
+            .context_plan()
+            .expect("plan")
+            .block("project.rules")
+            .is_none(),
+        "the disabled source is gone from the plan"
+    );
 }
 
 #[test]
 fn embedding_configuration_errors_are_structured() {
-    let result = builder().register_instruction_section(ProductPolicy {
-        id: "agent.identity",
-        text: "collision",
-    });
+    // A duplicate id is rejected, naming the offender.
+    let result = builder().add_context_source(ProductPolicy::new(
+        "agent.identity",
+        Topic::Memory,
+        "collision",
+    ));
     assert!(matches!(
         result,
-        Err(InstructionRegistryError::DuplicateId("agent.identity"))
+        Err(ContextPolicyError::DuplicateId("agent.identity"))
     ));
 
-    let result = builder().disable_instruction_section("missing.section");
+    // A duplicate topic is the defect the compiler exists to catch.
+    let result = builder().add_context_source(ProductPolicy::new(
+        "embedding.duplicate",
+        Topic::ToolDiscipline,
+        "prefer something else",
+    ));
+    match result {
+        Err(ContextPolicyError::DuplicateTopic { topic, owners }) => {
+            assert_eq!(topic, Topic::ToolDiscipline);
+            assert!(owners.contains(&"embedding.duplicate"));
+        }
+        Err(other) => panic!("expected DuplicateTopic, got {other:?}"),
+        Ok(_) => panic!("a duplicate topic must not compile"),
+    }
+
+    let result = builder().disable_context_source("missing.source");
     assert!(matches!(
         result,
-        Err(InstructionRegistryError::UnknownId(id)) if id == "missing.section"
+        Err(ContextPolicyError::UnknownSource(id)) if id == "missing.source"
     ));
 }
 
 #[test]
 fn default_prompt_carries_the_coding_baseline() {
-    let agent = builder().build();
-    let mut messages = vec![Message::new(Role::User, "test prompt")];
-    agent.prepare_request_messages_debug(&mut messages);
-
-    // A bare session still gets the working contract: tool discipline,
-    // verification, and the todo rule are not optional identity decoration.
-    let system = messages
-        .iter()
-        .find(|message| message.role == Role::System)
-        .expect("default request must carry the coding baseline");
-    assert!(system.content.contains("Working Contract"));
-    assert!(system.content.contains("verify it"));
+    let content = system_of(&builder().build());
+    assert!(content.contains("Working Contract"), "{content}");
+    assert!(content.contains("verify it"), "{content}");
     assert!(
-        !system.content.contains("You are Nuo"),
+        !content.contains("You are Nuo"),
         "identity remains opt-in; the baseline is not an identity override"
     );
 }
 
 #[test]
-fn embedding_can_order_sections_semantically() {
+fn the_identity_lines_lead_the_prompt() {
+    let agent = builder().build();
+    agent.set_identity(AgentIdentity::new("Nuo", "a modular session server"));
+    let content = system_of(&agent);
+    let identity = content.find("Nuo").expect("identity rendered");
+    let contract = content.find("Working Contract").expect("contract rendered");
+    assert!(
+        identity < contract,
+        "identity is the frame and must lead: {content}"
+    );
+}
+
+#[test]
+fn embedding_can_order_sources_semantically() {
     let agent = builder()
-        .register_instruction_section(ProductPolicy {
-            id: "embedding.first",
-            text: "FIRST-GUIDANCE",
-        })
-        .unwrap()
-        .register_instruction_section(ProductPolicy {
-            id: "embedding.second",
-            text: "SECOND-GUIDANCE",
-        })
-        .unwrap()
-        .order_instruction_section(
+        .add_context_source(ProductPolicy::new(
             "embedding.first",
-            engine::InstructionOrder::Before("embedding.second"),
-        )
+            Topic::Memory,
+            "FIRST-GUIDANCE",
+        ))
+        .unwrap()
+        .add_context_source(ProductPolicy::new(
+            "embedding.second",
+            Topic::Retrieval,
+            "SECOND-GUIDANCE",
+        ))
         .unwrap()
         .build();
 
-    let mut messages = vec![Message::new(Role::User, "test prompt")];
-    agent.prepare_request_messages_debug(&mut messages);
+    let content = system_of(&agent);
+    let first = content.find("FIRST-GUIDANCE").expect("first");
+    let second = content.find("SECOND-GUIDANCE").expect("second");
+    assert!(first < second, "declaration order is the default order");
+}
 
-    let content = &messages[0].content;
-    let first_pos = content.find("FIRST-GUIDANCE").unwrap();
-    let second_pos = content.find("SECOND-GUIDANCE").unwrap();
-    assert!(
-        first_pos < second_pos,
-        "first section must appear before second section"
-    );
+#[test]
+fn a_before_anchor_is_honored_across_declaration_order() {
+    let mut second = ProductPolicy::new("embedding.second", Topic::Retrieval, "SECOND-GUIDANCE");
+    second.order = SourceOrder::Before("embedding.first");
+    let agent = builder()
+        .add_context_source(ProductPolicy::new(
+            "embedding.first",
+            Topic::Memory,
+            "FIRST-GUIDANCE",
+        ))
+        .unwrap()
+        .add_context_source(second)
+        .unwrap()
+        .build();
+    let content = system_of(&agent);
+    let first = content.find("FIRST-GUIDANCE").expect("first");
+    let second = content.find("SECOND-GUIDANCE").expect("second");
+    assert!(second < first, "the anchor reordered the pair: {content}");
 }
 
 #[test]
@@ -157,10 +231,7 @@ fn user_instructions_are_rendered_dynamically() {
         )])
         .build();
 
-    let mut messages = vec![Message::new(Role::User, "test")];
-    agent.prepare_request_messages_debug(&mut messages);
-
-    let content = &messages[0].content;
+    let content = system_of(&agent);
     assert!(
         content.contains("Speak natural plain Chinese, avoiding bureaucratic cliches."),
         "request text must render user instructions: {content}"
@@ -170,15 +241,12 @@ fn user_instructions_are_rendered_dynamically() {
     agent.set_user_instructions(vec![instruction(
         "Updated user instruction: ultra-concise mode.",
     )]);
-    let mut messages2 = vec![Message::new(Role::User, "test2")];
-    agent.prepare_request_messages_debug(&mut messages2);
-
-    let content2 = &messages2[0].content;
+    let content = system_of(&agent);
     assert!(
-        content2.contains("Updated user instruction: ultra-concise mode."),
-        "request text must reflect dynamic update: {content2}"
+        content.contains("Updated user instruction: ultra-concise mode."),
+        "request text must reflect dynamic update: {content}"
     );
-    assert!(!content2.contains("avoiding bureaucratic cliches."));
+    assert!(!content.contains("avoiding bureaucratic cliches."));
 }
 
 #[test]
@@ -203,14 +271,10 @@ fn subagent_inherits_parent_user_instructions() {
     subagent.bind_user_instructions(parent.user_instructions_handle());
     subagent.set_active_role(Some("explore".to_string()));
 
-    let mut messages = vec![Message::new(Role::User, "delegate")];
-    subagent.prepare_request_messages_debug(&mut messages);
+    let content = system_of(&subagent);
     assert!(
-        messages[0]
-            .content
-            .contains("Inherited user instruction from parent."),
-        "{}",
-        messages[0].content
+        content.contains("Inherited user instruction from parent."),
+        "{content}"
     );
 }
 
@@ -263,9 +327,7 @@ fn subagent_inherits_parent_project_instructions_and_provider_kind() {
     subagent.bind_instruction_provider_kind(parent.instruction_provider_kind_handle());
     subagent.set_active_role(Some("explore".to_string()));
 
-    let mut messages = vec![Message::new(Role::User, "delegate")];
-    subagent.prepare_request_messages_debug(&mut messages);
-    let prompt = &messages[0].content;
+    let prompt = system_of(&subagent);
     assert!(prompt.contains("Global project rule."), "{prompt}");
     assert!(prompt.contains("Explore role rule."), "{prompt}");
     assert!(prompt.contains("Provider rule."), "{prompt}");
@@ -276,39 +338,102 @@ fn subagent_inherits_parent_project_instructions_and_provider_kind() {
 }
 
 #[test]
-fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
-    let reg = engine::default_instruction_registry();
+fn exploration_guidance_follows_the_declared_tool_surface() {
+    // The registry is read directly: this is the vocabulary an embedder or a
+    // provider asks about, and it must not depend on tool *names*.
+    let policy = engine::default_policy();
 
-    // 1. Channel without parallel tool calls and without code_query:
-    let ctx_no_parallel = InstructionContext {
-        workspace_topology: Some("- crates/*\n- tools/*".to_string()),
-        supports_parallel_tool_calls: false,
-        tool_names: vec!["execute_command".to_string(), "read".to_string()],
+    let command_only = policy.plan(&ContextInputs {
+        workspace_topology: Some("- crates/*".to_string()),
         ..Default::default()
-    };
-    let regions1 = reg.build_regions(&ctx_no_parallel).unwrap();
-    let rendered1 = protocol::render_blocks(&regions1.fixed);
-    assert!(rendered1.contains("Workspace"));
-    assert!(rendered1.contains("crates/*"));
-    assert!(!rendered1.contains("Batch independent inspection"));
-    assert!(!rendered1.contains("code_query"));
-    assert!(rendered1.contains("When target files are known, read the relevant files"));
+    });
+    let bare = protocol::render_blocks(&command_only.fixed);
+    assert!(bare.contains("crates/*"));
+    assert!(
+        !bare.contains("Batch independent inspection"),
+        "no native tools, no batching guidance: {bare}"
+    );
 
-    // 2. Channel with parallel tool calls and with code_query admitted:
-    let ctx_full = InstructionContext {
-        workspace_topology: Some("- crates/*\n- tools/*".to_string()),
-        supports_parallel_tool_calls: true,
-        tool_names: vec![
-            "code_query".to_string(),
-            "execute_command".to_string(),
-            "read".to_string(),
-        ],
+    let native = policy.plan(&ContextInputs {
+        workspace_topology: Some("- crates/*".to_string()),
+        tool_surface: ToolSurface::new(
+            [
+                &FakeTool(BuiltinTool::Read) as &dyn tool::Tool,
+                &FakeTool(BuiltinTool::CodeQuery),
+            ],
+            true,
+            0,
+        ),
         ..Default::default()
-    };
-    let regions2 = reg.build_regions(&ctx_full).unwrap();
-    let rendered2 = protocol::render_blocks(&regions2.fixed);
-    assert!(rendered2.contains("Workspace"));
-    assert!(rendered2.contains("Batch independent inspection, search, and read operations"));
-    assert!(rendered2.contains("When target files are known, read the relevant files"));
-    assert!(rendered2.contains("Use `code_query` (outline/symbol/references)"));
+    });
+    let rich = protocol::render_blocks(&native.fixed);
+    assert!(
+        rich.contains("Batch independent inspection"),
+        "parallel channel batches independent reads: {rich}"
+    );
+    assert!(rich.contains("code query tool"), "{rich}");
+}
+
+struct FakeTool(BuiltinTool);
+
+#[async_trait]
+impl tool::Tool for FakeTool {
+    fn name(&self) -> &str {
+        self.0.as_str()
+    }
+    fn description(&self) -> &str {
+        "fake"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object"})
+    }
+    fn builtin(&self) -> Option<BuiltinTool> {
+        Some(self.0)
+    }
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        _args: serde_json::Value,
+    ) -> tool::Result<tool::ToolOutput> {
+        Ok(tool::ToolOutput::text("ok"))
+    }
+}
+
+/// A subagent answers in the session's language (ADR-0222, `[INV-LANG-05]`).
+///
+/// The child's identity *is* its English task prompt, and its tool output is
+/// English, so without inheritance it would answer in English and hand the parent
+/// a report the human cannot read.
+#[test]
+fn subagent_inherits_the_parent_answer_language() {
+    let parent = builder()
+        .with_response_language(Some(
+            protocol::ResponseLanguage::parse("zh-CN").expect("valid tag"),
+        ))
+        .build();
+    assert_eq!(
+        parent.response_language().as_ref().map(|tag| tag.as_str()),
+        Some("zh-CN"),
+        "the builder-declared language must reach the agent"
+    );
+
+    let tool = engine::SubagentTool::new(
+        Arc::new(IdleProvider),
+        protocol::ToolSet::from_tools(Vec::new()),
+        &protocol::SubAgentProfile::EXPLORE,
+    );
+    tool.bind_response_language(parent.response_language_handle());
+
+    let mut subagent = builder().build();
+    subagent.bind_response_language(parent.response_language_handle());
+    subagent.set_active_role(Some("explore".to_string()));
+
+    let prompt = system_of(&subagent);
+    assert!(prompt.contains("Answer in zh-CN."), "{prompt}");
+
+    // Clearing the parent's declaration clears the child's next request: the
+    // handle is shared, not copied, so the two cannot drift.
+    parent.set_response_language(None);
+    let cleared = system_of(&subagent);
+    assert!(!cleared.contains("Answer in"), "{cleared}");
 }

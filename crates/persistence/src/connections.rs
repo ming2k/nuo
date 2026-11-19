@@ -529,5 +529,4 @@ period = "session"
         let round_tripped: Connections = toml::from_str(&serialized).unwrap();
         assert_eq!(connections, round_tripped);
     }
-
 }

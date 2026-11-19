@@ -91,9 +91,10 @@ pub(crate) fn compute_tab_window(
 /// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09], ADR-0062).
 ///
 /// Projects open tabs with clean semantic titles without ordinal prefixes (`1:`),
-/// sliding viewport auto-centering the active tab with bilateral overflow guidance,
-/// with the client command namespace (`C-x menu`) anchored to the right edge.
-/// Returns bounding rects for mouse click hit-testing.
+/// sliding viewport auto-centering the active tab with bilateral overflow
+/// guidance. The right edge carries only the conditional `[!N]` fault badge —
+/// no standing keycap (ADR-0219). Returns bounding rects for mouse click
+/// hit-testing.
 pub(crate) fn draw_tab_bar(
     frame: &mut Frame,
     rect: Rect,
@@ -116,24 +117,31 @@ pub(crate) fn draw_tab_bar(
     let pad = TABBAR_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
 
-    // Status Cluster (ADR-0131 [INV-AFFORDANCE-01]):
-    // 1. Unread fault notice badge (`[!N]`), if unread_faults > 0
-    // 2. Sovereign Help affordance (`F1 help`)
+    // Status Cluster (ADR-0131, amended by ADR-0219): the unread fault notice
+    // badge (`[!N]`, present only when `unread_faults > 0`) is the row's sole
+    // standing right-edge affordance. The constant `F1 help` keycap is retired:
+    // a permanent keycap spent the row's scarcest budget (tab titles) on a key
+    // the user presses once, so help discovery moved to the empty-state tour
+    // (`carousel_pages`), where there is room to teach it in words.
     let notice_badge_text =
         (tab_bar.unread_faults > 0).then(|| format!("!{}", tab_bar.unread_faults));
-    let notice_badge_w = notice_badge_text.as_ref().map_or(0, |t| t.width() + 2 + 1); // "[!N]" + " "
-    let help_affordance = ui_primitives::components::keycap::KeyAffordance::tabbar_help("help");
-    let help_w = help_affordance.width();
-    let right_width = notice_badge_w + help_w;
+    let notice_badge_w = notice_badge_text.as_ref().map_or(0, |t| t.width() + 2); // "[!N]"
+    let right_width = notice_badge_w;
 
     // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01], ADR-0060 [INV-TAB-09])
     if let Some(tabs) = tab_bar.tabs.filter(|t| !t.is_empty()) {
-        // The tab rail may fill the row, but the status cluster keeps the
-        // standing legend gap: a truncated `[▾]` must never butt against a
-        // keycap.
+        // The tab rail may fill the row, but a right-pinned status element keeps
+        // the standing legend gap: a truncated `[▾]` must never butt against the
+        // fault badge. With no badge there is nothing to separate from, so the
+        // gap is not reserved — a quiet session hands those columns to the rail.
+        let rail_gap = if right_width > 0 {
+            BAR_LEGEND_GAP_MIN
+        } else {
+            0
+        };
         let available_for_tabs = text_width
             .saturating_sub(right_width)
-            .saturating_sub(BAR_LEGEND_GAP_MIN);
+            .saturating_sub(rail_gap);
         let title_budget = adaptive_tab_title_width(tabs.len());
 
         let tab_texts: Vec<String> = tabs
@@ -277,10 +285,10 @@ pub(crate) fn draw_tab_bar(
         let gap = text_width.saturating_sub(used_tab_w + right_width);
         spans.push(Span::styled(" ".repeat(gap), fill));
 
-        // Right-aligned status cluster: [!N] + F1 help
+        // Right-aligned status cluster: [!N] only.
         let mut notices_rect = None;
         let right_x = rect.x + pad as u16 + (used_tab_w + gap) as u16;
-        let mut cur_x = right_x;
+        let cur_x = right_x;
 
         if let Some(ref text) = notice_badge_text {
             let label = format!("[{text}]");
@@ -293,12 +301,8 @@ pub(crate) fn draw_tab_bar(
                     .add_modifier(Modifier::BOLD)
                     .bg(bg),
             ));
-            spans.push(Span::styled(" ", fill));
-            cur_x += lw + 1;
         }
 
-        let help_rect = Some(Rect::new(cur_x, rect.y, help_w as u16, 1));
-        spans.extend(help_affordance.render_tabbar_spans(theme, bg));
         spans.push(Span::styled(" ".repeat(pad), fill));
 
         frame.render_widget(&mut Paragraph::new(Line::from(spans)).style(fill), rect);
@@ -308,7 +312,6 @@ pub(crate) fn draw_tab_bar(
             next_rect,
             overview_rect,
             notices_rect,
-            help_rect,
         };
     }
 
@@ -325,7 +328,7 @@ pub(crate) fn draw_tab_bar(
 
     let mut notices_rect = None;
     let right_x = rect.x + pad as u16 + (left_w + gap) as u16;
-    let mut cur_x = right_x;
+    let cur_x = right_x;
 
     if let Some(ref text) = notice_badge_text {
         let label = format!("[{text}]");
@@ -338,12 +341,8 @@ pub(crate) fn draw_tab_bar(
                 .add_modifier(Modifier::BOLD)
                 .bg(bg),
         ));
-        spans.push(Span::styled(" ", fill));
-        cur_x += lw + 1;
     }
 
-    let help_rect = Some(Rect::new(cur_x, rect.y, help_w as u16, 1));
-    spans.extend(help_affordance.render_tabbar_spans(theme, bg));
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(&mut Paragraph::new(Line::from(spans)).style(fill), rect);
@@ -353,6 +352,5 @@ pub(crate) fn draw_tab_bar(
         next_rect: None,
         overview_rect: None,
         notices_rect,
-        help_rect,
     }
 }

@@ -1,5 +1,5 @@
 //! Permission sheet (inline) and question modal.
-use nuotc::{
+use graticule::{
     Frame, Rect, {Block as RtBlock, Paragraph}, {Line, Span}, {Modifier, Style},
 };
 
@@ -134,7 +134,7 @@ pub fn draw_question_modal(
     // cursor on its own authority.
     show_caret: bool,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     // The minimum body height that keeps the sheet usable. Below this the
     // body paints zero (or highlight-starved) rows — the "blank sheet that
     // eats every keypress" failure — so the frame falls back to a
@@ -389,7 +389,7 @@ pub fn draw_question_modal(
             let wrapped_rows = wrapped.len().max(1);
             let caret_local_col = wrapped
                 .last()
-                .map(|wl| nuotc::cursor_column(&wl.text, wl.text.len()))
+                .map(|wl| graticule::cursor_column(&wl.text, wl.text.len()))
                 .unwrap_or(0);
             if other_highlighted {
                 other_caret_row = Some(field_start_row + wrapped_rows.saturating_sub(1));
@@ -525,7 +525,7 @@ fn draw_question_modal_fallback(
     queue_depth: usize,
     max_height: u16,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let question = request.questions.get(current_question);
     let total = request.questions.len();
     let enter_label = if current_question + 1 < total {
@@ -626,7 +626,7 @@ fn draw_question_modal_fallback(
         area,
     );
 
-    frame.render_widget(&mut nuotc::Clear::default(), area);
+    frame.render_widget(&mut graticule::Clear::default(), area);
     frame.render_widget(&mut panel_block(theme, theme.brand(), theme.panel()), area);
 
     let body_rect = Rect::new(
@@ -974,7 +974,7 @@ pub fn draw_permission_sheet(
     let area = Rect::new(input_rect.x, sheet_top, input_rect.width, sheet_h);
     hit_map.mount_permission_sheet(area);
 
-    frame.render_widget(&mut nuotc::Clear::default(), area);
+    frame.render_widget(&mut graticule::Clear::default(), area);
     frame.render_widget(&mut panel_block(theme, theme.warn(), theme.panel()), area);
 
     let content_x = area.x + 1 + PERMISSION_H_PADDING;
@@ -1138,11 +1138,14 @@ pub fn draw_input_injection(
     input_rect: Rect,
     theme: &Theme,
 ) -> Rect {
-    use nuotc::Layout;
+    use graticule::Layout;
     // Split the composer rect into a prompt row + the input row(s).
     let chunks = Layout::default()
-        .direction(nuotc::Direction::Vertical)
-        .constraints([nuotc::Constraint::Length(1), nuotc::Constraint::Min(0)])
+        .direction(graticule::Direction::Vertical)
+        .constraints([
+            graticule::Constraint::Length(1),
+            graticule::Constraint::Min(0),
+        ])
         .split(input_rect);
 
     let prompt_rect = chunks[0];

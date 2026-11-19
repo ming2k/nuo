@@ -1,5 +1,5 @@
 use super::*;
-use nuotc::TestTerminal;
+use graticule::TestTerminal;
 
 #[test]
 fn sessions_modal_shows_loading_spinner_while_fetching() {

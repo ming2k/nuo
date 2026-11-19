@@ -1,5 +1,5 @@
 //! Checklist content renderer.
-use nuotc::{Line, Modifier, Span, Style};
+use graticule::{Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};

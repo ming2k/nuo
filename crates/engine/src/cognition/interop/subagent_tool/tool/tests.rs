@@ -271,6 +271,91 @@ async fn subagent_inherits_and_respects_custom_retry_policy() {
     assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+struct AlwaysUnreachableSubagentProvider {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl Provider for AlwaysUnreachableSubagentProvider {
+    async fn chat(
+        &self,
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(protocol::ProviderError::new(
+            "offline",
+            protocol::ProviderErrorKind::Unreachable,
+            "resolve failed: network unreachable",
+        )
+        .retryable(None))
+    }
+
+    async fn stream_chat(
+        &self,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
+    {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(protocol::ProviderError::new(
+            "offline",
+            protocol::ProviderErrorKind::Unreachable,
+            "resolve failed: network unreachable",
+        )
+        .retryable(None))
+    }
+
+    async fn stream_chat_events(
+        &self,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<
+        BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
+    > {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(protocol::ProviderError::new(
+            "offline",
+            protocol::ProviderErrorKind::Unreachable,
+            "resolve failed: network unreachable",
+        )
+        .retryable(None))
+    }
+}
+
+/// `[INV-RESILIENCE-01]` (ADR-0224): a subagent hitting `Unreachable` must
+/// fast-fail at `UNREACHABLE_MAX_ATTEMPTS` (3) even when its retry policy
+/// grants 30 attempts for transient upstream errors.
+#[tokio::test]
+async fn subagent_fast_fails_unreachable_at_short_budget() {
+    let provider = std::sync::Arc::new(AlwaysUnreachableSubagentProvider {
+        calls: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let tool = SubagentTool::new(
+        std::sync::Arc::clone(&provider) as std::sync::Arc<dyn Provider>,
+        protocol::ToolSet::from_tools([
+            std::sync::Arc::new(EchoReadTool) as std::sync::Arc<dyn Tool>
+        ]),
+        &SubAgentProfile::EXPLORE,
+    );
+    tool.bind_retry_policy(30, 1, 5);
+
+    let output = tool
+        .execute_text(
+            &::tool::ToolContext::default(),
+            r#"{"description":"find files","prompt":"where are the handlers?"}"#,
+        )
+        .await
+        .expect("subagent returns error string in outcome");
+
+    assert!(output.starts_with("Error:"), "{output}");
+    assert_eq!(
+        provider.calls.load(std::sync::atomic::Ordering::SeqCst),
+        crate::runtime::retry::UNREACHABLE_MAX_ATTEMPTS,
+        "subagent must stop at UNREACHABLE_MAX_ATTEMPTS instead of burning 30 attempts"
+    );
+}
+
 #[tokio::test]
 async fn task_tool_runs_read_only_subagent_and_returns_answer() {
     let tool = SubagentTool::new(

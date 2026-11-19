@@ -12,7 +12,7 @@
 //! `Structured` (monochrome / Linux VT) terminals, where a background delta is
 //! indistinguishable or unavailable, it keeps an explicit frame via
 //! [`Theme::elevation`], mirroring `elevation::modal_frame`.
-use nuotc::{
+use graticule_canvas::{
     Block as RtBlock, BorderType, Borders, Clear, Frame, Line, Paragraph, Rect, Span, Style,
 };
 
@@ -125,7 +125,8 @@ pub fn draw_which_key_overlay(
         Span::styled(pad.clone(), fill),
         Span::styled(
             title,
-            fill.fg(theme.brand()).add_modifier(nuotc::Modifier::BOLD),
+            fill.fg(theme.brand())
+                .add_modifier(graticule_canvas::Modifier::BOLD),
         ),
     ]));
     for item in items {
@@ -137,7 +138,7 @@ pub fn draw_which_key_overlay(
         let key_style = Style::default()
             .fg(key_fg)
             .bg(bg)
-            .add_modifier(nuotc::Modifier::BOLD);
+            .add_modifier(graticule_canvas::Modifier::BOLD);
         let key_span = Span::styled(item.chord.clone(), key_style);
         let gap = match item.chord.len() {
             1 => "   ",
@@ -173,7 +174,7 @@ mod tests {
         ]
     }
 
-    fn term_content(terminal: &nuotc::TestTerminal) -> String {
+    fn term_content(terminal: &graticule_canvas::TestTerminal) -> String {
         let buffer = terminal.buffer();
         let (w, h) = buffer.size();
         let mut text = String::new();
@@ -188,7 +189,7 @@ mod tests {
     #[test]
     fn which_key_overlay_renders_for_ctrl_x() {
         let theme = Theme::default();
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         terminal.draw(|f| {
             draw_which_key_overlay(f, &theme, true, &test_items(CLOSE_TAB_LABEL), f.area());
         });
@@ -212,7 +213,7 @@ mod tests {
             theme.elevation,
             crate::elevation::ElevationArchetype::Chromatic
         );
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         terminal.draw(|f| {
             draw_which_key_overlay(f, &theme, true, &test_items(CLOSE_TAB_LABEL), f.area());
         });
@@ -245,7 +246,7 @@ mod tests {
 
         // Structured fallback keeps the frame.
         let mono = Theme::monochrome();
-        let mut mono_term = nuotc::TestTerminal::new(80, 24);
+        let mut mono_term = graticule_canvas::TestTerminal::new(80, 24);
         mono_term.draw(|f| {
             draw_which_key_overlay(f, &mono, true, &test_items(CLOSE_TAB_LABEL), f.area());
         });
@@ -263,7 +264,7 @@ mod tests {
         assert_eq!(close_label_for(false), CLOSE_TAB_LABEL);
 
         let theme = Theme::default();
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         terminal.draw(|f| {
             draw_which_key_overlay(f, &theme, true, &test_items(CLOSE_OVERLAY_LABEL), f.area());
         });
@@ -274,7 +275,7 @@ mod tests {
     #[test]
     fn which_key_overlay_silent_when_none() {
         let theme = Theme::default();
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         terminal.draw(|f| {
             draw_which_key_overlay(f, &theme, false, &test_items(CLOSE_TAB_LABEL), f.area());
         });
@@ -287,7 +288,7 @@ mod tests {
     fn which_key_card_renders_all_provided_items() {
         let theme = Theme::default();
         let items = test_items(CLOSE_TAB_LABEL);
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
         terminal.draw(|f| {
             draw_which_key_overlay(f, &theme, true, &items, f.area());
         });

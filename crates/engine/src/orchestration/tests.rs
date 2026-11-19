@@ -17,6 +17,8 @@ fn compaction_target_accounts_for_projected_request_overhead() {
         history_tokens: 100_000,
         overhead_tokens: 12_000,
         total_tokens: 112_000,
+        instructions_tokens: 9_000,
+        tool_schema_tokens: 3_000,
         temporary_context_tokens: 0,
     });
 
@@ -184,4 +186,130 @@ fn capture_prune_is_noop_at_or_below_limit() {
     .unwrap();
     prune_capture_dir(dir.path());
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+struct AlwaysUnreachableProvider {
+    stream_attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl protocol::Provider for AlwaysUnreachableProvider {
+    async fn chat(
+        &self,
+        _request: &ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
+            "offline-test",
+            protocol::ProviderErrorKind::Unreachable,
+            "resolve failed: api.example.com: network is unreachable",
+        )
+        .retryable(None))
+    }
+
+    async fn stream_chat(
+        &self,
+        _request: &ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
+    > {
+        self.stream_attempts.fetch_add(1, Ordering::SeqCst);
+        Err(protocol::ProviderError::new(
+            "offline-test",
+            protocol::ProviderErrorKind::Unreachable,
+            "resolve failed: api.example.com: network is unreachable",
+        )
+        .retryable(None))
+    }
+
+    async fn stream_chat_events(
+        &self,
+        _request: &ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
+    > {
+        self.stream_attempts.fetch_add(1, Ordering::SeqCst);
+        Err(protocol::ProviderError::new(
+            "offline-test",
+            protocol::ProviderErrorKind::Unreachable,
+            "resolve failed: api.example.com: network is unreachable",
+        )
+        .retryable(None))
+    }
+}
+
+/// `[INV-RESILIENCE-01]` (ADR-0224): consecutive `ProviderErrorKind::Unreachable`
+/// errors must fast-fail after `UNREACHABLE_MAX_ATTEMPTS` (3) and park a durable
+/// `/retry` point instead of burning the 30-attempt transient upstream budget.
+#[tokio::test]
+async fn unreachable_errors_fast_fail_and_park_retry_point() {
+    let session = fresh_title_session().await;
+    let session_id = session.id().await;
+    let provider = Arc::new(AlwaysUnreachableProvider {
+        stream_attempts: AtomicUsize::new(0),
+    });
+    let agent = Arc::new(Agent::new(
+        provider.clone(),
+        Vec::new(),
+        AgentIdentity::default(),
+    ));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let token = CancellationToken::new();
+
+    let result = execute_round(
+        RoundContext {
+            agent,
+            tx,
+            token,
+            session: session.clone(),
+            session_id,
+            projection: ContextProjectionSettings::for_window(200_000),
+            retry_max_attempts: 30,
+            stream_restart_max_attempts: 3,
+            retry_base_ms: 1,
+            retry_max_ms: 5,
+            emit_round_completed: true,
+        },
+        RoundInput {
+            prompt: "hello offline".to_string(),
+            hidden: false,
+            display_prompt: None,
+            sent_at_ms: None,
+            images: Vec::new(),
+            driver: RoundDriver::Fresh,
+        },
+    )
+    .await;
+
+    let error = result.expect_err("offline round must fail cleanly");
+    assert_eq!(
+        provider.stream_attempts.load(Ordering::SeqCst),
+        crate::runtime::retry::UNREACHABLE_MAX_ATTEMPTS,
+        "must stop at UNREACHABLE_MAX_ATTEMPTS instead of burning retry_max_attempts=30"
+    );
+    assert!(
+        error.to_string().contains("Network unreachable") && error.to_string().contains("/retry"),
+        "error should explain offline state and /retry recovery: {error}"
+    );
+    assert!(
+        session.retry_pending().await.is_some(),
+        "fast-failed offline round must park a durable RetryPoint"
+    );
+
+    let mut scheduled = 0usize;
+    while let Ok(resp) = rx.try_recv() {
+        if let AgentResponse::Round { scope, .. } = resp
+            && matches!(scope.event(), RoundEvent::RetryScheduled { .. })
+        {
+            scheduled += 1;
+        }
+    }
+    assert_eq!(
+        scheduled,
+        crate::runtime::retry::UNREACHABLE_MAX_ATTEMPTS - 1,
+        "3 total attempts means 2 scheduled retries"
+    );
 }

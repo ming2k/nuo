@@ -1,5 +1,5 @@
 //! Slash-command execution results and durable ack bodies.
-use nuotc::{
+use graticule::{
     Color, Modifier, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;

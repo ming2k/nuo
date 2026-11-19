@@ -4,6 +4,128 @@ use crate::shell::cli::{self, CliArgs, Mode};
 use crate::shell::client;
 use crate::shell::headless;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+/// Local UDS/loopback daemon restarts settle quickly: 10 short attempts
+/// (~2.5 s total) catch an in-place server replacement without stalling on a
+/// dead host (ADR-0224 `[INV-RESILIENCE-04]`).
+const LOCAL_RELINK_MAX_ATTEMPTS: u32 = 10;
+
+/// Remote WebSocket links ride public/wireless networks where a Wi-Fi handoff
+/// or brief carrier drop easily lasts 10–60 s. 20 stepped-backoff attempts
+/// (`0.5s -> 1s -> 2.5s -> 5s -> 10s...` with equal jitter, ~2.5 min total)
+/// survive transient outages while remaining cancellable via `Esc`/`Ctrl+C`
+/// (ADR-0224 `[INV-RESILIENCE-04]`).
+const REMOTE_RELINK_MAX_ATTEMPTS: u32 = 20;
+const REMOTE_RELINK_BASE_MS: u64 = 500;
+const REMOTE_RELINK_MAX_MS: u64 = 10_000;
+
+/// Staying attached for at least this long proves the previous relink
+/// converged, so a later link drop starts from a fresh relink budget instead of
+/// accumulating across an hours-long session.
+const RELINK_STABILITY_WINDOW: Duration = Duration::from_secs(5);
+
+/// Compute the backoff delay (in milliseconds) before relink attempt `attempt`
+/// (1-based), or `None` once the budget is exhausted (ADR-0224
+/// `[INV-RESILIENCE-04]`).
+pub(crate) fn relink_delay_ms(
+    is_remote: bool,
+    attempt: u32,
+    roll: impl Fn(u64) -> u64,
+) -> Option<u64> {
+    if is_remote {
+        if attempt == 0 || attempt > REMOTE_RELINK_MAX_ATTEMPTS {
+            return None;
+        }
+        let base = engine::runtime::retry::retry_delay_ms(
+            attempt as usize,
+            None,
+            REMOTE_RELINK_BASE_MS,
+            REMOTE_RELINK_MAX_MS,
+        );
+        Some(engine::runtime::retry::apply_jitter_ms(base, roll))
+    } else {
+        if attempt == 0 || attempt > LOCAL_RELINK_MAX_ATTEMPTS {
+            return None;
+        }
+        if attempt == 1 {
+            Some(0)
+        } else {
+            Some(((attempt as u64) * 50).min(500))
+        }
+    }
+}
+
+/// Wait until the operator presses `Esc` or `Ctrl+C` (or the input stream
+/// closes). Used to keep both backoff sleeps and stalled remote re-dials
+/// immediately cancellable (ADR-0224).
+async fn wait_for_relink_cancel(input: &mut crate::shell::event_loop::input_reader::InputSource) {
+    loop {
+        match input.recv().await {
+            Some(graticule::Event::Key(key)) => {
+                let is_ctrl_c = key.code == graticule::KeyCode::Char('c')
+                    && key.modifiers.contains(graticule::KeyModifiers::CONTROL);
+                if is_ctrl_c || key.code == graticule::KeyCode::Esc {
+                    return;
+                }
+            }
+            None => return,
+            _ => {}
+        }
+    }
+}
+
+/// Sleep for `delay` during a relink backoff, returning `true` immediately if
+/// the operator presses `Esc` or `Ctrl+C` to abort reconnecting.
+async fn sleep_or_relink_cancel(
+    delay: Duration,
+    input: &mut crate::shell::event_loop::input_reader::InputSource,
+) -> bool {
+    if delay.is_zero() {
+        return false;
+    }
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => false,
+        _ = wait_for_relink_cancel(input) => true,
+    }
+}
+
+/// Paint a minimal, color-neutral reconnect status line onto the live terminal
+/// so the operator sees live re-dial progress instead of a frozen frame while
+/// waiting for a remote server to return (ADR-0224).
+fn draw_relink_status(
+    terminal: &mut graticule::Terminal<std::io::Stdout>,
+    endpoint: &str,
+    attempt: u32,
+    max_attempts: u32,
+    delay_ms: Option<u64>,
+) {
+    let text = match delay_ms {
+        Some(ms) if ms > 0 => format!(
+            " Reconnecting to {endpoint} (attempt {attempt}/{max_attempts}, retrying in {:.1}s — Esc or Ctrl+C to cancel)",
+            (ms as f64) / 1000.0
+        ),
+        _ => format!(
+            " Reconnecting to {endpoint} (attempt {attempt}/{max_attempts} — Esc or Ctrl+C to cancel)"
+        ),
+    };
+    let _ = terminal.draw(|f| {
+        let area = f.area();
+        if area.height == 0 || area.width == 0 {
+            return;
+        }
+        let bar = graticule::Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(1),
+            width: area.width,
+            height: 1,
+        };
+        f.render_widget(
+            &mut graticule::widgets::Paragraph::new(graticule::Line::from(text.as_str())),
+            bar,
+        );
+    });
+}
 
 pub fn run_main() -> Result<(), Box<dyn std::error::Error>> {
     ensure_dev_environment();
@@ -351,6 +473,168 @@ pub(crate) fn retire_preserved_tab(
     tabs.len() != before
 }
 
+fn relink_max_attempts(target_server: &client::ClientTarget) -> (bool, u32) {
+    let is_remote = matches!(target_server, client::ClientTarget::Remote(_));
+    let limit = if is_remote {
+        REMOTE_RELINK_MAX_ATTEMPTS
+    } else {
+        LOCAL_RELINK_MAX_ATTEMPTS
+    };
+    (is_remote, limit)
+}
+
+async fn resolve_initial_target(
+    remote: Option<String>,
+    token: Option<String>,
+    project_override: &Option<PathBuf>,
+    explicit_port: Option<u16>,
+) -> Result<client::ClientTarget, Box<dyn std::error::Error>> {
+    match remote {
+        Some(addr) => {
+            let remote_server = client::RemoteServer::parse(&addr, token)?;
+            Ok(client::ClientTarget::Remote(remote_server))
+        }
+        None => {
+            let raw_root = project_override
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let project_root = host::paths::find_project_root(&raw_root);
+            // A spawn can take a few seconds; the alternate screen is not up
+            // yet, so one honest line beats a silent blank terminal.
+            eprintln!("nuo: connecting to the session server…");
+            let info = client::ensure_server_explicit(&project_root, explicit_port).await?;
+            if !client::versions_compatible(&info) {
+                return Err(client::incompatibility_error(&info).into());
+            }
+            Ok(client::ClientTarget::Local(info))
+        }
+    }
+}
+
+/// Step the relink backoff budget by one attempt, draw the live reconnect
+/// status line, wait for the cancellable backoff delay, and (for local targets)
+/// re-resolve the daemon endpoint in case the server was replaced or restarted.
+#[allow(clippy::too_many_arguments)]
+async fn step_relink_backoff(
+    target_server: &mut client::ClientTarget,
+    project_override: &Option<PathBuf>,
+    explicit_port: Option<u16>,
+    consecutive_relinks: &mut u32,
+    terminal: &mut graticule::Terminal<std::io::Stdout>,
+    input: &mut crate::shell::event_loop::input_reader::InputSource,
+    session_guard: &mut graticule::TerminalSession,
+    failure_context: Option<&client::AttachError>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (is_remote, limit) = relink_max_attempts(target_server);
+    *consecutive_relinks += 1;
+    let attempt = *consecutive_relinks;
+    let Some(delay_ms) = relink_delay_ms(is_remote, attempt, |span| fastrand::u64(0..=span)) else {
+        let detail = match failure_context {
+            Some(error) => format!(
+                "server connection to {} lost; aborting after {limit} re-dial attempts ({error})",
+                target_server.endpoint_display()
+            ),
+            None => format!(
+                "server connection to {} repeatedly lost; aborting attach loop after {limit} re-dial attempts",
+                target_server.endpoint_display()
+            ),
+        };
+        return Err(detail.into());
+    };
+    if let Some(error) = failure_context {
+        tracing::warn!(
+            endpoint = %target_server.endpoint_display(),
+            attempt,
+            delay_ms,
+            %error,
+            "attach loop: re-dial failed; backing off before next attempt"
+        );
+    }
+    draw_relink_status(
+        terminal,
+        &target_server.endpoint_display(),
+        attempt,
+        limit,
+        Some(delay_ms),
+    );
+    if sleep_or_relink_cancel(Duration::from_millis(delay_ms), input).await {
+        session_guard.restore();
+        return Err(format!(
+            "reconnect to {} cancelled by user",
+            target_server.endpoint_display()
+        )
+        .into());
+    }
+    if failure_context.is_none() {
+        tracing::warn!(
+            endpoint = %target_server.endpoint_display(),
+            attempt,
+            delay_ms,
+            "attach loop: re-dialing after link loss"
+        );
+    }
+    if let client::ClientTarget::Local(_) = target_server {
+        let raw_root = project_override
+            .clone()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let project_root = host::paths::find_project_root(&raw_root);
+        let resolve = tokio::select! {
+            res = client::ensure_server_explicit(&project_root, explicit_port) => res,
+            _ = wait_for_relink_cancel(input) => {
+                session_guard.restore();
+                return Err(format!(
+                    "reconnect to {} cancelled by user",
+                    target_server.endpoint_display()
+                )
+                .into());
+            }
+        };
+        match resolve {
+            Ok(info) if client::versions_compatible(&info) => {
+                *target_server = client::ClientTarget::Local(info);
+            }
+            Ok(info) => {
+                return Err(client::incompatibility_error(&info).into());
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    attempt,
+                    "local server re-resolve failed during relink; will retry on next dial"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_detach_epilogue(target_server: &client::ClientTarget) {
+    match target_server {
+        client::ClientTarget::Local(info) => {
+            // The `port > 0` gate this replaces silenced the epilogue for a
+            // UDS-only server — which is the default shape — so the one line
+            // that tells the operator what just happened and how to get back
+            // was never printed. The endpoint is whichever one the server
+            // actually advertises.
+            let endpoint = info
+                .effective_local_endpoint()
+                .map(|endpoint| endpoint.to_string())
+                .unwrap_or_else(|| format!("port {}", info.port));
+            eprintln!(
+                "nuo: detached from hosted server (PID {}, {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo server stop",
+                info.pid, endpoint
+            );
+        }
+        client::ClientTarget::Remote(rem) => {
+            eprintln!(
+                "nuo: detached from remote server ({}).\n  • Reconnect:   nuo --remote {} --token <token>",
+                rem.endpoint_display(),
+                rem.endpoint_display()
+            );
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_attached(
     session_id: Option<String>,
@@ -366,26 +650,8 @@ pub async fn run_attached(
     remote: Option<String>,
     token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut target_server = match remote {
-        Some(addr) => {
-            let remote_server = client::RemoteServer::parse(&addr, token)?;
-            client::ClientTarget::Remote(remote_server)
-        }
-        None => {
-            let raw_root = project_override
-                .clone()
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-            let project_root = host::paths::find_project_root(&raw_root);
-            // A spawn can take a few seconds; the alternate screen is not up
-            // yet, so one honest line beats a silent blank terminal.
-            eprintln!("nuo: connecting to the session server…");
-            let info = client::ensure_server_explicit(&project_root, explicit_port).await?;
-            if !client::versions_compatible(&info) {
-                return Err(client::incompatibility_error(&info).into());
-            }
-            client::ClientTarget::Local(info)
-        }
-    };
+    let mut target_server =
+        resolve_initial_target(remote, token, &project_override, explicit_port).await?;
     let mut target = session_id.clone();
     let mut fresh_pending = fresh;
     let mut pick_pending = session_id.is_none() && !fresh;
@@ -402,23 +668,13 @@ pub async fn run_attached(
 
     // Initialize terminal once and keep it alive across thread switches to eliminate flicker.
     let profile = crate::shell::terminal::detect_terminal_profile();
-    crate::shell::terminal::enter_terminal(&profile)?;
+    let mut session_guard = crate::shell::terminal::enter_terminal(&profile)?;
     crate::shell::terminal::spawn_signal_guard();
     crate::shell::ensure_panic_hook();
 
-    struct TerminalGuard(bool);
-    impl Drop for TerminalGuard {
-        fn drop(&mut self) {
-            if self.0 {
-                crate::shell::terminal::restore_terminal();
-            }
-        }
-    }
-    let mut guard = TerminalGuard(true);
-
     let stdout = std::io::stdout();
-    let backend = nuotc::Backend::new(stdout).with_profile(profile);
-    let mut terminal = nuotc::Terminal::new(backend);
+    let backend = graticule::Backend::new(stdout).with_profile(profile);
+    let mut terminal = graticule::live_terminal(backend);
     // One input source for every attachment in this process: a cross-session
     // tab switch or tab close detaches and re-attaches *in place*, and an input
     // source owned by a single attachment dropped whatever the operator pressed
@@ -426,6 +682,7 @@ pub async fn run_attached(
     // is indistinguishable from "the gesture needs two attempts".
     let mut input = crate::shell::event_loop::input_reader::InputSource::spawn()?;
     let mut consecutive_relinks: u32 = 0;
+    let mut relinking = false;
 
     loop {
         let action = match &target {
@@ -445,12 +702,37 @@ pub async fn run_attached(
         // expected "this tab's session is gone" — propagated with `?` to `main`
         // and the process exited, so clicking a stale tab killed the session the
         // operator was actually working in.
-        let handshake = match target_server.connect(action).await {
+        let connect_result = if relinking {
+            let (_, limit) = relink_max_attempts(&target_server);
+            draw_relink_status(
+                &mut terminal,
+                &target_server.endpoint_display(),
+                consecutive_relinks.max(1),
+                limit,
+                None,
+            );
+            tokio::select! {
+                res = target_server.connect(action) => res,
+                _ = wait_for_relink_cancel(&mut input) => {
+                    session_guard.restore();
+                    return Err(format!(
+                        "reconnect to {} cancelled by user",
+                        target_server.endpoint_display()
+                    )
+                    .into());
+                }
+            }
+        } else {
+            target_server.connect(action).await
+        };
+        let handshake = match connect_result {
             Ok(handshake) => handshake,
             // The server proved the session does not exist: retire the tab that
             // names it and fall back to the picker. Liveness is settled by server
             // attestation only (`[INV-TAB-14]`), never by a broadcast.
             Err(error) if error.is_session_gone() => {
+                relinking = false;
+                consecutive_relinks = 0;
                 tracing::info!(
                     code = ?error.code(),
                     target = ?target,
@@ -470,6 +752,8 @@ pub async fn run_attached(
             // The session exists durably but could not be assembled: keep the tab
             // — its history is real and a retry may work — and report the fault.
             Err(error) if error.is_session_unresumable() => {
+                relinking = false;
+                consecutive_relinks = 0;
                 tracing::warn!(
                     code = ?error.code(),
                     target = ?target,
@@ -484,9 +768,27 @@ pub async fn run_attached(
                 pick_pending = true;
                 continue;
             }
-            // No taxonomy: the server never authorized a recovery, so inventing
-            // one would be worse than failing. A genuine transport fault stays
-            // fatal.
+            // While recovering from a dropped live link (`relinking == true`), a
+            // transport dial failure is the outage itself, not a reason to abort
+            // on attempt 1 (ADR-0224 `[INV-RESILIENCE-04]`). Explicit server
+            // `Wire::Error` refusals (`!is_transport_failure()`) still fail
+            // immediately instead of spinning through the retry budget.
+            Err(error) if relinking && error.is_transport_failure() => {
+                step_relink_backoff(
+                    &mut target_server,
+                    &project_override,
+                    explicit_port,
+                    &mut consecutive_relinks,
+                    &mut terminal,
+                    &mut input,
+                    &mut session_guard,
+                    Some(&error),
+                )
+                .await?;
+                continue;
+            }
+            // Initial connect or server refusal with no recovery taxonomy stays
+            // fatal so a bad `--remote` address fails loudly instead of hanging.
             Err(error) => return Err(error.into()),
         };
         let handshake = match handshake {
@@ -499,6 +801,8 @@ pub async fn run_attached(
                 {
                     Ok(handshake) => handshake,
                     Err(error) if error.is_session_gone() => {
+                        relinking = false;
+                        consecutive_relinks = 0;
                         if let Some(gone) = target.take() {
                             retire_preserved_tab(&mut preserved_tabs, &gone);
                         }
@@ -511,6 +815,8 @@ pub async fn run_attached(
                         continue;
                     }
                     Err(error) if error.is_session_unresumable() => {
+                        relinking = false;
+                        consecutive_relinks = 0;
                         target = None;
                         retire_notice = Some(
                             crate::shell::app::notice_catalog::ClientNotice::AttachSessionUnresumable {
@@ -537,6 +843,9 @@ pub async fn run_attached(
                 return Err("the server offered no session to pick from".into());
             }
         };
+        // Attachment succeeded; leave relink recovery mode so subsequent normal
+        // tab switches or explicit refusals do not re-enter relink backoff.
+        relinking = false;
         // The opening prompt rides the launch config and is flushed only on the
         // `Ready` transition; a prompt sent here would race the snapshot.
         let launch_prompt = initial_prompt.take();
@@ -548,6 +857,8 @@ pub async fn run_attached(
             &mut startup_overlay_pending,
             crate::shell::StartupOverlay::None,
         );
+        let attached_at = Instant::now();
+        let attached_session_id = hosted_session_id.clone();
         let exit_tx = tx.clone();
         let outcome = crate::shell::run_tui_with_input(
             &mut terminal,
@@ -596,50 +907,32 @@ pub async fn run_attached(
             initial_prompt = outcome.switch_to_new_prompt;
             continue;
         }
-        // The link died with the session still hosted (ADR-0136). Re-dial and
-        // re-attach in place: the transcript and tabs ride `TuiOutcome`, so the
-        // operator keeps their view across the gap instead of losing the window.
+        // The link died with the session still hosted (ADR-0136, ADR-0224).
+        // Re-dial and re-attach in place: the transcript and tabs ride
+        // `TuiOutcome`, so the operator keeps their view across the gap instead
+        // of losing the window.
         if outcome.relink_requested {
-            consecutive_relinks += 1;
-            if consecutive_relinks > 10 {
-                return Err("server connection repeatedly lost; aborting attach loop after 10 re-dial attempts".into());
+            if attached_at.elapsed() >= RELINK_STABILITY_WINDOW {
+                consecutive_relinks = 0;
             }
-            if consecutive_relinks > 1 {
-                let delay =
-                    std::time::Duration::from_millis((consecutive_relinks as u64 * 50).min(500));
-                tokio::time::sleep(delay).await;
+            if target.is_none() {
+                target = Some(attached_session_id);
             }
-            tracing::warn!(
-                target = ?target,
-                attempt = consecutive_relinks,
-                "attach loop: re-dialing after link loss"
-            );
-            // Re-resolve the server: a link that died because the server was
-            // replaced or restarted is exactly the case where the old
-            // `ServerInfo` is stale, and `ensure_server_explicit` is what
-            // discovers, replaces, or spawns the right one.
-            if let client::ClientTarget::Local(_) = &target_server {
-                let raw_root = project_override.clone().unwrap_or_else(|| {
-                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-                });
-                let project_root = host::paths::find_project_root(&raw_root);
-                match client::ensure_server_explicit(&project_root, explicit_port).await {
-                    Ok(info) if client::versions_compatible(&info) => {
-                        target_server = client::ClientTarget::Local(info);
-                    }
-                    Ok(info) => {
-                        return Err(client::incompatibility_error(&info).into());
-                    }
-                    Err(error) => {
-                        return Err(format!(
-                            "could not re-dial the server after link loss: {error}"
-                        )
-                        .into());
-                    }
-                }
-            }
+            relinking = true;
+            step_relink_backoff(
+                &mut target_server,
+                &project_override,
+                explicit_port,
+                &mut consecutive_relinks,
+                &mut terminal,
+                &mut input,
+                &mut session_guard,
+                None,
+            )
+            .await?;
             continue;
         }
+        relinking = false;
         consecutive_relinks = 0;
         match outcome.switch_to {
             Some(id) => {
@@ -651,34 +944,39 @@ pub async fn run_attached(
                 continue;
             }
             None => {
-                guard.0 = false;
-                crate::shell::terminal::restore_terminal();
-                match &target_server {
-                    client::ClientTarget::Local(info) => {
-                        // The `port > 0` gate this replaces silenced the epilogue
-                        // for a UDS-only server — which is the default shape — so
-                        // the one line that tells the operator what just happened
-                        // and how to get back was never printed. The endpoint is
-                        // whichever one the server actually advertises.
-                        let endpoint = info
-                            .effective_local_endpoint()
-                            .map(|endpoint| endpoint.to_string())
-                            .unwrap_or_else(|| format!("port {}", info.port));
-                        eprintln!(
-                            "nuo: detached from hosted server (PID {}, {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo server stop",
-                            info.pid, endpoint
-                        );
-                    }
-                    client::ClientTarget::Remote(rem) => {
-                        eprintln!(
-                            "nuo: detached from remote server ({}).\n  • Reconnect:   nuo --remote {} --token <token>",
-                            rem.endpoint_display(),
-                            rem.endpoint_display()
-                        );
-                    }
-                }
+                session_guard.restore();
+                print_detach_epilogue(&target_server);
                 return Ok(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relink_backoff_separates_local_and_remote_policies() {
+        // Local daemon restarts: immediate attempt 1, short 50..500ms cap, 10 attempts.
+        assert_eq!(relink_delay_ms(false, 0, |_| 0), None);
+        assert_eq!(relink_delay_ms(false, 1, |_| 0), Some(0));
+        assert_eq!(relink_delay_ms(false, 2, |_| 0), Some(100));
+        assert_eq!(relink_delay_ms(false, 10, |_| 0), Some(500));
+        assert_eq!(relink_delay_ms(false, 11, |_| 0), None);
+
+        // Remote WebSocket links: 20 stepped-backoff attempts with equal jitter in [base/2, base].
+        assert_eq!(relink_delay_ms(true, 0, |_| 0), None);
+        // Attempt 1 -> base 500ms -> equal jitter [250, 500].
+        assert_eq!(relink_delay_ms(true, 1, |_| 0), Some(250));
+        assert_eq!(relink_delay_ms(true, 1, |span| span), Some(500));
+        // Attempt 4+ -> base 5000ms (step multiplier 10 * 500ms) -> [2500, 5000].
+        assert_eq!(relink_delay_ms(true, 4, |_| 0), Some(2_500));
+        assert_eq!(relink_delay_ms(true, 4, |span| span), Some(5_000));
+        assert!(relink_delay_ms(true, REMOTE_RELINK_MAX_ATTEMPTS, |_| 0).is_some());
+        assert_eq!(
+            relink_delay_ms(true, REMOTE_RELINK_MAX_ATTEMPTS + 1, |_| 0),
+            None
+        );
     }
 }

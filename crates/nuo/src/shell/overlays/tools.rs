@@ -8,7 +8,7 @@
 //!   safety risk profile, human approval requirements, multi-line descriptions,
 //!   and structured Draft-07 JSON Schema parameter definitions.
 
-use nuotc::{
+use graticule::{
     Frame, Modifier, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;
@@ -31,7 +31,7 @@ pub fn draw_tools_modal(
     info_detail: bool,
     info_scroll: &mut usize,
     theme: &Theme,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let body_width = modal_body_width(frame, ContentModalSpec::TOOLS);
     let tools = session_context.map(|s| s.tools.as_slice()).unwrap_or(&[]);
 
@@ -243,7 +243,7 @@ fn render_tool_detail(
         "Description",
         Style::default()
             .fg(theme.brand())
-            .add_modifier(nuotc::Modifier::BOLD),
+            .add_modifier(graticule::Modifier::BOLD),
     )));
 
     let desc_wrap_w = body_width.saturating_sub(2).max(1);
@@ -260,7 +260,7 @@ fn render_tool_detail(
         "Parameters",
         Style::default()
             .fg(theme.brand())
-            .add_modifier(nuotc::Modifier::BOLD),
+            .add_modifier(graticule::Modifier::BOLD),
     )));
 
     if let Some(params_str) = &tool.parameters {
@@ -321,7 +321,7 @@ fn render_tool_detail(
                                 name.clone(),
                                 Style::default()
                                     .fg(theme.fg())
-                                    .add_modifier(nuotc::Modifier::BOLD),
+                                    .add_modifier(graticule::Modifier::BOLD),
                             ),
                             Span::raw(" "),
                             Span::styled(
@@ -380,7 +380,7 @@ fn render_tool_detail(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuotc::TestTerminal;
+    use graticule::TestTerminal;
 
     fn sample_snapshot() -> protocol::ThreadContextSnapshot {
         protocol::ThreadContextSnapshot {

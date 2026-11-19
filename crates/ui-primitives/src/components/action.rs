@@ -10,7 +10,7 @@
 //! - `[INV-TUI-RUNNING-02]` (Action Permissibility Tri-Partition): Running controls
 //!   guard against re-entrant triggers while preserving inspection and abort paths.
 
-use nuotc::{Color, Modifier, Style};
+use graticule_canvas::{Color, Modifier, Style};
 
 use crate::theme::Theme;
 

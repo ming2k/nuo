@@ -299,8 +299,12 @@ pub const GOOGLE_ANTIGRAVITY_CLI_CLIENT_SECRET: &str =
 /// `SetBusinessOAuthClientIDOverride`, and this pair sits in the
 /// business/BAIC string region. Not wired to a preset — the consumer browser
 /// login continues to use the CLI pair above.
+///
+/// The numeric prefix is twelve digits (`1098991175725-…`), re-extracted from
+/// the 1.5.12 bundle on 2026-11-19: an earlier transcription dropped the
+/// leading `1`.
 pub const GOOGLE_ANTIGRAVITY_BUSINESS_CLIENT_ID: &str = concat!(
-    "098991175725-",
+    "1098991175725-",
     "mdu1oe5cbbe1ckggsebobh94toiap657",
     ".apps.googleusercontent.com"
 );
@@ -572,5 +576,17 @@ mod tests {
             cfg.oauth_port, 0,
             "no preferred loopback port is compiled into the CLI"
         );
+    }
+
+    /// The candidate business/BAIC client id keeps its twelve-digit numeric
+    /// prefix (1.5.12 bundle re-extraction, 2026-11-19): an earlier
+    /// transcription dropped the leading `1`.
+    #[test]
+    fn business_client_id_keeps_its_twelve_digit_prefix() {
+        assert!(
+            GOOGLE_ANTIGRAVITY_BUSINESS_CLIENT_ID.starts_with("1098991175725-"),
+            "the bundle stamps 1098991175725-mdu1oe5cbbe1ckggsebobh94toiap657"
+        );
+        assert!(GOOGLE_ANTIGRAVITY_BUSINESS_CLIENT_ID.ends_with(".apps.googleusercontent.com"));
     }
 }

@@ -28,10 +28,10 @@ mod dialogs;
 
 #[allow(unused_imports)]
 pub use dialogs::{
-    ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HelpDialog,
-    HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PermissionsDialog,
-    PortShareDialog, QueueDialog, QuotasDialog, SessionTraceDialog, SessionTreeDialog,
-    SessionsDialog, SkillsDialog, SwitcherDialog, ThreadStatsDialog, ThreadsDialog, ToolsDialog,
+    ConnectionsDialog, ContextPlanDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs,
+    HelpDialog, HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PaletteDialog,
+    PermissionsDialog, PortShareDialog, QueueDialog, QuotasDialog, SessionTraceDialog,
+    SessionTreeDialog, SessionsDialog, SkillsDialog, ThreadStatsDialog, ThreadsDialog, ToolsDialog,
     UsageStatsDialog,
 };
 
@@ -63,7 +63,7 @@ pub enum SceneKind {
 }
 
 impl SceneKind {
-    /// The label shown in the quick switcher and used for fuzzy matching.
+    /// Human label: palette section titles and context headers.
     pub fn label(self) -> &'static str {
         match self {
             Self::Thread => "Thread",
@@ -72,18 +72,6 @@ impl SceneKind {
             Self::Subagent => "Subagent",
             Self::CommandLog => "Command log",
             Self::Diff => "Diff viewer",
-        }
-    }
-
-    /// The secondary line the switcher shows under the label.
-    pub fn hint(self) -> &'static str {
-        match self {
-            Self::Thread => "Esc  home",
-            Self::Dashboard => "Alt-0",
-            Self::Settings => "Alt-,",
-            Self::Subagent => "zoom a subagent task",
-            Self::CommandLog => "v  view log",
-            Self::Diff => "F4  review diffs",
         }
     }
 
@@ -123,13 +111,14 @@ pub enum DialogKind {
     Quotas,
     ThreadStats,
     SessionTrace,
+    ContextPlan,
     Models,
     Connections,
     HistorySearch,
     Queue,
     Threads,
     SessionTree,
-    Switcher,
+    Palette,
     PortShare,
     Help,
     Notices,
@@ -141,7 +130,7 @@ impl DialogKind {
     pub const Sessions: DialogKind = DialogKind::Threads;
 
     /// Every dialog id that appears in the switcher's reference/discovery list.
-    pub const ALL: [DialogKind; 17] = [
+    pub const ALL: [DialogKind; 18] = [
         DialogKind::Tools,
         DialogKind::Mcp,
         DialogKind::Skills,
@@ -150,6 +139,7 @@ impl DialogKind {
         DialogKind::Quotas,
         DialogKind::ThreadStats,
         DialogKind::SessionTrace,
+        DialogKind::ContextPlan,
         DialogKind::Models,
         DialogKind::Connections,
         DialogKind::HistorySearch,
@@ -161,7 +151,7 @@ impl DialogKind {
         DialogKind::Notices,
     ];
 
-    /// The label shown in the quick switcher and used for fuzzy matching.
+    /// Human label: palette section titles and context headers.
     pub fn label(self) -> &'static str {
         match self {
             DialogKind::Tools => "Tools",
@@ -172,40 +162,17 @@ impl DialogKind {
             DialogKind::Quotas => "Provider quotas",
             DialogKind::ThreadStats => "Thread stats",
             DialogKind::SessionTrace => "Session trace",
+            DialogKind::ContextPlan => "Context plan",
             DialogKind::Models => "Switch model",
             DialogKind::Connections => "Connections",
             DialogKind::HistorySearch => "History",
             DialogKind::Queue => "Queue (outbox)",
             DialogKind::Threads => "Threads",
             DialogKind::SessionTree => "Session tree",
-            DialogKind::Switcher => "Quick switcher",
+            DialogKind::Palette => "Command palette",
             DialogKind::PortShare => "Port & sharing",
             DialogKind::Help => "Help & Shortcuts",
             DialogKind::Notices => "Notices",
-        }
-    }
-
-    /// The secondary hint line in the switcher.
-    pub fn hint(self) -> &'static str {
-        match self {
-            DialogKind::Tools => "/tools",
-            DialogKind::Mcp => "/mcp",
-            DialogKind::Skills => "/skills",
-            DialogKind::Permissions => "/permissions",
-            DialogKind::UsageStats => "/usage",
-            DialogKind::Quotas => "/quotas",
-            DialogKind::ThreadStats => "/stats",
-            DialogKind::SessionTrace => "/trace",
-            DialogKind::Models => "/models",
-            DialogKind::Connections => "/connections",
-            DialogKind::HistorySearch => "Ctrl-r",
-            DialogKind::Queue => "/queue",
-            DialogKind::Threads => "/threads",
-            DialogKind::SessionTree => "/tree",
-            DialogKind::Switcher => "Ctrl-Shift-p",
-            DialogKind::PortShare => "/port",
-            DialogKind::Help => "F1 / Alt-h",
-            DialogKind::Notices => "Alt-o",
         }
     }
 
@@ -215,7 +182,7 @@ impl DialogKind {
         match self {
             // Global: the terminal app's own surfaces. They survive session
             // and scene switches.
-            DialogKind::Switcher
+            DialogKind::Palette
             | DialogKind::PortShare
             | DialogKind::Threads
             | DialogKind::Models
@@ -225,8 +192,11 @@ impl DialogKind {
             | DialogKind::Help
             | DialogKind::Notices => DialogScope::Global,
             // Session: bound to the ambient session; unwound on session change.
+            // A context plan is per-thread, so it belongs here with the other
+            // thread-scoped inspectors (ADR-0220 §6).
             DialogKind::ThreadStats
             | DialogKind::SessionTrace
+            | DialogKind::ContextPlan
             | DialogKind::SessionTree
             | DialogKind::Tools
             | DialogKind::Mcp
@@ -252,7 +222,7 @@ impl DialogKind {
     /// dialogs are retained per session; everything else is retained globally.
     pub fn retention_policy(self) -> RetentionPolicy {
         match self {
-            DialogKind::Switcher | DialogKind::PortShare => RetentionPolicy::Ephemeral,
+            DialogKind::Palette | DialogKind::PortShare => RetentionPolicy::Ephemeral,
             _ => match self.scope() {
                 DialogScope::Session => RetentionPolicy::SessionScoped,
                 _ => RetentionPolicy::Retained,
@@ -342,29 +312,6 @@ impl Surface {
 
     pub fn sheet(self) -> Option<SheetKind> {
         self.overlay().and_then(OverlaySurface::sheet)
-    }
-}
-
-/// One selectable row of the quick switcher: Scene or Dialog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SwitcherTarget {
-    Scene(SceneKind),
-    Dialog(DialogKind),
-}
-
-impl SwitcherTarget {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Scene(s) => s.label(),
-            Self::Dialog(d) => d.label(),
-        }
-    }
-
-    pub fn hint(self) -> &'static str {
-        match self {
-            Self::Scene(s) => s.hint(),
-            Self::Dialog(d) => d.hint(),
-        }
     }
 }
 
@@ -1334,11 +1281,11 @@ impl SurfaceRouter {
 }
 
 /// A MRU-ordered registry of opened dialogs. Dialog *state* is owned by the
-/// [`Dialogs`] entity registry; this store only tracks open order for the
-/// quick switcher and drives explicit forgetting.
+/// [`Dialogs`] entity registry; this store only tracks open order (first-open
+/// detection) and drives explicit forgetting.
 #[derive(Debug, Default)]
 pub struct SurfaceStore {
-    /// Most-recent-first open order. Drives the quick switcher's MRU list.
+    /// Most-recent-first open order.
     order: Vec<DialogKind>,
 }
 
@@ -1371,52 +1318,6 @@ impl SurfaceStore {
     /// MRU order of opened dialogs.
     pub fn order(&self) -> &[DialogKind] {
         &self.order
-    }
-
-    /// Switcher rows: Dashboard & Settings first, then MRU dialogs, then
-    /// unvisited discovery dialogs. Rows whose preconditions are unsatisfied
-    /// are filtered out (`[INV-SURFACE-03]`).
-    pub fn switcher_rows(&self, scene: SceneKind, has_session: bool) -> Vec<SwitcherTarget> {
-        let mut rows: Vec<SwitcherTarget> = [SceneKind::Dashboard, SceneKind::Settings]
-            .into_iter()
-            .map(SwitcherTarget::Scene)
-            .collect();
-        for id in self.order.clone() {
-            if id != DialogKind::Switcher && id.is_available(scene, has_session) {
-                rows.push(SwitcherTarget::Dialog(id));
-            }
-        }
-        for id in DialogKind::ALL {
-            if !self.order.contains(&id)
-                && id != DialogKind::Switcher
-                && id.is_available(scene, has_session)
-            {
-                rows.push(SwitcherTarget::Dialog(id));
-            }
-        }
-        rows
-    }
-
-    /// Filter switcher rows by fuzzy query.
-    pub fn switcher_rows_filtered(
-        &self,
-        query: &str,
-        scene: SceneKind,
-        has_session: bool,
-    ) -> Vec<SwitcherTarget> {
-        let rows = self.switcher_rows(scene, has_session);
-        if query.trim().is_empty() {
-            return rows;
-        }
-        let q = query.trim();
-        rows.into_iter()
-            .filter(|target| {
-                let label = target.label();
-                let hint = target.hint();
-                ui_primitives::fuzzy::fuzzy_match(label, q).is_some()
-                    || ui_primitives::fuzzy::fuzzy_match(hint, q).is_some()
-            })
-            .collect()
     }
 }
 

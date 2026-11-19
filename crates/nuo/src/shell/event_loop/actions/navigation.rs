@@ -145,6 +145,14 @@ pub(crate) fn enter_panel(
         }
         DialogKind::Threads => Some(AgentRequest::QueryThreadsOverview),
         DialogKind::SessionTree => Some(AgentRequest::QueryThreadTree),
+        // The plan is live process state, so it is fetched on every open rather
+        // than cached: a plan measured before the last request would answer a
+        // question about a prompt that no longer exists (ADR-0220 §3).
+        DialogKind::ContextPlan => {
+            app.telemetry.context_plan = None;
+            app.telemetry.context_plan_loaded = false;
+            Some(AgentRequest::QueryContextPlan)
+        }
         _ => None,
     };
     if let Some(request) = request

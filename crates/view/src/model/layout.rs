@@ -2,7 +2,7 @@
 //!
 //! During rendering we record where each block lands on the terminal grid.
 //! This allows mouse events to be resolved back to semantic positions.
-use nuotc::Rect;
+use graticule_canvas::Rect;
 use unicode_segmentation::UnicodeSegmentation;
 
 pub const TOOL_STEP_BLOCK_IDX: usize = usize::MAX;
@@ -572,7 +572,7 @@ impl LayoutMap {
             let w = if grapheme == "\n" {
                 0
             } else {
-                nuotc::grapheme_width(grapheme) as usize
+                graticule_canvas::grapheme_width(grapheme) as usize
             };
             if col < acc_width + w {
                 let target_byte = if col == acc_width || grapheme.len() <= 1 {

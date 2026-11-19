@@ -38,7 +38,7 @@
 //! running); `i` / `p` / `n` issue control-plane verbs (interrupt / prompt
 //! / new session); `k` kills the selection (confirm step); `s` suspends
 //! it; `Esc` backs out of the preview, then the dashboard.
-use nuotc::{
+use graticule::{
     Constraint, Direction, Frame, Layout, Line, Modifier, Rect, Span, Style,
     {Block as RtBlock, Paragraph},
 };
@@ -86,7 +86,6 @@ pub struct DashboardRects {
     /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
     pub tab_overflow_rect: Option<Rect>,
     pub tab_notices_rect: Option<Rect>,
-    pub tab_help_rect: Option<Rect>,
 }
 
 /// entries; `current_session_id` marks the session this TUI is attached to.
@@ -224,7 +223,7 @@ pub fn draw_dashboard(
     } = props;
     // A true full-screen surface: clear the whole frame and paint our own
     // backdrop.
-    frame.render_widget(&mut nuotc::Clear::default(), frame.area());
+    frame.render_widget(&mut graticule::Clear::default(), frame.area());
     frame.render_widget(
         &mut RtBlock::default().style(Style::default().bg(theme.app_bg)),
         frame.area(),
@@ -405,7 +404,6 @@ pub fn draw_dashboard(
             tab_next_rect: tab_rects.next_rect,
             tab_overflow_rect: tab_rects.overview_rect,
             tab_notices_rect: tab_rects.notices_rect,
-            tab_help_rect: tab_rects.help_rect,
         };
     }
 
@@ -480,7 +478,6 @@ pub fn draw_dashboard(
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,
         tab_notices_rect: tab_rects.notices_rect,
-        tab_help_rect: tab_rects.help_rect,
     }
 }
 

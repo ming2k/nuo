@@ -1,6 +1,6 @@
 //! System settings panel: config file paths, environment info, and runtime metrics.
 
-use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
+use graticule::{Frame, Line, Modifier, Rect, Span, Style};
 
 use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};
 

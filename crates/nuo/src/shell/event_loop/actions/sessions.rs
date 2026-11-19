@@ -8,7 +8,7 @@ use crate::shell::clipboard_ops;
 use crate::shell::input::InputAction;
 use crate::shell::surfaces::DialogKind;
 
-use super::{ActionContext, ActionFlow, execute_command_by_id};
+use super::{ActionContext, ActionFlow};
 
 pub(super) async fn handle_session_action(
     app: &mut App,
@@ -200,46 +200,46 @@ pub(super) async fn handle_session_action(
             }
             Some(ActionFlow::Handled)
         }
-        InputAction::ViewSwitcherFilter { ch } => {
-            if app.active_dialog() == Some(DialogKind::Switcher) {
+        InputAction::PaletteInsert { ch } => {
+            if app.active_dialog() == Some(DialogKind::Palette) {
                 app.surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .query
                     .text
                     .push(ch);
                 app.surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .query
                     .cursor = app
                     .surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .query
                     .text
                     .len();
                 app.surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .selected = 0;
                 app.surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .scroll = 0;
             }
             Some(ActionFlow::Handled)
         }
-        InputAction::ViewSwitcherBackspace => {
-            if app.active_dialog() == Some(DialogKind::Switcher) {
+        InputAction::PaletteBackspace => {
+            if app.active_dialog() == Some(DialogKind::Palette) {
                 {
                     let q = &mut app
                         .surfaces
                         .surfaces
-                        .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                        .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                         .query;
                     if !q.is_empty() {
-                        let start = nuotc::floor_grapheme_boundary(&q.text, q.text.len() - 1);
+                        let start = graticule::floor_grapheme_boundary(&q.text, q.text.len() - 1);
                         q.text.truncate(start);
                     }
                     q.cursor = q.text.len();
@@ -247,7 +247,7 @@ pub(super) async fn handle_session_action(
                 let d = app
                     .surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>();
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>();
                 d.selected = 0;
                 d.scroll = 0;
             }
@@ -308,84 +308,18 @@ pub(super) async fn handle_session_action(
             }
             Some(ActionFlow::Handled)
         }
-        InputAction::ViewSwitcherToggle => {
-            if app.active_dialog() == Some(DialogKind::Switcher) {
+        InputAction::PaletteToggle => {
+            if app.active_dialog() == Some(DialogKind::Palette) {
                 app.dismiss_surface();
-            } else if app.can_open_switcher() {
-                app.open_dialog(DialogKind::Switcher);
+            } else if app.can_open_palette() {
+                app.open_dialog(DialogKind::Palette);
                 app.surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .begin();
             }
             Some(ActionFlow::Handled)
         }
-        InputAction::ViewSwitchActivate => {
-            if app.active_dialog() != Some(DialogKind::Switcher) {
-                return Some(ActionFlow::Handled);
-            }
-            let is_busy = app.session.running_sessions.contains(viewed_session_id);
-            let app_ctx = crate::shell::keymap::AppContext {
-                has_overlay: app.surfaces.surfaces.active_overlay().is_some(),
-                active_dialog: app
-                    .surfaces
-                    .surfaces
-                    .underlying_dialog()
-                    .or_else(|| app.active_dialog()),
-                is_responding: is_busy,
-                has_selection: !matches!(
-                    app.transcript.selection,
-                    view::model::selection::SelectionState::None
-                ),
-                has_running_task: is_busy,
-                has_notices: !!app.has_notices(),
-                has_focused_entry: app.transcript.focus.entry().is_some(),
-                queue_count: app.outbox_total(),
-                has_session: app.has_session(),
-                scene: app.current_scene(),
-            };
-            let entries = crate::shell::overlays::command_palette::filter_palette_commands(
-                &app.surfaces
-                    .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
-                    .query
-                    .text,
-                &app.composer.recent_commands,
-                &app_ctx,
-            );
-            if let Some(entry) = entries
-                .get(
-                    app.surfaces
-                        .surfaces
-                        .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
-                        .selected,
-                )
-                .or_else(|| entries.first())
-                && matches!(
-                    entry.availability,
-                    crate::shell::keymap::Availability::Available
-                )
-            {
-                let cmd_key = entry.slash.clone().unwrap_or_else(|| entry.label.clone());
-                if let Some(pos) = app
-                    .composer
-                    .recent_commands
-                    .iter()
-                    .position(|id| id == &cmd_key)
-                {
-                    app.composer.recent_commands.remove(pos);
-                }
-                app.composer.recent_commands.insert(0, cmd_key);
-                if app.composer.recent_commands.len() > 10 {
-                    app.composer.recent_commands.truncate(10);
-                }
-
-                app.pop_transient_surface();
-                return Some(execute_command_by_id(app, ctx, entry.id).await);
-            }
-            Some(ActionFlow::Handled)
-        }
-        InputAction::ViewCloseSelected => Some(ActionFlow::Handled),
         _ => None,
     }
 }

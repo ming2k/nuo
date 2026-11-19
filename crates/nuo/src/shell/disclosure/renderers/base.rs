@@ -1,5 +1,5 @@
 //! Base cursor and rendering primitives for disclosure step renderers.
-use nuotc::{Frame, Line, Paragraph, Rect};
+use graticule::{Frame, Line, Paragraph, Rect};
 
 use crate::shell::render::Theme;
 use view::model::layout::{BlockRegion, LayoutMap};

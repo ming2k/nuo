@@ -20,7 +20,7 @@ fn completion_anchor_aligns_slash_menu_with_composer_text_start() {
     // A `/command` replaces the whole input, so the popup hangs off the
     // start of the composer's text area — the rect's left edge plus the
     // two-column prefix (`›` prompt + gap).
-    let rect = nuotc::Rect::new(0, 10, 80, 3);
+    let rect = graticule::Rect::new(0, 10, 80, 3);
     let x = completion_anchor_x("/pu", 3, rect, CompletionKind::Slash);
     assert_eq!(
         x,
@@ -32,7 +32,7 @@ fn completion_anchor_aligns_slash_menu_with_composer_text_start() {
 fn completion_anchor_aligns_path_menu_with_the_at_trigger() {
     // `look at @sr` — the `@` sits at display column 8 of the input, so the
     // popup's leading edge lands 8 columns right of the text area's start.
-    let rect = nuotc::Rect::new(0, 10, 80, 3);
+    let rect = graticule::Rect::new(0, 10, 80, 3);
     let input = "look at @sr";
     let x = completion_anchor_x(input, input.len(), rect, CompletionKind::Path);
     assert_eq!(
@@ -46,7 +46,7 @@ fn completion_anchor_follows_the_at_trigger_across_wraps() {
     // An 10-column text area (rect 14 wide minus the 2+2 composer padding)
     // wraps `wrap this @sr` after `wrap this `; the `@` starts the second
     // text row's column 0, so the popup follows it there.
-    let rect = nuotc::Rect::new(0, 10, 14, 4);
+    let rect = graticule::Rect::new(0, 10, 14, 4);
     let input = "wrap this @sr";
     let x = completion_anchor_x(input, input.len(), rect, CompletionKind::Path);
     assert_eq!(
@@ -60,7 +60,7 @@ fn completion_anchor_keeps_column_when_token_stays_on_one_row() {
     // No wrap: the `@` at display column 10 keeps its column even on a
     // narrow-ish box, so the popup tracks the token exactly. Text budget
     // = 20 - 2 - 2 = 16 cols; `wrap this @sr` is 13 wide, fits one row.
-    let rect = nuotc::Rect::new(0, 10, 20, 3);
+    let rect = graticule::Rect::new(0, 10, 20, 3);
     let input = "wrap this @sr";
     let x = completion_anchor_x(input, input.len(), rect, CompletionKind::Path);
     // 2 (prefix) + 10 (token column within text).
@@ -74,7 +74,7 @@ fn completion_anchor_keeps_column_when_token_stays_on_one_row() {
 fn completion_anchor_vertical_tracks_multiline_cursor_row() {
     // Multiline composer: 5 rows of text.
     // The trigger `@skill:skill-creator` sits on row 4.
-    let rect = nuotc::Rect::new(0, 10, 80, 8);
+    let rect = graticule::Rect::new(0, 10, 80, 8);
     let input = "line 0\nline 1\nline 2\nline 3\n或者按照 @skill:skill-creator";
     let anchor = completion_anchor(input, input.len(), rect, 0, CompletionKind::Path);
     // Anchor Y must be at text row 4 (rect.y + COMPOSER_TEXT_ROW_OFFSET + 4 = 10 + 1 + 4 = 15).
@@ -83,7 +83,7 @@ fn completion_anchor_vertical_tracks_multiline_cursor_row() {
         rect.y + ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 4
     );
     // Anchor X must align with the `@` token.
-    let trigger_col = nuotc::cursor_column("或者按照 ", "或者按照 ".len());
+    let trigger_col = graticule::cursor_column("或者按照 ", "或者按照 ".len());
     assert_eq!(
         anchor.x,
         rect.x + ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16 + trigger_col as u16
@@ -92,7 +92,7 @@ fn completion_anchor_vertical_tracks_multiline_cursor_row() {
 
 #[test]
 fn completion_anchor_vertical_stays_at_composer_top_for_row_zero() {
-    let rect = nuotc::Rect::new(0, 10, 80, 4);
+    let rect = graticule::Rect::new(0, 10, 80, 4);
     let input = "hello @skill";
     let anchor = completion_anchor(input, input.len(), rect, 0, CompletionKind::Path);
     assert_eq!(anchor.y, rect.y);
@@ -100,7 +100,7 @@ fn completion_anchor_vertical_stays_at_composer_top_for_row_zero() {
 
 #[test]
 fn completion_anchor_vertical_accounts_for_scroll() {
-    let rect = nuotc::Rect::new(0, 10, 80, 5); // visible text lines = 5 - 3 = 2
+    let rect = graticule::Rect::new(0, 10, 80, 5); // visible text lines = 5 - 3 = 2
     let input = "row 0\nrow 1\nrow 2\nrow 3 @trigger";
     // With scroll offset 2, row 3 is visible at visible row 1 (3 - 2 = 1).
     let anchor = completion_anchor(input, input.len(), rect, 2, CompletionKind::Path);
@@ -118,8 +118,8 @@ fn completion_menu_renders_immediately_above_multiline_anchor() {
         "Skill Creator",
         20,
     )];
-    let mut terminal = nuotc::TestTerminal::new(80, 20);
-    let anchor = nuotc::Rect::new(10, 15, 1, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 20);
+    let anchor = graticule::Rect::new(10, 15, 1, 1);
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
         crate::shell::chrome::draw_completion_menu(
@@ -154,10 +154,10 @@ fn completion_menu_flips_below_when_space_above_is_insufficient() {
         crate::shell::completion::Completion::whole_input("/one", "One", 4),
         crate::shell::completion::Completion::whole_input("/two", "Two", 4),
     ];
-    let mut terminal = nuotc::TestTerminal::new(80, 10);
+    let mut terminal = graticule::TestTerminal::new(80, 10);
     // Anchor at row 1: space above is 1, but menu_height is 2.
     // Space below is (10 - 2) = 8 >= 2, so it flips below to anchor.bottom() = 2.
-    let anchor = nuotc::Rect::new(2, 1, 1, 1);
+    let anchor = graticule::Rect::new(2, 1, 1, 1);
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
         crate::shell::chrome::draw_completion_menu(
@@ -899,9 +899,9 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
     // spent gesture: scene-local, so nothing happens and nothing quits.
     // Routed through the real pipeline — the Dashboard scene's Esc arm.
     let action = crate::shell::input::route_event_motion(
-        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Esc,
-            crossterm::event::KeyModifiers::NONE,
+        graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Esc,
+            graticule::event::KeyModifiers::NONE,
         )),
         &mut String::new(),
         &mut 0,
@@ -1365,7 +1365,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
     };
     app.composer.cursor_position = 11;
 
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::Left);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -1391,7 +1391,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
     };
     app.composer.cursor_position = 6;
 
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::Left);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -1422,7 +1422,7 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
     };
     app.composer.cursor_position = 6;
 
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::Right);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::Right);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -1452,7 +1452,7 @@ fn range_selection_up_and_down_restore_caret_at_release_position() {
     };
     app.composer.cursor_position = 1; // stale
 
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::Up);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::Up);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -1473,7 +1473,7 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
 
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::Home);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::Home);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -1489,7 +1489,7 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
 
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::End);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::End);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -1517,7 +1517,7 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
     };
     app.composer.cursor_position = 3;
 
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::Left);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)

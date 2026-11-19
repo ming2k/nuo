@@ -21,6 +21,16 @@ pub enum TransportError {
         /// The netune diagnosis, when the failure crossed the attempt boundary.
         diagnostic: Option<Box<TransportDiagnostic>>,
     },
+    /// Host or network reachability failure (DNS lookup failure or OS routing
+    /// unreachability). Retryable under the short offline fast-fail budget
+    /// rather than the long transient budget (ADR-0224).
+    #[error("Network unreachable ({label}): {message}")]
+    Unreachable {
+        label: &'static str,
+        message: String,
+        /// The netune diagnosis, when the failure crossed the attempt boundary.
+        diagnostic: Option<Box<TransportDiagnostic>>,
+    },
     #[error("Request timed out ({label})")]
     Timeout {
         label: &'static str,
@@ -54,6 +64,7 @@ impl TransportError {
                 status.as_u16() == 408 || status.as_u16() == 429 || status.is_server_error()
             }
             Self::Transport { retryable, .. } => *retryable,
+            Self::Unreachable { .. } => true,
             Self::Timeout { .. } => true,
             Self::Stream { retryable, .. } => *retryable,
             _ => false,
@@ -76,6 +87,7 @@ impl TransportError {
     pub fn diagnostic(&self) -> Option<&TransportDiagnostic> {
         match self {
             Self::Transport { diagnostic, .. }
+            | Self::Unreachable { diagnostic, .. }
             | Self::Timeout { diagnostic, .. }
             | Self::Stream { diagnostic, .. } => diagnostic.as_deref(),
             _ => None,

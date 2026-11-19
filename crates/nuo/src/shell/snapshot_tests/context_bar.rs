@@ -11,7 +11,7 @@ use crate::shell::render::Theme;
 use crate::shell::view_header::{ThreadContext, draw_thread_context_bar};
 
 fn render_bar(width: u16, context: &ThreadContext<'_>) -> String {
-    let mut terminal = nuotc::TestTerminal::new(width, 1);
+    let mut terminal = graticule::TestTerminal::new(width, 1);
     terminal.draw(|f| {
         draw_thread_context_bar(f, f.area(), context, &Theme::default());
     });

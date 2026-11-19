@@ -326,32 +326,32 @@ fn palette_owns_filter_and_delete_family() {
     use crate::shell::keymap::Key;
     let c = keys(|_| {});
     assert_eq!(
-        resolve_dialog(DialogKind::Switcher, key('q'), &c),
-        Some(InputAction::ViewSwitcherFilter { ch: 'q' })
+        resolve_dialog(DialogKind::Palette, key('q'), &c),
+        Some(InputAction::PaletteInsert { ch: 'q' })
     );
     let backspace = Key {
         modifiers: KeyModifiers::NONE,
         code: KeyCode::Backspace,
     };
     assert_eq!(
-        resolve_dialog(DialogKind::Switcher, backspace, &c),
-        Some(InputAction::ViewSwitcherBackspace)
+        resolve_dialog(DialogKind::Palette, backspace, &c),
+        Some(InputAction::PaletteBackspace)
     );
     let delete = Key {
         modifiers: KeyModifiers::NONE,
         code: KeyCode::Delete,
     };
     assert_eq!(
-        resolve_dialog(DialogKind::Switcher, delete, &c),
-        Some(InputAction::ViewCloseSelected)
+        resolve_dialog(DialogKind::Palette, delete, &c),
+        Some(InputAction::None)
     );
     assert_eq!(
-        resolve_dialog(DialogKind::Switcher, Key::ENTER, &c),
-        Some(InputAction::ViewSwitchActivate)
+        resolve_dialog(DialogKind::Palette, Key::ENTER, &c),
+        Some(InputAction::PaletteRun)
     );
     // ↑/↓ list walking and Esc-close stay in the shared affordance layer.
-    assert_eq!(resolve_dialog(DialogKind::Switcher, Key::UP, &c), None);
-    assert_eq!(resolve_dialog(DialogKind::Switcher, Key::ESC, &c), None);
+    assert_eq!(resolve_dialog(DialogKind::Palette, Key::UP, &c), None);
+    assert_eq!(resolve_dialog(DialogKind::Palette, Key::ESC, &c), None);
 }
 
 #[test]

@@ -9,7 +9,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
     let app_bg = theme.surface();
     let input_bg = theme.input_surface();
     let width = 60u16;
-    let mut terminal = nuotc::TestTerminal::new(width, 24);
+    let mut terminal = graticule::TestTerminal::new(width, 24);
 
     // A long user message fills the first wrapped line edge to edge, so the
     // right-side padding is only present if the wrap width reserves it.
@@ -210,8 +210,8 @@ fn composer_focused_and_unfocused_panels_render_distinct_backgrounds() {
     let app_bg = theme.surface();
     assert_ne!(active_bg, inactive_bg, "pair must be distinct colors");
 
-    let panel_at = |focused: bool| -> nuotc::Color {
-        let mut terminal = nuotc::TestTerminal::new(30, 6);
+    let panel_at = |focused: bool| -> graticule::Color {
+        let mut terminal = graticule::TestTerminal::new(30, 6);
         terminal.draw(|f| {
             draw_composer(
                 ComposerProps {
@@ -262,7 +262,7 @@ fn composer_focused_and_unfocused_panels_render_distinct_backgrounds() {
     );
     // The whole box carries the tint, not just an edge: every row of the
     // four-row panel is the same surface.
-    let mut terminal = nuotc::TestTerminal::new(30, 6);
+    let mut terminal = graticule::TestTerminal::new(30, 6);
     terminal.draw(|f| {
         draw_composer(
             ComposerProps {
@@ -304,7 +304,7 @@ fn in_round_interjection_renders_one_body_row() {
     use view::model::document::SteerOriginTag;
     let theme = Theme::default();
     let width = 72u16;
-    let mut terminal = nuotc::TestTerminal::new(width, 24);
+    let mut terminal = graticule::TestTerminal::new(width, 24);
 
     let steer = TranscriptMessage::new(tool::Role::User, "use rg, not find")
         .with_origin(view::model::document::UserMessageOrigin::Steer)
@@ -410,9 +410,9 @@ fn history_panel_uses_composer_padding_not_brand_column() {
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
     let ranked = ui_primitives::fuzzy::rank(&texts, "");
-    let input_rect = nuotc::Rect::new(0, 40, 30, 2);
-    let mut terminal = nuotc::TestTerminal::new(30, 42);
-    let mut panel: Option<nuotc::Rect> = None;
+    let input_rect = graticule::Rect::new(0, 40, 30, 2);
+    let mut terminal = graticule::TestTerminal::new(30, 42);
+    let mut panel: Option<graticule::Rect> = None;
     terminal.draw(|f| {
         panel = draw_history_panel(
             f,
@@ -478,7 +478,7 @@ fn history_panel_uses_composer_padding_not_brand_column() {
 #[test]
 fn h1_underline_clamps_with_emoji_grapheme() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(60, 12);
+    let mut terminal = graticule::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
         tool::Role::Assistant,
         "# 👨‍👩‍👧 OKX\n\nbody\n",
@@ -525,7 +525,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
     });
     let buffer = terminal.buffer();
     let width = buffer.area().width;
-    let underline = nuotc::Modifier::UNDERLINE;
+    let underline = graticule::Modifier::UNDERLINE;
 
     let mut x_pos = None;
     'outer: for y in 0..buffer.area().height {

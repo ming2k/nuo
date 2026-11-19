@@ -106,6 +106,14 @@ pub struct Config {
     /// `config.toml`. Controls how the session server exits — its shutdown
     /// grace budget and its idle-empty auto-exit.
     pub server: ServerConfig,
+    /// The declared answer language (`response_language` in `agent.toml`,
+    /// ADR-0222). `None` declares nothing, so no language block is rendered.
+    ///
+    /// This is a *validated* type, not a string: it is rendered into the system
+    /// prompt, so a multi-line or envelope-breaking value is refused at the
+    /// config boundary instead of authoring instructions
+    /// ([`protocol::ResponseLanguage`]).
+    pub response_language: Option<protocol::ResponseLanguage>,
 }
 
 impl Default for Config {
@@ -130,6 +138,7 @@ impl Default for Config {
             tool_variants: ToolVariantsConfig::default(),
             instructions: UserInstructionsConfig::default(),
             server: ServerConfig::default(),
+            response_language: None,
         }
     }
 }
@@ -229,6 +238,10 @@ struct DomainAgentFile {
     tool_variants: Option<ToolVariantsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<UserInstructionsConfig>,
+    /// The declared answer language. Validated on load: a value that could
+    /// author prompt syntax is a fatal config error, not a coerced tag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_language: Option<String>,
 }
 
 /// Fail-fast boundary for the configuration matrix (`[INV-CONF-04]`).
@@ -251,7 +264,13 @@ impl Config {
     }
 
     /// Strictly validate one domain file's source against its schema. Used by
-    /// `nuo config check`; unknown keys and type errors are reported.
+    /// `nuo config check`; unknown keys, type errors, and shape errors inside a
+    /// validated value (the answer language's tag) are reported.
+    ///
+    /// The two checks are deliberately separate: serde proves the *document*
+    /// shape, and `ResponseLanguage::parse` proves the one field whose value is
+    /// rendered into the prompt. A `nuo config check` that accepted a tag the
+    /// loader would later refuse would be a check that does not check.
     pub(crate) fn validate_domain_source(label: &str, content: &str) -> Result<(), String> {
         match label {
             "server.toml" => toml::from_str::<DomainServerFile>(content)
@@ -260,9 +279,14 @@ impl Config {
             "client.toml" => toml::from_str::<DomainClientFile>(content)
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
-            "agent.toml" => toml::from_str::<DomainAgentFile>(content)
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
+            "agent.toml" => {
+                let doc = toml::from_str::<DomainAgentFile>(content).map_err(|e| e.to_string())?;
+                if let Some(language) = doc.response_language {
+                    protocol::ResponseLanguage::parse(&language)
+                        .map_err(|error| format!("`response_language`: {error}"))?;
+                }
+                Ok(())
+            }
             other => Err(format!("unknown domain file `{other}`")),
         }
     }
@@ -377,6 +401,14 @@ impl Config {
                 }
                 cfg.instructions = instructions;
             }
+            if let Some(language) = agent_doc.response_language {
+                match protocol::ResponseLanguage::parse(&language) {
+                    Ok(language) => cfg.response_language = Some(language),
+                    Err(error) => fatal_config(format_args!(
+                        "invalid agent.toml `response_language`: {error}"
+                    )),
+                }
+            }
             if let Some(ws) = agent_doc.workspace {
                 cfg.workspace = ws;
             }
@@ -439,6 +471,10 @@ impl Config {
             } else {
                 Some(self.instructions.clone())
             },
+            response_language: self
+                .response_language
+                .as_ref()
+                .map(|language| language.as_str().to_string()),
         };
         fsutil::atomic_write_bytes(
             &Self::agent_config_file_path(),
@@ -815,6 +851,38 @@ impl Config {
     /// hook decides independently), so concatenation is sufficient.
     pub fn merge_project_hooks(&mut self, project_hooks: Vec<HookSpec>) {
         self.hooks.extend(project_hooks);
+    }
+
+    /// Persist the declared answer language on its own (`/language`, ADR-0222).
+    ///
+    /// Deliberately **not** [`Config::save`] and deliberately not a field copy of
+    /// the whole snapshot: this key is the one prompt-visible setting a user
+    /// changes mid-session, and routing it through the general save would (a)
+    /// resurrect every other user-owned table from a possibly stale snapshot and
+    /// (b) make an explicitly runtime-owned setting look like a selection flush.
+    ///
+    /// The write is load → set one key → save under the same file lock the
+    /// general path takes, so a concurrent `/models` or a hand edit lands either
+    /// before or after it, never inside it. `None` removes the key, which is the
+    /// same state as never declaring one.
+    ///
+    /// `self` is updated in place on success, so the caller's live snapshot — the
+    /// one `/models` re-seeds the agent from — cannot disagree with the file. The
+    /// other tables in `self` are deliberately left alone: they may hold
+    /// project-level merges that never belong in the user-owned file.
+    pub fn persist_response_language(
+        &mut self,
+        language: Option<&protocol::ResponseLanguage>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let lock_anchor = Self::client_config_file_path();
+        let _lock = fsutil::FileLock::acquire(&lock_anchor)
+            .map_err(|e| format!("could not lock config file: {e}"))?;
+        let mut out = Config::default();
+        Self::apply_domain_overlays(&mut out);
+        out.response_language = language.cloned();
+        out.save_domain_files()?;
+        self.response_language = language.cloned();
+        Ok(())
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {

@@ -219,6 +219,7 @@ pub const fn display_token(code: KeyCode) -> &'static str {
             '9' => "9",
             '?' => "?",
             '/' => "/",
+            '*' => "*",
             '[' => "[",
             ']' => "]",
             ' ' => "Space",

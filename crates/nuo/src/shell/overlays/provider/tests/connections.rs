@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn connections_modal_empty_state_centered_copy_and_footer() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(72, 24);
+    let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut lm = view::model::layout::LayoutMap::new();
         let mut scroll = 0;
@@ -43,7 +43,7 @@ fn connections_modal_empty_state_centered_copy_and_footer() {
 #[test]
 fn connections_modal_search_empty_state() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(72, 24);
+    let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut lm = view::model::layout::LayoutMap::new();
         let mut scroll = 0;
@@ -80,7 +80,7 @@ fn connections_modal_search_empty_state() {
 #[test]
 fn connections_modal_detail_view_renders_info_and_usage() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
     let detail = protocol::ConnectionDetail {
         name: "DeepSeek Production".to_string(),
         provider: "deepseek".to_string(),
@@ -204,7 +204,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
 #[test]
 fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
     let detail = protocol::ConnectionDetail {
         name: "Google Antigravity".to_string(),
         provider: "google-antigravity".to_string(),
@@ -323,7 +323,7 @@ fn loading_dots_pure_ascii_and_fixed_display_width() {
 #[test]
 fn connections_modal_detail_view_renders_initial_loading_state_when_detail_is_none() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
 
     for (phase, expected_trimmed, forbidden_next) in [
         (0, "Loading.", Some("Loading..")),
@@ -400,7 +400,7 @@ fn fetching_dots_pure_ascii_and_fixed_display_width() {
 #[test]
 fn connections_modal_detail_view_renders_fetching_state() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
     let detail = protocol::ConnectionDetail {
         name: "DeepSeek Production".to_string(),
         provider: "deepseek".to_string(),
@@ -510,7 +510,7 @@ fn connections_modal_detail_view_renders_fetching_state() {
 #[test]
 fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 35);
+    let mut terminal = graticule::TestTerminal::new(80, 35);
     let detail = protocol::ConnectionDetail {
         name: "Google Antigravity".to_string(),
         provider: "google-antigravity".to_string(),
@@ -752,7 +752,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
 #[test]
 fn connections_modal_standalone_detail_renders_single_level_header() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let detail = protocol::ConnectionDetail {
         name: "Anthropic".to_string(),
         provider: "anthropic".to_string(),
@@ -815,7 +815,7 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
 #[test]
 fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usage() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
     let detail = protocol::ConnectionDetail {
         name: "Command Code".to_string(),
         provider: "commandcode-goat".to_string(),
@@ -958,7 +958,7 @@ fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usag
 #[test]
 fn connections_modal_detail_wraps_second_column_with_indent() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(76, 30);
+    let mut terminal = graticule::TestTerminal::new(76, 30);
     let detail = protocol::ConnectionDetail {
         name: "ggl-fox".to_string(),
         provider: "google-antigravity".to_string(),
@@ -1035,7 +1035,7 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
 #[test]
 fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 50);
+    let mut terminal = graticule::TestTerminal::new(80, 50);
     let models: Vec<String> = (1..=17).map(|i| format!("model-{i:02}")).collect();
     let detail = protocol::ConnectionDetail {
         name: "google-antigravity".to_string(),
@@ -1099,7 +1099,7 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
 #[test]
 fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 40);
+    let mut terminal = graticule::TestTerminal::new(80, 40);
     let detail = protocol::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google-antigravity".to_string(),

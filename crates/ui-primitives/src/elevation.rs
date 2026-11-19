@@ -14,7 +14,7 @@
 //!   strictly uses DEC VT100 standard **reverse video (`Modifier::REVERSE` / SGR 7)**.
 //! - **Hybrid (Ansi16):** Employs standard 16-color high-contrast foregrounds and clean dividers.
 
-use nuotc::{
+use graticule_canvas::{
     Block as RtBlock, Clear, Color, Constraint, Direction, Frame, Layout, Line, Margin, Modifier,
     Paragraph, Rect, Span, Style,
 };
@@ -61,11 +61,12 @@ impl ElevationArchetype {
         matches!(self, Self::Hybrid)
     }
 
-    pub const fn for_profile(profile: &nuotc::TerminalProfile) -> Self {
+    pub const fn for_profile(profile: &graticule_canvas::TerminalProfile) -> Self {
         match profile.color_standard {
-            nuotc::ColorStandard::DirectColor | nuotc::ColorStandard::Indexed256 => Self::Chromatic,
-            nuotc::ColorStandard::Ansi16 => Self::Hybrid,
-            nuotc::ColorStandard::Monochrome => Self::Structured,
+            graticule_canvas::ColorStandard::DirectColor
+            | graticule_canvas::ColorStandard::Indexed256 => Self::Chromatic,
+            graticule_canvas::ColorStandard::Ansi16 => Self::Hybrid,
+            graticule_canvas::ColorStandard::Monochrome => Self::Structured,
         }
     }
 }
@@ -148,7 +149,7 @@ impl ElevationContainer {
                     style = style.add_modifier(Modifier::REVERSE);
                 }
                 let mut block = RtBlock::default()
-                    .borders(nuotc::Borders::ALL)
+                    .borders(graticule_canvas::Borders::ALL)
                     .border_type(border_type_for_glyphs(&theme.glyphs))
                     .style(style);
                 let inner = block.inner(area);
@@ -168,8 +169,8 @@ impl ElevationContainer {
                 }
                 if self.level == ElevationLevel::Overlay || self.level == ElevationLevel::Panel {
                     let mut block = RtBlock::default()
-                        .borders(nuotc::Borders::ALL)
-                        .border_type(nuotc::BorderType::Plain)
+                        .borders(graticule_canvas::Borders::ALL)
+                        .border_type(graticule_canvas::BorderType::Plain)
                         .style(style);
                     let inner = block.inner(area);
                     frame.render_widget(&mut block, area);
@@ -183,11 +184,11 @@ impl ElevationContainer {
     }
 }
 
-pub fn border_type_for_glyphs(glyphs: &nuotc::GlyphSet) -> nuotc::BorderType {
+pub fn border_type_for_glyphs(glyphs: &graticule_canvas::GlyphSet) -> graticule_canvas::BorderType {
     if glyphs.corner_tl == "+" {
-        nuotc::BorderType::Ascii
+        graticule_canvas::BorderType::Ascii
     } else {
-        nuotc::BorderType::Plain
+        graticule_canvas::BorderType::Plain
     }
 }
 
@@ -196,18 +197,18 @@ pub fn border_type_for_glyphs(glyphs: &nuotc::GlyphSet) -> nuotc::BorderType {
 pub fn panel_block(theme: &Theme, bar_color: Color, bg: Color) -> RtBlock<'static> {
     match theme.elevation {
         crate::elevation::ElevationArchetype::Structured => RtBlock::default()
-            .borders(nuotc::Borders::ALL)
+            .borders(graticule_canvas::Borders::ALL)
             .border_type(border_type_for_glyphs(&theme.glyphs))
             .border_style(Style::default().fg(theme.text))
             .style(Style::default().bg(bg)),
         crate::elevation::ElevationArchetype::Hybrid => RtBlock::default()
-            .borders(nuotc::Borders::ALL)
-            .border_type(nuotc::BorderType::Plain)
+            .borders(graticule_canvas::Borders::ALL)
+            .border_type(graticule_canvas::BorderType::Plain)
             .border_style(Style::default().fg(bar_color))
             .style(Style::default().bg(bg)),
         crate::elevation::ElevationArchetype::Chromatic => RtBlock::default()
-            .borders(nuotc::Borders::LEFT)
-            .border_type(nuotc::BorderType::Thick)
+            .borders(graticule_canvas::Borders::LEFT)
+            .border_type(graticule_canvas::BorderType::Thick)
             .glyph_v(theme.glyphs.border_v)
             .border_style(Style::default().fg(bar_color))
             .style(Style::default().bg(bg)),
@@ -297,7 +298,7 @@ pub fn modal_frame(
     let inner = match theme.elevation {
         crate::elevation::ElevationArchetype::Structured => {
             let block = RtBlock::default()
-                .borders(nuotc::Borders::ALL)
+                .borders(graticule_canvas::Borders::ALL)
                 .border_type(border_type_for_glyphs(&theme.glyphs))
                 .style(Style::default().fg(theme.text).bg(theme.panel()));
             let framed = block.inner(area);
@@ -310,8 +311,8 @@ pub fn modal_frame(
         }
         crate::elevation::ElevationArchetype::Hybrid => {
             let block = RtBlock::default()
-                .borders(nuotc::Borders::ALL)
-                .border_type(nuotc::BorderType::Plain)
+                .borders(graticule_canvas::Borders::ALL)
+                .border_type(graticule_canvas::BorderType::Plain)
                 .style(Style::default().fg(theme.text).bg(theme.panel()));
             let framed = block.inner(area);
             let mut block = block;
@@ -372,14 +373,14 @@ pub fn modal_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuotc::Rect;
+    use graticule_canvas::Rect;
 
     #[test]
     fn elevation_container_chromatic_vs_structured() {
         let theme_chromatic = Theme::default();
         assert_eq!(theme_chromatic.elevation, ElevationArchetype::Chromatic);
-        let mut grid = nuotc::CellGrid::new(20, 10);
-        let mut damage = nuotc::Damage::new(10);
+        let mut grid = graticule_canvas::CellGrid::new(20, 10);
+        let mut damage = graticule_canvas::Damage::new(10);
         let mut frame = Frame::new(&mut grid, &mut damage);
         let area = Rect::new(0, 0, 20, 10);
         let inner = ElevationContainer::panel().render(&mut frame, area, &theme_chromatic);
@@ -387,8 +388,8 @@ mod tests {
 
         let theme_mono = Theme::monochrome();
         assert_eq!(theme_mono.elevation, ElevationArchetype::Structured);
-        let mut grid_mono = nuotc::CellGrid::new(20, 10);
-        let mut damage_mono = nuotc::Damage::new(10);
+        let mut grid_mono = graticule_canvas::CellGrid::new(20, 10);
+        let mut damage_mono = graticule_canvas::Damage::new(10);
         let mut frame_mono = Frame::new(&mut grid_mono, &mut damage_mono);
         let inner_mono = ElevationContainer::panel().render(&mut frame_mono, area, &theme_mono);
         assert_eq!(inner_mono, Rect::new(1, 1, 18, 8));
@@ -401,8 +402,8 @@ mod tests {
     #[test]
     fn elevation_container_focused_reverse_video() {
         let theme_mono = Theme::monochrome();
-        let mut grid = nuotc::CellGrid::new(10, 5);
-        let mut damage = nuotc::Damage::new(5);
+        let mut grid = graticule_canvas::CellGrid::new(10, 5);
+        let mut damage = graticule_canvas::Damage::new(5);
         let mut frame = Frame::new(&mut grid, &mut damage);
         let area = Rect::new(0, 0, 10, 5);
         ElevationContainer::card()
@@ -416,8 +417,8 @@ mod tests {
     #[test]
     fn modal_frame_renders_structured_borders_on_monochrome() {
         let theme_mono = Theme::monochrome();
-        let mut grid = nuotc::CellGrid::new(40, 15);
-        let mut damage = nuotc::Damage::new(15);
+        let mut grid = graticule_canvas::CellGrid::new(40, 15);
+        let mut damage = graticule_canvas::Damage::new(15);
         let mut frame = Frame::new(&mut grid, &mut damage);
         let area = Rect::new(5, 2, 30, 10);
 

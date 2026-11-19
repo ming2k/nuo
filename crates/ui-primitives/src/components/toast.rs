@@ -32,7 +32,7 @@
 //! - **Shrink-to-Fit Bounds**: Width tightly hugs wrapped lines, clamped between
 //!   `MIN_TOAST_WIDTH` and `MAX_TOAST_WIDTH`.
 
-use nuotc::{
+use graticule_canvas::{
     Block as RtBlock, Clear, Color, Frame, Modifier, Paragraph, Rect, Span, {Line, Style},
 };
 use unicode_width::UnicodeWidthStr;
@@ -284,7 +284,7 @@ pub fn draw_toast_bubble(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuotc::TestTerminal;
+    use graticule_canvas::TestTerminal;
 
     fn grid_row(terminal: &TestTerminal, y: u16) -> String {
         let buffer = terminal.buffer();
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn ascii_toast_renders_ascii_glyphs() {
         let theme = Theme {
-            glyphs: nuotc::ASCII_GLYPHS,
+            glyphs: graticule_canvas::ASCII_GLYPHS,
             ..Default::default()
         };
         let mut terminal = TestTerminal::new(80, 10);

@@ -1,6 +1,6 @@
 //! Sticky disclosure context anchor overlay for scrolled transcripts (ADR-0062 [INV-DISCLOSE-01]).
 
-use nuotc::{Frame, Paragraph, Rect};
+use graticule::{Frame, Paragraph, Rect};
 
 use super::base::MARKER_EXPANDED;
 use super::payloads::tool_summary_line;

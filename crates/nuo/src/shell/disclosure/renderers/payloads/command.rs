@@ -1,5 +1,5 @@
 //! Bash / shell command output renderer with fold handling.
-use nuotc::{Color, Line, Modifier, Rect, Span, Style};
+use graticule::{Color, Line, Modifier, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};

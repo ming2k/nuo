@@ -29,7 +29,13 @@ pub use dispatch::dispatch;
 /// Bundled slash-dispatch environment: the server plumbing a slash command
 /// needs beyond the command text itself.
 pub struct SlashEnv<'a> {
-    pub config: &'a Config,
+    /// The authoritative runtime configuration, **mutable** because a slash
+    /// command is the one place a user changes a setting the rest of the process
+    /// reads back (ADR-0222, `/language`). A read-only borrow here meant the write
+    /// reached disk while the in-memory copy — which `/models` re-seeds the agent
+    /// from — kept the old value, so the very next model switch silently undid the
+    /// change.
+    pub config: &'a mut Config,
     pub agent: &'a Arc<Agent>,
     pub mcp_runtime: &'a Arc<McpRuntime>,
     pub workspace_security: &'a Arc<WorkspaceSecurityStore>,

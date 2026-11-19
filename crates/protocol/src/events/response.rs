@@ -148,6 +148,19 @@ pub enum AgentResponse {
     /// and re-sent after any mutation handled by the harness
     /// ([`AgentRequest::RevokePermission`] / [`AgentRequest::ToggleTool`]).
     ThreadContext(ThreadContextSnapshot),
+    /// Reply to [`AgentRequest::QueryContextPlan`]: the most recent measured
+    /// context plan, block by block, with the rendered body of every active
+    /// block (ADR-0220).
+    ///
+    /// `plan: None` means no request has been assembled in this thread yet — a
+    /// real answer, not an error, and the reason a client can say "send one
+    /// message first" instead of painting an empty table. `thread_id` identifies
+    /// the thread that measured it, so a reply that raced a thread switch is
+    /// rejected rather than installed.
+    ContextPlan {
+        thread_id: String,
+        plan: Option<ContextPlanView>,
+    },
     /// The transcript layout preference was updated (from the `/config` modal
     /// via [`AgentRequest::UpdateTuiLayout`]). Carries the persisted config
     /// string so the modal re-renders from the authoritative state — the TOML
@@ -203,6 +216,18 @@ pub struct ContextTokenSnapshot {
     /// durable input so diagnostics do not conflate the two.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temporary_context_tokens: Option<usize>,
+    /// Rendered instruction-region cost (`fixed` + `transient`), the number the
+    /// context-plan dialog attributes block by block (ADR-0220).
+    ///
+    /// Absent on snapshots produced before the layers were named; a reader must
+    /// treat `None` as "not recorded", never as zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions_tokens: Option<usize>,
+    /// Cost of every visible tool spec's schema. `overhead_tokens` used to hide
+    /// this beside the system prompt; a tool surface large enough to matter was
+    /// indistinguishable from a long prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_schema_tokens: Option<usize>,
 }
 
 impl ContextTokenSnapshot {
@@ -213,6 +238,8 @@ impl ContextTokenSnapshot {
             overhead_tokens: None,
             history_tokens: None,
             temporary_context_tokens: None,
+            instructions_tokens: None,
+            tool_schema_tokens: None,
         }
     }
 
@@ -226,6 +253,8 @@ impl ContextTokenSnapshot {
             overhead_tokens: Some(estimate.overhead_tokens),
             history_tokens: Some(estimate.history_tokens),
             temporary_context_tokens: Some(estimate.temporary_context_tokens),
+            instructions_tokens: Some(estimate.instructions_tokens),
+            tool_schema_tokens: Some(estimate.tool_schema_tokens),
         }
     }
 }

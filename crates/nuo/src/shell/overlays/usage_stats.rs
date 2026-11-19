@@ -13,7 +13,7 @@
 //! modal; only lifecycle state is colored. A light bar chart of the last two
 //! weeks of daily totals heads the body so daily shape is legible at a
 //! glance.
-use nuotc::{
+use graticule::{
     Frame, Style, {Line, Span},
 };
 use protocol::RequestUsageStatus;
@@ -45,7 +45,7 @@ pub fn draw_usage_stats_modal(
     theme: &Theme,
     selection: &SelectionState,
     layout_map: &mut LayoutMap,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let geometry = ContentModalSpec::USAGE_STATS;
     let probe = content_modal_probe(frame, geometry);
     let body_width = (probe.width as usize)

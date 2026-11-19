@@ -52,9 +52,9 @@ fn tab_after_esc_reopens_through_the_event_loop_context_shape() {
     let mut cursor = app.composer.cursor_position;
     let mut drag = view::model::selection::SelectionDrag::default();
     let action = crate::shell::input::route_event_motion(
-        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Tab,
-            crossterm::event::KeyModifiers::NONE,
+        graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Tab,
+            graticule::event::KeyModifiers::NONE,
         )),
         &mut input,
         &mut cursor,
@@ -92,7 +92,7 @@ fn relay_left_arrow_breaks_selection_at_head_then_steps() {
     let mut app = app_with_input_selection("hello world");
     // Hidden caret at the release point: end of "hello world" (char 11).
     // ← must break the selection there and step one left: 10.
-    let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
+    let action = relay_probe(&mut app, graticule::event::KeyCode::Left);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -112,7 +112,7 @@ fn relay_left_arrow_breaks_selection_at_head_then_steps() {
 fn relay_right_arrow_clamps_at_buffer_end() {
     let mut app = app_with_input_selection("abc");
     app.composer.cursor_position = 3; // released at the end
-    relay_probe(&mut app, crossterm::event::KeyCode::Right);
+    relay_probe(&mut app, graticule::event::KeyCode::Right);
     assert_eq!(app.composer.cursor_position, 3, "→ past the end clamps");
     assert_eq!(app.transcript.selection, SelectionState::None);
 }
@@ -125,7 +125,7 @@ fn relay_up_and_down_restore_hidden_caret() {
     // position in place.
     let mut app = app_with_input_selection("hello");
     app.composer.cursor_position = 1; // stale visible caret from before the drag
-    relay_probe(&mut app, crossterm::event::KeyCode::Up);
+    relay_probe(&mut app, graticule::event::KeyCode::Up);
     assert_eq!(
         app.composer.cursor_position, 5,
         "↑ must restore the caret at the head edge, not the stale position"
@@ -137,7 +137,7 @@ fn relay_up_and_down_restore_hidden_caret() {
     // restored position on the next key.
     let mut app = app_with_input_selection("hello");
     app.composer.cursor_position = 1;
-    relay_probe(&mut app, crossterm::event::KeyCode::Down);
+    relay_probe(&mut app, graticule::event::KeyCode::Down);
     assert_eq!(app.composer.cursor_position, 5);
     assert_eq!(app.transcript.selection, SelectionState::None);
 }
@@ -145,8 +145,8 @@ fn relay_up_and_down_restore_hidden_caret() {
 #[test]
 fn relay_backspace_and_delete_replace_selection() {
     for code in [
-        crossterm::event::KeyCode::Backspace,
-        crossterm::event::KeyCode::Delete,
+        graticule::event::KeyCode::Backspace,
+        graticule::event::KeyCode::Delete,
     ] {
         let mut app = app_with_input_selection("keep this");
         app.composer.cursor_position = 1; // stale visible caret
@@ -169,13 +169,13 @@ fn relay_ignores_keys_without_selection_or_outside_family() {
     // No selection: the probe must miss so ordinary input handling runs.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hi".to_string();
-    assert!(relay_probe(&mut app, crossterm::event::KeyCode::Left).is_none());
+    assert!(relay_probe(&mut app, graticule::event::KeyCode::Left).is_none());
 
     // With a selection, an uninvolved key (e.g. `x`) must NOT be swallowed:
     // typing over a selection is out of scope for the relay (the TUI has no
     // replace-selection-on-type), so the key keeps its normal meaning.
     let mut app = app_with_input_selection("hi");
-    assert!(relay_probe(&mut app, crossterm::event::KeyCode::Char('x')).is_none());
+    assert!(relay_probe(&mut app, graticule::event::KeyCode::Char('x')).is_none());
     assert!(
         app.has_input_selection(),
         "an uninvolved key must leave the selection intact"

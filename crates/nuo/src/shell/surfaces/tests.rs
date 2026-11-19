@@ -9,7 +9,7 @@ fn scope_matrix_assigns_exactly_one_domain_per_dialog() {
         DialogScope::Scene(SceneKind::Thread)
     );
     for id in [
-        DialogKind::Switcher,
+        DialogKind::Palette,
         DialogKind::Threads,
         DialogKind::Models,
         DialogKind::Connections,
@@ -21,6 +21,7 @@ fn scope_matrix_assigns_exactly_one_domain_per_dialog() {
     for id in [
         DialogKind::ThreadStats,
         DialogKind::SessionTrace,
+        DialogKind::ContextPlan,
         DialogKind::SessionTree,
         DialogKind::Tools,
         DialogKind::Mcp,
@@ -46,7 +47,7 @@ fn availability_gates_by_scope() {
 #[test]
 fn retention_policies_follow_scope() {
     assert_eq!(
-        DialogKind::Switcher.retention_policy(),
+        DialogKind::Palette.retention_policy(),
         RetentionPolicy::Ephemeral
     );
     assert_eq!(
@@ -88,21 +89,26 @@ fn unwind_session_removes_session_dialogs_and_preserves_global() {
     let mut router = SurfaceRouter::new();
     router.present_dialog(DialogKind::Models);
     router.present_dialog(DialogKind::ThreadStats);
+    router.present_dialog(DialogKind::ContextPlan);
     router.unwind_session();
     assert!(!router.contains_dialog(DialogKind::ThreadStats));
+    assert!(
+        !router.contains_dialog(DialogKind::ContextPlan),
+        "a context plan is per-thread, so it must not outlive the session"
+    );
     assert!(router.contains_dialog(DialogKind::Models));
 }
 
 #[test]
 fn ephemeral_switcher_resets_on_pop() {
     let mut router = SurfaceRouter::new();
-    router.present_dialog(DialogKind::Switcher);
-    router.dlg_mut::<SwitcherDialog>().selected = 5;
-    router.dlg_mut::<SwitcherDialog>().query.text = "abc".to_string();
+    router.present_dialog(DialogKind::Palette);
+    router.dlg_mut::<PaletteDialog>().selected = 5;
+    router.dlg_mut::<PaletteDialog>().query.text = "abc".to_string();
     router.pop_overlay();
     // Ephemeral: the entity is dropped on pop; a fresh one is default.
-    assert_eq!(router.dlg::<SwitcherDialog>().selected, 0);
-    assert!(router.dlg::<SwitcherDialog>().query.is_empty());
+    assert_eq!(router.dlg::<PaletteDialog>().selected, 0);
+    assert!(router.dlg::<PaletteDialog>().query.is_empty());
 }
 
 #[test]

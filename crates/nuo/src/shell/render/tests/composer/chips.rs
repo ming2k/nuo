@@ -8,7 +8,7 @@ fn draw_composer_paints_paste_and_image_chips_distinctly() {
     let paste_chip = view::composer_attachments::paste_chip(1, 3, 2048);
     let image_chip = view::composer_attachments::image_chip(1, 1536);
     let input = format!("see {paste_chip} plus {image_chip} end");
-    let mut terminal = nuotc::TestTerminal::new(120, 5);
+    let mut terminal = graticule::TestTerminal::new(120, 5);
     terminal.draw(|f| {
         draw_composer(
             ComposerProps {
@@ -37,7 +37,7 @@ fn draw_composer_paints_paste_and_image_chips_distinctly() {
     let interior_bg = theme.input_surface();
     // Chip labels use ASCII metadata; display columns
     // come from `str_len`, never from the raw byte length.
-    let paste_width = nuotc::str_len(&paste_chip);
+    let paste_width = graticule::str_len(&paste_chip);
     let paste_start = text_x + "see ".len() as u16;
     let paste_end = paste_start + paste_width as u16;
     for col in paste_start..paste_end {
@@ -53,12 +53,12 @@ fn draw_composer_paints_paste_and_image_chips_distinctly() {
             "paste chip lost its pill band"
         );
         assert!(
-            cell.style.add.contains(nuotc::Modifier::BOLD),
+            cell.style.add.contains(graticule::Modifier::BOLD),
             "paste chip glyph lost bold"
         );
     }
 
-    let image_width = nuotc::str_len(&image_chip);
+    let image_width = graticule::str_len(&image_chip);
     let image_start = text_x + ("see ".len() + paste_width + " plus ".len()) as u16;
     let image_end = image_start + image_width as u16;
     for col in image_start..image_end {
@@ -74,7 +74,7 @@ fn draw_composer_paints_paste_and_image_chips_distinctly() {
             "image chip lost its pill band"
         );
         assert!(
-            cell.style.add.contains(nuotc::Modifier::BOLD),
+            cell.style.add.contains(graticule::Modifier::BOLD),
             "image chip glyph lost bold"
         );
     }
@@ -109,7 +109,7 @@ fn draw_composer_leaves_orphan_chip_labels_as_plain_text() {
     let orphan_image = "[Image #1]".to_string();
     let orphan_paste = "[Pasted text #1 +5 lines]".to_string();
     let input = format!("typed {orphan_image} and {orphan_paste} here");
-    let mut terminal = nuotc::TestTerminal::new(100, 5);
+    let mut terminal = graticule::TestTerminal::new(100, 5);
     terminal.draw(|f| {
         draw_composer(
             ComposerProps {
@@ -144,7 +144,7 @@ fn draw_composer_leaves_orphan_chip_labels_as_plain_text() {
         ("typed [Image #1] and ".len(), &orphan_paste),
     ] {
         let start = text_x + offset as u16;
-        let end = start + nuotc::str_len(label) as u16;
+        let end = start + graticule::str_len(label) as u16;
         for col in start..end {
             let cell = buf.get(col, text_y).expect("orphan chip cell");
             assert_eq!(
@@ -157,7 +157,7 @@ fn draw_composer_leaves_orphan_chip_labels_as_plain_text() {
                 "orphan label {label:?} must not get a pill band at col {col}"
             );
             assert!(
-                !cell.style.add.contains(nuotc::Modifier::BOLD),
+                !cell.style.add.contains(graticule::Modifier::BOLD),
                 "orphan label {label:?} must not be bold at col {col}"
             );
         }
@@ -174,7 +174,7 @@ fn draw_composer_colors_only_backed_chips_when_mixed() {
     let orphan_image = "[Image #1]".to_string();
     // One paste payload staged; the image chip is a typed orphan.
     let input = format!("{real_paste} then {orphan_image} end");
-    let mut terminal = nuotc::TestTerminal::new(100, 5);
+    let mut terminal = graticule::TestTerminal::new(100, 5);
     terminal.draw(|f| {
         draw_composer(
             ComposerProps {
@@ -203,7 +203,7 @@ fn draw_composer_colors_only_backed_chips_when_mixed() {
     let interior_bg = theme.input_surface();
 
     // The backed paste chip gets the blue pill.
-    let paste_width = nuotc::str_len(&real_paste);
+    let paste_width = graticule::str_len(&real_paste);
     let paste_end = text_x + paste_width as u16;
     for col in text_x..paste_end {
         let cell = buf.get(col, text_y).expect("backed paste cell");
@@ -221,7 +221,7 @@ fn draw_composer_colors_only_backed_chips_when_mixed() {
 
     // The orphan image label stays plain text.
     let orphan_start = text_x + ("".len() + paste_width + " then ".len()) as u16;
-    let orphan_end = orphan_start + nuotc::str_len(&orphan_image) as u16;
+    let orphan_end = orphan_start + graticule::str_len(&orphan_image) as u16;
     for col in orphan_start..orphan_end {
         let cell = buf.get(col, text_y).expect("orphan image cell");
         assert_eq!(
@@ -244,7 +244,7 @@ fn draw_composer_chip_keeps_identity_color_under_selection() {
     let theme = Theme::default();
     let paste_chip = view::composer_attachments::paste_chip(1, 3, 2048);
     let input = format!("see {paste_chip} end");
-    let mut terminal = nuotc::TestTerminal::new(80, 5);
+    let mut terminal = graticule::TestTerminal::new(80, 5);
     // Select exactly the chip bytes (absolute offsets into `input`).
     let sel_lo = "see ".len();
     let sel_hi = sel_lo + paste_chip.len();
@@ -279,7 +279,7 @@ fn draw_composer_chip_keeps_identity_color_under_selection() {
     let text_y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let text_x = COMPOSER_PROMPT_PREFIX_COLS as u16;
     let chip_start = text_x + sel_lo as u16;
-    let chip_end = chip_start + nuotc::str_len(&paste_chip) as u16;
+    let chip_end = chip_start + graticule::str_len(&paste_chip) as u16;
     for col in chip_start..chip_end {
         let cell = buf.get(col, text_y).expect("selected chip cell");
         assert_eq!(
@@ -305,7 +305,7 @@ fn draw_composer_chip_pill_continues_across_wrap() {
     // Narrow text area (16 - 2 prefix - 2 pad = 12 cols) forces the
     // `[Image #1 (1.5 KB)]` label onto its own wrapped fragment.
     let input = format!("xx {image_chip} yy");
-    let mut terminal = nuotc::TestTerminal::new(16, 6);
+    let mut terminal = graticule::TestTerminal::new(16, 6);
     terminal.draw(|f| {
         draw_composer(
             ComposerProps {

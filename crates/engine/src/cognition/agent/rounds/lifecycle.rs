@@ -1309,13 +1309,20 @@ impl Agent {
         // fingerprint walk (hash-rate, not BPE-rate) over unchanged bytes
         // — cheap enough to stay inline on the attempt path.
         let request_estimate = self.estimate_model_request(request);
+        // The plan was measured when this request was assembled; the token
+        // shape is measured here, at the only boundary that knows the bytes are
+        // final. Storing both on one measurement is what lets the context dialog
+        // attribute the region it is looking at (ADR-0220 §4).
+        self.record_request_estimate(request_estimate);
         // Archive the freshly assembled request's projection once
         // per logical invocation. A transport retry reuses `pending_request`
         // (so `resuming_provider_request` is true) and must not re-record.
         if !resuming_provider_request {
+            let plan = self.context_plan();
             self.fire_request_projection_persist(protocol::RequestProjection::from_request(
                 request,
                 request_estimate.temporary_context_tokens,
+                plan.as_ref(),
                 self.round_count(),
                 round.turn_index as u64,
                 crate::runtime::time::unix_epoch_ms(),

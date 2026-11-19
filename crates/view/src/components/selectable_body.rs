@@ -26,7 +26,7 @@
 //! `render_body`: their rows are interactive *targets*, not documents, and
 //! selection there would fight the click affordances.
 
-use nuotc::{Frame, Rect, Span, Style};
+use graticule_canvas::{Frame, Rect, Span, Style};
 
 use crate::model::layout::{BlockRegion, LayoutMap, LinkHit, MODAL_DOC_MSG_IDX};
 use crate::model::selection::SelectionState;
@@ -105,7 +105,7 @@ pub fn render_selectable_body(
     // `hang_prefix` (or a whitespace fill of the prefix width), and each
     // region records its own prefix width via `prefix_cols` so hit-testing
     // skips the decoration.
-    let seg_width = |s: &RowSegment| -> u16 { nuotc::str_len(&s.text) as u16 };
+    let seg_width = |s: &RowSegment| -> u16 { graticule_canvas::str_len(&s.text) as u16 };
     let wrap_budget = |row: &SelectableRow| -> usize {
         let prefix_w = row.prefix.as_ref().map(seg_width).unwrap_or(0);
         width.saturating_sub(prefix_w as usize).max(1)
@@ -182,7 +182,7 @@ pub fn render_selectable_body(
                 .insert(0, Span::styled(deco_text.clone(), *deco_style));
         }
         let rect = Rect::new(body_rect.x, y, body_rect.width, 1);
-        frame.render_widget(&mut nuotc::Paragraph::new(line), rect);
+        frame.render_widget(&mut graticule_canvas::Paragraph::new(line), rect);
         layout_map.push(BlockRegion {
             message_idx: MODAL_DOC_MSG_IDX,
             block_idx: logical_idx,
@@ -214,8 +214,8 @@ pub fn render_selectable_body(
                     } else {
                         wl.text[start_byte..end_byte].to_string()
                     };
-                let x_offset = nuotc::str_len(&wl.text[..start_byte]);
-                let w = nuotc::str_len(&wl.text[start_byte..end_byte]).max(1);
+                let x_offset = graticule_canvas::str_len(&wl.text[..start_byte]);
+                let w = graticule_canvas::str_len(&wl.text[start_byte..end_byte]).max(1);
                 layout_map.push_link_hit(LinkHit {
                     message_idx: MODAL_DOC_MSG_IDX,
                     block_idx: logical_idx,

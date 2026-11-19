@@ -2,9 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use persistence::config::{Config, Credentials, resolve_web_config};
-use protocol::{
-    SecretString, WebCredentialStatus, WebProviderAxis, WebSearchProvider,
-};
+use protocol::{SecretString, WebCredentialStatus, WebProviderAxis, WebSearchProvider};
 
 #[test]
 fn config_is_behavior_only_and_uses_web_table() {
@@ -56,4 +54,3 @@ fn required_credential_readiness_is_explicit() {
     );
     assert!(resolved.runtime.search_credential.is_none());
 }
-

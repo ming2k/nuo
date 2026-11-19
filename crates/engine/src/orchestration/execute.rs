@@ -345,6 +345,7 @@ impl AdmittedRound {
         let stream_restart_limit = self.context.stream_restart_max_attempts.min(10);
         let mut silent_failures: usize = 0;
         let mut visible_failures: usize = 0;
+        let mut consecutive_unreachable: usize = 0;
         let mut compacted_after_overflow = false;
         // An in-flight **image-cause probe**: `true` means the attempt now
         // running had its attachments withheld speculatively, because a request
@@ -469,10 +470,10 @@ impl AdmittedRound {
                 ImageProbeAction::Replace(replacement) => error = replacement,
             }
 
-            let (message, retry_after_ms) = match &error {
+            let (error_kind, message, retry_after_ms) = match &error {
                 HarnessError::Provider(err) => match err.retry_disposition() {
                     protocol::RetryDisposition::Retry { retry_after_ms } => {
-                        (err.message().to_string(), retry_after_ms)
+                        (err.kind(), err.message().to_string(), retry_after_ms)
                     }
                     _ => break Err(error),
                 },
@@ -482,9 +483,12 @@ impl AdmittedRound {
             // visible output is a **stream restart**: the attempt's partial state
             // has to be discarded (the round already retracted its announced calls;
             // `StreamDiscard` drops the streamed text), and an upstream that died
-            // mid-response gets only a few chances to do better. A failure that
-            // emitted nothing is a **silent attempt**: cheap to repeat, so the
-            // larger `retry_max_attempts` budget applies.
+            // mid-response gets only a few chances to do better. A local/routing
+            // unreachability failure (`Unreachable`) gets the short offline
+            // fast-fail budget (`UNREACHABLE_MAX_ATTEMPTS`) so an offline host
+            // parks a durable `/retry` point instead of waiting 3.5–9 minutes
+            // (ADR-0224 `[INV-RESILIENCE-01]`). Any other silent failure uses the
+            // larger `retry_max_attempts` budget.
             let visible = attempt_visible.load(Ordering::SeqCst);
             // Drop the attempt's streamed text **before** deciding whether to
             // retry: the final failed attempt is just as partial as the ones that
@@ -498,6 +502,7 @@ impl AdmittedRound {
                 ));
             }
             let (next_attempt, max_attempts) = if visible {
+                consecutive_unreachable = 0;
                 visible_failures += 1;
                 if visible_failures > stream_restart_limit {
                     break Err(HarnessError::Other(format!(
@@ -508,17 +513,34 @@ impl AdmittedRound {
                     )));
                 }
                 (visible_failures + 1, stream_restart_limit + 1)
+            } else if error_kind == protocol::ProviderErrorKind::Unreachable {
+                consecutive_unreachable += 1;
+                silent_failures += 1;
+                let unreachable_limit =
+                    retry_limit.min(crate::runtime::retry::UNREACHABLE_MAX_ATTEMPTS);
+                if consecutive_unreachable >= unreachable_limit || silent_failures >= retry_limit {
+                    break Err(HarnessError::Other(format!(
+                        "Network unreachable after {consecutive_unreachable} attempt(s): \
+                         {message}. Check your network connection and run `/retry`."
+                    )));
+                }
+                (consecutive_unreachable + 1, unreachable_limit)
             } else {
+                consecutive_unreachable = 0;
                 silent_failures += 1;
                 if silent_failures >= retry_limit {
                     break Err(HarnessError::Other(message));
                 }
                 (silent_failures + 1, retry_limit)
             };
+            if crate::runtime::retry::should_flush_pools(error_kind) {
+                let evicted = provider::transport::clear_shared_pools();
+                if evicted > 0 {
+                    tracing::debug!(evicted, "flushed shared provider pools before retry");
+                }
+            }
             let base_ms = crate::runtime::retry::retry_delay_ms(
-                silent_failures
-                    .saturating_add(visible_failures)
-                    .saturating_sub(1),
+                silent_failures.saturating_add(visible_failures),
                 retry_after_ms,
                 retry_base_ms,
                 retry_max_ms,

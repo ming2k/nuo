@@ -13,7 +13,7 @@ fn render_settings_editor(
     overrides: Option<(Option<bool>, Option<bool>)>,
 ) -> String {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     terminal.draw(|f| {
         draw_model_editor(
             f,
@@ -250,7 +250,7 @@ fn only_the_api_key_field_shows_a_caret() {
     // field reads as "type here" and jitters as the value cycles.
     let theme = Theme::default();
     let full = levels(&["low", "medium", "high", "xhigh", "max"]);
-    let mut terminal = nuotc::TestTerminal::new(120, 24);
+    let mut terminal = graticule::TestTerminal::new(120, 24);
     terminal.draw(|f| {
         draw_model_editor(
             f,
@@ -269,10 +269,10 @@ fn only_the_api_key_field_shows_a_caret() {
     });
     assert_eq!(
         terminal.cursor(),
-        nuotc::CursorState::Hidden,
+        graticule::CursorState::Hidden,
         "no caret while the effort selector is focused"
     );
-    let mut terminal = nuotc::TestTerminal::new(120, 24);
+    let mut terminal = graticule::TestTerminal::new(120, 24);
     terminal.draw(|f| {
         draw_model_editor(
             f,
@@ -290,7 +290,7 @@ fn only_the_api_key_field_shows_a_caret() {
         );
     });
     assert!(
-        matches!(terminal.cursor(), nuotc::CursorState::Visible(..)),
+        matches!(terminal.cursor(), graticule::CursorState::Visible(..)),
         "the API-key text field keeps its caret"
     );
 }
@@ -345,7 +345,7 @@ fn reasoning_tag_shows_openai_effort_and_anthropic_opt_in() {
 /// layout-level assertions.
 fn render_preset_chooser(selected: usize, width: u16, height: u16) -> String {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     let mut scroll = 0;
     terminal.draw(|f| {
         draw_preset_chooser(selected, f, &theme, &mut scroll);
@@ -483,7 +483,7 @@ fn preset_chooser_highlights_the_focused_row_with_a_background_fill() {
         .position(|t| t.id == "openai")
         .expect("openai preset");
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 32);
+    let mut terminal = graticule::TestTerminal::new(100, 32);
     let mut scroll = 0;
     terminal.draw(|f| {
         draw_preset_chooser(openai_idx, f, &theme, &mut scroll);
@@ -512,7 +512,7 @@ fn preset_chooser_highlights_the_focused_row_with_a_background_fill() {
     // terminal edges past the unpainted (Reset) margin, then skipping
     // the inset padding (painted panel-background, not brand).
     let brand = theme.brand();
-    let is_painted = |x: u16| buf.get(x, focused_y).unwrap().bg() != nuotc::Color::Reset;
+    let is_painted = |x: u16| buf.get(x, focused_y).unwrap().bg() != graticule::Color::Reset;
     let mut left = 0u16;
     while !is_painted(left) {
         left += 1;

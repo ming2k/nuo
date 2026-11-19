@@ -1,6 +1,6 @@
 //! Shared helper routines and search components for provider modals.
 
-use nuotc::{
+use graticule::{
     Frame, Paragraph, Rect, {Line, Span}, {Modifier, Style},
 };
 use unicode_width::UnicodeWidthStr;

@@ -13,7 +13,7 @@ This page is cited directly by `crates/nuo/src/shell/overlays/provider/models.rs
 
 The overlay vocabulary is declared in `crates/nuo-tui/src/surfaces/mod.rs`:
 
-- **`DialogKind`** — the full-page dialog set (tools, MCP, skills, permissions, usage stats, quotas, thread stats, session trace, models, connections, history search, queue, threads, session tree, switcher, port share).
+- **`DialogKind`** — the full-page dialog set (tools, MCP, skills, permissions, usage stats, quotas, thread stats, session trace, context plan, models, connections, history search, queue, threads, session tree, switcher, port share).
 - **`SheetKind`** — lightweight interaction sheets (permission, question, input injection, model editor, provider preset, OAuth pending, custom provider, provider delete confirm).
 - **`OverlaySurface`** / **`Surface`** — the dispatch enum the render loop matches on.
 
@@ -40,6 +40,7 @@ Content-sized modals (`ContentModalSpec(width_percent, min_rows, max_viewport_pe
 | `QUEUE` | 66 | 9 | 84 |
 | `THREAD_STATS` | 76 | 11 | 80 |
 | `SESSION_TRACE` | 80 | 11 | 92 |
+| `CONTEXT_PLAN` | 84 | 12 | 92 |
 | `USAGE_STATS` | 76 | 12 | 86 |
 | `MODEL_EDITOR` | 66 | 6 | 60 |
 | `OAUTH_PENDING` | 76 | 7 | 80 |
@@ -183,3 +184,18 @@ Per **ADR-0076** (`[INV-TUI-INERT-01]`, `[INV-TUI-INERT-02]`), all selectable li
 ## 6. Footer Hints
 
 Modal footers render keycap hints through `render_modal_footer` (`crates/nuo-tui/src/components/footer.rs`). Each hint carries a priority; when the width cannot fit every hint, lower-priority hints drop before higher-priority ones, so the essential dismiss/confirm affordances always survive truncation.
+
+---
+
+## 7. Closed Questions vs. Open Questions
+
+`QuestionModel` has two constructors, and the difference is whether the answer is a subset of a known set:
+
+| Constructor | Free-text "Other" row | Used by |
+| :--- | :--- | :--- |
+| `QuestionModel::open` | present | AI-authored `ask_user` — the model may ask an open question, so "none of these, here is my answer" has to be typeable |
+| `QuestionModel::open_closed` | suppressed | the workspace trust gate — the answer is a selection from the assets on screen ([ADR-0221](../../adr/0221-the-trust-gate-is-composed-from-columns-and-bands.md)) |
+
+The suppression is in the **state machine**, not only in the paint: with the row existing for navigation but not for the painter, `↓` could land on an unpainted row and `Enter` there submitted a decision the user could not see. `QuestionModel::free_text()` reports the policy, and it travels through `update_mut`'s take-and-replace.
+
+The trust gate's own composition is in [Trust Gate](trust-gate.md).

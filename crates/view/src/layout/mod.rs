@@ -28,7 +28,7 @@
 //! in [`Strategy::build`].
 pub mod turn_band;
 
-use nuotc::{Color, Flex, FlexItem, Frame, Rect};
+use graticule_canvas::{Color, Flex, FlexItem, Frame, Rect};
 
 use crate::model::document::TranscriptMessage;
 use crate::model::layout::{InteractiveTarget, LayoutMap};

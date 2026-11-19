@@ -1,6 +1,6 @@
 //! Scrollable content components.
 
-use nuotc::{Frame, Line, Rect};
+use graticule_canvas::{Frame, Line, Rect};
 
 use super::super::Theme;
 use super::super::primitives::{BodyRenderOptions, render_body};

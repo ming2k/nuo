@@ -5,7 +5,7 @@
 //! polluting conversation transcripts.
 
 use crate::shell::render::Theme;
-use nuotc::{Frame, Line, Rect, Span, Style};
+use graticule::{Frame, Line, Rect, Span, Style};
 use ui_primitives::primitives::{
     ContentModalSpec, FooterHint, content_modal_area, keyvocab, modal_chrome_rows, modal_frame,
     modal_header, render_body, render_modal_footer,

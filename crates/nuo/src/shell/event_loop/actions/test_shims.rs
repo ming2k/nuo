@@ -17,7 +17,6 @@ pub(crate) async fn dispatch_action_for_test(
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let (paste_tx, _paste_rx) = mpsc::unbounded_channel();
-    let mut sgr_guard = input::SgrLeakGuard::default();
     let session = crate::shell::HookStartSource::Remote {
         session_id: viewed_session_id.to_string(),
     };
@@ -28,14 +27,13 @@ pub(crate) async fn dispatch_action_for_test(
         copy_tx: &copy_tx,
         copy_pending: &copy_pending,
         paste_tx: &paste_tx,
-        sgr_guard: &mut sgr_guard,
         // The test shim dispatches a bare action with no originating event;
         // treat it as a keystroke, the conservative default for the armed-window
         // confirmation policy.
         key_event: true,
     };
-    let backend = nuotc::Backend::new(Vec::new()).with_bce(nuotc::Bce::No);
-    let mut terminal = nuotc::Terminal::new(backend);
+    let backend = graticule::Backend::new(Vec::new()).with_bce(graticule::Bce::No);
+    let mut terminal = graticule::Terminal::with_size(backend, 80, 24);
     dispatch_action(app, &mut terminal, action, &mut ctx).await
 }
 
@@ -53,7 +51,6 @@ pub(crate) async fn dispatch_command_for_test(
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let (paste_tx, _paste_rx) = mpsc::unbounded_channel();
-    let mut sgr_guard = input::SgrLeakGuard::default();
     let session = crate::shell::HookStartSource::Remote {
         session_id: viewed_session_id.to_string(),
     };
@@ -64,7 +61,6 @@ pub(crate) async fn dispatch_command_for_test(
         copy_tx: &copy_tx,
         copy_pending: &copy_pending,
         paste_tx: &paste_tx,
-        sgr_guard: &mut sgr_guard,
         key_event: true,
     };
     execute_command_by_id(app, &ctx, command).await

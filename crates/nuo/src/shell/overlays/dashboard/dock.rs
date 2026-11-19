@@ -176,11 +176,11 @@ pub(crate) fn draw_compact_cards(
             let is_selected = idx == selected;
             let is_current = entry.row.id == current_session_id;
             if is_selected {
-                frame.render_widget(&mut nuotc::Clear::default(), cell);
+                frame.render_widget(&mut graticule::Clear::default(), cell);
                 let style = theme.selection_style(true);
                 frame.render_widget(&mut RtBlock::default().style(style), cell);
             } else if is_current {
-                frame.render_widget(&mut nuotc::Clear::default(), cell);
+                frame.render_widget(&mut graticule::Clear::default(), cell);
                 let style = Style::default().bg(theme.panel());
                 frame.render_widget(&mut RtBlock::default().style(style), cell);
             }

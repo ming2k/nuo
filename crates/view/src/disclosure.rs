@@ -1,6 +1,6 @@
 //! Step state machine: the three orthogonal axes that determine a step's
 //! presentation, and the pure functions that reduce them to color.
-use nuotc::Color;
+use graticule_canvas::Color;
 
 use ui_primitives::theme::Theme;
 

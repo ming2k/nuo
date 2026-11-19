@@ -1,7 +1,7 @@
 use super::*;
 use crate::shell::input::route_event_motion;
 use crate::shell::surfaces::SceneKind;
-use crossterm::event::{Event, KeyEvent, KeyEventKind, KeyEventState};
+use graticule::event::{Event, KeyEvent, KeyEventKind, KeyEventState};
 
 /// Run states used to build a context for resolver tests. Test-local so
 /// the shipped module carries no dead types (the resolver is
@@ -1016,8 +1016,8 @@ fn central_match_no_longer_owns_chat_enter_on_settings() {
     let mut drag = view::model::selection::SelectionDrag::default();
     let action = route_event_motion(
         Event::Key(KeyEvent {
-            code: crossterm::event::KeyCode::Enter,
-            modifiers: crossterm::event::KeyModifiers::NONE,
+            code: graticule::event::KeyCode::Enter,
+            modifiers: graticule::event::KeyModifiers::NONE,
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         }),

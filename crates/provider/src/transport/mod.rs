@@ -18,7 +18,7 @@ pub use diagnostic::TransportDiagnostic;
 pub use encoding::{encode_component, form_encode, percent_encode, percent_encode_form_pairs};
 pub use error::{TransportError, retry_after_ms};
 pub use http::{Body, Http, Reply, Request};
-pub use network::{direct_client, shared_client};
+pub use network::{TCP_KEEPALIVE_IDLE, clear_shared_pools, direct_client, shared_client};
 pub use request::{RequestBuilder, RequestParts};
 pub use sse::{data_payloads, payloads_from_chunks};
 

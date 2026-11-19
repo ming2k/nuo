@@ -41,7 +41,7 @@ pub(crate) fn apply_additional_roots(
 pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args: &str) {
     let (session, config, agent, lifecycle, resp_tx, provider_for_task, shared_confinement) = (
         env.session,
-        env.config,
+        &mut *env.config,
         env.agent,
         env.lifecycle,
         env.resp_tx,
@@ -150,7 +150,7 @@ pub(crate) async fn switch_or_start_session_with_role(
             workspace_security,
         ) = (
             env.session,
-            env.config,
+            &mut *env.config,
             env.agent,
             env.lifecycle,
             env.resp_tx,
@@ -282,7 +282,7 @@ pub(crate) async fn start_fresh_session_with_role(
         workspace_security,
     ) = (
         env.session,
-        env.config,
+        &mut *env.config,
         env.agent,
         env.lifecycle,
         env.resp_tx,

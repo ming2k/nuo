@@ -2,7 +2,7 @@ use super::model_bar::context_usage_spans;
 use super::*;
 use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
-use nuotc::{Color, Rect};
+use graticule::{Color, Rect};
 use view::model::layout::LayoutMap;
 
 fn activity_row_text(width: u16, status: &str, phase: usize) -> String {
@@ -22,7 +22,7 @@ fn activity_row_text_with_clause(
     awaiting: bool,
     phase: usize,
 ) -> String {
-    let mut terminal = nuotc::TestTerminal::new(width, 1);
+    let mut terminal = graticule::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
         draw_activity_strip(
             frame,
@@ -57,7 +57,7 @@ fn activity_row_text_with_clause(
 /// so a test can assert e.g. the permission state paints in the warning
 /// hue rather than the shimmer palette.
 fn activity_row_colors(width: u16, status: &str, awaiting: bool, phase: usize) -> Vec<Color> {
-    let mut terminal = nuotc::TestTerminal::new(width, 1);
+    let mut terminal = graticule::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
         draw_activity_strip(
             frame,
@@ -214,7 +214,7 @@ fn format_token_count_uses_si_suffixes() {
 #[test]
 fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
     terminal.draw(|f| {
         draw_activity_strip(
             f,
@@ -275,7 +275,7 @@ fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
         "Google HTTP 503 Service Unavailable",
     );
 
-    let mut terminal = nuotc::TestTerminal::new(120, 1);
+    let mut terminal = graticule::TestTerminal::new(120, 1);
     terminal.draw(|f| {
         draw_activity_strip(
             f,
@@ -331,7 +331,7 @@ fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
 #[test]
 fn activity_strip_renders_idle_queued_preview() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
     terminal.draw(|f| {
         draw_activity_strip(
             f,
@@ -386,7 +386,7 @@ fn activity_strip_renders_idle_queued_preview() {
 fn activity_strip_states_that_the_queue_is_paused() {
     let theme = Theme::default();
     let render = |blocked: bool, width: u16| -> String {
-        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        let mut terminal = graticule::TestTerminal::new(width, 1);
         terminal.draw(|f| {
             draw_activity_strip(
                 f,
@@ -448,7 +448,7 @@ fn activity_strip_states_that_the_queue_is_paused() {
 fn activity_strip_keycaps_are_the_resolved_bindings() {
     let theme = Theme::default();
     let render = |interrupt: Option<Key>, queue: Option<Key>| -> String {
-        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        let mut terminal = graticule::TestTerminal::new(80, 1);
         terminal.draw(|f| {
             draw_activity_strip(
                 f,
@@ -503,7 +503,7 @@ fn activity_strip_keycaps_are_the_resolved_bindings() {
 #[test]
 fn activity_strip_returns_none_when_all_idle() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
     let mut res = None;
     terminal.draw(|f| {
         res = draw_activity_strip(
@@ -533,10 +533,10 @@ fn activity_strip_returns_none_when_all_idle() {
 #[test]
 fn activity_strip_rotates_spinner_frames_and_supports_ascii_vt() {
     let mut theme_ascii = Theme::monochrome();
-    theme_ascii.glyphs = nuotc::ASCII_GLYPHS;
+    theme_ascii.glyphs = graticule::ASCII_GLYPHS;
 
     let paint = |phase: usize, theme: &Theme| -> String {
-        let mut terminal = nuotc::TestTerminal::new(60, 1);
+        let mut terminal = graticule::TestTerminal::new(60, 1);
         terminal.draw(|f| {
             draw_activity_strip(
                 f,
@@ -615,7 +615,7 @@ fn context_usage_spans_render_used_and_percentage() {
 #[test]
 fn model_bar_orders_context_then_model() {
     let row_text = |width: u16| -> String {
-        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        let mut terminal = graticule::TestTerminal::new(width, 1);
         terminal.draw(|f| {
             draw_model_bar(
                 f,
@@ -683,7 +683,7 @@ fn model_bar_orders_context_then_model() {
 #[test]
 fn model_bar_renders_model_and_context() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 3);
+    let mut terminal = graticule::TestTerminal::new(80, 3);
     terminal.draw(|f| {
         draw_model_bar(
             f,
@@ -714,7 +714,7 @@ fn model_bar_renders_context_gauge_for_projected_route_context_window() {
     // passes its projected route context_window. Even though the model is unknown
     // to the static baseline registry, the context gauge renders correctly.
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 3);
+    let mut terminal = graticule::TestTerminal::new(100, 3);
     terminal.draw(|f| {
         draw_model_bar(
             f,
@@ -748,7 +748,7 @@ fn model_bar_renders_context_gauge_for_projected_route_context_window() {
 #[test]
 fn model_bar_renders_unavailable_model_indicator() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
     terminal.draw(|f| {
         draw_model_bar(
             f,
@@ -781,7 +781,7 @@ fn model_bar_renders_unavailable_model_indicator() {
 fn model_bar_draws_the_resolved_label_over_the_wire_id() {
     let row_text = |props: ModelBarProps<'_>| -> String {
         let theme = Theme::default();
-        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        let mut terminal = graticule::TestTerminal::new(80, 1);
         terminal.draw(|f| {
             draw_model_bar(
                 f,
@@ -826,7 +826,7 @@ fn model_bar_draws_the_resolved_label_over_the_wire_id() {
 #[test]
 fn model_bar_click_rects_follow_context_and_connection_layout() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
 
     let mut captured = ModelBarRects::default();
     terminal.draw(|f| {
@@ -885,7 +885,7 @@ fn model_bar_reasoning_tag_shows_effort_when_set() {
     // model name when reasoning is in use and be absent entirely
     // otherwise.
     fn row_text(effort: Option<&str>) -> String {
-        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        let mut terminal = graticule::TestTerminal::new(80, 1);
         terminal.draw(|f| {
             draw_model_bar(
                 f,
@@ -927,7 +927,7 @@ fn model_bar_shows_the_instance_suffix_after_the_model_name() {
     // models served by different instances stay attributable — and must
     // vanish entirely when no instance is known.
     fn row_text(provider_name: Option<&str>) -> String {
-        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        let mut terminal = graticule::TestTerminal::new(80, 1);
         terminal.draw(|f| {
             draw_model_bar(
                 f,
@@ -970,7 +970,7 @@ fn model_bar_full_cluster_orders_model_effort_instance() {
     // after the model name, the @instance provenance last. The identity
     // group (`model effort @instance`) joins with single spaces; it sits
     // across the wider gap from the left-anchored gauges.
-    let mut terminal = nuotc::TestTerminal::new(120, 1);
+    let mut terminal = graticule::TestTerminal::new(120, 1);
     terminal.draw(|f| {
         draw_model_bar(
             f,
@@ -1009,7 +1009,7 @@ fn model_bar_full_cluster_orders_model_effort_instance() {
 fn paint_completion_menu(
     input_anchor_x: u16,
     selected: Option<usize>,
-) -> (nuotc::TestTerminal, Rect) {
+) -> (graticule::TestTerminal, Rect) {
     let theme = Theme::default();
     let completions = vec![
         crate::shell::completion::Completion {
@@ -1033,7 +1033,7 @@ fn paint_completion_menu(
             doc: None,
         },
     ];
-    let mut terminal = nuotc::TestTerminal::new(80, 12);
+    let mut terminal = graticule::TestTerminal::new(80, 12);
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
         draw_completion_menu(
@@ -1140,7 +1140,7 @@ fn completion_menu_caps_width_and_stays_anchored() {
         doc: None,
     })
     .collect::<Vec<_>>();
-    let mut terminal = nuotc::TestTerminal::new(80, 12);
+    let mut terminal = graticule::TestTerminal::new(80, 12);
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
         draw_completion_menu(
@@ -1221,7 +1221,7 @@ fn completion_menu_marks_alias_rows_with_canonical_target() {
             doc: None,
         },
     ];
-    let mut terminal = nuotc::TestTerminal::new(80, 12);
+    let mut terminal = graticule::TestTerminal::new(80, 12);
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
         draw_completion_menu(
@@ -1284,7 +1284,7 @@ fn completion_menu_hover_doc_flyout_only_appears_when_entry_is_selected() {
     }];
 
     // 1. Unselected (selected = None): No right-side doc window is rendered
-    let mut term_unselected = nuotc::TestTerminal::new(80, 12);
+    let mut term_unselected = graticule::TestTerminal::new(80, 12);
     term_unselected.draw(|f| {
         let mut layout_map = LayoutMap::new();
         draw_completion_menu(
@@ -1307,7 +1307,7 @@ fn completion_menu_hover_doc_flyout_only_appears_when_entry_is_selected() {
     );
 
     // 2. Selected (selected = Some(0)): Right-side doc window is rendered with panel_bg
-    let mut term_selected = nuotc::TestTerminal::new(80, 12);
+    let mut term_selected = graticule::TestTerminal::new(80, 12);
     term_selected.draw(|f| {
         let mut layout_map = LayoutMap::new();
         draw_completion_menu(
@@ -1350,7 +1350,7 @@ fn completion_menu_hover_doc_flyout_shows_alias_to_target_header() {
         doc: Some(doc),
     }];
 
-    let mut term = nuotc::TestTerminal::new(80, 12);
+    let mut term = graticule::TestTerminal::new(80, 12);
     term.draw(|f| {
         let mut layout_map = LayoutMap::new();
         draw_completion_menu(
@@ -1384,7 +1384,7 @@ fn completion_menu_hover_doc_flyout_shows_alias_to_target_header() {
 #[test]
 fn completion_menu_structured_monochrome_renders_framed_box_and_fits_all_items() {
     let mut theme = Theme::monochrome();
-    theme.glyphs = nuotc::ASCII_GLYPHS;
+    theme.glyphs = graticule::ASCII_GLYPHS;
     let completions = vec![
         crate::shell::completion::Completion {
             label: "/help".to_string(),
@@ -1407,7 +1407,7 @@ fn completion_menu_structured_monochrome_renders_framed_box_and_fits_all_items()
             doc: None,
         },
     ];
-    let mut terminal = nuotc::TestTerminal::new(80, 12);
+    let mut terminal = graticule::TestTerminal::new(80, 12);
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
         draw_completion_menu(
@@ -1462,7 +1462,7 @@ fn queue_modal_does_not_invent_a_time_for_a_row_without_one() {
 
     let theme = Theme::default();
     let render = |queued_at_ms: Option<u64>| -> String {
-        let mut terminal = nuotc::TestTerminal::new(100, 16);
+        let mut terminal = graticule::TestTerminal::new(100, 16);
         terminal.draw(|f| {
             let items = vec![QueueItemProps {
                 queued_at_ms,

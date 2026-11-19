@@ -303,7 +303,7 @@ fn the_viewer_paints_over_the_transcript_when_opened() {
     );
     app.open_notice_viewer();
 
-    let mut terminal = nuotc::TestTerminal::new(110, 30);
+    let mut terminal = graticule::TestTerminal::new(110, 30);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -333,7 +333,7 @@ fn the_unread_fault_badge_paints_on_the_tabbar() {
         "link down",
     );
 
-    let mut terminal = nuotc::TestTerminal::new(110, 30);
+    let mut terminal = graticule::TestTerminal::new(110, 30);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -361,7 +361,7 @@ fn the_badge_is_absent_when_only_acknowledgements_are_unread() {
         "delegated mode on",
     );
 
-    let mut terminal = nuotc::TestTerminal::new(110, 30);
+    let mut terminal = graticule::TestTerminal::new(110, 30);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -385,7 +385,7 @@ fn the_badge_clears_once_the_viewer_has_been_opened() {
     app.open_notice_viewer();
     app.close_notice_viewer();
 
-    let mut terminal = nuotc::TestTerminal::new(110, 30);
+    let mut terminal = graticule::TestTerminal::new(110, 30);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -394,7 +394,7 @@ fn the_badge_clears_once_the_viewer_has_been_opened() {
 }
 
 /// The frame as one string, so assertions can look for text anywhere on it.
-fn frame_text(terminal: &nuotc::TestTerminal) -> String {
+fn frame_text(terminal: &graticule::TestTerminal) -> String {
     let buf = terminal.buffer();
     let area = buf.area();
     (0..area.height)
@@ -424,7 +424,7 @@ async fn paging_steps_by_the_panels_real_body_height() {
     }
     app.open_notice_viewer();
 
-    let mut terminal = nuotc::TestTerminal::new(110, 30);
+    let mut terminal = graticule::TestTerminal::new(110, 30);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -493,9 +493,9 @@ async fn alt_o_opens_the_viewer_even_with_a_dialog_up() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
 
     let action = crate::shell::input::route_event(
-        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Char('o'),
-            crossterm::event::KeyModifiers::ALT,
+        graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Char('o'),
+            graticule::event::KeyModifiers::ALT,
         )),
         &mut String::new(),
         &mut 0,
@@ -534,11 +534,11 @@ async fn the_viewer_owns_its_keys_while_open() {
     }
     app.open_notice_viewer();
 
-    let mut route = |code: crossterm::event::KeyCode| {
+    let mut route = |code: graticule::event::KeyCode| {
         crate::shell::input::route_event(
-            crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            graticule::event::Event::Key(graticule::event::KeyEvent::new(
                 code,
-                crossterm::event::KeyModifiers::NONE,
+                graticule::event::KeyModifiers::NONE,
             )),
             &mut String::new(),
             &mut 0,
@@ -561,19 +561,19 @@ async fn the_viewer_owns_its_keys_while_open() {
     };
 
     assert_eq!(
-        route(crossterm::event::KeyCode::Up),
+        route(graticule::event::KeyCode::Up),
         crate::shell::input::InputAction::NoticesSelect { forward: false }
     );
     assert_eq!(
-        route(crossterm::event::KeyCode::Enter),
+        route(graticule::event::KeyCode::Enter),
         crate::shell::input::InputAction::NoticesToggleDetail
     );
     assert_eq!(
-        route(crossterm::event::KeyCode::Char('x')),
+        route(graticule::event::KeyCode::Char('x')),
         crate::shell::input::InputAction::NoticesClear
     );
     assert_eq!(
-        route(crossterm::event::KeyCode::Esc),
+        route(graticule::event::KeyCode::Esc),
         crate::shell::input::InputAction::CloseModal
     );
 
@@ -634,9 +634,9 @@ async fn typing_does_not_kill_a_fault_bubble_but_esc_does() {
     // A printable key.
     crate::shell::event_loop::process_event_for_test(
         &mut app,
-        &crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Char('a'),
-            crossterm::event::KeyModifiers::NONE,
+        &graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Char('a'),
+            graticule::event::KeyModifiers::NONE,
         )),
         "test-session",
     )
@@ -649,9 +649,9 @@ async fn typing_does_not_kill_a_fault_bubble_but_esc_does() {
     // An explicit dismissal.
     crate::shell::event_loop::process_event_for_test(
         &mut app,
-        &crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Esc,
-            crossterm::event::KeyModifiers::NONE,
+        &graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Esc,
+            graticule::event::KeyModifiers::NONE,
         )),
         "test-session",
     )
@@ -683,9 +683,9 @@ async fn typing_does_dismiss_an_acknowledgement_bubble() {
 
     crate::shell::event_loop::process_event_for_test(
         &mut app,
-        &crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Char('a'),
-            crossterm::event::KeyModifiers::NONE,
+        &graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Char('a'),
+            graticule::event::KeyModifiers::NONE,
         )),
         "test-session",
     )
@@ -740,9 +740,9 @@ async fn esc_in_the_viewer_closes_only_the_panel_not_the_bubble_it_points_at() {
 
     crate::shell::event_loop::process_event_for_test(
         &mut app,
-        &crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Esc,
-            crossterm::event::KeyModifiers::NONE,
+        &graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Esc,
+            graticule::event::KeyModifiers::NONE,
         )),
         "test-session",
     )
@@ -772,7 +772,7 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
     }
     app.open_notice_viewer();
 
-    let mut terminal = nuotc::TestTerminal::new(110, 30);
+    let mut terminal = graticule::TestTerminal::new(110, 30);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -828,7 +828,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
                 format!("turn {i}"),
             ));
     }
-    let mut terminal = nuotc::TestTerminal::new(100, 40);
+    let mut terminal = graticule::TestTerminal::new(100, 40);
 
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
@@ -882,7 +882,7 @@ fn the_composer_stays_live_below_and_unaffected_by_notices() {
         "link down",
     );
 
-    let mut terminal = nuotc::TestTerminal::new(100, 40);
+    let mut terminal = graticule::TestTerminal::new(100, 40);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -916,7 +916,7 @@ fn the_conversation_stays_visible_when_notice_arrives() {
         "link down",
     );
 
-    let mut terminal = nuotc::TestTerminal::new(100, 40);
+    let mut terminal = graticule::TestTerminal::new(100, 40);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -932,7 +932,7 @@ fn notices_arrival_never_alters_footer_height() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "test-session".to_string();
 
-    let mut terminal = nuotc::TestTerminal::new(100, 40);
+    let mut terminal = graticule::TestTerminal::new(100, 40);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });

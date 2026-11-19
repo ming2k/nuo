@@ -774,6 +774,7 @@ impl Assembler {
         // orthogonal scope axis.
         subagent_tool_handle.bind_variant_selection(agent.variant_selection_handle());
         subagent_tool_handle.bind_user_instructions(agent.user_instructions_handle());
+        subagent_tool_handle.bind_response_language(agent.response_language_handle());
         subagent_tool_handle.bind_project_instructions(agent.project_instructions_handle());
         subagent_tool_handle.bind_project_rules(agent.project_rules_handle());
         subagent_tool_handle

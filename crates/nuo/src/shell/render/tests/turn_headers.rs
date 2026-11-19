@@ -208,7 +208,7 @@ fn a_running_step_does_not_share_its_turn_headers_hue() {
 
     let terminal = render_full_view(72, 14, &[running], None);
     let buffer = terminal.buffer();
-    let row_fgs = |y: u16| -> Vec<nuotc::Color> {
+    let row_fgs = |y: u16| -> Vec<graticule::Color> {
         (0..buffer.area().width)
             .filter(|x| !buffer.get(*x, y).unwrap().symbol.trim().is_empty())
             .map(|x| buffer.get(x, y).unwrap().style.fg)

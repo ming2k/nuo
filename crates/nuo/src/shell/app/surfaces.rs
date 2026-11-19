@@ -25,6 +25,15 @@ impl App {
         id.is_available(self.current_scene(), self.has_session())
     }
 
+    /// Whether the viewed session's context plan is already installed.
+    ///
+    /// `None` is a real answer (no request assembled yet), so the loading state
+    /// is a separate fact: a dialog that rendered "loading" forever because the
+    /// plan legitimately does not exist would be lying about the request.
+    pub(crate) fn context_plan_pending(&self) -> bool {
+        !self.telemetry.context_plan_loaded
+    }
+
     /// Which interaction sheet currently occupies the composer slot, if any.
     pub(crate) fn active_sheet(&self) -> Option<crate::shell::sheet::SheetKind> {
         self.human.active_sheet
@@ -252,13 +261,19 @@ impl App {
                         .dlg_mut::<crate::shell::surfaces::NoticesDialog>()
                         .follow = follow
                 }
+                DialogKind::ContextPlan => {
+                    self.surfaces
+                        .surfaces
+                        .dlg_mut::<crate::shell::surfaces::ContextPlanDialog>()
+                        .follow = follow
+                }
                 DialogKind::Permissions
                 | DialogKind::UsageStats
                 | DialogKind::Quotas
                 | DialogKind::ThreadStats
                 | DialogKind::SessionTrace
                 | DialogKind::PortShare
-                | DialogKind::Switcher
+                | DialogKind::Palette
                 | DialogKind::Help => {}
             }
         }
@@ -594,7 +609,7 @@ impl App {
         self.composer.session_history_backfill_cursor = 0;
     }
 
-    pub(crate) fn can_open_switcher(&self) -> bool {
+    pub(crate) fn can_open_palette(&self) -> bool {
         self.can_accept_navigation_signal()
     }
 
@@ -956,6 +971,15 @@ impl App {
                 .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
                 .turn_cursor = 0;
         }
+        if id == DialogKind::ContextPlan {
+            // The body disclosure belongs to this open, not to the next one: a
+            // dismissed inspector that remembered an expanded block would show a
+            // sub-view the operator never asked for (ADR-0220 §6).
+            self.surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ContextPlanDialog>()
+                .body_open = false;
+        }
         if id == DialogKind::Queue
             && let Some((sid, origin)) = self.session.queue_exit_session.take()
             && origin == QueuePauseOrigin::ModalAutoPause
@@ -1188,6 +1212,24 @@ impl App {
                         return true;
                     }
                 }
+                DialogKind::ContextPlan
+                    if self
+                        .surfaces
+                        .surfaces
+                        .dlg_mut::<crate::shell::surfaces::ContextPlanDialog>()
+                        .body_open =>
+                {
+                    // A sub-view collapses before the dialog does: Esc on an
+                    // expanded body returns the reader to the plan, not to the
+                    // transcript (ADR-0220 §6).
+                    let e = self
+                        .surfaces
+                        .surfaces
+                        .dlg_mut::<crate::shell::surfaces::ContextPlanDialog>();
+                    e.body_open = false;
+                    e.scroll = 0;
+                    return true;
+                }
                 DialogKind::Threads
                     if self
                         .surfaces
@@ -1275,7 +1317,7 @@ impl App {
 
     /// The dispatcher-facing dismiss verb.
     pub(crate) fn dismiss_surface(&mut self) -> bool {
-        if self.active_dialog() == Some(DialogKind::Switcher) {
+        if self.active_dialog() == Some(DialogKind::Palette) {
             self.pop_transient_surface();
             return true;
         }

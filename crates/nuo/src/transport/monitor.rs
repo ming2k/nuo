@@ -3,8 +3,6 @@
 use super::lifecycle::MONITOR_FIRST_FRAME_TIMEOUT;
 use super::*;
 use protocol::MonitorAction;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::http::HeaderValue;
 
 pub async fn monitor_stream(
     info: &ServerInfo,
@@ -17,19 +15,12 @@ pub async fn monitor_stream(
         return finish_monitor((sink, source), action, "local IPC").await;
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
-    let mut request = url
-        .as_str()
-        .into_client_request()
-        .map_err(|e| format!("bad ws url {url}: {e}"))?;
-    if let Some(token) = &info.token {
-        let value = HeaderValue::from_str(&format!("Bearer {token}"))
-            .map_err(|e| format!("bad bearer token: {e}"))?;
-        request.headers_mut().insert("Authorization", value);
-    }
-    let (ws, _response) = tokio_tungstenite::connect_async(request)
-        .await
-        .map_err(|e| format!("ws connect to {url}: {e}"))?;
-    let (sink, source) = websocket_split(ws);
+    let (sink, source) = connect_ws_wire(
+        &url,
+        info.token.as_deref(),
+        netune::WsSessionConfig::default(),
+    )
+    .await?;
     finish_monitor((sink, source), action, &url).await
 }
 

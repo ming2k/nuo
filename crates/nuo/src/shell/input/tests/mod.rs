@@ -9,7 +9,7 @@ use super::*;
 use crate::shell::modal_keys::ModalKeys;
 use crate::shell::session::SceneKeys;
 use crate::shell::sheet::SheetKeys;
-use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
+use graticule::event::{KeyEvent, KeyEventKind, KeyEventState};
 
 fn enter(input: &mut String, exact: bool) -> InputAction {
     let mut cursor = input.chars().count();
@@ -115,7 +115,7 @@ fn key_with_mod_in_view(
         ..Default::default()
     };
     route_event(
-        Event::Key(crossterm::event::KeyEvent::new(code, modifiers)),
+        Event::Key(graticule::event::KeyEvent::new(code, modifiers)),
         input,
         &mut cursor,
         dispatch,
@@ -136,7 +136,7 @@ fn key_in_view_with(
     let mut dispatch = Dispatch::default();
     tune(&mut dispatch);
     route_event(
-        Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)),
+        Event::Key(graticule::event::KeyEvent::new(code, KeyModifiers::NONE)),
         input,
         &mut cursor,
         dispatch,
@@ -152,7 +152,7 @@ fn key_with_focus(code: KeyCode) -> InputAction {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     route_event(
-        Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)),
+        Event::Key(graticule::event::KeyEvent::new(code, KeyModifiers::NONE)),
         &mut input,
         &mut cursor,
         Dispatch {
@@ -178,6 +178,7 @@ pub(crate) enum SurfaceFixture {
     Config,
     ThreadStats,
     SessionTrace,
+    ContextPlan,
     Sessions,
     Queue,
     HistorySearch,
@@ -214,6 +215,10 @@ impl SurfaceFixture {
             ),
             Self::SessionTrace => (
                 Some(OverlaySurface::Dialog(DialogKind::SessionTrace)),
+                SceneKind::Thread,
+            ),
+            Self::ContextPlan => (
+                Some(OverlaySurface::Dialog(DialogKind::ContextPlan)),
                 SceneKind::Thread,
             ),
             Self::Sessions => (
@@ -389,7 +394,7 @@ fn editor_key(code: KeyCode, field: u8, input: &mut String) -> InputAction {
     let mut cursor = input.chars().count();
     let mut drag = SelectionDrag::default();
     route_event(
-        Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)),
+        Event::Key(graticule::event::KeyEvent::new(code, KeyModifiers::NONE)),
         input,
         &mut cursor,
         Dispatch {
@@ -436,7 +441,7 @@ fn key_without_modal(code: KeyCode) -> InputAction {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     route_event(
-        Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)),
+        Event::Key(graticule::event::KeyEvent::new(code, KeyModifiers::NONE)),
         &mut input,
         &mut cursor,
         Dispatch::default(),
@@ -510,7 +515,7 @@ fn multiline_arrow(seed: &str, cursor: usize, code: KeyCode) -> (InputAction, us
     let mut cur = cursor;
     let mut drag = SelectionDrag::default();
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)),
+        Event::Key(graticule::event::KeyEvent::new(code, KeyModifiers::NONE)),
         &mut input,
         &mut cur,
         Dispatch::default(),
@@ -520,37 +525,6 @@ fn multiline_arrow(seed: &str, cursor: usize, code: KeyCode) -> (InputAction, us
         &mut drag,
     );
     (action, cur)
-}
-
-fn leaked_char(c: char) -> Event {
-    Event::Key(KeyEvent {
-        code: KeyCode::Char(c),
-        modifiers: KeyModifiers::NONE,
-        kind: KeyEventKind::Press,
-        state: KeyEventState::NONE,
-    })
-}
-
-fn leaked_esc() -> Event {
-    Event::Key(KeyEvent {
-        code: KeyCode::Esc,
-        modifiers: KeyModifiers::NONE,
-        kind: KeyEventKind::Press,
-        state: KeyEventState::NONE,
-    })
-}
-
-fn drain_guard(events: &[Event]) -> (usize, usize) {
-    let mut g = SgrLeakGuard::default();
-    let mut dropped = 0;
-    let mut accepted = 0;
-    for ev in events {
-        match g.feed(ev) {
-            Feed::Drop => dropped += 1,
-            Feed::Accept => accepted += 1,
-        }
-    }
-    (accepted, dropped)
 }
 
 #[test]
@@ -596,7 +570,7 @@ fn shift_arrows_select_messages_only_on_the_transcript_plane() {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     let transcript = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Down,
             KeyModifiers::SHIFT,
         )),
@@ -614,7 +588,7 @@ fn shift_arrows_select_messages_only_on_the_transcript_plane() {
     assert_eq!(transcript, InputAction::SelectMessages { delta: 1 });
 
     let composer = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Down,
             KeyModifiers::SHIFT,
         )),
@@ -627,4 +601,95 @@ fn shift_arrows_select_messages_only_on_the_transcript_plane() {
         &mut drag,
     );
     assert_ne!(composer, InputAction::SelectMessages { delta: 1 });
+}
+
+#[test]
+fn graticule_vt_wire_bytes_route_end_to_end_through_nuo_keymap_and_router() {
+    use graticule::{ParsedItem, VtParser};
+    use std::time::{Duration, Instant};
+
+    let mut parser = VtParser::new();
+    let t0 = Instant::now();
+    let mut items = Vec::new();
+
+    // 1. Ctrl+Shift+P (both plain CSI-u and shifted-alternate CSI-u), Cmd+C, Shift+Tab.
+    parser.feed(
+        b"\x1b[112;6u\x1b[112:80;6u\x1b[99;9u\x1b[Z\x1b[9;2u",
+        t0,
+        &mut items,
+    );
+    let keys: Vec<_> = items
+        .drain(..)
+        .filter_map(|i| match i {
+            ParsedItem::Event(Event::Key(k)) => Some(crate::shell::keymap::key_from_event(k)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            crate::shell::keymap::Key::CTRL_SHIFT_P,
+            crate::shell::keymap::Key::CTRL_SHIFT_P,
+            crate::shell::keymap::Key::CMD_C,
+            crate::shell::keymap::Key::BACKTAB,
+            crate::shell::keymap::Key::BACKTAB,
+        ]
+    );
+
+    // 2. Split SGR hover across reads routes to Hover with zero leaked chars in composer.
+    parser.feed(b"\x1b", t0, &mut items);
+    assert!(items.is_empty());
+    parser.feed(b"[<35;52;28M", t0 + Duration::from_millis(2), &mut items);
+    let mut composer = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let actions: Vec<_> = items
+        .drain(..)
+        .filter_map(|i| match i {
+            ParsedItem::Event(ev) => Some(route_event(
+                ev,
+                &mut composer,
+                &mut cursor,
+                Dispatch::default(),
+                &ModalKeys::default(),
+                &SheetKeys::default(),
+                &SceneKeys::default(),
+                &mut drag,
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(actions, vec![InputAction::Hover { x: 51, y: 27 }]);
+    assert!(
+        composer.is_empty(),
+        "split SGR must never inject composer text"
+    );
+
+    // 3. Alt+[ (Kitty), Alt+] (legacy), Alt-0, Alt-, route to exact global actions.
+    parser.feed(b"\x1b[91;3u\x1b]\x1b0\x1b,", t0, &mut items);
+    let nav_actions: Vec<_> = items
+        .drain(..)
+        .filter_map(|i| match i {
+            ParsedItem::Event(ev) => Some(route_event(
+                ev,
+                &mut composer,
+                &mut cursor,
+                Dispatch::default(),
+                &ModalKeys::default(),
+                &SheetKeys::default(),
+                &SceneKeys::default(),
+                &mut drag,
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        nav_actions,
+        vec![
+            InputAction::TabHistoryBack,
+            InputAction::TabHistoryForward,
+            InputAction::NavigateDashboard,
+            InputAction::NavigateSettings,
+        ]
+    );
 }

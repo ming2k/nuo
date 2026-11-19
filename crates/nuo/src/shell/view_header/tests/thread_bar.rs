@@ -238,7 +238,7 @@ fn row3_never_emits_a_truncated_posture_token() {
 #[test]
 fn row3_degrades_its_ellipsis_marker_under_ascii_glyphs() {
     let theme = Theme {
-        glyphs: nuotc::ASCII_GLYPHS,
+        glyphs: graticule::ASCII_GLYPHS,
         ..Theme::default()
     };
     let context = ThreadContext {
@@ -263,7 +263,7 @@ fn row3_degrades_its_ellipsis_marker_under_ascii_glyphs() {
 #[test]
 fn row3_degrades_the_path_ladder_marker_under_ascii_glyphs() {
     let theme = Theme {
-        glyphs: nuotc::ASCII_GLYPHS,
+        glyphs: graticule::ASCII_GLYPHS,
         ..Theme::default()
     };
     let context = ThreadContext {
@@ -323,7 +323,7 @@ fn row3_band_paints_the_full_row_width() {
         unattended: false,
         confined: true,
     };
-    let mut terminal = nuotc::TestTerminal::new(60, 1);
+    let mut terminal = graticule::TestTerminal::new(60, 1);
     terminal.draw(|frame| {
         draw_thread_context_bar(frame, frame.area(), &context, &theme);
     });

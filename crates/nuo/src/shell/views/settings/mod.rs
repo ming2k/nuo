@@ -20,7 +20,7 @@ pub mod web;
 
 pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown};
 
-use nuotc::{
+use graticule::{
     Block as RtBlock, Color, Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect,
     Span, Style, Wrap,
 };
@@ -98,7 +98,7 @@ impl ConfigCategory {
         self,
         ws_path: Option<&std::path::Path>,
         websearch: Option<&protocol::WebSearchConfigView>,
-        profile: &nuotc::TerminalProfile,
+        profile: &graticule::TerminalProfile,
     ) -> usize {
         match self {
             ConfigCategory::Appearance => appearance::item_count(ws_path, profile),
@@ -187,7 +187,6 @@ pub struct ConfigRects {
     /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
     pub tab_overflow_rect: Option<Rect>,
     pub tab_notices_rect: Option<Rect>,
-    pub tab_help_rect: Option<Rect>,
 }
 
 /// Properties passed to render the complete Settings View.
@@ -207,7 +206,7 @@ pub struct SettingsProps<'a> {
     pub detail_scroll: &'a mut usize,
     pub breadcrumbs: Option<&'a str>,
     pub theme: &'a Theme,
-    pub profile: &'a nuotc::TerminalProfile,
+    pub profile: &'a graticule::TerminalProfile,
     pub tui_config: &'a crate::shell::config::TuiConfig,
     /// Client-global TabBar projection (ADR-0039, ADR-0060, ADR-0062).
     /// Tier 1 of the head band, carrying open tabs and active tab selection.
@@ -217,7 +216,7 @@ pub struct SettingsProps<'a> {
 /// Draw the full-screen Settings View.
 pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> ConfigRects {
     let area = frame.area();
-    frame.render_widget(&mut nuotc::Clear::default(), area);
+    frame.render_widget(&mut graticule::Clear::default(), area);
 
     // Fill full background with canvas tone
     frame.render_widget(
@@ -346,7 +345,6 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,
         tab_notices_rect: tab_rects.notices_rect,
-        tab_help_rect: tab_rects.help_rect,
     }
 }
 
@@ -638,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_config_category_detail_item_count() {
-        let direct = nuotc::TerminalProfile::direct_color();
+        let direct = graticule::TerminalProfile::direct_color();
         assert!(ConfigCategory::Appearance.detail_item_count(None, None, &direct) >= 5);
         // The Components pane is derived from the declared tool registry plus
         // the reasoning / density / auto-scroll behaviour rows (ADR-0020), so
@@ -661,7 +659,7 @@ mod tests {
             5
         );
 
-        let mono = nuotc::TerminalProfile::dec_vt100_monochrome();
+        let mono = graticule::TerminalProfile::dec_vt100_monochrome();
         assert_eq!(
             ConfigCategory::Appearance.detail_item_count(None, None, &mono),
             1

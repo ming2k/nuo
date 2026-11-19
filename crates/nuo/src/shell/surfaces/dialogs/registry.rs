@@ -14,6 +14,7 @@ pub struct SessionSnapshot {
     pub permissions: PermissionsDialog,
     pub thread_stats: ThreadStatsDialog,
     pub session_trace: SessionTraceDialog,
+    pub context_plan: ContextPlanDialog,
     pub queue: QueueDialog,
     pub session_tree: SessionTreeDialog,
 }
@@ -33,13 +34,14 @@ pub struct Dialogs {
     pub quotas: QuotasDialog,
     pub thread_stats: ThreadStatsDialog,
     pub session_trace: SessionTraceDialog,
+    pub context_plan: ContextPlanDialog,
     pub models: ModelsDialog,
     pub connections: ConnectionsDialog,
     pub history_search: HistorySearchDialog,
     pub queue: QueueDialog,
     pub threads: ThreadsDialog,
     pub session_tree: SessionTreeDialog,
-    pub switcher: SwitcherDialog,
+    pub switcher: PaletteDialog,
     pub port_share: PortShareDialog,
     pub help: HelpDialog,
     pub notices: NoticesDialog,
@@ -92,6 +94,7 @@ impl Dialogs {
             permissions: self.permissions.clone(),
             thread_stats: self.thread_stats.clone(),
             session_trace: self.session_trace.clone(),
+            context_plan: self.context_plan.clone(),
             queue: self.queue.clone(),
             session_tree: self.session_tree.clone(),
         }
@@ -104,6 +107,7 @@ impl Dialogs {
         self.permissions = snapshot.permissions;
         self.thread_stats = snapshot.thread_stats;
         self.session_trace = snapshot.session_trace;
+        self.context_plan = snapshot.context_plan;
         self.queue = snapshot.queue;
         self.session_tree = snapshot.session_tree;
     }
@@ -121,13 +125,14 @@ impl Dialogs {
             DialogKind::Quotas => &self.quotas,
             DialogKind::ThreadStats => &self.thread_stats,
             DialogKind::SessionTrace => &self.session_trace,
+            DialogKind::ContextPlan => &self.context_plan,
             DialogKind::Models => &self.models,
             DialogKind::Connections => &self.connections,
             DialogKind::HistorySearch => &self.history_search,
             DialogKind::Queue => &self.queue,
             DialogKind::Threads => &self.threads,
             DialogKind::SessionTree => &self.session_tree,
-            DialogKind::Switcher => &self.switcher,
+            DialogKind::Palette => &self.switcher,
             DialogKind::PortShare => &self.port_share,
             DialogKind::Help => &self.help,
             DialogKind::Notices => &self.notices,
@@ -145,13 +150,14 @@ impl Dialogs {
             DialogKind::Quotas => &mut self.quotas,
             DialogKind::ThreadStats => &mut self.thread_stats,
             DialogKind::SessionTrace => &mut self.session_trace,
+            DialogKind::ContextPlan => &mut self.context_plan,
             DialogKind::Models => &mut self.models,
             DialogKind::Connections => &mut self.connections,
             DialogKind::HistorySearch => &mut self.history_search,
             DialogKind::Queue => &mut self.queue,
             DialogKind::Threads => &mut self.threads,
             DialogKind::SessionTree => &mut self.session_tree,
-            DialogKind::Switcher => &mut self.switcher,
+            DialogKind::Palette => &mut self.switcher,
             DialogKind::PortShare => &mut self.port_share,
             DialogKind::Help => &mut self.help,
             DialogKind::Notices => &mut self.notices,
@@ -176,13 +182,14 @@ impl Dialogs {
             DialogKind::Quotas => Box::new(std::mem::take(&mut self.quotas)),
             DialogKind::ThreadStats => Box::new(std::mem::take(&mut self.thread_stats)),
             DialogKind::SessionTrace => Box::new(std::mem::take(&mut self.session_trace)),
+            DialogKind::ContextPlan => Box::new(std::mem::take(&mut self.context_plan)),
             DialogKind::Models => Box::new(std::mem::take(&mut self.models)),
             DialogKind::Connections => Box::new(std::mem::take(&mut self.connections)),
             DialogKind::HistorySearch => Box::new(std::mem::take(&mut self.history_search)),
             DialogKind::Queue => Box::new(std::mem::take(&mut self.queue)),
             DialogKind::Threads => Box::new(std::mem::take(&mut self.threads)),
             DialogKind::SessionTree => Box::new(std::mem::take(&mut self.session_tree)),
-            DialogKind::Switcher => Box::new(std::mem::take(&mut self.switcher)),
+            DialogKind::Palette => Box::new(std::mem::take(&mut self.switcher)),
             DialogKind::PortShare => Box::new(std::mem::take(&mut self.port_share)),
             DialogKind::Help => Box::new(std::mem::take(&mut self.help)),
             DialogKind::Notices => Box::new(std::mem::take(&mut self.notices)),
@@ -227,6 +234,12 @@ impl Dialogs {
                     .downcast::<SessionTraceDialog>()
                     .expect("kind")
             }
+            DialogKind::ContextPlan => {
+                self.context_plan = *view
+                    .into_any()
+                    .downcast::<ContextPlanDialog>()
+                    .expect("kind")
+            }
             DialogKind::Models => {
                 self.models = *view.into_any().downcast::<ModelsDialog>().expect("kind")
             }
@@ -254,8 +267,8 @@ impl Dialogs {
                     .downcast::<SessionTreeDialog>()
                     .expect("kind")
             }
-            DialogKind::Switcher => {
-                self.switcher = *view.into_any().downcast::<SwitcherDialog>().expect("kind")
+            DialogKind::Palette => {
+                self.switcher = *view.into_any().downcast::<PaletteDialog>().expect("kind")
             }
             DialogKind::PortShare => {
                 self.port_share = *view.into_any().downcast::<PortShareDialog>().expect("kind")
@@ -280,13 +293,14 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.index,
             DialogKind::ThreadStats => self.thread_stats.index,
             DialogKind::SessionTrace => self.session_trace.index,
+            DialogKind::ContextPlan => self.context_plan.index,
             DialogKind::Models => self.models.index,
             DialogKind::Connections => self.connections.index,
             DialogKind::HistorySearch => self.history_search.index,
             DialogKind::Queue => self.queue.index,
             DialogKind::Threads => self.threads.index,
             DialogKind::SessionTree => self.session_tree.index,
-            DialogKind::Switcher => self.switcher.selected,
+            DialogKind::Palette => self.switcher.selected,
             DialogKind::PortShare => 0,
             DialogKind::Help => 0,
             DialogKind::Notices => self.notices.index,
@@ -304,13 +318,14 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.index = value,
             DialogKind::ThreadStats => self.thread_stats.index = value,
             DialogKind::SessionTrace => self.session_trace.index = value,
+            DialogKind::ContextPlan => self.context_plan.index = value,
             DialogKind::Models => self.models.index = value,
             DialogKind::Connections => self.connections.index = value,
             DialogKind::HistorySearch => self.history_search.index = value,
             DialogKind::Queue => self.queue.index = value,
             DialogKind::Threads => self.threads.index = value,
             DialogKind::SessionTree => self.session_tree.index = value,
-            DialogKind::Switcher => self.switcher.selected = value,
+            DialogKind::Palette => self.switcher.selected = value,
             DialogKind::PortShare => {}
             DialogKind::Help => {}
             DialogKind::Notices => self.notices.index = value,
@@ -328,13 +343,14 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.follow,
             DialogKind::ThreadStats => self.thread_stats.follow,
             DialogKind::SessionTrace => self.session_trace.follow,
+            DialogKind::ContextPlan => self.context_plan.follow,
             DialogKind::Models => self.models.follow,
             DialogKind::Connections => self.connections.follow,
             DialogKind::HistorySearch => self.history_search.follow,
             DialogKind::Queue => self.queue.follow,
             DialogKind::Threads => self.threads.follow,
             DialogKind::SessionTree => self.session_tree.follow,
-            DialogKind::Switcher => self.switcher.follow,
+            DialogKind::Palette => self.switcher.follow,
             DialogKind::PortShare => false,
             DialogKind::Help => false,
             DialogKind::Notices => self.notices.follow,
@@ -352,13 +368,14 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.keys_open,
             DialogKind::ThreadStats => self.thread_stats.keys_open,
             DialogKind::SessionTrace => self.session_trace.keys_open,
+            DialogKind::ContextPlan => self.context_plan.keys_open,
             DialogKind::Models => self.models.keys_open,
             DialogKind::Connections => self.connections.keys_open,
             DialogKind::HistorySearch => self.history_search.keys_open,
             DialogKind::Queue => self.queue.keys_open,
             DialogKind::Threads => self.threads.keys_open,
             DialogKind::SessionTree => self.session_tree.keys_open,
-            DialogKind::Switcher => self.switcher.keys_open,
+            DialogKind::Palette => self.switcher.keys_open,
             DialogKind::PortShare => false,
             DialogKind::Help => false,
             DialogKind::Notices => self.notices.keys_open,
@@ -377,13 +394,14 @@ impl Dialogs {
             DialogKind::Quotas => self.quotas.keys_open = open,
             DialogKind::ThreadStats => self.thread_stats.keys_open = open,
             DialogKind::SessionTrace => self.session_trace.keys_open = open,
+            DialogKind::ContextPlan => self.context_plan.keys_open = open,
             DialogKind::Models => self.models.keys_open = open,
             DialogKind::Connections => self.connections.keys_open = open,
             DialogKind::HistorySearch => self.history_search.keys_open = open,
             DialogKind::Queue => self.queue.keys_open = open,
             DialogKind::Threads => self.threads.keys_open = open,
             DialogKind::SessionTree => self.session_tree.keys_open = open,
-            DialogKind::Switcher => self.switcher.keys_open = open,
+            DialogKind::Palette => self.switcher.keys_open = open,
             DialogKind::PortShare => {}
             DialogKind::Help => {}
             DialogKind::Notices => self.notices.keys_open = open,
@@ -404,13 +422,14 @@ impl Dialogs {
             DialogKind::Quotas => &mut self.quotas.keys_scroll,
             DialogKind::ThreadStats => &mut self.thread_stats.keys_scroll,
             DialogKind::SessionTrace => &mut self.session_trace.keys_scroll,
+            DialogKind::ContextPlan => &mut self.context_plan.keys_scroll,
             DialogKind::Models => &mut self.models.keys_scroll,
             DialogKind::Connections => &mut self.connections.keys_scroll,
             DialogKind::HistorySearch => &mut self.history_search.keys_scroll,
             DialogKind::Queue => &mut self.queue.keys_scroll,
             DialogKind::Threads => &mut self.threads.keys_scroll,
             DialogKind::SessionTree => &mut self.session_tree.keys_scroll,
-            DialogKind::Switcher => &mut self.switcher.keys_scroll,
+            DialogKind::Palette => &mut self.switcher.keys_scroll,
             DialogKind::PortShare => &mut self.port_share.scroll,
             DialogKind::Help => &mut self.help.scroll,
             DialogKind::Notices => &mut self.notices.keys_scroll,

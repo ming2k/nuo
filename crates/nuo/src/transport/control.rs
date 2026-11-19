@@ -4,8 +4,6 @@ use super::current_posture;
 use super::lifecycle::CONTROL_REPLY_TIMEOUT;
 use super::*;
 use std::time::Duration;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::http::HeaderValue;
 
 /// Typed result of one control verb. `payload` is the verb's JSON-encoded
 /// result (`ListThreads`, usage/endpoint reports, Archivist answers); verbs
@@ -54,34 +52,42 @@ async fn control_outcome_with_timeout(
     timeout: Duration,
 ) -> Result<ControlOutcome, String> {
     let action = AttachAction::Control(request);
+    let deadline = tokio::time::Instant::now() + timeout;
 
     if let Some(endpoint) = info.effective_local_endpoint()
-        && let Ok(stream) = host::ipc::connect(&endpoint).await
+        && let Ok(Ok(stream)) =
+            tokio::time::timeout_at(deadline, host::ipc::connect(&endpoint)).await
     {
         let (sink, source) = native_framed_split(stream);
-        return finish_control((sink, source), action, timeout).await;
+        return finish_control_until((sink, source), action, deadline).await;
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
-    let mut req = url
-        .as_str()
-        .into_client_request()
-        .map_err(|e| format!("bad ws url {url}: {e}"))?;
-    if let Some(token) = &info.token {
-        let value = HeaderValue::from_str(&format!("Bearer {token}"))
-            .map_err(|e| format!("bad bearer token: {e}"))?;
-        req.headers_mut().insert("Authorization", value);
-    }
-    let (ws, _) = tokio_tungstenite::connect_async(req)
-        .await
-        .map_err(|e| format!("ws connect to {url}: {e}"))?;
-    let (sink, source) = websocket_split(ws);
-    finish_control((sink, source), action, timeout).await
+    let (sink, source) = tokio::time::timeout_at(
+        deadline,
+        connect_ws_wire(
+            &url,
+            info.token.as_deref(),
+            netune::WsSessionConfig::default().with_ping_interval(Duration::ZERO),
+        ),
+    )
+    .await
+    .map_err(|_| "timed out connecting control channel to server".to_string())??;
+    finish_control_until((sink, source), action, deadline).await
 }
 
+#[cfg(test)]
 pub(super) async fn finish_control(
     parts: (BoxWireSink, BoxWireStream),
     action: AttachAction,
     timeout: Duration,
+) -> Result<ControlOutcome, String> {
+    finish_control_until(parts, action, tokio::time::Instant::now() + timeout).await
+}
+
+async fn finish_control_until(
+    parts: (BoxWireSink, BoxWireStream),
+    action: AttachAction,
+    deadline: tokio::time::Instant,
 ) -> Result<ControlOutcome, String> {
     let (mut wire_sink, mut wire_source) = parts;
     let select = Wire::Select {
@@ -91,12 +97,12 @@ pub(super) async fn finish_control(
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         protocol: PROTOCOL_VERSION,
     };
-    wire_sink
-        .send(select)
+    tokio::time::timeout_at(deadline, wire_sink.send(select))
         .await
+        .map_err(|_| "timed out sending control select to server".to_string())?
         .map_err(|e| format!("wire send control select: {e}"))?;
 
-    tokio::time::timeout(timeout, async {
+    tokio::time::timeout_at(deadline, async {
         loop {
             match wire_source.next().await {
                 Some(Ok(WireFrame::Wire(wire))) => match wire {

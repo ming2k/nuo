@@ -11,7 +11,7 @@
 
 use super::app_in_tempdir;
 
-use crossterm::event::{
+use graticule::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
@@ -19,14 +19,14 @@ use crate::shell::ui::UiKey;
 
 /// Paint one frame and publish its geometry — the state the next input event
 /// resolves against.
-fn paint(app: &mut crate::shell::App, terminal: &mut nuotc::TestTerminal) {
+fn paint(app: &mut crate::shell::App, terminal: &mut graticule::TestTerminal) {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(app, f, "s1");
     });
     app.transcript.ui.commit();
 }
 
-async fn send(app: &mut crate::shell::App, terminal: &mut nuotc::TestTerminal, event: Event) {
+async fn send(app: &mut crate::shell::App, terminal: &mut graticule::TestTerminal, event: Event) {
     paint(app, terminal);
     crate::shell::event_loop::process_event_for_test(app, &event, "s1").await;
 }
@@ -64,7 +64,7 @@ fn seeded_app() -> (crate::shell::App, tempfile::TempDir) {
 #[tokio::test]
 async fn every_single_click_switches() {
     let (mut app, _tmp) = seeded_app();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
 
     for (x, expected) in [(15u16, 1usize), (5, 0), (28, 2), (5, 0), (15, 1)] {
@@ -90,7 +90,7 @@ async fn every_single_click_switches() {
 #[tokio::test]
 async fn f1_and_alt_h_open_help_dialog() {
     let (mut app, _tmp) = seeded_app();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
 
     // F1 toggles open
@@ -158,7 +158,7 @@ async fn f1_and_alt_h_open_help_dialog() {
 #[tokio::test]
 async fn help_dialog_mouse_row_click_executes_action() {
     let (mut app, _tmp) = seeded_app();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
 
     // Open Help via F1
@@ -220,7 +220,7 @@ async fn click_dismisses_an_open_dropdown_through_the_real_dispatch() {
         ui_primitives::components::dropdown::DropdownAnchor::center_screen(),
     ));
 
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
     assert!(
         app.transcript

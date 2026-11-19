@@ -286,8 +286,8 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
     );
 
     // Mount Help overlay on UI and test footer dismissal click
-    let modal_rect = nuotc::layout::Rect::new(10, 5, 60, 20);
-    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    let modal_rect = graticule::layout::Rect::new(10, 5, 60, 20);
+    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
     app.transcript.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Help,
@@ -379,12 +379,12 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
     };
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
-    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
     app.transcript.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Models,
         )),
-        nuotc::Rect::new(10, 5, 60, 15),
+        graticule::Rect::new(10, 5, 60, 15),
     );
     app.transcript.ui.commit();
 

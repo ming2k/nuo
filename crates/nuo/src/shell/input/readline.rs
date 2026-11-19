@@ -1,6 +1,6 @@
 //! The shared readline engine: intra-line caret motion, word boundaries and
 //! grapheme deletion used by the composer and the inline prompts. Operates
-//! natively on byte offsets and grapheme boundaries (aligned with `nuotc`).
+//! natively on byte offsets and grapheme boundaries (aligned with `graticule`).
 //!
 //! Vertical caret motion is *not* here: ↑/↓ walk the composer's wrapped visual
 //! rows, which is a grid question — see
@@ -22,7 +22,7 @@ pub(crate) fn insert_newline(
 
 /// Normalize cursor byte offset to a valid grapheme boundary within `input`.
 pub(crate) fn normalized_cursor_byte(input: &str, cursor_position: usize) -> usize {
-    nuotc::floor_grapheme_boundary(input, cursor_position)
+    graticule::floor_grapheme_boundary(input, cursor_position)
 }
 
 /// Move backward one extended grapheme cluster boundary (byte offset).
@@ -31,13 +31,13 @@ pub(crate) fn previous_grapheme_boundary(input: &str, cursor_position: usize) ->
     if cursor_byte == 0 {
         return 0;
     }
-    nuotc::floor_grapheme_boundary(input, cursor_byte - 1)
+    graticule::floor_grapheme_boundary(input, cursor_byte - 1)
 }
 
 /// Move forward one extended grapheme cluster boundary (byte offset).
 pub(crate) fn next_grapheme_boundary(input: &str, cursor_position: usize) -> usize {
     let cursor_byte = normalized_cursor_byte(input, cursor_position);
-    nuotc::inclusive_grapheme_end(input, cursor_byte)
+    graticule::inclusive_grapheme_end(input, cursor_byte)
 }
 
 pub(crate) fn delete_previous_grapheme(input: &mut String, cursor_position: &mut usize) -> bool {
@@ -46,7 +46,7 @@ pub(crate) fn delete_previous_grapheme(input: &mut String, cursor_position: &mut
         *cursor_position = 0;
         return false;
     }
-    let start = nuotc::floor_grapheme_boundary(input, end - 1);
+    let start = graticule::floor_grapheme_boundary(input, end - 1);
     input.replace_range(start..end, "");
     *cursor_position = start;
     true
@@ -54,7 +54,7 @@ pub(crate) fn delete_previous_grapheme(input: &mut String, cursor_position: &mut
 
 pub(crate) fn delete_next_grapheme(input: &mut String, cursor_position: &mut usize) -> bool {
     let start = normalized_cursor_byte(input, *cursor_position);
-    let end = nuotc::inclusive_grapheme_end(input, start);
+    let end = graticule::inclusive_grapheme_end(input, start);
     if end <= start {
         *cursor_position = start;
         return false;

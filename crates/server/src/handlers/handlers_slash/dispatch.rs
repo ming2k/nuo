@@ -118,6 +118,10 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
             commands::stats(env, name, args, &parts).await;
             Routed::Handler
         }
+        Some(BuiltinCmd::Context) => {
+            commands::context(env, name, args, &parts).await;
+            Routed::Handler
+        }
         Some(BuiltinCmd::Trace) => {
             commands::trace(env, name, args, &parts).await;
             Routed::Handler
@@ -132,6 +136,10 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
         }
         Some(BuiltinCmd::Compact) => {
             commands::compact(env, name, args, &parts).await;
+            Routed::Handler
+        }
+        Some(BuiltinCmd::Language) => {
+            commands::language(env, name, args, &parts).await;
             Routed::Handler
         }
         Some(BuiltinCmd::Jobs) => {

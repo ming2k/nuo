@@ -103,3 +103,57 @@ fn test_inv_color_purity_firewall() {
         panic!("Color purity firewall violation:\n{e}");
     }
 }
+
+/// `[INV-WS-01]` (ADR-0004, release-and-versioning.md §5): every external
+/// package in `Cargo.lock` must resolve to an explicit registry or git source,
+/// never a source-less local `[patch]` path override that would fail on a clean
+/// CI runner without sibling directories.
+#[test]
+fn test_inv_ws_01_lockfile_has_no_unpinned_external_path_overrides() {
+    let root = nuo::dev::find_workspace_root();
+    let lock = std::fs::read_to_string(root.join("Cargo.lock")).expect("read Cargo.lock");
+    let parsed: toml::Table = toml::from_str(&lock).expect("parse Cargo.lock");
+    let packages = parsed
+        .get("package")
+        .and_then(|v| v.as_array())
+        .expect("Cargo.lock [[package]] array");
+
+    let mut workspace_names: std::collections::HashSet<String> =
+        std::iter::once("nuo-tests".to_string()).collect();
+    for entry in std::fs::read_dir(root.join("crates")).expect("read crates/") {
+        let entry = entry.expect("dir entry");
+        let manifest = entry.path().join("Cargo.toml");
+        if manifest.is_file() {
+            let text = std::fs::read_to_string(&manifest).expect("read crate manifest");
+            let tbl: toml::Table = toml::from_str(&text).expect("parse crate manifest");
+            if let Some(name) = tbl
+                .get("package")
+                .and_then(|p| p.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                workspace_names.insert(name.to_string());
+            }
+        }
+    }
+
+    let mut unpinned = Vec::new();
+    for pkg in packages {
+        let Some(tbl) = pkg.as_table() else { continue };
+        let Some(name) = tbl.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if workspace_names.contains(name) {
+            continue;
+        }
+        let source = tbl.get("source").and_then(|v| v.as_str());
+        if source.is_none() {
+            unpinned.push(name.to_string());
+        }
+    }
+    assert!(
+        unpinned.is_empty(),
+        "external crates in Cargo.lock resolved to local path overrides without a `source` \
+         (comment out `[patch]` in `.cargo/config.toml` and pin the upstream tag/version before committing) \
+         ([INV-WS-01]): {unpinned:?}"
+    );
+}

@@ -5,7 +5,7 @@
 //! - Running: `Alt+S steer now` (left) / `Enter queue follow-up` (right)
 //! - Completion: `Esc dismiss` (left) / `Tab / Enter select` (right)
 //! - History: `Esc close` (left) / `Tab / Enter insert` (right)
-use nuotc::{Color, Span};
+use graticule::{Color, Span};
 
 use crate::shell::keymap::{HintSide, Key, LiveHint};
 use crate::shell::modal_keys::live_history_hints;
@@ -349,7 +349,7 @@ pub(crate) fn hint_row_parts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuotc::Modifier;
+    use graticule::Modifier;
 
     fn text(spans: &[Span<'static>]) -> String {
         spans.iter().map(|span| span.content.to_string()).collect()

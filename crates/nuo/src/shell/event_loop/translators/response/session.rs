@@ -224,6 +224,15 @@ impl TranslatorState {
                 // Thread-independent by design.
                 self.mutations.send(M::UsageStats(report)).await;
             }
+            AgentResponse::ContextPlan { thread_id, plan } => {
+                // The plan is measured by one `Agent`, so it belongs to exactly
+                // one thread: a reply that raced a switch would populate this
+                // dialog with another thread's prompt (ADR-0220 §3).
+                let viewed = self.viewed_session_id.lock().await.clone();
+                if viewed.as_deref() == Some(thread_id.as_str()) {
+                    self.mutations.send(M::ContextPlan(plan)).await;
+                }
+            }
             AgentResponse::ComposerCompletions {
                 request_id,
                 text,

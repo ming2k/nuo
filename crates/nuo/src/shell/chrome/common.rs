@@ -1,6 +1,6 @@
 //! Shared helpers and liveness calculations for chrome components.
 
-use nuotc::Color;
+use graticule::Color;
 use std::time::Duration;
 
 use crate::shell::render::Theme;
@@ -19,7 +19,7 @@ pub const SPINNER_PHASES: usize = 12;
 /// so liveness is conveyed through active frame rotation via the ASCII spinner
 /// (`|`, `/`, `-`, `\`).
 pub fn spinner_glyph(
-    glyphs: &nuotc::GlyphSet,
+    glyphs: &graticule::GlyphSet,
     elevation: ui_primitives::elevation::ElevationArchetype,
     liveness: Liveness,
     phase: usize,

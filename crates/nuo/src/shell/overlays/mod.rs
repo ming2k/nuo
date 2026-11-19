@@ -14,8 +14,8 @@
 
 pub mod ask_user;
 pub mod command_log;
-pub mod command_palette;
 pub mod common;
+pub mod context_plan;
 pub mod dashboard;
 pub mod dialog_keys;
 pub mod diff_viewer;
@@ -53,9 +53,9 @@ pub use dashboard::{
 pub use command_log::{
     LOG_SCENE_CHROME_ROWS, LogSceneProps, LogSceneRects, draw_command_log_scene,
 };
-pub(crate) use command_palette::draw_command_palette;
+pub use context_plan::draw_context_plan_modal;
 pub use dashboard::DashboardRects;
-pub use dialog_keys::draw_dialog_keys;
+pub(crate) use dialog_keys::draw_dialog_keys;
 pub use diff_viewer::{
     DiffFileEntry, DiffLineKind, DiffSceneProps, DiffSceneRects, DiffViewerLine, DiffViewerState,
     build_diff_lines, draw_diff_scene,

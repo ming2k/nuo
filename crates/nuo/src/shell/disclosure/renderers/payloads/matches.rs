@@ -1,5 +1,5 @@
 //! Search matches renderer (grep / find pattern matches).
-use nuotc::{Color, Line, Modifier, Span, Style};
+use graticule::{Color, Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};

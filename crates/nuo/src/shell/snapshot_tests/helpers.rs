@@ -1,7 +1,7 @@
 //! Shared test fixtures, render harnesses, and grid extraction utilities
 //! for transcript and tool-step snapshot assertions.
 
-use nuotc::Rect;
+use graticule::Rect;
 use view::model::document::{MessageKind, TranscriptMessage};
 use view::model::interactive::InteractiveEntry;
 use view::model::layout::LayoutMap;
@@ -88,7 +88,7 @@ pub(crate) fn render_pre_attach_grid(
     width: u16,
     height: u16,
 ) -> String {
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     terminal.draw(|f| {
         crate::shell::pre_attach::draw_pre_attach(f, state, &Theme::default());
     });
@@ -97,7 +97,7 @@ pub(crate) fn render_pre_attach_grid(
 
 /// Extract trimmed text rows from a painted buffer.
 pub(crate) fn painted_rows(
-    buf: &nuotc::CellGrid,
+    buf: &graticule::CellGrid,
     width: u16,
     height: u16,
 ) -> (String, (String, String)) {
@@ -133,7 +133,7 @@ pub(crate) fn render_grid_with_map(
     width: u16,
     height: u16,
 ) -> (String, LayoutMap) {
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     let mut layout_map = LayoutMap::default();
     terminal.draw(|f| {
         let area: Rect = f.area();
@@ -202,8 +202,8 @@ pub(crate) fn render_grid_with_map(
 /// Compact per-row background run-length map + legend for a rendered buffer.
 /// Skips rows that are entirely the terminal default so the output stays
 /// focused on the painted step.
-pub(crate) fn background_map(buf: &nuotc::CellGrid) -> (String, String) {
-    use nuotc::Color;
+pub(crate) fn background_map(buf: &graticule::CellGrid) -> (String, String) {
+    use graticule::Color;
     type Bg = Color;
 
     let bw = buf.area().width as usize;
@@ -296,7 +296,7 @@ pub(crate) fn render_transcript_frame(
 
     let theme = Theme::default();
     let selection = SelectionState::default();
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     let mut layout_map = LayoutMap::new();
     let mut render = None;
     terminal.draw(|f| {

@@ -256,6 +256,7 @@ impl TranslatorState {
             | AgentResponse::ThreadDetail(_)
             | AgentResponse::ConnectionDetail(_)
             | AgentResponse::TokenUsageReport { .. }
+            | AgentResponse::ContextPlan { .. }
             | AgentResponse::UsageStatsReport { .. }
             | AgentResponse::ComposerCompletions { .. }
             | AgentResponse::ThreadContext(_)

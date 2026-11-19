@@ -108,6 +108,11 @@ pub(crate) struct ContextState {
     /// every model request is pure hot-path I/O. One `stat` per request is
     /// enough to notice a manifest edit.
     pub(crate) workspace_topology_cache: WorkspaceTopologyCache,
+    /// The context plan measured for the most recent request, plus that
+    /// request's token shape once it was sent. `/context` renders this exact
+    /// value, so the operator table cannot disagree with the prompt the model
+    /// received (`[INV-CTXPLAN-01]`, ADR-0217).
+    pub(crate) last_measurement: std::sync::Mutex<Option<protocol::ContextMeasurement>>,
     /// Workspace authority is orthogonal to interaction posture. Shared with
     /// spawned subagents so delegation cannot silently widen the parent's grant.
     pub(crate) workspace_security: Arc<std::sync::Mutex<protocol::WorkspaceSecuritySnapshot>>,
@@ -192,6 +197,11 @@ pub(crate) struct ContextState {
     /// User-authored scoped instructions (ADR-0165). Shared by handle with
     /// subagents; the user source is cross-project route tuning.
     pub(crate) user_instructions: Arc<std::sync::RwLock<Vec<protocol::ScopedInstruction>>>,
+    /// The declared answer language for this session (`agent.language`,
+    /// ADR-0222). Shared by handle with subagents: a child answers in the same
+    /// language as the parent, because the human reading the child's report is
+    /// the same human.
+    pub(crate) response_language: Arc<std::sync::RwLock<Option<protocol::ResponseLanguage>>>,
     /// Provider type behind the active connection, resolved by the server at
     /// setup and on every provider switch. Kept off the per-request path:
     /// prompt composition must not read the connections store.

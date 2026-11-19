@@ -138,8 +138,8 @@ pub enum InjectionKind {
     /// conversation-context file-injection policy.
     ImplicitFile,
     /// System-prompt assembly: the harness rebuilt the head system message
-    /// from live identity, model/provider, and tool state through the
-    /// agent's request-scoped `InstructionRegistry` assembly.
+    /// from live identity, model/provider, and tool state through the agent's
+    /// compiled context policy (ADR-0215).
     SystemPrompt,
     /// Built-in anti-anchoring nudge fired by the deterministic read-loop guard
     /// when the model repeats the same read (a single page or a two-page thrash)

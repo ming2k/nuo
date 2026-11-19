@@ -11,7 +11,7 @@ use nuo_view_test_support::*;
 
 mod nuo_view_test_support {
     use super::*;
-    use nuotc::{CellGrid, Damage, Frame};
+    use graticule_canvas::{CellGrid, Damage, Frame};
 
     /// One notice, one frame: paint it and hand back everything a caller wants
     /// to assert on (rows, content accounting, the layout map).

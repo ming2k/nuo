@@ -222,6 +222,11 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.telemetry.token_report = report;
             true
         }
+        AppMutation::ContextPlan(plan) => {
+            app.telemetry.context_plan = plan;
+            app.telemetry.context_plan_loaded = true;
+            true
+        }
         AppMutation::UsageStats(report) => apply_usage_stats(app, report),
         AppMutation::UsageFailed(_error) => {
             app.telemetry.usage_loading = false;
@@ -239,6 +244,12 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::ClearContextTokens => {
             app.telemetry.context_tokens_by_session.clear();
+            // A plan belongs to one thread's `Agent`. Leaving it installed across
+            // a session change is the exact failure the reply's `thread_id` guard
+            // exists to prevent — the guard rejects the *reply*, so the stale
+            // value must go with the session it described (ADR-0220 §3).
+            app.telemetry.context_plan = None;
+            app.telemetry.context_plan_loaded = false;
             true
         }
 

@@ -21,7 +21,7 @@ fn test_tab_bar() -> TabBarProps<'static> {
 #[test]
 fn redesigned_components_render_without_panicking() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let mut terminal = graticule::TestTerminal::new(80, 30);
 
     terminal
             .draw(|f| {
@@ -174,7 +174,7 @@ fn redesigned_components_render_without_panicking() {
                 .collect();
         let ranked: Vec<(usize, ui_primitives::fuzzy::FuzzyMatch)> =
             ui_primitives::fuzzy::rank(&["a"], "");
-        let input_rect = nuotc::Rect::new(0, 20, 80, 3);
+        let input_rect = graticule::Rect::new(0, 20, 80, 3);
         let _ = draw_history_panel(
             f,
             crate::shell::overlays::history::HistoryPanelProps {
@@ -285,10 +285,8 @@ fn redesigned_components_render_without_panicking() {
             &mut layout_map,
         );
         let mut keys_scroll = 0;
-        let ctx = crate::shell::keymap::AppContext {
-            active_dialog: Some(crate::shell::surfaces::DialogKind::Sessions),
-            ..Default::default()
-        };
+        let mut ctx = crate::shell::palette::PaletteContext::default();
+        ctx.state.active_dialog = Some(crate::shell::surfaces::DialogKind::Sessions);
         draw_dialog_keys(
             f,
             crate::shell::surfaces::DialogKind::Sessions,
@@ -330,7 +328,7 @@ fn redesigned_components_render_without_panicking() {
             &mut 0,
             true,
             0,
-            nuotc::Rect::new(0, 0, 60, 10),
+            graticule::Rect::new(0, 0, 60, 10),
             true,
             &theme,
         );
@@ -349,7 +347,7 @@ fn redesigned_components_render_without_panicking() {
             origin: None,
             ..Default::default()
         };
-        let rect = nuotc::Rect::new(0, 0, 60, 3);
+        let rect = graticule::Rect::new(0, 0, 60, 3);
         let mut hit_map = crate::shell::ui::ComponentTree::new();
         hit_map.begin(f.area());
         let _ = draw_permission_sheet(
@@ -374,7 +372,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
         draw_settings_view(
@@ -392,14 +390,14 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
                 theme: &theme,
-                profile: &nuotc::TerminalProfile::direct_color(),
+                profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
             },
         );
     });
     // Row 1 is Client TabBar; Row 2 is SceneBar (settings) (ADR-0062).
-    assert!(grid_row(&terminal, 0).contains("F1 help"));
+    assert!(!grid_row(&terminal, 0).contains("F1"));
     let scene_row = grid_row(&terminal, 1);
     assert!(
         scene_row.contains("settings"),
@@ -426,7 +424,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
                 theme: &theme,
-                profile: &nuotc::TerminalProfile::direct_color(),
+                profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
             },
@@ -445,7 +443,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
         draw_settings_view(
@@ -463,7 +461,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
                 theme: &theme,
-                profile: &nuotc::TerminalProfile::direct_color(),
+                profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
             },
@@ -542,7 +540,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
         capabilities: protocol::web_provider_capabilities(),
     };
 
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let tui_config = crate::shell::config::TuiConfig::default();
 
     for cat_idx in 0..ConfigCategory::ALL.len() {
@@ -563,7 +561,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
                         detail_scroll: &mut 0,
                         breadcrumbs: None,
                         theme: &theme,
-                        profile: &nuotc::TerminalProfile::direct_color(),
+                        profile: &graticule::TerminalProfile::direct_color(),
                         tui_config: &tui_config,
                         tab_bar: Some(test_tab_bar()),
                     },
@@ -588,13 +586,13 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
     let tui_config = crate::shell::config::TuiConfig::default();
 
     // 1. DirectColor profile: Appearance shows chromatic presets
-    let direct_profile = nuotc::TerminalProfile::direct_color();
+    let direct_profile = graticule::TerminalProfile::direct_color();
     assert!(direct_profile.supports_color_themes());
     assert_eq!(ConfigCategory::ALL.len(), 5);
     assert_eq!(ConfigCategory::from_index(0), ConfigCategory::Appearance);
 
     let theme_direct = Theme::default();
-    let mut term_direct = nuotc::TestTerminal::new(80, 24);
+    let mut term_direct = graticule::TestTerminal::new(80, 24);
     term_direct.draw(|frame| {
         draw_settings_view(
             frame,
@@ -626,11 +624,11 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
     assert!(direct_screen.contains("Zen"));
 
     // 2. Monochrome profile: Appearance adapts to hardware mode without broken RGB swatches
-    let mono_profile = nuotc::TerminalProfile::dec_vt100_monochrome();
+    let mono_profile = graticule::TerminalProfile::dec_vt100_monochrome();
     assert!(!mono_profile.supports_color_themes());
 
     let theme_mono = Theme::monochrome();
-    let mut term_mono = nuotc::TestTerminal::new(80, 24);
+    let mut term_mono = graticule::TestTerminal::new(80, 24);
     let tui_config = crate::shell::config::TuiConfig::default();
     term_mono.draw(|frame| {
         draw_settings_view(
@@ -674,10 +672,10 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
 
     fn draw_appearance(
-        terminal: &mut nuotc::TestTerminal,
+        terminal: &mut graticule::TestTerminal,
         hover: Option<usize>,
         theme: &Theme,
         custom: &ui_primitives::ColorSchemeConfig,
@@ -699,7 +697,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
                     detail_scroll: &mut 0,
                     breadcrumbs: None,
                     theme,
-                    profile: &nuotc::TerminalProfile::direct_color(),
+                    profile: &graticule::TerminalProfile::direct_color(),
                     tui_config,
                     tab_bar: Some(test_tab_bar()),
                 },
@@ -777,7 +775,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
         draw_settings_view(
@@ -795,7 +793,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
                 detail_scroll: &mut 0,
                 breadcrumbs: None,
                 theme: &theme,
-                profile: &nuotc::TerminalProfile::direct_color(),
+                profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
             },
@@ -849,7 +847,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
         capabilities: protocol::web_provider_capabilities(),
     };
 
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     for (category_index, expected_axis) in [(2, "Used by search_web"), (3, "Used by read_url")] {
         terminal.draw(|frame| {
             draw_settings_view(
@@ -867,7 +865,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                     detail_scroll: &mut 0,
                     breadcrumbs: Some("Main › Settings"),
                     theme: &theme,
-                    profile: &nuotc::TerminalProfile::direct_color(),
+                    profile: &graticule::TerminalProfile::direct_color(),
                     tui_config: &tui_config,
                     tab_bar: Some(test_tab_bar()),
                 },
@@ -892,7 +890,7 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
 
     let mut selected_rect = None;
     terminal.draw(|frame| {
@@ -911,7 +909,7 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
                 theme: &theme,
-                profile: &nuotc::TerminalProfile::direct_color(),
+                profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
             },
@@ -934,7 +932,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
             tool::Role::Assistant,
             "A finished response above the footer.",
         )];
-        let mut terminal = nuotc::TestTerminal::new(60, 20);
+        let mut terminal = graticule::TestTerminal::new(60, 20);
         let mut footer_anchor_y = 0;
         let mut transcript_height = 0;
 
@@ -1006,7 +1004,7 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
     let theme = Theme::default();
     let messages = vec![TranscriptMessage::new(tool::Role::User, "hello")];
 
-    let mut terminal = nuotc::TestTerminal::new(20, 8);
+    let mut terminal = graticule::TestTerminal::new(20, 8);
     let mut render_opt: Option<TranscriptRender> = None;
     terminal.draw(|f| {
         render_opt = Some(draw_transcript(
@@ -1076,7 +1074,7 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
 #[test]
 fn draw_too_small_paints_the_frozen_notice_only() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(30, 10);
+    let mut terminal = graticule::TestTerminal::new(30, 10);
     terminal.draw(|f| draw_too_small(f, &theme));
     let buffer = terminal.buffer();
     let rendered: String = (0..buffer.area().height)
@@ -1106,7 +1104,7 @@ fn draw_too_small_paints_the_frozen_notice_only() {
 #[test]
 fn empty_session_renders_empty_state_with_nonzero_height() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let messages: Vec<TranscriptMessage> = Vec::new();
 
     let mut render_opt: Option<TranscriptRender> = None;
@@ -1171,7 +1169,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
 #[test]
 fn nonempty_session_does_not_render_empty_state() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let messages = vec![TranscriptMessage::new(tool::Role::User, "hello")];
 
     let mut render_opt: Option<TranscriptRender> = None;
@@ -1235,7 +1233,7 @@ fn nonempty_session_does_not_render_empty_state() {
 #[test]
 fn empty_session_uses_user_logo_and_reports_its_height() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let messages: Vec<TranscriptMessage> = Vec::new();
     // Three 9-column lines → reported content is 3 + 1 (gap) + 1 (carousel) = 5.
     let logo: Vec<String> = vec![
@@ -1315,8 +1313,8 @@ fn main_view_shows_the_thread_scene_row() {
     );
     let row0 = grid_row(&terminal, 0);
     assert!(
-        row0.contains("F1 help"),
-        "client top bar offers the help affordance: {row0:?}"
+        !row0.contains("F1"),
+        "the TabBar spends no columns on a standing help keycap (ADR-0219): {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
     assert!(
@@ -1368,7 +1366,7 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
         Some(context),
     );
     let row0 = grid_row(&terminal, 0);
-    assert!(row0.contains("F1 help"), "client menu on row 0: {row0:?}");
+    assert!(!row0.contains("F1"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
     assert!(
         row1.contains("THREAD"),
@@ -1404,7 +1402,7 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
 #[test]
 fn empty_state_tour_renders_the_current_carousel_page() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let messages: Vec<TranscriptMessage> = Vec::new();
     terminal.draw(|f| {
         let _ = draw_transcript(
@@ -1439,7 +1437,7 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
-                carousel_index: 2,
+                carousel_index: 3,
                 theme: &theme,
                 layout: view::layout::Strategy::default(),
                 height_cache: None,
@@ -1462,8 +1460,8 @@ fn empty_state_tour_renders_the_current_carousel_page() {
         !joined.contains("Type a message below to begin."),
         "no static tagline: {joined}"
     );
-    // Page 2 of the tour is the /fork page (ADR-0058).
-    assert!(joined.contains("/fork"), "page 2 visible: {joined}");
+    // Page 3 of the tour is the /fork page (ADR-0058).
+    assert!(joined.contains("/fork"), "page 3 visible: {joined}");
     // No dot indicator row: the carousel is a single line and
     // the rotation is self-explaining.
     assert!(!joined.contains('●'), "no dot indicator anywhere: {joined}");
@@ -1476,7 +1474,7 @@ fn empty_state_tour_renders_the_current_carousel_page() {
 #[test]
 fn h1_underline_clamps_to_text_extent() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(60, 12);
+    let mut terminal = graticule::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
         tool::Role::Assistant,
         "# QQ_H1_TEST\n\nbody text here\n",
@@ -1523,7 +1521,7 @@ fn h1_underline_clamps_to_text_extent() {
     });
     let buffer = terminal.buffer();
     let width = buffer.area().width;
-    let underline = nuotc::Modifier::UNDERLINE;
+    let underline = graticule::Modifier::UNDERLINE;
 
     let mut head = None;
     'outer: for y in 0..buffer.area().height {
@@ -1575,7 +1573,7 @@ fn h1_underline_clamps_to_text_extent() {
 fn h1_underline_emits_wide_glyph_in_underlined_run() {
     let theme = Theme::default();
     let width = 60u16;
-    let mut terminal = nuotc::TestTerminal::new(width, 12);
+    let mut terminal = graticule::TestTerminal::new(width, 12);
     let messages = vec![TranscriptMessage::new(
         tool::Role::Assistant,
         "# Hello😀\n\nbody\n",
@@ -1621,14 +1619,14 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
         );
     });
     let back = terminal.buffer();
-    let front = nuotc::CellGrid::new(width, 12);
-    let cmd = nuotc::render::diff::diff(back, terminal.damage(), &front);
-    let underline = nuotc::Modifier::UNDERLINE;
+    let front = graticule::CellGrid::new(width, 12);
+    let cmd = graticule::render::diff::diff(back, terminal.damage(), &front);
+    let underline = graticule::Modifier::UNDERLINE;
 
     let wide_run_style = cmd.draws.iter().find_map(|d| match d {
-        nuotc::Draw::Cells { style, cells, .. } => cells
+        graticule::Draw::Cells { style, cells, .. } => cells
             .iter()
-            .any(|(sym, w)| sym.as_str() == "😀" && *w == nuotc::CellWidth::Wide)
+            .any(|(sym, w)| sym.as_str() == "😀" && *w == graticule::CellWidth::Wide)
             .then_some(*style),
         _ => None,
     });
@@ -1659,7 +1657,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
     // Use a terminal at/above the render minimum so `draw_transcript` does
     // not trip its too-small guard. A 76-column transcript band still
     // wraps this ~95-char heading to ≥2 rows.
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let messages = vec![TranscriptMessage::new(
         tool::Role::Assistant,
         "# This is a very long heading that intentionally wraps to multiple rows for the underline-prefix test\n\nbody\n",
@@ -1706,7 +1704,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
     });
     let buffer = terminal.buffer();
     let width = buffer.area().width;
-    let underline = nuotc::Modifier::UNDERLINE;
+    let underline = graticule::Modifier::UNDERLINE;
 
     // The heading prefix is "   " (3 columns); locate the heading's rows
     // as the contiguous non-blank rows at the top (before the blank gap +
@@ -1777,7 +1775,7 @@ fn persistence_health_banner_renders_state_and_detail() {
     let theme = Theme::default();
 
     let render = |health: &protocol::monitor::PersistenceHealth, width: u16| {
-        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        let mut terminal = graticule::TestTerminal::new(width, 1);
         terminal.draw(|f| {
             draw_persistence_health_bar(f, f.area(), health, &theme);
         });

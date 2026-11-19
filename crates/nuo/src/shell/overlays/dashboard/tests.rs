@@ -9,7 +9,7 @@ use super::*;
 fn dashboard_head_renders_the_shared_three_tier_band() {
     let theme = Theme::default();
     let rows = vec![row("a-1", 100, "/work/app", ThreadActivity::Running)];
-    let mut terminal = nuotc::TestTerminal::new(100, 24);
+    let mut terminal = graticule::TestTerminal::new(100, 24);
     let mut list_scroll = 0usize;
     let mut detail_scroll = 0usize;
     terminal.draw(|f| {
@@ -52,11 +52,12 @@ fn dashboard_head_renders_the_shared_three_tier_band() {
             .collect()
     };
 
-    // Row 1: the client TabBar / brand and namespace pair (ADR-0060, ADR-0062).
+    // Row 1: the client TabBar / brand. No standing help/namespace pair is
+    // painted (ADR-0219): help discovery lives in the empty-state tour.
     let tabbar = row_text(0);
     assert!(
-        tabbar.contains("help") || tabbar.contains("C-x"),
-        "row 1 advertises client affordance: {tabbar:?}"
+        !tabbar.contains("help") && !tabbar.contains("F1") && !tabbar.contains("C-x"),
+        "row 1 advertises no standing client keycap: {tabbar:?}"
     );
 
     // Row 2: the polymorphic SceneBar (ADR-0062).
@@ -559,7 +560,7 @@ fn responsive_layout_tier_splits_wide_and_compact() {
 
 #[test]
 fn responsive_layout_tier_adapts_to_elevation_archetype() {
-    use nuotc::Rect;
+    use graticule::Rect;
     use ui_primitives::elevation::ElevationArchetype;
     let rect_90 = Rect::new(0, 0, 90, 24);
     // Under Chromatic (TrueColor), 90 columns has 0 cost -> 90 effective -> Wide
@@ -636,7 +637,7 @@ fn draw_fleet_table_renders_structured_headers_and_thread_titles() {
 
     let rows = [r1];
     let entries = dock_entries(&rows);
-    let mut terminal = nuotc::TestTerminal::new(100, 20);
+    let mut terminal = graticule::TestTerminal::new(100, 20);
     let mut scroll = 0usize;
     terminal.draw(|f| {
         draw_fleet_table(
@@ -670,7 +671,7 @@ fn draw_fleet_table_renders_structured_headers_and_thread_titles() {
 #[test]
 fn draw_model_usage_view_renders_usage_analytics_independently() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(100, 20);
+    let mut terminal = graticule::TestTerminal::new(100, 20);
     terminal.draw(|f| {
         draw_model_usage_view(f, Rect::new(0, 0, 100, 20), None, true, 0, &theme);
     });

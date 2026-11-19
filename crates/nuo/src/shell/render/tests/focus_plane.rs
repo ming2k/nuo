@@ -45,7 +45,7 @@ fn step(name: &str, expanded: bool) -> TranscriptMessage {
 }
 
 struct Painted {
-    terminal: nuotc::TestTerminal,
+    terminal: graticule::TestTerminal,
 }
 
 /// Paint the whole transcript surface (footer stack included, so the composer
@@ -88,7 +88,7 @@ fn paint_with_theme(
     selection: &SelectionState,
 ) -> Painted {
     let theme = *theme;
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         let _ = draw_transcript(
             f,
@@ -138,12 +138,12 @@ fn paint_with_theme(
 /// post-pass restyle, so the expected value is the lifted theme's own surface — which
 /// is also the faithful statement of the design: the pane's page *is* that tone while
 /// the pane owns the keyboard.
-fn page_tone(theme: &Theme, plane: FocusPlane) -> nuotc::Color {
+fn page_tone(theme: &Theme, plane: FocusPlane) -> graticule::Color {
     view::focus_plane::transcript_theme(theme, plane).surface()
 }
 
 /// Every background colour present in one row, left to right.
-fn row_backgrounds(painted: &Painted, y: u16) -> Vec<nuotc::Color> {
+fn row_backgrounds(painted: &Painted, y: u16) -> Vec<graticule::Color> {
     let width = painted.terminal.buffer().area().width;
     (0..width)
         .map(|x| painted.terminal.buffer().get(x, y).unwrap().style.bg)
@@ -152,7 +152,7 @@ fn row_backgrounds(painted: &Painted, y: u16) -> Vec<nuotc::Color> {
 
 /// Rows whose **whole** width carries one background tone — i.e. an unbroken
 /// surface, as opposed to a row with content bands sitting on the page.
-fn rows_painted_entirely(painted: &Painted, tone: nuotc::Color) -> Vec<u16> {
+fn rows_painted_entirely(painted: &Painted, tone: graticule::Color) -> Vec<u16> {
     let height = painted.terminal.buffer().area().height;
     (0..height)
         .filter(|&y| row_backgrounds(painted, y).iter().all(|bg| *bg == tone))
@@ -236,9 +236,11 @@ fn wash_reaches_the_column_the_reader_is_reading() {
 fn wash_preserves_the_relative_step_of_a_content_band() {
     let theme = Theme::default();
     let messages = vec![step("read", true)];
-    let lum = |c: nuotc::Color| -> f32 {
+    let lum = |c: graticule::Color| -> f32 {
         match c {
-            nuotc::Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+            graticule::Color::Rgb(r, g, b) => {
+                0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
+            }
             _ => 0.0,
         }
     };
@@ -285,9 +287,11 @@ fn wash_keeps_the_sent_message_panel_raised_above_the_page() {
             .with_sent_at_ms(1_700_000_000_000),
         step("read", false),
     ];
-    let lum = |c: nuotc::Color| -> f32 {
+    let lum = |c: graticule::Color| -> f32 {
         match c {
-            nuotc::Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+            graticule::Color::Rgb(r, g, b) => {
+                0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
+            }
             _ => 0.0,
         }
     };
@@ -420,14 +424,15 @@ fn marking_an_entry_does_not_recolour_its_summary() {
 
     // Content columns must be identical on both planes: focus adds a gutter marker,
     // it may not recolor the summary.
-    let summary_cells = |p: &Painted, y: u16| -> Vec<(String, nuotc::Color, nuotc::Modifier)> {
-        (TRANSCRIPT_H_INSET..p.terminal.buffer().area().width)
-            .map(|x| p.terminal.buffer().get(x, y).unwrap())
-            // Background is *expected* to differ (that is the pane cue). Only the
-            // glyph and its foreground are under test.
-            .map(|c| (c.symbol.to_string(), c.style.fg, c.style.add))
-            .collect()
-    };
+    let summary_cells =
+        |p: &Painted, y: u16| -> Vec<(String, graticule::Color, graticule::Modifier)> {
+            (TRANSCRIPT_H_INSET..p.terminal.buffer().area().width)
+                .map(|x| p.terminal.buffer().get(x, y).unwrap())
+                // Background is *expected* to differ (that is the pane cue). Only the
+                // glyph and its foreground are under test.
+                .map(|c| (c.symbol.to_string(), c.style.fg, c.style.add))
+                .collect()
+        };
     assert_eq!(
         summary_cells(&composer_plane, header_y),
         summary_cells(&transcript_plane, header_y),
@@ -487,8 +492,8 @@ fn both_planes_announce_ownership_in_the_background_channel() {
 
     // The composer half: its panel is the active input surface while it owns the
     // keyboard, and the recessed one the instant a crossing takes it away.
-    let panel_at = |focused: bool| -> nuotc::Color {
-        let mut terminal = nuotc::TestTerminal::new(30, 6);
+    let panel_at = |focused: bool| -> graticule::Color {
+        let mut terminal = graticule::TestTerminal::new(30, 6);
         terminal.draw(|f| {
             crate::shell::composer::draw_composer(
                 crate::shell::composer::ComposerProps {
@@ -551,7 +556,7 @@ fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
     let messages = vec![step("read", false)];
     let target = view::model::layout::InteractiveTarget::tool_step(0);
 
-    let summary_fg = |painted: &Painted| -> nuotc::Color {
+    let summary_fg = |painted: &Painted| -> graticule::Color {
         let b = painted.terminal.buffer();
         for y in 0..b.area().height {
             for x in 0..b.area().width {
@@ -565,7 +570,7 @@ fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
 
     // `hovered_step` is the frame's pointer answer, `focused_entry` the keyboard's.
     let paint_with = |hovered: Option<usize>| -> Painted {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule::TestTerminal::new(80, 24);
         terminal.draw(|f| {
             let _ = draw_transcript(
                 f,
@@ -634,9 +639,11 @@ fn every_shipped_scheme_announces_the_transcript_plane() {
         anchor: view::model::layout::SemanticCursor::new(0, 0, 0),
         head: view::model::layout::SemanticCursor::new(0, 0, 26),
     };
-    let lum = |c: nuotc::Color| -> f32 {
+    let lum = |c: graticule::Color| -> f32 {
         match c {
-            nuotc::Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+            graticule::Color::Rgb(r, g, b) => {
+                0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
+            }
             _ => 0.0,
         }
     };
@@ -687,7 +694,7 @@ fn every_shipped_scheme_announces_the_transcript_plane() {
         // Only cells **inside the transcript pane** are shifted: the head band and the
         // footer stack are painted from the unlifted theme, so they legitimately keep
         // the page tone even while the pane is lifted.
-        let pane = super::transcript_band_rect(nuotc::Rect::new(
+        let pane = super::transcript_band_rect(graticule::Rect::new(
             0,
             0,
             blurred.terminal.buffer().area().width,
@@ -755,9 +762,11 @@ fn a_selection_keeps_its_separation_under_the_pane_wash() {
         .with_round(1),
     ];
     let target = view::model::layout::InteractiveTarget::tool_step(0);
-    let lum = |c: nuotc::Color| -> f32 {
+    let lum = |c: graticule::Color| -> f32 {
         match c {
-            nuotc::Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+            graticule::Color::Rgb(r, g, b) => {
+                0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
+            }
             _ => 0.0,
         }
     };
@@ -766,8 +775,8 @@ fn a_selection_keeps_its_separation_under_the_pane_wash() {
         anchor: view::model::layout::SemanticCursor::new(0, 0, 0),
         head: view::model::layout::SemanticCursor::new(0, 0, 44),
     };
-    let render = |plane: FocusPlane| -> nuotc::TestTerminal {
-        let mut terminal = nuotc::TestTerminal::new(80, 28);
+    let render = |plane: FocusPlane| -> graticule::TestTerminal {
+        let mut terminal = graticule::TestTerminal::new(80, 28);
         terminal.draw(|f| {
             let _ = draw_transcript(
                 f,

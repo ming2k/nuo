@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use nuotc::{Span, Style};
+use graticule_canvas::{Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::components::path::{PathFormatStrategy, PathStyle, PathView};
@@ -215,7 +215,7 @@ impl<'a> SemanticLine<'a> {
                         .strategy(PathFormatStrategy::Adaptive)
                         .style(style);
                     for mut s in configured_path.to_spans(theme) {
-                        if base_style.bg != nuotc::Color::Reset {
+                        if base_style.bg != graticule_canvas::Color::Reset {
                             s.style = s.style.bg(base_style.bg);
                         }
                         spans.push(s);
@@ -227,7 +227,7 @@ impl<'a> SemanticLine<'a> {
         // Pass 4: Append protected suffix
         if let Some((suffix_text, suffix_style)) = suffix {
             let mut style = suffix_style;
-            if base_style.bg != nuotc::Color::Reset {
+            if base_style.bg != graticule_canvas::Color::Reset {
                 style = style.bg(base_style.bg);
             }
             spans.push(Span::styled(suffix_text.to_string(), style));
@@ -295,7 +295,7 @@ fn distribute_slack(
 
 #[cfg(test)]
 mod tests {
-    use nuotc::Modifier;
+    use graticule_canvas::Modifier;
     use std::path::Path;
 
     use super::*;

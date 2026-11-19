@@ -1,5 +1,5 @@
 //! The Connections modal (provider instance management) and connection inspection details.
-use nuotc::{
+use graticule::{
     Frame, {Line, Span}, {Modifier, Style},
 };
 
@@ -66,7 +66,7 @@ pub fn draw_connections_modal(
     props: ConnectionsModalProps<'_>,
     theme: &Theme,
     selection: &SelectionState,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let ConnectionsModalProps {
         providers,
         modal_index,

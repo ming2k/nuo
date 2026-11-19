@@ -3,7 +3,7 @@
 //! Provides a compact, non-stealing, pointer-transparent informational balloon
 //! that anchors to any screen element or cursor point.
 
-use nuotc::{
+use graticule_canvas::{
     AnchorAlignment, AnchorConstraints, AnchorPlacement, AnchorTarget, Block as RtBlock,
     BorderType, Borders, Clear, Frame, Line, Paragraph, Rect, Span, Style, compute_anchored_rect,
 };
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_tooltip_renders_cleanly() {
-        use nuotc::TestTerminal;
+        use graticule_canvas::TestTerminal;
 
         let mut terminal = TestTerminal::new(80, 24);
         let theme = Theme::default();

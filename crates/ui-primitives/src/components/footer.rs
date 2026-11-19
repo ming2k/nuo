@@ -4,7 +4,7 @@
 //! everything, lower-priority items are dropped first and remaining labels are
 //! compacted to keys only.
 
-use nuotc::{Frame, Line, Paragraph, Rect, Span};
+use graticule_canvas::{Frame, Line, Paragraph, Rect, Span};
 
 use super::super::Theme;
 use super::keycap::AffordanceIntent;
@@ -206,7 +206,7 @@ fn layout_footer_with_theme(
         &affordances,
         width,
         theme,
-        nuotc::Color::Reset,
+        graticule_canvas::Color::Reset,
         Some("more"),
     );
 
@@ -242,7 +242,12 @@ mod tests {
         // First key is "Enter", should have keycap_accent fg + BOLD
         assert_eq!(layout.spans[0].content, "Enter");
         assert_eq!(layout.spans[0].style.fg, theme.keycap_accent());
-        assert!(layout.spans[0].style.add.contains(nuotc::Modifier::BOLD));
+        assert!(
+            layout.spans[0]
+                .style
+                .add
+                .contains(graticule_canvas::Modifier::BOLD)
+        );
         // Second span is " activate", should have keycap_label fg
         assert_eq!(layout.spans[1].content, " activate");
         assert_eq!(layout.spans[1].style.fg, theme.keycap_label());

@@ -7,8 +7,10 @@
 //!   Fixed height: 1 row. Owned by the Client container. Projects open tabs
 //!   with clean semantic titles (e.g. `Refactor DB`, `dashboard`, `settings`)
 //!   or compact untitled fallbacks (`thread#b3c4`), strictly omitting ordinal
-//!   prefixes (`1:`) [INV-TAB-09]. Carries the standing `C-x menu` client affordance
-//!   on the right edge.
+//!   prefixes (`1:`) [INV-TAB-09]. Its right edge carries only the fault notice
+//!   badge (`[!N]`) when unread faults exist; the former standing `F1 help`
+//!   keycap is retired (ADR-0219), so help discovery lives in the empty-state
+//!   tour instead of taxing the row's scarcest budget — tab titles.
 //!
 //! - **Tier 2 — Polymorphic SceneBar (`draw_scene_bar`).**
 //!   Fixed height: 1 row. Owned by the active scene view [INV-SCENE-02]. Displays
@@ -28,7 +30,7 @@
 //!   `open`; warning tone) on the left, and the bound workspace path pinned to
 //!   the right edge, where it shortens from the ancestor end and therefore
 //!   never moves the governance cluster around.
-use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::{
@@ -120,8 +122,6 @@ pub struct TabBarNavRects {
     pub overview_rect: Option<Rect>,
     /// Bounding rect for unread fault notice badge (`[!N]`), if present (ADR-0131).
     pub notices_rect: Option<Rect>,
-    /// Bounding rect for help affordance button (`F1 help`), if present (ADR-0131).
-    pub help_rect: Option<Rect>,
 }
 
 impl std::ops::Deref for TabBarNavRects {
@@ -147,7 +147,6 @@ impl From<Vec<(usize, Rect)>> for TabBarNavRects {
             next_rect: None,
             overview_rect: None,
             notices_rect: None,
-            help_rect: None,
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Thread Stats overview: context window, thread token totals, streaming performance.
 
-use nuotc::{Line, Modifier, Span, Style};
+use graticule::{Line, Modifier, Span, Style};
 use protocol::TokenSourceReport;
 
 use super::model::*;
@@ -57,9 +57,30 @@ pub(crate) fn build_overview_body(
                 Style::default().fg(theme.muted()),
             );
         }
+        // `overhead` is a sum, and a sum cannot be acted on: a nine-thousand-token
+        // tool surface and a nine-thousand-token prompt are the same number and
+        // call for opposite responses (ADR-0220 §2). The layers are published, so
+        // they are shown — and only when the snapshot carries them, because a
+        // provider-reported snapshot legitimately has no layer breakdown.
+        if let Some(i) = snap.instructions_tokens {
+            layout = layout.kv_indented(
+                4,
+                "Instructions",
+                format!("{} tokens", fmt_num(i)),
+                Style::default().fg(theme.muted()),
+            );
+        }
+        if let Some(t) = snap.tool_schema_tokens {
+            layout = layout.kv_indented(
+                4,
+                "Tool schemas",
+                format!("{} tokens", fmt_num(t)),
+                Style::default().fg(theme.muted()),
+            );
+        }
         if let Some(t) = snap.temporary_context_tokens {
             layout = layout.kv_indented(
-                2,
+                4,
                 "Temporary",
                 format!("{} tokens", fmt_num(t)),
                 Style::default().fg(theme.muted()),

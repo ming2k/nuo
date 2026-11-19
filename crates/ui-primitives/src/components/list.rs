@@ -1,6 +1,6 @@
 //! Reusable list components and list-modal composition.
 
-use nuotc::{Color, Frame, Rect};
+use graticule_canvas::{Color, Frame, Rect};
 
 use super::super::Theme;
 use super::super::primitives::{ContentModalSpec, SCROLL_EDGE_MARGIN};
@@ -34,7 +34,7 @@ pub fn row_style(selected: bool, theme: &Theme) -> RowStyle {
 pub struct SelectableListPage<'a> {
     pub geometry: ContentModalSpec,
     pub header: ModalHeader<'a>,
-    pub lines: Vec<nuotc::Line<'static>>,
+    pub lines: Vec<graticule_canvas::Line<'static>>,
     pub scroll: &'a mut usize,
     pub selected_line: Option<usize>,
     pub follow_selection: bool,

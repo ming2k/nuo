@@ -300,7 +300,7 @@ fn bracketed_paste_routes_in_free_text_modals() {
     let mut cursor = 0;
     let mut drag = view::model::selection::SelectionDrag::default();
     let action = crate::shell::input::route_event(
-        crossterm::event::Event::Paste(payload.to_string()),
+        graticule::event::Event::Paste(payload.to_string()),
         &mut input,
         &mut cursor,
         config_context,

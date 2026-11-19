@@ -2,7 +2,7 @@
 //! headings, quotes, lists, rules, breaks. Emits one rendered line per row
 //! and records semantic [`BlockRegion`]s / table cell hit boxes for selection
 //! and click hit-testing.
-use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule_canvas::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::model::document::{
@@ -32,7 +32,7 @@ use ui_primitives::design::{
 use ui_primitives::time::sent_time_label;
 
 fn display_width_u16(s: &str) -> u16 {
-    nuotc::str_len(s) as u16
+    graticule_canvas::str_len(s) as u16
 }
 
 /// Round / time label drawn *outside* a sent user-message panel (on the row
@@ -604,7 +604,7 @@ fn draw_user_text(
                     Style::default().bg(ctx.theme.surface()),
                 ));
             } else {
-                let used = USER_MESSAGE_TEXT_GAP_COLS + nuotc::str_len(&wl.text);
+                let used = USER_MESSAGE_TEXT_GAP_COLS + graticule_canvas::str_len(&wl.text);
                 spans.push(Span::styled(
                     padded_tail(user_content_w, used),
                     Style::default().bg(bg),
@@ -1128,7 +1128,7 @@ fn draw_math_block(ctx: &mut BodyCtx<'_, '_>, content: &str) {
                 }
             }
         }
-        let used = indent + nuotc::str_len(&wl.text);
+        let used = indent + graticule_canvas::str_len(&wl.text);
         spans.push(Span::styled(
             padded_tail(full_width, used),
             Style::default().bg(math_bg),
@@ -1793,9 +1793,9 @@ mod tests {
         // *visible* text fits on one line must not wrap early.
         let msg = TranscriptMessage::new(tool::Role::Assistant, "> **abcd** ef");
         let theme = Theme::default();
-        let mut grid = nuotc::CellGrid::new(12, 4);
-        let mut damage = nuotc::Damage::new(4);
-        let mut frame = nuotc::Frame::new(&mut grid, &mut damage);
+        let mut grid = graticule_canvas::CellGrid::new(12, 4);
+        let mut damage = graticule_canvas::Damage::new(4);
+        let mut frame = graticule_canvas::Frame::new(&mut grid, &mut damage);
         let mut layout_map = LayoutMap::new();
         let mut skip_rows = 0;
         let mut current_y = 0;
@@ -1830,16 +1830,16 @@ mod tests {
         assert_eq!(QUOTE_PREFIX.width(), QUOTE_PREFIX_COLS);
         let char_cols: usize = QUOTE_PREFIX
             .chars()
-            .map(|c| nuotc::grapheme_width(&c.to_string()) as usize)
+            .map(|c| graticule_canvas::grapheme_width(&c.to_string()) as usize)
             .sum();
         assert_eq!(char_cols, QUOTE_PREFIX_COLS);
     }
 
     #[test]
     fn rule_aligns_with_transcript_body_leading_indent() {
-        let mut grid = nuotc::CellGrid::new(20, 3);
-        let mut damage = nuotc::Damage::new(3);
-        let mut frame = nuotc::Frame::new(&mut grid, &mut damage);
+        let mut grid = graticule_canvas::CellGrid::new(20, 3);
+        let mut damage = graticule_canvas::Damage::new(3);
+        let mut frame = graticule_canvas::Frame::new(&mut grid, &mut damage);
         let msg = TranscriptMessage::new(tool::Role::Assistant, "---");
         let selection = SelectionState::None;
         let theme = Theme::default();

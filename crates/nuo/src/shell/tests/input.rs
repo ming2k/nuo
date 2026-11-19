@@ -351,10 +351,10 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
 fn app_with_input_viewport(rows: usize, visible: usize) -> (App, tempfile::TempDir) {
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
     let height = visible as u16 + ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS;
-    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 60));
+    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 60));
     app.transcript.ui.mount(
         crate::shell::ui::UiKey::Composer,
-        nuotc::Rect::new(0, 40, 60, height),
+        graticule::Rect::new(0, 40, 60, height),
     );
     app.transcript.ui.commit();
     app.composer.input = (0..rows)
@@ -393,7 +393,7 @@ fn input_viewport_wheel_steps_clamp_to_hidden_rows() {
     );
 
     // No composer on screen (overlay modal, first frame): not scrollable.
-    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 60));
+    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 60));
     app.transcript.ui.commit();
     assert_eq!(app.input_scroll_max(), None);
     assert_eq!(app.step_input_scroll(false, 1), None);
@@ -506,12 +506,12 @@ fn failed_intent_send_latches_the_server_link_down_state() {
 
 fn relay_key(
     app: &mut App,
-    code: crossterm::event::KeyCode,
-    modifiers: crossterm::event::KeyModifiers,
+    code: graticule::event::KeyCode,
+    modifiers: graticule::event::KeyModifiers,
 ) -> Option<crate::shell::input::InputAction> {
     crate::shell::event_loop::component_input::route(
         app,
-        &crossterm::event::Event::Key(crossterm::event::KeyEvent::new(code, modifiers)),
+        &graticule::event::Event::Key(graticule::event::KeyEvent::new(code, modifiers)),
         &[crate::shell::ui::UiKey::Composer],
     )
 }
@@ -519,7 +519,7 @@ fn relay_key(
 #[test]
 fn shift_right_selects_characters_and_extracts() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
@@ -528,7 +528,7 @@ fn shift_right_selects_characters_and_extracts() {
     // Shift+Right selects first char 'h'
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -557,7 +557,7 @@ fn shift_right_selects_characters_and_extracts() {
     // Shift+Right again selects "he"
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -579,7 +579,7 @@ fn shift_right_selects_characters_and_extracts() {
     // Shift+Left shrinks to "h"
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Left,
+        graticule::event::KeyCode::Left,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -601,7 +601,7 @@ fn shift_right_selects_characters_and_extracts() {
     // Shift+Left again collapses back to None
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Left,
+        graticule::event::KeyCode::Left,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -615,7 +615,7 @@ fn shift_right_selects_characters_and_extracts() {
 #[test]
 fn shift_left_backwards_selection() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
@@ -624,7 +624,7 @@ fn shift_left_backwards_selection() {
     // Shift+Left selects 'o' backwards
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Left,
+        graticule::event::KeyCode::Left,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -653,7 +653,7 @@ fn shift_left_backwards_selection() {
     // Shift+Left again selects "lo"
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Left,
+        graticule::event::KeyCode::Left,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -675,7 +675,7 @@ fn shift_left_backwards_selection() {
     // Shift+Right shrinks back to "o"
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -697,7 +697,7 @@ fn shift_left_backwards_selection() {
     // Shift+Right collapses to None
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -710,7 +710,7 @@ fn shift_left_backwards_selection() {
     // Shift+Right again selects forwards: ' ' (space)
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -733,7 +733,7 @@ fn shift_left_backwards_selection() {
 #[test]
 fn shift_ctrl_left_and_right_word_selection() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
@@ -742,7 +742,7 @@ fn shift_ctrl_left_and_right_word_selection() {
     // Shift+Ctrl+Right selects "hello"
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT | KeyModifiers::CONTROL,
     );
     assert!(matches!(
@@ -764,7 +764,7 @@ fn shift_ctrl_left_and_right_word_selection() {
     // Shift+Ctrl+Right again selects "hello world"
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT | KeyModifiers::CONTROL,
     );
     assert!(matches!(
@@ -787,7 +787,7 @@ fn shift_ctrl_left_and_right_word_selection() {
 #[test]
 fn shift_up_and_down_multiline_selection() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello\nworld".to_string();
@@ -795,7 +795,7 @@ fn shift_up_and_down_multiline_selection() {
     app.set_cursor(8);
 
     // Shift+Up moves to line 1 col 2 ('l' at index 2)
-    let action = relay_key(&mut app, crossterm::event::KeyCode::Up, KeyModifiers::SHIFT);
+    let action = relay_key(&mut app, graticule::event::KeyCode::Up, KeyModifiers::SHIFT);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -815,7 +815,7 @@ fn shift_up_and_down_multiline_selection() {
     // Shift+Down returns to index 8, collapsing selection
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Down,
+        graticule::event::KeyCode::Down,
         KeyModifiers::SHIFT,
     );
     assert!(matches!(
@@ -828,7 +828,7 @@ fn shift_up_and_down_multiline_selection() {
 
 #[test]
 fn shift_selection_delete_and_backspace() {
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
@@ -837,7 +837,7 @@ fn shift_selection_delete_and_backspace() {
     // Select "world"
     relay_key(
         &mut app,
-        crossterm::event::KeyCode::End,
+        graticule::event::KeyCode::End,
         KeyModifiers::SHIFT,
     );
     assert_eq!(app.composer.cursor_position, 11);
@@ -845,7 +845,7 @@ fn shift_selection_delete_and_backspace() {
     // Backspace replaces the selected text
     let action = relay_key(
         &mut app,
-        crossterm::event::KeyCode::Backspace,
+        graticule::event::KeyCode::Backspace,
         KeyModifiers::NONE,
     );
     assert!(matches!(
@@ -860,7 +860,7 @@ fn shift_selection_delete_and_backspace() {
 #[test]
 fn shift_selection_cjk() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "你好世界".to_string();
@@ -869,7 +869,7 @@ fn shift_selection_cjk() {
     // Shift+Right selects "你"
     relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert_eq!(app.composer.cursor_position, "你".len());
@@ -887,7 +887,7 @@ fn shift_selection_cjk() {
     // Shift+Right selects "你好"
     relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert_eq!(app.composer.cursor_position, "你好".len());
@@ -906,7 +906,7 @@ fn shift_selection_cjk() {
 #[test]
 fn shift_home_and_end_selection() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
@@ -915,7 +915,7 @@ fn shift_home_and_end_selection() {
     // Shift+Home selects to start
     relay_key(
         &mut app,
-        crossterm::event::KeyCode::Home,
+        graticule::event::KeyCode::Home,
         KeyModifiers::SHIFT,
     );
     assert_eq!(app.composer.cursor_position, 0);
@@ -933,7 +933,7 @@ fn shift_home_and_end_selection() {
     // Shift+End selects from 5 to 11
     relay_key(
         &mut app,
-        crossterm::event::KeyCode::End,
+        graticule::event::KeyCode::End,
         KeyModifiers::SHIFT,
     );
     assert_eq!(app.composer.cursor_position, 11);
@@ -951,7 +951,7 @@ fn shift_home_and_end_selection() {
 
 #[test]
 fn esc_cancels_shift_selection() {
-    use crossterm::event::KeyModifiers;
+    use graticule::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
@@ -959,12 +959,12 @@ fn esc_cancels_shift_selection() {
 
     relay_key(
         &mut app,
-        crossterm::event::KeyCode::Right,
+        graticule::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
     assert!(app.has_input_selection());
 
-    let action = relay_key(&mut app, crossterm::event::KeyCode::Esc, KeyModifiers::NONE);
+    let action = relay_key(&mut app, graticule::event::KeyCode::Esc, KeyModifiers::NONE);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
@@ -992,7 +992,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     app.surfaces.surfaces.select_tab(0);
 
     // Initial render
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "s1");
     });
@@ -1005,11 +1005,11 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     );
 
     // 1. Single click on Dashboard tab at col 15, row 0 -> switches immediately on first click
-    let click_down = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
-        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+    let click_down = graticule::event::Event::Mouse(graticule::event::MouseEvent {
+        kind: graticule::event::MouseEventKind::Down(graticule::event::MouseButton::Left),
         column: 15,
         row: 0,
-        modifiers: crossterm::event::KeyModifiers::NONE,
+        modifiers: graticule::event::KeyModifiers::NONE,
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_down, "s1").await;
     assert_eq!(
@@ -1029,11 +1029,11 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     app.transcript.ui.commit();
 
     // 3. Single click on Thread 1 tab at col 5, row 0 -> switches back to Thread
-    let click_thread = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
-        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+    let click_thread = graticule::event::Event::Mouse(graticule::event::MouseEvent {
+        kind: graticule::event::MouseEventKind::Down(graticule::event::MouseButton::Left),
         column: 5,
         row: 0,
-        modifiers: crossterm::event::KeyModifiers::NONE,
+        modifiers: graticule::event::KeyModifiers::NONE,
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_thread, "s1").await;
     assert_eq!(
@@ -1057,11 +1057,11 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     app.transcript.ui.commit();
 
     // 5. Clicking on TabBar empty background (col 50, row 0) is an inert container gesture (ADR-0091 [INV-TAB-11])
-    let click_tabbar_bg = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
-        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+    let click_tabbar_bg = graticule::event::Event::Mouse(graticule::event::MouseEvent {
+        kind: graticule::event::MouseEventKind::Down(graticule::event::MouseButton::Left),
         column: 50,
         row: 0,
-        modifiers: crossterm::event::KeyModifiers::NONE,
+        modifiers: graticule::event::KeyModifiers::NONE,
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_tabbar_bg, "s1").await;
     assert!(
@@ -1075,11 +1075,11 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     );
 
     // 6. Clicking on active thread tab is idempotent and preserves focus (ADR-0091 [INV-TAB-11])
-    let click_active_tab = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
-        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+    let click_active_tab = graticule::event::Event::Mouse(graticule::event::MouseEvent {
+        kind: graticule::event::MouseEventKind::Down(graticule::event::MouseButton::Left),
         column: 5,
         row: 0,
-        modifiers: crossterm::event::KeyModifiers::NONE,
+        modifiers: graticule::event::KeyModifiers::NONE,
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_active_tab, "s1").await;
     assert!(
@@ -1088,11 +1088,11 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     );
 
     // 7. Clicking in Transcript dead/content zone parks attention on transcript (blurs composer)
-    let click_transcript = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
-        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+    let click_transcript = graticule::event::Event::Mouse(graticule::event::MouseEvent {
+        kind: graticule::event::MouseEventKind::Down(graticule::event::MouseButton::Left),
         column: 10,
         row: 5,
-        modifiers: crossterm::event::KeyModifiers::NONE,
+        modifiers: graticule::event::KeyModifiers::NONE,
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_transcript, "s1").await;
     assert!(
@@ -1111,11 +1111,11 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         .ui
         .bounds(crate::shell::ui::UiKey::Composer)
         .expect("composer mounted");
-    let click_composer = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
-        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+    let click_composer = graticule::event::Event::Mouse(graticule::event::MouseEvent {
+        kind: graticule::event::MouseEventKind::Down(graticule::event::MouseButton::Left),
         column: composer_bounds.x + 2,
         row: composer_bounds.y,
-        modifiers: crossterm::event::KeyModifiers::NONE,
+        modifiers: graticule::event::KeyModifiers::NONE,
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_composer, "s1").await;
     assert!(
@@ -1141,9 +1141,9 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
 async fn shift_tab_crosses_planes_and_the_same_press_returns() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let sid = app.session.current_session_id.clone();
-    let back_tab = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::BackTab,
-        crossterm::event::KeyModifiers::NONE,
+    let back_tab = graticule::event::Event::Key(graticule::event::KeyEvent::new(
+        graticule::event::KeyCode::BackTab,
+        graticule::event::KeyModifiers::NONE,
     ));
 
     // Start: the composer owns the keyboard.
@@ -1171,9 +1171,9 @@ async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let sid = app.session.current_session_id.clone();
-    let back_tab = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::BackTab,
-        crossterm::event::KeyModifiers::NONE,
+    let back_tab = graticule::event::Event::Key(graticule::event::KeyEvent::new(
+        graticule::event::KeyCode::BackTab,
+        graticule::event::KeyModifiers::NONE,
     ));
 
     app.transcript
@@ -1210,9 +1210,9 @@ async fn escape_never_moves_the_keyboard_off_the_transcript() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let sid = app.session.current_session_id.clone();
-    let esc = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Esc,
-        crossterm::event::KeyModifiers::NONE,
+    let esc = graticule::event::Event::Key(graticule::event::KeyEvent::new(
+        graticule::event::KeyCode::Esc,
+        graticule::event::KeyModifiers::NONE,
     ));
 
     app.transcript
@@ -1236,9 +1236,9 @@ async fn escape_never_moves_the_keyboard_off_the_transcript() {
 async fn typing_on_the_transcript_plane_never_reaches_the_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let sid = app.session.current_session_id.clone();
-    let key = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Char('x'),
-        crossterm::event::KeyModifiers::NONE,
+    let key = graticule::event::Event::Key(graticule::event::KeyEvent::new(
+        graticule::event::KeyCode::Char('x'),
+        graticule::event::KeyModifiers::NONE,
     ));
 
     app.transcript

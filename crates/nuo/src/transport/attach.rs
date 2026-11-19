@@ -19,6 +19,10 @@ use protocol::ThreadOverview;
 pub struct AttachError {
     pub code: Option<String>,
     pub message: String,
+    /// `true` when the attach failed at the transport/framing layer (connect,
+    /// timeout, EOF, or undecodable handshake), `false` when the server spoke
+    /// an explicit `Wire::Error` refusal.
+    is_transport: bool,
 }
 
 impl AttachError {
@@ -27,12 +31,28 @@ impl AttachError {
         Self {
             code: None,
             message: message.into(),
+            is_transport: true,
+        }
+    }
+
+    /// An explicit server refusal from `Wire::Error`.
+    pub(super) fn server_refusal(code: Option<String>, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            is_transport: false,
         }
     }
 
     /// The refusal code, without the `Option` ceremony at every call site.
     pub fn code(&self) -> Option<&str> {
         self.code.as_deref()
+    }
+
+    /// Whether this failure originated in transport/framing rather than an
+    /// explicit `Wire::Error` refusal from the server (ADR-0224).
+    pub fn is_transport_failure(&self) -> bool {
+        self.is_transport
     }
 
     /// Whether the target session provably no longer exists
@@ -118,19 +138,13 @@ pub async fn connect(info: &ServerInfo, action: AttachAction) -> AttachResult {
         ));
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
-    let mut request = url
-        .as_str()
-        .into_client_request()
-        .map_err(|e| AttachError::transport(format!("bad ws url {url}: {e}")))?;
-    if let Some(token) = &info.token {
-        let value = HeaderValue::from_str(&format!("Bearer {token}"))
-            .map_err(|e| AttachError::transport(format!("bad bearer token: {e}")))?;
-        request.headers_mut().insert("Authorization", value);
-    }
-    let (ws, _response) = tokio_tungstenite::connect_async(request)
-        .await
-        .map_err(|e| AttachError::transport(format!("ws connect to {url}: {e}")))?;
-    let (sink, source) = websocket_split(ws);
+    let (sink, source) = connect_ws_wire(
+        &url,
+        info.token.as_deref(),
+        netune::WsSessionConfig::default(),
+    )
+    .await
+    .map_err(AttachError::transport)?;
     finish_handshake((sink, source), action).await
 }
 
@@ -172,10 +186,10 @@ pub(super) async fn finish_handshake_with_project(
                     // `[INV-ATTACH-01]`: the code travels with the message.
                     // This is the hop that used to discard the taxonomy
                     // with a `..` and leave the client to sniff prose.
-                    Err(AttachError {
+                    Err(AttachError::server_refusal(
                         code,
-                        message: format!("server rejected the attach: {message}"),
-                    })
+                        format!("server rejected the attach: {message}"),
+                    ))
                 }
                 other => {
                     // `[INV-ATTACH-03]` (ADR-0133): Welcome is the first

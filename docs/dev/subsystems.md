@@ -2,7 +2,7 @@
 
 - Status: Living Blueprint
 - Last Updated: 2026-12-19
-- Scope: workspace/topology, architecture/subsystems, substrate/tools, microkernel/topology, terminal/nuotc
+- Scope: workspace/topology, architecture/subsystems, substrate/tools, microkernel/topology, terminal/graticule
 - Maintainers: Nuo Architecture Working Group
 
 ---
@@ -64,16 +64,16 @@ New crates are admitted to `crates/*` only if their responsibilities cannot be c
 - **`nuo-provider`**: Canonical model provider specification and runtime substrate (ADR-0015, ADR-0108). Owns core inference contracts (`Provider`), catalog discovery, outbound HTTP/SSE transport (`netune`, including the failure-diagnostic evidence carried by `TransportDiagnostic`), and dynamic credential lifecycle negotiation (OAuth2/PKCE RFC 7636/8628, device flow, loopback redirect, token lease refresh, [ADR-0098](../adr/0098-orthogonal-three-dimensional-authentication-topology-category-error-abolition-and-modernized-credential-governance.md)). Consolidated from the former satellite crates `nuo-egress` and `nuo-oauth` (ADR-0108).
 - **`nuo-inference-wire`** (formerly the model codec, ADR-0084; aperture completed by ADR-0143): the model *wire substrate* — the `WireProtocol` identity enum every provider spec and route derivation keys on, the shared JSON-boundary and loop-detector scanners, token classification for pricing, and the one shared vendor parser (`Google Interactions`, consumed by `nuo-provider-google-antigravity`). It is **not** a codec suite: the five per-vendor `build_request` implementations and their dispatcher were deleted because no shipped binary ever called them — every provider builds and parses its own wire body. Dependency set is `serde`/`serde_json`/`thiserror`/`uuid`, so it structurally cannot perform I/O or host a transport.
 - **`nuo-mcp`**: Native Model Context Protocol client and server transport over stdio and JSON-RPC 2.0.
-- **`nuotc`**: Retained-mode 2D terminal canvas, differential rendering pipeline, and Flexbox layout solver. Free of AI domain vocabulary.
+- **`graticule`** (`graticule-canvas` + `graticule-tty`): Retained-mode 2D terminal cell canvas, differential rendering pipeline, Flexbox layout solver, retained `ui` scene graph, and physical TTY host transport (timeout-disambiguated VT input parser, mouse modes, opt-in terminal session). Free of AI domain vocabulary ([ADR-0223](../adr/0223-graticule-substrate-vt-input-parser-and-all-motion-hover.md)).
 
 ### 2.2 Applications & Interface Engines
 - **`nuo`**: The unified CLI application executable (ADR-0005). Dispatches the interactive TUI (default), the headless pipeline (`--headless` / `-p`), and the session server (`nuo server start`, ADR-0061). Owns the internal client transport (`nuo::transport`) and the interactive terminal shell (`nuo::shell`, behind the default-on `interactive` feature).
-- **`nuo-ui-primitives`**: The domain-agnostic, pure zero-IO terminal UI substrate built on `nuotc` (ADR-0003, ADR-0072, ADR-0105, ADR-0107). Owns the design-system tokens (`theme`, `design`, `elevation`), driver-free key chords, geometric alignment and text wrapping, pure algorithms (fuzzy match, syntax highlighting, time formatting), and the generic component set (`modal`, `dropdown`, `popover`, `toast`, `footer`, `keycap`, `detail`, …). It has no knowledge of AI agents, sessions, or tool calls (`[INV-ARCH-UI-PRIMITIVES-PURITY]`), so it is reusable by any terminal application.
+- **`nuo-ui-primitives`**: The domain-agnostic, pure zero-IO terminal UI substrate built on `graticule-canvas` (ADR-0072, ADR-0105, ADR-0107, ADR-0223). Owns the design-system tokens (`theme`, `design`, `elevation`), driver-free key chords, geometric alignment and text wrapping, pure algorithms (fuzzy match, syntax highlighting, time formatting), and the generic component set (`modal`, `dropdown`, `popover`, `toast`, `footer`, `keycap`, `detail`, …). It has no knowledge of AI agents, sessions, or tool calls (`[INV-ARCH-UI-PRIMITIVES-PURITY]`), so it is reusable by any terminal application.
 - **`nuo-view`**: The pure, zero-IO agent-domain presentation layer (ADR-0107), depending strictly downward on `nuo-ui-primitives`. Owns the transcript document and selection model, conversational layout strategies, message-body rendering, the per-tool presenter registry, trust-gate and phase displays, and the agent-specific views (`notice`, `selectable_body`) — all pure `f(Props, State, Theme) -> Frame` projections with no terminal driver, network, subprocess or clipboard dependency (`[INV-ARCH-VIEW-ZERO-IO]`). Consumed by `nuo::shell`; it never consumes the shell.
 
 ### 2.3 Subsystems & Host Infrastructure
 - **`nuo-server`**: The **application core** (ADR-0184): session runtime, provider/tool composition root, UDS/WebSocket control plane, MCP/skills/credential hosts, and the Nuo product policy (project scaffolding, built-in slash vocabulary, export). Modules are grouped into `composition/`, `runtime/`, `handlers/`, `transport/`, and `product/`; `api.rs` is the small facade the `nuo` binary consumes.
-- **`nuo-engine`**: The single cognitive runtime ([ADR-0100](../adr/0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md), ADR-0181): the streaming ReAct loop, model-request assembly, causal context compaction, and multi-agent interop, wrapped by agent identity/role projection, permission brokering, human confirmation checkpoints, execution sandboxing, trajectory supervision, and tool scheduling. Governance is a separate crate (`nuo-guardrails`), not a module of this crate. The engine links only the `nuo-tool` contract; the composition root links concrete capability leaves (ADR-0183).
+- **`nuo-engine`**: The single cognitive runtime ([ADR-0100](../adr/0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md), ADR-0181): the streaming ReAct loop, model-request assembly, causal context compaction, and multi-agent interop, wrapped by agent identity/role projection, permission brokering, human confirmation checkpoints, execution sandboxing, trajectory supervision, and tool scheduling. The prompt is a **compiled context policy** (`cognition::context`): every source declares its topic, inputs, rank, stability, and budget, and the whole composition is proven once at agent construction (ADR-0215). Governance is a separate crate (`nuo-guardrails`), not a module of this crate. The engine links only the `nuo-tool` contract; the composition root links concrete capability leaves (ADR-0183).
 - **`nuo-guardrails`**: The policy layer: permission brokering, bash policy, execution containment, stream/trajectory loop guards, and interactive gating. It depends on `nuo-protocol` and `nuo-host`, never on `nuo-persistence` (ADR-0188).
 - **`nuo-model-routing`**: The single definition of the model routing pipeline ([ADR-0081](../adr/0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md), [ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md), [ADR-0102](../adr/0102-model-routing-aperture-rename-nuo-catalog-to-nuo-model-routing-and-cleanse-route-derivation-semantics.md)): derives a `ProviderEntry`/`Channel` per route from the connection store, provider specs, and the discovery cache; resolves the display label once (Source → Mapping → Overwrite); syncs remote `/models` discovery through the `nuo_provider` fetch port and maintains the fitted-model overlay; and materializes the provider-picker snapshot. Links no `providers/*` crate and no presentation crate. Both `nuo-engine` and `nuo-server` import it directly (`[INV-ROUTING-01]`).
 - **`nuo-persistence`**: SQLite transactional store, database migrations, configuration parsing, role memory, and full-text search indexing.
@@ -85,50 +85,30 @@ New crates are admitted to `crates/*` only if their responsibilities cannot be c
 
 ---
 
-## 3. Terminal Canvas Subsystem (`nuotc`)
+## 3. Terminal Substrate (`graticule`)
 
-`nuotc` provides retained-mode terminal rendering structured into six decoupled, acyclic modules:
+`graticule` organizes terminal rendering and TTY host transport into two independent workspace crates under one umbrella (`graticule-canvas` and `graticule-tty`):
 
 ```text
 ┌────────────────────────────────────────────────────────┐
-│                      nuotc (Root)                      │
-│   Unified Retained-Mode Terminal Canvas & Diff Engine  │
-└───────────────────────────┬────────────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
- ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
- │      ui      │    │   widgets    │    │    layout    │
- │ Retained     │    │ Block, Para, │    │ Rect, Flex,  │
- │ Scene Graph  │    │ Clear, Spans │    │ Anchor       │
- └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
-        │                   │                   │
-        └───────────────────┼───────────────────┘
-                            │
-        ┌───────────────────┴───────────────────┐
-        ▼                                       ▼
- ┌──────────────┐                        ┌──────────────┐
- │   terminal   │                        │    render    │
- │ Backend,     │                        │ Run-length   │
- │ Frame, Loop  │                        │ Diff, Driver │
- └──────┬───────┘                        └──────┬───────┘
-        │                                       │
-        └───────────────────┬───────────────────┘
-                            │
-                            ▼
-                     ┌──────────────┐
-                     │    buffer    │
-                     │ Cell, Grid,  │
-                     │ Text, Glyph  │
-                     └──────────────┘
+│                     graticule (Umbrella)                  │
+├────────────────────────────┬───────────────────────────┤
+│       graticule-canvas        │        graticule-tty         │
+│ ui, widgets, layout,       │ event, parser (VtParser), │
+│ render, terminal, buffer   │ mouse, reader, session    │
+└────────────────────────────┴───────────────────────────┘
 ```
 
-- **`buffer`**: Compact cell memory (`Cell`, `Color`, `Modifier`, `Style`), 2D `Grid` with write-marks-dirty (`dirty_col`) line tracking, Unicode grapheme clustering, and standard glyph tables.
-- **`layout`**: Spatial geometry (`Rect`), Flexbox layout solver (`Flex`, `FlexItem`, `SolvedFlex`), and collision-free anchored popups (`AnchorPlacement`, `compute_anchored_rect`).
-- **`render`**: Pure run-length packed differential rendering (`diff`), display list recording (`Canvas`, `DisplayList`, `RenderNode`), escape code drivers, and standards-based terminal profiles (`TerminalProfile`).
-- **`terminal`**: Low-level terminal mode management (`Backend`, `Bce`), alternate screen lifecycles, and double-buffered `Frame` loop.
-- **`widgets`**: Declarative UI primitives (`Block`, `Paragraph`, `Clear`) and structural composition containers (`Column`, `Row`, `Stack`, `Container`, `Spacer`, `Divider`).
-- **`ui`**: Retained scene graph (`Scene`) and component event dispatch runtime (`UiRuntime`).
+- **`graticule-canvas`**:
+  - **`buffer`**: Compact cell memory (`Cell`, `Color`, `Modifier`, `Style`), 2D `CellGrid` with write-marks-dirty (`Damage`) line tracking, Unicode grapheme clustering, and standard glyph tables.
+  - **`layout`**: Spatial geometry (`Rect`), Flexbox layout solver (`Flex`, `FlexItem`, `SolvedFlex`), and collision-free anchored popups (`AnchorPlacement`, `compute_anchored_rect`).
+  - **`render`**: Pure run-length packed differential rendering (`diff`), `Paint`/`Widget`, escape code drivers, and standards-based terminal profiles (`TerminalProfile`).
+  - **`terminal`**: Output writer (`Backend`, `Bce`) and double-buffered commit loop (`Frame`, `Terminal`, `TestTerminal`).
+  - **`widgets`**: Declarative UI primitives (`Block`, `Paragraph`, `Clear`) and structural composition containers (`Column`, `Row`, `Stack`, `Container`, `Spacer`, `Divider`).
+  - **`ui`**: Retained scene graph (`Scene`) and component event dispatch runtime (`UiRuntime`).
+- **`graticule-tty`**:
+  - **`event` & `parser`**: Graticule-owned `Event`/`KeyEvent`/`MouseEvent` types and the timeout-disambiguated incremental `VtParser` (20 ms `ESC` deadline, Kitty CSI-u, SGR-1006 mouse, bracketed paste).
+  - **`mouse`, `reader`, `session`**: `MouseMode`, single-reader `InputReader` (`ProbeHandle`), and opt-in `TerminalSession` RAII guard.
 
 ---
 
@@ -142,8 +122,8 @@ New crates are admitted to `crates/*` only if their responsibilities cannot be c
   Gated mechanically by `nuo::dev::firewall` rule R5 via the nextest integration filter `test(governance::architecture_firewall::test_inv_arch_firewall_and_topology)`.
 - **`[INV-HOST-01]` Sandbox & Containment**: All local command execution and file mutations must pass through `nuo-host` sandbox and containment boundaries.
 - **`[INV-TOOL-01]` Decentralized Capability Tools**: Tools are natively owned and implemented by their capability crates (`acp`, `nuo-host`, `nuo-persistence`) using the zero-runtime `nuo-tool` standard, rather than concentrated in a monolithic harness.
-- **`[INV-VER-01]` Federated Cluster SemVer**: The workspace lockstep suite (`crates/*`) evolves under unified versioning, while external substrates (`nuotc`) maintain autonomous release cycles.
-- **`[INV-MOD-01]` Zero Domain Leakage**: Terminal graphics substrates (`nuotc`) and the model wire substrate (`nuo-inference-wire`, formerly the model codec, per ADR-0084) must remain completely free of application-level agent concepts. Mechanism: the `Provider` cognitive contract lives in `nuo-provider::capability`, and the wire crate's dependency set (`serde`/`serde_json`/`thiserror`/`uuid`) structurally forbids I/O, a transport, or an async trait — `tokio` and `async-trait` were removed with the code that needed them (ADR-0143). `[INV-AP-01]`/`[INV-AP-02]` refine this for the split crate; `[INV-AP-03]` forbids re-growing an unwired second implementation.
+- **`[INV-VER-01]` Federated Cluster SemVer**: The workspace lockstep suite (`crates/*`) evolves under unified versioning, while external substrates (`graticule`) maintain autonomous release cycles.
+- **`[INV-MOD-01]` Zero Domain Leakage**: Terminal substrates (`graticule-canvas`, `graticule-tty`) and the model wire substrate (`nuo-inference-wire`, formerly the model codec, per ADR-0084) must remain completely free of application-level agent concepts. Mechanism: the `Provider` cognitive contract lives in `nuo-provider::capability`, and the wire crate's dependency set (`serde`/`serde_json`/`thiserror`/`uuid`) structurally forbids I/O, a transport, or an async trait — `tokio` and `async-trait` were removed with the code that needed them (ADR-0143). `[INV-AP-01]`/`[INV-AP-02]` refine this for the split crate; `[INV-AP-03]` forbids re-growing an unwired second implementation.
 - **`[INV-MOD-02]` Ghost-Free CJK Cells**: Wide-character trailing cells are populated by the writer with matching background attributes; diff never emits unowned padding spaces.
 - **`[INV-MOD-03]` Authoritative Retained Grid**: The retained `Grid` is the single source of truth for desired visual state; dirty line tracking eliminates redundant full-frame rasterization.
 - **`[INV-AUTH-04]` Dialect-Carried Transport (ADR-0014, ADR-0132)**: Wire protocol and transport headers derive from `ProviderDialect` and `ModelProviderSpec`, never from the auth lane or the connection name; request builders never branch on auth mode to pick a wire shape.
@@ -165,6 +145,18 @@ New crates are admitted to `crates/*` only if their responsibilities cannot be c
 - **`[INV-CONTEXT-03]` Remote Continuations Are Exempt (ADR-0153)**: A `RemoteStored` route's `previous_response_id` chain ignores the tool-output retention projection; freezing old content there would invalidate the cursor each turn.
 - **`[INV-CONTEXT-04]` Lossy Projections Preserve the Escape Hatch (ADR-0153)**: Any projected tool result that drops bytes retains its `Spool File` / `Artifact Path` / `Virtual Path` pointer.
 - **`[INV-CONTEXT-05]` Attachments Are Normalized Once (ADR-0153)**: Clipboard, pasted-file, tool-produced, and rehydrated-artifact images are bounded at ingestion (1568 px long edge, 4 MiB encoded) before they can enter model context.
+- **`[INV-CTXSRC-01]` Single Topic Owner (ADR-0215)**: At most one active context source may own a `Topic`. Two active sources on one topic is `ContextPolicyError::DuplicateTopic` unless one names the other in `supersedes`; there is no silent winner.
+- **`[INV-CTXSRC-02]` Declared Budget (ADR-0215)**: Every context source declares a token budget and an overflow policy, and the whole instruction region is bounded by `ContextBudget::instructions_ceiling_tokens`. A directive may not use `Overflow::Drop`.
+- **`[INV-CTXSRC-03]` Derived Stability (ADR-0215)**: A source's `Stability` is the maximum over the `InputKey`s it declares; a source cannot claim more stability than its inputs have, and `fixed` is ordered by ascending stability so a workspace edit reaches only the tail.
+- **`[INV-CTXSRC-04]` Rank Is Placement (ADR-0215)**: `Rank::Untrusted` never enters `fixed`; `Rank::Directive` never becomes a conversation message. Rank derives from the topic, never from the source.
+- **`[INV-CTXSRC-05]` Infallible Request Path (ADR-0215)**: Layout is proven once by `Policy::compile`; no request-path function may panic on a layout condition.
+- **`[INV-CTXSRC-06]` No Dead Context Declaration (ADR-0215)**: Every `ContextInputs` accessor has a production reader and every `cognition::context` submodule is reachable from `mod.rs`. Supersedes the retired Phase-A substrate ban of ADR-0182 by reaching dead *fields* and dead *modules*, which `dead_code` cannot see.
+- **`[INV-CTXSRC-07]` One Budget Vocabulary (ADR-0215)**: Token thresholds and watermark fractions are derived only in `protocol::{pressure,tuning}`. A module that multiplies a model window by a fraction is a second truth about the same model.
+- **`[INV-CTXSRC-08]` Purity (ADR-0215)**: `ContextSource::render` and `is_active` read `ContextInputs` only — no clock, filesystem, network, or interior mutability. The render memo is keyed on the inputs hash, so an impure read serves a stale body silently.
+- **`[INV-TOOLSURFACE-01]` No Tool-Name Branch (ADR-0216)**: Prompt policy gates guidance on a declared `BuiltinTool` capability, never on a tool name or alias. A rename cannot delete guidance.
+- **`[INV-TOOLSURFACE-03]` Prefix Immutability Under Activation (ADR-0216)**: Activating or deactivating a deferred tool leaves `fixed` byte-identical; `ToolSurface::deferred_active` is diagnostic and excluded from the surface's identity.
+- **`[INV-CTXPLAN-01]` Plan/Request Agreement (ADR-0217)**: The `fixed`/`transient` text in a `ContextPlan` is byte-identical to the `InstructionText` of the request assembled from it. An inspection surface can never show a prompt the model did not receive.
+- **`[INV-CTXPLAN-03]` Persisted Identity Is Stable (ADR-0217)**: Durable projection records carry the SHA-256 prefix fingerprint, never an in-process hash: a `DefaultHasher` value is not stable across builds.
 
 ### 4.1 Convergence Invariants (ADR-0180 – ADR-0188)
 
@@ -193,7 +185,7 @@ All binding architectural decisions, structural boundaries, and discarded altern
 - **Concentric Architecture & Entry Point**: Single public binary dispatching across client, daemon, and headless modes ([ADR-0005](../adr/0005-unified-binary-and-concentric-runtime-architecture.md), [ADR-0061](../adr/0061-pure-thread-topology-headless-unified-entry-and-unburdened-cli-architecture.md)).
 - **Flat Workspace Topology**: Single `crates/*` container with single application host (`crates/nuo`) and zero root library crates (consolidated from the earlier 3-tier layout of [ADR-0055](../adr/0055-hierarchical-workspace-topology-and-component-namespace.md) and [ADR-0109](../adr/0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md)).
 - **Server Purity & Protocol Decoupling**: Headless server hosting threads as single source of truth, strictly decoupled from presentation crates and communicating exclusively via typed IPC ([ADR-0011](../adr/0011-nuo-tui-presentation-and-nuo-server-container.md), [ADR-0033](../adr/0033-canonical-server-entity-dual-hosting-postures-and-endpoint-orthogonality.md), [ADR-0066](../adr/0066-canonical-protocol-nomenclature-and-codec-purity.md)).
-- **Presentation Substrates & Peer Focus Planes**: Retained canvas diffing engine (`nuotc`), generic UI primitives (`nuo-ui-primitives`), agent views (`nuo-view`), and symmetric focus crossings ([ADR-0003](../adr/0003-autonomous-terminal-canvas-substrate-nuotc.md), [ADR-0053](../adr/0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md), [ADR-0145](../adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
+- **Presentation Substrates & Peer Focus Planes**: Retained canvas and TTY substrate (`graticule-canvas`, `graticule-tty`), generic UI primitives (`nuo-ui-primitives`), agent views (`nuo-view`), and symmetric focus crossings ([ADR-0223](../adr/0223-graticule-substrate-vt-input-parser-and-all-motion-hover.md), [ADR-0053](../adr/0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md), [ADR-0145](../adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
 - **Cognitive Runtime & Inversion**: Provider capability contracts with decentralized tools and single-definition specifications ([ADR-0014](../adr/0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md), [ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md), [ADR-0100](../adr/0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md)).
 
 For standards governing proposal qualification, in-place lifecycle progression, and code citation discipline, consult the [ADR Standards](standards/adr.md).

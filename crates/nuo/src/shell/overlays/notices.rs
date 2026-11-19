@@ -21,7 +21,7 @@
 //! - Spatial separation between cards and selectable text body (`render_selectable_body`).
 //! - Zero footer displacement, ensuring 100% composer stability.
 
-use nuotc::{Frame, Modifier, Rect, Style};
+use graticule::{Frame, Modifier, Rect, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::keymap::Key;

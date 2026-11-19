@@ -90,7 +90,7 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
         "no server-resolved depth means an empty editor, never a client-invented tier"
     );
 
-    let mut terminal = nuotc::TestTerminal::new(100, 24);
+    let mut terminal = graticule::TestTerminal::new(100, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });

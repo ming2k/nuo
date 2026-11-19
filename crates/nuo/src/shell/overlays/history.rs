@@ -14,7 +14,7 @@
 //! line was redundant noise and was removed. `Enter` inserts the focused entry
 //! into the composer.
 
-use nuotc::{
+use graticule::{
     Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };
 use protocol::HistoryEntry;
@@ -121,7 +121,7 @@ pub fn draw_history_panel(
     // read as selection/severity, which a history list is not. The edges are
     // painted by the same panel fill (no half-block `▄`/`▀` glyphs), so the
     // transition is identical across terminals.
-    frame.render_widget(&mut nuotc::Clear::default(), area);
+    frame.render_widget(&mut graticule::Clear::default(), area);
     let inner = ElevationContainer::overlay().render(frame, area, theme);
     let inner_w = inner.width;
 

@@ -1,6 +1,6 @@
 //! Transient notice bubbles: copy result and armed-action toasts.
 
-use nuotc::Frame;
+use graticule::Frame;
 
 use crate::shell::render::Theme;
 use ui_primitives::components::toast::{ToastBubble, ToastKind};

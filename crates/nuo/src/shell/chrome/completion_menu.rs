@@ -1,6 +1,6 @@
 //! The floating completion popup menu anchored above the composer input.
 
-use nuotc::{Clear, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule::{Clear, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;

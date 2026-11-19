@@ -31,7 +31,7 @@ pub fn check_color_purity(root: &Path) -> Result<(), String> {
 
     // Forbidden color constructors and literal tokens (excluding Color::Reset)
     let forbidden_re = Regex::new(
-        r"\b(?:nuotc::)?Color::(Rgb\s*\(\s*\d+|White|Black|Red|Green|Yellow|Blue|Magenta|Cyan|Gray|DarkGray|Light\w+)",
+        r"\b(?:(?:graticule|graticule_canvas|nuotc)::)?Color::(Rgb\s*\(\s*\d+|White|Black|Red|Green|Yellow|Blue|Magenta|Cyan|Gray|DarkGray|Light\w+)",
     ).map_err(|e| e.to_string())?;
 
     let pattern_match_re =

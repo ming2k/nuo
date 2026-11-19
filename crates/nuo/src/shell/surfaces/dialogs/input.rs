@@ -2,7 +2,7 @@
 
 use super::actions::{dialog_body_bounds, handle_dialog_click, handle_dialog_scroll, scroll_delta};
 use super::entities::*;
-use super::navigation::{rotate, rotate_selectable, switcher_app_ctx};
+use super::navigation::{rotate, rotate_selectable};
 use super::*;
 
 /// Handle a local navigation/scroll action for one dialog entity
@@ -259,41 +259,38 @@ pub(super) fn input_dialog(
             }
             DialogOutcome::Consumed
         }
-        DialogKind::SessionTrace => {
+        DialogKind::ContextPlan => {
             let e = view
                 .as_any_mut()
-                .downcast_mut::<SessionTraceDialog>()
+                .downcast_mut::<ContextPlanDialog>()
                 .expect("kind");
-            if e.turn.is_some() {
-                if forward {
-                    e.scroll = e.scroll.saturating_add(1);
-                } else {
-                    e.scroll = e.scroll.saturating_sub(1);
-                }
-            } else if e.detail {
-                let report = app.token_source_report(viewed_session_id);
-                let round_index = e.index.min(
-                    report
-                        .as_ref()
-                        .map(|r| crate::shell::overlays::telemetry_round_count(r).saturating_sub(1))
-                        .unwrap_or(0),
-                );
-                let count = report
-                    .as_ref()
-                    .map(|r| crate::shell::overlays::telemetry_attempt_count(r, round_index))
-                    .unwrap_or(0)
-                    .max(1);
-                e.turn_cursor = rotate(e.turn_cursor, count, forward);
-            } else {
-                let count = app
-                    .token_source_report(viewed_session_id)
-                    .map(|r| crate::shell::overlays::telemetry_round_count(&r))
-                    .unwrap_or(0)
-                    .max(1);
-                e.index = rotate(e.index, count, forward);
+            // The cursor walks the plan's **blocks**, not its rows: the request
+            // accounting, the band headers, an expanded body, the notices and the
+            // drift verdict are all part of the document but none of them is a
+            // selection target, and a cursor that could land on a heading would
+            // let `Enter` expand nothing.
+            let count = app
+                .telemetry
+                .context_plan
+                .as_ref()
+                .map(|plan| plan.blocks.len())
+                .unwrap_or(0);
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            let next = rotate(e.index, count, forward);
+            if next != e.index {
+                e.index = next;
+                e.follow = true;
+                // A body belongs to the row it was opened on. Carrying it across
+                // a cursor move would expand the new row without the reader
+                // asking, which reads as a jump rather than a selection.
+                e.body_open = false;
+                e.scroll = 0;
             }
             DialogOutcome::Consumed
         }
+        DialogKind::SessionTrace => session_trace_step(view, app, viewed_session_id, forward),
         DialogKind::UsageStats => {
             let e = view
                 .as_any_mut()
@@ -357,17 +354,14 @@ pub(super) fn input_dialog(
             }
             DialogOutcome::Consumed
         }
-        DialogKind::Switcher => {
+        DialogKind::Palette => {
             let e = view
                 .as_any_mut()
-                .downcast_mut::<SwitcherDialog>()
+                .downcast_mut::<PaletteDialog>()
                 .expect("kind");
-            let count = crate::shell::overlays::command_palette::filter_palette_commands(
-                &e.query.text,
-                &app.composer.recent_commands,
-                &switcher_app_ctx(app),
-            )
-            .len();
+            let count = crate::shell::palette::project(app, &e.query.text)
+                .entries
+                .len();
             if count == 0 {
                 return DialogOutcome::Unhandled;
             }
@@ -401,4 +395,55 @@ pub(super) fn input_dialog(
             DialogOutcome::Consumed
         }
     }
+}
+
+/// One arrow step through the session-trace drill-down (L1 rounds → L2 turns →
+/// L3 attempt scroll).
+///
+/// Extracted so the dialog's own navigation rules stay readable: the trace is
+/// the one inspector whose cursor means three different things by level, and
+/// inlining it beside every other dialog's single `scroll += 1` hid that.
+///
+/// `expect` is the same contract as the dispatch arm that calls it: `kind`
+/// routing and the entity type are one fact, so the downcast cannot fail.
+#[allow(clippy::expect_used)]
+fn session_trace_step(
+    view: &mut dyn DialogView,
+    app: &mut crate::shell::App,
+    viewed_session_id: &str,
+    forward: bool,
+) -> DialogOutcome {
+    let e = view
+        .as_any_mut()
+        .downcast_mut::<SessionTraceDialog>()
+        .expect("kind");
+    if e.turn.is_some() {
+        if forward {
+            e.scroll = e.scroll.saturating_add(1);
+        } else {
+            e.scroll = e.scroll.saturating_sub(1);
+        }
+    } else if e.detail {
+        let report = app.token_source_report(viewed_session_id);
+        let round_index = e.index.min(
+            report
+                .as_ref()
+                .map(|r| crate::shell::overlays::telemetry_round_count(r).saturating_sub(1))
+                .unwrap_or(0),
+        );
+        let count = report
+            .as_ref()
+            .map(|r| crate::shell::overlays::telemetry_attempt_count(r, round_index))
+            .unwrap_or(0)
+            .max(1);
+        e.turn_cursor = rotate(e.turn_cursor, count, forward);
+    } else {
+        let count = app
+            .token_source_report(viewed_session_id)
+            .map(|r| crate::shell::overlays::telemetry_round_count(&r))
+            .unwrap_or(0)
+            .max(1);
+        e.index = rotate(e.index, count, forward);
+    }
+    DialogOutcome::Consumed
 }

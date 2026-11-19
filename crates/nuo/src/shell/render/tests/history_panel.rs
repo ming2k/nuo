@@ -39,9 +39,9 @@ fn history_panel_renders_every_query_state() {
         ("zzz", 0),          // no subsequence → empty placeholder
     ];
 
-    let input_rect = nuotc::Rect::new(0, 22, 80, 2);
+    let input_rect = graticule::Rect::new(0, 22, 80, 2);
     for (query, expected_matches) in cases {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule::TestTerminal::new(80, 24);
         let mut ranked = ui_primitives::fuzzy::rank(&texts, query);
         ui_primitives::fuzzy::sort_by_score(&mut ranked);
         assert_eq!(
@@ -70,7 +70,7 @@ fn history_panel_renders_every_query_state() {
 
     // Empty history must render the "(no history yet)" placeholder rather
     // than indexing into an empty slice.
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let empty: Vec<protocol::HistoryEntry> = Vec::new();
     let ranked: Vec<(usize, ui_primitives::fuzzy::FuzzyMatch)> =
         ui_primitives::fuzzy::rank::<&str>(&[], "");
@@ -106,9 +106,9 @@ fn history_panel_folds_multiline_entries() {
             .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
 
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let ranked = ui_primitives::fuzzy::rank(&texts, "");
-    let input_rect = nuotc::Rect::new(0, 22, 80, 2);
+    let input_rect = graticule::Rect::new(0, 22, 80, 2);
 
     terminal.draw(|f| {
         let _ = draw_history_panel(
@@ -148,9 +148,9 @@ fn history_panel_collapses_to_actual_row_count() {
     let ranked = ui_primitives::fuzzy::rank(&texts, "");
     // Composer near the bottom of a tall terminal so room-above is not the
     // binding constraint — the row count is.
-    let input_rect = nuotc::Rect::new(0, 40, 80, 2);
-    let mut terminal = nuotc::TestTerminal::new(80, 42);
-    let mut panel: Option<nuotc::Rect> = None;
+    let input_rect = graticule::Rect::new(0, 40, 80, 2);
+    let mut terminal = graticule::TestTerminal::new(80, 42);
+    let mut panel: Option<graticule::Rect> = None;
     terminal.draw(|f| {
         panel = draw_history_panel(
             f,
@@ -191,9 +191,9 @@ fn history_panel_reserves_activity_bar_rows() {
     let ranked = ui_primitives::fuzzy::rank(&texts, "");
     // Composer at row 15; the activity bar occupies the single row above it
     // (row 14), so `activity_height = 1`.
-    let input_rect = nuotc::Rect::new(0, 15, 80, 2);
-    let mut terminal = nuotc::TestTerminal::new(80, 17);
-    let mut panel: Option<nuotc::Rect> = None;
+    let input_rect = graticule::Rect::new(0, 15, 80, 2);
+    let mut terminal = graticule::TestTerminal::new(80, 17);
+    let mut panel: Option<graticule::Rect> = None;
     terminal.draw(|f| {
         panel = draw_history_panel(
             f,

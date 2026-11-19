@@ -2,9 +2,9 @@
 //!
 //! The substrate models keys as [`Key`] / [`KeyStroke`] and never names the
 //! terminal driver ([INV-ARCH-UI-ZERO-IO]). This module is the single place the
-//! shell folds a `crossterm` event into that shape.
+//! shell folds a `graticule` driver event into that shape.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use graticule::event::{KeyCode, KeyEvent, KeyModifiers};
 #[cfg(test)]
 use ui_primitives::chord::{Key as ChordKey, KeyCode as ChordCode, KeyModifiers as ChordMods};
 use ui_primitives::key::{Key, KeyStroke};
@@ -48,8 +48,8 @@ pub(crate) fn event_from_chord(key: ChordKey) -> KeyEvent {
     KeyEvent {
         code: driver_code(key.code),
         modifiers: driver_modifiers(key.modifiers),
-        kind: crossterm::event::KeyEventKind::Press,
-        state: crossterm::event::KeyEventState::NONE,
+        kind: graticule::event::KeyEventKind::Press,
+        state: graticule::event::KeyEventState::NONE,
     }
 }
 

@@ -1,5 +1,5 @@
 //! The flat Models picker modal (selecting the active model/instance).
-use nuotc::{
+use graticule::{
     Frame, Rect, {Line, Span}, {Modifier, Style},
 };
 
@@ -59,7 +59,7 @@ pub fn draw_models_modal(
     props: ModelsModalProps<'_>,
     theme: &Theme,
     selection: &SelectionState,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let ModelsModalProps {
         models,
         modal_index,
@@ -197,7 +197,7 @@ pub fn draw_models_modal(
             };
             let sep_line = "─".repeat(sep_rect.width as usize);
             frame.render_widget(
-                &mut nuotc::Paragraph::new(Line::from(Span::styled(
+                &mut graticule::Paragraph::new(Line::from(Span::styled(
                     sep_line,
                     Style::default().fg(theme.muted()),
                 ))),

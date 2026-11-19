@@ -2,7 +2,7 @@
 //! gutter rendering, and selection arithmetic shared by every renderer that
 //! lays out character-addressable content.
 
-use nuotc::{
+use graticule_canvas::{
     floor_grapheme_boundary, inclusive_grapheme_end, {Color, Modifier, Style}, {Line, Span},
 };
 
@@ -227,7 +227,7 @@ pub fn visible_width(text: &str, hidden_ranges: &[(usize, usize)]) -> usize {
         .iter()
         .map(|&(lo, hi)| hi.saturating_sub(lo))
         .sum();
-    nuotc::str_len(text).saturating_sub(hidden)
+    graticule_canvas::str_len(text).saturating_sub(hidden)
 }
 
 /// Visible (markup-elided) display width of a text window. `text` is a slice of
@@ -773,7 +773,7 @@ pub fn code_gutter_line(params: CodeGutterParams<'_>) -> Line<'static> {
             }
         }
     }
-    let used = indent + nuotc::str_len(text);
+    let used = indent + graticule_canvas::str_len(text);
     spans.push(Span::styled(
         padded_tail(full_width, used),
         Style::default().bg(code_bg),
@@ -1022,7 +1022,7 @@ pub fn code_gutter_line_syntax(
         .unwrap_or_default()
         .trim_end_matches('\n')
         .trim_end_matches('\r');
-    let used = prefix + nuotc::str_len(visible);
+    let used = prefix + graticule_canvas::str_len(visible);
     spans.push(Span::styled(
         padded_tail(full_width, used),
         Style::default().bg(code_bg),

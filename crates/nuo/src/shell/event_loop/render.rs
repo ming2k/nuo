@@ -20,7 +20,7 @@ use super::transcript::display_status;
 /// active modal panel, persisting per-frame layout state back onto `app`.
 /// Invoked through `Terminal::stage` (bottom-follow measurement pass) or
 /// `Terminal::draw`; extracted verbatim from the `render_frame` closure.
-pub(crate) fn render_frame(app: &mut App, f: &mut nuotc::Frame<'_>, viewed_session_id: &str) {
+pub(crate) fn render_frame(app: &mut App, f: &mut graticule::Frame<'_>, viewed_session_id: &str) {
     let mut ui = std::mem::take(&mut app.transcript.ui);
     compose_frame(app, f, viewed_session_id, &mut ui);
     app.transcript.ui = ui;
@@ -32,7 +32,7 @@ pub(crate) fn render_frame(app: &mut App, f: &mut nuotc::Frame<'_>, viewed_sessi
 /// registration, and styling are unchanged.
 fn compose_frame(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
 ) {
@@ -77,13 +77,13 @@ fn compose_frame(
 /// bottom-anchored surface drawn after it.
 #[derive(Clone, Copy)]
 struct ComposerSlot {
-    input_rect: nuotc::Rect,
-    hint_rect: nuotc::Rect,
+    input_rect: graticule::Rect,
+    hint_rect: graticule::Rect,
 }
 
 /// Measurements a scene/overlay pass reports to the frame tail.
 struct SurfaceDraw {
-    modal_rect: Option<nuotc::Rect>,
+    modal_rect: Option<graticule::Rect>,
     dashboard_list_body_height: Option<u16>,
 }
 
@@ -92,7 +92,7 @@ struct SurfaceDraw {
 /// Returns `true` when one of them painted, in which case the frame is done.
 fn draw_startup_surface(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
 ) -> bool {
@@ -120,8 +120,8 @@ fn draw_startup_surface(
         // on a clean background. Do not open/render the chat interface, empty state,
         // composer input box, status bar, or header components until a session is selected.
         f.render_widget(
-            &mut nuotc::widgets::Block::default()
-                .style(nuotc::Style::default().bg(app.surfaces.theme.app_bg)),
+            &mut graticule::widgets::Block::default()
+                .style(graticule::Style::default().bg(app.surfaces.theme.app_bg)),
             f.area(),
         );
 
@@ -189,7 +189,7 @@ fn draw_startup_surface(
 /// guidance) that only this surface consumes.
 fn draw_transcript_surface(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
@@ -477,7 +477,7 @@ fn draw_transcript_surface(
     // it immediately so the rest of the frame sees the refreshed entries.
     app.transcript.layout_height_cache = height_cache;
     if app.transcript.search.active && transcript_render.input_rect.y > 0 {
-        let bar_rect = nuotc::layout::Rect::new(
+        let bar_rect = graticule::layout::Rect::new(
             transcript_render.input_rect.x,
             transcript_render.input_rect.y.saturating_sub(1),
             transcript_render.input_rect.width,
@@ -494,29 +494,29 @@ fn draw_transcript_surface(
                 app.transcript.search.matches.len()
             )
         };
-        let line = nuotc::Line::from(vec![
-            nuotc::Span::styled(
+        let line = graticule::Line::from(vec![
+            graticule::Span::styled(
                 " Find: ",
-                nuotc::Style::default()
+                graticule::Style::default()
                     .fg(app.surfaces.theme.affordance_fg)
-                    .add_modifier(nuotc::Modifier::BOLD),
+                    .add_modifier(graticule::Modifier::BOLD),
             ),
-            nuotc::Span::styled(
+            graticule::Span::styled(
                 format!("{}█", app.transcript.search.query),
-                nuotc::Style::default().fg(app.surfaces.theme.user_fg),
+                graticule::Style::default().fg(app.surfaces.theme.user_fg),
             ),
-            nuotc::Span::styled(
+            graticule::Span::styled(
                 match_info,
-                nuotc::Style::default().fg(app.surfaces.theme.muted()),
+                graticule::Style::default().fg(app.surfaces.theme.muted()),
             ),
-            nuotc::Span::styled(
+            graticule::Span::styled(
                 "   Enter next · Shift+Enter prev · Esc close",
-                nuotc::Style::default().fg(app.surfaces.theme.muted()),
+                graticule::Style::default().fg(app.surfaces.theme.muted()),
             ),
         ]);
         f.render_widget(
-            &mut nuotc::Paragraph::new(line)
-                .style(nuotc::Style::default().bg(app.surfaces.theme.panel())),
+            &mut graticule::Paragraph::new(line)
+                .style(graticule::Style::default().bg(app.surfaces.theme.panel())),
             bar_rect,
         );
     }
@@ -547,9 +547,6 @@ fn draw_transcript_surface(
     if let Some(rect) = transcript_render.tab_notices_rect {
         ui.mount(UiKey::NoticesBadge, rect);
     }
-    if let Some(rect) = transcript_render.tab_help_rect {
-        ui.mount(UiKey::HelpBadge, rect);
-    }
     if let Some(rect) = transcript_render.scene_bar_rect {
         ui.mount(UiKey::SceneBar, rect);
     }
@@ -573,7 +570,7 @@ fn draw_transcript_surface(
 /// reasoning-effort, and context-window metadata on the right.
 fn draw_model_bar_surface(
     app: &App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
     slot: ComposerSlot,
@@ -675,7 +672,7 @@ fn draw_model_bar_surface(
 /// hints, images, and pastes).
 fn draw_composer_surface(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
@@ -704,7 +701,7 @@ fn draw_composer_surface(
                 // Extend the slot down by the composer/hint gap plus
                 // the hint-line height so the sheet also covers
                 // (replaces) the bar below the input.
-                let permission_rect = nuotc::Rect::new(
+                let permission_rect = graticule::Rect::new(
                     input_rect.x,
                     input_rect.y,
                     input_rect.width,
@@ -934,7 +931,7 @@ fn persist_transcript_layout(
 /// sheets sit in the composer slot while the transcript stays live.
 fn draw_interaction_sheets(
     app: &App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     ui: &mut crate::shell::ui::ComponentTree,
     slot: ComposerSlot,
 ) {
@@ -956,7 +953,7 @@ fn draw_interaction_sheets(
         match app.active_sheet() {
             Some(crate::shell::sheet::SheetKind::Question) => {
                 if let Some(ref qmodel) = app.human.question {
-                    let question_rect = nuotc::Rect::new(
+                    let question_rect = graticule::Rect::new(
                         input_rect.x,
                         input_rect.y,
                         input_rect.width,
@@ -1009,7 +1006,7 @@ fn draw_interaction_sheets(
 /// the active trigger token.
 fn draw_completion_popup(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     mut ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
     slot: ComposerSlot,
@@ -1071,7 +1068,7 @@ fn draw_completion_popup(
 /// the grid, so it paints straight into the frame.
 fn draw_recessed_surface(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
@@ -1119,14 +1116,13 @@ fn draw_recessed_surface(
 /// modal-body sizing and backdrop hit-testing.
 fn draw_active_overlay(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     mut ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
     overlay: OverlaySurface,
     transcript: &render::TranscriptRender,
-) -> Option<nuotc::Rect> {
-    let viewed_running = app.session.running_sessions.contains(viewed_session_id);
+) -> Option<graticule::Rect> {
     let overlay_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Overlay;
     let spinner_phase = (app.transcript.spinner_epoch.elapsed().as_millis() / 100) as usize;
@@ -1137,21 +1133,7 @@ fn draw_active_overlay(
 
     match overlay {
         OverlaySurface::Dialog(d) if app.dialog_keys() => {
-            let app_ctx = crate::shell::keymap::AppContext {
-                has_overlay: true,
-                active_dialog: Some(d),
-                is_responding: viewed_running,
-                has_selection: !matches!(
-                    app.transcript.selection,
-                    view::model::selection::SelectionState::None
-                ),
-                has_running_task: viewed_running,
-                has_notices: !!app.has_notices(),
-                has_focused_entry: app.transcript.focus.entry().is_some(),
-                queue_count: app.outbox_total(),
-                has_session: app.has_session(),
-                scene: app.current_scene(),
-            };
+            let app_ctx = crate::shell::palette::PaletteContext::capture(app);
             Some(render::draw_dialog_keys(
                 f,
                 d,
@@ -1352,7 +1334,7 @@ fn draw_active_overlay(
 /// log. The dashboard additionally reports its true list-body height.
 fn draw_scene(
     app: &mut App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
@@ -1419,9 +1401,6 @@ fn draw_scene(
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
             }
-            if let Some(rect) = rects.tab_help_rect {
-                ui.mount(UiKey::HelpBadge, rect);
-            }
             if let Some(preview_id) = &app.surfaces.host_preview {
                 let row = app
                     .session
@@ -1485,9 +1464,6 @@ fn draw_scene(
             }
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
-            }
-            if let Some(rect) = rects.tab_help_rect {
-                ui.mount(UiKey::HelpBadge, rect);
             }
             for (index, cat_rect) in rects.category_rects {
                 ui.mount(UiKey::SettingsCategory(index), cat_rect);
@@ -1560,9 +1536,6 @@ fn draw_scene(
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
             }
-            if let Some(rect) = rects.tab_help_rect {
-                ui.mount(UiKey::HelpBadge, rect);
-            }
             // The dashboard's list-body slot stays unset: this scene's scroll
             // is its own field and its page step is derived from the body
             // rect the renderer just clamped against.
@@ -1600,9 +1573,6 @@ fn draw_scene(
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
             }
-            if let Some(rect) = rects.tab_help_rect {
-                ui.mount(UiKey::HelpBadge, rect);
-            }
             Some(rects.area)
         }
         SceneKind::Thread | SceneKind::Subagent => None,
@@ -1618,7 +1588,7 @@ fn draw_scene(
 /// list only while a deletion is staged from `Shift+D`.
 fn draw_provider_delete_confirm(
     app: &App,
-    f: &mut nuotc::Frame<'_>,
+    f: &mut graticule::Frame<'_>,
     ui: &mut crate::shell::ui::ComponentTree,
 ) {
     if app.active_dialog() == Some(DialogKind::Connections)
@@ -1647,7 +1617,7 @@ fn draw_provider_delete_confirm(
 
 /// Toast family: urgent confirmation toasts take precedence over
 /// informational toasts, since they share one top-right slot.
-fn draw_toasts(app: &App, f: &mut nuotc::Frame<'_>) {
+fn draw_toasts(app: &App, f: &mut graticule::Frame<'_>) {
     if app.esc_armed() {
         render::draw_armed_toast(f, "Esc again interrupts", &app.surfaces.theme);
     } else if app.ctrl_c_armed() {

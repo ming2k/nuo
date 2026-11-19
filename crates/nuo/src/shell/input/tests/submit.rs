@@ -83,12 +83,26 @@ fn enter_with_slash_command_dispatches_recognized_commands() {
         ("/skills", InputAction::OpenSkills),
         ("/stats", InputAction::OpenThreadStats),
         ("/trace", InputAction::OpenSessionTrace),
+        ("/context", InputAction::OpenContextPlan),
         ("/exit", InputAction::Quit),
     ] {
         let mut input = cmd.to_string();
         assert_eq!(enter(&mut input, false), expected, "failed for {cmd}");
         assert_eq!(input, "");
     }
+}
+
+#[test]
+fn a_context_plan_variant_with_arguments_still_reaches_the_server() {
+    // ADR-0220 §7: the bare form is the inspector, but `--json` is the one
+    // machine form and only the server can render it. A client that swallowed
+    // the argument would answer a different question than the one asked.
+    let mut input = "/context --json".to_string();
+    assert_eq!(
+        enter(&mut input, false),
+        InputAction::SendSlash("/context --json".to_string()),
+        "an argument must travel, not open the dialog"
+    );
 }
 
 #[test]

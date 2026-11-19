@@ -177,12 +177,12 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
     app.session.current_model = "m1".to_string();
 
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Models));
-    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
     app.transcript.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Models,
         )),
-        nuotc::Rect::new(10, 5, 60, 15),
+        graticule::Rect::new(10, 5, 60, 15),
     );
     app.transcript.ui.commit();
 
@@ -472,9 +472,9 @@ async fn models_dialog_query_edit_reanchors_cursor_to_top_match() {
     models_dlg.scroll = 2;
 
     // Simulate typing a character 'g' via process_event_for_test
-    let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Char('g'),
-        crossterm::event::KeyModifiers::NONE,
+    let event = graticule::event::Event::Key(graticule::event::KeyEvent::new(
+        graticule::event::KeyCode::Char('g'),
+        graticule::event::KeyModifiers::NONE,
     ));
     crate::shell::event_loop::process_event_for_test(&mut app, &event, "").await;
 

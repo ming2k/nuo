@@ -834,14 +834,13 @@ impl DriverCtx {
             | AgentRequest::QueryTokenUsage { .. }
             | AgentRequest::QueryUsageStats { .. }
             | AgentRequest::QueryThreadContext
+            | AgentRequest::QueryContextPlan
             | AgentRequest::ReloadRuntime
             | AgentRequest::EndThread => self.handle_thread_lifecycle(req, &*config).await,
             AgentRequest::TrustWorkspace { domains, decision } => {
                 self.handle_trust_workspace(domains, decision).await
             }
-            AgentRequest::SlashCommand(cmd) => {
-                self.handle_slash(cmd, &*config, provider_usage).await
-            }
+            AgentRequest::SlashCommand(cmd) => self.handle_slash(cmd, config, provider_usage).await,
             AgentRequest::ToggleMcpServer { .. } | AgentRequest::ReconnectMcpServer { .. } => {
                 self.handle_mcp(req, &*config).await
             }
@@ -1549,6 +1548,13 @@ impl DriverCtx {
                     &resp_tx,
                 );
             }
+            AgentRequest::QueryContextPlan => {
+                // The id and the plan must be captured together: a session
+                // switch between them would pair one thread's id with another
+                // thread's context, and the client would install it.
+                let session_id = session.id().await;
+                crate::handlers::handlers_thread::context_plan(&agent, &resp_tx, session_id);
+            }
             AgentRequest::ReloadRuntime => {
                 // ADR-0034 Level 1 (soft reload): re-read the domain
                 // configuration and re-sync MCP servers + skills without
@@ -1783,7 +1789,7 @@ impl DriverCtx {
     async fn handle_slash(
         &mut self,
         cmd: String,
-        config: &persistence::config::Config,
+        config: &mut persistence::config::Config,
         provider_usage: &mut persistence::connection_usage::ConnectionUsage,
     ) {
         let agent = Arc::clone(&self.agent);

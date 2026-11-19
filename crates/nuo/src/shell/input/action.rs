@@ -9,7 +9,7 @@ pub enum OauthCopyTarget {
 }
 
 /// Result of processing an input event.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InputAction {
     /// Nothing to do.
     None,
@@ -367,6 +367,10 @@ pub enum InputAction {
     OpenThreadStats,
     /// Open the session execution trace report (`/trace`).
     OpenSessionTrace,
+    /// Open the measured context plan for this thread (`/context`, ADR-0220).
+    OpenContextPlan,
+    /// Toggle the selected context-plan block's rendered body (`Enter`).
+    ContextPlanToggleBody,
     /// Walk the transcript's entry highlight one step forward (toward newer
     /// entries). With no highlight yet, focuses the first (oldest) target.
     /// Driven by `Ctrl+N` (`session.focus_next`) and by `↓` while an entry is
@@ -596,31 +600,24 @@ pub enum InputAction {
         x: u16,
         y: u16,
     },
-    /// Open the global view quick switcher / Command Palette (`C-x p` / `C-x b`). A transient
-    /// chooser over every browse surface: open views first in MRU order,
-    /// then the rest as discovery. Esc closes it with nothing changed.
-    ViewSwitcherToggle,
+    /// Open or close the contextual command palette (`Ctrl-Shift-p`, RFC-0005).
+    PaletteToggle,
     /// Open the Port & Network Sharing Palette (`/port`, or via Command Palette).
     OpenPortPalette,
     /// Toggle the TCP listener in the Port & Network Sharing Palette.
     TogglePortListener,
     /// Copy connection link or token in the Port & Network Sharing Palette.
     CopyPortConnectInfo,
-    /// Append a character to the switcher's fuzzy filter (phase 5). The
-    /// row set narrows live; ↑/↓ walk the filtered rows.
-    ViewSwitcherFilter {
+    /// Type one character into the palette query.
+    PaletteInsert {
         ch: char,
     },
-    /// Drop the last character from the switcher's filter (Backspace).
-    ViewSwitcherBackspace,
-    /// Switch to the view highlighted in the quick switcher (
-    /// Enter). Hides the current browse view (state retained in the
-    /// `PanelRegistry`) and focuses the target with its retained
-    /// scroll/index restored.
-    ViewSwitchActivate,
-    /// Explicitly close the selected retained view and discard its UI state.
-    /// Delete never removes the underlying session or backend resource.
-    ViewCloseSelected,
+    /// Drop the last grapheme of the palette query.
+    PaletteBackspace,
+    /// Run the highlighted palette entry: the palette pops, then the entry's
+    /// own command or action is dispatched exactly as its key would be
+    /// (RFC-0005 `[INV-PAL-CTX-03]`).
+    PaletteRun,
     /// Interrupt the viewed subagent's in-flight round (Esc inside the Subagent
     /// scene). Scene-scoped: it stops only the focused child and never
     /// the enclosing primary round or a sibling subagent. The target is the top
@@ -642,12 +639,9 @@ pub enum InputAction {
     NavigateDashboard,
     /// Navigate directly to the application settings workspace scene (`C-x ,`, ADR-0043).
     NavigateSettings,
-    /// Terminal was resized (SIGWINCH). The event loop forces a redraw and
-    /// re-emits `EnableMouseCapture` so the crossterm parser's internal state
-    /// machine is resynced: a resize frequently splits an in-flight SGR mouse
-    /// sequence across `event::read()` boundaries, and crossterm then hands the
-    /// leftover bytes back as spurious `KeyCode::Char` events (issue #854/#668).
-    /// Re-arming capture is the cleanest way to get both sides back in step.
+    /// Terminal was resized (`SIGWINCH`). The event loop resizes the retained
+    /// grid, invalidates layout caches, and re-arms the active `graticule` mouse
+    /// tracking mode in case a multiplexer reset terminal state during resize.
     TerminalResized {
         cols: u16,
         rows: u16,
@@ -678,6 +672,7 @@ impl InputAction {
                 | InputAction::OpenConfig
                 | InputAction::OpenThreadStats
                 | InputAction::OpenSessionTrace
+                | InputAction::OpenContextPlan
         )
     }
 }

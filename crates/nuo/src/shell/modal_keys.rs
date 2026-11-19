@@ -150,6 +150,7 @@ fn resolve_enter_action(
             ) => InputAction::CloseModal,
             OverlaySurface::Dialog(DialogKind::Quotas) => InputAction::QuotasToggleDetail,
             OverlaySurface::Dialog(DialogKind::Skills) => InputAction::SkillsToggleDetail,
+            OverlaySurface::Dialog(DialogKind::ContextPlan) => InputAction::ContextPlanToggleBody,
             OverlaySurface::Dialog(DialogKind::Queue) => InputAction::RecallQueuedSelected,
             OverlaySurface::Dialog(DialogKind::SessionTrace) => InputAction::TraceInspectDetail,
             _ => return None,
@@ -177,7 +178,7 @@ pub(crate) fn resolve_modal_key(
             OverlaySurface::Dialog(DialogKind::HistorySearch) => {
                 return resolve_history_search_key(key);
             }
-            OverlaySurface::Dialog(DialogKind::Switcher) => return resolve_view_switcher_key(key),
+            OverlaySurface::Dialog(DialogKind::Palette) => return resolve_palette_key(key),
             OverlaySurface::Dialog(DialogKind::PortShare) => match key.code {
                 KeyCode::Char(' ') => return Some(InputAction::TogglePortListener),
                 KeyCode::Char('y') | KeyCode::Char('c') => {
@@ -245,7 +246,8 @@ pub(crate) fn resolve_modal_key(
             return Some(if let Some(overlay) = overlay {
                 match overlay {
                     OverlaySurface::Dialog(
-                        DialogKind::Models
+                        DialogKind::ContextPlan
+                        | DialogKind::Models
                         | DialogKind::Connections
                         | DialogKind::Threads
                         | DialogKind::Permissions
@@ -285,7 +287,8 @@ pub(crate) fn resolve_modal_key(
             return Some(if let Some(overlay) = overlay {
                 match overlay {
                     OverlaySurface::Dialog(
-                        DialogKind::Models
+                        DialogKind::ContextPlan
+                        | DialogKind::Models
                         | DialogKind::Connections
                         | DialogKind::Threads
                         | DialogKind::Permissions
@@ -557,24 +560,26 @@ pub(crate) fn resolve_history_search_key(key: crate::shell::keymap::Key) -> Opti
     }
 }
 
-/// The command palette (`C-x p`, ADR-0023) owns its filter family: every
-/// printable key types into the palette's own query (never the composer),
-/// `Backspace` trims the query, `Delete` drops the selected entry, and `Enter`
-/// executes the highlighted command. List walking (↑/↓) and Esc-close stay in
-/// the shared affordance layer — they are cross-modal verbs.
-fn resolve_view_switcher_key(key: crate::shell::keymap::Key) -> Option<InputAction> {
+/// The command palette (`Ctrl-Shift-p`, RFC-0005) owns its filter family:
+/// every printable key types into the palette's own query (never the
+/// composer), `Backspace` trims it, `Delete` is inert, and `Enter` runs the
+/// highlighted entry. List walking (↑/↓) and Esc-close stay in the shared
+/// affordance layer — they are cross-modal verbs.
+fn resolve_palette_key(key: crate::shell::keymap::Key) -> Option<InputAction> {
     match key.code {
         KeyCode::Char(c)
             if !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER) =>
         {
-            Some(InputAction::ViewSwitcherFilter { ch: c })
+            Some(InputAction::PaletteInsert { ch: c })
         }
-        KeyCode::Backspace => Some(InputAction::ViewSwitcherBackspace),
-        KeyCode::Delete => Some(InputAction::ViewCloseSelected),
+        KeyCode::Backspace => Some(InputAction::PaletteBackspace),
+        // Inert, never a fall-through: the composer under the palette must not
+        // lose a character to a key aimed at the palette.
+        KeyCode::Delete => Some(InputAction::None),
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
-            Some(InputAction::ViewSwitchActivate)
+            Some(InputAction::PaletteRun)
         }
         _ => None,
     }

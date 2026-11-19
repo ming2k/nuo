@@ -1,6 +1,6 @@
 //! Pure text layout and wrapping primitives for terminal UI.
 
-use nuotc::{grapheme_width, prohibited_line_end, prohibited_line_start};
+use graticule_canvas::{grapheme_width, prohibited_line_end, prohibited_line_start};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Produce a run of spaces that fills the rest of a full-width line so a

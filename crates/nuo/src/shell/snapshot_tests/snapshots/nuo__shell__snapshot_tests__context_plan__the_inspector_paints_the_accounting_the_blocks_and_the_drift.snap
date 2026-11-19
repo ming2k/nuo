@@ -1,0 +1,45 @@
+---
+source: crates/nuo/src/shell/snapshot_tests/context_plan.rs
+expression: "render(Some(&plan), 0, false, 48)"
+---
+
+
+
+
+
+
+           Context Plan
+
+           Request
+           Instructions      768 tokens (0.4% of window)
+           Fixed prefix      768 tokens · 4 blocks
+           Transient tail    0 tokens · 0 blocks
+           Model window      200000 tokens
+           Instruction ceiling  16000 tokens
+           Request total     51387 tokens
+             History         41207 tokens
+             Instructions    768 tokens
+             Tool schemas    9412 tokens
+             Temporary       0 tokens
+           Attribution       +0 tokens vs measured region (tokenizers are not additive)
+
+           Sources · emission order
+             Route 18 tokens · 1 active
+            ▸ agent.identity            identity            directive    18  ▏
+             Frozen 152 tokens · 1 active
+              agent.precedence          precedence          directive   152  ▊
+             Session 158 tokens · 1 active
+              workspace.roots           workspace_boundary  directive   158  ▊
+             Workspace 440 tokens · 1 active
+              project.rules             project_authority   directive   440  ▊▊▊▊
+                   elided 1204 of 1644 tokens · read `AGENTS.md` from line 0 for the rest
+              security.web_untrusted    untrusted_policy    untrusted       —
+                   inactive for this request
+           Loss disclosed
+           project.rules     [project.rules: 1204 tokens elided; read `AGENTS.md` from
+                             line 0]
+
+           Cacheable prefix
+           Drift  suffix moved · project.rules
+
+           ↑↓ select  Enter show body  Esc close

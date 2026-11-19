@@ -6,7 +6,7 @@
 //! selection overrides backgrounds uniformly.
 
 use super::{RichLineParams, RichTextColors, RichTextRanges, line_spans_rich};
-use nuotc::{Color, Modifier, Style};
+use graticule_canvas::{Color, Modifier, Style};
 
 #[test]
 fn block_selection_range_is_empty_for_collapsed_selection() {
@@ -34,7 +34,7 @@ fn block_selection_range_is_empty_for_collapsed_selection() {
 }
 
 /// Rebuild the *visible* text from a line's spans, skipping the prefix.
-fn rendered_content(line: &nuotc::Line<'_>) -> String {
+fn rendered_content(line: &graticule_canvas::Line<'_>) -> String {
     line.spans
         .iter()
         .skip(1)
@@ -514,7 +514,7 @@ fn warning_symbol_and_cjk_wrap_and_width_remain_synchronized() {
     // The invariant under test is *synchronization*, not one substrate's idea of
     // how wide `⚠️` is: `str_len` must equal the sum of per-grapheme widths, and
     // the wrap must agree with that same measure. Pinning the literal column
-    // count here instead encodes whichever `nuotc` the snapshot was recorded
+    // count here instead encodes whichever `graticule-canvas` the snapshot was recorded
     // against — a variation selector's width is the substrate's call (VS16 is
     // zero-width on POSIX terminals, TR51-emoji under `unicode-width`), and a
     // release must not fail because that judgement moved.
@@ -522,12 +522,12 @@ fn warning_symbol_and_cjk_wrap_and_width_remain_synchronized() {
     let mut grapheme_sum = 0usize;
     let mut rest = prefix;
     while !rest.is_empty() {
-        let end = nuotc::inclusive_grapheme_end(rest, 0);
-        grapheme_sum += nuotc::grapheme_width(&rest[..end]) as usize;
+        let end = graticule_canvas::inclusive_grapheme_end(rest, 0);
+        grapheme_sum += graticule_canvas::grapheme_width(&rest[..end]) as usize;
         rest = &rest[end..];
     }
-    assert_eq!(nuotc::str_len(prefix), grapheme_sum);
-    assert!(nuotc::grapheme_width("⚠️") >= 1);
+    assert_eq!(graticule_canvas::str_len(prefix), grapheme_sum);
+    assert!(graticule_canvas::grapheme_width("⚠️") >= 1);
 
     let lines = wrap_text_markup(s, 76, &hidden);
     assert!(!lines.is_empty());

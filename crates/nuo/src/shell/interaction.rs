@@ -180,7 +180,7 @@ pub fn classify_click(layout_map: &LayoutMap, x: u16, y: u16) -> ClickTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuotc::Rect;
+    use graticule::Rect;
     use view::model::layout::{BlockRegion, LayoutMap, LinkHit, TableCellHit, TableCellSegment};
 
     fn push_region(map: &mut LayoutMap, text: &str, msg_idx: usize, block_idx: usize, y: u16) {

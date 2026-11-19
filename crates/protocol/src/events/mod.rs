@@ -4,6 +4,7 @@
 
 pub(crate) use crate::{Availability, TrustDomain};
 
+pub(crate) use crate::context::ContextPlanView;
 pub(crate) use tool::{ImagePart, Message, ToolOutput, ToolStream};
 
 pub(crate) use serde::{Deserialize, Serialize};

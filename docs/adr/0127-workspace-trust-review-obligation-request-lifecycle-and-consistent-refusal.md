@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Security, Server Core, Presentation, TUI Interaction
 - Amends: [ADR-0116](0116-content-residency-and-surface-layer-topology.md) — the `TrustChanged` row in its layer table now splits into a condition and a failure
+- Amended by: [ADR-0221](0221-the-trust-gate-is-composed-from-columns-and-bands.md) — §2's prompt is reduced to one line per reason class (the assets are named on their rows), and §7's `[INV-TRUST-09]` pixel assertions are re-anchored on columns and tones rather than on the `name  |  [Changed]` label syntax
 
 ---
 
@@ -310,9 +311,14 @@ coverage immediately found two defects that had shipped:
 - `[INV-TRUST-09] The surface's claims are tested in pixels`: what the gate
   *says* is asserted against the painted grid, not against its state object —
   because the gate is the whole screen. Enforced by
-  `shell::snapshot_tests::pre_attach_surface::*`, which cover the exit hint
-  (present and unclipped at every supported width), the re-review wording, the
-  first-contact wording, and the absence of mid-word breaks in the prompt.
+  `shell::snapshot_tests::pre_attach::*`, which cover the exit hint (present at
+  every supported width), the re-review wording, the first-contact wording, the
+  absence of separator glyphs and status syntax, the status column's alignment,
+  and the adaptive footer. Re-anchored by
+  [ADR-0221](0221-the-trust-gate-is-composed-from-columns-and-bands.md) §4: the
+  surface no longer composes a label out of a name and a badge, so the pixel
+  tests assert the column and the token rather than the `name  |  [Changed]`
+  string.
 
 ---
 

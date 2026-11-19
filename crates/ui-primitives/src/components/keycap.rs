@@ -15,7 +15,7 @@
 //! - Restricted-width groups adapt deterministically via the floor-1 overflow rule:
 //!   `floor(max_fit) - 1` items are displayed, reserving the final slot for `F1 more`.
 
-use nuotc::{Color, Modifier, Span, Style};
+use graticule_canvas::{Color, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::super::Theme;
@@ -138,17 +138,6 @@ impl KeyAffordance {
         Self::with_intent_and_rank(key, label, AffordanceIntent::Warn, 90)
     }
 
-    /// Construct a compact TabBar help affordance: prominent shortcut on the left,
-    /// action label on the right (ADR-0131 [INV-AFFORDANCE-01]).
-    pub const fn tabbar_help(label: &'static str) -> Self {
-        Self {
-            key: "F1",
-            label,
-            intent: AffordanceIntent::Primary,
-            rank: 100,
-        }
-    }
-
     /// The visual column width of the keycap + space + label unit.
     pub fn width(&self) -> usize {
         self.key.width() + 1 + self.label.width()
@@ -165,20 +154,6 @@ impl KeyAffordance {
         };
         let key_style = Style::default()
             .fg(key_fg)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD);
-        let label_style = theme.keycap_label_style().bg(bg);
-        [
-            Span::styled(self.key.to_string(), key_style),
-            Span::styled(format!(" {}", self.label), label_style),
-        ]
-    }
-
-    /// Render this affordance in unified key-first style (ADR-0054):
-    /// prominent shortcut on the left (accent + bold), action label on the right (dark gray).
-    pub fn render_tabbar_spans(&self, theme: &Theme, bg: Color) -> [Span<'static>; 2] {
-        let key_style = Style::default()
-            .fg(theme.keycap_accent())
             .bg(bg)
             .add_modifier(Modifier::BOLD);
         let label_style = theme.keycap_label_style().bg(bg);
@@ -479,21 +454,6 @@ mod tests {
         assert!(layout.has_overflow);
         assert_eq!(text(&layout.spans), "F1 more");
         assert_eq!(layout.overflow_indices, vec![0, 1]);
-    }
-
-    #[test]
-    fn key_affordance_tabbar_help_renders_compact_key_first() {
-        let theme = Theme::default();
-        let affordance = KeyAffordance::tabbar_help("help");
-        assert_eq!(affordance.width(), 7); // "F1" (2) + " " (1) + "help" (4)
-
-        let [key_span, label_span] = affordance.render_tabbar_spans(&theme, theme.body());
-        assert_eq!(key_span.content, "F1");
-        assert_eq!(key_span.style.fg, theme.keycap_accent());
-        assert!(key_span.style.add.contains(Modifier::BOLD));
-        assert_eq!(label_span.content, " help");
-        assert_eq!(label_span.style.fg, theme.keycap_label());
-        assert!(!label_span.style.add.contains(Modifier::BOLD));
     }
 
     #[test]

@@ -102,8 +102,8 @@ fn adr0044_atomic_draft_stashing_and_esc_rollback() {
 #[test]
 fn adr0044_ghost_preview_rendering() {
     let theme = Theme::default();
-    let rect = nuotc::Rect::new(0, 0, 80, 5);
-    let mut terminal = nuotc::TestTerminal::new(80, 5);
+    let rect = graticule::Rect::new(0, 0, 80, 5);
+    let mut terminal = graticule::TestTerminal::new(80, 5);
     let mut scroll = 0usize;
 
     // Empty input with ghost text preview renders the ghost text in muted style
@@ -166,7 +166,7 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
     app.record_input_history(multiline_entry, Vec::new(), Vec::new());
 
     // 1. Render normal frame before opening history search (80 cols, 24 rows)
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
@@ -188,7 +188,7 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
     );
 
     // 3. Render frame with multi-line candidate selected (index 0 is the newest, 20-line entry)
-    let mut terminal_hist = nuotc::TestTerminal::new(80, 24);
+    let mut terminal_hist = graticule::TestTerminal::new(80, 24);
     terminal_hist.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
@@ -217,7 +217,7 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
         .surfaces
         .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
         .index = 1;
-    let mut terminal_hist_short = nuotc::TestTerminal::new(80, 24);
+    let mut terminal_hist_short = graticule::TestTerminal::new(80, 24);
     terminal_hist_short.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
@@ -303,7 +303,7 @@ async fn test_history_search_empty_placeholder_visible_and_index_clamped() {
     app.composer.input = "nomatch_query".to_string();
 
     // Render frame
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });

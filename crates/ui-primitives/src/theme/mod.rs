@@ -1,5 +1,5 @@
 //! Color palette and design token orchestrator used across the renderer.
-use nuotc::{Color, Modifier, Style};
+use graticule_canvas::{Color, Modifier, Style};
 use std::borrow::Cow;
 
 use crate::color_scheme::{
@@ -202,7 +202,7 @@ pub struct Theme {
     pub keycap_accent_fg: Color,
     pub keycap_warn_fg: Color,
     /// Typography and glyph set (ADR-0053).
-    pub glyphs: nuotc::GlyphSet,
+    pub glyphs: graticule_canvas::GlyphSet,
     /// Visual elevation archetype governing container framing and spatial insets (ADR-0053).
     pub elevation: ElevationArchetype,
 }
@@ -270,7 +270,7 @@ impl Default for Theme {
             keycap_label_fg: DEFAULT_KEYCAP_LABEL_FG,
             keycap_accent_fg: DEFAULT_KEYCAP_ACCENT_FG,
             keycap_warn_fg: DEFAULT_KEYCAP_WARN_FG,
-            glyphs: nuotc::UNICODE_GLYPHS,
+            glyphs: graticule_canvas::UNICODE_GLYPHS,
             elevation: ElevationArchetype::Chromatic,
         }
     }
@@ -337,7 +337,7 @@ impl Theme {
             keycap_label_fg: Color::Gray,
             keycap_accent_fg: Color::LightGreen,
             keycap_warn_fg: Color::LightYellow,
-            glyphs: nuotc::UNICODE_GLYPHS,
+            glyphs: graticule_canvas::UNICODE_GLYPHS,
             elevation: ElevationArchetype::Hybrid,
         }
     }
@@ -399,7 +399,7 @@ impl Theme {
             keycap_label_fg: Color::Reset,
             keycap_accent_fg: Color::Reset,
             keycap_warn_fg: Color::Reset,
-            glyphs: nuotc::ASCII_GLYPHS,
+            glyphs: graticule_canvas::ASCII_GLYPHS,
             elevation: ElevationArchetype::Structured,
         }
     }
@@ -409,7 +409,7 @@ impl Theme {
         name: &str,
         custom: &ColorSchemeConfig,
         files: &[ThemeFile],
-        profile: &nuotc::TerminalProfile,
+        profile: &graticule_canvas::TerminalProfile,
     ) -> Self {
         let trimmed = name.trim().to_ascii_lowercase();
         // If user explicitly chose a scheme other than default/zen, honor their choice.
@@ -418,14 +418,15 @@ impl Theme {
         } else {
             // Adaptive default based on profile
             match profile.color_standard {
-                nuotc::ColorStandard::Monochrome => Self::monochrome(),
-                nuotc::ColorStandard::Ansi16 => Self::ansi16(),
-                nuotc::ColorStandard::Indexed256 | nuotc::ColorStandard::DirectColor => {
+                graticule_canvas::ColorStandard::Monochrome => Self::monochrome(),
+                graticule_canvas::ColorStandard::Ansi16 => Self::ansi16(),
+                graticule_canvas::ColorStandard::Indexed256
+                | graticule_canvas::ColorStandard::DirectColor => {
                     Self::from_color_scheme_from(name, custom, files)
                 }
             }
         };
-        theme.glyphs = nuotc::GlyphSet::for_standard(profile.charset_standard);
+        theme.glyphs = graticule_canvas::GlyphSet::for_standard(profile.charset_standard);
         theme.elevation = ElevationArchetype::for_profile(profile);
         theme
     }
@@ -849,7 +850,7 @@ impl Theme {
             keycap_label_fg: mix(muted, text, 0.45),
             keycap_accent_fg: mix(accent, text, 0.25),
             keycap_warn_fg: mix(warning, text, 0.15),
-            glyphs: nuotc::UNICODE_GLYPHS,
+            glyphs: graticule_canvas::UNICODE_GLYPHS,
             elevation: ElevationArchetype::Chromatic,
         }
     }
@@ -1826,21 +1827,21 @@ impl Theme {
         self.keycap_warn_fg
     }
     /// Standard keycap style (crisp keycap fg + bold).
-    pub fn keycap_style(&self) -> nuotc::Style {
-        nuotc::Style::default()
+    pub fn keycap_style(&self) -> graticule_canvas::Style {
+        graticule_canvas::Style::default()
             .fg(self.keycap_fg)
-            .add_modifier(nuotc::Modifier::BOLD)
+            .add_modifier(graticule_canvas::Modifier::BOLD)
     }
     /// Keycap badge/pill style with background lift.
-    pub fn keycap_badge_style(&self) -> nuotc::Style {
-        nuotc::Style::default()
+    pub fn keycap_badge_style(&self) -> graticule_canvas::Style {
+        graticule_canvas::Style::default()
             .fg(self.keycap_fg)
             .bg(self.keycap_bg)
-            .add_modifier(nuotc::Modifier::BOLD)
+            .add_modifier(graticule_canvas::Modifier::BOLD)
     }
     /// Keycap affordance action label style.
-    pub fn keycap_label_style(&self) -> nuotc::Style {
-        nuotc::Style::default().fg(self.keycap_label_fg)
+    pub fn keycap_label_style(&self) -> graticule_canvas::Style {
+        graticule_canvas::Style::default().fg(self.keycap_label_fg)
     }
 
     // 4-Layer Spatial Surfaces Tokens

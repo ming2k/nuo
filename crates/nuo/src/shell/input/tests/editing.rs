@@ -958,7 +958,7 @@ fn ctrl_r_opens_history_modal_when_no_modal_is_open() {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('r'),
             KeyModifiers::CONTROL,
         )),
@@ -974,7 +974,7 @@ fn ctrl_r_opens_history_modal_when_no_modal_is_open() {
 
     // Inside HistorySearch, Ctrl+R cycles to the next candidate (ADR-0051 [INV-COMP-04])
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('r'),
             KeyModifiers::CONTROL,
         )),
@@ -1002,7 +1002,7 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
 
     // 1. When a transcript step is focused: Ctrl-r must NOT open history
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('r'),
             KeyModifiers::CONTROL,
         )),
@@ -1024,7 +1024,7 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
 
     // 2. When transcript is focused: Ctrl-r must NOT open history
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('r'),
             KeyModifiers::CONTROL,
         )),
@@ -1046,7 +1046,7 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
 
     // 3. HistoryPrev (Alt-P) and HistoryNext (Alt-N) must be inert when step or transcript is focused
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('p'),
             KeyModifiers::ALT,
         )),
@@ -1067,7 +1067,7 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
     assert_eq!(action, InputAction::None);
 
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('n'),
             KeyModifiers::ALT,
         )),
@@ -1089,7 +1089,7 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
 
     // 4. Tab must NOT toggle send mode when transcript is focused
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Tab,
             KeyModifiers::NONE,
         )),
@@ -1113,7 +1113,7 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
     // 5. Alt+Enter and Ctrl+J must NOT insert newlines when composer is inactive
     let before = input.clone();
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::ALT,
         )),
@@ -1135,7 +1135,7 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
     assert_eq!(input, before);
 
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('j'),
             KeyModifiers::CONTROL,
         )),
@@ -1209,162 +1209,6 @@ fn ctrl_v_returns_paste_in_free_text_modals() {
 }
 
 #[test]
-fn sgr_guard_drops_split_sgr_mouse_sequence() {
-    // The exact symptom from the field: a mouse report crossterm split into
-    // individual chars. `ESC [ < 0 ; 3 5 ; 4 6 M` — the `[ < … M` payload
-    // is dropped, but the leading Esc is *delivered* (it is a real control
-    // key, never inserted as text, and is the double-Esc interrupt path).
-    let seq: Vec<Event> = [
-        leaked_esc(),
-        leaked_char('['),
-        leaked_char('<'),
-        leaked_char('0'),
-        leaked_char(';'),
-        leaked_char('3'),
-        leaked_char('5'),
-        leaked_char(';'),
-        leaked_char('4'),
-        leaked_char('6'),
-        leaked_char('M'),
-    ]
-    .into_iter()
-    .collect();
-    let (accepted, dropped) = drain_guard(&seq);
-    assert_eq!(
-        accepted, 1,
-        "the leading Esc is delivered, the rest dropped"
-    );
-    assert_eq!(dropped, seq.len() - 1);
-}
-
-#[test]
-fn sgr_guard_drops_release_variant_lowercase_m() {
-    // SGR release uses lowercase `m`. Same coverage as the press variant:
-    // only the leading Esc is delivered.
-    let seq: Vec<Event> = [
-        leaked_esc(),
-        leaked_char('['),
-        leaked_char('<'),
-        leaked_char('3'),
-        leaked_char('5'),
-        leaked_char(';'),
-        leaked_char('5'),
-        leaked_char('6'),
-        leaked_char('m'),
-    ]
-    .into_iter()
-    .collect();
-    let (accepted, _) = drain_guard(&seq);
-    assert_eq!(accepted, 1);
-}
-
-#[test]
-fn sgr_guard_drops_run_of_split_sequences() {
-    // The real complaint showed *many* sequences back to back (resize drag).
-    // The guard must resync to idle after each terminating M/m and catch
-    // the next one too. Each sequence's leading Esc is delivered; the
-    // remaining payload bytes are swallowed.
-    let one = |b: char| {
-        vec![
-            leaked_esc(),
-            leaked_char('['),
-            leaked_char('<'),
-            leaked_char(b),
-            leaked_char(';'),
-            leaked_char('1'),
-            leaked_char('M'),
-        ]
-    };
-    let seq: Vec<Event> = [one('0'), one('3'), one('5')]
-        .into_iter()
-        .flatten()
-        .collect();
-    let (accepted, _) = drain_guard(&seq);
-    assert_eq!(accepted, 3, "each sequence delivers its leading Esc");
-}
-
-#[test]
-fn sgr_guard_passes_through_normal_typing() {
-    // Ordinary typing must be unaffected — the guard never enters a
-    // tracking state and hands every char back as Accept.
-    let seq: Vec<Event> = ['h', 'e', 'l', 'l', 'o']
-        .into_iter()
-        .map(leaked_char)
-        .collect();
-    let (accepted, dropped) = drain_guard(&seq);
-    assert_eq!(accepted, seq.len());
-    assert_eq!(dropped, 0);
-}
-
-#[test]
-fn sgr_guard_delivers_lone_esc() {
-    // Regression: a standalone Esc (e.g. the first of a double-Esc
-    // interrupt) must reach the app. The previous guard dropped it as a
-    // suspected leak prefix, which broke double-Esc interrupt entirely.
-    let mut g = SgrLeakGuard::default();
-    assert!(matches!(g.feed(&leaked_esc()), Feed::Accept));
-    // Not idle: it armed the tracker so a following `[` still opens a leak.
-    assert!(!g.is_idle());
-    // A subsequent normal char aborts the tracking and is delivered too.
-    assert!(matches!(g.feed(&leaked_char('x')), Feed::Accept));
-    assert!(g.is_idle());
-}
-
-#[test]
-fn sgr_guard_delivers_double_esc() {
-    // The double-Esc interrupt path: two Escs with nothing between them.
-    // Neither is part of an SGR sequence (a real leak has `[` next, never
-    // another Esc), so both must be delivered.
-    let mut g = SgrLeakGuard::default();
-    assert!(matches!(g.feed(&leaked_esc()), Feed::Accept));
-    assert!(matches!(g.feed(&leaked_esc()), Feed::Accept));
-    assert!(!g.is_idle());
-}
-
-#[test]
-fn sgr_guard_recovers_from_aborted_prefix() {
-    // `ESC [` followed by something other than `<` is a real CSI (e.g. an
-    // arrow key's payload). The leading Esc is delivered; `[` is dropped
-    // (it can only be leak noise from this state); the aborting char is
-    // delivered and the guard returns to idle.
-    let mut g = SgrLeakGuard::default();
-    // ESC [ A = Up arrow, delivered as separate chars by a broken read.
-    assert!(matches!(g.feed(&leaked_esc()), Feed::Accept));
-    assert!(matches!(g.feed(&leaked_char('[')), Feed::Drop));
-    // 'A' is not the SGR intro: the guard aborts and *this* event is
-    // accepted (returned to the caller to deal with), then goes idle.
-    assert!(matches!(g.feed(&leaked_char('A')), Feed::Accept));
-    assert!(g.is_idle());
-    // Subsequent normal typing is accepted.
-    assert!(matches!(g.feed(&leaked_char('x')), Feed::Accept));
-}
-
-#[test]
-fn sgr_guard_resets_on_non_key_events() {
-    // A genuine parsed mouse event or a resize resyncs the tracker, so a
-    // half-buffered prefix can't poison the next real interaction.
-    let mut g = SgrLeakGuard::default();
-    assert!(matches!(g.feed(&leaked_esc()), Feed::Accept));
-    assert!(matches!(g.feed(&leaked_char('[')), Feed::Drop));
-    assert!(matches!(g.feed(&Event::Resize(80, 24)), Feed::Accept));
-    assert!(g.is_idle());
-    assert!(matches!(g.feed(&leaked_char('x')), Feed::Accept));
-}
-
-#[test]
-fn sgr_guard_survives_garbage_inside_payload() {
-    // A malformed payload (non-digit, non-;) while inside an SGR sequence
-    // resyncs to idle instead of swallowing arbitrary following text.
-    let mut g = SgrLeakGuard::default();
-    assert!(matches!(g.feed(&leaked_esc()), Feed::Accept));
-    assert!(matches!(g.feed(&leaked_char('[')), Feed::Drop));
-    assert!(matches!(g.feed(&leaked_char('<')), Feed::Drop));
-    // A letter that is not the terminator: abort and resync.
-    assert!(matches!(g.feed(&leaked_char('Z')), Feed::Accept));
-    assert!(g.is_idle());
-}
-
-#[test]
 fn text_modal_commands_resolve_and_consume_composer() {
     // Slash commands that open an interactive modal are intercepted locally:
     // they resolve to a data-less `Open*` action (not `SendSlash`) and consume
@@ -1383,6 +1227,7 @@ fn text_modal_commands_resolve_and_consume_composer() {
         ("/skills", InputAction::OpenSkills),
         ("/stats", InputAction::OpenThreadStats),
         ("/trace", InputAction::OpenSessionTrace),
+        ("/context", InputAction::OpenContextPlan),
     ] {
         let mut input = cmd.to_string();
         let action = enter(&mut input, true);
@@ -1471,7 +1316,7 @@ fn remapped_palette_chord_opens_the_switcher() {
         &SceneKeys::default(),
         &mut drag,
     );
-    assert_eq!(action, InputAction::ViewSwitcherToggle);
+    assert_eq!(action, InputAction::PaletteToggle);
 }
 
 #[test]
@@ -1669,7 +1514,7 @@ fn delete_key_inert_outside_free_text() {
 }
 
 #[test]
-fn delete_key_closes_selected_view_in_switcher() {
+fn delete_key_is_inert_in_the_palette() {
     let mut input = String::new();
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
@@ -1680,7 +1525,7 @@ fn delete_key_closes_selected_view_in_switcher() {
             &mut cursor,
             Dispatch {
                 overlay: Some(crate::shell::surfaces::OverlaySurface::Dialog(
-                    crate::shell::surfaces::DialogKind::Switcher
+                    crate::shell::surfaces::DialogKind::Palette
                 )),
                 ..Default::default()
             },
@@ -1689,7 +1534,7 @@ fn delete_key_closes_selected_view_in_switcher() {
             &SceneKeys::default(),
             &mut drag,
         ),
-        InputAction::ViewCloseSelected
+        InputAction::None
     );
 }
 
@@ -1927,7 +1772,7 @@ fn key_repeat_events_are_processed() {
 #[test]
 fn resolve_block_resolves_composer_chrome_to_input_sentinel() {
     let mut map = LayoutMap::new();
-    map.set_composer_rect(nuotc::Rect::new(0, 10, 50, 4));
+    map.set_composer_rect(graticule::Rect::new(0, 10, 50, 4));
 
     // Middle-click on chrome row (e.g. y = 10 or 13) resolves to composer block
     assert_eq!(

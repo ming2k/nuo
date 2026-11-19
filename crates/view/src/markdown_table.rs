@@ -3,7 +3,7 @@
 //! to the allotted width, and produces the rendered border + data lines along
 //! with per-cell byte spans used by selection and click hit-testing.
 
-use nuotc::{
+use graticule_canvas::{
     Span, {Color, Style},
 };
 

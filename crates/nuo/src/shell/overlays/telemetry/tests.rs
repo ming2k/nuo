@@ -413,6 +413,8 @@ fn test_build_overview_and_sticky_table_headers() {
                 overhead_tokens: None,
                 history_tokens: None,
                 temporary_context_tokens: None,
+                instructions_tokens: None,
+                tool_schema_tokens: None,
             }),
             window_tokens: Some(200_000),
             draft_content_tokens: 50,

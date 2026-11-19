@@ -35,7 +35,7 @@ pub use diff::DiffCache;
 pub use diff::{DiffFrag, DiffHunk, DiffOp};
 pub use streaming::parse_streaming_arguments;
 
-use nuotc::Color;
+use graticule_canvas::Color;
 use serde_json::Value;
 
 use super::Theme;

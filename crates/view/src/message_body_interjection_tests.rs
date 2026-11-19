@@ -8,7 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use nuotc::{Rect, TestTerminal};
+use graticule_canvas::{Rect, TestTerminal};
 use ui_primitives::Theme;
 
 use crate::model::document::{SteerOriginTag, TranscriptMessage, UserMessageOrigin};

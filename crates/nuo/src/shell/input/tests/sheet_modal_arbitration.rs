@@ -24,8 +24,8 @@ fn overlaid(fixture: SurfaceFixture, sheet: SheetKind) -> Dispatch {
     }
 }
 
-fn key(code: KeyCode) -> crossterm::event::KeyEvent {
-    crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)
+fn key(code: KeyCode) -> graticule::event::KeyEvent {
+    graticule::event::KeyEvent::new(code, KeyModifiers::NONE)
 }
 
 fn route(dispatch: Dispatch, code: KeyCode) -> InputAction {

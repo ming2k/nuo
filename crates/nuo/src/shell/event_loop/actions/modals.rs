@@ -898,13 +898,12 @@ pub(crate) mod question_effects {
                     // TRUST_GATE_REQUEST_ID reply.
                     if request_id == view::trust_gate::TRUST_GATE_REQUEST_ID {
                         runtime.trust_gate_dismissed.store(true, Ordering::SeqCst);
-                        let selected = view::trust_gate::answer_to_domains(answers);
-                        // A refusal must name what to refuse. The offered set is
-                        // the authority, not the selection: "the user picked
-                        // nothing" means "refuse everything that was asked
-                        // about", and sending an empty list with `Deny` would
-                        // record no refusal at all and let the gate re-open.
+                        // The offered set is the authority, not the selection:
+                        // "the user picked nothing" means "refuse everything that
+                        // was asked about", and sending an empty list with `Deny`
+                        // would record no refusal at all and let the gate re-open.
                         let offered = app.session.workspace_security.domains_needing_review();
+                        let selected = view::trust_gate::answer_to_domains(answers, &offered);
                         let decision = if selected.is_empty() {
                             protocol::TrustDecision::Deny
                         } else {

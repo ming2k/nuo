@@ -4,7 +4,7 @@
 //! - `draw_thread_stats_modal` — Thread Stats (/stats)
 //! - `draw_session_trace_modal` — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
 
-use nuotc::{Frame, Rect};
+use graticule::{Frame, Rect};
 use protocol::TokenSourceReport;
 
 use super::super::common::placeholder;

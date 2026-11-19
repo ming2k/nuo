@@ -1,5 +1,5 @@
 //! Web search and article content renderers.
-use nuotc::{Line, Modifier, Rect, Span, Style};
+use graticule::{Line, Modifier, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};

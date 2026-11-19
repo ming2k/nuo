@@ -10,9 +10,9 @@ use std::borrow::Cow;
 
 /// Re-exported grapheme-boundary primitives so the rest of the crate keeps the
 /// existing `crate::model::selection::…` import path. The implementations live in
-/// the engine ([`nuotc`]), the single owner of grapheme/width
+/// the engine (`graticule_canvas`), the single owner of grapheme/width
 /// measurement.
-pub use nuotc::{floor_grapheme_boundary, inclusive_grapheme_end};
+pub use graticule_canvas::{floor_grapheme_boundary, inclusive_grapheme_end};
 
 /// Return the original text of one logical table cell. `cell_idx` is row-major
 /// (`row * ncols + col`, header is row 0). Falls back to an empty string for

@@ -1,6 +1,6 @@
 //! Shared helpers used across multiple overlay renderers.
 
-use nuotc::{
+use graticule::{
     {Color, Style}, {Line, Span},
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -71,7 +71,7 @@ pub fn truncate_ellipsis(s: &str, max: usize) -> String {
 /// grid's paint width.
 pub fn caret_column(display: &str, cursor_position: usize) -> u16 {
     let byte = cursor_position.min(display.len());
-    nuotc::cursor_column(display, byte).min(u16::MAX as usize) as u16
+    graticule::cursor_column(display, byte).min(u16::MAX as usize) as u16
 }
 
 /// A single-line input's horizontal viewport (caret-following): the mechanism
@@ -86,12 +86,12 @@ pub fn field_viewport(display: &str, cursor_position: usize, width: usize) -> (u
     if width == 0 {
         return (0, String::new());
     }
-    let total = nuotc::str_len(display);
+    let total = graticule::str_len(display);
     if total <= width {
         return (0, display.to_string());
     }
     let caret_byte = cursor_position.min(display.len());
-    let caret_col = nuotc::cursor_column(display, caret_byte);
+    let caret_col = graticule::cursor_column(display, caret_byte);
 
     let desired_offset = caret_col.saturating_sub(width * 3 / 4);
 
@@ -102,7 +102,7 @@ pub fn field_viewport(display: &str, cursor_position: usize, width: usize) -> (u
     let mut start_byte = 0usize;
     let mut offset = 0usize;
     for (byte, grapheme) in display.grapheme_indices(true) {
-        let grapheme_width = nuotc::grapheme_width(grapheme) as usize;
+        let grapheme_width = graticule::grapheme_width(grapheme) as usize;
         if offset + grapheme_width > desired_offset {
             start_byte = byte;
             break;
@@ -119,14 +119,14 @@ pub fn field_viewport(display: &str, cursor_position: usize, width: usize) -> (u
         let Some(grapheme) = display[start_byte..].graphemes(true).next() else {
             break;
         };
-        offset += nuotc::grapheme_width(grapheme) as usize;
+        offset += graticule::grapheme_width(grapheme) as usize;
         start_byte += grapheme.len();
     }
 
     let mut text = String::new();
     let mut used = 0usize;
     for grapheme in display[start_byte..].graphemes(true) {
-        let grapheme_width = nuotc::grapheme_width(grapheme) as usize;
+        let grapheme_width = graticule::grapheme_width(grapheme) as usize;
         if used + grapheme_width > width {
             break;
         }
@@ -281,8 +281,9 @@ pub fn selectable_row(
     let mut row_style = Style::default().bg(row_bg).fg(row_fg);
     let mut muted_style = Style::default().bg(row_bg).fg(row_muted);
     if is_selected && !theme.elevation.is_chromatic() {
-        row_style = row_style.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
-        muted_style = muted_style.add_modifier(nuotc::Modifier::REVERSE);
+        row_style =
+            row_style.add_modifier(graticule::Modifier::REVERSE | graticule::Modifier::BOLD);
+        muted_style = muted_style.add_modifier(graticule::Modifier::REVERSE);
     }
 
     let mut spans = vec![
@@ -322,7 +323,7 @@ mod tests {
 
         assert_eq!(offset, 3);
         assert_eq!(visible, format!("d{family}x"));
-        assert_eq!(nuotc::str_len(&visible), 4);
+        assert_eq!(graticule::str_len(&visible), 4);
     }
 
     #[test]
@@ -375,7 +376,7 @@ mod tests {
         // Selected line must have REVERSE video
         for span in &selected_line.spans {
             assert!(
-                span.style.add.contains(nuotc::Modifier::REVERSE),
+                span.style.add.contains(graticule::Modifier::REVERSE),
                 "selected span must have REVERSE video: {span:?}"
             );
         }
@@ -402,7 +403,7 @@ mod tests {
         );
         for span in &unselected_line.spans {
             assert!(
-                !span.style.add.contains(nuotc::Modifier::REVERSE),
+                !span.style.add.contains(graticule::Modifier::REVERSE),
                 "unselected span must NOT have REVERSE: {span:?}"
             );
         }

@@ -67,7 +67,15 @@ pub use transcript::{
     StatePayload, SubagentRef, Transcript, TranscriptEntry, checkpoint_message,
 };
 
+pub mod context;
 pub mod instructions;
+pub mod language;
+pub use context::{
+    Budget, ContextMeasurement, ContextNotice, ContextPlan, ContextPlanView, Elision, NoticeKind,
+    Overflow, PlannedBlock, PlannedBlockRecord, PlannedBlockView, Position, PrefixDrift, Rank,
+    Resume, Stability, Topic,
+};
+pub use language::{MAX_LANGUAGE_TAG_LEN, ResponseLanguage};
 pub mod observation;
 pub mod request_builder;
 pub mod thread;
@@ -324,9 +332,17 @@ pub use policy_schema::*;
 /// `cargo test *` grant and the literal command. The variant is not decodable
 /// by a v30 peer and the new server must not interpret a v30 client's `Always`
 /// as the generalized grant it never saw, so the floor moves with the ceiling.
-pub const PROTOCOL_VERSION: u32 = 31;
+///
+/// 32: The measured context plan is a wire surface (ADR-0220).
+/// `AgentRequest` gains `QueryContextPlan` and `AgentResponse` gains
+/// `ContextPlan { thread_id, plan }` carrying the rendered body of every active
+/// block; `RequestTokenEstimate` names `instructions_tokens` and
+/// `tool_schema_tokens`, and `ContextTokenSnapshot` carries both. A v31 peer
+/// cannot decode the new variants and would read the unnamed layers as absent,
+/// so the floor moves with the ceiling.
+pub const PROTOCOL_VERSION: u32 = 32;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 31;
+pub const MIN_PROTOCOL_VERSION: u32 = 32;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

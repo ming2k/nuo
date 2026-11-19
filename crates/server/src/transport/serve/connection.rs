@@ -674,7 +674,7 @@ async fn handle_wire_stream(
     }
     match action {
         AttachAction::Monitor(action) => {
-            return run_monitor(wire_sink, registry, action, gate).await;
+            return run_monitor(wire_sink, wire_source, registry, action, gate).await;
         }
         AttachAction::Control(request) => {
             return run_control(wire_sink, registry, gate, listeners, tcp_manager, request).await;
@@ -1036,6 +1036,7 @@ where
 /// updates are idempotent whole-row replacements).
 async fn run_monitor(
     mut wire_sink: BoxWireSink,
+    mut wire_source: BoxWireStream,
     registry: Arc<crate::runtime::registry::ThreadRegistry>,
     action: MonitorAction,
     gate: Arc<ShutdownGate>,
@@ -1059,6 +1060,18 @@ async fn run_monitor(
                 let _ = wire_sink.close().await;
                 return Ok(());
             }
+            // Keep polling the inbound stream so WebSocket Ping frames are
+            // answered with Pong immediately (`tungstenite` flushes its
+            // auto-Pong on `read()`) and client disconnects end the task
+            // promptly instead of leaking until the next broadcast (ADR-0224).
+            inbound = wire_source.next() => match inbound {
+                Some(Ok(_)) => {}
+                Some(Err(e)) => {
+                    tracing::debug!(error = %e, "nuo server: monitor client read ended");
+                    return Ok(());
+                }
+                None => return Ok(()),
+            },
             received = rx.recv() => {
                 let event = match received {
                     Ok(event) => event,

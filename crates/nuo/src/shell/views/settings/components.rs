@@ -20,7 +20,7 @@
 //! module must never re-list tool names, labels, or defaults by hand
 //! (ADR-0020).
 
-use nuotc::{Color, Frame, Line, Modifier, Rect, Span, Style};
+use graticule::{Color, Frame, Line, Modifier, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::{ScrollableRects, SettingsProps, render_scrollable_indexed};

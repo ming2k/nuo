@@ -1,17 +1,19 @@
 //! The Help & Keybindings modal dialog (ADR-0131 [INV-HELP-01..03]).
 //!
 //! This dialog is the client's **single shortcut discovery surface**. Chrome
-//! therefore carries no keycaps of its own beyond the standing `F1 help`
-//! entrance: a chord printed in the SceneBar or a footer would be a hardcoded
-//! copy of a binding the user can remap, and would compete with the one surface
-//! whose job is to answer "what can I press here?".
+//! therefore carries no keycaps of its own: a chord printed in the SceneBar or
+//! a footer would be a hardcoded copy of a binding the user can remap, and
+//! would compete with the one surface whose job is to answer "what can I press
+//! here?". The dialog's only entrance is `F1` / `Alt-h` (ADR-0219 retired the
+//! TabBar's standing `F1 help` keycap and moved that discovery to the
+//! empty-state tour, which can afford a whole line of prose about it).
 //!
 //! Every chord below is resolved from the live keymap
 //! ([`GlobalOverrides`] / [`SurfaceOverrides`]) rather than written as a
 //! literal, so a remapped binding displays the chord that actually fires. That
 //! is the same rule the composer hint row follows: a keycap is a promise.
 
-use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
+use graticule::{Frame, Line, Modifier, Rect, Span, Style};
 
 use crate::shell::keymap::{CommandId, GlobalOverrides, SurfaceOverrides, SurfaceVerb};
 use crate::shell::render::Theme;
@@ -105,10 +107,12 @@ pub enum HelpActionKind {
     CloseTab,
     Dashboard,
     Settings,
-    Switcher,
+    Palette,
     Sessions,
     Notices,
     ThreadStats,
+    /// Open the measured context-plan inspector (`/context`, ADR-0220).
+    ContextPlan,
     Connections,
     CloseHelp,
 }
@@ -186,6 +190,11 @@ pub fn build_help_entries(
                 "/stats",
                 "Context window & token telemetry",
                 Some(HelpActionKind::ThreadStats),
+            );
+            b.row(
+                "/context",
+                "What the next request is made of, block by block",
+                Some(HelpActionKind::ContextPlan),
             );
             b.row(
                 "/connections",
@@ -310,7 +319,7 @@ pub fn build_help_entries(
     b.row(
         &keys.command_palette,
         "Open the command palette",
-        Some(HelpActionKind::Switcher),
+        Some(HelpActionKind::Palette),
     );
     b.row("/", "Slash commands & tool execution in the composer", None);
     b.row(
@@ -459,13 +468,13 @@ mod tests {
         assert!(action_kinds.contains(&HelpActionKind::Dashboard));
         assert!(action_kinds.contains(&HelpActionKind::Sessions));
         assert!(action_kinds.contains(&HelpActionKind::Settings));
-        assert!(action_kinds.contains(&HelpActionKind::Switcher));
+        assert!(action_kinds.contains(&HelpActionKind::Palette));
         assert!(action_kinds.contains(&HelpActionKind::CloseHelp));
     }
 
     #[test]
     fn help_modal_adaptive_height_on_large_frame() {
-        let mut terminal = nuotc::TestTerminal::new(100, 60);
+        let mut terminal = graticule::TestTerminal::new(100, 60);
         let mut scroll = 0;
         let mut actions = Vec::new();
         let mut bounds = Rect::default();

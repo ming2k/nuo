@@ -24,6 +24,7 @@ The **Recorded** column states whether an invocation is kept in the thread's his
 | `/tools` | Manage session tools (enable/disable) | act |
 | `/mcp` | Manage MCP servers (status, reconnect) | act |
 | `/compact` | Compact older rounds into durable context memory | act |
+| `/language` | Declare the language the agent answers in (`/language zh-CN`, `/language off`); rendered as the `agent.language` block in every request | reading (bare) / act (tag) |
 | `/new` | Start a fresh thread tab (or reset in-place if current thread is empty), preserving history | act |
 | `/permissions` | Show or clear always-allowed tool rules | reading |
 | `/auto-approve` | Toggle auto-approve mode (skip interactive permission prompts) | act |
@@ -36,6 +37,7 @@ The **Recorded** column states whether an invocation is kept in the thread's his
 | `/diff` | View what this thread changed in the workspace, grouped by whether the change can be undone | reading |
 | `/undo` | Undo the last round's reversible file changes; refuses anything that moved on since | act |
 | `/stats` | View context token accounting and thread stats | reading |
+| `/context` | Open the context-plan inspector: the request's token layers, every declared block in emission order with its rendered text, every disclosed loss, and prefix drift (`/context --json` is the machine form) | reading |
 | `/trace` | Inspect session execution trace and latency waterfall | reading |
 | `/usage` | Cross-session token usage statistics overlay | reading |
 | `/quotas` | Provider quota pool and allowance dashboard | reading |

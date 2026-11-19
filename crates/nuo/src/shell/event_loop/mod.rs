@@ -38,8 +38,8 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
-use nuotc::Terminal;
+use graticule::Terminal;
+use graticule::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use tokio::sync::mpsc;
 
 use crate::shell::App;
@@ -151,7 +151,6 @@ struct FrozenFrame<'a, W: io::Write> {
     copy_tx: &'a mpsc::UnboundedSender<Result<clipboard::CopyOutcome, String>>,
     copy_pending: &'a Arc<AtomicUsize>,
     paste_tx: &'a mpsc::UnboundedSender<clipboard::ClipboardRead>,
-    sgr_guard: &'a mut input::SgrLeakGuard,
     input_redraw_pending: &'a mut bool,
     terminal_resized: &'a mut bool,
     frozen_notice_painted: &'a mut bool,
@@ -195,11 +194,6 @@ impl<W: io::Write> FrozenFrame<'_, W> {
                 *self.terminal_resized = true;
             }
             if !frozen_event_passthrough(&event) {
-                if let Event::Key(_) = &event {
-                    // Keep the SGR-leak tracker fed for dropped input too, so
-                    // a stranded mouse sequence cannot leak on resume.
-                    let _ = self.sgr_guard.feed(&event);
-                }
                 continue;
             }
             // Only a resize or Ctrl-C reaches here; resolve the live session
@@ -215,7 +209,6 @@ impl<W: io::Write> FrozenFrame<'_, W> {
                 self.copy_tx,
                 self.copy_pending,
                 self.paste_tx,
-                self.sgr_guard,
                 self.input_redraw_pending,
             )
             .await?;
@@ -348,8 +341,6 @@ pub(crate) async fn run_app_loop(
 
     let (paste_tx, mut paste_rx) = mpsc::unbounded_channel::<clipboard::ClipboardRead>();
 
-    let mut sgr_guard = input::SgrLeakGuard::default();
-
     let mut input_redraw_pending = true;
     let mut was_animating = true;
     let mut last_carousel_index = 0usize;
@@ -398,7 +389,6 @@ pub(crate) async fn run_app_loop(
                 copy_tx: &copy_tx,
                 copy_pending: &copy_pending,
                 paste_tx: &paste_tx,
-                sgr_guard: &mut sgr_guard,
                 input_redraw_pending: &mut input_redraw_pending,
                 terminal_resized: &mut terminal_resized,
                 frozen_notice_painted: &mut frozen_notice_painted,
@@ -454,7 +444,7 @@ pub(crate) async fn run_app_loop(
         terminal_resized = false;
 
         let (term_w, term_h) = terminal.size();
-        let viewport_rect = nuotc::Rect::new(
+        let viewport_rect = graticule::Rect::new(
             0,
             0,
             term_w,
@@ -674,6 +664,7 @@ pub(crate) async fn run_app_loop(
                 while let Ok(ev) = input.try_recv() {
                     batch.push(ev);
                 }
+                let batch = coalesce_hover_events(batch);
                 // A resize inside this batch may have shrunk the terminal
                 // below the minimum. Re-evaluate and block the remaining
                 // events so a single tick cannot mutate state behind a notice
@@ -686,9 +677,6 @@ pub(crate) async fn run_app_loop(
                         frozen_now = ui_primitives::design::below_minimum(w, h);
                     }
                     if frozen_now && !frozen_event_passthrough(&event) {
-                        if let Event::Key(_) = &event {
-                            let _ = sgr_guard.feed(&event);
-                        }
                         continue;
                     }
                     let flow = process_one_event(
@@ -701,7 +689,6 @@ pub(crate) async fn run_app_loop(
                         &copy_tx,
                         &copy_pending,
                         &paste_tx,
-                        &mut sgr_guard,
                         &mut input_redraw_pending,
                     ).await?;
                     if matches!(flow, actions::ActionFlow::Exit) {
@@ -737,10 +724,10 @@ fn dismisses_notice_bubble(event: &Event) -> bool {
     let Event::Key(key) = event else {
         return false;
     };
-    if key.kind == crossterm::event::KeyEventKind::Release {
+    if key.kind == graticule::event::KeyEventKind::Release {
         return false;
     }
-    matches!(key.code, crossterm::event::KeyCode::Esc)
+    matches!(key.code, graticule::event::KeyCode::Esc)
 }
 
 /// The buffer that receives this event's text edits.
@@ -965,6 +952,27 @@ impl DialogInfoDetails {
     }
 }
 
+/// Coalesce consecutive hover-motion events inside a single drained batch,
+/// keeping only the latest coordinate per contiguous run while preserving order
+/// across clicks, drags, wheel ticks, keys, and resizes.
+fn coalesce_hover_events(batch: Vec<Event>) -> Vec<Event> {
+    let mut out = Vec::with_capacity(batch.len());
+    for ev in batch {
+        let is_hover = matches!(
+            ev,
+            Event::Mouse(m) if m.kind == graticule::event::MouseEventKind::Moved
+        );
+        if is_hover
+            && let Some(Event::Mouse(prev)) = out.last()
+            && prev.kind == graticule::event::MouseEventKind::Moved
+        {
+            out.pop();
+        }
+        out.push(ev);
+    }
+    out
+}
+
 #[allow(clippy::too_many_arguments)] // Keeps event-loop resources borrowed without a second state bundle.
 async fn process_one_event<W: io::Write>(
     event: &Event,
@@ -976,15 +984,16 @@ async fn process_one_event<W: io::Write>(
     copy_tx: &mpsc::UnboundedSender<Result<clipboard::CopyOutcome, String>>,
     copy_pending: &Arc<AtomicUsize>,
     paste_tx: &mpsc::UnboundedSender<clipboard::ClipboardRead>,
-    sgr_guard: &mut input::SgrLeakGuard,
     input_redraw_pending: &mut bool,
 ) -> io::Result<actions::ActionFlow> {
     if let Event::Key(_) = event {
         app.link.last_key_press = std::time::Instant::now();
-        if matches!(sgr_guard.feed(event), input::Feed::Drop) {
-            return Ok(actions::ActionFlow::Handled);
-        }
     }
+    let is_hover = matches!(
+        event,
+        Event::Mouse(m) if m.kind == graticule::event::MouseEventKind::Moved
+    );
+    let hover_before = (app.surfaces.config_hover_index, app.transcript.hovered_step);
 
     // A keystroke dismisses an *acknowledgement* bubble and nothing else.
     //
@@ -1041,10 +1050,12 @@ async fn process_one_event<W: io::Write>(
         crate::shell::ui::UiKey::Sheet(kind) => Some(*kind),
         _ => None,
     });
-    let suppress_completions = matches!(
-        app.active_dialog(),
-        Some(crate::shell::surfaces::DialogKind::Switcher)
-    ) || active_sheet.is_some();
+    let suppress_completions = is_hover
+        || matches!(
+            app.active_dialog(),
+            Some(crate::shell::surfaces::DialogKind::Palette)
+        )
+        || active_sheet.is_some();
     let completions = if suppress_completions {
         Vec::new()
     } else {
@@ -1090,7 +1101,7 @@ async fn process_one_event<W: io::Write>(
     let host_prompting = app.surfaces.host_prompting;
     let dialog_details = DialogInfoDetails::capture(app);
 
-    let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == crossterm::event::KeyCode::Enter)
+    let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == graticule::event::KeyCode::Enter)
         && app.surfaces.surfaces.active_overlay().is_none()
         && app.composer.input.starts_with('/')
     {
@@ -1255,7 +1266,6 @@ async fn process_one_event<W: io::Write>(
             copy_tx,
             copy_pending,
             paste_tx,
-            sgr_guard,
             key_event: matches!(event, Event::Key(_)),
         },
     )
@@ -1285,19 +1295,21 @@ async fn process_one_event<W: io::Write>(
     }
     queries_before.reconcile(app);
 
-    if matches!(
+    if is_hover {
+        if (app.surfaces.config_hover_index, app.transcript.hovered_step) != hover_before {
+            *input_redraw_pending = true;
+        }
+    } else if matches!(
         event,
         Event::Key(_) | Event::Mouse(_) | Event::Paste(_) | Event::Resize(..)
     ) {
         *input_redraw_pending = true;
     }
 
-    let completions = if suppress_completions {
-        Vec::new()
-    } else {
-        app.completions()
-    };
-    app.anchor_completion_selection(&completions);
+    if !suppress_completions {
+        let completions = app.completions();
+        app.anchor_completion_selection(&completions);
+    }
 
     Ok(flow)
 }
@@ -1305,7 +1317,7 @@ async fn process_one_event<W: io::Write>(
 #[cfg(test)]
 mod input_scroll_follow_tests {
     use super::*;
-    use crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+    use graticule::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 
     fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
         Event::Key(KeyEvent::new(code, modifiers))
@@ -1341,7 +1353,7 @@ mod input_scroll_follow_tests {
 #[cfg(test)]
 mod freeze_guard_tests {
     use super::*;
-    use crossterm::event::{KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
+    use graticule::event::{KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 
     #[test]
     fn below_minimum_is_the_geometric_authority() {
@@ -1391,7 +1403,7 @@ mod freeze_guard_tests {
         ))));
         assert!(!frozen_event_passthrough(&Event::Paste("x".into())));
         assert!(!frozen_event_passthrough(&Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            kind: MouseEventKind::Down(graticule::event::MouseButton::Left),
             column: 3,
             row: 3,
             modifiers: KeyModifiers::NONE,
@@ -1408,10 +1420,9 @@ pub(crate) async fn process_event_for_test(app: &mut App, event: &Event, viewed_
     let (copy_tx, _copy_rx) = tokio::sync::mpsc::unbounded_channel();
     let copy_pending = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let (paste_tx, _paste_rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut sgr_guard = input::SgrLeakGuard::default();
     let mut input_redraw_pending = false;
-    let backend = nuotc::Backend::new(Vec::new()).with_bce(nuotc::Bce::No);
-    let mut terminal = nuotc::Terminal::new(backend);
+    let backend = graticule::Backend::new(Vec::new()).with_bce(graticule::Bce::No);
+    let mut terminal = graticule::Terminal::with_size(backend, 80, 24);
     let _ = process_one_event(
         event,
         app,
@@ -1422,8 +1433,78 @@ pub(crate) async fn process_event_for_test(app: &mut App, event: &Event, viewed_
         &copy_tx,
         &copy_pending,
         &paste_tx,
-        &mut sgr_guard,
         &mut input_redraw_pending,
     )
     .await;
+}
+
+#[cfg(test)]
+mod hover_coalescing_tests {
+    use super::*;
+    use graticule::event::{MouseButton, MouseEvent, MouseEventKind};
+
+    fn moved(col: u16, row: u16) -> Event {
+        Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: col,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    #[test]
+    fn coalesces_consecutive_hover_events_while_preserving_other_events() {
+        let click = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 5,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        });
+        let batch = vec![
+            moved(1, 1),
+            moved(2, 2),
+            moved(3, 3),
+            click.clone(),
+            moved(4, 4),
+            moved(5, 5),
+        ];
+        assert_eq!(
+            coalesce_hover_events(batch),
+            vec![moved(3, 3), click, moved(5, 5)]
+        );
+    }
+
+    #[tokio::test]
+    async fn unchanged_hover_does_not_schedule_redraw() {
+        let mut app = crate::shell::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+        let session = crate::shell::HookStartSource::Remote {
+            session_id: "s1".to_string(),
+        };
+        let (copy_tx, _copy_rx) = tokio::sync::mpsc::unbounded_channel();
+        let copy_pending = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (paste_tx, _paste_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut input_redraw_pending = false;
+        let backend = graticule::Backend::new(Vec::new()).with_bce(graticule::Bce::No);
+        let mut terminal = graticule::Terminal::with_size(backend, 80, 24);
+
+        let _ = process_one_event(
+            &moved(10, 10),
+            &mut app,
+            &mut terminal,
+            &runtime,
+            &session,
+            "s1",
+            &copy_tx,
+            &copy_pending,
+            &paste_tx,
+            &mut input_redraw_pending,
+        )
+        .await;
+
+        assert!(
+            !input_redraw_pending,
+            "hover over inert space with unchanged target must not dirty a frame"
+        );
+    }
 }

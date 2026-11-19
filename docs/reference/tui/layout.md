@@ -12,7 +12,7 @@ The full-frame entry point is `render::draw_transcript` (`crates/nuo-tui/src/ren
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
-│[Refactor DB]  [Fix Auth]  [dashboard]                       F1 help│   ◄ 1  TabBar (flush to both edges)
+│[Refactor DB]  [Fix Auth]  [dashboard]                              │   ◄ 1  TabBar (flush to both edges)
 ├────────────────────────────────────────────────────────────────────┤
 │  THREAD b3c4  Fix retry logic in auth loop   ‹ thread › subagent(2)│   ◄ 2  SceneBar
 ├────────────────────────────────────────────────────────────────────┤
@@ -54,7 +54,7 @@ The head band carries three tiers (ADR-0060, ADR-0062). It is a sibling of the c
 
 | Tier | Rows | Domain | Background Token | Left content | Right content |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~0.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix | Status cluster: optional `[!N]` fault badge + `F1 help` affordance |
+| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~0.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix | Status cluster: optional `[!N]` fault badge only (the standing `F1 help` keycap is retired; help discoverability lives in the empty-state tour) |
 | **SceneBar** | 1 | Scene | `theme.scenebar_bg()` (~8.0% offset) | Scene identity + authentic task title (`THREAD <id_tail> <title>`) | Drill-in breadcrumb stack (`‹ thread › subagent #1 › diff`) |
 | **ThreadContextBar** | 1 on thread / 0 elsewhere | Thread | `theme.contextbar_bg()` (~4.0% offset) | `[ROLE]` badge, then safety posture tokens (`auto`, `open`) — omitted entirely when the session sits in the safe default | Tilde-shortened workspace path, right-anchored and shrinkable |
 
@@ -64,7 +64,7 @@ Scene kinds are a closed set of four destinations plus one reading surface per t
 
 On Monochrome and ANSI-16 profiles, background fills converge safely onto `theme.element_bg`.
 
-The TabBar is the one band whose `tabbar_bg` **bleeds to both terminal edges**: the tier is the shell's own top border, so a broken background fill would read as a tear in the frame. However, internal interactive content is framed with a 1-column margin at both ends (`TABBAR_H_INSET = 1`), preventing tab pills and the right-pinned status cluster from sticking directly against the terminal window's outer border. Adjacent unselected tabs butt seamlessly against each other without separator gaps, disambiguated by alternating background tones (`theme.panel()` and `theme.body()`) to maximize title space in tight terminal geometries. Active tabs take `theme.selected_bg`. The tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before the right-pinned status cluster, so a truncated rail's `…` / `[▾]` can never butt against the `F1 help` keycap. The brand fallback (`nuo`, drawn when no tabs are open) is framed on the same terms.
+The TabBar is the one band whose `tabbar_bg` **bleeds to both terminal edges**: the tier is the shell's own top border, so a broken background fill would read as a tear in the frame. However, internal interactive content is framed with a 1-column margin at both ends (`TABBAR_H_INSET = 1`), preventing tab pills and the right-pinned status cluster from sticking directly against the terminal window's outer border. Adjacent unselected tabs butt seamlessly against each other without separator gaps, disambiguated by alternating background tones (`theme.panel()` and `theme.body()`) to maximize title space in tight terminal geometries. Active tabs take `theme.selected_bg`. The tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before a *present* right-pinned status element, so a truncated rail's `…` / `[▾]` can never butt against the `[!N]` fault badge; with no unread faults the cluster is empty and the reserved gap returns to the rail. The brand fallback (`nuo`, drawn when no tabs are open) is framed on the same terms. The TabBar carries **no standing keycap**: help is discovered through the empty-state carousel's `F1` / `Alt-h` page (ADR-0219), because a permanent keycap spent the row's scarcest budget — tab titles — on a key pressed once.
 
 The ThreadContextBar reads **who → how → where** left to right, and the workspace is right-anchored for a correctness reason rather than a compositional one: it is the only element that may shrink, so pinning it to the right edge keeps the governance cluster (role + posture) at a fixed screen position. Toggling `/auto-approve` therefore grows the left cluster into the gap instead of re-truncating the path, and a narrow terminal degrades by shortening the path rather than by stealing columns from safety.
 

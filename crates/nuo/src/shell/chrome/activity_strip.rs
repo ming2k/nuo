@@ -4,7 +4,7 @@
 //! status, staged follow-ups queue indicator, and active background worker count,
 //! eliminating layout jitter and avoiding inter-bar occlusion.
 
-use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 

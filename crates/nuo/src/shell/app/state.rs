@@ -423,8 +423,6 @@ pub struct ComposerState {
     /// invalidated by any move the caret makes on its own — see
     /// [`CaretMotion`].
     pub(crate) caret_motion: CaretMotion,
-    /// Recently executed commands for MRU display in Command Palette.
-    pub(crate) recent_commands: Vec<String>,
     /// Requests the operator submitted before the thread reached `Ready`.
     /// Flushed in order on the `Ready` transition; the server also buffers
     /// defensively, but the client-side queue keeps the UI honest.
@@ -522,7 +520,7 @@ pub struct SurfacesState {
     )>,
     /// Authoritative screen rectangle of the active settings detail row,
     /// updated during settings render to anchor popovers precisely.
-    pub config_selected_rect: Option<nuotc::Rect>,
+    pub config_selected_rect: Option<graticule::Rect>,
     /// Live search filter substring for the dashboard thread fleet table.
     pub dashboard_filter: String,
     /// Whether the `/` inline filter search input is open on the dashboard.
@@ -566,6 +564,8 @@ pub struct SurfacesState {
     pub switch_to_target: Option<String>,
     /// Pending action requested by clicking a row in the Help dialog.
     pub pending_help_action: Option<crate::shell::overlays::help::HelpActionKind>,
+    /// Entries recently run from the command palette (RFC-0005).
+    pub(crate) palette_recents: crate::shell::palette::Recents,
     /// Pending "copy the rows this fold hides" request, published by a click on
     /// a folded command body's `copy` verb.
     ///
@@ -607,7 +607,7 @@ pub struct SurfacesState {
     /// Theme.
     pub theme: Theme,
     /// Terminal capability profile (ADR-0053).
-    pub profile: nuotc::TerminalProfile,
+    pub profile: graticule::TerminalProfile,
     /// User-supplied ASCII logo lines loaded at startup from
     /// `$XDG_CONFIG_HOME/nuo/logo.txt` (clamped to the empty-state bounding
     /// box). `None` when no user logo is present → built-in wordmark is used.
@@ -685,7 +685,7 @@ pub struct SurfacesState {
     /// truth — there is no parallel `active_modal` / `active_panel` /
     /// `current_view` mirror to read instead.
     pub(crate) surfaces: crate::shell::surfaces::SurfaceRouter,
-    /// MRU open order for the quick switcher. Dialog *state* lives in the
+    /// MRU open order of dialogs. Dialog *state* lives in the
     /// encapsulated entities (`SurfaceRouter::dialogs`); this store only tracks
     /// which dialogs have been opened and in what order (ADR-0035).
     pub(crate) surface_store: crate::shell::surfaces::SurfaceStore,
@@ -830,6 +830,15 @@ pub struct TelemetryState {
     /// Latest session-scoped AI context snapshot from the harness. This is a
     /// provider usage/projection value, never a persisted transcript estimate.
     pub context_tokens: Option<protocol::ContextTokenSnapshot>,
+    /// The most recent measured context plan for the viewed session
+    /// (`QueryContextPlan`, ADR-0220). `None` before the first reply or after a
+    /// session switch; the dialog renders a loading placeholder until then.
+    pub context_plan: Option<protocol::ContextPlanView>,
+    /// Whether the plan reply for the viewed session has landed. Distinguishes
+    /// "no request assembled yet" (a real answer, `plan == None` after a
+    /// completed round-trip) from "the query is in flight", which the dialog
+    /// must not render as an empty plan.
+    pub context_plan_loaded: bool,
     /// Per-session context snapshots (M1): the applier keys them by
     /// session; the render loop projects the *viewed* session's value into
     /// `context_tokens` each frame.

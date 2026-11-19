@@ -1393,9 +1393,9 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
     let mut input = app.composer.input.clone();
     let mut cursor = app.composer.cursor_position;
     let action = crate::shell::input::route_event_motion(
-        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Char('!'),
-            crossterm::event::KeyModifiers::NONE,
+        graticule::event::Event::Key(graticule::event::KeyEvent::new(
+            graticule::event::KeyCode::Char('!'),
+            graticule::event::KeyModifiers::NONE,
         )),
         &mut input,
         &mut cursor,

@@ -36,6 +36,10 @@ pub const CRUISE_LOW_WATERMARK: f64 = 0.50;
 /// Hot-tail quarantine budget in tokens protected from budget pruning.
 pub const TAIL_QUARANTINE_TOKENS: usize = 16_000;
 
+/// Fraction of the model window reserved for the whole instruction region
+/// (`fixed` + `transient`). See [`instructions_ceiling`].
+pub const INSTRUCTIONS_CEILING_UTILIZATION: f64 = 0.08;
+
 /// Token size of a tool result above which a prune candidate is first
 /// *truncated* (a gentler tier that keeps the shape of the output) rather
 /// than cleared outright. Below it, truncation would not save enough to be
@@ -119,8 +123,20 @@ impl CompactionPolicy {
             target_tokens: threshold(self.target_utilization),
             quantum_floor_tokens: quantum_floor,
             cruise_low_tokens: threshold(CRUISE_LOW_WATERMARK),
+            instructions_ceiling_tokens: instructions_ceiling(window),
         }
     }
+}
+
+/// The instruction-region ceiling for one window.
+///
+/// Eight percent of the window with a 24k cap and a 2k floor: the cap keeps a
+/// 1M-token model from reserving 80k tokens of prompt, and the floor keeps a
+/// small local model from paying for a prompt it cannot fit beside a
+/// conversation. This is a tuning constant of the assembler, not a preference
+/// (ADR-0214), so it lives here and nowhere else (`[INV-CTXSRC-07]`).
+pub fn instructions_ceiling(window_tokens: usize) -> usize {
+    ((window_tokens as f64 * INSTRUCTIONS_CEILING_UTILIZATION) as usize).clamp(2_000, 24_000)
 }
 
 /// Resolved, model-specific token thresholds — the runtime form of a
@@ -142,6 +158,12 @@ pub struct ContextBudget {
     pub quantum_floor_tokens: usize,
     /// Target low-watermark landing zone for hysteresis loop.
     pub cruise_low_tokens: usize,
+    /// Ceiling for the whole instruction region (`fixed` + `transient`) in
+    /// tokens. Derived from the model window like every other threshold
+    /// (`[INV-CONTEXT-01]`): a fixed prompt must not be able to consume the
+    /// window before the conversation starts, and every downstream budget
+    /// inherits the error if it does.
+    pub instructions_ceiling_tokens: usize,
 }
 
 /// Wire-size (bytes) of a message list: byte length of `content` +
@@ -1083,13 +1105,24 @@ pub fn layered_request_weights(
 /// Estimated token shape of a provider request.
 ///
 /// `history_tokens` is the prepared, non-system conversation, including any
-/// skill messages injected for this request. `overhead_tokens` covers the
-/// freshly composed system message and visible tool schemas.
+/// skill messages injected for this request. `instructions_tokens` is the
+/// rendered system prompt (`fixed` + `transient`), `tool_schema_tokens` is the
+/// visible tool surface, and `temporary_context_tokens` is the request-local
+/// tail (`E_n`, a subset of the instruction-side overhead).
+///
+/// `overhead_tokens` is **derived** as `total - history`, never summed from the
+/// parts: that keeps `history + overhead == total` exact even if a future change
+/// lets a system row into `messages`, where it would be both history and
+/// instruction text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestTokenEstimate {
     pub history_tokens: usize,
     pub overhead_tokens: usize,
     pub total_tokens: usize,
+    /// Rendered instruction-region cost (`fixed` + `transient`).
+    pub instructions_tokens: usize,
+    /// Cost of every visible tool spec's schema.
+    pub tool_schema_tokens: usize,
     /// Request-local temporary-context tokens (`E_n`), a subset of
     /// `overhead_tokens`. Diagnostics must report this separately from durable
     /// input and provider-reported cache usage.
@@ -1102,7 +1135,56 @@ impl RequestTokenEstimate {
             history_tokens,
             overhead_tokens,
             total_tokens: history_tokens.saturating_add(overhead_tokens),
+            instructions_tokens: 0,
+            tool_schema_tokens: 0,
             temporary_context_tokens: 0,
+        }
+    }
+
+    /// An estimate whose overhead is the sum of its named layers.
+    ///
+    /// `overhead_tokens` is recomputed from `instructions + tool schemas +
+    /// temporary tail` rather than trusted from a caller, so the layered fields
+    /// and the coarse field cannot disagree.
+    pub fn layered(
+        history_tokens: usize,
+        instructions_tokens: usize,
+        tool_schema_tokens: usize,
+        temporary_context_tokens: usize,
+    ) -> Self {
+        let overhead_tokens = instructions_tokens
+            .saturating_add(tool_schema_tokens)
+            .saturating_add(temporary_context_tokens);
+        Self::measured(
+            history_tokens,
+            instructions_tokens,
+            tool_schema_tokens,
+            temporary_context_tokens,
+            history_tokens.saturating_add(overhead_tokens),
+        )
+    }
+
+    /// An estimate measured against an explicit total.
+    ///
+    /// The layers name what the overhead is *made of*, but they are not its
+    /// definition: the total is whatever the request weighed, and `overhead` is
+    /// derived from it. That is what keeps `history + overhead == total` exact
+    /// even if a system-role row ever reaches `messages`, where it would be
+    /// counted as neither history nor any of the three layers.
+    pub fn measured(
+        history_tokens: usize,
+        instructions_tokens: usize,
+        tool_schema_tokens: usize,
+        temporary_context_tokens: usize,
+        total_tokens: usize,
+    ) -> Self {
+        Self {
+            history_tokens,
+            overhead_tokens: total_tokens.saturating_sub(history_tokens),
+            total_tokens,
+            instructions_tokens,
+            tool_schema_tokens,
+            temporary_context_tokens,
         }
     }
 }

@@ -16,10 +16,15 @@ const COMPACTION_TIMEOUT: Duration = Duration::from_secs(45);
 const COMPACTION_SYSTEM_PROMPT: &str = "\
 You are a context compaction engine for an AI coding assistant. \
 Your task is to summarize older conversation turns into a dense, factual context summary \
-so that ongoing work can continue with minimal token overhead without losing crucial facts.";
+so that ongoing work can continue with minimal token overhead without losing crucial facts.\n\
+Write the summary in the same language as the conversation you are summarizing.";
 
 const COMPACTION_USER_INSTRUCTIONS: &str = "\
 Summarize the conversation history above into a structured context checkpoint.
+
+The section headings below are fixed prompt scaffolding and stay in English; every
+line of content beneath them is written in the language of the conversation, so the
+checkpoint reads as native context to the model that continues the work.
 
 Follow this format:
 

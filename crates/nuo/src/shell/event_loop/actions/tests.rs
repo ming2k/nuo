@@ -56,10 +56,10 @@ mod transcript_scroll_tests {
     fn wheel_spatial_routing_under_permission_modal() {
         let mut app = scrollable_app();
         app.set_active_sheet_for_test(crate::shell::sheet::SheetKind::Permission);
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript
             .ui
-            .mount_permission_sheet(nuotc::Rect::new(0, 15, 80, 5));
+            .mount_permission_sheet(graticule::Rect::new(0, 15, 80, 5));
         app.transcript.ui.commit();
         app.human.permission_show_details = true;
         app.human.permission_max_scroll = 10;
@@ -90,12 +90,12 @@ mod transcript_scroll_tests {
     fn wheel_spatial_routing_under_overlay_modal_isolates_backdrop() {
         let mut app = scrollable_app();
         app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::UsageStats,
             )),
-            nuotc::Rect::new(10, 5, 60, 10),
+            graticule::Rect::new(10, 5, 60, 10),
         );
         app.transcript.ui.commit();
         app.surfaces
@@ -137,12 +137,12 @@ mod transcript_scroll_tests {
     fn wheel_spatial_routing_under_dialog_sub_views_scrolls_info_detail() {
         let mut app = scrollable_app();
         app.open_dialog(crate::shell::surfaces::DialogKind::Threads);
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::Threads,
             )),
-            nuotc::Rect::new(10, 5, 60, 10),
+            graticule::Rect::new(10, 5, 60, 10),
         );
         app.transcript.ui.commit();
 
@@ -199,12 +199,12 @@ mod transcript_scroll_tests {
     fn wheel_spatial_routing_under_dialog_keys_scrolls_keys_sublayer() {
         let mut app = scrollable_app();
         app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::UsageStats,
             )),
-            nuotc::Rect::new(10, 5, 60, 10),
+            graticule::Rect::new(10, 5, 60, 10),
         );
         app.transcript.ui.commit();
 
@@ -259,10 +259,10 @@ mod transcript_scroll_tests {
         app.surfaces.surfaces.select_tab(0);
         assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
 
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::TabBar,
-            nuotc::Rect::new(0, 0, 80, 1),
+            graticule::Rect::new(0, 0, 80, 1),
         );
         app.transcript.ui.commit();
 
@@ -286,16 +286,16 @@ mod transcript_scroll_tests {
         let mut app = scrollable_app();
         app.composer.input = "/m".to_string();
         app.composer.cursor_position = 2;
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript
             .ui
-            .mount_completion(nuotc::Rect::new(0, 8, 30, 2));
+            .mount_completion(graticule::Rect::new(0, 8, 30, 2));
         app.transcript
             .ui
-            .mount_completion_item(0, nuotc::Rect::new(0, 8, 30, 1));
+            .mount_completion_item(0, graticule::Rect::new(0, 8, 30, 1));
         app.transcript
             .ui
-            .mount_completion_item(1, nuotc::Rect::new(0, 9, 30, 1));
+            .mount_completion_item(1, graticule::Rect::new(0, 9, 30, 1));
         app.transcript.ui.commit();
 
         let runtime = UiRuntime::minimal_for_test();
@@ -332,14 +332,14 @@ mod transcript_scroll_tests {
         assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
 
         // Mount TabBarItem(1) (Dashboard tab) at (14, 0)
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(1),
-            nuotc::Rect::new(14, 0, 14, 1),
+            graticule::Rect::new(14, 0, 14, 1),
         );
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(2),
-            nuotc::Rect::new(30, 0, 13, 1),
+            graticule::Rect::new(30, 0, 13, 1),
         );
         app.transcript.ui.commit();
 
@@ -371,14 +371,14 @@ mod transcript_scroll_tests {
         );
 
         // Mount TabBar across full width (0..80) and TabBarItem(0) at (0..14)
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::TabBar,
-            nuotc::Rect::new(0, 0, 80, 1),
+            graticule::Rect::new(0, 0, 80, 1),
         );
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(0),
-            nuotc::Rect::new(0, 0, 14, 1),
+            graticule::Rect::new(0, 0, 14, 1),
         );
         app.transcript.ui.commit();
 
@@ -409,14 +409,14 @@ mod transcript_scroll_tests {
             "composer active by default"
         );
 
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::TabBar,
-            nuotc::Rect::new(0, 0, 80, 1),
+            graticule::Rect::new(0, 0, 80, 1),
         );
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(0),
-            nuotc::Rect::new(0, 0, 14, 1),
+            graticule::Rect::new(0, 0, 14, 1),
         );
         app.transcript.ui.commit();
 
@@ -448,14 +448,14 @@ mod transcript_scroll_tests {
         assert!(app.in_subagent_view());
 
         // Mount SceneBar at row 1 and SceneHistoryBack at (50..58, 1)
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::SceneBar,
-            nuotc::Rect::new(0, 1, 80, 1),
+            graticule::Rect::new(0, 1, 80, 1),
         );
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::SceneHistoryBack,
-            nuotc::Rect::new(50, 1, 8, 1),
+            graticule::Rect::new(50, 1, 8, 1),
         );
         app.transcript.ui.commit();
 
@@ -485,10 +485,10 @@ mod transcript_scroll_tests {
         assert!(app.in_subagent_view());
 
         // Mount SceneBreadcrumb(0) (thread ancestor) at (60..66, 1)
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::SceneBreadcrumb(0),
-            nuotc::Rect::new(60, 1, 6, 1),
+            graticule::Rect::new(60, 1, 6, 1),
         );
         app.transcript.ui.commit();
 
@@ -596,12 +596,12 @@ mod transcript_scroll_tests {
         // Modal bounding box: y=5..20 (height=15).
         // Body starts at y = 5 + 3 = 8.
         // Row 0 is at y=8, Row 1 is at y=9, Row 2 is at y=10.
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::Threads,
             )),
-            nuotc::Rect::new(10, 5, 60, 15),
+            graticule::Rect::new(10, 5, 60, 15),
         );
         app.transcript.ui.commit();
 
@@ -695,10 +695,10 @@ mod transcript_scroll_tests {
         assert!(app.surfaces.config_dropdown.is_some());
 
         // Mount dropdown popup at (20, 5, 40, 10)
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::ConfigDropdown,
-            nuotc::Rect::new(20, 5, 40, 10),
+            graticule::Rect::new(20, 5, 40, 10),
         );
         app.transcript.ui.commit();
 
@@ -715,10 +715,10 @@ mod transcript_scroll_tests {
             app.surfaces.websearch_config.as_ref(),
         );
         app.surfaces.config_dropdown = Some((dropdown, anchor));
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::ConfigDropdown,
-            nuotc::Rect::new(20, 5, 40, 10),
+            graticule::Rect::new(20, 5, 40, 10),
         );
         app.transcript.ui.commit();
 
@@ -740,14 +740,14 @@ mod transcript_scroll_tests {
         app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Categories;
 
         // Mount Category 1 (Components) at (2, 4, 18, 2) and Detail Row 0 at (24, 4, 40, 2)
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::SettingsCategory(1),
-            nuotc::Rect::new(2, 4, 18, 2),
+            graticule::Rect::new(2, 4, 18, 2),
         );
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::SettingsRow(0),
-            nuotc::Rect::new(24, 4, 40, 2),
+            graticule::Rect::new(24, 4, 40, 2),
         );
         app.transcript.ui.commit();
 
@@ -793,12 +793,12 @@ mod transcript_scroll_tests {
         app.surfaces.click_outside_dismiss = true;
 
         // Modal mounted at (10, 5, 60, 15)
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::Tools,
             )),
-            nuotc::Rect::new(10, 5, 60, 15),
+            graticule::Rect::new(10, 5, 60, 15),
         );
         app.transcript.ui.commit();
 
@@ -824,12 +824,12 @@ mod transcript_scroll_tests {
         assert!(app.transcript.focus.is_composer());
 
         // Mount the OAuth overlay area in UI so pointer target falls within overlay
-        app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
         app.transcript.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Sheet(
                 crate::shell::surfaces::SheetKind::OAuthPending,
             )),
-            nuotc::Rect::new(10, 5, 60, 14),
+            graticule::Rect::new(10, 5, 60, 14),
         );
         app.transcript.ui.commit();
 
@@ -869,6 +869,24 @@ mod view_entry_tests {
             "s1"
         ));
         assert!(matches!(rx.try_recv(), Ok(AgentRequest::QueryThreadTree)));
+    }
+
+    #[test]
+    fn the_context_plan_dialog_queries_the_plan_on_every_open() {
+        // ADR-0220 §3: the plan is live process state, so opening the inspector
+        // re-queries instead of reusing whatever the last open installed.
+        let mut app = crate::shell::tests::new_app_for_relay_tests();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        app.link.tx = tx;
+        let runtime = UiRuntime::minimal_for_test();
+
+        enter_panel(
+            &mut app,
+            crate::shell::surfaces::DialogKind::ContextPlan,
+            &runtime,
+            "s1",
+        );
+        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QueryContextPlan)));
     }
 
     #[test]

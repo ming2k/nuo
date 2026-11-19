@@ -148,6 +148,26 @@ pub async fn usage_stats(resp_tx: &mpsc::UnboundedSender<AgentResponse>, event_c
     let _ = resp_tx.send(AgentResponse::UsageStatsReport { report });
 }
 
+/// `AgentRequest::QueryContextPlan` — reply with the most recent measured
+/// context plan for this thread, block by block, including the rendered body of
+/// every active block (ADR-0220).
+///
+/// Pure reading over live process state: the plan is the one the last request
+/// was assembled from, so answering cannot advance the drift witness or produce
+/// a second measurement (`[INV-CTXPLAN-07]`). `None` is a real answer — no
+/// request has been assembled yet — and the `thread_id` lets a client reject a
+/// reply that raced a thread switch.
+pub fn context_plan(
+    agent: &Agent,
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    session_id: String,
+) {
+    let _ = resp_tx.send(AgentResponse::ContextPlan {
+        thread_id: session_id,
+        plan: agent.context_plan_view(),
+    });
+}
+
 /// `AgentRequest::QuerySessionContext` — build and push the
 /// model/tools/permissions/skills/mcp snapshot for the Tools / Mcp / Skills /
 /// Permissions manager modals.

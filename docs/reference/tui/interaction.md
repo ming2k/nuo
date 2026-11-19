@@ -123,7 +123,33 @@ When a component, task, or agent turn is actively executing, user actions are st
 
 ---
 
-## 7. Further Reading
+## 7. The Command Palette (RFC-0005, ADR-0218)
+
+<kbd>Ctrl-Shift-p</kbd> opens the palette from any scene, including over an open dialog. It lists what you can do *where you are*:
+
+| Group | Contents | Shown when |
+|---|---|---|
+| *Dialog name* | The verbs of the dialog under the palette (e.g. **Models**: use, favorite, block, refresh) | the palette was opened over that dialog |
+| *Scene name* | The current scene's verbs (e.g. **Diff viewer**: next file, mark reviewed) | no dialog is open |
+| Recent | Up to five entries you ran recently | you have run something before |
+| Tabs | Every other open tab, with its <kbd>Alt-N</kbd> chord | more than one tab is open |
+| Go to · Session · Actions · App | Destinations and global commands | always |
+
+Each row shows the key that runs the same verb without the palette. That key reflects your `[keybindings]` remaps, and a test resolves every advertised key through the real router. An entry that applies here but cannot run right now (*Interrupt* while idle, *Copy entry* with nothing highlighted) is dimmed and shows why. Pressing <kbd>Enter</kbd> on it repeats the reason and leaves the palette open.
+
+Typing filters by fuzzy match on the title and highlights the matched letters. Aliases such as `/stats` also match. A leading sigil narrows the search:
+
+| Sigil | Searches |
+|---|---|
+| `:` | only this dialog's or scene's verbs |
+| `@` | only places: tabs and destinations |
+| `>` | only actions, never places |
+
+Running an entry closes the palette and dispatches the exact action its key would. Dialog verbs therefore act on the dialog's highlighted row.
+
+---
+
+## 8. Further Reading
 
 - [Terminal Shortcuts, Escape Sequences, and Host Conflicts](../../explanation/terminal-shortcuts-and-conflicts.md): Design trade-offs, POSIX collisions, and emulator setup.
 - [Layout Reference](layout.md): Viewport bands and design tokens.

@@ -423,3 +423,47 @@ fn nested_agents_md_is_injected_once_per_subtree() {
     agent.inject_nested_project_rules(&call, &result, &mut messages);
     assert_eq!(messages.len(), 1, "the same subtree must not re-inject");
 }
+
+/// `[INV-LANG-02]`: an undeclared language renders no rule, and a declared one
+/// reaches the request the model receives (ADR-0222).
+///
+/// This is the end-to-end half of the context-policy tests: those prove the block
+/// renders from `ContextInputs`, this proves the `Agent` feeds it and that
+/// clearing the declaration removes the bytes from the next request.
+#[test]
+fn the_declared_answer_language_reaches_the_request_and_clears_completely() {
+    let agent = agent();
+
+    let mut baseline: Vec<Message> = Vec::new();
+    agent.prepare_request_messages_debug(&mut baseline);
+    assert!(
+        !baseline[0].content.contains("Answer in"),
+        "an undeclared session must carry no language rule"
+    );
+    assert_eq!(agent.response_language(), None);
+
+    let language = protocol::ResponseLanguage::parse("zh-CN").expect("valid tag");
+    agent.set_response_language(Some(language.clone()));
+    assert_eq!(agent.response_language(), Some(language));
+
+    let mut declared: Vec<Message> = Vec::new();
+    agent.prepare_request_messages_debug(&mut declared);
+    assert!(
+        declared[0].content.contains("Answer in zh-CN."),
+        "the declared language must reach the request:\n{}",
+        declared[0].content
+    );
+    assert!(
+        declared[0]
+            .content
+            .contains("This rule outranks the language of everything else in this request"),
+        "the rule must outrank the English context around it"
+    );
+
+    // Clearing is a real clear: the block disappears rather than degrading to a
+    // default the user never asked for.
+    agent.set_response_language(None);
+    let mut cleared: Vec<Message> = Vec::new();
+    agent.prepare_request_messages_debug(&mut cleared);
+    assert!(!cleared[0].content.contains("Answer in"));
+}

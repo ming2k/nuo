@@ -438,3 +438,34 @@ fn user_uploaded_image_is_evicted_with_artifact_invoice() {
     assert!(messages[0].content.contains(".png"));
     assert!(!messages[0].content.contains("Guidance:"));
 }
+
+/// The layered estimate keeps `history + overhead == total` exact.
+///
+/// The three named layers explain what the overhead is *made of*, but they are
+/// not its definition: a system-role row in `messages` is history to nobody and
+/// belongs to no layer, so an estimate that summed its parts would understate
+/// the request by exactly that row (ADR-0220 §2).
+#[test]
+fn the_layered_estimate_derives_overhead_from_the_measured_total() {
+    let layered = RequestTokenEstimate::layered(100, 20, 30, 5);
+    assert_eq!(layered.overhead_tokens, 55);
+    assert_eq!(layered.total_tokens, 155);
+    assert_eq!(
+        layered.history_tokens + layered.overhead_tokens,
+        layered.total_tokens
+    );
+
+    // A measured total 7 tokens above the sum of the parts: the difference must
+    // land in `overhead`, never vanish.
+    let measured = RequestTokenEstimate::measured(100, 20, 30, 5, 162);
+    assert_eq!(measured.overhead_tokens, 62);
+    assert_eq!(
+        measured.history_tokens + measured.overhead_tokens,
+        measured.total_tokens,
+        "the identity is exact even when the layers do not partition the request"
+    );
+    assert!(
+        measured.overhead_tokens > layered.overhead_tokens,
+        "an unattributed row is overhead, not nothing"
+    );
+}

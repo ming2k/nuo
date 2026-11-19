@@ -1,6 +1,6 @@
 //! Web settings: one compiled provider for search and one for page reading.
 
-use nuotc::{Frame, Line, Modifier, Rect, Span, Style};
+use graticule::{Frame, Line, Modifier, Rect, Span, Style};
 use protocol::{
     WebCredentialRequirement, WebCredentialStatus, WebProviderAxis, WebSearchConfigView,
 };
@@ -312,7 +312,7 @@ fn push_row(
     let band = if banded {
         props.theme.row_hover_band(&[])
     } else {
-        nuotc::Color::Reset
+        graticule::Color::Reset
     };
 
     lines.push(

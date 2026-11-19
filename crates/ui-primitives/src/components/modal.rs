@@ -1,6 +1,6 @@
 //! Reusable modal page components and helpers.
 
-use nuotc::{Frame, Rect};
+use graticule_canvas::{Frame, Rect};
 
 use super::super::Theme;
 use super::super::design::MODAL_INNER_H_PADDING;

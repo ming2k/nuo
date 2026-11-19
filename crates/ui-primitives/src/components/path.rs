@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use nuotc::{Line, Span, Style};
+use graticule_canvas::{Line, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::theme::Theme;

@@ -50,7 +50,7 @@ async fn history_search_overlay_does_not_dim_composer() {
     app.record_input_history("existing entry".to_string(), Vec::new(), Vec::new());
 
     // 1. Draw normal frame (no dialog)
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
@@ -59,7 +59,7 @@ async fn history_search_overlay_does_not_dim_composer() {
 
     // 2. Open HistorySearch
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
-    let mut terminal_hist = nuotc::TestTerminal::new(80, 24);
+    let mut terminal_hist = graticule::TestTerminal::new(80, 24);
     terminal_hist.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
@@ -91,7 +91,7 @@ async fn test_history_search_keeps_composer_active_and_shows_hints() {
         Some(crate::shell::composer_extension::ComposerExtensionKind::HistorySearch)
     );
 
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });

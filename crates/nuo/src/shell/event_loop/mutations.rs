@@ -389,6 +389,10 @@ pub(crate) enum AppMutation {
     SessionDetail(protocol::ThreadDetail),
     ConnectionDetail(protocol::ConnectionDetail),
     TokenReport(Option<protocol::TokenSourceReport>),
+    /// The measured context plan for the viewed session. `None` is a real
+    /// answer — no request has been assembled yet — and clears the loading flag
+    /// so the dialog can say so instead of spinning (ADR-0220).
+    ContextPlan(Option<protocol::ContextPlanView>),
     UsageStats(protocol::usage_stats::UsageStatsReport),
     /// A usage fetch failed. The report already on screen is kept (a refresh
     /// must never blank a populated view); only the loading flag clears.

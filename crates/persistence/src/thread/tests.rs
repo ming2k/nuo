@@ -196,7 +196,10 @@ async fn a_compaction_projection_does_not_survive_a_reload() {
         .unwrap();
     store
         .commit_context_projection(ContextProjectionResult {
-            model_window: vec![checkpoint_message("request-only summary"), user("tail")],
+            model_window: vec![
+                protocol::checkpoint_message("request-only summary"),
+                user("tail"),
+            ],
             archived_originals: vec![user("old1"), assistant("old2")],
             checkpoint: ContextProjectionCheckpoint {
                 operation: ContextProjectionKind::Compact,
@@ -653,6 +656,8 @@ fn request_projection(round: u64, turn: u64) -> protocol::RequestProjection {
             Role::User,
             "<temporary-context>request-local evidence</temporary-context>",
         )],
+        blocks: Vec::new(),
+        drift: protocol::PrefixDrift::None,
     }
 }
 
@@ -933,38 +938,6 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
         .list_session_summaries(&protocol::ThreadFilter::global(), &store.id().await)
         .unwrap();
     assert!(!summaries.iter().any(|summary| summary.id == subagent_id));
-}
-
-// ---------------------------------------------------------------
-// Deterministic compaction helpers (pure functions).
-// ---------------------------------------------------------------
-
-#[test]
-fn compaction_selects_and_builds_checkpoint() {
-    let history = vec![
-        user("r1"),
-        assistant("a1"),
-        user("r2"),
-        assistant("a2"),
-        user("r3"),
-    ];
-    let selection = select_compaction(&history, 1).unwrap();
-    assert_eq!(selection.archived.len(), 4);
-    assert_eq!(selection.tail.len(), 1);
-    let result = build_compaction_result(100, selection, "summary".into());
-    assert_eq!(result.model_window.len(), 2);
-    assert_eq!(result.archived_originals.len(), 4);
-    assert_eq!(result.checkpoint.operation, ContextProjectionKind::Compact);
-}
-
-#[test]
-fn excerpt_summary_respects_token_budget() {
-    let archived: Vec<Message> = (0..50)
-        .map(|i| user(&format!("message {i} with some filler text to burn budget")))
-        .collect();
-    let summary = build_excerpt_summary(&archived, 120, None);
-    assert!(!summary.is_empty());
-    assert!(tool::tokenizer::count_tokens(&summary) <= 120);
 }
 
 #[tokio::test]

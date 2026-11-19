@@ -1,7 +1,7 @@
 //! Structured UI tokens for views, sheets, modals, and components.
 use super::Theme;
 use super::color_math::luminance;
-use nuotc::Color;
+use graticule_canvas::Color;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ViewTokens {

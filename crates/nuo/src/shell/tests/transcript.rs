@@ -492,7 +492,7 @@ fn render_frame_computes_max_scroll_for_overflowing_transcript() {
     }
     app.transcript.messages = messages;
 
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -697,7 +697,7 @@ fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
     app.transcript.messages = messages;
 
     // Frame 1: first layout pass calculates initial max_scroll under follow_bottom
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });

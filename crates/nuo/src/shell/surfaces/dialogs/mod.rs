@@ -16,7 +16,7 @@
 use std::any::Any;
 use std::collections::HashSet;
 
-use nuotc::{Frame, Rect};
+use graticule::{Frame, Rect};
 
 use crate::shell::input::InputAction;
 use crate::shell::render::Theme;
@@ -195,13 +195,14 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::Queue => ContentModalSpec::QUEUE.modal_spec(),
         DialogKind::ThreadStats => ContentModalSpec::THREAD_STATS.modal_spec(),
         DialogKind::SessionTrace => ContentModalSpec::SESSION_TRACE.modal_spec(),
+        DialogKind::ContextPlan => ContentModalSpec::CONTEXT_PLAN.modal_spec(),
         DialogKind::UsageStats | DialogKind::Quotas => ContentModalSpec::USAGE_STATS.modal_spec(),
         DialogKind::Permissions => ContentModalSpec::PERMISSIONS.modal_spec(),
         DialogKind::Skills => ContentModalSpec::SKILLS.modal_spec(),
         // The history panel is a composer-anchored dropdown and the switcher
         // is a command palette: neither uses a centered modal footprint.
         DialogKind::HistorySearch
-        | DialogKind::Switcher
+        | DialogKind::Palette
         | DialogKind::PortShare
         | DialogKind::Help
         | DialogKind::Notices => ContentModalSpec::TOOLS.modal_spec(),

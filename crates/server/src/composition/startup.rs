@@ -286,6 +286,18 @@ define_builtin_commands! {
         effect: { bare: Mutation, verb: Mutation },
         category: Session,
     },
+    Language = "/language" : {
+        summary: "Declare the language the agent answers in",
+        usage: ["/language", "/language <tag>", "/language off"],
+        examples: [
+            ("/language zh-CN", "Answer in Simplified Chinese for the rest of the session"),
+            ("/language", "Show the declared language"),
+            ("/language off", "Stop declaring one; the model follows its own judgement"),
+        ],
+        intent_keywords: ["language", "locale", "lingua", "chinese", "english", "japanese", "中文", "回答语言", "语言"],
+        effect: { bare: Reading, verb: Mutation },
+        category: Session,
+    },
     New = "/new" : {
         summary: "Start a new session, keeping history",
         usage: ["/new"],
@@ -414,6 +426,14 @@ define_builtin_commands! {
         usage: ["/stats"],
         examples: [("/stats", "Open thread stats overlay")],
         intent_keywords: ["stats", "tokens", "context", "thread-stats", "tps", "streaming-rate"],
+        effect: { bare: Reading, verb: Reading },
+        category: Session,
+    },
+    Context = "/context" : {
+        summary: "Show the measured context plan: every block, its cost, and prefix drift",
+        usage: ["/context", "/context --json"],
+        examples: [("/context", "Show the context plan table"), ("/context --json", "Emit the plan as JSON")],
+        intent_keywords: ["context", "prompt", "blocks", "tokens", "drift", "cache", "prefix", "instructions"],
         effect: { bare: Reading, verb: Reading },
         category: Session,
     },

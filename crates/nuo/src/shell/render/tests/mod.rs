@@ -24,7 +24,7 @@ fn render_full_view(
     height: u16,
     messages: &[TranscriptMessage],
     page_hints: Option<ViewHints<'_>>,
-) -> nuotc::TestTerminal {
+) -> graticule::TestTerminal {
     render_full_view_with_context(width, height, messages, page_hints, None)
 }
 
@@ -34,9 +34,9 @@ fn render_full_view_with_context(
     messages: &[TranscriptMessage],
     page_hints: Option<ViewHints<'_>>,
     thread_context: Option<ThreadContext<'_>>,
-) -> nuotc::TestTerminal {
+) -> graticule::TestTerminal {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut terminal = graticule::TestTerminal::new(width, height);
     let hints = page_hints;
     let context = thread_context.or({
         Some(ThreadContext {
@@ -94,7 +94,7 @@ fn render_full_view_with_context(
     terminal
 }
 
-fn grid_row(terminal: &nuotc::TestTerminal, y: u16) -> String {
+fn grid_row(terminal: &graticule::TestTerminal, y: u16) -> String {
     let buffer = terminal.buffer();
     let width = buffer.area().width;
     (0..width)

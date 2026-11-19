@@ -8,7 +8,7 @@
 
 use std::borrow::Cow;
 
-use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use graticule_canvas::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::text_layout::padded_tail;

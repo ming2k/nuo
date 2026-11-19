@@ -34,7 +34,7 @@
 //!    arbitrary section-wide indentation. Hierarchy within a property (e.g. tree branches or
 //!    sub-meters) must indent relative to its parent row, not by shifting the entire section.
 
-use nuotc::{Modifier, Span, Style};
+use graticule_canvas::{Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::row::{RowSegment, SelectableRow};

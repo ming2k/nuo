@@ -37,7 +37,7 @@
 //! with transcript chrome while letting spatial distance express the semantic
 //! relationship.
 
-use nuotc::Rect;
+use graticule_canvas::Rect;
 
 use crate::model::document::TranscriptMessage;
 use ui_primitives::components::meta_strip::{MetaStrip, MetaTone};

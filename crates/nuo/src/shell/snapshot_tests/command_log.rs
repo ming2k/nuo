@@ -42,7 +42,7 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
         "s1",
         Some("build"),
     )];
-    let mut terminal = nuotc::TestTerminal::new(80, 20);
+    let mut terminal = graticule::TestTerminal::new(80, 20);
     let mut scroll = 0usize;
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::default();
@@ -104,7 +104,7 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
     )];
 
     let render = |log: &CommandLog| {
-        let mut terminal = nuotc::TestTerminal::new(80, 20);
+        let mut terminal = graticule::TestTerminal::new(80, 20);
         let mut scroll = 0usize;
         terminal.draw(|f| {
             let mut layout_map = LayoutMap::default();

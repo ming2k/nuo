@@ -10,7 +10,7 @@ It translates the architectural mandates of **[ADR-0004](../adr/0004-federated-c
 
 In a multi-crate repository spanning different technical layers, two common extremes lead to architectural decay:
 
-1. **The Monolithic Lockstep Anti-Pattern**: Forcing domain-free graphics engines (`nuotc`) or universal open standards to bump their versions whenever an upper application bug in `nuo` is patched. This pollutes external consumers' dependency trees and misleads the open-source ecosystem regarding stability.
+1. **The Monolithic Lockstep Anti-Pattern**: Forcing domain-free terminal engines (`graticule-canvas`, `graticule-tty`, `graticule`) or universal open standards to bump their versions whenever an upper application bug in `nuo` is patched. This pollutes external consumers' dependency trees and misleads the open-source ecosystem regarding stability.
 2. **The Anarchic Independent Anti-Pattern**: Allowing every in-house crate (`nuo-host`, `nuo-persistence`, `nuo-engine`) to drift on completely independent SemVer numbers. This causes severe maintenance friction, manual changelog sprawl, and diamond dependency resolution failures during rapid host development.
 
 To solve this, the Nuo repository operates under **Federated Cluster SemVer**: autonomous substrate engines maintain independent versioning and release cycles, while the core host application suite evolves in lockstep.
@@ -24,8 +24,8 @@ Every crate in the repository belongs strictly to one of two operational version
 ```text
 ┌────────────────────────────────────────────────────────┐
 │  Cluster A: Autonomous Substrate Engine                │
-│  • nuotc (Retained-mode 2D character canvas & diff)    │
-│  ➜ Source: External repository (github.com/ming2k/nuotc) │
+│  • graticule (graticule-canvas + graticule-tty)                 │
+│  ➜ Source: External repository (github.com/ming2k/graticule) │
 │  ➜ Versioning: Autonomous (pinned tag / semver)        │
 │  ➜ Manifest: Declares explicit registry requirement    │
 └────────────────────────────────────────────────────────┘
@@ -58,7 +58,7 @@ Every crate in the repository belongs strictly to one of two operational version
 
 | Crate | Cluster | Responsibility | Version Declaration | Release Artifact |
 | :--- | :--- | :--- | :--- | :--- |
-| **`nuotc`** | **Cluster A** | Domain-free 2D terminal canvas & diffing engine | Pinned tag in `Cargo.toml` | External Git / crates.io |
+| **`graticule`** (`graticule-canvas`, `graticule-tty`) | **Cluster A** | Domain-free 2D terminal canvas, diffing engine, and TTY host transport | Pinned tag or local workspace path in `Cargo.toml` | External Git / crates.io |
 | **`nuo`** | **Cluster B** | Unified public executable (server, CLI, TUI runner) | `version.workspace = true` | Pre-compiled binary |
 | **`nuo-server`** | **Cluster B** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
 | **`nuo-protocol`** | **Cluster B** | Canonical IPC wire, session entities, discovery DTOs | `version.workspace = true` | crates.io package |
@@ -104,41 +104,44 @@ nuo-view = { version = "0.0.89", path = "crates/nuo-view" }
 - **Local Development Velocity (`path`)**: Cargo resolves the local filesystem path directly. Any code changes across crates are immediately reflected across the entire workspace without requiring intermediate local releases or cache invalidations.
 - **Publish-Ready Distribution (`version`)**: When running `cargo publish`, Cargo automatically removes the local `path` field and emits a `.crate` tarball specifying only the semver requirement. If `version` is missing, `cargo publish` fails immediately.
 
-### Local-Only Override for the External `nuotc` Substrate
+### Local-Only Override for the External `graticule` Substrate
 
-`nuotc` is developed in its own repository and consumed here as a pinned dependency:
+`graticule` (`graticule-canvas` + `graticule-tty`) is developed in its own repository and consumed here as a pinned dependency:
 
 ```toml
 [workspace.dependencies]
-nuotc = { git = "https://github.com/ming2k/nuotc.git", tag = "v0.0.6" }
+graticule = "0.0.1"
+graticule-canvas = "0.0.1"
 ```
 
-For day-to-day development against a local sibling checkout, a developer may keep an **untracked** `.cargo/config.toml` (git-ignored via `/.cargo`) that overrides the Git source with a local path patch:
+For day-to-day development against a local sibling checkout, keep an untracked `.cargo/config.toml` (git-ignored via `/.cargo`) overriding crates.io:
 
 ```toml
 # .cargo/config.toml  (local development only, never committed)
-[patch."https://github.com/ming2k/nuotc.git"]
-nuotc = { path = "../nuotc" }
+[patch.crates-io]
+graticule = { path = "../graticule/crates/graticule" }
+graticule-canvas = { path = "../graticule/crates/graticule-canvas" }
+graticule-tty = { path = "../graticule/crates/graticule-tty" }
 ```
 
 ---
 
 ## 4. Git Tagging & Release Playbooks
 
-### Playbook 1: Bumping the External `nuotc` Substrate
+### Playbook 1: Bumping the External `graticule` Substrate
 
-When a new release of `nuotc` is published upstream:
+When a new release of `graticule` is published upstream:
 
 1. Update the `tag = "vX.Y.Z"` requirement in the root `Cargo.toml`.
 2. Run full workspace compilation and UI snapshot tests:
    ```bash
    cargo check --workspace
-   cargo nextest run -p nuo-view --profile unit
-   cargo nextest run -p nuo-tests --profile integration -E 'test(governance::focus_plane_invariants)'
+   cargo test -p view --lib
+   cargo test -p nuo-tests --test integration governance::focus_plane_invariants
    ```
 3. Commit the dependency update:
    ```bash
-   git commit -am "chore(deps): bump nuotc to vX.Y.Z"
+   git commit -am "chore(deps): bump graticule to vX.Y.Z"
    ```
 
 ### Playbook 2: Releasing the Unified Host Suite (`vX.Y.Z`)

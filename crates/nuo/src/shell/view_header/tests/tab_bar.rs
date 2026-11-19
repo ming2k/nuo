@@ -27,8 +27,41 @@ fn row1_renders_tabs_without_ordinal_prefixes() {
         "tabs must not use ordinal prefix: {row}"
     );
     assert!(
-        row.contains("F1 help"),
-        "compact help affordance on TabBar: {row}"
+        !row.contains("F1"),
+        "the TabBar no longer spends its right edge on a help keycap — help \
+         discovery lives in the empty-state tour (ADR-0219): {row}"
+    );
+}
+
+/// The status cluster's rightmost element is the unread-fault badge, and it
+/// ends one column before the terminal edge so the row never touches the frame.
+#[test]
+fn row1_status_cluster_pins_the_notice_badge_to_the_inset_edge() {
+    let tabs = vec![
+        crate::shell::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
+        crate::shell::surfaces::ClientTab::dashboard(),
+    ];
+    let tab_bar = TabBarProps {
+        tabs: Some(&tabs),
+        active_tab: 0,
+        unread_faults: 3,
+    };
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    let mut nav = TabBarNavRects::default();
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(frame, frame.area(), &tab_bar, &Theme::default());
+    });
+    let row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(row.contains("[!3]"), "fault badge shown: {row:?}");
+    assert_eq!(
+        nav.notices_rect.expect("fault badge").right(),
+        79,
+        "the status cluster ends 1 column before the terminal edge: {row:?}"
     );
 }
 
@@ -47,7 +80,7 @@ fn row1_bleeds_to_both_terminal_edges() {
             active_tab: 0,
             unread_faults: 0,
         };
-        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        let mut terminal = graticule::TestTerminal::new(width, 1);
         let mut nav = TabBarNavRects::default();
         terminal.draw(|frame| {
             nav = draw_tab_bar(frame, frame.area(), &tab_bar, &Theme::default());
@@ -63,10 +96,9 @@ fn row1_bleeds_to_both_terminal_edges() {
             nav.tab_rects[0].1.x, 1,
             "the tab rail starts at column 1 (inset by 1): {row:?}"
         );
-        assert_eq!(
-            nav.help_rect.expect("help affordance").right(),
-            width - 1,
-            "the status cluster ends 1 column before the terminal edge: {row:?}"
+        assert!(
+            nav.notices_rect.is_none(),
+            "no fault badge without unread faults: {row:?}"
         );
         let cells = terminal.buffer().cells();
         assert_eq!(
@@ -103,7 +135,7 @@ fn row1_tab_labels_keep_internal_padding_at_the_edges() {
 }
 
 /// The right-pinned status cluster keeps the standing legend gap, so a
-/// truncated overflow button can never butt against the `F1 help` keycap.
+/// truncated overflow button can never butt against the fault badge.
 #[test]
 fn row1_status_cluster_keeps_the_legend_gap_when_tabs_overflow() {
     let tabs: Vec<_> = (0..8)
@@ -112,14 +144,14 @@ fn row1_status_cluster_keeps_the_legend_gap_when_tabs_overflow() {
     let tab_bar = TabBarProps {
         tabs: Some(&tabs),
         active_tab: 7,
-        unread_faults: 0,
+        unread_faults: 2,
     };
     let row = render_row1(60, tab_bar);
-    let help_at = row.find("F1 help").expect("help affordance present");
-    let before = &row[..help_at];
+    let badge_at = row.find("[!2]").expect("fault badge present");
+    let before = &row[..badge_at];
     assert!(
         before.ends_with(&" ".repeat(BAR_LEGEND_GAP_MIN)),
-        "at least {BAR_LEGEND_GAP_MIN} columns before the keycap: {row:?}"
+        "at least {BAR_LEGEND_GAP_MIN} columns before the badge: {row:?}"
     );
 }
 
@@ -163,7 +195,7 @@ fn row1_tab_rects_and_styling() {
         active_tab: 0,
         unread_faults: 0,
     };
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
     let theme = Theme::default();
     let mut tab_nav = TabBarNavRects::default();
     terminal.draw(|frame| {
@@ -224,7 +256,7 @@ fn row1_seamless_tabs_alternate_backgrounds_and_preserve_active_contrast() {
             active_tab: 2,
             unread_faults: 0,
         };
-        let mut terminal = nuotc::TestTerminal::new(100, 1);
+        let mut terminal = graticule::TestTerminal::new(100, 1);
         let theme = Theme::default();
         let mut nav = TabBarNavRects::default();
         terminal.draw(|frame| {
@@ -241,10 +273,9 @@ fn row1_seamless_tabs_alternate_backgrounds_and_preserve_active_contrast() {
             theme.tabbar_bg(),
             "col 99 has tabbar_bg"
         );
-        assert_eq!(
-            nav.help_rect.expect("help").right(),
-            99,
-            "help affordance ends 1 col before terminal right edge"
+        assert!(
+            nav.notices_rect.is_none(),
+            "no standing badge on the right edge"
         );
 
         // Verify seamless tiling without gaps between any adjacent tabs
@@ -292,7 +323,7 @@ fn row1_seamless_tabs_alternate_backgrounds_and_preserve_active_contrast() {
             active_tab: 0,
             unread_faults: 0,
         };
-        let mut terminal = nuotc::TestTerminal::new(100, 1);
+        let mut terminal = graticule::TestTerminal::new(100, 1);
         let theme = Theme::default();
         let mut nav = TabBarNavRects::default();
         terminal.draw(|frame| {
@@ -338,7 +369,7 @@ fn row1_tab_bar_monochrome_renders_brackets_and_reverse_video() {
         active_tab: 0,
         unread_faults: 0,
     };
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
     let theme = Theme::monochrome();
     terminal.draw(|frame| {
         draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
@@ -363,11 +394,11 @@ fn row1_tab_bar_monochrome_renders_brackets_and_reverse_video() {
         .take("[Refactor]".len())
     {
         assert!(
-            cell.style.add.contains(nuotc::Modifier::REVERSE),
+            cell.style.add.contains(graticule::Modifier::REVERSE),
             "active tab cell at col {col} must have REVERSE video"
         );
         assert!(
-            cell.style.add.contains(nuotc::Modifier::BOLD),
+            cell.style.add.contains(graticule::Modifier::BOLD),
             "active tab cell at col {col} must have BOLD"
         );
     }
@@ -378,7 +409,10 @@ fn row1_renders_brand_when_no_tabs() {
     let tab_bar = TabBarProps::default();
     let row = render_row1(80, tab_bar);
     assert!(row.contains("nuo"), "brand shown: {row}");
-    assert!(row.contains("F1 help"), "client menu shown: {row}");
+    assert!(
+        !row.contains("F1"),
+        "the brand row carries no help keycap (ADR-0219): {row}"
+    );
 }
 
 #[test]
@@ -450,12 +484,17 @@ fn row1_renders_overflow_indicators_when_tabs_exceed_available_width() {
         row.contains("Task 5"),
         "active tab 5 must be rendered: {row}"
     );
-    assert!(row.contains("F1 help"), "client menu preserved: {row}");
+    assert!(
+        !row.contains("F1"),
+        "overflow row drops the help keycap too (ADR-0219): {row}"
+    );
 }
 
 #[test]
 fn row1_overflow_rects_mounted_for_hit_testing() {
-    let tabs: Vec<_> = (0..8)
+    // Ten tabs at 50 columns overflow on both sides of the active tab once the
+    // status cluster and the legend gap have taken their columns.
+    let tabs: Vec<_> = (0..10)
         .map(|i| {
             crate::shell::surfaces::ClientTab::thread(
                 format!("session-{i}"),
@@ -468,7 +507,7 @@ fn row1_overflow_rects_mounted_for_hit_testing() {
         active_tab: 4,
         unread_faults: 0,
     };
-    let mut terminal = nuotc::TestTerminal::new(50, 1);
+    let mut terminal = graticule::TestTerminal::new(50, 1);
     let theme = Theme::default();
     let mut nav = TabBarNavRects::default();
     terminal.draw(|frame| {

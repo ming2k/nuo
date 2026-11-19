@@ -1,16 +1,16 @@
 ---
 id: ADR-0003
 title: "Autonomous Retained-Mode Terminal Canvas Engine (Nuotc)"
-status: accepted
+status: superseded
 date: 2026-10-02
 scope: workspace/substrate, terminal/nuotc, ui/engine
-superseded_by: null
+superseded_by: ADR-0223
 negative_knowledge: true
 ---
 
 # 0003. Autonomous Retained-Mode Terminal Canvas Engine (Nuotc)
 
-- Status: Accepted
+- Status: Superseded by [ADR-0223](0223-graticule-substrate-vt-input-parser-and-all-motion-hover.md)
 - Date: 2026-10-02
 - Deciders: Nuo Architecture Working Group
 - Consulted: Core Contributors, Terminal & Systems Engineering Teams

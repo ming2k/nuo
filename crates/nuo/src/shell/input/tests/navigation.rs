@@ -519,7 +519,7 @@ fn up_arrow_in_browse_hands_off_to_history() {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Up,
             KeyModifiers::NONE,
         )),
@@ -755,7 +755,7 @@ fn alt_digits_route_to_select_tab() {
         let mut cursor = 0;
         let mut drag = SelectionDrag::default();
         let action = route_event(
-            Event::Key(crossterm::event::KeyEvent::new(
+            Event::Key(graticule::event::KeyEvent::new(
                 KeyCode::Char(digit),
                 KeyModifiers::ALT,
             )),
@@ -778,7 +778,7 @@ fn alt_w_routes_to_close_tab() {
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
     let action = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('w'),
             KeyModifiers::ALT,
         )),
@@ -800,7 +800,7 @@ fn alt_brackets_route_to_tab_history() {
     let mut drag = SelectionDrag::default();
 
     let back = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char('['),
             KeyModifiers::ALT,
         )),
@@ -815,7 +815,7 @@ fn alt_brackets_route_to_tab_history() {
     assert_eq!(back, InputAction::TabHistoryBack);
 
     let fwd = route_event(
-        Event::Key(crossterm::event::KeyEvent::new(
+        Event::Key(graticule::event::KeyEvent::new(
             KeyCode::Char(']'),
             KeyModifiers::ALT,
         )),

@@ -37,7 +37,7 @@
 //! has, and the only way ↑/↓ can stay predictable across rows of different
 //! widths. The memory is anchored to the caret byte it produced, so any other
 //! edit or horizontal move invalidates it without a reset call anywhere.
-use nuotc::cursor_column;
+use graticule::cursor_column;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::shell::text_layout::{WrappedLine, wrap_text};

@@ -1,6 +1,6 @@
 //! The OAuth in-progress sheet (browser authorization prompt and verification code).
 
-use nuotc::{
+use graticule::{
     Frame, {Modifier, Style},
 };
 
@@ -28,7 +28,7 @@ pub fn draw_oauth_pending(
     hit_map: Option<&mut crate::shell::ui::ComponentTree>,
     selection: &SelectionState,
     layout_map: &mut LayoutMap,
-) -> nuotc::Rect {
+) -> graticule::Rect {
     let geometry = ContentModalSpec::OAUTH_PENDING;
     let probe = content_modal_probe(frame, geometry);
     let probe_w = (probe.width as usize).saturating_sub(6).max(20);

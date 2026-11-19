@@ -41,16 +41,34 @@ use tool::{UserQuestion, UserQuestionRequest};
 /// the original inline behavior in `event_loop.rs`.
 const OTHER_LABEL: &str = "Other";
 
+/// Whether a question offers the synthetic free-text row.
+///
+/// `ask_user` questions do: the model may ask an open question, so "none of
+/// these" has to be typeable. A *structured* question does not: the workspace
+/// trust gate offers a closed set of assets, and a free-text row there is not an
+/// answer to the question — it is a row the user can land on, type into, and
+/// submit that grants nothing while looking like a decision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FreeText {
+    /// The trailing "Other" row exists (AI-authored `ask_user`).
+    Allowed,
+    /// The question is a closed set; navigation stops at the last real option.
+    Suppressed,
+}
+
 /// Index reserved for the synthetic "Other" free-text option, which always
 /// sits one past the last real option of a question.
 fn other_index(q: &UserQuestion) -> usize {
     q.options.len()
 }
 
-/// Total selectable rows for a question: the real options plus the "Other"
-/// row. Clamped to ≥ 1 so the up/down wrap modulo never divides by zero.
-fn option_rows(q: &UserQuestion) -> usize {
-    q.options.len() + 1
+/// Total selectable rows for a question: its options, plus the synthetic
+/// "Other" row when `free_text` allows one. Never zero (a question with no
+/// options still has the "Other" row), so the up/down wrap modulo cannot divide
+/// by zero.
+fn option_rows(q: &UserQuestion, free_text: FreeText) -> usize {
+    let extra = usize::from(free_text == FreeText::Allowed);
+    (q.options.len() + extra).max(1)
 }
 
 /// A reduced input-event the modal cares about.
@@ -142,6 +160,14 @@ pub struct QuestionModel {
     /// Per-question free text for the "Other" row. Parallels
     /// `request.questions`; only meaningful when that row is selected.
     other_text: Vec<String>,
+    /// Whether this question carries the synthetic free-text row at all.
+    ///
+    /// Not a property of the request: the same `UserQuestion` shape serves an
+    /// AI-authored question (where "none of these, here is my answer" has to be
+    /// typeable) and the workspace trust gate (where the answer is a selection
+    /// from a closed set of assets, and a free-text row is not an answer at
+    /// all). The caller that knows which question it is asking says so.
+    free_text: FreeText,
 }
 
 impl QuestionModel {
@@ -151,7 +177,27 @@ impl QuestionModel {
     /// (matching the initial highlight on row 0 — single-select is *live*,
     /// so the highlight is always the selection). The highlight begins on the
     /// first row.
+    ///
+    /// The question carries the synthetic "Other" row — this is the
+    /// AI-authored `ask_user` shape. A question whose answer is a choice from a
+    /// closed set opens with [`QuestionModel::open_closed`].
     pub fn open(request: UserQuestionRequest) -> Self {
+        Self::build(request, FreeText::Allowed)
+    }
+
+    /// [`QuestionModel::open`] for a question whose answer is one of its
+    /// options and nothing else.
+    ///
+    /// The free-text row is suppressed rather than merely unpainted: painting a
+    /// closed decision without it and still letting `↓` land on it left the
+    /// surface with *no* highlighted row (nothing to paint) while `Enter` there
+    /// submitted a decision the user could not see. A row the surface does not
+    /// paint must not exist in the state machine either.
+    pub fn open_closed(request: UserQuestionRequest) -> Self {
+        Self::build(request, FreeText::Suppressed)
+    }
+
+    fn build(request: UserQuestionRequest, free_text: FreeText) -> Self {
         let selected = request
             .questions
             .iter()
@@ -165,7 +211,13 @@ impl QuestionModel {
             highlights,
             selected,
             other_text,
+            free_text,
         }
+    }
+
+    /// Whether this question carries the synthetic free-text row.
+    pub fn free_text(&self) -> FreeText {
+        self.free_text
     }
 
     // Accessors used by the renderer and by tests
@@ -200,14 +252,16 @@ impl QuestionModel {
     }
 
     /// Whether the synthetic "Other" free-text row is the highlighted row for
-    /// the active question. This is the *only* state in which the modal has a
+    /// the active question. Always `false` when the question is closed.
+    ///
+    /// This is the *only* state in which the modal has a
     /// text-input surface, so it is the one condition under which the modal
     /// owns the terminal cursor — `App::caret_owner` reads this to decide
     /// whether to keep the real cursor visible (so the host IME can anchor its
     /// composition window to the field) or hide it (a plain option pick has no
     /// text surface). See `QuestionModel::other_index_of`.
     pub fn is_other_highlighted(&self) -> bool {
-        self.highlight() == self.other_index_of(self.current)
+        self.other_index_of(self.current) == Some(self.highlight())
     }
 
     /// The active question, or `None` if the model is somehow empty. The
@@ -251,14 +305,14 @@ impl QuestionModel {
             .iter()
             .enumerate()
             .map(|(q_idx, q)| {
-                let other_idx = other_index(q);
+                let other_idx = (self.free_text == FreeText::Allowed).then(|| other_index(q));
                 let other_text = self.other_text.get(q_idx).cloned().unwrap_or_default();
                 self.selected
                     .get(q_idx)
                     .map(|sel| {
                         sel.iter()
                             .map(|&opt_idx| {
-                                if opt_idx == other_idx {
+                                if Some(opt_idx) == other_idx {
                                     if other_text.is_empty() {
                                         OTHER_LABEL.to_string()
                                     } else {
@@ -291,7 +345,7 @@ impl QuestionModel {
         let Some(q) = self.active_question() else {
             return (self, Vec::new());
         };
-        let rows = option_rows(q);
+        let rows = option_rows(q, self.free_text);
         let q = self.current;
         let highlight = self.highlights.get(q).copied().unwrap_or(0);
         let multi = self
@@ -339,8 +393,7 @@ impl QuestionModel {
                 Vec::new()
             }
             QuestionAction::InsertChar(c) => {
-                let other_idx = self.other_index_of(q);
-                if highlight == other_idx
+                if self.other_index_of(q) == Some(highlight)
                     && let Some(text) = self.other_text.get_mut(q)
                 {
                     text.push(c);
@@ -348,12 +401,11 @@ impl QuestionModel {
                 Vec::new()
             }
             QuestionAction::Backspace => {
-                let other_idx = self.other_index_of(q);
-                if highlight == other_idx
+                if self.other_index_of(q) == Some(highlight)
                     && let Some(text) = self.other_text.get_mut(q)
                     && !text.is_empty()
                 {
-                    let start = nuotc::floor_grapheme_boundary(text, text.len() - 1);
+                    let start = graticule::floor_grapheme_boundary(text, text.len() - 1);
                     text.truncate(start);
                 }
                 Vec::new()
@@ -362,8 +414,7 @@ impl QuestionModel {
                 // Same gating as InsertChar/Backspace: only the "Other" row
                 // has a text surface. The caller (event loop) has already
                 // stripped newlines, so this is a plain append.
-                let other_idx = self.other_index_of(q);
-                if highlight == other_idx
+                if self.other_index_of(q) == Some(highlight)
                     && let Some(text) = self.other_text.get_mut(q)
                 {
                     text.push_str(&pasted);
@@ -445,19 +496,19 @@ impl QuestionModel {
         // stand-in, swap, then write the result back. This is cheap because the
         // model is small (a request + a few indices/vecs).
         let placeholder = self.request.clone();
-        let me = std::mem::replace(self, QuestionModel::open(placeholder));
+        let free_text = self.free_text;
+        let me = std::mem::replace(self, QuestionModel::build(placeholder, free_text));
         let (next, effects) = me.update(action);
         *self = next;
         effects
     }
 
-    /// The synthetic "Other" index for question `q` (its real option count).
-    fn other_index_of(&self, q: usize) -> usize {
-        self.request
-            .questions
-            .get(q)
-            .map(|x| x.options.len())
-            .unwrap_or(0)
+    /// The synthetic "Other" index for question `q`, or `None` when the
+    /// question is closed and has no such row.
+    fn other_index_of(&self, q: usize) -> Option<usize> {
+        (self.free_text == FreeText::Allowed)
+            .then(|| self.request.questions.get(q).map(|x| x.options.len()))
+            .flatten()
     }
 }
 

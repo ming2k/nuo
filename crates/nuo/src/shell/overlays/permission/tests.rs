@@ -22,7 +22,7 @@ fn question_modal_records_option_hit_boxes() {
         }],
         origin: None,
     };
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let mut hit_map = ComponentTree::new();
     terminal.draw(|frame| {
         hit_map.begin(frame.area());
@@ -64,7 +64,7 @@ fn permission_sheet_records_footer_action_hit_boxes() {
         origin: None,
         ..Default::default()
     };
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let mut hit_map = ComponentTree::new();
     terminal.draw(|frame| {
         hit_map.begin(frame.area());
@@ -111,7 +111,7 @@ fn permission_sheet_shows_queue_depth_badge() {
         ..Default::default()
     };
     let render = |depth: usize| {
-        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut terminal = graticule::TestTerminal::new(80, 24);
         let mut hit_map = ComponentTree::new();
         terminal.draw(|frame| {
             hit_map.begin(frame.area());
@@ -164,7 +164,7 @@ fn find_permission_hit(map: &ComponentTree, width: u16, height: u16, action_inde
 
 /// The whole visible text of the sheet as one newline-joined string, so
 /// tests can assert on what the user actually sees.
-fn sheet_text(terminal: &nuotc::TestTerminal) -> String {
+fn sheet_text(terminal: &graticule::TestTerminal) -> String {
     let buf = terminal.buffer();
     let w = buf.area().width;
     let h = buf.area().height;
@@ -186,7 +186,7 @@ fn sheet_text(terminal: &nuotc::TestTerminal) -> String {
 /// grid. Scoping an assertion to the region that owns the content keeps
 /// neighbouring chrome (a scrollbar gutter, a border, a footer band) out
 /// of the substring under test.
-fn body_text(terminal: &nuotc::TestTerminal, rect: Rect) -> String {
+fn body_text(terminal: &graticule::TestTerminal, rect: Rect) -> String {
     let buf = terminal.buffer();
     let mut rows = Vec::new();
     for y in rect.y..rect.bottom() {
@@ -219,7 +219,7 @@ fn permission_sheet_wrapped_header_keeps_every_character() {
         origin: None,
         ..Default::default()
     };
-    let mut terminal = nuotc::TestTerminal::new(30, 24);
+    let mut terminal = graticule::TestTerminal::new(30, 24);
     let mut hit_map = ComponentTree::new();
     terminal.draw(|frame| {
         hit_map.begin(frame.area());
@@ -265,7 +265,7 @@ fn permission_sheet_wrapped_header_survives_wrap() {
         origin: None,
         ..Default::default()
     };
-    let mut terminal = nuotc::TestTerminal::new(14, 24);
+    let mut terminal = graticule::TestTerminal::new(14, 24);
     let mut hit_map = ComponentTree::new();
     terminal.draw(|frame| {
         hit_map.begin(frame.area());
@@ -331,7 +331,7 @@ fn confirm_always_splits_prefix_and_exact_when_suggested_scope_present() {
         origin: None,
         ..Default::default()
     };
-    let mut terminal = nuotc::TestTerminal::new(90, 24);
+    let mut terminal = graticule::TestTerminal::new(90, 24);
     let mut hit_map = ComponentTree::new();
     terminal.draw(|frame| {
         hit_map.begin(frame.area());

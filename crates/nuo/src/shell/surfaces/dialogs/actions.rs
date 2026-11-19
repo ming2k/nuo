@@ -189,10 +189,18 @@ pub(super) fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
-        DialogKind::Switcher => {
+        DialogKind::ContextPlan => {
             let e = view
                 .as_any_mut()
-                .downcast_mut::<SwitcherDialog>()
+                .downcast_mut::<ContextPlanDialog>()
+                .expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
+        DialogKind::Palette => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<PaletteDialog>()
                 .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
@@ -223,7 +231,7 @@ pub(super) fn dialog_body_bounds(kind: DialogKind, modal_rect: Rect) -> (u16, u1
             modal_rect.y + 2,
             modal_rect.y + modal_rect.height.saturating_sub(1),
         ),
-        DialogKind::Switcher => (
+        DialogKind::Palette => (
             modal_rect.y + 5,
             modal_rect.y + modal_rect.height.saturating_sub(3),
         ),
@@ -524,36 +532,42 @@ pub(super) fn handle_dialog_click(
             }
             DialogOutcome::Consumed
         }
-        DialogKind::Switcher => {
+        DialogKind::Palette => {
             let e = view
                 .as_any_mut()
-                .downcast_mut::<SwitcherDialog>()
+                .downcast_mut::<PaletteDialog>()
                 .expect("kind");
-            let app_ctx = crate::shell::keymap::AppContext {
-                has_overlay: true,
-                active_dialog: app
-                    .surfaces
-                    .surfaces
-                    .underlying_dialog()
-                    .or_else(|| app.active_dialog()),
-                is_responding: app.viewed_chrome().responding,
-                has_selection: !matches!(app.transcript.selection, SelectionState::None),
-                has_running_task: app.viewed_chrome().responding,
-                has_notices: !!app.has_notices(),
-                has_focused_entry: app.transcript.focus.entry().is_some(),
-                queue_count: app.outbox_total(),
-                has_session: app.has_session(),
-                scene: app.current_scene(),
-            };
-            let entries = crate::shell::overlays::command_palette::filter_palette_commands(
-                &e.query.text,
-                &app.composer.recent_commands,
-                &app_ctx,
-            );
-            let target_idx = e.scroll + visual_row;
-            if target_idx < entries.len() {
-                e.selected = target_idx;
+            // Rows include group headers; a click on a header selects nothing.
+            let projection = crate::shell::palette::project(app, &e.query.text);
+            if let Some(index) = projection.entry_at_row(e.scroll + visual_row) {
+                e.selected = index;
                 e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::ContextPlan => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<ContextPlanDialog>()
+                .expect("kind");
+            // A click addresses a *block*, not a body line: the rows above the
+            // first block are request accounting, and the rows below are the
+            // expanded body plus the tail sections. The renderer publishes the
+            // row of every block (`block_rows`, the same shape `HelpDialog`
+            // uses for its action rows), so hit-testing cannot re-derive an
+            // order the paint did not use.
+            let target = e
+                .block_rows
+                .iter()
+                .position(|row| *row == e.scroll + visual_row);
+            if let Some(index) = target {
+                let was_selected = e.index == index;
+                e.index = index;
+                e.follow = true;
+                if was_selected {
+                    e.body_open = !e.body_open;
+                    e.scroll = 0;
+                }
             }
             DialogOutcome::Consumed
         }

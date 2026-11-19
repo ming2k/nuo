@@ -79,7 +79,6 @@ impl KeybindingsConfig {
     }
 }
 
-
 impl Default for TuiConfig {
     fn default() -> Self {
         Self {
@@ -303,7 +302,7 @@ pub fn resolve_theme_with_profile(
     name: &str,
     custom: &ColorSchemeConfig,
     workspace: Option<&Path>,
-    profile: &nuotc::TerminalProfile,
+    profile: &graticule::TerminalProfile,
 ) -> ui_primitives::theme::Theme {
     ui_primitives::theme::Theme::resolve_with_profile(
         name,

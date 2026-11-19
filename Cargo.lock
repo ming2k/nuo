@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acp"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "chrono",
@@ -443,15 +443,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
-name = "convert_case"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -550,34 +541,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
-name = "crossterm"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
-dependencies = [
- "bitflags",
- "crossterm_winapi",
- "derive_more",
- "document-features",
- "futures-core",
- "mio",
- "parking_lot",
- "rustix",
- "signal-hook",
- "signal-hook-mio",
- "winapi",
-]
-
-[[package]]
-name = "crossterm_winapi"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acdd7c62a3665c7f6830a51635d9ac9b23ed385797f70a83bb8bafe9c572ab2b"
-dependencies = [
- "winapi",
-]
-
-[[package]]
 name = "crypto-bigint"
 version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -656,28 +619,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
-name = "derive_more"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
-dependencies = [
- "derive_more-impl",
-]
-
-[[package]]
-name = "derive_more-impl"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
-dependencies = [
- "convert_case",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -753,15 +694,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "document-features"
-version = "0.2.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4b8a88685455ed29a21542a33abd9cb6510b6b129abadabdcef0f4c55bc8f61"
-dependencies = [
- "litrs",
-]
-
-[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -807,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "engine"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1152,8 +1084,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "graticule"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e3f3cb068458f45d347191b1d82e1fe7f8a24e41299dfeb44d357e8dcab45c5"
+dependencies = [
+ "graticule-canvas",
+ "graticule-tty",
+ "graticule-vt",
+]
+
+[[package]]
+name = "graticule-canvas"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25c98bdecec156838af1b1c379b383f71a2d9df88edb16539a1dfc36903b659c"
+dependencies = [
+ "bitflags",
+ "graticule-vt",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "graticule-tty"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cb16e28ac91a5f576ef1e32a4263a5e9496381a42b858304f0a9549e9599a27"
+dependencies = [
+ "graticule-vt",
+ "libc",
+ "signal-hook",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "graticule-vt"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0146be9265d8b832eeab26f046339b783063b01999cca230ce51fed69f19d271"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "guardrails"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -1237,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "host"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "arboard",
  "async-trait",
@@ -1521,7 +1497,7 @@ dependencies = [
 
 [[package]]
 name = "inference-wire"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "serde",
  "serde_json",
@@ -1775,12 +1751,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
-name = "litrs"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
-
-[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1833,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "mcp"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "protocol",
@@ -1926,7 +1896,7 @@ dependencies = [
 
 [[package]]
 name = "model-routing"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "chrono",
  "futures",
@@ -1962,8 +1932,8 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "netune"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 dependencies = [
  "base64",
  "brotli",
@@ -1987,13 +1957,13 @@ dependencies = [
 
 [[package]]
 name = "netune-egress"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 
 [[package]]
 name = "netune-http1"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 dependencies = [
  "bytes",
  "http",
@@ -2002,8 +1972,8 @@ dependencies = [
 
 [[package]]
 name = "netune-http2"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 dependencies = [
  "bytes",
  "http",
@@ -2012,8 +1982,8 @@ dependencies = [
 
 [[package]]
 name = "netune-io"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 dependencies = [
  "netune-trace",
  "tokio",
@@ -2021,8 +1991,8 @@ dependencies = [
 
 [[package]]
 name = "netune-tls"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 dependencies = [
  "aws-lc-rs",
  "aws-lc-sys",
@@ -2037,16 +2007,16 @@ dependencies = [
 
 [[package]]
 name = "netune-trace"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "netune-ws"
-version = "0.1.1"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.1.1#ef90537875aabcfc41fb933a24b205fb906f9ff2"
+version = "0.1.2"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.1.2#b8809d767659c5a6d6f01a0a689ab1fc22543731"
 dependencies = [
  "base64",
  "bytes",
@@ -2184,18 +2154,19 @@ dependencies = [
 
 [[package]]
 name = "nuo"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "chrono",
- "crossterm",
  "dirs",
  "engine",
+ "fastrand",
  "futures",
+ "graticule",
  "host",
  "insta",
  "libc",
- "nuotc",
+ "netune",
  "persistence",
  "protocol",
  "regex",
@@ -2205,7 +2176,6 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
- "tokio-tungstenite",
  "tokio-util",
  "toml",
  "tool",
@@ -2222,7 +2192,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tests"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "acp",
  "async-trait",
@@ -2232,6 +2202,7 @@ dependencies = [
  "guardrails",
  "host",
  "inference-wire",
+ "insta",
  "libc",
  "mcp",
  "mockito",
@@ -2266,17 +2237,6 @@ dependencies = [
  "uuid",
  "view",
  "walkdir",
-]
-
-[[package]]
-name = "nuotc"
-version = "0.0.6"
-source = "git+https://github.com/ming2k/nuotc.git?tag=v0.0.6#d96ff31c7583a3f254b38b2bebbd81be50f2991b"
-dependencies = [
- "bitflags",
- "crossterm",
- "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]
@@ -2433,7 +2393,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "persistence"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "base64",
@@ -2546,7 +2506,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "base64",
@@ -2572,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "provider"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "base64",
@@ -2598,7 +2558,7 @@ dependencies = [
 
 [[package]]
 name = "provider-anthropic"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "futures",
@@ -2616,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "provider-catalog"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "http",
  "inference-wire",
@@ -2628,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "provider-chatgpt-plan"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "base64",
@@ -2646,7 +2606,7 @@ dependencies = [
 
 [[package]]
 name = "provider-codebuddy"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "futures",
@@ -2663,7 +2623,7 @@ dependencies = [
 
 [[package]]
 name = "provider-commandcode-goat"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2675,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "provider-copilot"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -2687,7 +2647,7 @@ dependencies = [
 
 [[package]]
 name = "provider-deepseek"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2699,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "provider-glm-cn"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2709,7 +2669,7 @@ dependencies = [
 
 [[package]]
 name = "provider-google-antigravity"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2730,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "provider-kimi"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2742,7 +2702,7 @@ dependencies = [
 
 [[package]]
 name = "provider-openai"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "futures",
@@ -2761,7 +2721,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opencode-go"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "chrono",
  "inference-wire",
@@ -2775,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opencode-zen"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2785,7 +2745,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opendesign-go"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2795,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "provider-openrouter"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2807,7 +2767,7 @@ dependencies = [
 
 [[package]]
 name = "provider-qianwen"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2817,7 +2777,7 @@ dependencies = [
 
 [[package]]
 name = "provider-qoder"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "aes",
  "async-trait",
@@ -2846,7 +2806,7 @@ dependencies = [
 
 [[package]]
 name = "provider-xai"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -3317,7 +3277,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "acp",
  "async-trait",
@@ -3430,17 +3390,6 @@ checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
 dependencies = [
  "libc",
  "signal-hook-registry",
-]
-
-[[package]]
-name = "signal-hook-mio"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
-dependencies = [
- "libc",
- "mio",
- "signal-hook",
 ]
 
 [[package]]
@@ -3631,7 +3580,7 @@ dependencies = [
 
 [[package]]
 name = "test-support"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "libc",
  "serde",
@@ -3843,7 +3792,7 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tool"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "hex",
@@ -3861,7 +3810,7 @@ dependencies = [
 
 [[package]]
 name = "tool-ast"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "ignore",
@@ -3885,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "tool-derive"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3895,7 +3844,7 @@ dependencies = [
 
 [[package]]
 name = "tool-exec"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "serde",
@@ -3907,7 +3856,7 @@ dependencies = [
 
 [[package]]
 name = "tool-fs"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "base64",
@@ -3923,7 +3872,7 @@ dependencies = [
 
 [[package]]
 name = "tool-web"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4136,10 +4085,10 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui-primitives"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "chrono",
- "nuotc",
+ "graticule-canvas",
  "serde",
  "toml",
  "unicode-segmentation",
@@ -4269,10 +4218,10 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "view"
-version = "0.0.95"
+version = "0.0.96"
 dependencies = [
  "chrono",
- "nuotc",
+ "graticule-canvas",
  "protocol",
  "provider",
  "provider-anthropic",
@@ -4378,22 +4327,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
-name = "winapi"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
-dependencies = [
- "winapi-i686-pc-windows-gnu",
- "winapi-x86_64-pc-windows-gnu",
-]
-
-[[package]]
-name = "winapi-i686-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
-
-[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4401,12 +4334,6 @@ checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "winapi-x86_64-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-core"

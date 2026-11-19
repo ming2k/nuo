@@ -47,7 +47,7 @@ fn row2_renders_non_thread_scene_labels() {
 #[test]
 fn row2_context_tone_escalates_when_flagged() {
     let theme = Theme::default();
-    let first_fg = |cells: &[nuotc::Cell], needle: &str| {
+    let first_fg = |cells: &[graticule::Cell], needle: &str| {
         let idx = cells
             .iter()
             .position(|c| c.symbol.as_str() == needle)
@@ -149,7 +149,7 @@ fn row2_renders_right_aligned_drill_in_stack() {
 fn row2_computes_nav_hit_rects_accurately() {
     let crumbs = [SceneKind::Thread, SceneKind::Subagent];
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
+    let mut terminal = graticule::TestTerminal::new(80, 1);
     let mut nav_rects = SceneNavRects::default();
     terminal.draw(|frame| {
         nav_rects = draw_scene_bar(
@@ -184,7 +184,7 @@ fn row2_computes_nav_hit_rects_accurately() {
 #[test]
 fn row2_band_paints_the_full_row_width() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(60, 1);
+    let mut terminal = graticule::TestTerminal::new(60, 1);
     terminal.draw(|frame| {
         draw_scene_bar(
             frame,

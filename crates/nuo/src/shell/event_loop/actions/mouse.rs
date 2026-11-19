@@ -75,13 +75,13 @@ pub(super) async fn handle_selection_start(
             return;
         }
         Some(UiKey::TabBarOverview) => {
-            if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Switcher) {
+            if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Palette) {
                 app.dismiss_surface();
-            } else if app.can_open_switcher() {
-                app.open_dialog(crate::shell::surfaces::DialogKind::Switcher);
+            } else if app.can_open_palette() {
+                app.open_dialog(crate::shell::surfaces::DialogKind::Palette);
                 app.surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .begin();
             }
             app.transcript.drag.cancel();
@@ -755,10 +755,10 @@ async fn execute_help_action(
         K::Settings => {
             app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
         }
-        K::Switcher => {
+        K::Palette => {
             super::enter_panel(
                 app,
-                crate::shell::surfaces::DialogKind::Switcher,
+                crate::shell::surfaces::DialogKind::Palette,
                 runtime,
                 viewed_session_id,
             );
@@ -767,6 +767,14 @@ async fn execute_help_action(
             super::enter_panel(
                 app,
                 crate::shell::surfaces::DialogKind::Threads,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        K::ContextPlan => {
+            super::enter_panel(
+                app,
+                crate::shell::surfaces::DialogKind::ContextPlan,
                 runtime,
                 viewed_session_id,
             );

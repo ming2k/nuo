@@ -1,5 +1,5 @@
 //! File/directory listing renderer.
-use nuotc::{Modifier, Span, Style};
+use graticule::{Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{RenderCtx, nonempty_wrapped};

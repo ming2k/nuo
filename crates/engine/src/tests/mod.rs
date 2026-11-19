@@ -674,6 +674,7 @@ fn distinct_read_turns(n: usize, suffix: Option<&str>) -> Vec<Vec<ProviderStream
 }
 
 mod agent_config;
+mod context_measurement;
 mod guards;
 mod permissions;
 mod scheduling;

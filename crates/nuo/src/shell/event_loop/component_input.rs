@@ -4,7 +4,7 @@
 //! the event to the components on that path. These handlers contain the few
 //! component-local mutations that cannot be represented by the shared input
 //! action vocabulary.
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use graticule::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::shell::composer_grid::Vertical;
 use crate::shell::input::readline::{

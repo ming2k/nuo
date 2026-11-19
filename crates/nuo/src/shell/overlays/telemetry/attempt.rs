@@ -5,7 +5,7 @@
 //! previous milestone. Deltas (not cumulative stamps) are the readable signal:
 //! a long gap announces itself in the delta column without mental subtraction.
 
-use nuotc::{Line, Modifier, Span, Style};
+use graticule::{Line, Modifier, Span, Style};
 
 use super::model::*;
 use super::overview::section_header;

@@ -57,9 +57,10 @@
 // Bounded contract re-exports: only protocol types that cross the harness boundary.
 pub use protocol::{
     AgentEvent, AgentIdentity, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile, Block,
-    BlockRender, DynamicToolSink, Hook, HookContext, HookEvent, HookOutcome, HookStartSource,
-    InstructionText, LoopStatus, PermissionDecision, Provider, ProviderStreamEvent, RetryPoint,
-    RoundEvent, ToolSet, Transport, async_trait,
+    BlockRender, Budget, ContextNotice, ContextPlan, DynamicToolSink, Hook, HookContext, HookEvent,
+    HookOutcome, HookStartSource, InstructionText, LoopStatus, Overflow, PermissionDecision,
+    PlannedBlock, Position, PrefixDrift, Provider, ProviderStreamEvent, Rank, Resume, RetryPoint,
+    RoundEvent, Stability, ToolSet, Topic, Transport, async_trait,
 };
 pub use tool::{
     AgentNotice, HookEventKind, Message, Role, SubagentEvent, TokenUsage, Tool, ToolOutput,
@@ -129,6 +130,13 @@ const SUBAGENT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs
 pub mod cognition;
 pub use cognition::agent::TitleEstablishedFn;
 pub use cognition::agent::{Agent, AgentBuilder, RequestTokenEstimate, RoundOutcome, SwitchedRole};
+pub use cognition::context::inspect::{
+    render_json as render_context_json, render_table as render_context_table, view as project_plan,
+};
+pub use cognition::context::{
+    ContextInputs, ContextPolicyError, ContextSource, InputKey, Policy, SourceOrder, ToolSurface,
+    default_policy, default_sources,
+};
 pub use cognition::context_projection::ContextProjectionGate;
 pub use cognition::interop::agent_slot::AgentSlot;
 pub use cognition::interop::human_broker::*;
@@ -136,11 +144,6 @@ pub use cognition::interop::subagent_tool::{
     SubagentBackgroundDispatcher, SubagentOutcome, SubagentRegistry, SubagentTool,
 };
 pub use cognition::interop::{agent_slot, human_broker, subagent_tool};
-pub use cognition::model_request::default_instruction_registry;
-pub use cognition::model_request::instruction::{
-    InstructionContext, InstructionOrder, InstructionRegistry, InstructionRegistryError,
-    InstructionSection,
-};
 pub use cognition::skills::{
     DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost, SkillPolicy,
     SkillRegistry, SkillRoots, SkillScope, SkillTrust, UseSkillTool, discover_all,

@@ -1,5 +1,5 @@
 //! Terminal event normalization and cross-layer routing (M2).
-use crossterm::event::{
+use graticule::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
@@ -223,7 +223,7 @@ struct MotionRouter<'a> {
     drag: &'a mut SelectionDrag,
 }
 
-/// Process a crossterm event into a high-level action.
+/// Process a terminal input event into a high-level action.
 ///
 /// `input` and `cursor_position` are mutable because some events modify them directly.
 #[allow(clippy::too_many_arguments)]
@@ -514,7 +514,7 @@ fn registered_global_action(
     let cmd_id =
         crate::shell::keymap::resolve_global_key_with(physical_key, &dispatch.key_overrides)?;
     match cmd_id {
-        crate::shell::keymap::CommandId::CommandPalette => Some(InputAction::ViewSwitcherToggle),
+        crate::shell::keymap::CommandId::CommandPalette => Some(InputAction::PaletteToggle),
         crate::shell::keymap::CommandId::ToggleFocusPlane => {
             // `Shift-Tab` crosses the chat scene's peer focus planes.
             // Top level only: an overlay traps the keyboard, and
@@ -540,6 +540,9 @@ fn registered_global_action(
         }
         crate::shell::keymap::CommandId::OpenSessionTrace if dispatch.overlay.is_none() => {
             Some(InputAction::OpenSessionTrace)
+        }
+        crate::shell::keymap::CommandId::OpenContextPlan if dispatch.overlay.is_none() => {
+            Some(InputAction::OpenContextPlan)
         }
         crate::shell::keymap::CommandId::OpenQueue if dispatch.overlay.is_none() => {
             // Ctrl+Q (queue-bar expand keycap, Ctrl row).
@@ -1153,7 +1156,7 @@ fn navigation_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputActio
             // affordances), so the router keeps them.
             if router.dispatch.overlay
                 == Some(crate::shell::surfaces::OverlaySurface::Dialog(
-                    crate::shell::surfaces::DialogKind::Switcher,
+                    crate::shell::surfaces::DialogKind::Palette,
                 ))
             {
                 InputAction::ModalUp
@@ -1171,7 +1174,7 @@ fn navigation_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputActio
             // here for the same reason as ↑.
             if router.dispatch.overlay
                 == Some(crate::shell::surfaces::OverlaySurface::Dialog(
-                    crate::shell::surfaces::DialogKind::Switcher,
+                    crate::shell::surfaces::DialogKind::Palette,
                 ))
             {
                 InputAction::ModalDown

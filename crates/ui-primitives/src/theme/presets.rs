@@ -1,5 +1,5 @@
 //! Color scheme presets and default palette constants.
-use nuotc::Color;
+use graticule_canvas::Color;
 use std::borrow::Cow;
 
 /// Metadata for one color scheme shown by the Appearance config page.

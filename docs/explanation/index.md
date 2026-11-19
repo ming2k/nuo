@@ -9,6 +9,7 @@ Discursive documentation that explains how and why Nuo is built the way it is. R
 | Article | Explains |
 | :--- | :--- |
 | [Architecture Overview](architecture-overview.md) | The entity tiers, crate topology, and subsystem boundaries behind the CLI and terminal. |
+| [Context Engineering](context-engineering.md) | How the model's context is declared, measured, and kept honest: the five lifecycles, how to add a source, and what every guard enforces. |
 | [The Terminal UI](tui.md) | The rendering philosophy, retained canvas diffing, and zero-layout-jitter zone design. |
 | [Terminal Shortcuts and Conflicts](terminal-shortcuts-and-conflicts.md) | Keyboard shortcut design trade-offs, POSIX line discipline collisions, and terminal emulator configurations. |
 | [Interrupt Semantics](interrupt-semantics.md) | Signal propagation, turn interruption, and cooperative cancellation lifecycle. |

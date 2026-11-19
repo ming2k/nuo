@@ -681,7 +681,7 @@ fn view_switcher_restore_roundtrip() {
     app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
     app.set_active_index(4);
 
-    app.open_dialog(crate::shell::surfaces::DialogKind::Switcher);
+    app.open_dialog(crate::shell::surfaces::DialogKind::Palette);
     app.set_active_index(0);
 
     assert!(app.dismiss_surface());
@@ -731,60 +731,6 @@ fn pickers_never_borrow_the_composer_line() {
             .query
             .is_empty(),
         "the entity's query is self-contained"
-    );
-}
-
-#[test]
-fn switcher_rows_filter_and_gate_by_availability() {
-    let mut store = crate::shell::surfaces::SurfaceStore::new();
-    store.open(crate::shell::surfaces::DialogKind::UsageStats);
-    store.open(crate::shell::surfaces::DialogKind::Tools);
-
-    // "mcp" matches the MCP label (with a session present).
-    let rows = store.switcher_rows_filtered("mcp", crate::shell::surfaces::SceneKind::Thread, true);
-    assert_eq!(
-        rows,
-        vec![crate::shell::surfaces::SwitcherTarget::Dialog(
-            crate::shell::surfaces::DialogKind::Mcp
-        ),]
-    );
-
-    // "dash" matches the Dashboard label.
-    let rows =
-        store.switcher_rows_filtered("dash", crate::shell::surfaces::SceneKind::Thread, true);
-    assert_eq!(
-        rows,
-        vec![crate::shell::surfaces::SwitcherTarget::Scene(
-            crate::shell::surfaces::SceneKind::Dashboard
-        )]
-    );
-
-    assert!(
-        store
-            .switcher_rows_filtered("zzz", crate::shell::surfaces::SceneKind::Thread, true)
-            .is_empty()
-    );
-
-    // Without a session, session-scoped dialogs are not advertised.
-    let rows = store.switcher_rows(crate::shell::surfaces::SceneKind::Thread, false);
-    assert!(
-        rows.iter().all(|r| !matches!(
-            r,
-            crate::shell::surfaces::SwitcherTarget::Dialog(
-                crate::shell::surfaces::DialogKind::Tools
-            )
-        )),
-        "session-scoped dialogs are gated out with no session"
-    );
-    // HistorySearch is scene-scoped to the Thread and needs a session.
-    assert!(
-        rows.iter().all(|r| !matches!(
-            r,
-            crate::shell::surfaces::SwitcherTarget::Dialog(
-                crate::shell::surfaces::DialogKind::HistorySearch
-            )
-        )),
-        "scene-scoped dialog gated out with no session"
     );
 }
 

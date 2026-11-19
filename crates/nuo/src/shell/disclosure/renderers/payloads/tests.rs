@@ -1,5 +1,5 @@
 use super::*;
-use nuotc::Rect;
+use graticule::Rect;
 use tool::ShellTermination;
 use unicode_width::UnicodeWidthStr;
 use view::Theme;
@@ -347,7 +347,7 @@ fn edit_diff_renders_with_actual_file_line_number() {
     }
     std::fs::write(&file_path, &content).unwrap();
 
-    let mut terminal = nuotc::TestTerminal::new(80, 20);
+    let mut terminal = graticule::TestTerminal::new(80, 20);
     let mut layout_map = view::model::layout::LayoutMap::default();
     let theme = Theme::default();
     let mut skip_rows = 0;

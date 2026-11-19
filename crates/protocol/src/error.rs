@@ -100,6 +100,10 @@ where
 #[non_exhaustive]
 pub enum ProviderErrorKind {
     Transport,
+    /// Host or network reachability failure (DNS lookup failure or OS routing
+    /// unreachability). Remains retryable, but bounded by the short offline
+    /// fast-fail budget rather than the 30-attempt transient budget (ADR-0224).
+    Unreachable,
     Timeout,
     RateLimited,
     QuotaExhausted,
@@ -233,6 +237,13 @@ impl ProviderError {
 
     pub const fn is_context_overflow(&self) -> bool {
         matches!(self.kind, ProviderErrorKind::ContextOverflow)
+    }
+
+    /// Whether this failure indicates local/routing network unreachability
+    /// (DNS failure or OS no-route/network-down) rather than a remote peer
+    /// fault (ADR-0224).
+    pub const fn is_unreachable(&self) -> bool {
+        matches!(self.kind, ProviderErrorKind::Unreachable)
     }
 
     /// Whether this failure is a **deterministic refusal of the request we just
@@ -447,6 +458,7 @@ mod request_refusal_tests {
         // ...while a statusless transient kind still is not.
         for kind in [
             ProviderErrorKind::Transport,
+            ProviderErrorKind::Unreachable,
             ProviderErrorKind::Timeout,
             ProviderErrorKind::RateLimited,
             ProviderErrorKind::Authentication,

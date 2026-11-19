@@ -1,5 +1,5 @@
 //! Summary line and title band renderers.
-use nuotc::{Color, Line, Modifier, Span, Style};
+use graticule::{Color, Line, Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::disclosure::renderers::base::{

@@ -19,7 +19,7 @@ fn composer_cjk_selection_covers_full_width_glyphs() {
         anchor: SemanticCursor::new(INPUT_MSG_IDX, 0, 0),
         head: SemanticCursor::new(INPUT_MSG_IDX, 0, 6),
     };
-    let mut terminal = nuotc::TestTerminal::new(20, 5);
+    let mut terminal = graticule::TestTerminal::new(20, 5);
     terminal.draw(|f| {
         draw_composer(
             ComposerProps {
@@ -67,7 +67,7 @@ fn composer_cjk_selection_covers_full_width_glyphs() {
     // (see the event loop), so no terminal caret is placed on top of the
     // highlighted glyphs — the "appended flickering character" symptom.
     assert!(
-        matches!(terminal.cursor(), nuotc::CursorState::Hidden),
+        matches!(terminal.cursor(), graticule::CursorState::Hidden),
         "caret must be hidden while a selection is active"
     );
 }
@@ -83,7 +83,7 @@ fn composer_two_cjk_select_all_has_no_extra_glyph_or_tail_highlight() {
         anchor: SemanticCursor::new(INPUT_MSG_IDX, 0, 0),
         head: SemanticCursor::new(INPUT_MSG_IDX, 0, input.len()),
     };
-    let mut terminal = nuotc::TestTerminal::new(16, 5);
+    let mut terminal = graticule::TestTerminal::new(16, 5);
 
     terminal.draw(|f| {
         draw_composer(
@@ -113,18 +113,18 @@ fn composer_two_cjk_select_all_has_no_extra_glyph_or_tail_highlight() {
     let interior_bg = theme.input_surface();
 
     assert_eq!(buffer.get(2, y).unwrap().symbol.as_str(), "你");
-    assert_eq!(buffer.get(2, y).unwrap().width, nuotc::CellWidth::Wide);
+    assert_eq!(buffer.get(2, y).unwrap().width, graticule::CellWidth::Wide);
     assert_eq!(buffer.get(3, y).unwrap().symbol.as_str(), " ");
     assert_eq!(
         buffer.get(3, y).unwrap().width,
-        nuotc::CellWidth::Continuation
+        graticule::CellWidth::Continuation
     );
     assert_eq!(buffer.get(4, y).unwrap().symbol.as_str(), "好");
-    assert_eq!(buffer.get(4, y).unwrap().width, nuotc::CellWidth::Wide);
+    assert_eq!(buffer.get(4, y).unwrap().width, graticule::CellWidth::Wide);
     assert_eq!(buffer.get(5, y).unwrap().symbol.as_str(), " ");
     assert_eq!(
         buffer.get(5, y).unwrap().width,
-        nuotc::CellWidth::Continuation
+        graticule::CellWidth::Continuation
     );
     assert_eq!(
         buffer.get(6, y).unwrap().symbol.as_str(),
@@ -145,7 +145,7 @@ fn composer_two_cjk_select_all_has_no_extra_glyph_or_tail_highlight() {
         "tail cell must remain on the panel's background"
     );
     assert!(
-        matches!(terminal.cursor(), nuotc::CursorState::Hidden),
+        matches!(terminal.cursor(), graticule::CursorState::Hidden),
         "caret must be hidden while a selection is active"
     );
 }
@@ -161,7 +161,7 @@ fn composer_input_range_highlights_exact_characters() {
         anchor_byte: 0,
         head_byte: 1,
     };
-    let mut terminal = nuotc::TestTerminal::new(20, 5);
+    let mut terminal = graticule::TestTerminal::new(20, 5);
 
     terminal.draw(|f| {
         draw_composer(
@@ -260,7 +260,7 @@ fn composer_collapsed_click_highlights_nothing_drag_highlights_cleanly() {
 
     // Record input regions so cursor_at can resolve real drag positions.
     let mut layout_map = LayoutMap::new();
-    let mut rec = nuotc::TestTerminal::new(20, 5);
+    let mut rec = graticule::TestTerminal::new(20, 5);
     rec.draw(|f| {
         draw_composer(
             ComposerProps {
@@ -295,8 +295,8 @@ fn composer_collapsed_click_highlights_nothing_drag_highlights_cleanly() {
         text_row: u16,
         theme: &Theme,
         sel: &SelectionState,
-    ) -> Vec<nuotc::Color> {
-        let mut t = nuotc::TestTerminal::new(20, 5);
+    ) -> Vec<graticule::Color> {
+        let mut t = graticule::TestTerminal::new(20, 5);
         t.draw(|f| {
             draw_composer(
                 ComposerProps {

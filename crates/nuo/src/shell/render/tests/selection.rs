@@ -161,7 +161,7 @@ fn line_selection_does_not_bleed_into_next_line_at_exact_boundary() {
 #[test]
 fn extract_selection_text_extracts_modal_document_selections() {
     use crate::shell::event_loop::transcript::extract_selection_text;
-    use nuotc::Rect;
+    use graticule::Rect;
     use view::model::layout::{BlockRegion, LayoutMap, MODAL_DOC_MSG_IDX, SemanticCursor};
 
     let mut layout_map = LayoutMap::new();
@@ -206,7 +206,7 @@ fn paint_transcript(
     selection: &SelectionState,
 ) -> view::model::layout::LayoutMap {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     let mut layout_map = LayoutMap::new();
     terminal.draw(|f| {
         draw_transcript(

@@ -178,12 +178,12 @@ pub const MODEL_BAR_MODEL_GAP: usize = 1;
 /// shown directly above Composer while a round, queue items, or tasks are active.
 pub const ACTIVITY_STRIP_ROWS: u16 = 1;
 
-/// Minimum gap between a bar's left content and its right-pinned keycap
-/// legend (the queue bar's `Ctrl+Q expand`, the TabBar's `F1 help`).
+/// Minimum gap between a bar's left content and its right-pinned legend
+/// (the queue bar's `Ctrl+Q expand`, the TabBar's `[!N]` fault badge).
 /// Deliberately wider than the 2-col inter-cluster gap used by the hint bar: a
 /// legend is a keyboard affordance, not prose, so it needs real visual distance
 /// from the content — especially when content truncates to fill the row, where
-/// a small gap would let a `[▾]` or a `…` butt directly against a keycap.
+/// a small gap would let a `[▾]` or a `…` butt directly against it.
 pub const BAR_LEGEND_GAP_MIN: usize = 6;
 
 // Semantic joins (see docs/reference/tui/visual-language.md)

@@ -11,10 +11,10 @@ fn body_rect(w: u16, h: u16) -> Rect {
 #[test]
 fn registers_one_region_per_visual_row() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(20, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(20, 10);
     let rows = vec![SelectableRow::styled(
         "abcdefghij klmnopqrst uvwxyz", // wraps at 20 cols
-        nuotc::Style::default(),
+        graticule_canvas::Style::default(),
     )];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
@@ -48,11 +48,11 @@ fn registers_one_region_per_visual_row() {
 #[test]
 fn empty_row_occupies_one_visual_row() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(20, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(20, 10);
     let rows = vec![
-        SelectableRow::styled("one", nuotc::Style::default()),
+        SelectableRow::styled("one", graticule_canvas::Style::default()),
         SelectableRow::empty(),
-        SelectableRow::styled("two", nuotc::Style::default()),
+        SelectableRow::styled("two", graticule_canvas::Style::default()),
     ];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
@@ -79,10 +79,10 @@ fn empty_row_occupies_one_visual_row() {
 #[test]
 fn selection_extract_spans_rows() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(40, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(40, 10);
     let rows = vec![
-        SelectableRow::styled("hello world", nuotc::Style::default()),
-        SelectableRow::styled("second row", nuotc::Style::default()),
+        SelectableRow::styled("hello world", graticule_canvas::Style::default()),
+        SelectableRow::styled("second row", graticule_canvas::Style::default()),
     ];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
@@ -116,8 +116,11 @@ fn selection_extract_spans_rows() {
 #[test]
 fn cursor_at_clamps_to_row_end() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(40, 10);
-    let rows = vec![SelectableRow::styled("ab", nuotc::Style::default())];
+    let mut terminal = graticule_canvas::TestTerminal::new(40, 10);
+    let rows = vec![SelectableRow::styled(
+        "ab",
+        graticule_canvas::Style::default(),
+    )];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
     terminal.draw(|f| {
@@ -142,10 +145,10 @@ fn cursor_at_clamps_to_row_end() {
 #[test]
 fn multi_segment_row_round_trips() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(40, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(40, 10);
     let rows = vec![SelectableRow::from_segments(vec![
-        RowSegment::styled("Total  ", nuotc::Style::default()),
-        RowSegment::styled("12345", nuotc::Style::default()),
+        RowSegment::styled("Total  ", graticule_canvas::Style::default()),
+        RowSegment::styled("12345", graticule_canvas::Style::default()),
     ])];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
@@ -177,13 +180,13 @@ fn multi_segment_row_round_trips() {
 #[test]
 fn wrapped_multi_segment_row_keeps_every_segment() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(12, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(12, 10);
     // Two segments: label (4 cols) + separator (2) + value (9) = 15 cols,
     // so the row wraps at the 12-col body width.
     let rows = vec![SelectableRow::from_segments(vec![
-        RowSegment::styled("bash", nuotc::Style::default()),
-        RowSegment::styled("  ", nuotc::Style::default()),
-        RowSegment::styled("ls | head", nuotc::Style::default()),
+        RowSegment::styled("bash", graticule_canvas::Style::default()),
+        RowSegment::styled("  ", graticule_canvas::Style::default()),
+        RowSegment::styled("ls | head", graticule_canvas::Style::default()),
     ])];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
@@ -227,13 +230,13 @@ fn wrapped_multi_segment_row_keeps_every_segment() {
 #[test]
 fn prefix_excluded_from_copy_and_hit_testing() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(20, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(20, 10);
     let rows = vec![
         SelectableRow::styled(
             "indented content that is long enough to wrap once or twice",
-            nuotc::Style::default(),
+            graticule_canvas::Style::default(),
         )
-        .with_prefix(RowSegment::styled("  ", nuotc::Style::default())),
+        .with_prefix(RowSegment::styled("  ", graticule_canvas::Style::default())),
     ];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
@@ -268,11 +271,11 @@ fn drag_chain_from_press_to_copy() {
     use crate::model::selection::SelectionDrag;
 
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(40, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(40, 10);
     let rows = vec![
-        SelectableRow::styled("alpha", nuotc::Style::default()),
-        SelectableRow::styled("beta", nuotc::Style::default()),
-        SelectableRow::styled("gamma", nuotc::Style::default()),
+        SelectableRow::styled("alpha", graticule_canvas::Style::default()),
+        SelectableRow::styled("beta", graticule_canvas::Style::default()),
+        SelectableRow::styled("gamma", graticule_canvas::Style::default()),
     ];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
@@ -318,19 +321,19 @@ fn drag_chain_from_press_to_copy() {
 
 #[test]
 fn visual_row_count_and_desired_rows_match_wrapped_rendering() {
-    let mut grid = nuotc::CellGrid::new(80, 24);
-    let mut damage = nuotc::Damage::new(24);
-    let frame = nuotc::Frame::new(&mut grid, &mut damage);
+    let mut grid = graticule_canvas::CellGrid::new(80, 24);
+    let mut damage = graticule_canvas::Damage::new(24);
+    let frame = graticule_canvas::Frame::new(&mut grid, &mut damage);
     let geometry = ContentModalSpec::PERMISSIONS;
 
     let rows = vec![
-        SelectableRow::styled("Header", nuotc::Style::default()),
+        SelectableRow::styled("Header", graticule_canvas::Style::default()),
         SelectableRow::styled(
             "This is a long line of text that is expected to wrap across multiple visual lines when given a standard content modal width.",
-            nuotc::Style::default(),
+            graticule_canvas::Style::default(),
         ),
         SelectableRow::empty(),
-        SelectableRow::styled("Footer", nuotc::Style::default()),
+        SelectableRow::styled("Footer", graticule_canvas::Style::default()),
     ];
 
     let probe = content_modal_probe(&frame, geometry);
@@ -351,9 +354,12 @@ fn visual_row_count_and_desired_rows_match_wrapped_rendering() {
 #[test]
 fn selection_extract_wrapped_single_row_url() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(30, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(30, 10);
     let url = "https://auth.openai.com/oauth/authorize?response_type=code&client_id=123456";
-    let rows = vec![SelectableRow::styled(url, nuotc::Style::default())];
+    let rows = vec![SelectableRow::styled(
+        url,
+        graticule_canvas::Style::default(),
+    )];
     let mut scroll = 0;
     let mut map = LayoutMap::new();
     terminal.draw(|f| {
@@ -390,11 +396,11 @@ fn selection_extract_wrapped_single_row_url() {
 #[test]
 fn selectable_body_registers_link_hits() {
     let theme = Theme::default();
-    let mut terminal = nuotc::TestTerminal::new(50, 10);
+    let mut terminal = graticule_canvas::TestTerminal::new(50, 10);
     let url = "https://example.com/oauth";
     let rows = vec![SelectableRow::styled(
         format!("Click {url} to authenticate"),
-        nuotc::Style::default(),
+        graticule_canvas::Style::default(),
     )];
     let mut scroll = 0;
     let mut map = LayoutMap::new();

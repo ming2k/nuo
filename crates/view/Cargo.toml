@@ -12,7 +12,7 @@ tool = { workspace = true }
 chrono = { workspace = true }
 ui-primitives = { workspace = true }
 protocol = { workspace = true }
-nuotc = { workspace = true }
+graticule-canvas = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }
 unicode-segmentation = { workspace = true }

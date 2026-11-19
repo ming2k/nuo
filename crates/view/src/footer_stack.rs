@@ -22,7 +22,7 @@
 //! `(FooterRowId, Rect)`, and the event loop resolves clicks by looking the
 //! id up instead of comparing against three separate bespoke rect fields.
 
-use nuotc::Rect;
+use graticule_canvas::Rect;
 
 /// One row of the footer stack, in draw (top → bottom) order.
 #[derive(Debug, Clone, Copy)]

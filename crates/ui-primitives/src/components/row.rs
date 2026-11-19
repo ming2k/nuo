@@ -74,7 +74,7 @@
 //! lines.push(row.finish());
 //! ```
 
-use nuotc::{Color, Line, Span, Style};
+use graticule_canvas::{Color, Line, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::text_layout::wrap_text;
@@ -147,7 +147,7 @@ impl SelectableRow {
         self
     }
 
-    pub fn from_line(line: nuotc::Line<'static>) -> Self {
+    pub fn from_line(line: graticule_canvas::Line<'static>) -> Self {
         let mut spans = line.spans;
         let prefix = spans
             .first()
@@ -172,15 +172,18 @@ impl SelectableRow {
         }
     }
 
-    pub fn to_line(&self) -> nuotc::Line<'static> {
+    pub fn to_line(&self) -> graticule_canvas::Line<'static> {
         let mut spans = Vec::new();
         if let Some(prefix) = &self.prefix {
-            spans.push(nuotc::Span::styled(prefix.text.clone(), prefix.style));
+            spans.push(graticule_canvas::Span::styled(
+                prefix.text.clone(),
+                prefix.style,
+            ));
         }
         for seg in &self.segments {
-            spans.push(nuotc::Span::styled(seg.text.clone(), seg.style));
+            spans.push(graticule_canvas::Span::styled(seg.text.clone(), seg.style));
         }
-        nuotc::Line::from(spans)
+        graticule_canvas::Line::from(spans)
     }
 
     pub fn text(&self) -> String {
@@ -191,7 +194,7 @@ impl SelectableRow {
     }
 
     pub fn visual_row_count(&self, body_width: usize) -> usize {
-        let seg_width = |s: &RowSegment| nuotc::str_len(&s.text);
+        let seg_width = |s: &RowSegment| graticule_canvas::str_len(&s.text);
         let prefix_w = self.prefix.as_ref().map(seg_width).unwrap_or(0);
         let budget = body_width.saturating_sub(prefix_w).max(1);
         let full = self.text();
@@ -627,7 +630,7 @@ fn render_atoms(spans: &mut Vec<Span>, atoms: &[(GroupAtom, usize)], bg: Color) 
             GroupAtom::Plain { fg, bold, .. } => {
                 let mut s = Style::default().bg(bg).fg(*fg);
                 if *bold {
-                    s = s.add_modifier(nuotc::Modifier::BOLD);
+                    s = s.add_modifier(graticule_canvas::Modifier::BOLD);
                 }
                 s
             }
@@ -644,7 +647,7 @@ fn render_atoms(spans: &mut Vec<Span>, atoms: &[(GroupAtom, usize)], bg: Color) 
 /// boundaries and at the selected byte range, so each glyph keeps its own
 /// style under the selection highlight.
 ///
-/// `text` is the wrapped slice (`nuotc`'s `wrap_text`) and `base_offset` is
+/// `text` is the wrapped slice (`graticule_canvas`'s `wrap`) and `base_offset` is
 /// that slice's byte offset inside the logical row — the same coordinates a
 /// `BlockRegion` records. Segment boundaries and the selected range are
 /// therefore translated into the slice's coordinate space before slicing.
@@ -735,12 +738,12 @@ mod tests {
     use super::*;
     use crate::components::options::{ChoiceTone, choice_style};
     use crate::theme::Theme;
-    use nuotc::Span;
+    use graticule_canvas::Span;
     use unicode_width::UnicodeWidthStr;
 
     /// Total visible width of a rendered line — the sum of every span's
     /// content width. Used to assert the row fills `body_width`.
-    fn line_width(line: &nuotc::Line) -> usize {
+    fn line_width(line: &graticule_canvas::Line) -> usize {
         line.spans
             .iter()
             .map(|s: &Span| s.content.as_ref().width())
@@ -749,7 +752,7 @@ mod tests {
 
     /// The concatenated text of a rendered line — used to assert no glyph
     /// separator (`|`, `—`) leaked into a column boundary.
-    fn line_text(line: &nuotc::Line) -> String {
+    fn line_text(line: &graticule_canvas::Line) -> String {
         line.spans
             .iter()
             .map(|s: &Span| s.content.as_ref())
@@ -926,7 +929,10 @@ mod tests {
         let dot_span = &line.spans[1];
         assert_eq!(dot_span.content.as_ref(), "●");
         assert!(
-            dot_span.style.add.contains(nuotc::Modifier::BOLD),
+            dot_span
+                .style
+                .add
+                .contains(graticule_canvas::Modifier::BOLD),
             "glyph atom is bold"
         );
     }

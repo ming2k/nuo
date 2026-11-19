@@ -130,6 +130,22 @@ dialog_entity!(SessionTraceDialog, SessionTrace, {
     turn_cursor: usize = 0,
 });
 
+dialog_entity!(ContextPlanDialog, ContextPlan, {
+    /// `true` while the selected block's rendered body is expanded (ADR-0220).
+    ///
+    /// The body is a sub-view, not a second panel: the row list stays the
+    /// document, and expanding one row is how a reader asks "what does this
+    /// block actually say" without leaving the plan.
+    body_open: bool = false,
+    /// The visual row of each block in the most recent paint.
+    ///
+    /// Written by the renderer, read by click hit-testing — the same
+    /// render-publishes / input-resolves split `HelpDialog::actions` uses. Without
+    /// it a click would have to rebuild the body and guess an order the paint may
+    /// not have used (the expanded body shifts every row below it).
+    block_rows: Vec<usize> = Vec::new(),
+});
+
 dialog_entity!(QueueDialog, Queue, {});
 
 dialog_entity!(ModelsDialog, Models, {
@@ -183,14 +199,14 @@ pub type SessionsDialog = ThreadsDialog;
 
 dialog_entity!(SessionTreeDialog, SessionTree, {});
 
-dialog_entity!(SwitcherDialog, Switcher, {
+dialog_entity!(PaletteDialog, Palette, {
     /// Live fuzzy query.
     query: TextInput = TextInput::default(),
     /// Selected row in the palette.
     selected: usize = 0,
 });
 
-impl SwitcherDialog {
+impl PaletteDialog {
     /// The switcher is ephemeral: opening it always starts from a clean slate.
     pub fn begin(&mut self) {
         self.query.clear();

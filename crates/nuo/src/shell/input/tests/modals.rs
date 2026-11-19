@@ -194,7 +194,7 @@ fn mouse_wheel_scrolls_question_modal_body() {
         let mut cursor = 0;
         let mut drag = SelectionDrag::default();
         route_event(
-            Event::Mouse(crossterm::event::MouseEvent {
+            Event::Mouse(graticule::event::MouseEvent {
                 kind,
                 column: 5,
                 row: 5,
@@ -237,7 +237,7 @@ fn mouse_selection_drag_tracks_within_selectable_modals() {
     let mut input = String::new();
     let mut cursor = 0;
     let action = route_event(
-        Event::Mouse(crossterm::event::MouseEvent {
+        Event::Mouse(graticule::event::MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
             column: 10,
             row: 10,
@@ -655,7 +655,7 @@ fn adr_0151_workspace_tab_chords_and_palette_routing() {
     );
     assert_eq!(action_alt_0, InputAction::NavigateDashboard);
 
-    // Ctrl-Shift-P dispatches ViewSwitcherToggle (ADR-0151 [INV-PLANE-05])
+    // Ctrl-Shift-P dispatches PaletteToggle (ADR-0151 [INV-PLANE-05])
     let action_palette = route_event(
         Event::Key(KeyEvent::new(
             KeyCode::Char('p'),
@@ -669,5 +669,5 @@ fn adr_0151_workspace_tab_chords_and_palette_routing() {
         &SceneKeys::default(),
         &mut drag,
     );
-    assert_eq!(action_palette, InputAction::ViewSwitcherToggle);
+    assert_eq!(action_palette, InputAction::PaletteToggle);
 }

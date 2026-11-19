@@ -1,217 +1,200 @@
-//! Request-scoped model-request assembly (ADR-0056).
+//! Request-scoped model-request assembly (ADR-0056, ADR-0215, ADR-0217).
 //!
-//! The assembler is intentionally independent of [`crate::Agent`]. The agent
-//! owns when assembly occurs and supplies a plain state snapshot; this module
-//! owns the pure projection from a live conversation window to one immutable
+//! The assembler is intentionally independent of [`crate::Agent`]. The agent owns
+//! *when* assembly occurs and supplies a plain [`ContextInputs`] snapshot plus the
+//! route fingerprint; this module owns the pure projection from a live
+//! conversation window plus a compiled [`Policy`] to one immutable
 //! [`protocol::ModelRequest`].
-pub(crate) mod instruction;
-pub mod policies;
-
-pub use policies::default_instruction_registry;
-
+//!
+//! Two steps, deliberately separate:
+//!
+//! 1. [`ModelRequestAssembler::plan`] measures the context and classifies prefix
+//!    drift. The returned [`ContextPlan`] is what an inspector renders.
+//! 2. [`ModelRequestAssembler::build`] renders the request **from that plan**, so
+//!    the text the model receives and the table an operator reads are the same
+//!    bytes ([`INV-CTXPLAN-01`]).
+//!
+//! Neither step can fail: layout is proven once by `Policy::compile`
+//! (`[INV-CTXSRC-05]`).
 use std::sync::Arc;
+use std::sync::Mutex;
 
-use crate::{InstructionContext, InstructionRegistry, Message, Role, Tool};
+use protocol::{ContextPlan, PrefixDrift, Stability};
 
-/// Pure request projector configured with the system-prompt policy for one
-/// agent. It owns no live agent state and performs no persistence.
+use super::context::{ContextInputs, Policy};
+
+/// Remembers the previous request's prefix so drift can be classified.
+///
+/// The fingerprint is a SHA-256 identity of the cacheable prefix
+/// (`protocol::request_prefix_fingerprint`); the per-block digests are held only
+/// long enough to name what moved and are never persisted
+/// ([`INV-CTXPLAN-03`]).
+#[derive(Default)]
+struct PrefixWitness {
+    fingerprint: String,
+    route: String,
+    blocks: Vec<WitnessedBlock>,
+}
+
+struct WitnessedBlock {
+    id: String,
+    stability: Stability,
+    digest: u64,
+}
+
+/// Pure request projector configured with one compiled context policy.
 pub(crate) struct ModelRequestAssembler {
-    instruction_registry: InstructionRegistry,
+    policy: Policy,
+    witness: Mutex<PrefixWitness>,
 }
 
 impl ModelRequestAssembler {
-    pub(crate) fn new(instruction_registry: InstructionRegistry) -> Self {
+    pub(crate) fn new(policy: Policy) -> Self {
         Self {
-            instruction_registry,
+            policy,
+            witness: Mutex::new(PrefixWitness::default()),
         }
     }
 
-    pub(crate) fn registry_mut(&mut self) -> &mut InstructionRegistry {
-        &mut self.instruction_registry
-    }
-
-    pub(crate) fn replace_registry(&mut self, registry: InstructionRegistry) {
-        self.instruction_registry = registry;
-    }
-
-    /// Project a conversation window without mutating historical nodes.
-    /// Test/secondary callers; the hot path uses [`Self::assemble_prepared`].
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn assemble(
-        &self,
-        window: &[Message],
-        context: &InstructionContext,
-        tools: &[Arc<dyn Tool>],
-    ) -> protocol::ModelRequest {
-        let mut messages = window.to_vec();
-        crate::cognition::agent::remove_empty_assistant_messages(&mut messages);
-        messages.retain(|message| message.role != Role::System && !message.is_command_echo());
-        self.assemble_prepared(messages, Vec::new(), context, tools)
-    }
-
-    /// Assemble from an already-filtered, owned message list. The hot path
-    /// (`Agent::model_request`) builds that list with a single clone and
-    /// hands it over — no second copy of the window per turn.
+    /// Measure the context for this request and classify prefix drift.
     ///
-    /// `temporary_context` is the request-local `E_n` tail:
-    /// it is attached to the snapshot but excluded from the cacheable prefix and
-    /// never enters durable history.
-    // A section table with a missing anchor or a cycle is a programming error
-    // in the compiled policy, not a recoverable runtime condition. Failing hard
-    // here keeps a corrupt layout from silently misordering a request.
-    #[allow(clippy::panic)]
-    pub(crate) fn assemble_prepared(
+    /// `route` is the route fingerprint; `ceiling_tokens` is the instruction
+    /// ceiling derived from the active model window.
+    pub(crate) fn plan(
         &self,
-        messages: Vec<Message>,
-        temporary_context: Vec<Message>,
-        context: &InstructionContext,
-        tools: &[Arc<dyn Tool>],
-    ) -> protocol::ModelRequest {
-        let regions = self
-            .instruction_registry
-            .build_regions(context)
-            .unwrap_or_else(|error| panic!("invalid instruction layout: {error}"));
-        let tools = tools
+        context: &ContextInputs,
+        route: &str,
+        ceiling_tokens: usize,
+    ) -> ContextPlan {
+        let mut plan = self.policy.plan_with_ceiling(context, ceiling_tokens);
+        let blocks: Vec<WitnessedBlock> = plan
+            .fixed
             .iter()
-            .map(|t| {
-                protocol::capability::ToolSpec::new(
-                    t.name(),
-                    t.description(),
-                    t.parameters_schema(),
-                )
+            .chain(plan.transient.iter())
+            .map(|block| WitnessedBlock {
+                id: block.id.clone(),
+                stability: plan
+                    .block(&block.id)
+                    .map_or(Stability::Frozen, |row| row.stability),
+                digest: digest(&protocol::render_blocks(std::slice::from_ref(block))),
             })
             .collect();
+        let fingerprint = protocol::request_prefix_fingerprint::<()>(
+            &protocol::InstructionText::new(protocol::render_blocks(&plan.fixed), ""),
+            &[],
+            &[],
+        );
+        plan.drift = self.classify(route, &fingerprint, &blocks);
+        if let Ok(mut witness) = self.witness.lock() {
+            *witness = PrefixWitness {
+                fingerprint,
+                route: route.to_owned(),
+                blocks,
+            };
+        }
+        plan
+    }
+
+    /// Render one request from a plan produced by [`Self::plan`].
+    ///
+    /// `temporary_context` is the request-local tail: it is attached to the
+    /// snapshot but excluded from the cacheable prefix and never enters durable
+    /// history.
+    pub(crate) fn build(
+        &self,
+        plan: ContextPlan,
+        messages: Vec<crate::Message>,
+        temporary_context: Vec<crate::Message>,
+        tools: &[Arc<dyn crate::Tool>],
+    ) -> protocol::ModelRequest {
         protocol::RequestBuilder {
-            tools,
-            fixed: regions.fixed,
+            tools: tool_specs(tools),
+            fixed: plan.fixed,
             messages,
-            transient: regions.transient,
+            transient: plan.transient,
         }
         .build()
         .with_temporary_context(temporary_context)
     }
 
-    /// Assemble a request from a durable thread projection.
+    /// Render one request from a durable thread projection.
     ///
-    /// This is the replay/branch-switch entry point: the fact window is
-    /// projected to a `RequestView`, then the one `RequestBuilder` renders the
-    /// final request. It never reads or mutates `SessionIR`.
-    #[allow(clippy::panic)]
-    pub(crate) fn assemble_thread(
+    /// This is the replay/branch-switch entry point: the fact window is projected
+    /// to a `RequestView`, then the one `RequestBuilder` renders the final
+    /// request from the same plan shape the live path uses.
+    pub(crate) fn build_from_thread(
         &self,
+        plan: ContextPlan,
         thread: &protocol::Thread,
         branch: &protocol::BranchId,
-        temporary_context: Vec<Message>,
-        context: &InstructionContext,
-        tools: &[Arc<dyn Tool>],
+        temporary_context: Vec<crate::Message>,
+        tools: &[Arc<dyn crate::Tool>],
     ) -> Result<protocol::ModelRequest, protocol::ThreadError> {
         let window = protocol::ThreadWindow::from_thread(thread, branch, usize::MAX)?;
         let view = protocol::RequestView::from_window(&window);
-        let regions = self
-            .instruction_registry
-            .build_regions(context)
-            .unwrap_or_else(|error| panic!("invalid instruction layout: {error}"));
-        let tools = tools
-            .iter()
-            .map(|t| {
-                protocol::capability::ToolSpec::new(
-                    t.name(),
-                    t.description(),
-                    t.parameters_schema(),
-                )
-            })
-            .collect();
         let request_context =
-            protocol::RequestContext::new(regions.fixed, regions.transient, tools);
+            protocol::RequestContext::new(plan.fixed, plan.transient, tool_specs(tools));
         Ok(protocol::RequestBuilder::from_view(&view, &request_context)
             .build()
             .with_temporary_context(temporary_context))
     }
+
+    fn classify(&self, route: &str, fingerprint: &str, blocks: &[WitnessedBlock]) -> PrefixDrift {
+        let Ok(witness) = self.witness.lock() else {
+            return PrefixDrift::None;
+        };
+        if witness.fingerprint.is_empty() {
+            return PrefixDrift::None;
+        }
+        if witness.route != route {
+            return PrefixDrift::Route;
+        }
+        if witness.fingerprint == fingerprint {
+            return PrefixDrift::None;
+        }
+        let mut moved: Vec<String> = Vec::new();
+        let mut head = false;
+        for block in blocks {
+            let previous = witness.blocks.iter().find(|prior| prior.id == block.id);
+            if previous.is_some_and(|prior| prior.digest == block.digest) {
+                continue;
+            }
+            moved.push(block.id.clone());
+            head |= matches!(block.stability, Stability::Frozen | Stability::Route);
+        }
+        for prior in &witness.blocks {
+            if blocks.iter().any(|block| block.id == prior.id) {
+                continue;
+            }
+            moved.push(prior.id.clone());
+            head |= matches!(prior.stability, Stability::Frozen | Stability::Route);
+        }
+        if head {
+            PrefixDrift::Head { blocks: moved }
+        } else {
+            PrefixDrift::Suffix { blocks: moved }
+        }
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct TestTool;
-
-    #[async_trait::async_trait]
-    impl Tool for TestTool {
-        fn name(&self) -> &str {
-            "inspect"
-        }
-
-        fn description(&self) -> &str {
-            "Inspect the request boundary"
-        }
-
-        fn parameters_schema(&self) -> serde_json::Value {
-            serde_json::json!({"type": "object", "properties": {}})
-        }
-
-        async fn execute(
-            &self,
-            _ctx: &::tool::ToolContext,
-            _arguments: serde_json::Value,
-        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
-            Ok(::tool::ToolOutput::text("ok".to_string()))
-        }
-    }
-
-    #[test]
-    fn assemble_projects_window_deterministically() {
-        let tool: Arc<dyn Tool> = Arc::new(TestTool);
-        let assembler = ModelRequestAssembler::new(InstructionRegistry::new());
-        let window = vec![
-            Message::new(Role::User, "hello"),
-            Message::new(Role::Assistant, "hi"),
-        ];
-        let context = InstructionContext::empty();
-        let request = assembler.assemble(&window, &context, &[Arc::clone(&tool)]);
-        // Transcript turns are pure conversation messages.
-        assert_eq!(request.messages[0].role, Role::User);
-        assert_eq!(request.messages[0].content, "hello");
-        assert_eq!(request.messages[1].role, Role::Assistant);
-        assert_eq!(request.messages[1].content, "hi");
-        // Tool spec travels with the request.
-        assert_eq!(request.tool_specs.len(), 1);
-        assert_eq!(request.tool_specs[0].name, "inspect");
-        // Repeat assembly of the same window yields identical bytes.
-        let again = assembler.assemble(&window, &context, &[tool]);
-        assert_eq!(
-            request.instructions, again.instructions,
-            "system prompt instructions must be byte-stable across assemblies"
-        );
-    }
-
-    #[test]
-    fn assemble_thread_projects_a_branch_and_adds_tools() {
-        let tool: Arc<dyn Tool> = Arc::new(TestTool);
-        let assembler = ModelRequestAssembler::new(InstructionRegistry::new());
-        let mut thread = protocol::Thread::new(protocol::ThreadId::new("t"), 1000);
-        thread
-            .append(
-                protocol::FactPayload::Message {
-                    message: Message::new(Role::User, "compile this"),
-                },
-                protocol::FactContext::default(),
-                1001,
+fn tool_specs(tools: &[Arc<dyn crate::Tool>]) -> Vec<protocol::capability::ToolSpec> {
+    tools
+        .iter()
+        .map(|tool| {
+            protocol::capability::ToolSpec::new(
+                tool.name(),
+                tool.description(),
+                tool.parameters_schema(),
             )
-            .unwrap();
+        })
+        .collect()
+}
 
-        let request = assembler
-            .assemble_thread(
-                &thread,
-                &protocol::BranchId::main(),
-                Vec::new(),
-                &InstructionContext::empty(),
-                &[tool],
-            )
-            .expect("thread projection must succeed");
-
-        assert_eq!(request.messages.len(), 1);
-        assert_eq!(request.messages[0].content, "compile this");
-        assert_eq!(request.tool_specs.len(), 1);
-        assert_eq!(request.tool_specs[0].name, "inspect");
-    }
+/// In-process content digest. Never persisted: a `DefaultHasher` value is not
+/// stable across builds, so durable identity is the SHA-256 prefix instead.
+fn digest(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }

@@ -225,7 +225,7 @@ fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
 
 #[tokio::test]
 async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use graticule::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-test".to_string();
@@ -322,7 +322,7 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
 
 #[tokio::test]
 async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use graticule::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use view::model::layout::InteractiveTarget;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -399,7 +399,7 @@ async fn history_search_opening_preserves_scene_bar_and_context_bar() {
     app.record_input_history("existing entry".to_string(), Vec::new(), Vec::new());
 
     // 1. Render normal frame
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-test");
     });
@@ -423,7 +423,7 @@ async fn history_search_opening_preserves_scene_bar_and_context_bar() {
     );
 
     // 3. Render frame during HistorySearch
-    let mut terminal_hist = nuotc::TestTerminal::new(80, 24);
+    let mut terminal_hist = graticule::TestTerminal::new(80, 24);
     terminal_hist.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-test");
     });
