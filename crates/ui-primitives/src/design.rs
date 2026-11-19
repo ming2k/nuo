@@ -99,9 +99,12 @@ pub const QUESTION_ANSWER_GLYPH: &str = "↳";
 /// Columns between the answer glyph and the selected label text.
 pub const QUESTION_ANSWER_GAP_COLS: usize = 1;
 
-/// Separator between a question's short `header` chip, its text, and its
-/// option-count meta on one rendered line (`Scope | … (2 options)`).
-pub const QUESTION_META_SEPARATOR: &str = " | ";
+/// Columns between a question's short `header` chip, its text, and its
+/// option-count meta on one rendered line (`Scope  … (2 options)`).
+///
+/// R2 enumeration: components are separated by spatial distance, never a
+/// separator glyph.
+pub const QUESTION_META_SEPARATOR: &str = "  ";
 
 /// Vertical chrome rows around a sent user message panel: one top transition
 /// row and one bottom transition row.

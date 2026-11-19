@@ -51,31 +51,37 @@
 //! without a terminal.
 //!
 //! [`WorkspaceSecuritySnapshot::domains_needing_review`]: protocol::WorkspaceSecuritySnapshot::domains_needing_review
-use graticule::{Alignment, Block, Color, Frame, Line, Modifier, Paragraph, Rect, Style};
+use graticule::{Alignment, Block, Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use protocol::WorkspaceSecuritySnapshot;
 use ui_primitives::components::keycap::{AffordanceIntent, KeyAffordance, layout_affordances};
 use ui_primitives::components::options::{ChoiceMarker, ChoiceStyle, push_wrapped_styled};
 use ui_primitives::components::row::{ListRow, RowGroup, RowStyledAtom};
+use ui_primitives::design::{MODAL_INNER_H_PADDING, MODAL_INNER_V_PADDING};
+use ui_primitives::elevation::{ElevationArchetype, border_type_for_glyphs};
 use ui_primitives::primitives::contrast_fg;
 use view::trust_gate::{self, TrustDomainView};
 
 use crate::shell::question_model::{QuestionAction, QuestionEffect, QuestionModel};
 use crate::shell::render::Theme;
 
-/// The widest the panel ever gets, in columns.
+/// The widest the card ever gets, in columns.
 ///
-/// This is a **reading measure**, not a fraction of the screen. Past roughly 84
-/// columns a line of prose stops getting easier to read and starts getting
-/// harder — the eye has further to travel back to the next row — and this panel's
-/// rows are a name with a two-word status pushed to opposite edges, so a wider
-/// measure does not add legibility, it adds a gulf between the two fields. The
-/// terminal's spare columns become margin, which is where a centred composition
-/// wants them.
-const PANEL_MAX_WIDTH: u16 = 84;
+/// This is a compact **card measure** (`56` outer columns -> `50` inner body
+/// columns after `CARD_H_PADDING` on each side), not a full-width slab or a
+/// fraction of the viewport. Fifty inner columns fit every headline, every
+/// domain row (name + status column), and all four footer hints on one line
+/// each without stretching the decision row across the whole terminal.
+const PANEL_MAX_WIDTH: u16 = 56;
 
-/// Columns kept clear between the panel and the terminal frame, so the centred
-/// block never touches the edge.
-const PANEL_H_MARGIN: u16 = 2;
+/// Minimum columns kept clear between the card and the terminal frame, so the
+/// centered card never touches the viewport edge.
+const PANEL_H_MARGIN: u16 = 4;
+
+/// Inner horizontal padding inside the elevated card (each side).
+const CARD_H_PADDING: u16 = MODAL_INNER_H_PADDING;
+
+/// Inner vertical padding inside the elevated card (top and bottom).
+const CARD_V_PADDING: u16 = MODAL_INNER_V_PADDING;
 
 /// The runtime state of the PreAttach surface.
 ///
@@ -348,45 +354,135 @@ impl PreAttachState {
 pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
     let area = f.area();
 
-    // Full-screen pure black background — the user-requested "全部黑屏" visual.
-    // Distinct from `theme.surface()` (the chat surface) so the operator cannot
-    // mistake PreAttach for a live chat.
+    // Full-screen pure dark backdrop — distinct from `theme.surface()` (the
+    // chat surface) so the operator cannot mistake PreAttach for a live chat.
+    // The trust decision itself sits inside a centered, compact card painted at
+    // `theme.panel()`, giving it a calm elevated step off the backdrop.
     f.render_widget(
         &mut Block::default().style(Style::default().bg(theme.backdrop)),
         area,
     );
 
     let width = panel_width(area);
-    let body_width = width as usize;
+    let h_pad = card_h_padding(width);
+    let body_width = width.saturating_sub(2 * h_pad) as usize;
+    let card_bg = theme.panel();
 
     // Sections, in paint order. Context is built behind a flag so a short
     // terminal drops it before it drops the decision: the rows, their reasons,
     // and the keys that answer them survive every geometry.
     let mut sections = Sections {
-        context: context_lines(state, theme, body_width),
-        title: title_lines(state, theme, body_width),
-        headline: headline_lines(state, theme, body_width),
+        context: context_lines(state, theme, body_width, card_bg),
+        title: title_lines(state, theme, body_width, card_bg),
+        headline: headline_lines(state, theme, body_width, card_bg),
         rows: row_lines(state, theme, body_width),
-        consequence: consequence_lines(theme, body_width),
-        footer: footer_lines(state, theme, body_width),
+        consequence: consequence_lines(theme, body_width, card_bg),
+        footer: footer_lines(state, theme, body_width, card_bg),
     };
-    let mut lines = sections.join();
-    if lines.len() as u16 > area.height {
-        sections.context.clear();
-        lines = sections.join();
-    }
-    if lines.len() as u16 > area.height {
-        sections.consequence.clear();
-        lines = sections.join();
-    }
 
-    let panel = centered_panel(area, width, lines.len() as u16);
+    let fits =
+        |line_count: usize, v_pad: u16| -> bool { line_count as u16 + 2 * v_pad <= area.height };
+
+    let mut lines = sections.join(body_width, card_bg);
+    if !fits(lines.len(), CARD_V_PADDING) {
+        sections.context.clear();
+        lines = sections.join(body_width, card_bg);
+    }
+    if !fits(lines.len(), CARD_V_PADDING) {
+        sections.consequence.clear();
+        lines = sections.join(body_width, card_bg);
+    }
+    let v_pad = if fits(lines.len(), CARD_V_PADDING) {
+        CARD_V_PADDING
+    } else {
+        0
+    };
+
+    let card_height = (lines.len() as u16 + 2 * v_pad).min(area.height);
+    let panel = centered_panel(area, width, card_height);
+    let inner = paint_card_chrome(f, panel, h_pad, v_pad, theme, card_bg);
+
     f.render_widget(
         &mut Paragraph::new(lines)
             .alignment(Alignment::Left)
-            .style(Style::default().bg(theme.backdrop)),
-        panel,
+            .style(Style::default().bg(card_bg)),
+        inner,
     );
+}
+
+/// Paint the card surface and return the inner content rect.
+///
+/// Under `Chromatic` (TrueColor / 256-color), the card is borderless and
+/// separated from the backdrop purely by its elevated `theme.panel()` fill plus
+/// `h_pad` / `v_pad` breathing room. Under `Structured` / `Hybrid`, where
+/// background luminance steps are unavailable, an explicit bounding box frames
+/// the card while keeping the exact same `inner.width`.
+fn paint_card_chrome(
+    f: &mut Frame,
+    panel: Rect,
+    h_pad: u16,
+    v_pad: u16,
+    theme: &Theme,
+    card_bg: Color,
+) -> Rect {
+    match theme.elevation {
+        ElevationArchetype::Chromatic => {
+            f.render_widget(
+                &mut Block::default().style(Style::default().bg(card_bg)),
+                panel,
+            );
+            Rect {
+                x: panel.x + h_pad,
+                y: panel.y + v_pad,
+                width: panel.width.saturating_sub(2 * h_pad),
+                height: panel.height.saturating_sub(2 * v_pad),
+            }
+        }
+        ElevationArchetype::Structured | ElevationArchetype::Hybrid => {
+            if v_pad > 0 && panel.height >= 3 && panel.width >= 3 {
+                let border_type = match theme.elevation {
+                    ElevationArchetype::Structured => border_type_for_glyphs(&theme.glyphs),
+                    _ => graticule::BorderType::Plain,
+                };
+                let mut block = Block::default()
+                    .borders(graticule::Borders::ALL)
+                    .border_type(border_type)
+                    .border_style(Style::default().fg(theme.text))
+                    .style(Style::default().fg(theme.text).bg(card_bg));
+                let framed = block.inner(panel);
+                f.render_widget(&mut block, panel);
+                let inner_h_pad = h_pad.saturating_sub(1);
+                Rect {
+                    x: framed.x + inner_h_pad,
+                    y: framed.y,
+                    width: framed.width.saturating_sub(2 * inner_h_pad),
+                    height: framed.height,
+                }
+            } else {
+                f.render_widget(
+                    &mut Block::default().style(Style::default().bg(card_bg)),
+                    panel,
+                );
+                Rect {
+                    x: panel.x + h_pad,
+                    y: panel.y + v_pad,
+                    width: panel.width.saturating_sub(2 * h_pad),
+                    height: panel.height.saturating_sub(2 * v_pad),
+                }
+            }
+        }
+    }
+}
+
+fn blank_card_line(body_width: usize, card_bg: Color) -> Line<'static> {
+    if card_bg == Color::Reset || body_width == 0 {
+        Line::default()
+    } else {
+        Line::from(Span::styled(
+            " ".repeat(body_width),
+            Style::default().bg(card_bg),
+        ))
+    }
 }
 
 /// The panel's sections, in paint order.
@@ -414,7 +510,7 @@ impl Sections {
     /// boundary the background step already draws — and would read as a table
     /// header where there is no table. An empty section contributes nothing,
     /// including no separator.
-    fn join(&self) -> Vec<Line<'static>> {
+    fn join(&self, body_width: usize, card_bg: Color) -> Vec<Line<'static>> {
         let mut out: Vec<Line<'static>> = Vec::new();
         for section in [
             &self.context,
@@ -428,7 +524,7 @@ impl Sections {
                 continue;
             }
             if !out.is_empty() {
-                out.push(Line::default());
+                out.push(blank_card_line(body_width, card_bg));
             }
             out.extend(section.iter().cloned());
         }
@@ -439,7 +535,12 @@ impl Sections {
 /// Context above the title: the acceptance banner, a failed attestation, and
 /// the workspace path when it disambiguates. Every one of these is *context*,
 /// never the decision.
-fn context_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec<Line<'static>> {
+fn context_lines(
+    state: &PreAttachState,
+    theme: &Theme,
+    body_width: usize,
+    card_bg: Color,
+) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     if state.acceptance() {
@@ -450,10 +551,11 @@ fn context_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Ve
             "Acceptance mode (NUO_FORCE_PRE_ATTACH=1) — this decision persists against the real workspace.",
             Style::default()
                 .fg(theme.warn())
+                .bg(card_bg)
                 .add_modifier(Modifier::BOLD),
             body_width,
         );
-        lines.push(Line::default());
+        lines.push(blank_card_line(body_width, card_bg));
     }
 
     if let Some(error) = state.attestation_error() {
@@ -464,6 +566,7 @@ fn context_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Ve
             "Trust was not applied",
             Style::default()
                 .fg(theme.err())
+                .bg(card_bg)
                 .add_modifier(Modifier::BOLD),
             body_width,
         );
@@ -472,7 +575,7 @@ fn context_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Ve
             "",
             "",
             error,
-            Style::default().fg(theme.err()),
+            Style::default().fg(theme.err()).bg(card_bg),
             body_width,
         );
     }
@@ -483,7 +586,7 @@ fn context_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Ve
             "",
             "",
             &state.root,
-            Style::default().fg(theme.dim()),
+            Style::default().fg(theme.dim()).bg(card_bg),
             body_width,
         );
     }
@@ -493,7 +596,12 @@ fn context_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Ve
 
 /// The surface's name. Not bracketed — brackets are this product's badge and
 /// count slots.
-fn title_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec<Line<'static>> {
+fn title_lines(
+    state: &PreAttachState,
+    theme: &Theme,
+    body_width: usize,
+    card_bg: Color,
+) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     push_wrapped_styled(
         &mut lines,
@@ -502,6 +610,7 @@ fn title_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec<
         trust_gate::GATE_TITLE,
         Style::default()
             .fg(theme.brand())
+            .bg(card_bg)
             .add_modifier(Modifier::BOLD),
         body_width,
     );
@@ -515,6 +624,7 @@ fn title_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec<
             "Applying trust settings…",
             Style::default()
                 .fg(theme.running())
+                .bg(card_bg)
                 .add_modifier(Modifier::BOLD),
             body_width,
         );
@@ -523,7 +633,12 @@ fn title_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec<
 }
 
 /// Why the gate is open — one line per reason class present, and nothing else.
-fn headline_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec<Line<'static>> {
+fn headline_lines(
+    state: &PreAttachState,
+    theme: &Theme,
+    body_width: usize,
+    card_bg: Color,
+) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let Some(question) = state.model().request().questions.first() else {
         return lines;
@@ -533,7 +648,7 @@ fn headline_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> V
         "",
         "",
         &question.question,
-        Style::default().fg(theme.fg()),
+        Style::default().fg(theme.fg()).bg(card_bg),
         body_width,
     );
     lines
@@ -704,21 +819,26 @@ fn render_row(
 
 /// What an unticked row means. Stated once, in a secondary tone, beneath the
 /// band — it answers a different question than the headline does.
-fn consequence_lines(theme: &Theme, body_width: usize) -> Vec<Line<'static>> {
+fn consequence_lines(theme: &Theme, body_width: usize, card_bg: Color) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     push_wrapped_styled(
         &mut lines,
         "",
         "",
         trust_gate::GATE_CONSEQUENCE,
-        Style::default().fg(theme.muted()),
+        Style::default().fg(theme.muted()).bg(card_bg),
         body_width,
     );
     lines
 }
 
 /// The keys that answer the question — only the ones that exist.
-fn footer_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec<Line<'static>> {
+fn footer_lines(
+    state: &PreAttachState,
+    theme: &Theme,
+    body_width: usize,
+    card_bg: Color,
+) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     if state.submitting() {
         return lines;
@@ -726,12 +846,10 @@ fn footer_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec
 
     let count = state.rows().len();
     let mut affordances: Vec<KeyAffordance> = Vec::new();
-    // Both verbs are two words. The panel is 56 columns at an 80-column
-    // terminal, and a footer that spells out "continue untrusted" pushes the
-    // navigation affordances of a multi-row gate into `F1 more` — a key legend
-    // that hides the keys the surface actually has. What `Esc` leaves behind is
-    // stated by the consequence line directly above, so the key only has to name
-    // the act.
+    // Both verbs are two words. With 50 inner body columns inside a 56-column
+    // card, all four affordances of a multi-row gate fit on one line without
+    // spilling into `F1 more`. What `Esc` leaves behind is stated by the
+    // consequence line directly above, so the key only has to name the act.
     affordances.push(KeyAffordance::with_intent_and_rank(
         "Enter",
         "trust",
@@ -759,24 +877,38 @@ fn footer_lines(state: &PreAttachState, theme: &Theme, body_width: usize) -> Vec
         ));
     }
 
-    let layout = layout_affordances(&affordances, body_width, theme, Color::Reset, Some("more"));
-    lines.push(Line::from(layout.spans));
+    let layout = layout_affordances(&affordances, body_width, theme, card_bg, Some("more"));
+    let mut spans = layout.spans;
+    if card_bg != Color::Reset && layout.visual_width < body_width {
+        spans.push(Span::styled(
+            " ".repeat(body_width - layout.visual_width),
+            Style::default().bg(card_bg),
+        ));
+    }
+    lines.push(Line::from(spans));
     lines
 }
 
-/// The panel's width: a reading measure that yields to the screen.
+/// The card's outer width: a compact measure that yields to the screen.
 ///
 /// The measure is the design constraint and the terminal is the hard one — the
 /// *opposite* of a percentage of the viewport. A percentage made the panel narrow
 /// on a narrow terminal (where the prompt most needs its columns) and wide on a
-/// wide one (where the eye least wants the travel), so the same sentence wrapped
-/// twice at 80 columns and once at 120 for no reason of legibility. Here the
-/// panel claims its measure whenever the screen can fund it, and gives back
-/// exactly what the frame's margin needs when it cannot.
+/// wide one (where the eye least wants the travel). Capping at `PANEL_MAX_WIDTH`
+/// (56) keeps the card compact and centered rather than spanning the full width
+/// of an 80–100 column terminal, while yielding only `PANEL_H_MARGIN` when the
+/// terminal is narrower.
 pub(crate) fn panel_width(area: Rect) -> u16 {
-    area.width
-        .saturating_sub(PANEL_H_MARGIN)
-        .min(PANEL_MAX_WIDTH)
+    if area.width <= PANEL_H_MARGIN {
+        area.width
+    } else {
+        (area.width - PANEL_H_MARGIN).min(PANEL_MAX_WIDTH)
+    }
+}
+
+/// Horizontal inner padding (each side) for a card of outer width `panel_w`.
+pub(crate) fn card_h_padding(panel_w: u16) -> u16 {
+    CARD_H_PADDING.min(panel_w.saturating_sub(1) / 2)
 }
 
 /// Center a `width` × `height` panel inside `area`.

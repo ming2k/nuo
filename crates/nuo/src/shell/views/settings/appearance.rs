@@ -396,12 +396,12 @@ fn draw_live_specimen_gallery(
     lines.push(Line::from(vec![
         Span::styled("  ▎", Style::default().fg(candidate.running())),
         Span::styled(
-            "⠋ edit_text ",
+            "⠋ edit_text",
             Style::default()
                 .fg(candidate.running())
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("| running (1.4s)", Style::default().fg(candidate.running())),
+        Span::styled("  running (1.4s)", Style::default().fg(candidate.running())),
     ]));
 
     // Toast

@@ -502,7 +502,7 @@ pub(crate) fn render_footer(
                 Style::default().bg(bg).fg(theme.fg()),
             ),
             Span::styled(
-                " (Enter apply | Esc clear)".to_string(),
+                " (Enter apply  Esc clear)".to_string(),
                 Style::default().bg(bg).fg(theme.dim()),
             ),
         ]);

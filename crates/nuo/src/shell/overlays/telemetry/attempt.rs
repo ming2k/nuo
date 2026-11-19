@@ -266,7 +266,7 @@ pub(crate) fn build_attempt_inspector_body(
     let server_detail = match (head_us, frame_us) {
         (Some(head), Some(frame)) => {
             format!(
-                "headers {} | first frame {} from dispatch",
+                "headers {}, first frame {} from dispatch",
                 fmt_duration_us(head),
                 fmt_duration_us(frame)
             )
@@ -293,7 +293,7 @@ pub(crate) fn build_attempt_inspector_body(
         "First token",
         match (ttft_after_sent, ttft_us) {
             (Some(after), Some(total)) => format!(
-                "TTFT {} after send | {} from dispatch",
+                "TTFT {} after send, {} from dispatch",
                 fmt_duration_us(after),
                 fmt_duration_us(total)
             ),
@@ -320,13 +320,13 @@ pub(crate) fn build_attempt_inspector_body(
         "Last token",
         match (stream_us, rate) {
             (Some(span), Some(rate)) => format!(
-                "streamed {} | {} tok @ {}",
+                "streamed {}, {} tok @ {}",
                 fmt_duration_us(span),
                 fmt_num(att.completion_tokens),
                 fmt_tps(Some(rate))
             ),
             (Some(span), None) => format!(
-                "streamed {} | rate – (needs two events and a span)",
+                "streamed {}, rate – (needs two events and a span)",
                 fmt_duration_us(span)
             ),
             _ => "not recorded".to_string(),
@@ -373,7 +373,7 @@ pub(crate) fn build_attempt_inspector_body(
             Span::styled(GUTTER, Style::default()),
             Span::styled(
                 format!(
-                    "socket: RTT {} | retransmits {retransmits}",
+                    "socket: RTT {}, retransmits {retransmits}",
                     fmt_duration_us(rtt_us)
                 ),
                 Style::default().fg(theme.text_muted),

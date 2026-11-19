@@ -150,12 +150,11 @@ fn the_painted_gate_aligns_statuses_into_one_column() {
         .filter(|row| row.contains("[x]") || row.contains("[ ]"))
         .collect();
     assert_eq!(rows.len(), 3, "every row must be painted:\n{rows:#?}");
-    // The status column's right edge is the band's, and the band is the panel:
-    // the decision block spans the panel's full width, so its edge *is* the
-    // composition's object edge. No inset — an inset band would read as a card
-    // floating inside a card.
+    // The status column's right edge is the band's, and the band spans the
+    // card's inner body width (inset by `card_h_padding` from the card edge).
     let panel = crate::shell::pre_attach::panel_width(buf.area()) as usize;
-    let last_col = (width - panel) / 2 + panel;
+    let h_pad = crate::shell::pre_attach::card_h_padding(panel as u16) as usize;
+    let last_col = (width - panel) / 2 + panel - h_pad;
     for token in ["new", "changed", "expired"] {
         let row = rows
             .iter()
@@ -339,5 +338,108 @@ fn a_failed_attestation_is_stated_as_a_failure_with_its_cause() {
     assert!(
         grid.contains("Project instructions"),
         "a failed round-trip must return the decision to the user:\n{grid}"
+    );
+}
+
+#[test]
+fn the_painted_gate_renders_as_a_compact_centered_elevated_card() {
+    let state = PreAttachState::from_snapshot(&snapshot(WorkspaceTrustState::Changed))
+        .expect("changed instructions must gate");
+    let theme = crate::shell::Theme::default();
+    assert_ne!(
+        theme.panel(),
+        theme.backdrop,
+        "card surface must be elevated above the backdrop"
+    );
+
+    let (width, height) = (90u16, 30u16);
+    let mut terminal = graticule::TestTerminal::new(width, height);
+    terminal.draw(|f| {
+        crate::shell::pre_attach::draw_pre_attach(f, &state, &theme);
+    });
+    let buf = terminal.buffer();
+
+    // Find bounding box of all cells that are NOT painted with `theme.backdrop`.
+    let mut min_x = width;
+    let mut max_x = 0u16;
+    let mut min_y = height;
+    let mut max_y = 0u16;
+    for y in 0..height {
+        for x in 0..width {
+            let bg = buf.get(x, y).expect("in bounds").bg();
+            if bg != theme.backdrop {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+
+    let card_w = max_x - min_x + 1;
+    let card_h = max_y - min_y + 1;
+    let expected_w = crate::shell::pre_attach::panel_width(buf.area());
+    assert_eq!(card_w, expected_w, "card width matches compact measure");
+    assert!(
+        card_w < width - 20,
+        "card ({card_w}) must not span across the {width}-col viewport"
+    );
+
+    // Horizontally and vertically centered within 1 cell of rounding.
+    let left_margin = min_x;
+    let right_margin = width - 1 - max_x;
+    assert!(
+        left_margin.abs_diff(right_margin) <= 1,
+        "card must be horizontally centered: left={left_margin}, right={right_margin}"
+    );
+    let top_margin = min_y;
+    let bottom_margin = height - 1 - max_y;
+    assert!(
+        top_margin.abs_diff(bottom_margin) <= 1,
+        "card must be vertically centered: top={top_margin}, bottom={bottom_margin}"
+    );
+
+    // Every cell inside the card is painted with either `theme.panel()` or a
+    // decision-row band (`theme.selected()` / `theme.raised()`), never the backdrop
+    // or `Color::Reset`.
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let bg = buf.get(x, y).expect("in bounds").bg();
+            assert!(
+                bg == theme.panel() || bg == theme.selected() || bg == theme.raised(),
+                "unexpected bg at ({x}, {y}) inside card: {bg:?}"
+            );
+        }
+    }
+    // Top/bottom padding rows inside the card carry `theme.panel()`.
+    assert_eq!(
+        buf.get(min_x, min_y).expect("in bounds").bg(),
+        theme.panel()
+    );
+    assert_eq!(
+        buf.get(max_x, max_y).expect("in bounds").bg(),
+        theme.panel()
+    );
+    // Card stays compact enough for its height.
+    assert!(card_h >= 10 && card_h < height);
+}
+
+#[test]
+fn the_painted_gate_frames_the_card_in_monochrome_mode() {
+    let state = PreAttachState::from_snapshot(&snapshot(WorkspaceTrustState::Changed))
+        .expect("changed instructions must gate");
+    let mono = crate::shell::Theme::monochrome();
+    let mut terminal = graticule::TestTerminal::new(80, 24);
+    terminal.draw(|f| {
+        crate::shell::pre_attach::draw_pre_attach(f, &state, &mono);
+    });
+    let (grid, _) = super::helpers::painted_rows(terminal.buffer(), 80, 24);
+    assert!(
+        grid.contains('+') && grid.contains('-'),
+        "monochrome card draws an explicit ASCII frame:\n{grid}"
+    );
+    assert!(
+        grid.contains("Workspace trust") && grid.contains("Enter trust"),
+        "monochrome card preserves content and exit affordance:\n{grid}"
     );
 }

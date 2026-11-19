@@ -62,7 +62,7 @@ fn coverage_footer_names_the_short_copy() {
     );
     assert_eq!(
         coverage_footer(OutputCoverage::CutBeforeUi),
-        Some("output truncated | partial kept"),
+        Some("output truncated, partial kept"),
         "a payload cut before the UI keeps the older, graver wording",
     );
 }

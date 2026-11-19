@@ -15,6 +15,7 @@ use ui_primitives::components::detail::{
 use ui_primitives::components::options::{ChoiceTone, choice_style};
 use ui_primitives::components::overflow::{Overflow, TextCell, WidthAware};
 use ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
+use ui_primitives::design::JOIN_ENUMERATE_COLS;
 use ui_primitives::primitives::{
     BodyRenderOptions, FixedModalSpec, FooterHint, FooterHintWithBand, SCROLL_EDGE_MARGIN,
     breadcrumb_parts, keyvocab, modal_area, modal_frame, modal_header, modal_header_parts,
@@ -554,23 +555,26 @@ pub(crate) fn connection_detail_body(
     } else {
         layout = layout.kv("Credential", &detail.api_key_source);
     }
-    if let Some(active) = &detail.active_model {
-        let mut segments = vec![RowSegment::styled(active.clone(), value)];
-        if let Some(effort) = &detail.active_model_effort {
-            segments.push(RowSegment::styled(
-                format!("  |  reasoning: {effort}"),
-                muted,
-            ));
-        } else if detail.active_model_thinking == Some(true) {
-            segments.push(RowSegment::styled("  |  thinking: enabled", muted));
-        }
-        layout = layout.kv_segments("Default Active", segments);
-    }
-
-    // Transport & Headers
+    // Transport & Headers. The default model lives here as its own key-value
+    // row rather than being appended to another field: a model is request-level
+    // context, and spatial distance plus the muted reasoning note is enough to
+    // group it without an inline divider.
     layout = layout
         .section("Transport")
         .kv("User-Agent", &detail.user_agent);
+    if let Some(active) = &detail.active_model {
+        let gap = " ".repeat(JOIN_ENUMERATE_COLS);
+        let mut segments = vec![RowSegment::styled(active.clone(), value)];
+        if let Some(effort) = &detail.active_model_effort {
+            segments.push(RowSegment::styled(
+                format!("{gap}reasoning: {effort}"),
+                muted,
+            ));
+        } else if detail.active_model_thinking == Some(true) {
+            segments.push(RowSegment::styled(format!("{gap}thinking: enabled"), muted));
+        }
+        layout = layout.kv_segments("Default Model", segments);
+    }
     if !detail.headers.is_empty() {
         layout = layout.raw_row(SelectableRow::styled(format_detail_label("Headers"), label));
         for (k, v) in &detail.headers {
@@ -594,19 +598,8 @@ pub(crate) fn connection_detail_body(
     if detail.models.is_empty() {
         layout = layout.raw_row(SelectableRow::styled("(no models configured)", muted));
     } else {
-        let active_desc = detail
-            .active_model
-            .as_deref()
-            .unwrap_or("(none configured)");
         layout = layout
-            .kv(
-                "Catalog",
-                format!(
-                    "{} discovered  |  default: {}",
-                    detail.models.len(),
-                    active_desc
-                ),
-            )
+            .kv("Catalog", format!("{} discovered", detail.models.len()))
             .kv_segments(
                 "Action",
                 vec![
@@ -849,12 +842,17 @@ fn quota_window_rank(bucket: &protocol::QuotaWindowBucket) -> (u8, u64) {
     (rank, bucket.reset_at_ms.unwrap_or(u64::MAX))
 }
 
-/// Normalize bucket labels to avoid tautology and redundant window tags.
-pub(crate) fn normalize_quota_bucket_label(
+/// Split a bucket label into its clean name and an optional, separately-styled
+/// window tag.
+///
+/// Keeping the tag separate lets the renderer express the relationship with
+/// tone (name in the value colour, window in the muted colour) and spatial
+/// distance, instead of an inline `|` divider.
+pub(crate) fn normalize_quota_bucket_label_parts(
     label: &str,
     group: Option<&str>,
     window: Option<protocol::QuotaWindowKind>,
-) -> String {
+) -> (String, Option<String>) {
     let mut clean = label.trim().to_string();
 
     // 1. If group is specified and clean starts with group, strip group prefix
@@ -913,11 +911,26 @@ pub(crate) fn normalize_quota_bucket_label(
         None => true,
     };
 
-    if !contains_window && let Some(w) = window {
-        clean.push_str(&format!(" | {}", w.label()));
-    }
+    let window_tag = if !contains_window {
+        window.map(|w| w.label().to_string())
+    } else {
+        None
+    };
+    (clean, window_tag)
+}
 
-    clean
+/// Normalize bucket labels to avoid tautology and redundant window tags.
+#[cfg(test)]
+pub(crate) fn normalize_quota_bucket_label(
+    label: &str,
+    group: Option<&str>,
+    window: Option<protocol::QuotaWindowKind>,
+) -> String {
+    let (clean, window_tag) = normalize_quota_bucket_label_parts(label, group, window);
+    match window_tag {
+        Some(tag) => format!("{clean}{}{tag}", " ".repeat(JOIN_ENUMERATE_COLS)),
+        None => clean,
+    }
 }
 
 pub(crate) fn render_periodic_quota_buckets<'a>(
@@ -966,21 +979,21 @@ pub(crate) fn render_periodic_quota_buckets<'a>(
             last_group = current_group;
         }
 
-        let bucket_label =
-            normalize_quota_bucket_label(&bucket.label, current_group, bucket.window);
+        let (bucket_label, window_tag) =
+            normalize_quota_bucket_label_parts(&bucket.label, current_group, bucket.window);
 
         let reset_str =
             format_reset_countdown(bucket.reset_at_ms, bucket.reset_time_str.as_deref());
 
-        let title_row = if let Some(reset) = reset_str {
-            SelectableRow::from_segments(vec![
-                RowSegment::styled(bucket_label, value),
-                RowSegment::styled(format!("  |  {reset}"), muted),
-            ])
-        } else {
-            SelectableRow::styled(bucket_label, value)
-        };
-        layout = layout.raw_row(title_row);
+        let gap = " ".repeat(JOIN_ENUMERATE_COLS);
+        let mut title_segments = vec![RowSegment::styled(bucket_label, value)];
+        if let Some(tag) = window_tag {
+            title_segments.push(RowSegment::styled(format!("{gap}{tag}"), muted));
+        }
+        if let Some(reset) = reset_str {
+            title_segments.push(RowSegment::styled(format!("{gap}{reset}"), muted));
+        }
+        layout = layout.raw_row(SelectableRow::from_segments(title_segments));
 
         let pct_used = (bucket.used_fraction * 100.0).round() as u32;
         let mut bar_spans = render_progress_bar_spans(bucket.used_fraction, 20, theme);

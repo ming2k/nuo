@@ -274,7 +274,7 @@ pub fn draw_completion_menu(
             }
 
             if !doc.usage.is_empty() {
-                let usage_str = format!("Usage: {}", doc.usage.join("  |  "));
+                let usage_str = format!("Usage: {}", doc.usage.join("  "));
                 for wl in view::text_layout::wrap_text(&usage_str, max_text_w) {
                     let fg_style = if doc_has_frame {
                         span_bg.fg(theme.fg())

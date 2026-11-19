@@ -26,40 +26,44 @@ exists behind it.
 ## 2. The Composition
 
 ```text
-  ┌ panel (84-col reading measure, centered, sized to content) ─┐
+  ┌ card (56-col compact measure, centered, theme.panel() bg) ──┐
   │                                                             │
-  │  ~/projects/nuo                        context, dim()       │
+  │   ~/projects/nuo                       context, dim()       │
   │                                                             │
-  │  Workspace trust                       title, brand() bold  │
+  │   Workspace trust                      title, brand() bold  │
   │                                                             │
-  │  Content changed on disk since you approved it.             │
+  │   Content changed on disk since you approved it.            │
   │                                        headline, fg()       │
   │                                                             │
-  │  [x] Project instructions                    changed        │
-  │  [x] MCP servers                                 new        │
+  │   [x] Project instructions                   changed        │
+  │   [x] MCP servers                                new        │
   │                                        decision band        │
   │                                                             │
-  │  Unselected content stays off and is not asked about        │
-  │  again until it changes.            consequence, muted()     │
+  │   Unselected content stays off and is not asked about       │
+  │   again until it changes.              consequence, muted() │
   │                                                             │
-  │  Enter trust  Esc skip  ↑↓ move  Space toggle               │
+  │   Enter trust  Esc skip  ↑↓ move  Space toggle              │
   │                                        footer, keycaps      │
   └─────────────────────────────────────────────────────────────┘
 ```
 
 Sections are joined by exactly one blank row. **There is no rule glyph.** The
-decision block is a `theme.raised()` band, and the pointed-at row is
-`theme.selected()`, so grouping rides background steps.
+card itself rides on `theme.panel()` (`CARD_H_PADDING = 3`, `CARD_V_PADDING = 1`)
+centered over `theme.backdrop`; the decision block is a `theme.raised()` band,
+and the pointed-at row is `theme.selected()`, so grouping rides background steps.
+(On `Structured` / `Hybrid` profiles without RGB surface latitude, an explicit
+bounding box frames the card.)
 
-### Panel width is a reading measure, not a percentage
+### Panel width is a compact card measure, not a percentage
 
-`panel_width` claims `PANEL_MAX_WIDTH` (84) columns whenever the screen can fund
-them, and gives back only what `PANEL_H_MARGIN` (2) needs when it cannot. A
-percentage of the viewport is the wrong model: it narrows the panel on a narrow
-terminal, where the prompt most needs its columns, and widens it on a wide one,
-where the row's two fields (name at the left edge, status at the right) drift so
-far apart that they stop reading as one row. The panel's height is its content's,
-and the block is centred.
+`panel_width` claims `PANEL_MAX_WIDTH` (56) outer columns (`50` inner body
+columns after horizontal card padding) whenever the screen can fund them, and
+gives back only what `PANEL_H_MARGIN` (4) needs when it cannot. A percentage of
+the viewport is the wrong model: it narrows the panel on a narrow terminal, where
+the prompt most needs its columns, and widens it on a wide one, where the row's
+two fields (name at the left edge, status at the right) drift so far apart that
+they stop reading as one row. The card's height is its content's plus vertical
+padding, and the block is centred.
 
 ---
 

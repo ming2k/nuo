@@ -100,13 +100,13 @@ pub(crate) fn draw_web_search_content(
             ctx.paint(Line::from(spans));
         }
 
-        // Line 2: 🌐 domain | url
+        // Line 2: 🌐 domain  url
         if !hit.url.is_empty() {
             let globe = "  🌐 ";
             let domain_pill = if hit.domain.is_empty() {
                 String::new()
             } else {
-                format!("{} | ", hit.domain)
+                format!("{}  ", hit.domain)
             };
             let mut spans = vec![
                 Span::styled(" ".repeat(indent), pad),
@@ -241,7 +241,7 @@ pub(crate) fn draw_web_article_content(
     {
         let shield = "🛡️  ";
         let provenance = format!(
-            "Untrusted External Content | Reader: {} | ~{} tokens",
+            "Untrusted External Content  Reader: {}  ~{} tokens",
             reader, tokens
         );
         let mut spans = vec![

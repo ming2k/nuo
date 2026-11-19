@@ -352,7 +352,7 @@ impl<'t> CommandBodyCtx<'t> {
 /// The footer line for a command step whose log was cut *somewhere*.
 ///
 /// ADR-0115: state which copy is short, not just that something is. The old
-/// single "output truncated | partial kept" claimed the screen held a partial
+/// single "output truncated, partial kept" claimed the screen held a partial
 /// log even when the screen held every byte — the fold was hiding it, and the
 /// fold can be revealed. A statement the user can check is the whole point.
 pub(crate) fn coverage_footer(coverage: OutputCoverage) -> Option<&'static str> {
@@ -362,7 +362,7 @@ pub(crate) fn coverage_footer(coverage: OutputCoverage) -> Option<&'static str> 
         // watermark, so the fold may hide rows it never saw either.
         OutputCoverage::ModelTruncated => Some("output truncated for model context"),
         // The payload arrived already cut: the middle is gone for everyone.
-        OutputCoverage::CutBeforeUi => Some("output truncated | partial kept"),
+        OutputCoverage::CutBeforeUi => Some("output truncated, partial kept"),
     }
 }
 

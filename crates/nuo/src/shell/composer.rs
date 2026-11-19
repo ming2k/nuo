@@ -79,7 +79,7 @@ fn chrome_row(full_w: usize, bg: Color, theme: &Theme, dir: char, hidden: usize)
 /// Build the top breathing row: overflow count when clipped above, or the
 /// inline recall pointer badge (`[history 3/17 | draft saved]`) when the
 /// ↑/↓ pointer sits on a history row, or a contextual mode declaration badge
-/// (e.g. `[history search | draft saved]`) when idle at top.
+/// (e.g. `[history search  draft saved]`) when idle at top.
 ///
 /// Priority: overflow indicator > recall badge > extension badge. The
 /// overflow indicator wins because clipped content is a spatial fact about
@@ -109,9 +109,9 @@ fn top_chrome_row(
         let label = if full_w >= 44 {
             let mut label = format!("[history {position}/{total}");
             if edited {
-                label.push_str(" | edited");
+                label.push_str("  edited");
             } else if hints.recall_draft_saved {
-                label.push_str(" | draft saved");
+                label.push_str("  draft saved");
             }
             label.push(']');
             label
@@ -156,7 +156,7 @@ fn top_chrome_row(
     }
     if focused && target == crate::shell::composer_hints::ComposeTarget::HistorySearch {
         let label = if full_w >= 36 {
-            "[history search | draft saved]"
+            "[history search  draft saved]"
         } else if full_w >= 20 {
             "[history search]"
         } else {

@@ -352,8 +352,14 @@ fn the_panel_claims_its_measure_and_yields_only_the_frame_margin() {
         PANEL_MAX_WIDTH,
         "a wide terminal keeps the measure and spends the rest on margin"
     );
-    let comfortable = Rect::new(0, 0, 80 + PANEL_H_MARGIN, 30);
-    assert_eq!(panel_width(comfortable), 80);
+    let standard = Rect::new(0, 0, 80, 30);
+    assert_eq!(
+        panel_width(standard),
+        PANEL_MAX_WIDTH,
+        "an 80-column terminal keeps the compact card measure instead of spanning full width"
+    );
+    let exact = Rect::new(0, 0, PANEL_MAX_WIDTH + PANEL_H_MARGIN, 30);
+    assert_eq!(panel_width(exact), PANEL_MAX_WIDTH);
     let narrow = Rect::new(0, 0, 50, 30);
     assert_eq!(
         panel_width(narrow),
