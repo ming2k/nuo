@@ -6,6 +6,17 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.97] - 2026-11-19
+
+### Added
+
+- **Gemini 4 Neon, Hydrogen, and Carbon model support.** Registered `gemini-4-neon`, `gemini-4-hydrogen`, and `gemini-4-carbon` across Google/Antigravity model tables, dialect tier lexicon, Google `ListModels` discovery, and Antigravity `-xhigh` effort suffix ordering (`GEMINI_LEVEL_XHIGH` ladder for Neon and Hydrogen).
+
+### Changed
+
+- **Spatial separation across TUI surfaces.** Replaced inline `|` pipe dividers with spatial gaps and tone separation across tool summaries, completion usage hints, composer recall/hints, toast actions, provider quota buckets, telemetry, and status lines.
+- **Compact centered trust gate card.** Framed the pre-attach workspace trust gate as a compact centered card (`PANEL_MAX_WIDTH = 56`) on `theme.panel()` with inner padding and a `theme.raised()` decision band, matching `docs/reference/tui/trust-gate.md`.
+
 ## [0.0.96] - 2026-11-19
 
 ### Added
