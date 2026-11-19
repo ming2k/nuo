@@ -10,7 +10,13 @@ fn parses_antigravity_curated_agent_sorts_and_filters_lane_and_effort_variants()
                 "groups": [
                     {
                         "modelIds": [
+                            "gemini-4-neon-high",
+                            "gemini-4-neon-xhigh",
                             "gemini-4-argon",
+                            "gemini-4-hydrogen-high",
+                            "gemini-4-hydrogen-xhigh",
+                            "gemini-pro-orchestrator-neon",
+                            "gemini-pro-orchestrator-g1-pro",
                             "gemini-3.8-flash",
                             "claude-sonnet-5-5",
                             "claude-opus-5-5",
@@ -26,7 +32,17 @@ fn parses_antigravity_curated_agent_sorts_and_filters_lane_and_effort_variants()
         "imageGenerationModelIds": ["gemini-3.1-flash-image"],
         "audioTranscriptionModelIds": ["models/proactive-observer-v10"],
         "models": {
+            "gemini-4-neon-high": { "displayName": "Gemini 4 Neon (High)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-4-neon-xhigh": { "displayName": "Gemini 4 Neon (XHigh)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-4-neon-medium": { "displayName": "Gemini 4 Neon (Medium)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-4-neon-low": { "displayName": "Gemini 4 Neon (Low)", "maxTokens": 1048576, "supportsThinking": true },
             "gemini-4-argon": { "maxTokens": 1000000, "supportsThinking": true },
+            "gemini-4-hydrogen-high": { "displayName": "Gemini 4 Hydrogen (High)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-4-hydrogen-xhigh": { "displayName": "Gemini 4 Hydrogen (XHigh)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-4-hydrogen-medium": { "displayName": "Gemini 4 Hydrogen (Medium)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-4-hydrogen-low": { "displayName": "Gemini 4 Hydrogen (Low)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-pro-orchestrator-neon": { "displayName": "Orchestrator (Neon)", "maxTokens": 1048576, "supportsThinking": true },
+            "gemini-pro-orchestrator-g1-pro": { "displayName": "Orchestrator (Argon)", "maxTokens": 1048576, "supportsThinking": true },
             "gemini-3.8-flash": { "maxTokens": 1048576, "supportsThinking": true },
             "gemini-3.8-flash-high": { "maxTokens": 1048576, "supportsThinking": true },
             "gemini-3.8-flash-medium": { "maxTokens": 1048576, "supportsThinking": true },
@@ -50,17 +66,42 @@ fn parses_antigravity_curated_agent_sorts_and_filters_lane_and_effort_variants()
     let ids: Vec<String> = discovered.iter().map(|m| m.id.clone()).collect();
 
     // Preserves curated ordering from agentModelSorts [INV-CATALOG-01]
-    // and folds parameter/thinking suffixes into canonical identities [INV-CATALOG-02]
+    // and folds parameter/thinking suffixes into canonical identities [INV-CATALOG-02],
+    // while suppressing synthetic orchestrator wrappers (`Orchestrator (Neon)` / `Orchestrator (Argon)`).
     assert_eq!(
         ids,
         vec![
+            "gemini-4-neon".to_string(),
             "gemini-4-argon".to_string(),
+            "gemini-4-hydrogen".to_string(),
             "gemini-3.8-flash".to_string(),
             "claude-sonnet-5-5".to_string(),
             "claude-opus-5-5".to_string(),
             "claude-sonnet-4-6".to_string(),
             "claude-opus-4-6".to_string(),
         ]
+    );
+
+    let neon = discovered.iter().find(|m| m.id == "gemini-4-neon").unwrap();
+    assert_eq!(neon.name.as_deref(), Some("Gemini 4 Neon"));
+    assert_eq!(
+        neon.effort_levels,
+        Some(vec![
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string()
+        ])
+    );
+    assert_eq!(
+        neon.wire_entities,
+        Some(vec![
+            "gemini-4-neon-low".to_string(),
+            "gemini-4-neon-medium".to_string(),
+            "gemini-4-neon-high".to_string(),
+            "gemini-4-neon-xhigh".to_string(),
+        ])
     );
 
     let opus46 = discovered
@@ -371,5 +412,10 @@ fn clean_display_name_strips_thinking_and_tier_suffixes() {
     assert_eq!(
         clean_display_name("Gemini 4 Argon (Disabled)"),
         "Gemini 4 Argon"
+    );
+    assert_eq!(clean_display_name("Gemini 4 Neon (XHigh)"), "Gemini 4 Neon");
+    assert_eq!(
+        clean_display_name("Gemini 4 Hydrogen (XHigh)"),
+        "Gemini 4 Hydrogen"
     );
 }

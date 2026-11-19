@@ -40,6 +40,9 @@ pub(super) fn parse_google_models(json: &Value) -> Vec<DiscoveredModel> {
                                 || id.contains("gemini-3")
                                 || id.contains("gemini-4")
                                 || id.contains("argon")
+                                || id.contains("neon")
+                                || id.contains("hydrogen")
+                                || id.contains("carbon")
                         });
                     DiscoveredModel {
                         id,

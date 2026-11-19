@@ -22,7 +22,10 @@ pub const COPILOT_SEED_MODELS: &[&str] = &["gpt-4o-mini"];
 
 pub const GOOGLE_BUILTIN_MODELS: &[&str] = &[
     // Gemini 4
+    "gemini-4-neon",
     "gemini-4-argon",
+    "gemini-4-hydrogen",
+    "gemini-4-carbon",
     // Gemini 3.x
     "gemini-3.8-flash",
     "gemini-3.7-flash",
@@ -41,13 +44,15 @@ pub const GOOGLE_BUILTIN_MODELS: &[&str] = &[
 ];
 
 pub const ANTIGRAVITY_OAUTH_MODELS: &[&str] = &[
+    "gemini-4-neon",
+    "gemini-4-argon",
+    "gemini-4-hydrogen",
     "gemini-3.8-flash",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
     "claude-sonnet-5-5",
     "claude-opus-5-5",
     "gpt-oss-120b-medium",
-    "gemini-4-argon",
     "gemini-3.5-flash-lite",
 ];
 

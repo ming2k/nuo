@@ -358,6 +358,9 @@ pub const TIER_LEXICON: &[&str] = &[
     "contributor",
     "free",
     "argon",
+    "neon",
+    "hydrogen",
+    "carbon",
     "luna",
 ];
 

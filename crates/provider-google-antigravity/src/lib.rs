@@ -1103,15 +1103,15 @@ struct BaselineWireFamily {
 
 static BASELINE_WIRE_FAMILIES: &[BaselineWireFamily] = &[
     BaselineWireFamily {
-        base: "gemini-3.8-flash",
-        default_entity: "gemini-3.8-flash-tiered",
+        base: "gemini-4-neon",
+        default_entity: "gemini-4-neon-high",
         entities: &[
-            "gemini-3.8-flash-tiered",
-            "gemini-3.8-flash-high",
-            "gemini-3.8-flash-medium",
-            "gemini-3.8-flash-low",
+            "gemini-4-neon-low",
+            "gemini-4-neon-medium",
+            "gemini-4-neon-high",
+            "gemini-4-neon-xhigh",
         ],
-        broadcast: true,
+        broadcast: false,
     },
     BaselineWireFamily {
         base: "gemini-4-argon",
@@ -1122,6 +1122,38 @@ static BASELINE_WIRE_FAMILIES: &[BaselineWireFamily] = &[
             "gemini-4-argon-high",
         ],
         broadcast: false,
+    },
+    BaselineWireFamily {
+        base: "gemini-4-hydrogen",
+        default_entity: "gemini-4-hydrogen-high",
+        entities: &[
+            "gemini-4-hydrogen-low",
+            "gemini-4-hydrogen-medium",
+            "gemini-4-hydrogen-high",
+            "gemini-4-hydrogen-xhigh",
+        ],
+        broadcast: false,
+    },
+    BaselineWireFamily {
+        base: "gemini-4-carbon",
+        default_entity: "gemini-4-carbon-high",
+        entities: &[
+            "gemini-4-carbon-low",
+            "gemini-4-carbon-medium",
+            "gemini-4-carbon-high",
+        ],
+        broadcast: false,
+    },
+    BaselineWireFamily {
+        base: "gemini-3.8-flash",
+        default_entity: "gemini-3.8-flash-tiered",
+        entities: &[
+            "gemini-3.8-flash-tiered",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-low",
+        ],
+        broadcast: true,
     },
     BaselineWireFamily {
         base: "claude-opus-5-5",

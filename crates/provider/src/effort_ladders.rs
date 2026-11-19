@@ -116,8 +116,17 @@ pub const DEEPSEEK_NATIVE: &[Effort] = &[
 /// Z.AI GLM-5.2 / GLM-5.3: `low`/`high`/`xhigh`/`max`.
 pub const GLM_5: &[Effort] = &[Effort::Low, Effort::High, Effort::Xhigh, Effort::Max];
 
-/// Google Gemini 3.x thinkingLevel ladder: `minimal`/`low`/`medium`/`high`.
+/// Google Gemini 3.x / 4.x level ladder (`minimal`/`low`/`medium`/`high`).
 pub const GEMINI_LEVEL: &[Effort] = &[Effort::Minimal, Effort::Low, Effort::Medium, Effort::High];
+
+/// Google Gemini 4 Neon / Hydrogen extended level ladder (`minimal`..=`xhigh`).
+pub const GEMINI_LEVEL_XHIGH: &[Effort] = &[
+    Effort::Minimal,
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::Xhigh,
+];
 
 /// Google Gemini 2.5 thinkingBudget ladder: `minimal`/`low`/`medium`/`high`/`max`.
 pub const GEMINI_BUDGET: &[Effort] = &[

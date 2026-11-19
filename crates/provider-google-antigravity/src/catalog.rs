@@ -72,9 +72,10 @@ pub async fn fetch_remote_catalog(
 /// Effort suffixes in **shallow→deep wire order** — the canonical ordering
 /// the request builder's rank-into-entities relies on (ADR-0074). Upstream
 /// catalog rows arrive in map order, which is unordered; the depth rank of
-/// each entity is a stable vocabulary fact (`-low < -medium < -high < -max`,
+/// each entity is a stable vocabulary fact (`-low < -medium < -high < -xhigh < -max`,
 /// and `-tiered`/`-minimal` are in-band-depth canonical rows that lead).
 const EFFORT_OR_TIER_SUFFIXES: &[&str] = &[
+    "-xhigh",
     "-high",
     "-medium",
     "-low",
@@ -98,7 +99,8 @@ fn entity_rank(id: &str) -> usize {
         ("-low", 1),
         ("-medium", 2),
         ("-high", 3),
-        ("-max", 4),
+        ("-xhigh", 4),
+        ("-max", 5),
     ] {
         if id.ends_with(suffix) {
             return rank;
@@ -116,6 +118,9 @@ fn rank_entity_ids(mut ids: Vec<String>) -> Vec<String> {
 }
 
 const DISPLAY_NAME_PARAM_SUFFIXES: &[&str] = &[
+    " (XHigh)",
+    " (xhigh)",
+    " (Xhigh)",
     " (High)",
     " (Medium)",
     " (Low)",
@@ -131,6 +136,8 @@ const DISPLAY_NAME_PARAM_SUFFIXES: &[&str] = &[
     " [thinking]",
     "[Thinking]",
     "[thinking]",
+    " - XHigh",
+    " - xhigh",
     " - High",
     " - Medium",
     " - Low",
@@ -196,6 +203,8 @@ fn is_internal_helper(id: &str) -> bool {
     id.starts_with("chat_")
         || id.starts_with("tab_")
         || id.starts_with("models/")
+        || id.starts_with("gemini-pro-orchestrator")
+        || id.contains("orchestrator")
         || id.contains("image")
 }
 
@@ -342,19 +351,29 @@ impl ModelFoldAccumulator {
         // [INV-CATALOG-02] Display ladder lifting (capability, not wire truth).
         let effort_levels = if reasoning == Some(true) {
             if model_id.starts_with("gemini-") || model_id.contains("argon") {
-                Some(vec![
+                let mut levels = vec![
                     "minimal".to_string(),
                     "low".to_string(),
                     "medium".to_string(),
                     "high".to_string(),
-                ])
+                ];
+                if self.observed_effort_suffixes.iter().any(|s| s == "xhigh")
+                    || model_id == "gemini-4-neon"
+                    || model_id == "gemini-4-hydrogen"
+                {
+                    levels.push("xhigh".to_string());
+                }
+                if self.observed_effort_suffixes.iter().any(|s| s == "max") {
+                    levels.push("max".to_string());
+                }
+                Some(levels)
             } else if model_id.starts_with("claude-") {
-                Some(vec![
-                    "low".to_string(),
-                    "medium".to_string(),
-                    "high".to_string(),
-                    "max".to_string(),
-                ])
+                let mut levels = vec!["low".to_string(), "medium".to_string(), "high".to_string()];
+                if self.observed_effort_suffixes.iter().any(|s| s == "xhigh") {
+                    levels.push("xhigh".to_string());
+                }
+                levels.push("max".to_string());
+                Some(levels)
             } else {
                 None
             }
