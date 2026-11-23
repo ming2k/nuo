@@ -313,7 +313,7 @@ fn format_model_display_name_folds_hyphens_and_capitalizes_brands() {
     assert_eq!(format_model_display_name(None, "grok-4.7"), "Grok 4.7");
 }
 
-/// ADR-0081 [INV-CATALOG-05]: a relay id carries two routing separators that
+/// ADR-0081 [INV-CATALOGPIPE-02]: a relay id carries two routing separators that
 /// are never part of a model's name. The tier is always dropped (closed set
 /// only), the namespace only when the tail already names a brand.
 #[test]
@@ -351,7 +351,7 @@ fn structural_lift_absorbs_routing_syntax() {
 }
 
 /// An authored label is prose, not routing syntax: it is cleaned and
-/// hyphen-folded, never restructured (ADR-0081 [INV-CATALOG-05]).
+/// hyphen-folded, never restructured (ADR-0081 [INV-CATALOGPIPE-02]).
 #[test]
 fn authored_labels_are_never_restructured() {
     assert_eq!(

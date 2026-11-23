@@ -2,7 +2,16 @@
 
 use std::collections::HashSet;
 
+use tool::{Tag, parse_envelope};
+
 use crate::{InjectionKind, Message, Role};
+
+/// How many visible user messages the mention scan looks back over.
+///
+/// The mention grammar is explicit user intent, so it lives in recent input;
+/// older mentions have already produced their `<skill>` envelope, which the
+/// full-history `already_loaded` set below still honors.
+const MENTION_SCAN_WINDOW: usize = 32;
 
 pub(crate) fn inject_mentioned_skills(
     registry: &crate::cognition::skills::SkillRegistry,
@@ -14,14 +23,6 @@ pub(crate) fn inject_mentioned_skills(
     // common path O(recent user chars) without a full-history join — the old
     // unconditional join was O(total transcript chars) per call, and this
     // runs multiple times per ReAct turn (once per model_request/estimate).
-    //
-    // The mention scan itself is windowed to the most recent
-    // [`MENTION_SCAN_WINDOW`] *visible user* messages: the mention grammar
-    // is explicit user intent, so it lives in recent input; older mentions
-    // have already produced their `<skill name="…">` envelope, which the
-    // full-history `already_loaded` set below still honors (hidden markers
-    // are few, so that scan stays cheap).
-    const MENTION_SCAN_WINDOW: usize = 32;
     let recent_user_texts: Vec<&str> = messages
         .iter()
         .filter(|message| message.role == Role::User && !message.hidden)
@@ -43,7 +44,7 @@ pub(crate) fn inject_mentioned_skills(
     let already_loaded: HashSet<String> = messages
         .iter()
         .filter(|message| message.role == Role::User && message.hidden)
-        .filter_map(|message| extract_loaded_skill_name(&message.content))
+        .filter_map(|message| loaded_skill_name(&message.content))
         .collect();
 
     let mentioned: Vec<crate::cognition::skills::Skill> = {
@@ -60,7 +61,7 @@ pub(crate) fn inject_mentioned_skills(
         let Some(Ok(content)) = registry.body_for(&skill.name) else {
             continue;
         };
-        let formatted = crate::cognition::skills::render::format_skill_injection(&skill, &content);
+        let formatted = crate::cognition::skills::render::render_skill_envelope(&skill, &content);
         messages.push(super::hidden_user_with_reason(
             InjectionKind::ImplicitSkill,
             &skill.name,
@@ -69,21 +70,22 @@ pub(crate) fn inject_mentioned_skills(
     }
 }
 
-/// Extract the skill name from a previously loaded skill message.
+/// The skill name carried by an already-injected skill envelope.
 ///
-/// Recognizes both the structured XML envelope (`<skill name="...`) and the
-/// legacy marker (`[Skill '...' loaded]`) so durable session history from prior
-/// versions remains deduplicated.
-pub(crate) fn extract_loaded_skill_name(content: &str) -> Option<String> {
-    if let Some(start) = content.find("<skill name=\"") {
-        let after = &content[start + "<skill name=\"".len()..];
-        let end = after.find('"')?;
-        return Some(after[..end].to_string());
+/// Reads the envelope's `name` attribute through the shared parser rather than
+/// searching for a `<skill name="` literal: de-duplication must survive a change
+/// to the envelope's spelling (ADR-0226).
+///
+/// There is deliberately no legacy `[Skill '…' loaded]` branch. The format was
+/// replaced without an alias; a session file from before the change re-injects
+/// its skill once and then de-duplicates normally, which is the correct trade
+/// for not carrying two parsers forever.
+pub(crate) fn loaded_skill_name(content: &str) -> Option<String> {
+    let parsed = parse_envelope(content)?;
+    if parsed.tag != Tag::Skill {
+        return None;
     }
-    let prefix = "[Skill '";
-    let start = content.find(prefix)? + prefix.len();
-    let end = content[start..].find("' loaded]")?;
-    Some(content[start..start + end].to_string())
+    parsed.attr("name").map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -106,39 +108,49 @@ mod tests {
         registry
     }
 
+    fn injected_skill(name: &str) -> String {
+        tool::Envelope::new(Tag::Skill)
+            .attr("name", name)
+            .attr("scope", "user")
+            .body("body")
+            .render()
+    }
+
     /// A `@name` mention in the latest user message loads the skill.
     #[test]
     fn mention_in_recent_message_loads_skill() {
         let registry = registry_with_skill("rust-expert");
         let mut messages = vec![Message::new(Role::User, "please use @rust-expert here")];
         inject_mentioned_skills(&registry, &mut messages);
-        assert!(
-            messages.iter().any(|m| m.hidden
-                && m.content.contains("<skill name=\"rust-expert\"")
-                && m.content.contains("<system_guidance>")),
-            "mention must inject the skill envelope with system guidance"
+        let injected = messages
+            .iter()
+            .find(|m| m.hidden)
+            .expect("a hidden skill message");
+        assert_eq!(
+            loaded_skill_name(&injected.content).as_deref(),
+            Some("rust-expert")
         );
     }
 
-    /// Extractor correctly identifies both modern XML and legacy markers.
+    /// The reader understands the envelope the writer produces, and nothing
+    /// else: a legacy marker is no longer recognized.
     #[test]
-    fn extracts_skill_name_from_modern_and_legacy_envelopes() {
-        let modern = "<skill name=\"rust-expert\" scope=\"repo\">\n<system_guidance>...</system_guidance>\n<instructions>...</instructions>\n</skill>";
+    fn the_reader_matches_the_writer_and_rejects_legacy_markers() {
         assert_eq!(
-            extract_loaded_skill_name(modern),
+            loaded_skill_name(&injected_skill("rust-expert")),
             Some("rust-expert".to_string())
         );
-
-        let legacy = "[Skill 'rust-expert' loaded]\nbody\n[/Skill]";
+        assert_eq!(loaded_skill_name("[Skill 'rust-expert' loaded]"), None);
+        assert_eq!(loaded_skill_name("plain message"), None);
+        // A different envelope tag is not a skill.
         assert_eq!(
-            extract_loaded_skill_name(legacy),
-            Some("rust-expert".to_string())
+            loaded_skill_name("<file ref=\"@file:a.rs\"/>"),
+            None,
+            "only a skill envelope names a loaded skill"
         );
-
-        assert_eq!(extract_loaded_skill_name("plain message"), None);
     }
 
-    /// Already loaded skills (both modern and legacy) are not re-injected.
+    /// Already loaded skills are not re-injected.
     #[test]
     fn already_loaded_skills_are_not_re_injected() {
         let registry = registry_with_skill("rust-expert");
@@ -146,28 +158,12 @@ mod tests {
             hidden_user_with_reason(
                 InjectionKind::ImplicitSkill,
                 "rust-expert",
-                "<skill name=\"rust-expert\" scope=\"user\"><instructions></instructions></skill>",
+                injected_skill("rust-expert"),
             ),
             Message::new(Role::User, "please use @rust-expert again"),
         ];
         inject_mentioned_skills(&registry, &mut messages);
         assert_eq!(messages.len(), 2, "skill must not be duplicated");
-
-        // Legacy format deduplication check
-        let mut messages_legacy = vec![
-            hidden_user_with_reason(
-                InjectionKind::ImplicitSkill,
-                "rust-expert",
-                "[Skill 'rust-expert' loaded]\nbody\n[/Skill]",
-            ),
-            Message::new(Role::User, "please use @rust-expert again"),
-        ];
-        inject_mentioned_skills(&registry, &mut messages_legacy);
-        assert_eq!(
-            messages_legacy.len(),
-            2,
-            "legacy skill must not be duplicated"
-        );
     }
 
     /// Text with no mention grammar (`@`, `skill://`) exits before any

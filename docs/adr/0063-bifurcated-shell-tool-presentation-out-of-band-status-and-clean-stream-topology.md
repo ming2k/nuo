@@ -106,6 +106,6 @@ Adopt **Option 3**:
 
 ## Invariants
 
-- `[INV-TOOL-08] In-Band Stream Purity`: The child process output stream (`stdout`, `stderr`, `lines`) MUST NEVER contain synthesized harness state banners or artificial exit markers.
+- `[INV-TOOL-16] In-Band Stream Purity`: The child process output stream (`stdout`, `stderr`, `lines`) MUST NEVER contain synthesized harness state banners or artificial exit markers.
 - `[INV-TUI-12] Emoji-Free Footer`: Execution footers and diagnostic statuses in TUI components MUST NOT contain decorative emoji glyphs.
 - `[INV-EXEC-03] Authentic Exit Code Semantics`: `exit: Option<i32>` MUST be `None` when a command is interrupted by a harness signal or timeout. Synthesizing `Exit -1` is strictly forbidden.

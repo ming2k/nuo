@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acp"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "chrono",
@@ -739,9 +739,10 @@ dependencies = [
 
 [[package]]
 name = "engine"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "dirs",
  "fastrand",
@@ -885,9 +886,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -1129,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "guardrails"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -1213,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "host"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "arboard",
  "async-trait",
@@ -1497,7 +1498,7 @@ dependencies = [
 
 [[package]]
 name = "inference-wire"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "serde",
  "serde_json",
@@ -1802,20 +1803,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcp"
-version = "0.0.97"
-dependencies = [
- "async-trait",
- "protocol",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "tool",
-]
-
-[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1896,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "model-routing"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "chrono",
  "futures",
@@ -2154,7 +2141,7 @@ dependencies = [
 
 [[package]]
 name = "nuo"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2192,7 +2179,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tests"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "acp",
  "async-trait",
@@ -2204,7 +2191,6 @@ dependencies = [
  "inference-wire",
  "insta",
  "libc",
- "mcp",
  "mockito",
  "model-routing",
  "nuo",
@@ -2393,7 +2379,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "persistence"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "base64",
@@ -2506,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "base64",
@@ -2532,7 +2518,7 @@ dependencies = [
 
 [[package]]
 name = "provider"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "base64",
@@ -2558,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "provider-anthropic"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "futures",
@@ -2576,7 +2562,7 @@ dependencies = [
 
 [[package]]
 name = "provider-catalog"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "http",
  "inference-wire",
@@ -2588,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "provider-chatgpt-plan"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "base64",
@@ -2606,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "provider-codebuddy"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "futures",
@@ -2623,7 +2609,7 @@ dependencies = [
 
 [[package]]
 name = "provider-commandcode-goat"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2635,7 +2621,7 @@ dependencies = [
 
 [[package]]
 name = "provider-copilot"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -2647,7 +2633,7 @@ dependencies = [
 
 [[package]]
 name = "provider-deepseek"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2659,7 +2645,7 @@ dependencies = [
 
 [[package]]
 name = "provider-glm-cn"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2669,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "provider-google-antigravity"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2690,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "provider-kimi"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2702,7 +2688,7 @@ dependencies = [
 
 [[package]]
 name = "provider-openai"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "futures",
@@ -2721,7 +2707,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opencode-go"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "chrono",
  "inference-wire",
@@ -2735,7 +2721,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opencode-zen"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2745,7 +2731,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opendesign-go"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2755,7 +2741,7 @@ dependencies = [
 
 [[package]]
 name = "provider-openrouter"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2767,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "provider-qianwen"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2777,7 +2763,7 @@ dependencies = [
 
 [[package]]
 name = "provider-qoder"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "aes",
  "async-trait",
@@ -2806,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "provider-xai"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -3277,7 +3263,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "acp",
  "async-trait",
@@ -3292,7 +3278,6 @@ dependencies = [
  "inference-wire",
  "inventory",
  "libc",
- "mcp",
  "model-routing",
  "netune",
  "persistence",
@@ -3580,7 +3565,7 @@ dependencies = [
 
 [[package]]
 name = "test-support"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "libc",
  "serde",
@@ -3792,7 +3777,7 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tool"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "hex",
@@ -3810,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "tool-ast"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "ignore",
@@ -3834,7 +3819,7 @@ dependencies = [
 
 [[package]]
 name = "tool-derive"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3844,9 +3829,10 @@ dependencies = [
 
 [[package]]
 name = "tool-exec"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -3856,7 +3842,7 @@ dependencies = [
 
 [[package]]
 name = "tool-fs"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "base64",
@@ -3872,7 +3858,7 @@ dependencies = [
 
 [[package]]
 name = "tool-web"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4085,7 +4071,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui-primitives"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "chrono",
  "graticule-canvas",
@@ -4154,9 +4140,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -4218,7 +4204,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "view"
-version = "0.0.97"
+version = "0.0.98"
 dependencies = [
  "chrono",
  "graticule-canvas",

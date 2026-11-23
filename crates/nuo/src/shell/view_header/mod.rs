@@ -11,6 +11,11 @@
 //!   badge (`[!N]`) when unread faults exist; the former standing `F1 help`
 //!   keycap is retired (ADR-0219), so help discovery lives in the empty-state
 //!   tour instead of taxing the row's scarcest budget — tab titles.
+//!   The row also carries its own lifecycle (ADR-0235): a hovered pill reveals
+//!   its close mark inside columns it reserved at rest, an overflowing title
+//!   slides through one bounded one-way reveal while the pointer rests on it,
+//!   and the strip ends with an add affordance whose columns are budgeted before
+//!   any title.
 //!
 //! - **Tier 2 — Polymorphic SceneBar (`draw_scene_bar`).**
 //!   Fixed height: 1 row. Owned by the active scene view [INV-SCENE-02]. Displays
@@ -91,6 +96,66 @@ pub struct TabBarProps<'a> {
     pub active_tab: usize,
     /// Unread fault notices requiring persistent attention (ADR-0131).
     pub unread_faults: usize,
+    /// What the pointer rests on inside the rail, if anything (ADR-0223, ADR-0235).
+    ///
+    /// The TabBar is the first chrome row whose *hover* changes what it
+    /// paints: a hovered pill reveals its close glyph and may scroll its title
+    /// through a bounded reveal pass. The projection therefore carries the
+    /// pointer fact rather than re-deriving it from a second source, so the
+    /// pill that paints the `✕` and the pill that answers the click are
+    /// provably the same one.
+    pub hover: Option<TabBarHover>,
+    /// Milliseconds since the pointer arrived on [`Self::hover`]'s anchor.
+    ///
+    /// Time-based, never frame-count-based, so the reveal cadence is identical
+    /// on any frame rate (`marquee_offset`).
+    pub hover_elapsed_ms: u64,
+}
+
+/// What the pointer rests on inside the Client Global TabBar (ADR-0223, ADR-0235).
+///
+/// [`TabBarHover::Close`] is deliberately a distinct variant from
+/// [`TabBarHover::Tab`]: the two paint differently (the close glyph lights up,
+/// the pill highlight does not move), yet they share one *anchor* — moving from
+/// a pill onto its own `✕` must not restart the title reveal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabBarHover {
+    /// The rail itself: background, margins, or a gap between pills.
+    Rail,
+    /// A tab pill.
+    Tab(usize),
+    /// The close glyph inside a tab pill.
+    Close(usize),
+    /// The trailing add-tab affordance.
+    Add,
+}
+
+impl TabBarHover {
+    /// The pill whose anchor owns the pointer. The close glyph belongs to its
+    /// own tab, so both variants name the same anchor.
+    pub fn tab(self) -> Option<usize> {
+        match self {
+            Self::Tab(index) | Self::Close(index) => Some(index),
+            Self::Rail | Self::Add => None,
+        }
+    }
+
+    /// Whether the pointer is on a pill's close glyph rather than its body.
+    pub fn is_close(self) -> bool {
+        matches!(self, Self::Close(_))
+    }
+
+    /// The *anchor* this hover belongs to: the thing whose clock is running.
+    ///
+    /// Moving from a pill onto its own `✕` keeps the same anchor, so the title
+    /// reveal does not rewind under the pointer; moving to another pill starts
+    /// a fresh visit (the anchor rule is stated here; ADR-0223 supplies the hover input).
+    pub fn anchor(self) -> Self {
+        match self {
+            Self::Close(index) => Self::Tab(index),
+            other => other,
+        }
+    }
 }
 
 /// Canonical thread execution governance context (ADR-0043, ADR-0060, ADR-0062 [INV-HEAD-05, INV-HEAD-07, INV-HEAD-08]).
@@ -110,10 +175,20 @@ pub struct ThreadContext<'a> {
 }
 
 /// Interactive hit-test rects produced by Tier 1 TabBar rendering.
+///
+/// The close and add rects are *only* present when the affordance was painted
+/// this frame (ADR-0235). A hit target with nothing on screen is a phantom
+/// click region — the defect ADR-0219 removed from the status cluster — so the
+/// renderer that decides what the row can show is the one that decides what can
+/// be clicked.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TabBarNavRects {
     /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
     pub tab_rects: Vec<(usize, Rect)>,
+    /// The hovered pill's close mark, when one was painted: `(tab_index, rect)`.
+    pub close_rects: Vec<(usize, Rect)>,
+    /// The trailing add-tab affordance, when it fit on the row.
+    pub add_rect: Option<Rect>,
     /// Bounding rect for left overflow indicator (`‹N`), if present.
     pub prev_rect: Option<Rect>,
     /// Bounding rect for right overflow indicator (`N›`), if present.
@@ -122,6 +197,10 @@ pub struct TabBarNavRects {
     pub overview_rect: Option<Rect>,
     /// Bounding rect for unread fault notice badge (`[!N]`), if present (ADR-0131).
     pub notices_rect: Option<Rect>,
+    /// Whether a hover title reveal is mid-pass. The event loop folds this into
+    /// its `animating` predicate, so an idle strip costs no repaints while a
+    /// hovered overflow still finishes its one pass (ADR-0235 `[INV-TAB-15]`).
+    pub reveal_active: bool,
 }
 
 impl std::ops::Deref for TabBarNavRects {
@@ -143,10 +222,7 @@ impl From<Vec<(usize, Rect)>> for TabBarNavRects {
     fn from(tab_rects: Vec<(usize, Rect)>) -> Self {
         Self {
             tab_rects,
-            prev_rect: None,
-            next_rect: None,
-            overview_rect: None,
-            notices_rect: None,
+            ..Self::default()
         }
     }
 }

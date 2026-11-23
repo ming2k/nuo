@@ -16,6 +16,7 @@ negative_knowledge: true
 - Consulted: Tool Runtime, Agent Assembly, Skill Registry, Persistence, Presentation
 - Complements: [ADR-0176](0176-read-is-one-capability-with-bounded-content-dispatch.md),
   [ADR-0008](0008-single-tool-contract.md), [ADR-0064](0064-orthogonal-agent-tool-surface-meta-tool-pruning-and-mutation-topology.md)
+- Amended by: [ADR-0230](0230-one-mcp-client-one-adapter-and-a-reachable-skill-capability.md) — the MCP adapter and the skill tools are now the only producers of their capabilities; no ghost builtin remains.
 
 ---
 

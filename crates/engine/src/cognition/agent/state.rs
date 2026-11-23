@@ -15,6 +15,50 @@ pub(crate) fn carries_images(messages: &[Message]) -> bool {
     })
 }
 
+/// What one payload-relief pass removed from a request projection.
+///
+/// Returned so the caller can tell the user, not just the log: a request that
+/// silently stops carrying the screenshot the conversation is about is a
+/// behavior change the user must be able to see and correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PayloadRelief {
+    pub offloaded_images: usize,
+    pub reclaimed_bytes: usize,
+}
+
+fn count_attachments(messages: &[Message]) -> usize {
+    messages
+        .iter()
+        .filter_map(|message| message.images.as_ref())
+        .map(Vec::len)
+        .sum()
+}
+
+/// The user-facing explanation for offloading attachments under byte pressure.
+///
+/// Deliberately distinct from the image-capability notice: that one reports a
+/// **route capability** fact (this model cannot see images, so switch models or
+/// override Vision), while this one reports a **transport budget** fact (the
+/// request was too large to send, so the oldest attachments were left out). The
+/// remedies differ, so the notices must too.
+pub(crate) fn payload_relief_notice(model: &str, relief: PayloadRelief) -> tool::AgentNotice {
+    tool::AgentNotice::new(
+        tool::NoticeKind::PayloadRelief,
+        tool::NoticeSeverity::Warning,
+        format!("{model} request exceeded the size limit — sent without older attachments"),
+        tool::NoticeSource::Harness,
+    )
+    .with_body(format!(
+        "The serialized request was larger than the transport will carry, so {} older image \
+         attachment(s) ({} KiB) were replaced with an artifact invoice. The newest attachments \
+         were kept, the conversation text is unchanged, and the session history still holds every \
+         image. A tool can read an offloaded image back from the artifact path named in the \
+         invoice.",
+        relief.offloaded_images,
+        relief.reclaimed_bytes / 1024
+    ))
+}
+
 /// Strip every inline image attachment from `messages`, returning how many were
 /// dropped. Text content is untouched.
 ///
@@ -180,6 +224,8 @@ impl Agent {
                     protocol::token_ledger::ROOT_ACTOR_ID.to_string(),
                 ),
                 context_prune_threshold_tokens: Arc::new(std::sync::Mutex::new(0)),
+                request_body_limit_bytes: Arc::new(std::sync::Mutex::new(0)),
+                payload_ceiling: Arc::new(std::sync::RwLock::new(None)),
                 last_measured_prompt: std::sync::Mutex::new(None),
                 context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
                 history_reprojected: std::sync::atomic::AtomicBool::new(false),
@@ -210,9 +256,6 @@ impl Agent {
                 workspace_journal: std::sync::RwLock::new(None),
                 request_projection_persist: std::sync::Mutex::new(None),
                 title_established: std::sync::Mutex::new(None),
-                extensions: Arc::new(std::sync::RwLock::new(vec![Arc::new(
-                    crate::runtime::extension::CodeIntelligenceExtension,
-                )])),
                 reasoning_effort: std::sync::Mutex::new(None),
             },
             queues: substate::QueueState {
@@ -235,6 +278,78 @@ impl Agent {
             .context_prune_threshold_tokens
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = budget_tokens;
+    }
+
+    /// Request-body ceiling (bytes) for this route. `0` disables the payload
+    /// gate. Re-seeded on provider/model switch with the token threshold so the
+    /// two physical limits always describe the same live route.
+    pub fn set_request_body_limit(&self, limit_bytes: usize) {
+        *self
+            .context
+            .request_body_limit_bytes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = limit_bytes;
+    }
+
+    /// The active route's request-body ceiling in bytes, or `0` when the gate
+    /// is disabled.
+    pub fn request_body_limit(&self) -> usize {
+        *self
+            .context
+            .request_body_limit_bytes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The ceiling to project against: the configured default, lowered by what
+    /// this route has actually refused.
+    ///
+    /// A learned ceiling is only ever *lower* than the configured one, and it is
+    /// keyed by route fingerprint, so switching model or endpoint restores the
+    /// default instead of carrying one edge's limit onto another.
+    pub fn effective_request_body_limit(&self) -> usize {
+        let configured = self.request_body_limit();
+        let route = self.provider.route_fingerprint();
+        let learned = self
+            .context
+            .payload_ceiling
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .filter(|(fingerprint, _)| fingerprint == &route.0)
+            .map(|(_, limit)| *limit);
+        match learned {
+            Some(learned) => configured.min(learned),
+            None => configured,
+        }
+    }
+
+    /// Learn that this route refused a body of `observed_bytes`.
+    ///
+    /// The stored ceiling is deliberately below the refused size: a request of
+    /// exactly the size that failed must not be considered acceptable, or the
+    /// next round would re-send it. Returns the ceiling now in force.
+    pub fn learn_payload_ceiling(&self, observed_bytes: usize) -> usize {
+        let route = self.provider.route_fingerprint();
+        let learned = protocol::payload_relief_target(observed_bytes, self.request_body_limit());
+        let mut guard = self
+            .context
+            .payload_ceiling
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        let ceiling = match guard.as_ref() {
+            Some((fingerprint, existing)) if fingerprint == &route.0 => (*existing).min(learned),
+            _ => learned,
+        }
+        .max(1);
+        *guard = Some((route.0, ceiling));
+        tracing::warn!(
+            model = %self.provider.model(),
+            observed_bytes,
+            ceiling,
+            "route refused a request body; lowered its byte ceiling"
+        );
+        ceiling
     }
 
     /// Install an agent-scoped reasoning-effort cap or override (for example,
@@ -561,11 +676,9 @@ impl Agent {
             // what it left out ([`INV-CTXSRC-02`], ADR-0199).
             skills
         };
-        let deferred_active = self.tools.tool_activation.len();
         let tool_surface = crate::ToolSurface::new(
             tools.iter().map(|tool| tool.as_ref()),
             self.provider.supports_parallel_tool_calls(),
-            deferred_active,
         );
 
         crate::ContextInputs {
@@ -657,9 +770,8 @@ impl Agent {
     pub(crate) fn model_request(&self, messages: &[Message]) -> protocol::ModelRequest {
         // One clone of the provider-relevant window: system rows are rare, so
         // filtering first halves the per-turn memcpy of the old
-        // clone-then-clone pipeline. Skill injection still sees the
-        // pre-echo-filter copy (same scan semantics as before); the echo and
-        // empty-assistant filters then run in place — no second clone.
+        // clone-then-clone pipeline. Skill injection sees the same window;
+        // empty assistant turns are removed in place — no second clone.
         let mut enriched: Vec<Message> = messages
             .iter()
             .filter(|message| message.role != Role::System)
@@ -690,33 +802,7 @@ impl Agent {
             &mut enriched,
         );
         crate::cognition::agent::remove_empty_assistant_messages(&mut enriched);
-        enriched.retain(|message| !message.is_command_echo());
         self.project_images_away_if_unusable(&mut enriched);
-
-        // `E_n` (the request-local temporary context) is empty by default
-        // code structure is delivered on demand
-        // via `code_query`, not as an automatic ambient Repo Map. The facet
-        // loop remains the generic extension point for explicitly-approved,
-        // budgeted temporary-context producers. A projection is bounded and
-        // stays strictly request-local: it travels in `temporary_context`,
-        // never in `messages`, so it is excluded from the cacheable prefix and
-        // is never committed to the durable transcript.
-        let mut temporary_context: Vec<Message> = Vec::new();
-        let ws_root = self.workspace_root();
-        let hook_ctx = protocol::extension::HookContext::temporary_context(ws_root.as_deref());
-        for extension in self.extensions() {
-            if let protocol::extension::HookOutcome::TemporaryContext(projection) =
-                extension.run(protocol::HookPhase::ProjectTemporaryContext, &hook_ctx)
-            {
-                if projection.is_empty() {
-                    continue;
-                }
-                temporary_context.push(crate::runtime::message::hidden_user(
-                    tool::InjectionKind::SystemReminder,
-                    bound_temporary_context(projection),
-                ));
-            }
-        }
 
         let tools = self.visible_tools();
         let context = self.context_inputs(&tools);
@@ -729,7 +815,7 @@ impl Agent {
         self.record_context_plan(&plan);
         self.context
             .model_request_assembler
-            .build(plan, enriched, temporary_context, &tools)
+            .build(plan, enriched, &tools)
             .with_route_state(&route, self.provider.continuation_mode())
             .with_reasoning_effort(self.reasoning_effort_override())
     }
@@ -841,20 +927,6 @@ impl Agent {
         thread: &protocol::Thread,
         branch: &protocol::BranchId,
     ) -> Result<protocol::ModelRequest, protocol::ThreadError> {
-        let mut temporary_context: Vec<Message> = Vec::new();
-        let ws_root = self.workspace_root();
-        let hook_ctx = protocol::extension::HookContext::temporary_context(ws_root.as_deref());
-        for extension in self.extensions() {
-            if let protocol::extension::HookOutcome::TemporaryContext(projection) =
-                extension.run(protocol::HookPhase::ProjectTemporaryContext, &hook_ctx)
-                && !projection.is_empty()
-            {
-                temporary_context.push(crate::runtime::message::hidden_user(
-                    tool::InjectionKind::SystemReminder,
-                    bound_temporary_context(projection),
-                ));
-            }
-        }
         let tools = self.visible_tools();
         let context = self.context_inputs(&tools);
         let route = self.provider.route_fingerprint();
@@ -864,13 +936,10 @@ impl Agent {
             self.instruction_ceiling(),
         );
         self.record_context_plan(&plan);
-        let request = self.context.model_request_assembler.build_from_thread(
-            plan,
-            thread,
-            branch,
-            temporary_context,
-            &tools,
-        )?;
+        let request = self
+            .context
+            .model_request_assembler
+            .build_from_thread(plan, thread, branch, &tools)?;
         Ok(request
             .with_route_state(&route, self.provider.continuation_mode())
             .with_reasoning_effort(self.reasoning_effort_override()))
@@ -1008,7 +1077,6 @@ impl Agent {
             history_tokens,
             weights.instructions_tokens,
             weights.tool_schema_tokens,
-            weights.temporary_context_tokens,
             weights.total_tokens(),
         )
     }
@@ -1038,16 +1106,11 @@ impl Agent {
         let req = self.model_request(messages);
         let mut debug_messages = Vec::new();
         if !req.instructions.is_empty() {
-            let mut text = req.instructions.fixed.clone();
-            if !req.instructions.transient.is_empty() {
-                if !text.is_empty() {
-                    text.push_str("\n\n");
-                }
-                text.push_str(&req.instructions.transient);
-            }
-            debug_messages.push(Message::new(Role::System, text).with_origin(
-                tool::InjectionOrigin::new(tool::InjectionKind::SystemPrompt),
-            ));
+            // No origin: `Role::System` is the whole fact. Stamping an injection
+            // kind here would claim this row was harness-injected into a
+            // conversation, when it is a preview-only projection of instruction
+            // text that never becomes a message on a live request.
+            debug_messages.push(Message::new(Role::System, req.instructions.0.clone()));
         }
         debug_messages.extend(req.messages);
         *messages = debug_messages;
@@ -1518,6 +1581,81 @@ impl Agent {
             .await
     }
 
+    /// Gate the assembled request on the **transport's** byte ceiling.
+    ///
+    /// The token gate below answers "will the model choke?"; this one answers
+    /// "will the edge refuse to carry it?". They are independent limits, and a
+    /// session comfortably inside a million-token window can still be a 55 MB
+    /// body — which is exactly what a screenshot-heavy conversation becomes.
+    ///
+    /// `limit_bytes` is the ceiling to project against: the pre-turn path passes
+    /// the configured (and route-learned) ceiling, the reactive recovery passes
+    /// the target derived from the size that just failed. Returns the relief
+    /// that ran, or `None` when the request fits or attachments cannot close the
+    /// gap — the caller then surfaces the refusal instead of looping.
+    pub(crate) async fn relieve_payload_if_needed(
+        &self,
+        messages: &mut Vec<Message>,
+        request: &protocol::ModelRequest,
+        limit_bytes: usize,
+    ) -> Result<Option<PayloadRelief>, HarnessError> {
+        if limit_bytes == 0 {
+            return Ok(None);
+        }
+        let size = protocol::request_wire_size(request);
+        if size.body_bytes <= limit_bytes {
+            return Ok(None);
+        }
+        // What media eviction cannot touch. When the text alone already exceeds
+        // the ceiling, no attachment is the problem and this recovery must not
+        // pretend it can help.
+        let non_media = size.body_bytes.saturating_sub(size.media_bytes);
+        let allowance = protocol::media_allowance(limit_bytes, non_media);
+        if allowance == 0 || size.media_bytes <= allowance {
+            tracing::warn!(
+                body_bytes = size.body_bytes,
+                media_bytes = size.media_bytes,
+                non_media,
+                limit_bytes,
+                "request exceeds its body ceiling and its attachments are not the excess"
+            );
+            return Ok(None);
+        }
+        let gate = self
+            .context
+            .context_projection_gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(gate) = gate else {
+            return Ok(None);
+        };
+        tracing::warn!(
+            body_bytes = size.body_bytes,
+            media_bytes = size.media_bytes,
+            limit_bytes,
+            allowance,
+            "request body exceeds the route ceiling; offloading attachments"
+        );
+        let attachments_before = count_attachments(messages);
+        let Some(replacement) = gate.project_payload(messages.clone(), allowance).await else {
+            return Ok(None);
+        };
+        if replacement.is_empty() {
+            return Ok(None);
+        }
+        let attachments_after = count_attachments(&replacement);
+        let media_after = protocol::pressure::media_bytes(&replacement);
+        *messages = replacement;
+        self.context
+            .history_reprojected
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(Some(PayloadRelief {
+            offloaded_images: attachments_before.saturating_sub(attachments_after),
+            reclaimed_bytes: size.media_bytes.saturating_sub(media_after),
+        }))
+    }
+
     /// Between ReAct turns, if context pressure exceeds the configured budget,
     /// hand the live message list to the [`ContextProjectionGate`] so it can
     /// produce and persist the next model-visible window.
@@ -1668,65 +1806,10 @@ impl Agent {
     pub fn cognitive(&self) -> crate::cognition::pipeline::CognitivePipeline {
         crate::cognition::pipeline::CognitivePipeline::new(self.provider.clone())
     }
-
-    /// Access the atomic extensions bound to this agent.
-    pub fn extensions(&self) -> Vec<Arc<dyn protocol::Extension>> {
-        self.control
-            .extensions
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    }
-
-    /// Add an atomic extension to this agent.
-    pub fn add_extension(&self, extension: Arc<dyn protocol::Extension>) {
-        self.control
-            .extensions
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(extension);
-    }
-}
-
-/// Hard byte budget for a single request-local temporary-context producer
-/// Temporary context is optional enrichment, not a channel for
-/// bulk repository state, so the budget is deliberately small.
-pub(crate) const TEMPORARY_CONTEXT_BUDGET_BYTES: usize = 8 * 1024;
-
-/// Bound a producer's output to [`TEMPORARY_CONTEXT_BUDGET_BYTES`], splitting on
-/// a UTF-8 boundary and disclosing the truncation. Keeping this in the assembly
-/// path means a facet cannot widen the request without an explicit budget.
-fn bound_temporary_context(mut text: String) -> String {
-    if text.len() <= TEMPORARY_CONTEXT_BUDGET_BYTES {
-        return text;
-    }
-    let mut cut = TEMPORARY_CONTEXT_BUDGET_BYTES;
-    while cut > 0 && !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    text.truncate(cut);
-    text.push_str("\n[temporary context truncated to its byte budget]");
-    text
 }
 
 #[cfg(test)]
 mod budget_tests {
-    use super::*;
-
-    #[test]
-    fn short_temporary_context_is_unchanged() {
-        let text = "outline".to_string();
-        assert_eq!(bound_temporary_context(text.clone()), text);
-    }
-
-    #[test]
-    fn oversized_temporary_context_is_bounded_and_disclosed() {
-        let text = "x".repeat(TEMPORARY_CONTEXT_BUDGET_BYTES + 100);
-        let bounded = bound_temporary_context(text);
-        assert!(bounded.len() <= TEMPORARY_CONTEXT_BUDGET_BYTES + 64);
-        assert!(bounded.ends_with("[temporary context truncated to its byte budget]"));
-    }
-
     /// The archive sink fires with the record and a write failure is
     /// non-fatal (forensic, never authoritative).
     #[tokio::test]
@@ -1750,8 +1833,6 @@ mod budget_tests {
             created_at_ms: 0,
             prefix_fingerprint: "sha256:test".to_string(),
             conversation_messages: 0,
-            temporary_context_tokens: 0,
-            temporary_context: Vec::new(),
             blocks: Vec::new(),
             drift: protocol::PrefixDrift::None,
         });

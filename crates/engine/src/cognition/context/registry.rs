@@ -237,7 +237,7 @@ impl Policy {
     }
 
     /// A policy generation counter. Bumped whenever the policy is mutated, so the
-    /// render memo cannot go stale the way a forgotten invalidation can.
+    /// source memo cannot go stale the way a forgotten invalidation can.
     pub fn generation(&self) -> u64 {
         self.generation
     }
@@ -333,7 +333,7 @@ impl Policy {
                 });
                 continue;
             }
-            let Some(mut block) = source.render(inputs) else {
+            let Some(mut block) = source.block(inputs) else {
                 rows.push(Row::Inactive {
                     meta,
                     reason: "active but rendered no text",
@@ -437,20 +437,9 @@ impl Policy {
             if !row.emitted() {
                 continue;
             }
-            if let Row::Active {
-                meta,
-                block,
-                tokens,
-                ..
-            } = row
-            {
-                if meta.stability.is_transient() {
-                    plan.transient.push(block.as_ref().clone());
-                    plan.transient_tokens += tokens;
-                } else {
-                    plan.fixed.push(block.as_ref().clone());
-                    plan.fixed_tokens += tokens;
-                }
+            if let Row::Active { block, tokens, .. } = row {
+                plan.fixed.push(block.as_ref().clone());
+                plan.fixed_tokens += tokens;
             }
         }
 

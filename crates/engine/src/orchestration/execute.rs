@@ -347,6 +347,11 @@ impl AdmittedRound {
         let mut visible_failures: usize = 0;
         let mut consecutive_unreachable: usize = 0;
         let mut compacted_after_overflow = false;
+        // How many times this round has shed attachments to fit the transport's
+        // body ceiling. Bounded: each pass is decisive (a quarter of the size
+        // that failed), so a route that still refuses is not shrinking and
+        // retrying it forever cannot help.
+        let mut payload_reliefs: u8 = 0;
         // An in-flight **image-cause probe**: `true` means the attempt now
         // running had its attachments withheld speculatively, because a request
         // refusal occurred while they were attached. If that attempt succeeds, images
@@ -432,6 +437,80 @@ impl AdmittedRound {
                 continue;
             }
 
+            // A **body-size** refusal is a different physical limit from the
+            // model's token window, and it has a different remedy: the request
+            // must lose bytes, and on a screenshot-heavy session the bytes are
+            // the attachments. Folding history would not help — the image the
+            // user just pasted is in the newest round, which compaction keeps.
+            //
+            // The evidence is the request that just failed, still checkpointed:
+            // its measured size is the only number the provider gave us. The
+            // correction is deliberately decisive (aim a quarter below the
+            // ceiling we now know is too high), because the transport said only
+            // "too large" and a timid step would re-upload tens of megabytes to
+            // learn nothing.
+            let is_payload_too_large =
+                matches!(&error, HarnessError::Provider(err) if err.is_payload_too_large());
+            if is_payload_too_large
+                && payload_reliefs < MAX_PAYLOAD_RELIEFS
+                && !tool_activity.load(Ordering::SeqCst)
+            {
+                let Some(failed_body_bytes) = streaming_round
+                    .pending_request()
+                    .map(|request| protocol::request_wire_size(request).body_bytes)
+                else {
+                    break Err(error);
+                };
+                // The refusal is the strongest evidence available about this
+                // route: remember it, so the *next* round pre-gates instead of
+                // re-uploading the same failing body.
+                let target = io.agent.learn_payload_ceiling(failed_body_bytes);
+                let relieved = {
+                    let Some(failed) = streaming_round.pending_request() else {
+                        break Err(error);
+                    };
+                    io.agent
+                        .relieve_payload_if_needed(&mut self.round_history, failed, target)
+                        .await?
+                };
+                let Some(relief) = relieved else {
+                    // Nothing left to offload (or the text alone is over the
+                    // ceiling). Surfacing the provider's own refusal is more
+                    // honest than a locally invented one.
+                    break Err(error);
+                };
+                payload_reliefs += 1;
+                if streamed_text.swap(false, Ordering::SeqCst) {
+                    let _ = tx.send(turn_response(
+                        &session_id,
+                        relay_turn,
+                        RoundEvent::StreamDiscard,
+                    ));
+                }
+                let _ = tx.send(round_response(
+                    &session_id,
+                    RoundEvent::Notice(crate::cognition::agent::payload_relief_notice(
+                        &io.agent.provider.model(),
+                        relief,
+                    )),
+                ));
+                let mut reprojected = io.agent.model_request(&self.round_history);
+                if streaming_round.withholds_images() {
+                    // The payload retry must not undo an armed vision probe:
+                    // both withhold attachments, for different reasons.
+                    crate::cognition::agent::strip_images(&mut reprojected.messages);
+                    reprojected.recompute_revisions();
+                }
+                streaming_round.reproject_pending_request(reprojected);
+                tracing::warn!(
+                    attempt = payload_reliefs,
+                    failed_body_bytes,
+                    target,
+                    "request body refused; retrying with the oldest attachments offloaded"
+                );
+                continue;
+            }
+
             // An image refusal is *information*, not a wall.
             //
             // Vision is the capability vendors do not reliably publish, so an
@@ -450,7 +529,7 @@ impl AdmittedRound {
             // retry the identical turn without the attachments. **Success is the
             // only evidence**, and no vendor error text is parsed anywhere: the
             // classification that remains (`is_request_refusal`) is derived from the
-            // HTTP status the transport already mapped (INV-VISION-6).
+            // HTTP status the transport already mapped (INV-PAYLOAD-01).
             match probe_image_refusal(
                 &io,
                 &self.round_history,
@@ -1047,17 +1126,37 @@ fn probe_image_refusal(
                 crate::cognition::agent::strip_images(&mut request.messages)
             })
             .unwrap_or(0);
+        // A refusal on a request that was **already** withheld is the
+        // hypothesis being disproved, whatever `stripped` says: the round is
+        // running the experiment, so this failure is its result. Reading only
+        // `stripped` here made a second refusal look like "there was nothing to
+        // withhold" and fell through to the generic path.
+        if *image_probe || streaming_round.withholds_images() {
+            *image_probe = false;
+            streaming_round.set_withhold_images(false);
+            tracing::warn!(
+                model = %io.agent.provider.model(),
+                "retrying without images did not help; the refusal is not about them"
+            );
+            return ImageProbeAction::Replace(HarnessError::Provider(provider_error.clone()));
+        }
         if stripped == 0 {
             // Nothing to withhold — the checkpoint carried no attachments
             // (the refusal arrived before assembly, say). Re-sending would be
             // byte-identical, so this is not an experiment; fall through to
             // the ordinary error path.
-        } else if !*image_probe {
+        } else {
             // Hypothesis armed. Note what the round is now running: an
             // experiment whose *outcome* is the evidence. Nothing here reads
             // the provider's error text, so no vendor format can mislead the
             // recovery — and no wording can withhold a capability by itself.
+            //
+            // The withholding is round-scoped, not attempt-scoped: the next
+            // turn must not re-add the very attachments this experiment is
+            // testing, or a confirmed success would be undone before the round
+            // could latch it.
             *image_probe = true;
+            streaming_round.set_withhold_images(true);
             if streamed_text.swap(false, Ordering::SeqCst) {
                 let _ = io.tx.send(turn_response(
                     io.session_id,
@@ -1071,15 +1170,6 @@ fn probe_image_refusal(
                 "request refused while carrying attachments; probing without them"
             );
             return ImageProbeAction::Continue;
-        } else if std::mem::take(image_probe) {
-            // The probe failed, so images were *not* the cause. Surface the
-            // refusal of the request the user actually composed rather than
-            // a second failure of the harness's own modified probe.
-            tracing::warn!(
-                model = %io.agent.provider.model(),
-                "retrying without images did not help; the refusal is not about them"
-            );
-            return ImageProbeAction::Replace(HarnessError::Provider(provider_error.clone()));
         }
     }
     ImageProbeAction::FallThrough

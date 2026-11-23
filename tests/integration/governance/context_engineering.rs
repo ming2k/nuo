@@ -271,7 +271,7 @@ fn inv_ctxplan_01_the_assembler_builds_from_a_plan() {
     let root = workspace_root();
     let assembler = read(&root.join("crates/engine/src/cognition/model_request/mod.rs"));
     assert!(
-        assembler.contains("plan.fixed") && assembler.contains("plan.transient"),
+        assembler.contains("plan.fixed"),
         "the request must be built from the measured plan ([INV-CTXPLAN-01])"
     );
     assert!(
@@ -361,4 +361,622 @@ fn inv_ctxplan_07_no_reader_re_measures_a_plan() {
         violations.is_empty(),
         "one measurement, many readers ([INV-CTXPLAN-07], ADR-0220): {violations:#?}"
     );
+}
+
+// ── Envelope, tool-result header, and untrusted framing (ADR-0225..0229) ─────
+
+fn production_source(path: &Path) -> String {
+    let source = read(path);
+    source
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(&source)
+        .to_owned()
+}
+
+/// `[INV-ENVELOPE-01]` (ADR-0226): no file outside `tool::envelope` writes
+/// message markup with `format!`.
+///
+/// Six hand-written `format!` calls were how two readers drifted from their
+/// writers. The one renderer is the fix, so the source scan is what keeps it the
+/// one renderer.
+#[test]
+fn inv_envelope_01_no_injection_site_writes_markup_by_hand() {
+    let root = workspace_root();
+    let mut violations = Vec::new();
+    for path in rust_files(&root.join("crates")) {
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel.contains("/tests/")
+            || rel.ends_with("/tests.rs")
+            || rel.ends_with("_tests.rs")
+            || rel.ends_with("crates/tool/src/envelope.rs")
+        {
+            continue;
+        }
+        let production = production_source(&path);
+        for needle in [
+            "\"<skill ",
+            "\"<file ",
+            "\"<project-rules",
+            "\"<checkpoint ",
+            "\"<subagent-result ",
+            "\"<untrusted ",
+            "\"<conversation_to_compact",
+            "\"<prior_summary",
+            "\"<additional_context",
+            "\"<active_todo_list",
+        ] {
+            if production.contains(needle) {
+                violations.push(format!("{rel}: writes `{needle}` markup by hand"));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "one renderer for every message envelope ([INV-ENVELOPE-01], ADR-0226): {violations:#?}"
+    );
+}
+
+/// `[INV-ENVELOPE-02]` (ADR-0226): no reader searches for a tag literal.
+#[test]
+fn inv_envelope_02_no_reader_searches_for_tag_literals() {
+    let root = workspace_root();
+    let mut violations = Vec::new();
+    for path in rust_files(&root.join("crates")) {
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel.contains("/tests/")
+            || rel.ends_with("/tests.rs")
+            || rel.ends_with("_tests.rs")
+            || rel.ends_with("crates/tool/src/envelope.rs")
+        {
+            continue;
+        }
+        let production = production_source(&path);
+        for needle in ["find(\"<skill name=", "starts_with(\"<file "] {
+            if production.contains(needle) {
+                violations.push(format!("{rel}: re-derives an envelope with `{needle}`"));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "reader and writer share one parser ([INV-ENVELOPE-02], ADR-0226): {violations:#?}"
+    );
+}
+
+/// `[INV-TOOLHEADER-01]`/`02` (ADR-0227): the header has one producer and one
+/// reader.
+#[test]
+fn inv_toolheader_01_the_header_is_produced_and_read_in_one_place() {
+    let root = workspace_root();
+    let mut violations = Vec::new();
+    for path in rust_files(&root.join("crates")) {
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        // Skip test-only modules: `*/tests/*.rs` and `<name>/tests.rs`.
+        if rel.contains("/tests/") || rel.ends_with("/tests.rs") || rel.ends_with("_tests.rs") {
+            continue;
+        }
+        if rel.ends_with("crates/tool/src/tool_result.rs")
+            || rel.ends_with("crates/tool/src/envelope.rs")
+            || rel.ends_with("crates/tool/src/untrusted.rs")
+        {
+            continue;
+        }
+        let production = production_source(&path);
+        for needle in [
+            "result]:\\n",
+            "result]:\")",
+            "split_once(\" result]:\")",
+            // No provider may invent a sixth spelling of the header.
+            "[Tool result",
+            "result for call",
+        ] {
+            if production.contains(needle) {
+                violations.push(format!("{rel}: spells the tool-result header (`{needle}`)"));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "one producer, one reader for the tool-result header ([INV-TOOLHEADER-01], ADR-0227): \
+         {violations:#?}"
+    );
+}
+
+/// `[INV-UNTRUSTED-01]`/`05` (ADR-0228): one framing, and the prompt describes
+/// the region instead of a retired bracket fence.
+#[test]
+fn inv_untrusted_01_one_framing_and_no_prose_format() {
+    let root = workspace_root();
+    let mut violations = Vec::new();
+
+    // The retired fence must not reappear in production code.
+    for directory in ["crates"] {
+        for path in rust_files(&root.join(directory)) {
+            if path.file_name().is_some_and(|name| name == "tests.rs") {
+                continue;
+            }
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if rel.starts_with("docs/") || rel.ends_with("crates/tool/src/untrusted.rs") {
+                continue;
+            }
+            let production = production_source(&path);
+            for needle in ["BEGIN UNTRUSTED WEB CONTENT", "UNTRUSTED_PREFIX"] {
+                if production.contains(needle) {
+                    violations.push(format!("{rel}: reintroduces the retired fence"));
+                }
+            }
+        }
+    }
+
+    // A context source may name `<untrusted>` and its semantics; it may not
+    // describe a bracket fence to the model.
+    let builtin = read(&root.join("crates/engine/src/cognition/context/builtin.rs"));
+    assert!(
+        builtin.contains("<untrusted>"),
+        "the security block must name the region the model will see"
+    );
+
+    assert!(
+        violations.is_empty(),
+        "untrusted content has one framing ([INV-UNTRUSTED-01], ADR-0228): {violations:#?}"
+    );
+}
+
+/// `[INV-CTXTOPIC-01]`/`02` (ADR-0229): no declared topic or input key is
+/// unreachable from a production source.
+#[test]
+fn inv_ctxtopic_01_every_declared_topic_and_key_has_a_producer() {
+    let root = workspace_root();
+    let context = root.join("crates/engine/src/cognition/context");
+    let builtin = read(&context.join("builtin.rs"));
+    let inputs = read(&context.join("inputs.rs"));
+
+    // Every `InputKey` variant must be declared by a default source.
+    let mut keys = Vec::new();
+    let mut in_enum = false;
+    for line in inputs.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("pub enum InputKey") {
+            in_enum = true;
+            continue;
+        }
+        if in_enum {
+            if trimmed == "}" {
+                break;
+            }
+            if let Some(name) = trimmed.strip_suffix(',')
+                && !name.starts_with("///")
+                && !name.is_empty()
+            {
+                keys.push(name.to_owned());
+            }
+        }
+    }
+    assert!(keys.len() >= 8, "the InputKey scan found only {keys:?}");
+
+    let mut violations = Vec::new();
+    for key in &keys {
+        if !builtin.contains(&format!("InputKey::{key}")) {
+            violations.push(format!(
+                "`InputKey::{key}` is declared by no default source"
+            ));
+        }
+    }
+
+    // Every `Topic` must be claimed. There is no exception list: ADR-0231
+    // withdrew the one reservation this scan used to allow.
+    let protocol = read(&root.join("crates/protocol/src/context/mod.rs"));
+    let mut topics = Vec::new();
+    let mut in_topic = false;
+    for line in protocol.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("pub enum Topic") {
+            in_topic = true;
+            continue;
+        }
+        if in_topic {
+            if trimmed == "}" {
+                break;
+            }
+            if let Some(name) = trimmed.strip_suffix(',')
+                && !name.starts_with("///")
+                && !name.is_empty()
+            {
+                topics.push(name.to_owned());
+            }
+        }
+    }
+    assert!(topics.len() >= 12, "the Topic scan found only {topics:?}");
+    for topic in &topics {
+        if !builtin.contains(&format!("Topic::{topic}")) {
+            violations.push(format!("`Topic::{topic}` has no production owner"));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "every context element has a production owner ([INV-CTXTOPIC-01], ADR-0229): \
+         {violations:#?}"
+    );
+}
+
+// ── MCP ownership and skill-tool reachability (ADR-0230) ─────────────────────
+
+/// `[INV-MCP-01]`/`02` (ADR-0230): one MCP client and one MCP tool adapter.
+#[test]
+fn inv_mcp_01_one_client_and_one_adapter() {
+    let root = workspace_root();
+    let mut violations = Vec::new();
+
+    // The protocol crate is vocabulary only.
+    for banned in [
+        "crates/mcp/src/client.rs",
+        "crates/mcp/src/server.rs",
+        "crates/mcp/src/adapter.rs",
+        "crates/mcp/src/transport",
+    ] {
+        if root.join(banned).exists() {
+            violations.push(format!("{banned}: a second MCP runtime was reintroduced"));
+        }
+    }
+
+    // The parallel bridge must stay deleted.
+    if root
+        .join("crates/server/src/runtime/mcp/substrate_bridge.rs")
+        .exists()
+    {
+        violations.push(
+            "crates/server/src/runtime/mcp/substrate_bridge.rs: the parallel bridge is back"
+                .to_string(),
+        );
+    }
+
+    // Exactly one `impl Tool for` an MCP adapter.
+    let mut adapters = Vec::new();
+    for directory in ["crates/mcp/src", "crates/server/src/runtime/mcp"] {
+        for path in rust_files(&root.join(directory)) {
+            let source = read(&path);
+            if source.contains("impl Tool for Mcp") {
+                adapters.push(
+                    path.strip_prefix(&root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+        }
+    }
+    if adapters.len() > 1 {
+        violations.push(format!("two MCP tool adapters: {adapters:?}"));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "one MCP client and one adapter ([INV-MCP-01], ADR-0230): {violations:#?}"
+    );
+}
+
+/// `[INV-SKILLTOOL-01]` (ADR-0230): an `Overflow::Index` resume must name a tool
+/// the composition root installs, and that tool must declare a `BuiltinTool`.
+#[test]
+fn inv_skilltool_01_every_resume_names_a_reachable_tool() {
+    let root = workspace_root();
+    let builtin = read(&root.join("crates/engine/src/cognition/context/builtin.rs"));
+    let bootstrap = read(&root.join("crates/server/src/composition/bootstrap.rs"));
+    let declared = read(&root.join("crates/tool/src/builtin.rs"));
+
+    // Every resume target the default policy names.
+    let mut resume_targets = Vec::new();
+    for line in builtin.lines() {
+        for marker in [r#"index_to_tool("#, r#"Budget::index_to_tool("#] {
+            let _ = marker;
+        }
+        if let Some(rest) = line.split(r#"index_to_tool("#).nth(1)
+            && let Some(name) = rest.split('"').nth(1)
+        {
+            resume_targets.push(name.to_owned());
+        }
+    }
+    resume_targets.sort_unstable();
+    resume_targets.dedup();
+    assert!(
+        !resume_targets.is_empty(),
+        "the default policy declares no index resume; the scan is wrong"
+    );
+
+    // Reachability has exactly two shapes, and both must be visible here:
+    //   (a) the composition root installs the tool by name, or
+    //   (b) a production `Tool` impl declares the matching `BuiltinTool` variant
+    //       and the root wires that crate's factory.
+    let tool_crates = [
+        "crates/tool-fs/src",
+        "crates/tool-exec/src",
+        "crates/tool-ast/src",
+        "crates/engine/src/cognition/skills",
+    ]
+    .iter()
+    .flat_map(|directory| rust_files(&root.join(directory)))
+    .map(|path| read(&path))
+    .collect::<Vec<_>>()
+    .join("\n");
+    let root_calls_a_factory = bootstrap.contains("create_fs_tools")
+        || bootstrap.contains("create_exec_tools")
+        || bootstrap.contains("install_tool");
+    let produced = |name: &str, variant: &str| -> bool {
+        bootstrap.contains(name)
+            || (root_calls_a_factory && tool_crates.contains(&format!("BuiltinTool::{variant}")))
+    };
+
+    let mut violations = Vec::new();
+    for tool in &resume_targets {
+        let variant = tool
+            .split('_')
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                    None => String::new(),
+                }
+            })
+            .collect::<String>();
+        if !declared.contains(&variant) {
+            violations.push(format!("`{tool}` has no `BuiltinTool::{variant}`"));
+        }
+        if !produced(tool, &variant) {
+            violations.push(format!(
+                "`{tool}` is never installed by the composition root"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "every resume route names a reachable tool ([INV-SKILLTOOL-01], ADR-0230): {violations:#?}"
+    );
+}
+
+// ── Injection and envelope vocabularies have producers (ADR-0226, ADR-0232) ──
+
+/// `[INV-INJECT-01]` (ADR-0232): every `InjectionKind` variant has a production
+/// constructor.
+///
+/// The enum's own doc comment used to be the only guarantee ("each variant maps
+/// 1:1 to a concrete injection site"), and two variants had already outlived
+/// their producers: `SessionReviewInput` (a retired `/review` diagnostic held
+/// open "so old session files deserialize", though `origin` is an `Option` with
+/// `serde(default)`) and `SystemPrompt` (stamped only by a debug preview). Both
+/// are gone, and this scan is what keeps the next one from arriving.
+#[test]
+fn inv_inject_01_every_injection_kind_has_a_producer() {
+    let root = workspace_root();
+    let declared = read(&root.join("crates/tool/src/message.rs"));
+    let all = declared
+        .split("pub const ALL: &'static [InjectionKind] = &[")
+        .nth(1)
+        .and_then(|rest| rest.split("];").next())
+        .expect("InjectionKind::ALL");
+
+    let mut variants = Vec::new();
+    for line in all.lines() {
+        let line = line.trim().trim_end_matches(',');
+        if let Some(name) = line.strip_prefix("InjectionKind::") {
+            variants.push(name.split('(').next().unwrap_or(name).to_owned());
+        }
+    }
+    assert!(
+        variants.len() >= 10,
+        "the InjectionKind scan found only {variants:?}"
+    );
+
+    // A producer is a construction outside the declaration, the tag accessor,
+    // and the tests. `ALL` itself names every variant, so the block that holds it
+    // is stripped before the scan — otherwise the list would vouch for itself.
+    let corpus = production_corpus_without_all(&root, &[]);
+
+    let mut violations = Vec::new();
+    for variant in &variants {
+        if !injection_kind_has_producer(&corpus, variant) {
+            violations.push(format!(
+                "`InjectionKind::{variant}` has no production constructor (a reader or an \
+                 accessor does not count)"
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "every injection kind has a producer ([INV-INJECT-01], ADR-0232): {violations:#?}"
+    );
+}
+
+/// Whether `variant` has a production constructor in `corpus`.
+///
+/// A **producer**, not a mention. Rust puts the callee before its arguments, so
+/// the enclosing call head is *behind* the occurrence:
+/// `hidden_user(InjectionKind::X, ..)`. Scanning backwards over a bounded window
+/// finds the head without pretending to parse. Three kinds of occurrence do not
+/// count:
+///
+/// - a comparison (`==` / `!=` / `matches!`) is a *reader*: it asks which kind a
+///   row carries and can never create one;
+/// - the `tag()` accessor is the declaration spelling itself;
+/// - the `ALL` block was already stripped from the corpus.
+///
+/// The scan is a heuristic, and its failure direction is deliberate: a producer
+/// routed through an unknown helper is a false failure, never a silent pass. The
+/// negative test below pins that direction.
+fn injection_kind_has_producer(corpus: &str, variant: &str) -> bool {
+    const PRODUCERS: &[&str] = &[
+        "Message::injected",
+        "Message::hidden",
+        "Message::new",
+        "hidden_user(",
+        "hidden_user_with_reason(",
+        "visible_user(",
+        "InjectionOrigin::new",
+    ];
+    const WINDOW: usize = 160;
+    let needle = format!("InjectionKind::{variant}");
+    corpus.match_indices(&needle).any(|(index, _)| {
+        let line_start = corpus[..index].rfind('\n').map_or(0, |newline| newline + 1);
+        let line_end = corpus[index..]
+            .find('\n')
+            .map_or(corpus.len(), |n| index + n);
+        let line = &corpus[line_start..line_end];
+        if line.contains("==") || line.contains("!=") || line.contains("matches!") {
+            return false;
+        }
+        let window_start = index.saturating_sub(WINDOW);
+        let head = &corpus[window_start..index];
+        PRODUCERS.iter().any(|producer| head.contains(producer))
+    })
+}
+
+/// The producer scan is not vacuous.
+///
+/// A scan that passes on any string would certify a dead vocabulary. This pins
+/// both directions: a real constructor counts, a reader and a string literal do
+/// not.
+#[test]
+fn the_producer_scan_rejects_a_dead_variant() {
+    let live = "fn make() { Message::injected(InjectionKind::Live, ..); }";
+    assert!(injection_kind_has_producer(live, "Live"));
+    let reader = "fn read(k: InjectionKind) { matches!(k, InjectionKind::Dead); }";
+    assert!(!injection_kind_has_producer(reader, "Dead"));
+    let mention = "let name = \"InjectionKind::Dead\";";
+    assert!(!injection_kind_has_producer(mention, "Dead"));
+}
+
+/// `[INV-ENVELOPE-07]` (ADR-0226): every `Tag` member has a production
+/// constructor.
+///
+/// `Tag::SystemReminder` and `Tag::Checkpoint` shipped with no door that could
+/// produce them; `Checkpoint` then kept a hand-written checkpoint format alive in
+/// `protocol` for a release. The tag vocabulary is the set of regions the harness
+/// can actually emit, and this scan says so.
+#[test]
+fn inv_envelope_07_every_tag_has_a_producer() {
+    let root = workspace_root();
+    let envelope = read(&root.join("crates/tool/src/envelope.rs"));
+    let all = envelope
+        .split("pub const ALL: &'static [Tag] = &[")
+        .nth(1)
+        .and_then(|rest| rest.split("];").next())
+        .expect("Tag::ALL");
+
+    let mut tags = Vec::new();
+    for line in all.lines() {
+        let line = line.trim().trim_end_matches(',');
+        if let Some(name) = line.strip_prefix("Tag::") {
+            tags.push(name.to_owned());
+        }
+    }
+    assert!(tags.len() >= 5, "the Tag scan found only {tags:?}");
+
+    let corpus = production_corpus_without_all(&root, &[]);
+
+    let mut violations = Vec::new();
+    for tag in &tags {
+        // A constructor, not a mention. `Tag::Checkpoint` appears in the
+        // declaration, the parser, and diagnostics; only `Envelope::new(…)`
+        // proves a door can emit it.
+        let direct = format!("Envelope::new(Tag::{tag})");
+        let qualified = format!("Envelope::new(tool::Tag::{tag})");
+        if !corpus.contains(&direct) && !corpus.contains(&qualified) {
+            violations.push(format!(
+                "`Tag::{tag}` has no production constructor (`Envelope::new` never opens it)"
+            ));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "every envelope tag has a producer ([INV-ENVELOPE-07], ADR-0226): {violations:#?}"
+    );
+}
+
+/// Production text of every crate, with every `pub const … ALL … ]` block
+/// removed.
+///
+/// The blocks have to go: a vocabulary constant lists every variant by
+/// definition, so leaving it in would let each member vouch for itself and the
+/// scan would pass on an empty codebase.
+fn production_corpus_without_all(root: &Path, extra: &[&str]) -> String {
+    // `crates/tool/src` is included on purpose: it *owns* the declarations and is
+    // also where some producers live (`untrusted::frame`). The `ALL` blocks are
+    // stripped below, so the declaration cannot vouch for itself.
+    let mut directories = vec![
+        "crates/tool/src",
+        "crates/engine/src",
+        "crates/protocol/src",
+        "crates/server/src",
+        "crates/nuo/src",
+        "crates/persistence/src",
+    ];
+    directories.extend_from_slice(extra);
+
+    let mut corpus = String::new();
+    for directory in directories {
+        for path in rust_files(&root.join(directory)) {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if rel.contains("/tests/") || rel.ends_with("/tests.rs") || rel.ends_with("_tests.rs") {
+                continue;
+            }
+            let production = production_source(&path);
+            let mut rest = production.as_str();
+            while let Some(start) = rest.find("pub const ALL") {
+                match rest[start..].find("];") {
+                    // Keep the two lines before the constant so a `//!` doc block
+                    // that follows it is still scanned.
+                    Some(end) => rest = &rest[start + end + 2..],
+                    None => break,
+                }
+            }
+            corpus.push_str(rest);
+            corpus.push('\n');
+        }
+    }
+    corpus
+}
+
+/// The producer scans are not vacuous.
+///
+/// A scan that passes because its corpus excludes the code it is checking is
+/// worse than no scan: it certifies a dead vocabulary. This asserts the shared
+/// corpus actually contains the declarations, so a future "fix" that narrows the
+/// directory list fails here instead of silently passing.
+#[test]
+fn the_producer_scan_corpus_contains_the_declarations() {
+    let root = workspace_root();
+    let corpus = production_corpus_without_all(&root, &[]);
+    for producer in [
+        "fn render_blocks",
+        "fn frame(",
+        "fn subagent_result(",
+        "fn checkpoint_message(",
+    ] {
+        assert!(
+            corpus.contains(producer),
+            "the scan corpus omits `{producer}`; a narrow corpus certifies a dead vocabulary"
+        );
+    }
 }

@@ -918,3 +918,189 @@ mod view_entry_tests {
         ));
     }
 }
+
+mod tab_lifecycle_tests {
+    use super::*;
+
+    fn app_with_tabs() -> App {
+        let mut app = crate::shell::tests::new_app_for_relay_tests();
+        app.surfaces
+            .surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::thread(
+                "s1",
+                Some("Thread 1"),
+            ));
+        app.surfaces
+            .surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::dashboard());
+        app.surfaces
+            .surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::settings());
+        app.surfaces.surfaces.select_tab(0);
+        app
+    }
+
+    /// ADR-0235 `[INV-TAB-18]`: the close mark closes the pill the pointer
+    /// names, even when that pill is not the active one.
+    #[tokio::test]
+    async fn close_mark_closes_the_named_tab_not_the_active_one() {
+        let mut app = app_with_tabs();
+        let runtime = UiRuntime::minimal_for_test();
+        assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
+
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBar,
+            graticule::Rect::new(0, 0, 80, 1),
+        );
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarItem(1),
+            graticule::Rect::new(14, 0, 14, 1),
+        );
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarClose(1),
+            graticule::Rect::new(26, 0, 1, 1),
+        );
+        app.transcript.ui.commit();
+
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 26, 0).await;
+
+        let kinds: Vec<_> = app
+            .surfaces
+            .surfaces
+            .tabs()
+            .iter()
+            .map(|tab| tab.kind.clone())
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                crate::shell::surfaces::TabKind::Thread("s1".to_string()),
+                crate::shell::surfaces::TabKind::Settings,
+            ],
+            "the dashboard pill was pointed at, so the dashboard tab closed"
+        );
+        assert_eq!(
+            app.surfaces.surfaces.active_tab_index(),
+            0,
+            "closing an inactive tab leaves the selection where it was"
+        );
+    }
+
+    /// ADR-0235 `[INV-TAB-17]`: the add affordance arms the same new-tab
+    /// resolution the keyboard uses.
+    #[tokio::test]
+    async fn add_affordance_arms_a_new_tab() {
+        let mut app = app_with_tabs();
+        let runtime = UiRuntime::minimal_for_test();
+        // A non-empty thread: a fresh tab means detaching into a new attach.
+        app.transcript
+            .messages
+            .push(view::model::document::TranscriptMessage::new(
+                tool::Role::User,
+                "Existing message",
+            ));
+        assert!(!app.is_current_thread_empty());
+
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarAdd,
+            graticule::Rect::new(40, 0, 3, 1),
+        );
+        app.transcript.ui.commit();
+
+        mouse::handle_selection_start(&mut app, &runtime, "s1", 41, 0).await;
+
+        assert!(
+            app.surfaces.switch_to_new,
+            "the strip's own creation verb arms the same path as `Alt-t`"
+        );
+        assert!(
+            app.link
+                .should_quit
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+    }
+
+    /// The add affordance recycles an empty thread in place instead of leaving
+    /// it behind — one verb, one meaning, whichever surface fired it.
+    #[tokio::test]
+    async fn add_affordance_recycles_an_empty_thread_in_place() {
+        let mut app = crate::shell::tests::new_app_for_relay_tests();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        app.link.tx = tx;
+        let runtime = UiRuntime::minimal_for_test();
+        let sid = "empty-session-1";
+        app.session.current_session_id = sid.to_string();
+        app.open_tab(crate::shell::surfaces::ClientTab::thread(
+            sid,
+            None::<String>,
+        ));
+        assert!(app.is_current_thread_empty());
+
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarAdd,
+            graticule::Rect::new(40, 0, 3, 1),
+        );
+        app.transcript.ui.commit();
+
+        mouse::handle_selection_start(&mut app, &runtime, sid, 41, 0).await;
+
+        assert!(!app.surfaces.switch_to_new);
+        match rx.try_recv() {
+            Ok(protocol::AgentRequest::SlashCommand(command)) => assert_eq!(command, "/new"),
+            other => panic!("expected `/new` for an empty thread, got {other:?}"),
+        }
+    }
+
+    /// ADR-0235 `[INV-TAB-16]`: hover resolves through the committed scene, and
+    /// stepping from a pill onto its own `✕` keeps the reveal clock running.
+    #[tokio::test]
+    async fn hover_tracks_the_pill_then_its_close_mark_as_one_visit() {
+        use crate::shell::view_header::TabBarHover;
+        let mut app = app_with_tabs();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBar,
+            graticule::Rect::new(0, 0, 80, 1),
+        );
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarItem(0),
+            graticule::Rect::new(1, 0, 16, 1),
+        );
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarClose(0),
+            graticule::Rect::new(14, 0, 1, 1),
+        );
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarAdd,
+            graticule::Rect::new(40, 0, 3, 1),
+        );
+        app.transcript.ui.commit();
+
+        mouse::handle_hover(&mut app, &runtime, 5, 0).await;
+        assert_eq!(app.surfaces.tab_hover, Some(TabBarHover::Tab(0)));
+        let first = app.surfaces.tab_hover_since.expect("the visit has a clock");
+
+        mouse::handle_hover(&mut app, &runtime, 14, 0).await;
+        assert_eq!(app.surfaces.tab_hover, Some(TabBarHover::Close(0)));
+        assert_eq!(
+            app.surfaces.tab_hover_since,
+            Some(first),
+            "the close mark belongs to the pill, so the reveal does not rewind"
+        );
+
+        mouse::handle_hover(&mut app, &runtime, 41, 0).await;
+        assert_eq!(app.surfaces.tab_hover, Some(TabBarHover::Add));
+
+        mouse::handle_hover(&mut app, &runtime, 70, 0).await;
+        assert_eq!(app.surfaces.tab_hover, Some(TabBarHover::Rail));
+
+        mouse::handle_hover(&mut app, &runtime, 5, 10).await;
+        assert_eq!(app.surfaces.tab_hover, None, "leaving the row clears it");
+        assert!(app.surfaces.tab_hover_since.is_none());
+    }
+}

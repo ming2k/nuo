@@ -626,7 +626,7 @@ fn init_registers_every_vendor_oauth_surface() {
     );
 }
 
-/// ADR-0081 [INV-CATALOG-05]: a rendered label never carries routing syntax.
+/// ADR-0081 [INV-CATALOGPIPE-02]: a rendered label never carries routing syntax.
 ///
 /// A per-surface test cannot see a surface that simply declared the wrong
 /// `DisplayPolicy`, because the defect is a *disagreement between two

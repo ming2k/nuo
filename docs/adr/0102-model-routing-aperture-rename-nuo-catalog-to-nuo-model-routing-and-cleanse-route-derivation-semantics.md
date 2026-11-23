@@ -28,7 +28,7 @@ In industrial software architecture, this name induces severe cognitive friction
 1. **Static Noun vs. Dynamic Pipeline & Factory**:
    "Catalog" suggests a passive, static dictionary or reference file (e.g. a static list of models). In reality, the crate executes a high-density, multi-stage computation:
    - 3-step Set Delta Algebra (`S_base -> S_provider -> S_effective`);
-   - Rule-based lexical normalization and relay noise hygiene (`[INV-CATALOG-05]`, `[INV-CATALOG-06]`);
+   - Rule-based lexical normalization and relay noise hygiene (`[INV-CATALOGPIPE-02]`, `[INV-CATALOGPIPE-03]`);
    - Availability gating and sovereign user overrides (`[INV-AVAIL-06]`);
    - Resolution of dynamic OAuth refresh tokens and API key precedence;
    - End-to-end assembly of runnable channels and the executable factory `build_provider_for_model -> Arc<dyn Provider>`.

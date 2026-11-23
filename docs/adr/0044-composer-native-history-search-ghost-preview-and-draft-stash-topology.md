@@ -38,10 +38,10 @@ We require an uncompromising, modernized TUI architecture where the Composer is 
 
 ## Decision Drivers
 
-- **Single Input Source of Truth (`[INV-HIST-01]`)**: The Composer is the sole input and caret host in thread view. Floating history panels MUST NEVER render internal input fields or steal the physical caret.
+- **Single Input Source of Truth (`[INV-HIST-07]`)**: The Composer is the sole input and caret host in thread view. Floating history panels MUST NEVER render internal input fields or steal the physical caret.
 - **Zero-Friction In-Place Live Preview (`[INV-HIST-02]`)**: Navigating candidate history rows must dynamically project the full, multi-line prompt body into the Composer viewport as a styled Ghost Preview before commitment.
 - **Atomic Draft Stash & Guaranteed Rollback (`[INV-HIST-03]`)**: Initiating history recall or search must atomically park any active draft (text, cursor position, and staged attachments). Dismissing (`Esc`) guarantees 100% loss-free draft restoration.
-- **Unified Extension Key Dispatch (`[INV-HIST-04]`)**: All typing, editing, and navigation during history search must route through the unified three-layer Composer Extension pipeline rather than an isolated dialog modal loop.
+- **Unified Extension Key Dispatch (`[INV-HIST-08]`)**: All typing, editing, and navigation during history search must route through the unified three-layer Composer Extension pipeline rather than an isolated dialog modal loop.
 
 ---
 
@@ -49,7 +49,7 @@ We require an uncompromising, modernized TUI architecture where the Composer is 
 
 ### Option 1: Retain Dual Inputs with Bidirectional Text Mirroring
 - Keep the `History  › ` header input inside the floating dialog, but synchronize its buffer bidirectionally with the Composer below.
-- *Assessment*: Rejected. Violates Single Source of Truth (`[INV-HIST-01]`). Retains two competing input boxes on screen, introduces race conditions and caret flickering between two surfaces, and maintains confusing visual clutter.
+- *Assessment*: Rejected. Violates Single Source of Truth (`[INV-HIST-07]`). Retains two competing input boxes on screen, introduces race conditions and caret flickering between two surfaces, and maintains confusing visual clutter.
 
 ### Option 2: Full-Screen Centered Modal with Embedded Preview Pane
 - Open a large, centered modal dialog that dims the background and contains both search, list, and detail panes (similar to a heavy GUI dialog).
@@ -68,7 +68,7 @@ Chosen: **Option 3: Composer-Native Unified Mode with Floating Candidate Drawer 
 
 ### Invariants Ratified
 
-- **`[INV-HIST-01] Composer-Unified Input SSOT`**: The Composer is the sole text entry surface for prompt formulation and history filtering. Floating history overlays MUST NOT render embedded `TextInput` fields or claim `CaretOwner::Overlay`.
+- **`[INV-HIST-07] Composer-Unified Input SSOT`**: The Composer is the sole text entry surface for prompt formulation and history filtering. Floating history overlays MUST NOT render embedded `TextInput` fields or claim `CaretOwner::Overlay`.
 - **`[INV-HIST-02] Live Ghost Multiline Preview`**: Candidate navigation in history overlays dynamically renders the selected entry's full multi-line content into the Composer viewport with distinct visual ghost styling (e.g., muted tint or preview indicator), eliminating blind selection.
 - **`[INV-HIST-03] Atomic Draft Stash & Rollback Guarantee`**: Entering history search or in-place recall automatically stashes the current prompt buffer, cursor offset, and attachment vectors into a dedicated `DraftStash`. `Esc` guarantees atomic rollback. `Enter` / `Tab` commits the candidate.
 - **`[INV-HIST-04] Zero Dual-Input Chrome`**: Floating history drawers are pure candidate selectors. Their headers display scope, candidate counts, and match statistics, without redundant prompt glyphs or carets.

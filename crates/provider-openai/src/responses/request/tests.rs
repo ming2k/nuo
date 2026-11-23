@@ -1,7 +1,7 @@
 use super::*;
 
 fn body_of(messages: Vec<tool::Message>, input: BodyInput<'_>) -> Result<Value, RequestBuildError> {
-    body(&messages, &[], input)
+    body(&messages, input)
 }
 
 fn body_with_caps_of(
@@ -9,7 +9,7 @@ fn body_with_caps_of(
     input: BodyInput<'_>,
     capabilities: &protocol::ModelCapabilities,
 ) -> Result<Value, RequestBuildError> {
-    body_with_capabilities(&messages, &[], input, capabilities)
+    body_with_capabilities(&messages, input, capabilities)
 }
 use tool::ToolCall;
 
@@ -517,9 +517,12 @@ fn deepseek_dialect_preserves_all_reasoning_items_across_multi_step_tool_round()
     assert_eq!(input[4]["content"][0]["text"], "step 2 reasoning");
 }
 
+/// There is one instruction region, so a dialect that rejects the developer role
+/// has nothing extra to fold in: the text reaches `instructions` once, and no
+/// developer item is emitted (ADR-0231).
 #[test]
-fn deepseek_dialect_folds_ephemeral_instructions_into_instructions() {
-    let bundle = protocol::InstructionText::new("system prompt", "ephemeral instruction");
+fn no_dialect_emits_a_second_instruction_item() {
+    let bundle = protocol::InstructionText::new("system prompt");
     let mut input = deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN);
     input.instructions = Some(&bundle);
     let body = body_with_caps_of(
@@ -529,17 +532,13 @@ fn deepseek_dialect_folds_ephemeral_instructions_into_instructions() {
     )
     .unwrap();
 
-    let instructions = body["instructions"].as_str().unwrap();
-    assert!(instructions.contains("system prompt"));
-    assert!(instructions.contains("ephemeral instruction"));
-
-    // Must NOT emit a developer role message in input items
+    assert_eq!(body["instructions"].as_str(), Some("system prompt"));
     let input_items = body["input"].as_array().unwrap();
     assert!(
         !input_items
             .iter()
             .any(|item| item.get("role").and_then(Value::as_str) == Some("developer")),
-        "DeepSeek rejects the developer role"
+        "no dialect may emit a second instruction channel"
     );
 }
 

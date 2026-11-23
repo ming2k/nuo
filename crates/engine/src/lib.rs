@@ -57,7 +57,7 @@
 // Bounded contract re-exports: only protocol types that cross the harness boundary.
 pub use protocol::{
     AgentEvent, AgentIdentity, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile, Block,
-    BlockRender, Budget, ContextNotice, ContextPlan, DynamicToolSink, Hook, HookContext, HookEvent,
+    Boundary, Budget, ContextNotice, ContextPlan, DynamicToolSink, Hook, HookContext, HookEvent,
     HookOutcome, HookStartSource, InstructionText, LoopStatus, Overflow, PermissionDecision,
     PlannedBlock, Position, PrefixDrift, Provider, ProviderStreamEvent, Rank, Resume, RetryPoint,
     RoundEvent, Stability, ToolSet, Topic, Transport, async_trait,
@@ -147,8 +147,8 @@ pub use cognition::interop::{agent_slot, human_broker, subagent_tool};
 pub use cognition::skills::{
     DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost, SkillPolicy,
     SkillRegistry, SkillRoots, SkillScope, SkillTrust, UseSkillTool, discover_all,
-    discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
-    format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
+    discover_all_with_trust_state, discoverable_skill_directories, list_skill_files,
+    project_skills_present, render_skill_catalog, render_skill_envelope, resolve_mentions,
 };
 pub use cognition::thread_runtime::{RequestView, ThreadRuntime, ThreadWindow};
 pub use orchestration::context_gate::{PruningProjectionGate, SettingsForWindow};
@@ -182,7 +182,6 @@ pub(crate) use dispatch::{
 // Subsystem: Runtime substrate — env, durability, hooks, ports
 // -----------------------------------------------------------------------------
 pub mod runtime;
-pub use runtime::extension::CodeIntelligenceExtension;
 pub use runtime::hooks::{HookRegistry, UserPromptVerdict, matcher_matches};
 pub use runtime::host::*;
 pub use runtime::inflight::Inflight;

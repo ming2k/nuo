@@ -128,6 +128,17 @@ pub struct Connections {
     pub connections: Vec<Connection>,
 }
 
+/// Process-wide read cache for `connections.toml`. Freshness is the file's
+/// metadata (mtime + length), so an external edit is observed without paying
+/// a per-request read + TOML parse.
+type ConnectionsCache = (std::time::SystemTime, u64, std::path::PathBuf, Connections);
+
+fn connections_cache() -> &'static std::sync::Mutex<Option<ConnectionsCache>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<Option<ConnectionsCache>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 impl Connections {
     fn path() -> std::path::PathBuf {
         paths::get().connections_file()
@@ -138,6 +149,33 @@ impl Connections {
     /// provider id, or a duplicate name (INV-2, INV-3) — are dropped with an
     /// error log rather than reinterpreted as a different connection kind.
     pub fn load() -> Self {
+        // Hot paths (budget checks, request assembly) call this on every
+        // attempt. Metadata-keyed caching removes the file read and TOML parse
+        // from the request path without hiding an external edit.
+        let path = Self::path();
+        let stamp = std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| meta.modified().ok().map(|mtime| (mtime, meta.len())));
+        if let Some((mtime, len)) = stamp
+            && let Ok(guard) = connections_cache().lock()
+            && let Some((cached_mtime, cached_len, cached_path, value)) = guard.as_ref()
+            && *cached_path == path
+            && *cached_mtime == mtime
+            && *cached_len == len
+        {
+            return value.clone();
+        }
+        let loaded = Self::load_uncached();
+        let stamp = std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| meta.modified().ok().map(|mtime| (mtime, meta.len())));
+        if let (Some((mtime, len)), Ok(mut guard)) = (stamp, connections_cache().lock()) {
+            *guard = Some((mtime, len, path, loaded.clone()));
+        }
+        loaded
+    }
+
+    fn load_uncached() -> Self {
         let path = Self::path();
         let Ok(content) = std::fs::read_to_string(&path) else {
             return Self::default();
@@ -205,7 +243,14 @@ impl Connections {
     /// Persist atomically. Errors propagate to the caller.
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let bytes = toml::to_string_pretty(self)?.into_bytes();
-        fsutil::atomic_write_bytes(&Self::path(), &bytes)?;
+        let path = Self::path();
+        fsutil::atomic_write_bytes(&path, &bytes)?;
+        // The written bytes are the *unpruned* store; `load` returns the
+        // pruned view. Invalidate so the next read applies the loader's
+        // integrity gate instead of serving the write-side shape.
+        if let Ok(mut guard) = connections_cache().lock() {
+            *guard = None;
+        }
         Ok(())
     }
 

@@ -252,12 +252,9 @@ impl PrefixDrift {
 pub struct ContextPlan {
     /// Every declared source, active or not, in emission order.
     pub blocks: Vec<PlannedBlock>,
-    /// The rendered cacheable prefix.
+    /// The rendered instruction region.
     pub fixed: Vec<Block>,
-    /// The rendered request-local tail.
-    pub transient: Vec<Block>,
     pub fixed_tokens: usize,
-    pub transient_tokens: usize,
     pub notices: Vec<ContextNotice>,
     pub drift: PrefixDrift,
 }

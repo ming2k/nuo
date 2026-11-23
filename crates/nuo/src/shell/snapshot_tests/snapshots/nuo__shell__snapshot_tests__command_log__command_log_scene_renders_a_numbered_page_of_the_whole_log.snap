@@ -1,9 +1,9 @@
 ---
-source: crates/nuo/src/shell/snapshot_tests.rs
+source: crates/nuo/src/shell/snapshot_tests/command_log.rs
 expression: grid
 ---
 
-  build
+  build    +
   log  $ cargo build — exit 1
    1  line 1
    2  line 2

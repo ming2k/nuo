@@ -118,7 +118,7 @@ All surfaces (Composer quadrants, Dialogs, Sheet modals, Scene views) project th
 
 ## Invariants & Behavioral Boundaries
 
-- **`[INV-AFFORDANCE-01]` Key-First Visual Structure**: Every key affordance MUST position the key on the left (bold + semantic color) and the concise action label on the right (regular + dark gray). Enclosing brackets (`[`/`]`) are strictly prohibited.
+- **`[INV-AFFORDANCE-06]` Key-First Visual Structure**: Every key affordance MUST position the key on the left (bold + semantic color) and the concise action label on the right (regular + dark gray). Enclosing brackets (`[`/`]`) are strictly prohibited.
 - **`[INV-AFFORDANCE-02]` Floor-1 Width Overflow**: Whenever an affordance strip overflows its bounding rectangle, it MUST allocate the final visible slot to the `F1` overflow trigger, displaying no more than `floor(max_fit) - 1` regular items.
 - **`[INV-AFFORDANCE-03]` Modeless Help SSOT**: The visible help shortcut token across all UI surfaces MUST be `F1`. Single-letter printable characters (`?`, `h`) MUST NEVER be advertised as help shortcuts in input-capable or composer contexts.
 - **`[INV-AFFORDANCE-04]` Non-Destructive Interactive Recovery**: Every overflowed affordance set MUST have an interactive path via `F1` to inspect all available keybindings in that focus state.

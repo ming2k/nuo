@@ -68,7 +68,7 @@ pub(crate) fn subagent_result_text(
     } else {
         SUBAGENT_REANCHOR_OK
     };
-    format!("[{name} result]:\n{summary}\n\n{reanchor}")
+    ::tool::tool_result_header::render_with_note(name, summary, reanchor)
 }
 
 // `ScopedToolDisable` is a governance-layer type (`[INV-HARNESS-03]`, ADR-0100).
@@ -330,6 +330,16 @@ pub(crate) struct StreamingRoundState {
     inbox_rx: Option<mpsc::UnboundedReceiver<AgentOp>>,
     started_at: std::time::Instant,
     pending_request: Option<protocol::ModelRequest>,
+    /// Whether this round's requests must withhold inline attachments.
+    ///
+    /// Set when the vision-cause probe arms, and **kept** for the rest of the
+    /// round: the probe's evidence is the outcome of a request that already
+    /// dropped the images, so the next turn must not silently re-add them.
+    /// Without this, a successful probe turn was followed by a turn carrying
+    /// the same attachments, which failed again and made the harness report
+    /// "retrying without images did not help" about a hypothesis it had just
+    /// confirmed.
+    withhold_images: bool,
     session_queue_generation: Option<u64>,
 }
 
@@ -367,6 +377,37 @@ impl StreamingRoundState {
             }
             changed
         })
+    }
+
+    /// The request this turn has checkpointed, if assembly has run.
+    pub(crate) fn pending_request(&self) -> Option<&protocol::ModelRequest> {
+        self.pending_request.as_ref()
+    }
+
+    /// Whether this round is running with attachments withheld.
+    pub(crate) fn withholds_images(&self) -> bool {
+        self.withhold_images
+    }
+
+    /// Arm or clear attachment withholding for the rest of this round.
+    ///
+    /// Arming is the probe's hypothesis made operational: every later turn of
+    /// the round is projected without attachments, so one confirmed success
+    /// cannot be undone by the next turn re-sending them.
+    pub(crate) fn set_withhold_images(&mut self, withhold: bool) {
+        self.withhold_images = withhold;
+    }
+
+    /// Replace the checkpointed request with a fresh projection of the window.
+    ///
+    /// Used by the payload recovery: the window changed (attachments left the
+    /// projection), so the checkpoint must describe the bytes the retry will
+    /// send — without re-running the turn's preparation or its `TurnStart`
+    /// hooks, which is what the checkpoint exists to prevent.
+    pub(crate) fn reproject_pending_request(&mut self, mut request: protocol::ModelRequest) {
+        request.turn_context = Arc::clone(&self.turn_context);
+        request.recompute_revisions();
+        self.pending_request = Some(request);
     }
 }
 
@@ -904,7 +945,6 @@ pub struct AgentBuilder {
     /// Declared context sources. Compiled at [`Self::build`]; every
     /// builder-configured composition is validated before it gets there.
     context_sources: Vec<Box<dyn crate::ContextSource + Send + Sync>>,
-    extensions: Vec<Arc<dyn protocol::Extension>>,
     user_instructions: Vec<protocol::ScopedInstruction>,
     response_language: Option<protocol::ResponseLanguage>,
     install_agent_owned_tools: bool,
@@ -923,7 +963,6 @@ impl AgentBuilder {
             skills_registry: skills::SkillRegistry::empty(),
             identity,
             context_sources: crate::cognition::context::default_sources(),
-            extensions: Vec::new(),
             user_instructions: Vec::new(),
             response_language: None,
             install_agent_owned_tools: true,
@@ -937,26 +976,9 @@ impl AgentBuilder {
         self
     }
 
-    /// Add an ambient harness facet to this agent.
     /// Supply the host's ports: declared roles and per-project path policy.
     pub fn with_host(mut self, host: crate::runtime::host::KernelHost) -> Self {
         self.host = host;
-        self
-    }
-
-    pub fn with_extension(mut self, extension: Arc<dyn protocol::Extension>) -> Self {
-        self.extensions.push(extension);
-        self
-    }
-
-    /// Add atomic extensions to this agent.
-    pub fn with_extensions(
-        mut self,
-        extensions: impl IntoIterator<Item = Arc<dyn protocol::Extension>>,
-    ) -> Self {
-        for extension in extensions {
-            self.extensions.push(extension);
-        }
         self
     }
 
@@ -1068,13 +1090,6 @@ impl AgentBuilder {
             self.install_agent_owned_tools,
         );
         agent.host = self.host;
-        if !self.extensions.is_empty() {
-            *agent
-                .control
-                .extensions
-                .write()
-                .unwrap_or_else(|e| e.into_inner()) = self.extensions;
-        }
         if !self.user_instructions.is_empty() {
             agent.set_user_instructions(self.user_instructions);
         }
@@ -1112,7 +1127,7 @@ pub use steering::SwitchedRole;
 mod tools_admin;
 
 pub(crate) use rounds::ToolResultRecord;
-pub(crate) use state::strip_images;
+pub(crate) use state::{payload_relief_notice, strip_images};
 
 /// Render a missing runtime grant without conflating it with project asset
 /// trust. This is returned when no interactive approver is available.

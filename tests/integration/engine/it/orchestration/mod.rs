@@ -33,6 +33,7 @@ pub(super) use tokio_util::sync::CancellationToken;
 mod common;
 mod images;
 mod interrupts;
+mod payload;
 mod projection;
 mod registry;
 mod retry;

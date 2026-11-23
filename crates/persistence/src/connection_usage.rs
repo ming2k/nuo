@@ -1,4 +1,8 @@
-//! Connection/model usage telemetry, persisted under SQLite SSOT.
+//! Connection/model usage telemetry: a process snapshot flushed to SQLite.
+//!
+//! Reads (picker ordering, budget checks) never touch SQLite; the model-turn
+//! path only mutates the snapshot and marks it dirty. A single debounced
+//! worker writes the merged JSON. See ADR-0238.
 //!
 //! Drives recency ordering in the connection picker and models picker. This is
 //! program-generated usage signal, not user preference: it lives under
@@ -16,6 +20,8 @@
 use host::paths;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Per-entity usage record. Stored as a JSON object keyed by canonical id
@@ -71,9 +77,50 @@ pub struct ConnectionUsage {
     last_models: HashMap<String, String>,
 }
 
+/// Process-wide usage cache. Usage is program-written telemetry: the writer
+/// process is the only authority, so a memory snapshot can serve every read
+/// (picker ordering, budget checks) without touching SQLite. A deferred dirty
+/// flag flushes the snapshot on the background thread.
+type UsageCache = HashMap<std::path::PathBuf, ConnectionUsage>;
+
+fn usage_cache() -> &'static Mutex<UsageCache> {
+    static CACHE: OnceLock<Mutex<UsageCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_key() -> std::path::PathBuf {
+    paths::get().db_file()
+}
+
+/// Set when the in-memory snapshot has spend/activation changes not yet
+/// written. The flusher coalesces any number of updates into one write.
+static DIRTY: AtomicBool = AtomicBool::new(false);
+
 impl ConnectionUsage {
-    /// Load from SQLite database (SSOT), with one-time migration and cleanup of any legacy state file.
+    /// Load the process snapshot, populating it from SQLite once (with the
+    /// one-time legacy state-file migration).
     pub fn load() -> Self {
+        let key = cache_key();
+        if let Ok(guard) = usage_cache().lock()
+            && let Some(cached) = guard.get(&key)
+        {
+            return cached.clone();
+        }
+        let loaded = Self::load_store();
+        if let Ok(mut guard) = usage_cache().lock() {
+            guard.insert(key, loaded.clone());
+        }
+        loaded
+    }
+
+    /// Drop the cached snapshot (server reload / external writer).
+    pub fn invalidate() {
+        if let Ok(mut guard) = usage_cache().lock() {
+            guard.remove(&cache_key());
+        }
+    }
+
+    fn load_store() -> Self {
         let handle = crate::db::get_persistence_handle();
         if let Ok(reader) = handle.reader() {
             if let Ok(Some(mut usage)) = reader.get_json::<Self>("state:connection_usage") {
@@ -149,9 +196,43 @@ impl ConnectionUsage {
         self.last_models.get(connection_id).map(|m| m.as_str())
     }
 
+    /// Record spend without touching SQLite, and hand the write to the
+    /// background flusher. This is the model-turn path: the turn never waits
+    /// for a full JSON read-modify-write.
+    pub fn record_spend_deferred(connection_id: &str, model_id: &str, nano_usd: u64) {
+        let key = cache_key();
+        let mut usage = Self::load();
+        usage.record_spend(connection_id, model_id, nano_usd);
+        if let Ok(mut guard) = usage_cache().lock() {
+            guard.insert(key, usage);
+        }
+        DIRTY.store(true, Ordering::Release);
+        ensure_flusher();
+    }
+
+    /// Flush the cached snapshot if anything is dirty. Safe to call from
+    /// shutdown and tests; a no-op otherwise.
+    pub fn flush_if_dirty() -> Result<(), String> {
+        if !DIRTY.swap(false, Ordering::AcqRel) {
+            return Ok(());
+        }
+        let snapshot = Self::load();
+        match snapshot.save_merged() {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                DIRTY.store(true, Ordering::Release);
+                Err(error)
+            }
+        }
+    }
+
     /// Persist atomically into SQLite (SSOT).
     pub fn save(&self) -> Result<(), String> {
-        let mut merged = ConnectionUsage::load();
+        self.save_merged()
+    }
+
+    fn save_merged(&self) -> Result<(), String> {
+        let mut merged = Self::load_store();
         for (id, entry) in &self.connections {
             let disk = merged.connections.entry(id.clone()).or_default();
             disk.last_used_ms = disk.last_used_ms.max(entry.last_used_ms);
@@ -181,7 +262,11 @@ impl ConnectionUsage {
         }
         crate::db::get_persistence_handle()
             .set_json_blocking("state:connection_usage", &merged)
-            .map_err(|e| format!("could not persist connection usage to sqlite: {e}"))
+            .map_err(|e| format!("could not persist connection usage to sqlite: {e}"))?;
+        if let Ok(mut guard) = usage_cache().lock() {
+            guard.insert(cache_key(), merged);
+        }
+        Ok(())
     }
 
     /// Re-key a connection's usage telemetry from `from` to `to` (rename).
@@ -304,7 +389,11 @@ impl ConnectionUsage {
     pub fn save_exact(&self) -> Result<(), String> {
         crate::db::get_persistence_handle()
             .set_json_blocking("state:connection_usage", self)
-            .map_err(|e| format!("could not persist usage store to sqlite: {e}"))
+            .map_err(|e| format!("could not persist usage store to sqlite: {e}"))?;
+        if let Ok(mut guard) = usage_cache().lock() {
+            guard.insert(cache_key(), self.clone());
+        }
+        Ok(())
     }
 
     /// Recency (epoch ms) of connection `id`, or `0` if never activated.
@@ -339,6 +428,24 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Start the debounced flusher once. One OS thread per process, not per
+/// session; it exists only to keep the JSON snapshot off the async runtime.
+fn ensure_flusher() {
+    static START: OnceLock<()> = OnceLock::new();
+    START.get_or_init(|| {
+        let _ = std::thread::Builder::new()
+            .name("nuo-usage-flush".to_string())
+            .spawn(|| {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    if let Err(error) = ConnectionUsage::flush_if_dirty() {
+                        tracing::warn!(%error, "could not flush connection usage");
+                    }
+                }
+            });
+    });
 }
 
 #[cfg(test)]

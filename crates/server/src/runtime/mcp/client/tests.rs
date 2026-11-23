@@ -233,13 +233,14 @@ fn structured_content_is_preserved_as_a_typed_result() {
         "content": [{"type": "text", "text": "found 2 rows"}],
         "structuredContent": {"rows": 2}
     });
-    match render_tool_result(&result) {
+    match render_tool_result(&result, "test tool") {
         tool::ToolOutput::Structured {
             content,
             value,
             failed,
         } => {
-            assert_eq!(content, "found 2 rows");
+            assert!(content.starts_with("<untrusted origin=\"mcp\""));
+            assert!(content.contains("found 2 rows"));
             assert_eq!(value["rows"], 2);
             assert!(!failed);
         }
@@ -255,7 +256,7 @@ fn image_content_is_not_flattened_to_text() {
             {"type": "image", "mimeType": "image/png", "data": "aGVsbG8="}
         ]
     });
-    match render_tool_result(&result) {
+    match render_tool_result(&result, "test tool") {
         tool::ToolOutput::Media { parts, .. } => {
             assert_eq!(parts.len(), 2);
             assert!(matches!(
@@ -297,7 +298,7 @@ fn mcp_is_error_maps_to_a_failed_observation() {
         "isError": true,
         "content": [{"type": "text", "text": "boom"}]
     });
-    assert!(render_tool_result(&result).is_error());
+    assert!(render_tool_result(&result, "test tool").is_error());
 }
 
 #[test]
@@ -328,14 +329,18 @@ fn colliding_public_names_are_disambiguated_deterministically() {
 }
 
 #[test]
-fn text_content_is_rendered_without_protocol_wrappers() {
+fn text_content_is_framed_as_untrusted_data() {
     let result = json!({
         "content": [
             {"type": "text", "text": "first"},
             {"type": "text", "text": "second"}
         ]
     });
-    assert_eq!(render_tool_result(&result).to_text(), "first\nsecond");
+    let text = render_tool_result(&result, "test tool").to_text();
+    assert_eq!(text.matches("<untrusted origin=\"mcp\"").count(), 2);
+    assert!(text.contains("first"));
+    assert!(text.contains("second"));
+    assert!(!text.contains("jsonrpc"));
 }
 
 #[test]

@@ -135,6 +135,25 @@ pub(crate) struct ContextState {
     /// ReAct turns. `0` disables mid-round projection. Derived from the active
     /// model's context window.
     pub(crate) context_prune_threshold_tokens: Arc<std::sync::Mutex<usize>>,
+    /// Request-body ceiling (in bytes) above which the harness removes
+    /// attachments from the request projection before sending. `0` disables
+    /// the payload gate.
+    ///
+    /// The token threshold above answers "will the model choke?"; this one
+    /// answers "will the transport refuse to carry it?". They are independent
+    /// limits, and a session inside a million-token window can still be a
+    /// 55 MB body.
+    pub(crate) request_body_limit_bytes: Arc<std::sync::Mutex<usize>>,
+    /// Learned per-route request-body ceiling: the `(route fingerprint, size)`
+    /// a provider has actually refused.
+    ///
+    /// The configured ceiling is a conservative default because no vendor
+    /// publishes a portable number. A refusal is better evidence than any
+    /// default: once a route answers `413` for a body of N bytes, every later
+    /// request on that route is projected below N instead of re-uploading the
+    /// same failing payload. Keyed by route so a model/endpoint switch clears it
+    /// by construction, exactly like [`Self::images_suppressed`].
+    pub(crate) payload_ceiling: Arc<std::sync::RwLock<Option<(String, usize)>>>,
     /// Provider-reported prompt token anchor from the most recent completed turn
     /// paired with the local estimate at that turn, so compaction triggers can
     /// account for unmeasured system/tool/image tokens plus incremental delta.
@@ -259,8 +278,6 @@ pub(crate) struct ControlState {
     /// fired once per freshly assembled request with its forensic
     /// record. `None` for subagents, the review diagnostic, and tests.
     pub(crate) request_projection_persist: std::sync::Mutex<Option<RequestProjectionFn>>,
-    /// Atomic extensions bound to this agent instance.
-    pub(crate) extensions: Arc<std::sync::RwLock<Vec<Arc<dyn protocol::Extension>>>>,
     /// Optional agent-scoped reasoning-effort cap or override (e.g.
     /// capping read-only discovery subagents at `Low`). `None` inherits the
     /// provider's configured effort.

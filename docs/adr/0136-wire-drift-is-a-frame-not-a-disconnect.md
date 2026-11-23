@@ -5,7 +5,7 @@ status: accepted
 date: 2026-12-15
 scope: protocol/nuo-protocol, server/nuo-server, host/nuo, tui/event-loop, dev/governance
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0136. Wire Drift Is a Frame, Not a Disconnect: Typed Undecodable Frames, Link-Loss Disclosure, and a Census-Gated Protocol Number
@@ -143,7 +143,9 @@ version.is_some_and(|v| v == env!("CARGO_PKG_VERSION"))
 
 An in-window protocol number can always be outrun by an in-window wire change, so the number alone cannot certify compatibility. `is_dev_drift` drops its `same_version` precondition for the same reason: a replaced image is drift whatever version it reports.
 
-### 5. The census gates the protocol number (`[INV-WIRE-03]`)
+### 5. The census gates the protocol number (`[INV-WIRE-10]`)
+
+- **`[INV-WIRE-10]` The Census Gates the Protocol Number** — a wire-surface change and a protocol-number change ship together; a census that disagrees with the checked-in number fails `test_inv_wire_census_matches_protocol_version`.
 
 `crates/nuo/src/dev/wire_census.rs` recomputes the surface of `Wire`, `AgentRequest`, `AgentResponse`, and `RoundEvent` from source and compares it against the checked-in `wire-census.txt`, which records the protocol number it was taken at:
 

@@ -153,7 +153,7 @@ crate now structurally is rather than against a stage that never ran.
 
 ## Normative Invariants Established
 
-- **`[INV-AP-01]` (restated)**: `nuo-inference-wire` carries no I/O, no async
+- **`[INV-AP-01]` (restates ADR-0084)**: `nuo-inference-wire` carries no I/O, no async
   trait, and no transport. Mechanically: its dependency set is
   `serde`/`serde_json`/`thiserror`/`uuid`, so a transport cannot be added without
   a visible dependency change, and the build fails the moment a `tokio` or
@@ -164,10 +164,10 @@ crate now structurally is rather than against a stage that never ran.
   crate outside it calls that codec's parser or builder from `src` (not merely
   from tests). Enforced by review against the consumer table in `src/lib.rs`,
   which names a consumer for every surviving symbol.
-- **`[INV-AP-04]` (superseded)**: the dual-lane separation is withdrawn. One
+- **`[INV-AP-04]` (revokes ADR-0086)**: the dual-lane separation is withdrawn. One
   lane remains; there is no discriminative half, so a rule forbidding the lanes
   from importing each other's types has nothing left to forbid.
-- **`[INV-AP-05]` (unchanged, strengthened)**: `nuo-protocol` re-exports no
+- **`[INV-AP-05]` (revises ADR-0086)**: `nuo-protocol` re-exports no
   discriminative or non-generative model engine. The engine this guarded against
   is deleted, so the invariant now holds by absence.
 

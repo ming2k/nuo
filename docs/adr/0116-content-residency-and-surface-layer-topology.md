@@ -62,7 +62,7 @@ open modal.
   produce transcript residency.
 - **The layer belongs to the surface, not the message** — the same content in a different context has a
   different correct destination; the producer cannot know the context.
-- **`[INV-SURFACE-01]` restated on the z axis** — a dialog owning its cursor and scroll implies a dialog
+- **`[INV-SURFACE-01]` (restates ADR-0035) restated on the z axis** — a dialog owning its cursor and scroll implies a dialog
   owning its receipts. Sharing the transcript as a receipt sink re-introduces the cross-dialog
   contamination ADR-0035 abolished on the x/y plane.
 - **Zero legacy burden** ([ADR-0059](0059-canonical-thread-persistence-schema-and-zero-legacy-clean-break.md)) — no

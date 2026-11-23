@@ -36,6 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_all()
         .build()?;
     let result = runtime.block_on(run());
+    // The usage flusher batches spend off the runtime; make the last window
+    // durable before the process exits (ADR-0238).
+    if let Err(error) = persistence::connection_usage::ConnectionUsage::flush_if_dirty() {
+        eprintln!("nuo: could not flush connection usage: {error}");
+    }
     runtime.shutdown_background();
     result
 }

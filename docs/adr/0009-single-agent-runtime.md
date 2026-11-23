@@ -202,7 +202,7 @@ ADR-0008 step 8.
   contract layer; the contract layer (`nuo-wire`) must never depend on a runtime
   crate (`nuo-agent`, `nuo-harness`). Reaffirms the ADR-0005 `[INV-DEP-01]`
   spirit for the agent axis.
-- **`[INV-WIRE-04]` (ADR-0006) remains binding**: `AgentKind`/`AgentIdentity`
+- **`[INV-WIRE-04]` (restates ADR-0006)**: `AgentKind`/`AgentIdentity`
   are defined once, in `nuo-wire`.
 
 ---

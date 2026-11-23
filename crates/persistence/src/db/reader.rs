@@ -25,6 +25,19 @@ impl DbReader {
         session_revision(self.conn(), session_id)
     }
 
+    /// The highest journal seq this session's derived view has materially
+    /// absorbed, if it has ever been projected (ADR-0242).
+    pub fn projection_watermark(&self, session_id: &str) -> Result<Option<u64>> {
+        self.conn()
+            .query_row(
+                "SELECT seq FROM projection_watermarks WHERE thread_id = ?1",
+                [session_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map(|value| value.map(|seq| seq.max(0) as u64))
+    }
+
     /// The latest durable commit receipt for a session (D3):
     /// `(operation_id, revision)` of its most recent commit. A caller that
     /// lost an acknowledgement resolves its outcome here by operation
@@ -290,15 +303,6 @@ impl DbReader {
     /// The prompt history, oldest first, capped at `limit`.
     pub fn load_input_history(&self, limit: usize) -> Result<Vec<protocol::HistoryEntry>> {
         crate::db::input_history::load_input_history(self.conn(), limit)
-    }
-
-    /// Archived request projections for one session, oldest first.
-    pub fn load_request_projections(
-        &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<protocol::RequestProjection>> {
-        crate::db::usage_projection::load_request_projections(self.conn(), session_id, limit)
     }
 
     // -- typed key/value ---------------------------------------------------

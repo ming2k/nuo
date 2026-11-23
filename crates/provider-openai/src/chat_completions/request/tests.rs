@@ -1,7 +1,7 @@
 use super::*;
 
 fn body_of(messages: Vec<tool::Message>, input: BodyInput<'_>) -> Value {
-    body(&messages, &[], input)
+    body(&messages, input)
 }
 
 fn body_with_caps_of(
@@ -9,7 +9,7 @@ fn body_with_caps_of(
     input: BodyInput<'_>,
     capabilities: &protocol::ModelCapabilities,
 ) -> Value {
-    body_with_capabilities(&messages, &[], input, capabilities)
+    body_with_capabilities(&messages, input, capabilities)
 }
 use tool::ToolCall;
 

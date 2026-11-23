@@ -19,8 +19,8 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
     } = env;
     // /role [id] [workspace] — switch the live agent role.
     // Resolves the role or preset onto the live agent, applies the
-    // resulting profile (identity preamble, capability scope, extensions,
-    // runtime knobs, unattended posture), updates session workspace if applicable,
+    // resulting profile (identity preamble, capability scope, instruction
+    // sources, runtime knobs, unattended posture), updates session workspace if applicable,
     // and records the session metadata.
     // With no argument, lists the available built-in and user roles.
     let target = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());

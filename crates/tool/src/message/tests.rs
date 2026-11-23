@@ -230,39 +230,23 @@ fn injection_origin_round_trips() {
 fn every_injection_kind_serialises_distinctly() {
     // The closed classifier must serialise to distinct wire forms so a
     // persisted transcript can discriminate injection sources without
-    // ambiguity. Regression guard: adding a variant without a distinct
-    // serde tag would silently collapse provenance. We compare the full
-    // serialised `kind` (not just a prefix) because `Hook(HookEventKind)`
-    // serialises as a map `{"hook":"session_start"}` while unit variants
-    // serialise as a bare string.
-    use super::HookEventKind;
-    let cases: Vec<InjectionKind> = vec![
-        InjectionKind::Hook(HookEventKind::SessionStart),
-        InjectionKind::Hook(HookEventKind::PostToolUse),
-        InjectionKind::Hook(HookEventKind::Stop),
-        InjectionKind::Hook(HookEventKind::Turn),
-        InjectionKind::Hook(HookEventKind::TurnStart),
-        InjectionKind::InterAgent,
-        InjectionKind::SubagentSteer,
-        InjectionKind::SubagentTask,
-        InjectionKind::SessionReviewInput,
-        InjectionKind::ImplicitSkill,
-        InjectionKind::SystemPrompt,
-        InjectionKind::ProjectRulesDelta,
-        InjectionKind::CompactionCheckpoint,
-        InjectionKind::HiddenRoundInput,
-        InjectionKind::LoopReviewNudge,
-        InjectionKind::CommandEcho,
-        InjectionKind::ToolImage,
-        InjectionKind::SystemReminder,
-        InjectionKind::UntrustedDirective,
-    ];
+    // ambiguity. `Hook(HookEventKind)` serialises as a map
+    // (`{"hook":"session_start"}`) while unit variants serialise as a bare
+    // string, so the comparison is over the full serialised form.
+    //
+    // The list is `InjectionKind::ALL`, not a hand-written copy: a copy lets a
+    // new variant ship untested, which is exactly how two dead variants
+    // (`SessionReviewInput`, `SystemPrompt`) survived for months.
     let mut forms = Vec::new();
-    for kind in cases {
-        // Round-trip each kind in isolation.
-        let json = serde_json::to_string(&kind).unwrap();
+    for kind in InjectionKind::ALL {
+        let json = serde_json::to_string(kind).unwrap();
         let restored: InjectionKind = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored, kind, "kind {kind:?} must round-trip");
+        assert_eq!(&restored, kind, "kind {kind:?} must round-trip");
+        assert!(
+            json.contains(kind.tag()),
+            "the tag accessor ({}) and the serde spelling ({json}) disagree for {kind:?}",
+            kind.tag()
+        );
         forms.push(json);
     }
     let mut sorted = forms.clone();
@@ -271,7 +255,7 @@ fn every_injection_kind_serialises_distinctly() {
     assert_eq!(
         sorted.len(),
         forms.len(),
-        "injection kinds must serialise to distinct wire forms: {forms:?}"
+        "two injection kinds share a wire form: {forms:?}"
     );
 }
 
@@ -300,34 +284,5 @@ fn injected_constructor_stamps_origin_and_hidden() {
     assert_eq!(
         m.origin.as_ref().unwrap().kind,
         InjectionKind::LoopReviewNudge
-    );
-}
-
-#[test]
-fn command_echo_is_visible_and_non_driving() {
-    // A command echo is VISIBLE (hidden=false, so it shows on resume/export)
-    // yet non-driving (is_command_echo=true, so it is projected out before
-    // the wire). It must not be conflated with an injected/hidden message,
-    // whose `hidden` axis means the opposite half (ADR-0050).
-    let m = Message::command_echo("/session list");
-    assert!(!m.hidden, "command echo must be visible on resume/export");
-    assert_eq!(m.role, Role::User);
-    assert!(m.is_command_echo());
-    // Round-trips with provenance intact (the durable record must survive).
-    let restored: Message = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
-    assert!(
-        restored.is_command_echo(),
-        "echo origin survives round-trip"
-    );
-    // A plain user message is not an echo.
-    assert!(!Message::new(Role::User, "hello").is_command_echo());
-    // An injected (hidden) message is not an echo even though it has origin.
-    assert!(
-        !Message::injected(
-            Role::User,
-            "x",
-            InjectionOrigin::new(InjectionKind::HiddenRoundInput)
-        )
-        .is_command_echo()
     );
 }

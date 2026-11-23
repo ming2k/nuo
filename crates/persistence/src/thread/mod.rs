@@ -13,18 +13,21 @@
 //! - `tests`: embedded test suite.
 //!
 //! The durable state is the **single transcript** (`Transcript`: immutable
-//! entries + projection directives) plus working state on the session row,
-//! both stored authoritatively in SQLite. Every
-//! consumer-facing window is a pure derive; nothing derived is persisted.
+//! entries + projection directives) plus working state on the session row.
+//! The per-session append-only journal is the source of truth (ADR-0236);
+//! SQLite is a derived, queryable projection fed after the journal ack.
+//! Every consumer-facing window is a pure derive; nothing derived is
+//! persisted.
 use crate::blobs::BlobStore;
 use host::paths;
 use protocol::{EntryPayload, ThreadDetail, estimate_tokens};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-use tool::{InjectionKind, Message, Role};
+use tool::{Message, Role};
 
 /// C2 (ADR-0022): added `title` and `title_manual`. C4 (ADR-0034): added `Message::origin` (`Option<InjectionOrigin>`)
 /// for structured injection provenance. Both are structural no-ops for
@@ -88,6 +91,23 @@ pub struct ThreadData {
     /// Branch cursor this store view is projecting.
     #[serde(default = "default_branch")]
     pub(crate) active_branch: protocol::BranchId,
+    /// Durable branch cursors. The transcript is the shared log; a branch is
+    /// only a named head over it (ADR-0239). Journal frames carry this map, so
+    /// a transcript switch and its cursor commit atomically.
+    #[serde(default)]
+    pub(crate) branches: std::collections::BTreeMap<protocol::BranchId, protocol::BranchState>,
+    /// Full fact graph sidecar. Present on branch mutations and full rewrites;
+    /// absent on ordinary turn deltas (which only extend the active
+    /// transcript). The graph is what lets sibling branches survive a reload
+    /// without SQLite (ADR-0239).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) graph: Option<protocol::Thread>,
+    /// Materialised catalog summary: message entries in the transcript.
+    #[serde(default)]
+    pub(crate) msg_count: u64,
+    /// Materialised catalog summary: the last effective user prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) last_user_prompt: Option<String>,
     pub(crate) parent_id: Option<String>,
     /// How this session came to exist relative to its lineage: a root trunk,
     /// or an explicit `/fork` branch (ADR-0058).
@@ -170,9 +190,20 @@ impl ThreadData {
     /// Hot-path incremental turn commits use this to send only new delta rows to
     /// SQLite, completely eliminating O(N) memory allocations inside the session mutex.
     pub(crate) fn clone_metadata_without_history(&self) -> Self {
+        let msg_count = self
+            .transcript
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry.payload, protocol::EntryPayload::Message(_)))
+            .count() as u64;
+        let last_user_prompt = last_effective_prompt_from_data(self);
         Self {
             id: self.id.clone(),
             active_branch: self.active_branch.clone(),
+            branches: self.branches.clone(),
+            graph: None,
+            msg_count,
+            last_user_prompt,
             parent_id: self.parent_id.clone(),
             origin: self.origin,
             created_at: self.created_at,
@@ -204,12 +235,86 @@ impl ThreadData {
     }
 }
 
+impl ThreadData {
+    /// Apply one journal frame to the in-memory state (ADR-0236).
+    ///
+    /// A journal frame carries the same shape the projection uses, so replay
+    /// and live apply share one rule:
+    ///
+    /// - `FullRewrite` replaces the whole state;
+    /// - `MetadataOnly` replaces the working state and keeps the transcript;
+    /// - `Delta` replaces the working state and appends the frame's new
+    ///   entries and directives.
+    ///
+    /// Fold the frame's usage upserts into the session mirror. The journal
+    /// carries them beside the transcript delta so a reload reconstructs the
+    /// same accounting the live state had.
+    pub(crate) fn apply_usage_upserts(&mut self, records: &[protocol::RequestUsageRecord]) {
+        for record in records {
+            match self
+                .request_usage_records
+                .iter_mut()
+                .find(|existing| existing.key == record.key)
+            {
+                Some(existing) => *existing = record.clone(),
+                None => self.request_usage_records.push(record.clone()),
+            }
+        }
+    }
+
+    pub(crate) fn apply_journal_commit(&mut self, incoming: ThreadData, mode: crate::db::SaveMode) {
+        // A delta/metadata frame omits the graph on purpose: it only extends
+        // the active transcript. Carry the previously materialised graph
+        // forward; a branch/full frame supplies its own and replaces it.
+        let graph = self.graph.take();
+        match mode {
+            crate::db::SaveMode::FullRewrite => *self = incoming,
+            crate::db::SaveMode::MetadataOnly => {
+                let transcript = std::mem::take(&mut self.transcript);
+                *self = incoming;
+                self.transcript = transcript;
+            }
+            crate::db::SaveMode::Delta => {
+                let mut transcript = std::mem::take(&mut self.transcript);
+                *self = incoming;
+                transcript.entries.append(&mut self.transcript.entries);
+                transcript
+                    .directives
+                    .append(&mut self.transcript.directives);
+                transcript.min_next_seq = transcript.min_next_seq.max(transcript.next_seq());
+                transcript.min_next_directive_seq = transcript
+                    .min_next_directive_seq
+                    .max(transcript.next_directive_seq());
+                self.transcript = transcript;
+            }
+        }
+        // Only a delta/metadata frame inherits the previous graph. A full
+        // rewrite states the whole truth, including "no graph" after a
+        // wholesale transcript rebuild (ADR-0239).
+        if !matches!(mode, crate::db::SaveMode::FullRewrite) && self.graph.is_none() {
+            self.graph = graph;
+        }
+    }
+}
+
 impl Default for ThreadData {
     fn default() -> Self {
         let now = unix_timestamp();
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             active_branch: protocol::BranchId::main(),
+            branches: {
+                let mut branches = std::collections::BTreeMap::new();
+                let main = protocol::BranchId::main();
+                branches.insert(
+                    main.clone(),
+                    protocol::BranchState::main(now.saturating_mul(1000)),
+                );
+                branches
+            },
+            graph: None,
+            msg_count: 0,
+            last_user_prompt: None,
             parent_id: None,
             origin: protocol::ThreadOrigin::Trunk,
             created_at: now,
@@ -313,6 +418,8 @@ fn migrate_session_data(mut data: ThreadData) -> ThreadData {
 #[derive(Serialize)]
 struct SessionRowChecksumView<'a> {
     active_branch: &'a protocol::BranchId,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    branches: &'a std::collections::BTreeMap<protocol::BranchId, protocol::BranchState>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     commands: &'a Vec<protocol::CommandRecord>,
     created_at: u64,
@@ -345,6 +452,7 @@ impl<'a> From<&'a ThreadData> for SessionRowChecksumView<'a> {
     fn from(data: &'a ThreadData) -> Self {
         Self {
             active_branch: &data.active_branch,
+            branches: &data.branches,
             commands: &data.commands,
             created_at: data.created_at,
             digest: data.digest.as_ref(),
@@ -469,15 +577,28 @@ pub(crate) struct ThreadSessionState {
     /// In-memory cache of projected messages, avoiding repetitive full-history
     /// projections on ReAct turn hot paths.
     pub(crate) projected_cache: Option<Vec<tool::Message>>,
+    /// Durable per-session journal (ADR-0236). Swapped when this store opens
+    /// or resets to another session.
+    pub(crate) journal: Arc<crate::journal::SessionJournal>,
+    /// Derived SQLite projection state (ADR-0236). Swapped with the journal.
+    pub(crate) projection: Arc<ProjectionState>,
 }
 
 impl ThreadSessionState {
-    pub(crate) fn new(path: PathBuf, data: ThreadData, defer_persist: bool) -> Self {
+    pub(crate) fn new(
+        path: PathBuf,
+        data: ThreadData,
+        defer_persist: bool,
+        journal: Arc<crate::journal::SessionJournal>,
+        projection: Arc<ProjectionState>,
+    ) -> Self {
         Self {
             path,
             data,
             defer_persist,
             projected_cache: None,
+            journal,
+            projection,
         }
     }
 
@@ -521,27 +642,97 @@ pub struct ThreadSession {
     persist_gate: Mutex<()>,
 }
 
-/// Write `data` authoritatively through the single-writer actor.
+/// Directory that owns per-session journals for `db_path`.
 ///
-/// There is no path where a session write opens its own connection: the caller
-/// passes the handle that owns this database — the process-wide one in
-/// production, the store-private one for a path-pinned instance.
-fn persist_to(
-    writer: &crate::db::PersistenceHandle,
-    data: &ThreadData,
-    _blob_store: &BlobStore,
-) -> Result<(), String> {
-    let mut data = data.clone();
-    data.checksum = Some(compute_checksum(&data)?);
-    writer
-        .save_session_blocking(data)
-        .map_err(|e| format!("failed to save session to sqlite: {e}"))
+/// Colocating the journal with the database (rather than with a workspace's
+/// legacy snapshot directory) keeps one stable root per store, including
+/// path-pinned test stores.
+pub(crate) fn journal_root(db_path: &Path) -> PathBuf {
+    db_path
+        .parent()
+        .map(|parent| parent.join("journal"))
+        .unwrap_or_else(|| PathBuf::from("journal"))
 }
 
-/// Load the session for `session_id` directly from SQLite (SSOT).
-/// A session not present in SQLite (or one stored under the pre-transcript
-/// schema) loads as a brand-new empty session — retires legacy
-/// content instead of migrating it.
+/// Durable path→session identity for legacy path-pinned stores.
+///
+/// The SQLite alias is derived state; deleting the database must not orphan a
+/// journal. The alias lives in the journal plane so a path keeps resolving to
+/// the same session even when the derived view is gone.
+pub(crate) fn journal_alias_path(journal_root: &Path, legacy_path: &Path) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(legacy_path.to_string_lossy().as_bytes());
+    journal_root
+        .join("aliases")
+        .join(format!("{:x}.txt", hasher.finalize()))
+}
+
+fn write_journal_alias(journal_root: &Path, legacy_path: &Path, session_id: &str) {
+    let path = journal_alias_path(journal_root, legacy_path);
+    if let Some(parent) = path.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+    let temp = path.with_extension("tmp");
+    if fs::write(&temp, session_id).is_ok() {
+        if let Ok(file) = fs::File::open(&temp) {
+            let _ = file.sync_all();
+        }
+        if fs::rename(&temp, &path).is_ok()
+            && let Some(parent) = path.parent()
+            && let Ok(dir) = fs::File::open(parent)
+        {
+            let _ = dir.sync_all();
+        }
+    }
+}
+
+/// Open the shared journal for one session under this database.
+pub(crate) fn open_journal(
+    db_path: &Path,
+    session_id: &str,
+) -> Arc<crate::journal::SessionJournal> {
+    crate::journal::SessionJournal::shared(&journal_root(db_path), session_id)
+}
+
+/// Seed a fresh session when the requested identity is terminally deleted.
+fn seed_fresh_session(
+    writer: Option<&crate::db::PersistenceHandle>,
+    legacy_file: Option<&Path>,
+    workspace: Option<&protocol::WorkspaceBinding>,
+    persona: Option<&str>,
+    target_id: &str,
+) -> ThreadData {
+    let id = if target_id.len() >= 32
+        && target_id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        && writer.is_none()
+    {
+        target_id.to_string()
+    } else {
+        uuid::Uuid::new_v4().to_string()
+    };
+    if let Some(path) = legacy_file
+        && let Some(writer) = writer
+        && !writer.is_lock_contention()
+    {
+        write_journal_alias(&journal_root(writer.db_path()), path, &id);
+        let _ = writer.set_kv_blocking(format!("path:{}", path.display()), id.clone());
+    }
+    let role_manifest = Some(crate::roles::resolve_role_manifest(
+        workspace.map(|w| w.root.as_path()),
+        persona,
+    ));
+    ThreadData {
+        id,
+        workspace: workspace.cloned(),
+        role: persona.map(str::to_string),
+        role_manifest,
+        ..Default::default()
+    }
+}
+
 fn load_or_seed(
     reader: Option<&crate::db::DbReader>,
     writer: Option<&crate::db::PersistenceHandle>,
@@ -551,17 +742,92 @@ fn load_or_seed(
     persona: Option<&str>,
     legacy_file: Option<&Path>,
 ) -> ThreadData {
-    // Path alias in kv_store maps a legacy snapshot path to its session id.
-    let mapped_id = if let (Some(path), Some(reader)) = (legacy_file, reader) {
-        reader
-            .get_kv(&format!("path:{}", path.display()))
-            .ok()
-            .flatten()
+    // Path alias maps a legacy snapshot path to its session id. The journal
+    // plane is authoritative: the SQLite KV is only a fallback for stores
+    // created before the alias moved (ADR-0240).
+    let mapped_id = if let Some(path) = legacy_file {
+        let journal_alias = writer.and_then(|writer| {
+            fs::read_to_string(journal_alias_path(&journal_root(writer.db_path()), path))
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        });
+        journal_alias.or_else(|| {
+            reader.and_then(|reader| {
+                reader
+                    .get_kv(&format!("path:{}", path.display()))
+                    .ok()
+                    .flatten()
+            })
+        })
     } else {
         None
     };
 
     let target_id = mapped_id.as_deref().unwrap_or(session_id);
+    if mapped_id.is_some()
+        && let (Some(path), Some(writer)) = (legacy_file, writer)
+        && !writer.is_lock_contention()
+    {
+        write_journal_alias(&journal_root(writer.db_path()), path, target_id);
+    }
+
+    // Journal first (ADR-0236): it is the source of truth. The SQLite view is
+    // derived and may lag, so it is only a fallback for a session whose
+    // journal has not been materialised yet.
+    if let Some(writer) = writer {
+        let journal = open_journal(writer.db_path(), target_id);
+        match journal.load() {
+            Ok(Some(mut data)) => {
+                if let Err(error) = load_session_blobs(&mut data, blob_store) {
+                    tracing::warn!(error = %error, "could not load session blobs for journal state");
+                }
+                // The journal is authoritative; the derived row may be missing
+                // or behind when the process died between the fsync and the
+                // projection. Rebuild it once, on this cold open, so the picker
+                // and recovery see the same session the journal does.
+                let stale =
+                    match reader.and_then(|reader| reader.get_session(target_id).ok().flatten()) {
+                        Some(record) => record.updated_at_s < data.updated_at as i64,
+                        None => true,
+                    };
+                if stale && !writer.is_lock_contention() {
+                    let mut projection = data.clone();
+                    match compute_checksum(&projection) {
+                        Ok(checksum) => projection.checksum = Some(checksum),
+                        Err(error) => {
+                            tracing::warn!(%error, "could not checksum the journal state")
+                        }
+                    }
+                    let seq = journal.durable_seq();
+                    if let Err(error) = writer.save_session_blocking(projection, Some(seq)) {
+                        tracing::warn!(%error, "could not rebuild the derived row from the journal");
+                    }
+                }
+                return migrate_session_data(data);
+            }
+            Ok(None) => {
+                if journal.is_deleted() {
+                    // A terminal tombstone outranks a stale derived row: never
+                    // resurrect a deleted session by falling back to SQLite.
+                    return seed_fresh_session(
+                        Some(writer),
+                        legacy_file,
+                        workspace,
+                        persona,
+                        target_id,
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    session = %target_id,
+                    %error,
+                    "could not read the session journal; falling back to the derived view"
+                );
+            }
+        }
+    }
 
     // Primary path: load directly from SQLite (SSOT).
     if let Some(reader) = reader
@@ -571,6 +837,20 @@ fn load_or_seed(
             tracing::warn!(error = %error, "could not load session blobs from sqlite");
         }
         data = migrate_session_data(data);
+        // One-time materialisation: from this open onward the journal is the
+        // source of truth for this session.
+        if let Some(writer) = writer
+            && !writer.is_lock_contention()
+        {
+            let journal = open_journal(writer.db_path(), &data.id);
+            if let Err(error) = journal.import(&data) {
+                tracing::warn!(
+                    session = %data.id,
+                    %error,
+                    "could not import the existing session into its journal"
+                );
+            }
+        }
         return data;
     }
 
@@ -586,11 +866,9 @@ fn load_or_seed(
     if let Some(path) = legacy_file
         && let Some(writer) = writer
     {
-        // Durably awaited: the alias is what keeps a legacy path resolving to
-        // the same session id across reloads, so it must be visible before
-        // this constructor returns. Safe to block here because the actor
-        // always owns a thread or worker of its own (see
-        // `PersistenceHandle::spawn`).
+        // The journal-plane alias is the durable one; the SQLite alias remains
+        // for readers that only have the derived view.
+        write_journal_alias(&journal_root(writer.db_path()), path, &id);
         let _ = writer.set_kv_blocking(format!("path:{}", path.display()), id.clone());
     }
     let role_manifest = Some(crate::roles::resolve_role_manifest(
@@ -651,14 +929,9 @@ pub(crate) fn last_effective_prompt_from_data(data: &ThreadData) -> Option<Strin
         }
         if entry.role == Some(Role::User)
             && let Some(m) = entry.to_message()
+            && !m.hidden
         {
-            let is_echo = m
-                .origin
-                .as_ref()
-                .is_some_and(|o| o.kind == InjectionKind::CommandEcho);
-            if !m.hidden && !is_echo {
-                return Some(m.content);
-            }
+            return Some(m.content);
         }
     }
     None
@@ -671,8 +944,9 @@ pub(crate) fn unix_timestamp() -> u64 {
         .as_secs()
 }
 
-/// Diagnostic scan of stored sessions. SQLite is the only store; every row is
-/// checked for presence of the authoritative tables. Prints one
+/// Diagnostic scan of the derived session view. Every row is checked for the
+/// tables the projection owns; a missing row is recoverable from its journal.
+/// Prints one
 /// line per session and a summary.
 pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), String> {
     let db_path = paths::get().db_file();
@@ -721,6 +995,7 @@ pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), St
 /// row, derived indexes (through the single writer), and the two per-thread
 /// files. Callers must stop and await any resident driver first.
 pub async fn delete_thread(id: &str, workspace_root: Option<&Path>) -> Result<bool, String> {
+    projection::mark_deleted(id);
     let existed = crate::db::get_persistence_handle()
         .delete_session(id.to_string())
         .await
@@ -733,14 +1008,106 @@ pub async fn delete_thread(id: &str, workspace_root: Option<&Path>) -> Result<bo
     let snapshot = dir.join(format!("{id}.json"));
     let _ = fs::remove_file(&snapshot);
     let _ = fs::remove_file(snapshot.with_extension("jsonl"));
+    let handle = crate::db::get_persistence_handle();
+    if let Err(error) = open_journal(handle.db_path(), id).mark_deleted().await {
+        tracing::warn!(session = %id, %error, "could not tombstone the session journal");
+    }
     Ok(existed)
 }
 
 mod fields;
 mod history;
+mod projection;
 pub(crate) use history::{thread_from_session_data, transcript_from_thread};
+pub(crate) use projection::{ProjectionJob, ProjectionState};
 
 pub use history::{CommitBasis, CommitTurn, ForkTarget};
 mod store;
 #[cfg(test)]
 mod tests;
+
+/// Rebuild any derived session whose watermark is behind its journal head.
+///
+/// This is the startup catch-up for a crash between the journal fsync and the
+/// projection, or for a shard that was deleted. It is idempotent and safe to
+/// run while the server is idle; the projector remains the steady-state path
+/// (ADR-0242).
+pub fn catch_up_projections_for(handle: &crate::db::PersistenceHandle) -> Result<usize, String> {
+    let root = journal_root(handle.db_path());
+    // Reclaim bodies left by a crash between the deletion marker and cleanup;
+    // the marker already decided the outcome (ADR-0241).
+    crate::journal::sweep_deleted(&root);
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(format!("could not scan the journal root: {error}")),
+    };
+    let mut repaired = 0usize;
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().into_owned();
+        if id == "aliases" {
+            continue;
+        }
+        let journal = crate::journal::SessionJournal::shared(&root, &id);
+        if journal.is_deleted() {
+            continue;
+        }
+        let durable = journal.durable_seq();
+        if durable == 0 {
+            continue;
+        }
+        let reader = handle.reader().ok();
+        let present = reader
+            .as_ref()
+            .and_then(|reader| reader.get_session(&id).ok().flatten())
+            .is_some();
+        let watermark = reader
+            .as_ref()
+            .and_then(|reader| reader.projection_watermark(&id).ok().flatten())
+            .unwrap_or(0);
+        if present && watermark >= durable {
+            continue;
+        }
+        let Some(mut data) = journal.load()? else {
+            continue;
+        };
+        if journal.is_deleted() {
+            continue;
+        }
+        data.checksum = Some(compute_checksum(&data)?);
+        match handle.save_session_blocking(data, Some(durable)) {
+            Ok(()) => {
+                repaired = repaired.saturating_add(1);
+                tracing::info!(session = %id, seq = durable, "rebuilt a derived session from its journal");
+            }
+            Err(error) => {
+                tracing::warn!(session = %id, %error, "could not rebuild a derived session");
+            }
+        }
+    }
+    Ok(repaired)
+}
+
+/// Process-wide catch-up: the first caller pays for the scan, later callers
+/// are no-ops. Called once by the server bootstrap.
+pub async fn catch_up_projections_once() {
+    static ONCE: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+    ONCE.get_or_init(|| async {
+        let outcome = tokio::task::spawn_blocking(|| {
+            catch_up_projections_for(&crate::db::get_persistence_handle())
+        })
+        .await;
+        match outcome {
+            Ok(Ok(0)) => {}
+            Ok(Ok(count)) => {
+                tracing::info!(repaired = count, "projection catch-up repaired sessions");
+            }
+            Ok(Err(error)) => tracing::warn!(%error, "projection catch-up failed"),
+            Err(error) => tracing::warn!(%error, "projection catch-up task failed"),
+        }
+    })
+    .await;
+}

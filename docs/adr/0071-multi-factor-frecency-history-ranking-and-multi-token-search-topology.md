@@ -40,7 +40,7 @@ However, operators consistently encountered severe cognitive friction and discov
 
 ## Decision Drivers
 
-- **Uncompromising Ergonomics & High Recall (`[INV-HIST-04]`)**: Operators must find prompts naturally using multiple keywords in any order, with zero false rejections from intervening text or keyword permutations.
+- **Uncompromising Ergonomics & High Recall (`[INV-HIST-09]`)**: Operators must find prompts naturally using multiple keywords in any order, with zero false rejections from intervening text or keyword permutations.
 - **Multi-Factor Frecency SSOT (`[INV-HIST-05]`)**: Combine match quality, bounded logarithmic usage frequency, smooth exponential-gradient recency decay, and session/workspace affinity into a deterministic composite ranking score.
 - **Frequency-Aware Durable Persistence (`[INV-HIST-06]`)**: Track execution frequency (`use_count`) across protocol wire representations and durable SQLite storage with atomic increment on deduplication.
 - **CJK Semantic Equality**: Treat contiguous CJK character matches with first-class word/phrase scoring parity to western space-delimited words.
@@ -116,7 +116,7 @@ $$\text{Total Score} = \text{Score}_{\text{match}} + \text{Score}_{\text{recency
 
 ## Normative Invariants Established
 
-- **`[INV-HIST-04]` Multi-Token Order-Independent Keyword Recall**:
+- **`[INV-HIST-09]` Multi-Token Order-Independent Keyword Recall**:
   Whitespace-delimited search queries in `HistorySearch` must match candidate prompts regardless of keyword permutation, intervening text, or line breaks. All matched token ranges must be highlighted concurrently in the drawer display.
   *Enforcement*: `tests::history_recall::test_history_multi_token_and_cjk_recall` and `fuzzy::tests::multi_token_matching_supports_any_order`.
 

@@ -2,7 +2,7 @@
 
 Factual reference for the `nuo` interactive terminal interface: the spatial layout of the viewport, the visual language of its text joins, the modal surfaces, and the input-to-render event pipeline.
 
-This surface is the authoritative companion to the presentation substrate (`crates/nuo-ui-primitives`, `crates/nuo-view`) and the interactive shell runtime (`crates/nuo/src/shell/`). The token values, presentation tiers (ADR-0112), and layout contracts here are kept in sync across the workspace.
+This surface is the authoritative companion to the presentation substrate (`crates/ui-primitives`, `crates/view`) and the interactive shell runtime (`crates/nuo/src/shell/`). The token values, presentation tiers (ADR-0112), and layout contracts here are kept in sync across the workspace.
 
 ---
 

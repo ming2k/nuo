@@ -5,7 +5,7 @@ status: accepted
 date: 2026-11-10
 scope: [workspace]
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # ADR-0165: User Instructions Absorb Model Guidance as the User Source
@@ -113,7 +113,7 @@ That is migration UX, not compatibility: the old shape never takes effect.
 
 ## Invariants
 
-- `[INV-INST-06]` **User is a source, not a subsystem.** User content goes
+- `[INV-INST-11]` **User is a source, not a subsystem.** User content goes
   through the same registry, matcher, ordering, and projection as system and
   project content.
 - `[INV-INST-07]` **One matcher.** Model selection is always a glob; there is

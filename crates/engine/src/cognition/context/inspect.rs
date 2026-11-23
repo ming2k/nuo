@@ -21,10 +21,10 @@ use protocol::{
 /// caller facts (the engine's `Agent` owns the provider), so they are arguments
 /// rather than fields on the measurement.
 ///
-/// Bodies come from the plan's own rendered regions: `fixed` and `transient`
-/// already hold the exact blocks that became the request, so joining them by id
-/// yields the bytes the provider received — no re-render, no second source of
-/// truth (`[INV-CTXPLAN-04]`).
+/// Bodies come from the plan's own rendered instruction region: `fixed`
+/// already holds the exact blocks that became the request, so joining them by
+/// id yields the bytes the provider received — no re-render, no second source
+/// of truth (`[INV-CTXPLAN-04]`).
 pub fn view(
     measurement: &ContextMeasurement,
     window_tokens: usize,
@@ -38,7 +38,6 @@ pub fn view(
     ContextPlanView {
         blocks,
         fixed_tokens: plan.fixed_tokens,
-        transient_tokens: plan.transient_tokens,
         notices: plan.notices.clone(),
         drift: plan.drift.clone(),
         window_tokens,
@@ -55,7 +54,6 @@ fn rendered_body(plan: &ContextPlan, row: &PlannedBlock) -> Option<String> {
     }
     plan.fixed
         .iter()
-        .chain(plan.transient.iter())
         .find(|block| block.id == row.id)
         .map(|block| protocol::render_blocks(std::slice::from_ref(block)))
 }
@@ -65,25 +63,12 @@ fn rendered_body(plan: &ContextPlan, row: &PlannedBlock) -> Option<String> {
 pub fn render_table(view: &ContextPlanView) -> String {
     let mut out = String::new();
     out.push_str("Region      Tokens   Blocks\n");
-    let fixed_blocks = view
-        .blocks
-        .iter()
-        .filter(|b| b.active && !b.stability.is_transient());
-    let transient_blocks = view
-        .blocks
-        .iter()
-        .filter(|b| b.active && b.stability.is_transient());
+    let active_blocks = view.blocks.iter().filter(|b| b.active).count();
     out.push_str(&format!(
         "fixed       {:>6}   {:>6}\n",
-        view.fixed_tokens,
-        fixed_blocks.count()
+        view.fixed_tokens, active_blocks
     ));
-    out.push_str(&format!(
-        "transient   {:>6}   {:>6}\n",
-        view.transient_tokens,
-        transient_blocks.count()
-    ));
-    let total = view.fixed_tokens + view.transient_tokens;
+    let total = view.fixed_tokens;
     if view.window_tokens > 0 {
         out.push_str(&format!(
             "─────────────────────────────────────────\n\
@@ -102,12 +87,11 @@ pub fn render_table(view: &ContextPlanView) -> String {
     }
     if let Some(estimate) = view.estimate {
         out.push_str(&format!(
-            "\nrequest     {} tokens = instructions {} + history {} + tools {} + temporary {}\n",
+            "\nrequest     {} tokens = instructions {} + history {} + tools {}\n",
             estimate.total_tokens,
             estimate.instructions_tokens,
             estimate.history_tokens,
             estimate.tool_schema_tokens,
-            estimate.temporary_context_tokens,
         ));
         if let Some(residual) = view.attribution_residual() {
             out.push_str(&format!(
@@ -360,7 +344,7 @@ mod tests {
             ..Default::default()
         };
         let mut m = measurement(plan);
-        m.estimate = Some(protocol::RequestTokenEstimate::layered(41, 3, 9, 1));
+        m.estimate = Some(protocol::RequestTokenEstimate::layered(41, 3, 9));
         let json = render_json(&view(&m, 200_000, 16_000)).unwrap();
         assert!(json.contains("\"topic\": \"identity\""));
         assert!(json.contains("\"rank\": \"directive\""));
@@ -386,7 +370,6 @@ mod tests {
         m.estimate = Some(protocol::RequestTokenEstimate::layered(
             0,
             block_tokens + 4,
-            0,
             0,
         ));
         let table = render_table(&view(&m, 100_000, 8_000));

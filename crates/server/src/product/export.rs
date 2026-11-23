@@ -517,12 +517,9 @@ fn push_activity_block(
     out.push('\n');
 }
 
-/// Parse the `[<name> result]:<output>` envelope that wraps Tool-role
-/// messages.
+/// Parse the `[<name> result]:<output>` header that wraps Tool-role messages.
 fn parse_tool_result(content: &str) -> Option<(&str, &str)> {
-    let content = content.strip_prefix('[')?;
-    let (name, output) = content.split_once(" result]:")?;
-    Some((name, output.trim_start_matches('\n')))
+    tool::tool_result_header::parse(content)
 }
 
 #[cfg(test)]

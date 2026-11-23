@@ -5,7 +5,7 @@ status: accepted
 date: 2026-11-10
 scope: [workspace]
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # ADR-0162: Stream Restarts Are a Separate Budget and Every Failed Attempt Is Discarded
@@ -86,18 +86,18 @@ restart(s)…`. The user can resend, switch models, or raise the budget.
 
 ## Invariants
 
-- `[INV-RETRY-01]` **Visibility is the classifier.** A failure is a stream
+- `[INV-RETRY-10]` **Visibility is the classifier.** A failure is a stream
   restart iff the attempt emitted assistant text, reasoning, or a tool-call
   announcement.
-- `[INV-RETRY-02]` **No visible residue survives a failed attempt.** Before a
+- `[INV-RETRY-11]` **No visible residue survives a failed attempt.** Before a
   retry or a terminal error, every provisional row the attempt streamed — its
   text row, its thinking trace (streaming *or* already finalized), and its
   provisional tool rows — is discarded. See the 2026-11-08 amendment.
-- `[INV-RETRY-03]` **Budgets are independent.** Silent failures never consume
+- `[INV-RETRY-12]` **Budgets are independent.** Silent failures never consume
   the restart budget and vice versa.
-- `[INV-RETRY-04]` **Recoveries are free.** Overflow compaction and the image
+- `[INV-RETRY-13]` **Recoveries are free.** Overflow compaction and the image
   probe consume neither budget.
-- `[INV-RETRY-05]` **One truth on screen.** `RetryScheduled` reports the budget
+- `[INV-RETRY-14]` **One truth on screen.** `RetryScheduled` reports the budget
   the retry belongs to, with the initial attempt counted as attempt 1.
 
 ## Consequences
@@ -113,7 +113,7 @@ restart(s)…`. The user can resend, switch models, or raise the budget.
   failure now shows `retry 1 of K` against the restart budget instead of
   against the global attempt count. ADR-0122's display machinery is unchanged;
   only the source of the pair moved.
-- `[INV-RETRY-03]` means a round can make at most
+- The `[INV-RETRY-12]` budget rule means a round can make at most
   `retry_max_attempts + stream_restart_max_attempts + 1` provider calls.
 
 ## Validation
@@ -131,8 +131,8 @@ restart(s)…`. The user can resend, switch models, or raise the budget.
 ## 2026-11-08 Amendment: A Discard Sweeps the Whole Attempt
 
 `StreamDiscard` popped **one** row: the trailing assistant text row. That was
-already narrower than `[INV-RETRY-01]`, which classifies an attempt as visible
-on reasoning deltas too, and narrower than `[INV-RETRY-02]`, which promises no
+already narrower than `[INV-RETRY-10]`, which classifies an attempt as visible
+on reasoning deltas too, and narrower than `[INV-RETRY-11]`, which promises no
 visible residue survives. An attempt can leave several provisional rows behind,
 and the discard missed all but the last:
 

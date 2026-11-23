@@ -148,4 +148,93 @@ impl ContextProjectionGate for PruningProjectionGate {
             None
         }
     }
+
+    /// Relieve a request whose body is over the transport's byte ceiling.
+    ///
+    /// This is **not** a compaction tier. Compaction folds history to fit a
+    /// token window and would happily drop the rounds the user is working in;
+    /// a body-size refusal is caused by payload, and the payload's dominant
+    /// term is attachments. So the ladder here is:
+    ///
+    /// 1. persist each attachment the plan selects to its content-addressed
+    ///    path, because the invoice is about to name that path;
+    /// 2. replace those attachments with the invoice (text preserved verbatim);
+    /// 3. record the projection so the durable window and the next round agree,
+    ///    instead of re-deriving the same eviction every turn.
+    ///
+    /// The newest attachments are never candidates
+    /// ([`protocol::PAYLOAD_KEEP_NEWEST_IMAGES`]): the conversation is usually
+    /// *about* them, and the model can still read an older one back through the
+    /// invoice's artifact path.
+    async fn project_payload(
+        &self,
+        mut messages: Vec<Message>,
+        media_target_bytes: usize,
+    ) -> Option<Vec<Message>> {
+        let media_before = protocol::pressure::media_bytes(&messages);
+        if media_before <= media_target_bytes {
+            return None;
+        }
+        let plan = protocol::pressure::plan_media_offload(
+            &messages,
+            media_before,
+            media_target_bytes,
+            protocol::pressure::PAYLOAD_KEEP_NEWEST_IMAGES,
+        );
+        if plan.is_empty() {
+            tracing::debug!(
+                media_before,
+                media_target_bytes,
+                "payload relief found no attachment it may offload"
+            );
+            return None;
+        }
+        // Durable before dropped: the invoice is about to print these paths, so
+        // an item whose bytes could not be persisted is not eligible.
+        let plan = crate::orchestration::persist_media_artifacts(plan).await;
+        if plan.is_empty() {
+            tracing::warn!(
+                media_before,
+                media_target_bytes,
+                "no attachment could be persisted; keeping the request intact"
+            );
+            return None;
+        }
+        let offloaded_messages = plan.len();
+        let window_tokens_before =
+            protocol::pressure::estimate_tokens_weighted(&messages, &self.weights);
+        let outcome = protocol::pressure::apply_media_offload(&mut messages, plan);
+        let media_after = protocol::pressure::media_bytes(&messages);
+        let window_tokens_after =
+            protocol::pressure::estimate_tokens_weighted(&messages, &self.weights);
+        tracing::warn!(
+            offloaded_images = outcome.offloaded_images,
+            offloaded_messages,
+            reclaimed_bytes = outcome.reclaimed_bytes,
+            media_before,
+            media_after,
+            media_target_bytes,
+            "offloaded attachments to fit the request-body ceiling"
+        );
+        if let Err(error) = self
+            .session
+            .commit_context_projection(protocol::ContextProjectionResult {
+                model_window: messages.clone(),
+                archived_originals: outcome.originals,
+                checkpoint: protocol::ContextProjectionCheckpoint {
+                    operation: protocol::ContextProjectionKind::Payload,
+                    archived_messages: offloaded_messages,
+                    active_messages: messages.len(),
+                    window_tokens_before,
+                    window_tokens_after,
+                    summary: None,
+                    tracked_files: Vec::new(),
+                },
+            })
+            .await
+        {
+            tracing::warn!(%error, "could not commit the payload projection");
+        }
+        Some(messages)
+    }
 }

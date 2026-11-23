@@ -18,7 +18,7 @@ fn adr0044_composer_owns_caret_and_direct_typing_filters_history() {
         200,
     ));
 
-    // [INV-HIST-01]: Opening HistorySearch keeps CaretOwner::Composer
+    // [INV-HIST-07]: Opening HistorySearch keeps CaretOwner::Composer
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
     assert_eq!(
         app.caret_owner(),

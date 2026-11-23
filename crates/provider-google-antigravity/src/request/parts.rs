@@ -297,13 +297,18 @@ fn tool_result_parts(
         vec![json!({ "functionResponse": function_response })]
     } else {
         // Degraded tool result for unsigned / cross-provider tool calls.
-        // Google's alternating role constraint expects text in the user role.
-        let label = if !name.is_empty() {
-            format!("[Tool result for \"{name}\"]:\n{}", message.content)
+        // Google's alternating role constraint expects text in the user role, so
+        // the call's identity has to survive in the text. It does so through the
+        // one shared header (ADR-0227): a locally invented spelling here would be
+        // a sixth format no reader knows.
+        let label = if tool::tool_result_header::is_tool_result(&message.content) {
+            message.content.clone()
+        } else if !name.is_empty() {
+            tool::tool_result_header::render(&name, &message.content)
         } else if !id.is_empty() {
-            format!("[Tool result for call \"{id}\"]:\n{}", message.content)
+            tool::tool_result_header::render(&format!("call {id}"), &message.content)
         } else {
-            format!("[Tool result]:\n{}", message.content)
+            tool::tool_result_header::render("tool", &message.content)
         };
         vec![json!({ "text": label })]
     }

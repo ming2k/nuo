@@ -14,6 +14,7 @@ fn row1_renders_tabs_without_ordinal_prefixes() {
         tabs: Some(&tabs),
         active_tab: 0,
         unread_faults: 0,
+        ..TabBarProps::default()
     };
     let row = render_row1(80, tab_bar);
     assert!(row.contains("thread#b3c4"), "{row}");
@@ -45,6 +46,7 @@ fn row1_status_cluster_pins_the_notice_badge_to_the_inset_edge() {
         tabs: Some(&tabs),
         active_tab: 0,
         unread_faults: 3,
+        ..TabBarProps::default()
     };
     let mut terminal = graticule::TestTerminal::new(80, 1);
     let mut nav = TabBarNavRects::default();
@@ -79,6 +81,7 @@ fn row1_bleeds_to_both_terminal_edges() {
             tabs: Some(&tabs),
             active_tab: 0,
             unread_faults: 0,
+            ..TabBarProps::default()
         };
         let mut terminal = graticule::TestTerminal::new(width, 1);
         let mut nav = TabBarNavRects::default();
@@ -126,6 +129,7 @@ fn row1_tab_labels_keep_internal_padding_at_the_edges() {
         tabs: Some(&tabs),
         active_tab: 0,
         unread_faults: 0,
+        ..TabBarProps::default()
     };
     let row = render_row1(80, tab_bar);
     assert!(
@@ -145,6 +149,7 @@ fn row1_status_cluster_keeps_the_legend_gap_when_tabs_overflow() {
         tabs: Some(&tabs),
         active_tab: 7,
         unread_faults: 2,
+        ..TabBarProps::default()
     };
     let row = render_row1(60, tab_bar);
     let badge_at = row.find("[!2]").expect("fault badge present");
@@ -169,6 +174,7 @@ fn row1_renders_semantic_tab_titles_with_wider_budget() {
         tabs: Some(&tabs),
         active_tab: 0,
         unread_faults: 0,
+        ..TabBarProps::default()
     };
     let row = render_row1(80, tab_bar);
     assert!(
@@ -194,6 +200,7 @@ fn row1_tab_rects_and_styling() {
         tabs: Some(&tabs),
         active_tab: 0,
         unread_faults: 0,
+        ..TabBarProps::default()
     };
     let mut terminal = graticule::TestTerminal::new(80, 1);
     let theme = Theme::default();
@@ -255,6 +262,7 @@ fn row1_seamless_tabs_alternate_backgrounds_and_preserve_active_contrast() {
             tabs: Some(&tabs),
             active_tab: 2,
             unread_faults: 0,
+            ..TabBarProps::default()
         };
         let mut terminal = graticule::TestTerminal::new(100, 1);
         let theme = Theme::default();
@@ -322,6 +330,7 @@ fn row1_seamless_tabs_alternate_backgrounds_and_preserve_active_contrast() {
             tabs: Some(&tabs),
             active_tab: 0,
             unread_faults: 0,
+            ..TabBarProps::default()
         };
         let mut terminal = graticule::TestTerminal::new(100, 1);
         let theme = Theme::default();
@@ -368,6 +377,7 @@ fn row1_tab_bar_monochrome_renders_brackets_and_reverse_video() {
         tabs: Some(&tabs),
         active_tab: 0,
         unread_faults: 0,
+        ..TabBarProps::default()
     };
     let mut terminal = graticule::TestTerminal::new(80, 1);
     let theme = Theme::monochrome();
@@ -376,22 +386,24 @@ fn row1_tab_bar_monochrome_renders_brackets_and_reverse_video() {
     });
     let cells = terminal.buffer().cells();
     let row_text: String = cells.iter().map(|c| c.symbol.as_str()).collect();
+    // The framed pill reserves its close slot at rest (ADR-0235), so the title
+    // is followed by the two columns the hover mark occupies.
     assert!(
-        row_text.contains("[Refactor]"),
+        row_text.contains("[Refactor  ]"),
         "active tab must be framed with brackets on monochrome: {row_text}"
     );
     assert!(
-        row_text.contains("[dashboard]"),
+        row_text.contains("[dashboard  ]"),
         "inactive tab must be framed with brackets on monochrome: {row_text}"
     );
 
-    // Find cells belonging to "[Refactor]" and verify they have REVERSE | BOLD
-    let refactor_start = row_text.find("[Refactor]").unwrap();
+    // Find cells belonging to "[Refactor  ]" and verify they have REVERSE | BOLD
+    let refactor_start = row_text.find("[Refactor  ]").unwrap();
     for (col, cell) in cells
         .iter()
         .enumerate()
         .skip(refactor_start)
-        .take("[Refactor]".len())
+        .take("[Refactor  ]".len())
     {
         assert!(
             cell.style.add.contains(graticule::Modifier::REVERSE),
@@ -466,6 +478,7 @@ fn row1_renders_overflow_indicators_when_tabs_exceed_available_width() {
         tabs: Some(&tabs),
         active_tab: 5,
         unread_faults: 0,
+        ..TabBarProps::default()
     };
     let row = render_row1(60, tab_bar);
     assert!(
@@ -506,6 +519,7 @@ fn row1_overflow_rects_mounted_for_hit_testing() {
         tabs: Some(&tabs),
         active_tab: 4,
         unread_faults: 0,
+        ..TabBarProps::default()
     };
     let mut terminal = graticule::TestTerminal::new(50, 1);
     let theme = Theme::default();
@@ -535,4 +549,355 @@ fn row1_overflow_rects_mounted_for_hit_testing() {
         nav.tab_rects.iter().any(|(idx, _)| *idx == 4),
         "active tab 4 must have rect"
     );
+}
+
+// ---- ADR-0235: tab lifecycle affordances (hover close, add, hover reveal) ----
+
+fn lifecycle_tabs() -> Vec<crate::shell::surfaces::ClientTab> {
+    vec![
+        crate::shell::surfaces::ClientTab::thread(
+            "sess-01a2b3c4",
+            Some("Refactor Database Connection"),
+        ),
+        crate::shell::surfaces::ClientTab::dashboard(),
+        crate::shell::surfaces::ClientTab::settings(),
+    ]
+}
+
+/// A pill only wears its `✕` while the pointer is on it, and the mark is the
+/// *last* column it owns — the pill's width does not change, so the strip cannot
+/// reflow under the pointer ([INV-TAB-16]).
+#[test]
+fn row1_hovered_pill_reveals_its_close_mark_without_growing() {
+    let tabs = lifecycle_tabs();
+    let hovered = |hover| TabBarProps {
+        tabs: Some(&tabs),
+        active_tab: 0,
+        unread_faults: 0,
+        hover,
+        hover_elapsed_ms: 0,
+    };
+    let mut plain = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    terminal.draw(|frame| {
+        plain = draw_tab_bar(frame, frame.area(), &hovered(None), &Theme::default());
+    });
+    assert!(plain.close_rects.is_empty(), "no pointer, no close mark");
+    let rest_row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(!rest_row.contains('✕'), "{rest_row:?}");
+
+    let mut hover = TabBarNavRects::default();
+    terminal.draw(|frame| {
+        hover = draw_tab_bar(
+            frame,
+            frame.area(),
+            &hovered(Some(TabBarHover::Tab(0))),
+            &Theme::default(),
+        );
+    });
+    let hover_row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(
+        hover_row.contains('✕'),
+        "hovered pill shows its mark: {hover_row:?}"
+    );
+    assert_eq!(
+        hover.tab_rects[0].1, plain.tab_rects[0].1,
+        "the pill keeps its geometry on hover: {hover_row:?}"
+    );
+    let (index, mark) = hover.close_rects[0];
+    assert_eq!(index, 0);
+    assert_eq!(
+        mark.right(),
+        hover.tab_rects[0].1.right() - 1,
+        "the mark sits one column in from the pill's trailing edge"
+    );
+    assert!(
+        hover.tab_rects[0].1.contains(mark.x, mark.y),
+        "the mark lives inside its own pill"
+    );
+}
+
+/// Moving from a pill onto its own `✕` is one continuous visit: the close glyph
+/// lights up, the title window does not rewind ([INV-TAB-16]).
+#[test]
+fn row1_close_hover_is_the_same_anchor_as_its_pill() {
+    assert_eq!(TabBarHover::Tab(2).anchor(), TabBarHover::Tab(2));
+    assert_eq!(TabBarHover::Close(2).anchor(), TabBarHover::Tab(2));
+    assert_eq!(TabBarHover::Add.anchor(), TabBarHover::Add);
+    assert_ne!(
+        TabBarHover::Tab(2).anchor(),
+        TabBarHover::Tab(3).anchor(),
+        "a different pill is a different visit"
+    );
+}
+
+/// Close and add are only clickable where they are painted. A hit target with
+/// nothing on screen is the phantom click region ADR-0219 deleted.
+#[test]
+fn row1_lifecycle_hit_rects_exist_only_when_painted() {
+    let tabs = lifecycle_tabs();
+    let mut nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 1,
+                unread_faults: 0,
+                hover: Some(TabBarHover::Tab(0)),
+                hover_elapsed_ms: 0,
+            },
+            &Theme::default(),
+        );
+    });
+    assert_eq!(
+        nav.close_rects.len(),
+        1,
+        "only the hovered pill carries a close target"
+    );
+    assert_eq!(nav.close_rects[0].0, 0);
+    assert!(
+        nav.add_rect.is_some(),
+        "the add affordance is always painted on a populated strip"
+    );
+}
+
+#[test]
+fn a_strip_without_columns_paints_no_add_target() {
+    let tabs = lifecycle_tabs();
+    let mut nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(4, 1);
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    assert!(
+        nav.add_rect.is_none(),
+        "a hit target exists only where its affordance is painted ([INV-TAB-18])"
+    );
+}
+
+/// The add affordance is *reserved* out of the rail's budget: a wall of long
+/// titles truncates itself rather than starving the strip's own creation verb
+/// ([INV-TAB-17]).
+#[test]
+fn row1_add_affordance_survives_a_wall_of_long_titles() {
+    let tabs: Vec<_> = (0..12)
+        .map(|i| {
+            crate::shell::surfaces::ClientTab::thread(
+                format!("session-{i}"),
+                Some(format!("A very long tab title number {i}")),
+            )
+        })
+        .collect();
+    let mut nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(44, 1);
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                hover: None,
+                hover_elapsed_ms: 0,
+            },
+            &Theme::default(),
+        );
+    });
+    let row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(
+        row.contains('+'),
+        "the creation affordance survives at the minimum width: {row:?}"
+    );
+    assert!(
+        nav.add_rect.expect("add rect").right() <= 43,
+        "the add affordance stays inside the row's inset: {row:?}"
+    );
+}
+
+/// Hovering an overflowing title slides it toward the tail for one bounded pass,
+/// and the strip reports that the pass is live so the loop keeps painting
+/// ([INV-TAB-15]).
+#[test]
+fn row1_hover_reveals_an_overflowing_title_for_one_bounded_pass() {
+    let tabs = vec![crate::shell::surfaces::ClientTab::thread(
+        "sess-01a2b3c4",
+        Some("Refactor Database Connection Layer"),
+    )];
+    let draw = |elapsed_ms: u64| {
+        let mut terminal = graticule::TestTerminal::new(44, 1);
+        let mut nav = TabBarNavRects::default();
+        terminal.draw(|frame| {
+            nav = draw_tab_bar(
+                frame,
+                frame.area(),
+                &TabBarProps {
+                    tabs: Some(&tabs),
+                    active_tab: 0,
+                    unread_faults: 0,
+                    hover: Some(TabBarHover::Tab(0)),
+                    hover_elapsed_ms: elapsed_ms,
+                },
+                &Theme::default(),
+            );
+        });
+        let row: String = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect();
+        (row, nav.reveal_active)
+    };
+
+    let (at_arrival, live_at_arrival) = draw(0);
+    assert!(
+        live_at_arrival,
+        "the pass is owed from the moment of arrival"
+    );
+    assert!(
+        at_arrival.contains("Refactor"),
+        "the pass opens on the head: {at_arrival:?}"
+    );
+
+    let (later, live_later) = draw(4_000);
+    assert!(
+        !live_later,
+        "a finished pass stops asking for animation frames"
+    );
+    assert!(
+        !later.contains("Refactor"),
+        "the pass ends on the tail the reader waited for: {later:?}"
+    );
+    assert!(
+        later.contains('✕') || later.contains('…'),
+        "the pill still reads as a tab and still carries its close mark: {later:?}"
+    );
+}
+
+/// A title that fits never moves, however long the pointer rests on it.
+#[test]
+fn row1_a_title_that_fits_never_opens_a_reveal_pass() {
+    let tabs = vec![crate::shell::surfaces::ClientTab::dashboard()];
+    let mut nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                hover: Some(TabBarHover::Tab(0)),
+                hover_elapsed_ms: 0,
+            },
+            &Theme::default(),
+        );
+    });
+    let row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(row.contains("dashboard"), "{row:?}");
+    assert!(!nav.reveal_active, "a fitting title costs no animation");
+}
+
+/// The add affordance is drawn on the empty strip too, so a client with no tabs
+/// open can still create one from the row itself.
+#[test]
+fn row1_brand_row_still_offers_the_add_affordance() {
+    let mut nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                hover: Some(TabBarHover::Add),
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    let row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(row.contains("nuo"), "{row:?}");
+    assert!(
+        row.contains('+'),
+        "creation is reachable with no tabs: {row:?}"
+    );
+    assert!(nav.add_rect.is_some());
+}
+
+/// On the framed glyph set the close mark stays one column, so the reserve that
+/// keeps a hovered pill from growing holds there too.
+#[test]
+fn row1_ascii_close_mark_is_one_column() {
+    let tabs = vec![
+        crate::shell::surfaces::ClientTab::thread("sess-01a2b3c4", Some("Refactor DB")),
+        crate::shell::surfaces::ClientTab::dashboard(),
+    ];
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    let mut nav = TabBarNavRects::default();
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                hover: Some(TabBarHover::Tab(0)),
+                hover_elapsed_ms: 0,
+            },
+            &Theme::monochrome(),
+        );
+    });
+    let row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(
+        row.contains("[Refactor DB x]"),
+        "the framed close mark degrades to a 1-column `x`: {row:?}"
+    );
+    assert_eq!(nav.close_rects.len(), 1);
+    assert_eq!(nav.close_rects[0].1.width, 1);
 }

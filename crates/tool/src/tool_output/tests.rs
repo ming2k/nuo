@@ -545,9 +545,12 @@ fn web_search_round_trips_and_formats_text() {
     };
     assert!(!ws.is_error());
     let text = ws.to_text();
+    assert!(text.starts_with("<untrusted origin=\"web\""));
+    assert!(text.contains("note=\"search: rust async (via DuckDuckGo)\""));
     assert!(text.contains("Search results for 'rust async' (via DuckDuckGo)"));
     assert!(text.contains("1. Async in Rust"));
     assert!(text.contains("https://rust-lang.org/async"));
+    assert!(text.ends_with("</untrusted>"));
 
     let json = serde_json::to_string(&ws).unwrap();
     let back: ToolOutput = serde_json::from_str(&json).unwrap();
@@ -567,9 +570,13 @@ fn web_article_round_trips_and_formats_text() {
     };
     assert!(!wa.is_error());
     let text = wa.to_text();
-    assert!(text.starts_with("[BEGIN UNTRUSTED WEB CONTENT"));
-    assert!(text.contains("# Example Post"));
-    assert!(text.ends_with("[END UNTRUSTED WEB CONTENT]"));
+    let region = crate::untrusted::parse(&text).expect("an untrusted region");
+    assert_eq!(region.origin, Some(crate::untrusted::Origin::Web));
+    assert_eq!(
+        region.note.as_deref(),
+        Some("source: https://example.com/post (reader: Jina)")
+    );
+    assert_eq!(region.body, "# Example Post\n\nContent here");
 
     let json = serde_json::to_string(&wa).unwrap();
     let back: ToolOutput = serde_json::from_str(&json).unwrap();

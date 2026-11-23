@@ -17,6 +17,7 @@ negative_knowledge: true
 - **Date**: 2026-12-20
 - **Derives from**: [ADR-0217](0217-context-projection-is-inspectable-and-prefix-drift-is-reported.md),
   [RFC-0004](../rfc/0004-context-sources-declaration-budget-and-ownership.md)
+- **Amended by**: [ADR-0231](0231-one-instruction-region-and-no-ghost-extension-subsystem.md) — `ContextPlanView::transient_tokens` and the "Transient tail" row are deleted; the plan carries one instruction region.
 
 ## Context and Problem Statement
 

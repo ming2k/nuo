@@ -414,7 +414,6 @@ impl OpenAiResponsesProvider {
             .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
         request::body_with_capabilities(
             &request.messages,
-            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream,

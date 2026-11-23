@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime Kernel, Protocol, Persistence, Interface Architecture
 - Amends: [ADR-0050](0050-authentic-thread-title-lifecycle-clean-scene-head-and-semantic-tab-projection.md) — the command *invocation* remains durable and the *reply* remains ephemeral, now made structural rather than conventional; [ADR-0116](0116-content-residency-and-surface-layer-topology.md) — supplies the layer that non-dialogue content moves to
+- Amended by: [ADR-0233](0233-a-slash-command-is-never-a-conversation-message.md) — §5's "legacy `CommandEcho` rows" tolerance protected a population that never existed; the variant and its readers are deleted.
 
 ---
 
@@ -58,7 +59,7 @@ This produces four defects:
 
 ## Decision Drivers
 
-- **`[INV-LAYER-01]` restated at the write boundary** — one home per content; the thread document is the
+- **`[INV-LAYER-01]` (restates ADR-0116) restated at the write boundary** — one home per content; the thread document is the
   home of dialogue and turn structure only.
 - **Admission must be unreachable by accident** — the absence of a decision must not produce residency,
   and there must be no ambient `push` on the transcript.
@@ -184,6 +185,11 @@ projection of transcript facts, and the invariant is now also true of the live r
 Data-shape tolerance for pre-ledger rows (historical `CommandEcho` user messages) stays confined to the
 persistence read boundary as a migration concern; it is explicitly **not** a live admission path, and no
 live producer can create such a row.
+
+> **2026-12-20 Amendment ([ADR-0233](0233-a-slash-command-is-never-a-conversation-message.md)):** this
+> paragraph protected an empty population. `CommandEcho` had **no production writer** in any commit and
+> **no migration** ever folded such rows; the variant, its constructor, its predicate, and the
+> `UserMessageOrigin::Slash` reader are deleted. A command is a `CommandRecord` and nothing else.
 
 ## Normative Invariants Established
 

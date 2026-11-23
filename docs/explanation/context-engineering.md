@@ -50,8 +50,8 @@ thresholds from `protocol::CompactionPolicy` only.
 | Add a standing rule for every request | M1 | `fixed` | one `ContextSource`, a `Topic`, a `Budget` |
 | Add a rule for one role, provider, connection, or model | M1 | `fixed` | `.nuo/instructions/*.md` or `[[instructions.user]]` — **no new source** |
 | Declare which language the answer is in | M1 | `fixed` | `/language` or `response_language` — a session fact on `agent.language` |
-| Add a rule for this turn only | M1 | `transient` | a source whose inputs include `InputKey::TurnDirective` |
-| Add data fetched for this turn | M1 | `transient` | an extension returning `HookOutcome::TemporaryContext` (budgeted) |
+| Add data for one request only | M2 | `messages` | a hidden message with its own `InjectionKind` and envelope (ADR-0226) |
+| Add a rule that must survive every turn | M1 | `fixed` | a new `Topic`+`InputKey`+source, in one change (ADR-0229) |
 | Record something the user said | M2 | `messages` | `cognition::conversation_context`, with an `InjectionKind` |
 | Shrink an old tool result | M3/M4 | `messages` | `CompactionPolicy::prune_*` — never a source |
 | Shrink history | M3 | `messages` + a `Compaction` fact | `CompactionPolicy` |
@@ -75,7 +75,7 @@ user-editable configuration.
    (`[INV-CTXSRC-03]`).
 3. **Declare a budget.** Required, token-denominated, with an `Overflow` and a
    `Resume` (`[INV-CTXSRC-02]`). A directive may not use `Overflow::Drop`.
-4. **Render a pure body.** `render` and `is_active` read `ContextInputs` only:
+4. **Return a pure body.** `block` and `is_active` read `ContextInputs` only:
    no clock, no filesystem, no network, no interior mutability
    (`[INV-CTXSRC-08]`). The render memo is keyed on the inputs hash, so an impure
    read serves a stale body silently.
@@ -93,7 +93,7 @@ impl ContextSource for MyRule {
     fn is_active(&self, inputs: &ContextInputs) -> bool {                // 4
         inputs.tool_surface.has_native(tool::BuiltinTool::Todo)
     }
-    fn render(&self, _inputs: &ContextInputs) -> Option<Block> {         // 4
+    fn block(&self, _inputs: &ContextInputs) -> Option<Block> {          // 4
         Some(Block::new("agent.my_rule", "…").with_title("…"))
     }
     fn budget(&self) -> Budget { Budget::elide_to_operator(200) }        // 3
@@ -103,11 +103,15 @@ impl ContextSource for MyRule {
 Register it with `AgentBuilder::add_context_source`, which compiles the whole
 declaration set immediately and returns the error at the call site.
 
-### Why the region is not a field
+### Why there is no second region
 
-`Stability::Turn` *is* the `transient` region; everything else is `fixed`. There
-is no `is_transient()` to contradict the band a source's inputs put it in, so
-"transient but frozen" cannot be written down.
+A request has one instruction region and one conversation. It has no third,
+per-request text channel: the previous design declared a `transient` region for
+"this turn only" text, no producer ever wrote to it, and every provider branched
+on a string that was always empty. The region, the `Turn` band, the topic, the
+input key, and the per-provider branch are deleted together (ADR-0231). A
+request-local payload is a message with its own provenance, not a second
+instruction channel.
 
 ### Why `Position::Frame` exists
 
@@ -146,15 +150,13 @@ moved.
 ```
 Request
 Instructions        2,431 tokens (1.2% of window)
-Fixed prefix        2,115 tokens · 11 blocks
-Transient tail        316 tokens · 2 blocks
+Fixed prefix        2,431 tokens · 13 blocks
 Model window        200,000 tokens
 Instruction ceiling  16,000 tokens
 Request total       53,738 tokens
   History           41,207 tokens
   Instructions       2,431 tokens
   Tool schemas       9,412 tokens
-  Temporary            688 tokens
 Attribution          -6 tokens vs measured region (tokenizers are not additive)
 
 Sources · emission order
@@ -242,9 +244,32 @@ or `Operator` (no in-workspace route exists, so the notice asks a human to
 shorten the source).
 
 `ContextBudget::instructions_ceiling_tokens` is the region-wide backstop: 8% of
-the model window, clamped to 2k–24k. When `fixed` + `transient` exceeds it, the
+the model window, clamped to 2k–24k. When the instruction region exceeds it, the
 assembler evicts body blocks from the tail — most volatile first — and never the
 frame.
+
+### The second limit: bytes
+
+A request is delivered over a transport, and the transport has a ceiling of its
+own. Tokens bound what the model can attend to; bytes bound what an edge will
+carry. They disagree most on attachments — a screenshot is ~1 600 tokens and
+~800 KB of base64 — so a session can sit at 9% of a 1M-token window and still be
+a 55 MB body that every request is refused with `413 request_too_large`
+(ADR-0243).
+
+Both limits are now budgeted:
+
+| Dimension | Measured by | Relief |
+| :--- | :--- | :--- |
+| Tokens | `estimate_model_request` | prune stale tool bodies → compact |
+| Bytes | `protocol::request_wire_size` | offload the oldest attachments → prune → compact |
+
+Byte relief keeps the newest attachments (the conversation is about them),
+preserves all text, and persists each dropped pixel to its content-addressed
+artifact path before the invoice names it. The invoice survives in the request,
+so the model can read an offloaded image back. A `413` lowers that route's
+learned ceiling, so the cost is paid once per route per session rather than on
+every turn.
 
 ---
 
@@ -297,14 +322,20 @@ construction with the offending ids.
 
 | Invariant | Statement | Enforced by |
 | :--- | :--- | :--- |
-| `[INV-CTXSRC-01]` | one active owner per topic | `DuplicateTopic` + `every_default_topic_has_exactly_one_owner` |
+| `[INV-CTXSRC-01]` | one active owner per topic | `DuplicateTopic` + `no_two_default_sources_share_a_topic` + `inv_ctxtopic_01_*` |
+| `[INV-REGION-01]` | one instruction region, one conversation | `InstructionText` is a newtype (ADR-0231) |
 | `[INV-CTXSRC-02]` | every source declares a budget and an overflow policy | `EmptyBudget`, `SilentDirectiveDrop`, overflow tests |
 | `[INV-CTXSRC-03]` | stability is derived, never claimed | `stability_is_derived_from_the_declared_inputs` |
 | `[INV-CTXSRC-04]` | rank is placement | `Topic::rank` + plan assertions |
 | `[INV-CTXSRC-05]` | the request path cannot fail on layout | `Policy::compile` is the only constructor |
 | `[INV-CTXSRC-06]` | no dead context declaration | `inv_ctxsrc_06_*` governance tests |
 | `[INV-CTXSRC-07]` | one budget vocabulary | `inv_ctxsrc_07_one_budget_vocabulary` |
-| `[INV-CTXSRC-08]` | `render`/`is_active` are pure | review + the memo-key argument |
+| `[INV-CTXSRC-08]` | `block`/`is_active` are pure | review + the memo-key argument |
+| `[INV-BOUNDARY-01]` | a boundary is not named `render` | `Boundary` (ADR-0225) |
+| `[INV-ENVELOPE-01]` | one renderer for message envelopes | `inv_envelope_01_*` (ADR-0226) |
+| `[INV-TOOLHEADER-01]` | one producer/reader for the tool-result header | `inv_toolheader_01_*` (ADR-0227) |
+| `[INV-UNTRUSTED-01]` | one framing for untrusted content | `inv_untrusted_01_*` (ADR-0228) |
+| `[INV-CTXTOPIC-01]` | every declared topic/key has a producer | `inv_ctxtopic_01_*` (ADR-0229) |
 | `[INV-TOOLSURFACE-01]` | no prompt branch on a tool name | `inv_toolsurface_01_*` |
 | `[INV-TOOLSURFACE-03]` | activating a deferred tool cannot move the prefix | `activating_a_deferred_tool_does_not_move_the_instruction_prefix` |
 | `[INV-CTXPLAN-01]` | the plan is the request | `the_plan_and_the_request_are_the_same_bytes` |

@@ -53,7 +53,9 @@ pub(crate) use navigation::{enter_panel, enter_scene};
 pub(crate) use scroll::{
     handle_wheel, scroll_tick, scroll_transcript_page, scroll_transcript_to_edge,
 };
-pub(crate) use tabs::{activate_tab_at_index, handle_close_tab};
+pub(crate) use tabs::{
+    activate_tab_at_index, handle_add_tab, handle_close_tab, handle_close_tab_at,
+};
 
 #[allow(unused_imports)]
 pub(super) use commands::split_command_word;

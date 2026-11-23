@@ -337,6 +337,18 @@ fn no_cross_crate_reexport_modules() {
     );
 }
 
+/// `[INV-MCP-03]` (ADR-0230): Nuo does not ship an MCP server whose only
+/// consumer is its own tests. The retired `crates/mcp` export is gone; it must
+/// not reappear under a new name.
+#[test]
+fn inv_mcp_03_no_unserved_mcp_export_crate() {
+    let root = workspace_root();
+    assert!(
+        !root.join("crates/mcp").exists(),
+        "crates/mcp exported an MCP server with no production consumer (ADR-0230/ADR-0234)"
+    );
+}
+
 #[test]
 fn adr_registry_has_unique_identity_and_valid_frontmatter() {
     let root = workspace_root();
@@ -392,40 +404,134 @@ fn adr_registry_has_unique_identity_and_valid_frontmatter() {
     );
 }
 
+/// `[INV-DOC-03]` (ADR-0187): a living document names a crate that exists.
+///
+/// The scope is every living product document, not four hand-picked files: a
+/// drift that lands in `docs/reference/` is as misleading as one in the README.
+/// ADRs and RFCs are historical records and are out of scope by definition.
+///
+/// Two things are always current and are removed before the scan:
+///
+/// - `nuo-tests`, the root dev-only test host (the one package that keeps the
+///   `nuo-` prefix);
+/// - `target/nuo-dev`, the debug sandbox directory, which is a path and not a
+///   crate.
+///
+/// A retired name is allowed on a line that explicitly marks it as history
+/// (`former`, `retired`, `renamed`, `consolidated from`, `predecessor`,
+/// `replaced`, `deleted`, `pre-consolidation`). That is what keeps a genuinely
+/// historical sentence legitimate while a second crate named `nuo-tui` cannot
+/// reappear as if it were current.
 #[test]
 fn living_docs_use_current_crate_names() {
     let root = workspace_root();
-    let living = [
-        "README.md",
-        "README-zh.md",
-        "docs/dev/subsystems.md",
-        "docs/explanation/architecture-overview.md",
+    let mut living = vec![root.join("README.md"), root.join("README-zh.md")];
+    for dir in [
+        "docs/dev",
+        "docs/explanation",
+        "docs/how-to",
+        "docs/reference",
+        "docs/rfc",
+        "docs/tutorials",
+    ] {
+        for entry in WalkDir::new(root.join(dir))
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_file())
+        {
+            let path = entry.into_path();
+            if path.extension().is_some_and(|ext| ext == "md") {
+                living.push(path);
+            }
+        }
+    }
+    const ALWAYS_CURRENT: &[&str] = &["nuo-tests", "target/nuo-dev"];
+    const HISTORY_MARKERS: &[&str] = &[
+        "former",
+        "formerly",
+        "retired",
+        "removed",
+        "renamed",
+        "consolidated from",
+        "predecessor",
+        "replaced",
+        "deleted",
+        "pre-consolidation",
     ];
     let retired = [
+        "nuotc",
+        "crates/mcp",
+        // Crate roles that no longer exist under any name.
         "nuo-harness",
         "nuo-tui",
         "nuo-client",
         "nuo-model-codec",
         "nuo-catalog",
-        "nuotc",
+        "nuo-mcp",
+        "nuo-provider-adapters",
+        "nuo-provider-transport",
+        "nuo-provider-opencode",
+        "nuo-egress",
+        "nuo-oauth",
+        "nuo-contracts",
+        "nuo-agent",
+        // The workspace removed the `nuo-` prefix from every library crate
+        // (ADR-0181); naming the old form is naming a crate that is not there.
+        "nuo-acp",
+        "nuo-engine",
+        "nuo-guardrails",
+        "nuo-host",
+        "nuo-inference-wire",
+        "nuo-model-routing",
+        "nuo-persistence",
+        "nuo-protocol",
+        "nuo-provider",
+        "nuo-server",
+        "nuo-tool",
+        "nuo-ui-primitives",
+        "nuo-view",
     ];
+    // Historical references inside ADR link targets are legitimate; the rule is
+    // about prose that names a retired crate as current.
+    static LINK_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\]\([^)]*\)").expect("link regex"));
     let mut violations = Vec::new();
-    for file in living {
-        let source = fs::read_to_string(root.join(file)).unwrap_or_default();
-        // Historical references inside ADR link targets are legitimate; the
-        // rule is about prose that names a retired crate as current.
-        static LINK_RE: std::sync::LazyLock<regex::Regex> =
-            std::sync::LazyLock::new(|| regex::Regex::new(r"\]\([^)]*\)").expect("link regex"));
+    let mut checked = 0;
+    for path in living {
+        let file = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .into_owned();
+        let source = fs::read_to_string(&path).unwrap_or_default();
         let source = LINK_RE.replace_all(&source, "]");
-        for name in retired {
-            if source.contains(name) {
-                violations.push(format!("{file}: names retired crate `{name}`"));
+        checked += 1;
+        for (index, raw) in source.lines().enumerate() {
+            let mut line = raw.to_owned();
+            for current in ALWAYS_CURRENT {
+                line = line.replace(current, "");
+            }
+            let lower = line.to_lowercase();
+            if HISTORY_MARKERS.iter().any(|marker| lower.contains(marker)) {
+                continue;
+            }
+            for name in retired {
+                if line.contains(name) {
+                    violations.push(format!(
+                        "{file}:{}: names retired crate `{name}` as current",
+                        index + 1
+                    ));
+                }
             }
         }
     }
     assert!(
+        checked >= 20,
+        "the living-doc scan read only {checked} files; a scan that sees nothing certifies nothing"
+    );
+    assert!(
         violations.is_empty(),
-        "living docs must use current crate names ([INV-DOC-03], ADR-0187): {violations:?}"
+        "living docs must use current crate names ([INV-DOC-03], ADR-0187): {violations:#?}"
     );
 }
 
@@ -480,4 +586,457 @@ fn markdown_link_regex() -> &'static regex::Regex {
     static RE: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"\]\(([^)\s]+)\)").expect("link regex"));
     &RE
+}
+
+/// Frontmatter values are values, not just field names.
+///
+/// The registry gate used to check that `status:` and `date:` existed. A
+/// misspelled status or `2026-13-40` passed. This validates the value and the
+/// supersession link, not only the label.
+#[test]
+fn adr_frontmatter_values_are_well_formed() {
+    let root = workspace_root();
+    let adr_dir = root.join("docs/adr");
+    let ids: std::collections::BTreeSet<String> = fs::read_dir(&adr_dir)
+        .expect("read adr dir")
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+        .filter(|name| name.ends_with(".md") && name.len() > 4)
+        .map(|name| name[..4].to_owned())
+        .collect();
+    let mut violations = Vec::new();
+    let mut checked = 0;
+    for entry in fs::read_dir(&adr_dir).expect("read adr dir") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().is_none_or(|ext| ext != "md") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let source = fs::read_to_string(&path).unwrap_or_default();
+        checked += 1;
+        let field = |key: &str| {
+            source
+                .lines()
+                .find_map(|line| line.strip_prefix(&format!("{key}:")))
+                .map(str::trim)
+                .unwrap_or("")
+        };
+        let status = field("status");
+        if !matches!(status, "draft" | "accepted" | "superseded" | "rejected") {
+            violations.push(format!("{name}: invalid status `{status}`"));
+        }
+        let date = field("date");
+        if !valid_iso_date(date) {
+            violations.push(format!(
+                "{name}: invalid date `{date}` (expected YYYY-MM-DD)"
+            ));
+        }
+        let negative = field("negative_knowledge");
+        if !matches!(negative, "true" | "false") {
+            violations.push(format!("{name}: negative_knowledge must be true or false"));
+        }
+        if field("scope").is_empty() {
+            violations.push(format!("{name}: empty scope"));
+        }
+        let successor = field("superseded_by");
+        if status == "superseded" && successor == "null" {
+            violations.push(format!("{name}: superseded without a successor"));
+        }
+        if successor != "null" {
+            let Some(id) = successor.strip_prefix("ADR-") else {
+                violations.push(format!("{name}: malformed successor `{successor}`"));
+                continue;
+            };
+            if !ids.contains(id) {
+                violations.push(format!("{name}: successor ADR-{id} does not exist"));
+            }
+            // A partial supersession (`Superseded in part by`) keeps
+            // `status: accepted` and still names the successor. ADR-0130 is
+            // the canonical example: its `[model_guidance]` carrier is gone,
+            // while its provider-purity decision stands.
+        }
+    }
+    assert!(
+        checked >= 200,
+        "the frontmatter scan read only {checked} ADRs; a scan that sees nothing certifies nothing"
+    );
+    assert!(
+        violations.is_empty(),
+        "ADR frontmatter values must be well formed ([INV-DOC-01], ADR-0187): {violations:#?}"
+    );
+}
+
+fn valid_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let Ok(year) = value[0..4].parse::<i32>() else {
+        return false;
+    };
+    let Ok(month) = value[5..7].parse::<u32>() else {
+        return false;
+    };
+    let Ok(day) = value[8..10].parse::<u32>() else {
+        return false;
+    };
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&day)
+}
+
+/// `[INV-DOC-04]` (ADR-0187): an invariant tag has one definition site.
+///
+/// `docs/dev/standards/invariants.md` §5 makes a tag a citation target. Two
+/// definitions make every citation ambiguous. A restatement, revision,
+/// reaffirmation, or revocation is **not** a second definition: it carries one
+/// of those words in the bullet, and this scan tells that apart from "here is
+/// the rule".
+#[test]
+fn adr_invariant_tags_have_one_definition_site() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let root = workspace_root();
+    let adr_dir = root.join("docs/adr");
+    // One ADR may state a rule in its Decision section and restate it in its
+    // Invariants summary; that is one definition site, not two. A tag defined
+    // in two different ADRs is the collision this gate exists to catch.
+    let mut sites: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for entry in fs::read_dir(&adr_dir).expect("read adr dir") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().is_none_or(|ext| ext != "md") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let source = fs::read_to_string(&path).unwrap_or_default();
+        for line in source.lines() {
+            let Some(tag) = invariant_definition_tag(line) else {
+                continue;
+            };
+            sites.entry(tag).or_default().insert(name.clone());
+        }
+    }
+    let definition_count = sites.len();
+    assert!(
+        definition_count >= 400,
+        "the invariant scan found only {definition_count} definition sites; a scan that sees \
+         nothing certifies nothing"
+    );
+    let violations: Vec<String> = sites
+        .into_iter()
+        .filter(|(_, files)| files.len() > 1)
+        .map(|(tag, files)| {
+            format!(
+                "`[{tag}]` is defined in {} ADRs: {}",
+                files.len(),
+                files.into_iter().collect::<Vec<_>>().join(", ")
+            )
+        })
+        .collect();
+    assert!(
+        violations.is_empty(),
+        "an invariant tag has one definition site ([INV-DOC-04], ADR-0187): {violations:#?}"
+    );
+}
+
+#[test]
+fn invariant_definition_forms_are_recognized() {
+    for line in [
+        "- **`[INV-EXAMPLE-01]` A rule** — statement",
+        "- **`[INV-EXAMPLE-02]` A rule**: statement",
+        "- **[INV-EXAMPLE-03] A rule**: statement",
+        "- **INV-EXAMPLE-04** — statement",
+        "### 1. `[INV-EXAMPLE-05]` A rule",
+        "#### `[INV-EXAMPLE-06]` A rule",
+    ] {
+        assert!(
+            invariant_definition_tag(line).is_some(),
+            "a definition form was not recognized: {line}"
+        );
+    }
+    for line in [
+        // A citation or amendment reference is not a definition.
+        "### 4. `[INV-EXAMPLE-01]`'s exception list is now empty",
+        "# 0006. Amendment of [INV-EXAMPLE-01]",
+        "- See [INV-EXAMPLE-01] for the rule.",
+        "**A rule ([INV-EXAMPLE-01])**",
+        "- **[INV-EXAMPLE-01] (restates ADR-0187) A rule**: statement",
+    ] {
+        assert!(
+            invariant_definition_tag(line).is_none(),
+            "a citation was counted as a definition: {line}"
+        );
+    }
+}
+
+/// A definition is a line that *introduces* a rule with the tag as its lead:
+/// a bullet (`- **[INV-X] Title**: …`, brackets optional) or a heading
+/// (`### 1. `[INV-X]` Title`). A citation (`**Rule ([INV-X])**`) starts with a
+/// title, not the tag, and is not a definition. A restatement / revision /
+/// reaffirmation / revocation keeps the tag but is marked, and is not a second
+/// definition.
+fn invariant_definition_tag(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let lower = trimmed.to_ascii_lowercase();
+    if ["restates", "revises", "reaffirms", "revokes", "superseded"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return None;
+    }
+
+    let (rest, is_heading) = if let Some(rest) = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+    {
+        (rest.trim_start(), false)
+    } else {
+        let rest = trimmed.strip_prefix('#')?;
+        let rest = rest.trim_start_matches('#').trim_start();
+        // Optional section number: `### 1. [INV-X] Title`.
+        let rest = match rest.find(". ") {
+            Some(dot) if rest[..dot].trim().chars().all(|c| c.is_ascii_digit()) => &rest[dot + 2..],
+            _ => rest,
+        };
+        (rest.trim_start(), true)
+    };
+
+    let rest = rest.strip_prefix("**").unwrap_or(rest);
+    let rest = rest.strip_prefix('`').unwrap_or(rest);
+    let bracketed = rest.starts_with('[');
+    let rest = rest.strip_prefix('[').unwrap_or(rest);
+
+    let (tag, after) = if bracketed {
+        let end = rest.find(']')?;
+        (
+            &rest[..end],
+            rest[end + 1..].trim_start_matches('`').trim_start(),
+        )
+    } else {
+        // The `**INV-X** — …` bullet form omits the brackets.
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == '*')
+            .unwrap_or(rest.len());
+        let after = rest[end..].trim_start_matches('*').trim_start();
+        (&rest[..end], after)
+    };
+
+    if !tag.starts_with("INV-") || tag == "INV-" {
+        return None;
+    }
+    if after.starts_with("'s") {
+        return None;
+    }
+    if is_heading {
+        // A heading must carry more than the tag: `### [INV-X]` with no rule
+        // title is a label, not a definition.
+        if after
+            .trim_matches(|c: char| c == '`' || c == '*' || c.is_whitespace())
+            .is_empty()
+        {
+            return None;
+        }
+    } else if !(after.contains(':') || after.contains('—') || after.contains("**")) {
+        return None;
+    }
+    Some(tag.to_owned())
+}
+
+/// `[INV-DOC-05]` (ADR-0187): `negative_knowledge: true` names a section.
+///
+/// The flag is only useful if it is falsifiable. An ADR that records no rejected
+/// alternative sets it to `false`; an ADR that claims negative knowledge must
+/// carry the section that contains it.
+#[test]
+fn adr_negative_knowledge_flag_is_truthful() {
+    let root = workspace_root();
+    let adr_dir = root.join("docs/adr");
+    let mut violations = Vec::new();
+    let mut checked = 0;
+    for entry in fs::read_dir(&adr_dir).expect("read adr dir") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().is_none_or(|ext| ext != "md") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let source = fs::read_to_string(&path).unwrap_or_default();
+        let flag = source
+            .lines()
+            .find_map(|line| line.strip_prefix("negative_knowledge:"))
+            .map(str::trim)
+            .unwrap_or("");
+        if flag != "true" {
+            continue;
+        }
+        checked += 1;
+        if !has_negative_knowledge_section(&source) {
+            violations.push(format!(
+                "{name}: negative_knowledge is true but no alternatives/negative-knowledge section exists"
+            ));
+        }
+    }
+    assert!(
+        checked >= 100,
+        "the negative-knowledge scan saw only {checked} true flags; a scan that sees nothing \
+         certifies nothing"
+    );
+    assert!(
+        violations.is_empty(),
+        "negative_knowledge must name a section ([INV-DOC-05], ADR-0187): {violations:#?}"
+    );
+}
+
+fn has_negative_knowledge_section(source: &str) -> bool {
+    source.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.starts_with("## ")
+            && (lower.contains("alternative")
+                || lower.contains("negative knowledge")
+                || lower.contains("considered options")
+                || lower.contains("rejected"))
+    })
+}
+
+/// Every `ADR-NNNN` reference resolves to a file. ADR-0187 §2 made this a rule;
+/// only Markdown *links* were checked before, so a naked citation could point at
+/// a phantom number for as long as nobody clicked it.
+#[test]
+fn adr_references_resolve() {
+    let root = workspace_root();
+    let adr_ids: std::collections::BTreeSet<String> = fs::read_dir(root.join("docs/adr"))
+        .expect("read adr dir")
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+        .filter(|name| name.len() > 4 && name.ends_with(".md"))
+        .map(|name| name[..4].to_owned())
+        .collect();
+    let reference = regex::Regex::new(r"ADR-(\d{4})").expect("ADR reference regex");
+    let mut violations = Vec::new();
+    let mut references = 0;
+    let mut files = Vec::new();
+    for dir in ["docs", "crates", "tests"] {
+        for entry in WalkDir::new(root.join(dir))
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_file())
+        {
+            let path = entry.into_path();
+            if path
+                .extension()
+                .is_some_and(|ext| ext == "md" || ext == "rs" || ext == "toml")
+            {
+                files.push(path);
+            }
+        }
+    }
+    for name in ["README.md", "README-zh.md", "Cargo.toml"] {
+        files.push(root.join(name));
+    }
+    for path in files {
+        let source = fs::read_to_string(&path).unwrap_or_default();
+        for capture in reference.captures_iter(&source) {
+            let id = capture.get(1).map(|m| m.as_str()).unwrap_or("");
+            references += 1;
+            if !adr_ids.contains(id) {
+                violations.push(format!(
+                    "{}: phantom ADR-{id}",
+                    path.strip_prefix(&root).unwrap_or(&path).display()
+                ));
+            }
+        }
+    }
+    violations.sort();
+    violations.dedup();
+    assert!(
+        references >= 100,
+        "the ADR reference scan found only {references} citations; a scan that sees nothing \
+         certifies nothing"
+    );
+    assert!(
+        violations.is_empty(),
+        "ADR references must resolve ([INV-DOC-02], ADR-0187): {violations:#?}"
+    );
+}
+
+/// The parser is not a substring search: a citation and a marked revision are
+/// not definitions, while both definition shapes are.
+#[test]
+fn the_invariant_definition_parser_distinguishes_a_definition_from_a_citation() {
+    assert_eq!(
+        invariant_definition_tag("- **`[INV-X-01]` A rule**: it holds"),
+        Some("INV-X-01".to_owned())
+    );
+    assert_eq!(
+        invariant_definition_tag("- `[INV-X-01]` **A rule**: it holds"),
+        Some("INV-X-01".to_owned())
+    );
+    assert_eq!(
+        invariant_definition_tag("- **`[INV-X-01]` (restates ADR-0001) A rule**: it holds"),
+        None
+    );
+    assert_eq!(
+        invariant_definition_tag("- **A rule (`[INV-X-01]`)**: it holds"),
+        None
+    );
+    assert_eq!(
+        invariant_definition_tag("- The `[INV-X-01]` test could not see it."),
+        None
+    );
+}
+
+/// `[INV-PRODUCT-02]` (ADR-0234): the product overview states the capability
+/// boundary. A README that re-advertises an MCP export server or a plugin ABI
+/// is the same drift ADR-0230 and ADR-0231 deleted, one release earlier.
+#[test]
+fn product_docs_do_not_claim_an_mcp_export_server() {
+    let root = workspace_root();
+    let forbidden = [
+        "MCP client/server",
+        "MCP server integration",
+        "MCP client and server",
+        "导出 MCP server",
+        "MCP server 集成",
+    ];
+    let mut violations = Vec::new();
+    for file in [
+        "README.md",
+        "README-zh.md",
+        "docs/dev/subsystems.md",
+        "docs/explanation/architecture-overview.md",
+    ] {
+        let source = fs::read_to_string(root.join(file)).unwrap_or_default();
+        for needle in forbidden {
+            if source.contains(needle) {
+                violations.push(format!("{file}: advertises `{needle}`"));
+            }
+        }
+    }
+    let readme = fs::read_to_string(root.join("README.md")).unwrap_or_default();
+    assert!(
+        readme.contains("MCP") && readme.to_lowercase().contains("client"),
+        "README.md must name the MCP client boundary ([INV-PRODUCT-02], ADR-0234)"
+    );
+    assert!(
+        violations.is_empty(),
+        "product docs must not claim an MCP export server ([INV-PRODUCT-02], ADR-0234): \
+         {violations:?}"
+    );
 }

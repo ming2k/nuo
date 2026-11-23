@@ -24,8 +24,8 @@ pub struct AgentRuntimeConfig {
     pub skip_interactive_input: bool,
 }
 
-/// A declarative agent role profile: an identity, its admitted tools, execution
-/// knobs, and equipped atomic extensions.
+/// A declarative agent role profile: an identity, its admitted tools, its
+/// instruction sources, and its execution knobs.
 #[derive(Debug, Clone)]
 pub struct AgentRoleProfile {
     /// The role's name, e.g. `"developer"`.
@@ -38,8 +38,6 @@ pub struct AgentRoleProfile {
     pub config: AgentRuntimeConfig,
     /// Whether this principal runs in unattended execution mode.
     pub unattended: bool,
-    /// Atomic extensions equipped by this role.
-    pub extensions: Vec<std::sync::Arc<dyn crate::Extension>>,
     /// MCP server subscription patterns (e.g. `["*"]` or `["obsidian", "phil*"]`).
     pub admit_mcp: Vec<String>,
 }
@@ -53,7 +51,6 @@ impl AgentRoleProfile {
             tools: ToolSelection::unrestricted(),
             config: AgentRuntimeConfig::default(),
             unattended: false,
-            extensions: Vec::new(),
             admit_mcp: vec!["*".to_string()],
         }
     }
@@ -61,23 +58,6 @@ impl AgentRoleProfile {
     /// Set the admitted MCP server patterns for this role.
     pub fn with_mcp_admission(mut self, patterns: Vec<String>) -> Self {
         self.admit_mcp = patterns;
-        self
-    }
-
-    /// Attach an atomic extension to this role.
-    pub fn with_extension(mut self, extension: std::sync::Arc<dyn crate::Extension>) -> Self {
-        self.extensions.push(extension);
-        self
-    }
-
-    /// Attach atomic extensions to this role.
-    pub fn with_extensions(
-        mut self,
-        extensions: impl IntoIterator<Item = std::sync::Arc<dyn crate::Extension>>,
-    ) -> Self {
-        for extension in extensions {
-            self.extensions.push(extension);
-        }
         self
     }
 

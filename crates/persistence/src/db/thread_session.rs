@@ -159,6 +159,10 @@ pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool
     let affected = conn
         .prepare_cached("DELETE FROM threads WHERE id = ?1")?
         .execute(params![session_id])?;
+    let _ = conn.execute(
+        "DELETE FROM projection_watermarks WHERE thread_id = ?1",
+        params![session_id],
+    );
     Ok(affected > 0)
 }
 
@@ -171,6 +175,7 @@ pub(crate) fn save_session_inner(
     mode: SaveMode,
     usage_upserts: &[protocol::RequestUsageRecord],
     guard: &CommitGuard,
+    journal_seq: Option<u64>,
 ) -> std::result::Result<u64, SaveError> {
     let fork_str = match data.origin {
         protocol::ThreadOrigin::Trunk => "trunk",
@@ -253,6 +258,21 @@ pub(crate) fn save_session_inner(
             None => Ok("[]".to_string()),
         }
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        // A delta carries the summary computed from the full in-memory state
+        // before the transcript was stripped; a full rewrite carries the whole
+        // transcript and computes it here (ADR-0244).
+        let (summary_msg_count, summary_last_prompt) = if mode == SaveMode::FullRewrite {
+            (
+                data.transcript
+                    .entries
+                    .iter()
+                    .filter(|entry| matches!(entry.payload, protocol::EntryPayload::Message(_)))
+                    .count() as i64,
+                crate::thread::last_effective_prompt_from_data(data),
+            )
+        } else {
+            (data.msg_count as i64, data.last_user_prompt.clone())
+        };
 
         if mode == SaveMode::MetadataOnly {
             // Preserve `transcript_generation`, `active_branch_id`, and `active_leaf`
@@ -263,8 +283,8 @@ pub(crate) fn save_session_inner(
                     id, parent_thread_id, origin, title, status,
                     active_branch_id, round_counter,
                     transcript_generation, digest, digest_anchor, checksum,
-                    created_at_ms, updated_at_ms
-                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
+                    created_at_ms, updated_at_ms, msg_count, last_user_prompt
+                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000, ?12, ?13)
                 ON CONFLICT(id) DO UPDATE SET
                     parent_thread_id = excluded.parent_thread_id,
                     origin = excluded.origin,
@@ -288,6 +308,8 @@ pub(crate) fn save_session_inner(
                 data.checksum.map(|c| c as i64),
                 data.created_at as i64,
                 data.updated_at as i64,
+                summary_msg_count,
+                summary_last_prompt,
             ])?;
         } else {
             conn.prepare_cached(
@@ -296,8 +318,8 @@ pub(crate) fn save_session_inner(
                     id, parent_thread_id, origin, title, status,
                     active_branch_id, round_counter,
                     transcript_generation, digest, digest_anchor, checksum,
-                    created_at_ms, updated_at_ms
-                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
+                    created_at_ms, updated_at_ms, msg_count, last_user_prompt
+                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000, ?12, ?13)
                 ON CONFLICT(id) DO UPDATE SET
                     parent_thread_id = excluded.parent_thread_id,
                     origin = excluded.origin,
@@ -307,7 +329,9 @@ pub(crate) fn save_session_inner(
                     digest = excluded.digest,
                     digest_anchor = excluded.digest_anchor,
                     checksum = excluded.checksum,
-                    updated_at_ms = excluded.updated_at_ms;
+                    updated_at_ms = excluded.updated_at_ms,
+                    msg_count = excluded.msg_count,
+                    last_user_prompt = excluded.last_user_prompt;
                 "#,
             )?
             .execute(params![
@@ -322,6 +346,8 @@ pub(crate) fn save_session_inner(
                 data.checksum.map(|c| c as i64),
                 data.created_at as i64,
                 data.updated_at as i64,
+                summary_msg_count,
+                summary_last_prompt,
             ])?;
         }
 
@@ -402,6 +428,24 @@ pub(crate) fn save_session_inner(
             for record in &data.request_usage_records {
                 insert_usage_record_tx(conn, data.id.as_str(), record)?;
             }
+        }
+
+        // The derived view's watermark advances only with the transaction
+        // that materialised its facts (ADR-0242). A missing row replays from
+        // the journal on the next catch-up.
+        if let Some(seq) = journal_seq {
+            conn.prepare_cached(
+                "INSERT INTO projection_watermarks(thread_id, seq, updated_at_ms)
+                 VALUES(?1, ?2, ?3)
+                 ON CONFLICT(thread_id) DO UPDATE SET
+                   seq = MAX(projection_watermarks.seq, excluded.seq),
+                   updated_at_ms = excluded.updated_at_ms",
+            )?
+            .execute(params![
+                data.id,
+                seq as i64,
+                data.updated_at.saturating_mul(1000) as i64,
+            ])?;
         }
 
         // D3: the revision advance and the receipt land in the
@@ -615,6 +659,8 @@ pub(crate) fn load_session_full(
     let mut entries = Vec::new();
     let mut directives = Vec::new();
     let mut loaded_branch = protocol::BranchId::main();
+    let mut loaded_branches = std::collections::BTreeMap::new();
+    let mut loaded_graph = None;
 
     // Facts are the only durable conversation rows; the transcript is rebuilt
     // from the active branch.
@@ -622,6 +668,8 @@ pub(crate) fn load_session_full(
         .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
     if let Some(thread) = thread {
         loaded_branch = thread.state.active_branch.clone();
+        loaded_branches = thread.state.branches.clone();
+        loaded_graph = Some(thread.clone());
         let projected = crate::thread::transcript_from_thread(&thread);
         entries = projected.entries;
         directives = projected.directives;
@@ -654,6 +702,10 @@ pub(crate) fn load_session_full(
             entries,
             directives,
         },
+        branches: loaded_branches,
+        graph: loaded_graph,
+        msg_count: 0,
+        last_user_prompt: None,
         last_projection: None,
         digest,
         // The anchor is a transcript char count: persisted for
@@ -724,6 +776,13 @@ pub(crate) fn load_session_full(
             .push(protocol::TranscriptEntry::from_state(0, Some(todos)));
     }
     crate::thread::verify_checksum(&data, session_id);
+    data.msg_count = data
+        .transcript
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry.payload, protocol::EntryPayload::Message(_)))
+        .count() as u64;
+    data.last_user_prompt = crate::thread::last_effective_prompt_from_data(&data);
     Ok(Some(data))
 }
 

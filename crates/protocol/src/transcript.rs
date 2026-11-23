@@ -14,26 +14,39 @@ fn unix_now_ms() -> u64 {
     unix_now().saturating_mul(1000)
 }
 
-/// Rendered prefix of a compaction checkpoint.
-///
-/// Owned by the protocol because three surfaces must agree on it: the
-/// transcript projection, the IR's active-window rendering, and the legacy
-/// selector that strips a prior summary. The structure lives in
-/// [`CompactionMeta`]; this is only the model-facing envelope.
-pub const CHECKPOINT_HEADER: &str = "[Conversation checkpoint]\n\
-     Earlier complete rounds were compacted. Treat this as durable context, not a new user request.\n\n";
-
 /// Build the model-facing checkpoint message for `summary`.
+///
+/// A checkpoint stands in for an elided history range, so the region must say
+/// that and nothing more. The disclosure is an attribute, not a prose preamble:
+/// a reader must be able to ask "what is this region" without matching a literal,
+/// and the model must be able to see the summary as the region's *body*
+/// (ADR-0226).
+///
+/// This is the only checkpoint producer. It renders through the one envelope
+/// renderer, so there is no second spelling of the boundary.
 pub fn checkpoint_message(summary: &str) -> Message {
+    let rendered = tool::Envelope::new(tool::Tag::Checkpoint)
+        .attr("status", "durable")
+        .attr("note", "earlier complete rounds were compacted")
+        .body(summary)
+        .render();
     Message::injected(
         Role::User,
-        format!("{CHECKPOINT_HEADER}{summary}"),
+        rendered,
         InjectionOrigin::new(InjectionKind::CompactionCheckpoint),
     )
 }
 
-/// What an entry is. Open enum: new kinds extend the payload contract; readers
-/// must preserve unknown kinds verbatim (unknown deserialises as `Unknown`).
+/// What an entry is.
+///
+/// **Closed**, and the doc used to claim otherwise: it promised that an unknown
+/// kind "deserialises as `Unknown`" while no such variant existed, so a
+/// forward-written row would have failed the whole session load with a serde
+/// error instead of degrading. The claim was also redundant — [`EntryPayload`]
+/// is internally tagged by `type`, so an unknown payload shape is already a hard
+/// error before `kind` is consulted. Adding a kind is a contract change and
+/// moves [`crate::THREAD_SCHEMA_VERSION`]; it is not something a reader silently
+/// absorbs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntryKind {

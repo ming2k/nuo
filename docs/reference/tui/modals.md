@@ -11,13 +11,13 @@ This page is cited directly by `crates/nuo/src/shell/overlays/provider/models.rs
 
 ## 1. Surfaces and Framework
 
-The overlay vocabulary is declared in `crates/nuo-tui/src/surfaces/mod.rs`:
+The overlay vocabulary is declared in `crates/nuo/src/shell/surfaces/mod.rs`:
 
 - **`DialogKind`** — the full-page dialog set (tools, MCP, skills, permissions, usage stats, quotas, thread stats, session trace, context plan, models, connections, history search, queue, threads, session tree, switcher, port share).
 - **`SheetKind`** — lightweight interaction sheets (permission, question, input injection, model editor, provider preset, OAuth pending, custom provider, provider delete confirm).
 - **`OverlaySurface`** / **`Surface`** — the dispatch enum the render loop matches on.
 
-All modals are drawn through one frame: `modal_frame` in `crates/nuo-tui/src/elevation.rs` splits a single header row, a flexible body, and a single footer row, honoring an elevation archetype (structured vs hybrid). Geometry comes from `crates/nuo-tui/src/primitives.rs`.
+All modals are drawn through one frame: `modal_frame` in `crates/ui-primitives/src/elevation.rs` splits a single header row, a flexible body, and a single footer row, honoring an elevation archetype (structured vs hybrid). Geometry comes from `crates/ui-primitives/src/primitives.rs`.
 
 ---
 
@@ -52,7 +52,7 @@ Content-sized modals (`ContentModalSpec(width_percent, min_rows, max_viewport_pe
 
 ## 3. Provider Model List: Name-First, Id-Fallback
 
-The provider model modal (`draw_models_modal`, `crates/nuo-tui/src/overlays/provider/models.rs`) renders each model as a two-column row: a **primary identity column** and a **secondary wire-id column**.
+The provider model modal (`draw_models_modal`, `crates/nuo/src/shell/overlays/provider/models.rs`) renders each model as a two-column row: a **primary identity column** and a **secondary wire-id column**.
 
 **Rule.** The primary column reads the provider's own display name for the model when it publishes one, and falls back to the raw wire id when the catalog publishes no label — so the column is never empty.
 
@@ -183,7 +183,7 @@ Per **ADR-0076** (`[INV-TUI-INERT-01]`, `[INV-TUI-INERT-02]`), all selectable li
 
 ## 6. Footer Hints
 
-Modal footers render keycap hints through `render_modal_footer` (`crates/nuo-tui/src/components/footer.rs`). Each hint carries a priority; when the width cannot fit every hint, lower-priority hints drop before higher-priority ones, so the essential dismiss/confirm affordances always survive truncation.
+Modal footers render keycap hints through `render_modal_footer` (`crates/ui-primitives/src/components/footer.rs`). Each hint carries a priority; when the width cannot fit every hint, lower-priority hints drop before higher-priority ones, so the essential dismiss/confirm affordances always survive truncation.
 
 ---
 

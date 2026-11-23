@@ -293,24 +293,24 @@ pub async fn compact_facts(
 
     let conversation_text = serialize_facts_for_summary(facts_to_compact);
     let mut prompt_body = format!(
-        "<conversation_to_compact>\n{}\n</conversation_to_compact>\n\n",
-        conversation_text
+        "{}\n\n",
+        tool::envelope::prompt_block(tool::PromptTag::ConversationToCompact, &conversation_text)
     );
     if let Some(prev) = previous_summary {
         prompt_body.push_str(&format!(
-            "<prior_summary>\n{}\n</prior_summary>\n\nMerge the above prior summary with the new conversation delta.\n\n",
-            prev
+            "{}\n\nMerge the above prior summary with the new conversation delta.\n\n",
+            tool::envelope::prompt_block(tool::PromptTag::PriorSummary, prev)
         ));
     }
     for ctx in extra_context {
         prompt_body.push_str(&format!(
-            "<additional_context>\n{}\n</additional_context>\n\n",
-            ctx
+            "{}\n\n",
+            tool::envelope::prompt_block(tool::PromptTag::AdditionalContext, ctx)
         ));
     }
     prompt_body.push_str(COMPACTION_USER_INSTRUCTIONS);
 
-    let instructions = protocol::InstructionText::fixed(COMPACTION_SYSTEM_PROMPT);
+    let instructions = protocol::InstructionText::new(COMPACTION_SYSTEM_PROMPT);
     let messages = vec![Message::new(Role::User, prompt_body)];
     let request = ModelRequest::ephemeral(messages)
         .with_instructions(instructions)

@@ -225,20 +225,17 @@ pub(super) async fn recover_crashed_round(
     let window = session.model_window().await;
     // Committed ReAct turns of the crashed round. The transcript carries no
     // round delimiters, so the round's opener is approximated as the last
-    // visible, non-echo user message: every turn this round committed follows
-    // its opening prompt, and the in-flight one was never committed (its
-    // partial stream died with the process). A hidden round input opens its
-    // round the same way, while a command echo (`/cmd`, `!cmd`) is
-    // non-driving and must not be taken for an opener. Mid-round
+    // visible user message: every turn this round committed follows its
+    // opening prompt, and the in-flight one was never committed (its partial
+    // stream died with the process). A hidden round input opens its round the
+    // same way. Mid-round
     // `InsertUserInput` admissions make this an undercount (the ordinal
     // resumes lower than reality) — cosmetic: the number only labels the
     // transcript band and usage keys, history itself is seeded from the exact
     // `history_watermark`.
     let opener = window
         .iter()
-        .rposition(|message| {
-            matches!(message.role, Role::User) && !message.hidden && !message.is_command_echo()
-        })
+        .rposition(|message| matches!(message.role, Role::User) && !message.hidden)
         .map(|index| index + 1)
         .unwrap_or(0);
     let turns_committed = window[opener..]

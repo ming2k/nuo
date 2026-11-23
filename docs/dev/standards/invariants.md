@@ -66,18 +66,25 @@ which rule they meant.
 
 ### What Counts as a Definition
 
-Only the line that *introduces* a rule, in the ADR template's shape — a bullet
-whose bold lead is the tag, followed by the rule's title:
+Only the line that *introduces* a rule counts, with the tag as the **lead** of a
+bullet or a heading:
 
 ```text
 - **[INV-XXXX-01] A short rule title**: the normative statement, usually with
   MUST/MUST NOT wording, wrapped across as many lines as it needs.
+- **INV-XXXX-02** — a compact rule statement.
+### 3. `[INV-XXXX-03]` A section that is the rule
 ```
 
-Citations are not definitions, and are never flagged: `see [INV-XXXX-01]`,
-`**A short rule title ([INV-XXXX-01])**`, table cells, and code comments may each
-appear dozens of times for one rule. A checker that counted them would be noise,
-not a gate. (`INV-XXXX-01` is a placeholder, deliberately not a real tag — an
+A citation is not a definition and is never flagged: `see [INV-XXXX-01]`,
+`**A short rule title ([INV-XXXX-01])**`, table cells, `### \`[INV-X]\`'s
+exception list`, and code comments may each appear dozens of times for one rule.
+A checker that counted them would be noise, not a gate.
+
+Sites are counted **per ADR file**. One ADR may introduce a rule in its Decision
+section and restate it in its Invariants summary; that is one ADR defining its
+own rule, not a collision. Two different ADR files defining the same tag is the
+failure. (`INV-XXXX-01` is a placeholder, deliberately not a real tag — an
 example that quoted a live tag would itself become a second definition, which is
 exactly the collision this check reports.)
 
@@ -94,3 +101,30 @@ Invariant tags are centrally curated in `docs/adr/`. Each tag must have a single
    meant the newer rule — the ADR body, the index row, the CHANGELOG entry.
 2. If the newer rule genuinely replaces the older one, record the supersession in
    place (§4) and stop re-using the tag; do not leave two definitions alive.
+
+### Revising Without Colliding
+
+A later ADR may need to restate, revise, reaffirm, or revoke an existing rule.
+It keeps the tag and **marks the bullet**; the marker is the difference between
+"here is the rule" and "here is what changed":
+
+```text
+- **[INV-XXX-01] (restates ADR-00NN) Name**: …
+- **[INV-XXX-01] (revises ADR-00NN) Name**: …
+- **[INV-XXX-01] (reaffirms ADR-00NN) Name**: …
+- **[INV-XXX-01] (revokes ADR-00NN) Name**: …
+```
+
+A marker is not permission to change the rule's meaning. If the newer rule is
+about a different concern, it is a collision: give it a new tag.
+
+### Enforcement
+
+`tests/integration/governance/architecture_convergence.rs::adr_invariant_tags_have_one_definition_site`
+scans `docs/adr/` and fails when an unmarked tag is defined in two ADR files.
+It recognizes bullet and heading leads, does not count `restates` / `revises` /
+`reaffirms` / `revokes` bullets, and does not count citations where the tag is
+not the lead. `invariant_definition_forms_are_recognized` pins both the
+accepted and the rejected shapes. The positive case is part of the same test:
+the scan must find the definitions it is certifying, so an empty corpus is a
+failure rather than a pass.

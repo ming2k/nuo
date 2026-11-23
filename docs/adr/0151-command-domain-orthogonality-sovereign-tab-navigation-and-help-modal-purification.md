@@ -41,7 +41,7 @@ Following the retirement of the legacy `C-x` leader namespace in ADR-0131, the c
 - **Zero Compromise on Domain Purity (`[INV-CMD-01]`)**: The Thread Composer belongs strictly to the conversation and thread-scoped built-ins. Client workspace navigation belongs to the client window and tab plane.
 - **Strict Avoidance of Readline and Terminal Emulator Collisions**: Terminal line editing (`Alt-d` word-kill, `Ctrl-w` backward word-kill, `Ctrl-a/e` home/end) must remain inviolable in text fields.
 - **Help Modal as Pure Reference Cheat Sheet**: A help modal must document real, global keybindings. It must not act as a modal launcher intercepting bare printable characters.
-- **Single Source of Truth Discovery (`[INV-AFFORDANCE-02]`)**: Every action displays exactly ONE canonical resolved chord. No dual-keycap confusion (`t, Alt-t`) and no fake modal accelerators (`d`).
+- **Single Source of Truth Discovery (`[INV-AFFORDANCE-08]`)**: Every action displays exactly ONE canonical resolved chord. No dual-keycap confusion (`t, Alt-t`) and no fake modal accelerators (`d`).
 
 ---
 

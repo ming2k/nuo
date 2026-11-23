@@ -151,7 +151,7 @@ only admits `message|state`; a third kind would force a full rebuild of a 3.2 GB
 `entries` table for no semantic gain). The **payload** is the typed contract:
 
 ```rust
-// crates/nuo-protocol/src/transcript.rs
+// crates/protocol/src/transcript.rs
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EntryPayload {
@@ -362,7 +362,8 @@ tail_budget   = gate - overhead - summary_budget
 ### 5.8 What remains a second fact source (explicit scope boundary)
 
 The IR is currently also written directly by the kernel's `FactSink`
-(`nuo-server/src/durability_sink.rs` → `save_session_delta`) for execution
+(the retired `nuo-server/src/durability_sink.rs` → `save_session_delta`; both are gone with
+`SessionIR`, ADR-0175) for execution
 facts such as observations. Those facts are **not** transcript entries. This RFC
 does not remove that path; it only removes the compaction duplication.
 

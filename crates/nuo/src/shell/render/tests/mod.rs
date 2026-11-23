@@ -50,6 +50,7 @@ fn render_full_view_with_context(
         tabs: None,
         active_tab: 0,
         unread_faults: 0,
+        ..TabBarProps::default()
     });
     terminal.draw(|f| {
         let _ = draw_transcript(

@@ -153,11 +153,9 @@ pub fn request_revisions<T: Serialize>(
     let mut prefix = Sha256::new();
     let mut envelope = Sha256::new();
     for digest in [&mut prefix, &mut envelope] {
-        digest.update(instructions.fixed.as_bytes());
+        digest.update(instructions.0.as_bytes());
         digest.update([0xff]);
     }
-    envelope.update(instructions.transient.as_bytes());
-    envelope.update([0xff]);
     let tools_bytes = serde_json::to_vec(tools).expect("tool declarations serialize");
     prefix.update(&tools_bytes);
     prefix.update([0xfe]);
@@ -223,9 +221,8 @@ pub fn semantic_context_head<'a>(messages: impl IntoIterator<Item = &'a Message>
 
 /// Stable identity of the cacheable request prefix `S | H | I`: the
 /// instruction slices, the deterministically ordered tool declarations, and the
-/// semantic conversation messages. Request-local temporary context (`E`) is
-/// deliberately absent because callers pass only `messages`, never
-/// `temporary_context`.
+/// semantic conversation messages. Instruction text and tool declarations are
+/// the rest of the prefix; there is no third, request-local message channel.
 #[allow(clippy::expect_used)] // Tool declarations contain no fallible custom serializers.
 pub fn request_prefix_fingerprint<T: Serialize>(
     instructions: &crate::instructions::InstructionText,
@@ -233,7 +230,7 @@ pub fn request_prefix_fingerprint<T: Serialize>(
     tools: &[T],
 ) -> String {
     let mut digest = Sha256::new();
-    digest.update(instructions.fixed.as_bytes());
+    digest.update(instructions.0.as_bytes());
     digest.update([0xff]);
     digest.update(serde_json::to_vec(tools).expect("tool declarations serialize"));
     digest.update([0xfe]);
@@ -253,9 +250,7 @@ pub fn request_envelope_fingerprint<T: Serialize>(
     tools: &[T],
 ) -> String {
     let mut digest = Sha256::new();
-    digest.update(instructions.fixed.as_bytes());
-    digest.update([0xff]);
-    digest.update(instructions.transient.as_bytes());
+    digest.update(instructions.0.as_bytes());
     digest.update([0xff]);
     for message in messages
         .iter()

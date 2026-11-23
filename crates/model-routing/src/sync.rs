@@ -478,7 +478,7 @@ fn apply_fetched(
             let mut changed = false;
             // A model the provider declared unusable registers in the fitted
             // overlay only when the user's own scope injected it — sovereignty
-            // over an upstream verdict ([INV-CATALOG-04]).
+            // over an upstream verdict ([INV-CATALOGPIPE-01]).
             let sovereign = connection.models.included_ids();
             let fitted: std::collections::BTreeMap<String, FittedModelInfo> = models
                 .iter()
@@ -806,7 +806,7 @@ mod tests {
     }
 
     /// A user who explicitly injects a provider-declared-unavailable model
-    /// overrides the verdict ([INV-CATALOG-04]): it must register as
+    /// overrides the verdict ([INV-CATALOGPIPE-01]): it must register as
     /// inference-capable, because sovereignty beats an upstream declaration.
     #[test]
     fn injected_locked_model_registers_for_inference() {

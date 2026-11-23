@@ -261,7 +261,7 @@ fn client_tab_mounting_switching_and_non_destructive_closing() {
         &[SceneKind::Thread, SceneKind::Subagent]
     );
 
-    // Under [INV-SCENE-02], cross-container scenes (Settings, Dashboard) are strictly
+    // Under [INV-SCENE-04], cross-container scenes (Settings, Dashboard) are strictly
     // rejected when pushed onto a Thread tab's intra-tab scene stack.
     router.tabs[0].push_scene(SceneKind::Settings);
     assert_eq!(
@@ -344,7 +344,7 @@ fn test_inv_tab_10_and_inv_scene_02_discipline() {
     assert_eq!(router.active_scene(), SceneKind::Thread);
     assert_eq!(router.tabs()[0].breadcrumbs(), &[SceneKind::Thread]);
 
-    // [INV-SCENE-02]: Thread tab rejects cross-container scenes
+    // [INV-SCENE-04]: Thread tab rejects cross-container scenes
     let thread_tab = &mut router.tabs[0];
     thread_tab.push_scene(SceneKind::Dashboard);
     assert_eq!(thread_tab.current_scene(), SceneKind::Thread);
@@ -380,7 +380,7 @@ fn test_inv_tab_10_and_inv_scene_02_discipline() {
     assert_eq!(router.tabs()[1].breadcrumbs(), &[SceneKind::Dashboard]);
     assert!(!router.tabs()[1].can_back());
 
-    // [INV-SCENE-02]: Dashboard tab rejects thread scenes
+    // [INV-SCENE-04]: Dashboard tab rejects thread scenes
     let dash_tab = &mut router.tabs[1];
     dash_tab.push_scene(SceneKind::Thread);
     assert_eq!(dash_tab.current_scene(), SceneKind::Dashboard);

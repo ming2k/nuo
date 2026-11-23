@@ -217,6 +217,7 @@ impl PersistenceHandle {
         mode: SaveMode,
         usage_upserts: Vec<protocol::RequestUsageRecord>,
         guard: CommitGuard,
+        journal_seq: Option<u64>,
     ) -> Result<u64, PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
@@ -225,6 +226,7 @@ impl PersistenceHandle {
                 mode,
                 usage_upserts,
                 guard,
+                journal_seq,
                 ack: ack_tx,
             })
             .await
@@ -237,6 +239,7 @@ impl PersistenceHandle {
     pub(crate) fn save_session_blocking(
         &self,
         data: crate::thread::ThreadData,
+        journal_seq: Option<u64>,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.run_blocking(
@@ -245,6 +248,7 @@ impl PersistenceHandle {
                 mode: SaveMode::FullRewrite,
                 usage_upserts: Vec::new(),
                 guard: CommitGuard::default(),
+                journal_seq,
                 ack: ack_tx,
             },
             ack_rx,
@@ -467,49 +471,6 @@ impl PersistenceHandle {
             .await
             .map_err(|_| PersistenceError::WriterDown)?;
         ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Asynchronously insert a request-projection record. Awaits the
-    /// writer ack for callers that need the durable write confirmed (tests,
-    /// tooling); the request hot path uses
-    /// [`Self::try_record_request_projection`] instead.
-    pub async fn record_request_projection(
-        &self,
-        session_id: String,
-        record: protocol::RequestProjection,
-    ) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::RecordRequestProjection {
-                session_id,
-                record,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Non-blocking fire-and-forget request-projection insert. Used
-    /// on the model-request hot path: forensic persistence must never block
-    /// dispatch. A dropped archive write is logged, not surfaced as a round
-    /// failure.
-    pub fn try_record_request_projection(
-        &self,
-        session_id: String,
-        record: protocol::RequestProjection,
-    ) {
-        let (ack_tx, _) = oneshot::channel();
-        if let Err(error) = self
-            .supervisor
-            .try_send(PersistenceCommand::RecordRequestProjection {
-                session_id,
-                record,
-                ack: ack_tx,
-            })
-        {
-            warn!(error = %error, "dropped fire-and-forget request projection: writer unavailable");
-        }
     }
 
     pub(crate) fn catch_up_usage(&self) -> Result<usize, PersistenceError> {
@@ -868,32 +829,6 @@ impl PersistenceHandle {
                 );
             }
         }
-    }
-
-    /// Persist a full thread aggregate through the single writer.
-    pub async fn save_thread_aggregate(
-        &self,
-        thread: protocol::Thread,
-    ) -> Result<(), PersistenceError> {
-        self.save_thread_aggregate_with_generation(thread, None)
-            .await
-    }
-
-    pub(crate) async fn save_thread_aggregate_with_generation(
-        &self,
-        thread: protocol::Thread,
-        transcript_generation: Option<String>,
-    ) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::SaveThreadAggregate {
-                thread: Box::new(thread),
-                transcript_generation,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
     }
 
     /// Create an online hot backup snapshot of the database using SQLite's `VACUUM INTO`.

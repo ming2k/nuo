@@ -9,21 +9,32 @@ matrices, and account/tenant dimensions. Written to be executed **after**
 [ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md) reaches
 `accepted` and `[INV-PROV-06]` holds.
 
+> **Dated snapshot (2026-10-08).** The audit below records the tree as it stood
+> before the provider consolidation. Crate names from that era
+> (`nuo-provider-adapters`, `nuo-provider-transport`) are retired; the live homes
+> are `provider` (specification, transport, OAuth), `protocol` (error and model
+> DTOs), and `model-routing` (the catalog pipeline). Paths in the audit are
+> updated to their current locations so a reader can follow them. The original
+> draft used `ModelDecl` / `ProviderManifest`; both are gone, and this revision
+> names the live types (`Model`, `ModelProviderSpec`). §3 records the pricing
+> decision that has since landed.
+
 ---
 
 ## 0. Precondition: why this cannot land first
 
-Every dimension below is an *addition* to `ModelProviderSpec`. Today each provider is defined
-**twice** (see ADR-0027), so an addition has no single home: put it in `nuo-provider-adapters` and it
-hardens the monolith; put it in `providers/` and it joins unlinked, drifting code. `[INV-PROV-06]`
-must therefore be true first, so that every addition has exactly one destination.
+Every dimension below is an *addition* to `ModelProviderSpec`. At the time of this audit each
+provider was defined **twice** (see ADR-0027), so an addition had no single home: inside the
+retired `nuo-provider-adapters` monolith it hardened that monolith, and in a channel crate it
+joined unlinked, drifting code. `[INV-PROV-06]` had to be true first, so that every addition has
+exactly one destination.
 
 ---
 
 ## 1. The placement rule (decides every dimension)
 
 ```text
-Static fact          (compile-time, verifiable, not behaviour)  →  &'static table on ModelDecl / ProviderManifest
+Static fact          (compile-time, verifiable, not behaviour)  →  &'static table on Model / ModelProviderSpec
 Runtime fact         (varies per connection/account)            →  RemoteModelMetadata overlay (unchanged)
 Behaviour  (has I/O) (quota, health probe, token refresh)       →  a typed port; the table binds WHICH port
 ```
@@ -45,11 +56,11 @@ work: it stops the next reader from rebuilding what is present.
 
 | Proposed dimension | Status | Where it already lives |
 | :--- | :--- | :--- |
-| **Provider health / recovery semantics** | **Already implemented** | `ProviderErrorKind` (11 variants, `#[non_exhaustive]`) + `RetryDisposition::{Never, Retry{retry_after_ms}}` in `nuo-inference-wire/src/provider_error.rs`; `ProviderError::retryable`, `with_status`, `is_context_overflow`; classified in `nuo-provider-transport/src/transport.rs` (`retry_after_ms`), consumed by the harness retry loop. **Nothing to add.** |
-| **Quota / balance / credit %** | **Data model done; dispatch is not** | `ProviderQuotaData::{Periodic, Balance, Composite}`, `QuotaWindowBucket.used_fraction`, `BalanceQuota.{credit_limit, consumed_amount, display_primary}` (`nuo-inference-wire/src/connection_detail.rs`). The gap is *dispatch*, not shape — fixed by ADR-0027 step 4 (`[INV-PROV-08]` typed port). **Do not add a new quota schema.** |
+| **Provider health / recovery semantics** | **Already implemented** | `ProviderErrorKind` (13 variants, `#[non_exhaustive]`) + `RetryDisposition::{Never, Retry{retry_after_ms}}` in `protocol/src/error.rs`; `ProviderError::retryable`, `with_status`, `is_context_overflow`; classified in `provider/src/transport/` (`retry_after_ms`), consumed by the harness retry loop. **Nothing to add.** |
+| **Quota / balance / credit %** | **Data model done; dispatch is not** | `ProviderQuotaData::{Periodic, Balance, Composite}`, `QuotaWindowBucket.used_fraction`, `BalanceQuota.{credit_limit, consumed_amount, display_primary}` (`protocol/src/connection_detail.rs`). The gap is *dispatch*, not shape — fixed by ADR-0027 step 4 (`[INV-PROV-08]` typed port). **Do not add a new quota schema.** |
 | **Account / tenant selection** | **Deferred, with a condition** | Values already ride `ResolvedAuth`'s typed extensions (`OpencodeAuthMetadata.org_id`, `GoogleAuthMetadata.project_id`, `ChatGptAuthMetadata.account_id`). See §5. |
 | **`ecosystem` label** | **Rejected** | ADR-0027 §Rejected Alternatives. |
-| **`trust` level** | **Rejected** | ADR-0027 §Rejected Alternatives (the gate is the baseline-precedence rule, `nuo-model-routing/src/sync.rs:501`). |
+| **`trust` level** | **Rejected** | ADR-0027 §Rejected Alternatives (the gate is the baseline-precedence rule, `model-routing/src/sync.rs`). |
 | **`local_only_safe`** | **Rejected** | ADR-0027 §Rejected Alternatives (feature unimplemented; wrong shape). |
 
 **Net: of the dimensions raised, two are real additions (§3, §4), one is a dispatch fix that ADR-0027
@@ -58,49 +69,50 @@ provider fields turn out to be either already modelled or without a consumer.
 
 ---
 
-## 3. Addition A — Model pricing (genuinely absent)
+## 3. Addition A — Model pricing (landed, shape differs from this proposal)
 
-Nothing in the tree models cost. `price_factor` appears only in Qoder's test fixture
-(`nuo-provider-adapters/tests/fixtures/qoder-model-list-1.1.58.json`) and is never parsed into a type.
+**Status: built.** The proposal below was the input; the shipped design kept the
+constraints and changed the shape. Pricing lives in `protocol/src/pricing/`
+(`mod.rs`, `registry.rs`, `schedule.rs`).
 
-**Shape** — static, per-model, additive on `ModelDecl`:
+What shipped:
 
-```rust
-pub struct Pricing {
-    /// Currency the amounts are denominated in (ISO 4217, e.g. "USD", "CNY").
-    pub currency: Currency,
-    /// Micro-units per 1M tokens, to avoid float drift. `None` = the provider states no price.
-    pub input_per_mtok: Option<u64>,
-    pub output_per_mtok: Option<u64>,
-    pub cache_read_per_mtok: Option<u64>,
-    pub cache_write_per_mtok: Option<u64>,
-    /// Relative cost multiplier when the provider prices in abstract credits rather than
-    /// currency (Qoder's `price_factor`). Mutually exclusive with the per-token fields.
-    pub relative_factor: Option<f32>,
-}
-```
+- `NanoUsd(u64)` — integer nano-USD, the money unit. The proposal said "micro-units";
+  nano won because a single cheap token can cost well under one micro-dollar.
+- `ModelPricing { currency, tiers: Vec<PricingTier>, off_peak: Option<OffPeakPricing> }`,
+  where a `PricingTier` carries `context_threshold` plus the four per-million rates
+  (`input_standard`, `cache_read`, `cache_write`, `output`).
+- `OffPeakPricing { tiers, schedule }` — a time-varying rate card, which the proposal
+  did not consider.
+- `TurnCost { amount, currency, window, input_cost, cache_read_cost, cache_write_cost,
+  output_cost }` — the per-turn receipt the consumer needed.
 
-Design constraints:
+What was **not** adopted:
 
-- **Two mutually exclusive accounting modes.** A provider either prices in real currency
-  (`*_per_mtok`) or in abstract credits (`relative_factor`). Modelling both at once invites summing
-  incomparable numbers. Enforce with an enum, not four `Option`s plus a flag.
-- **Integer micro-units, never `f64`, for money.** `f64` accumulates error across a session's
+- **`relative_factor: Option<f32>`.** Abstract credit multipliers such as Qoder's
+  `price_factor` do not enter the core type. They are not money, and modelling them
+  beside `NanoUsd` invites summing incomparable numbers; a provider that prices in
+  credits resolves to "no stated price" and the surface says so.
+- **Flat `Option<u64>` per rate.** Tiers and off-peak windows are the real shape of a
+  modern rate card; a flat field per rate cannot express either.
+
+The proposal's constraints that survived unchanged:
+
+- **Integer units, never `f64`, for money.** `f64` accumulates error across a session's
   turns; a cost meter is exactly where that shows up.
-- **`None` means "not stated", never "free".** Same discipline as `vision` (`[INV-PROV-11]`): an
-  unpriced route must not render as `$0.00`.
-- **Live prices are a runtime fact.** A provider that advertises pricing in its catalog belongs in
-  `RemoteModelMetadata` as an overlay, layered above the static table under the same resolution order
-  as every other capability. Do not cache live prices into the static table.
-
-**Consumer required before landing** (`[INV-PROV-07]`): a cost meter or a "cheapest capable model"
-selector. Absent one, this stays unbuilt.
+- **"Not stated" is not "free".** An unpriced route must not render as `$0.00`.
+- **Live prices are a runtime fact.** A provider that advertises pricing in its catalog
+  belongs in `RemoteModelMetadata` as an overlay, layered above the static table under
+  the same resolution order as every other capability. Do not cache live prices into
+  the static table.
 
 ---
 
 ## 4. Addition B — Model capability matrix (too narrow)
 
-`Model` (`nuo-inference-wire/src/model.rs:24`) carries 8 fields. Resolution of what is genuinely needed:
+`Model` (`protocol/src/model.rs`) carries ten fields: `id`, `family`, `context_window`,
+`thinking`, `tool_call`, `vision`, `protocol`, `effort_levels`, `default_effort`, and
+`wire_entities`. Resolution of what is genuinely needed:
 
 **Add (each has a clear consumer):**
 
@@ -108,7 +120,7 @@ selector. Absent one, this stays unbuilt.
 | :--- | :--- |
 | `streaming: bool` | Gate the streaming path; today it is assumed for every routed channel. |
 | `structured_output: bool` | Gate JSON-schema / response-format stamping rather than sending it blind. |
-| `parallel_tool_calls: bool` | The Responses builder already stamps `parallel_tool_calls: true` unconditionally (`nuo-provider-openai/src/responses/request.rs:226`) — that must become conditional per model. |
+| `parallel_tool_calls: bool` | The Responses builder currently gates the field on the dialect (`emits_parallel_tool_calls_field()` in `provider-openai/src/responses/request.rs`) and then always stamps `true`. Per-model control is still open: a model that rejects the field must not receive it. |
 | `max_images: Option<u8>` | Boundary-check attachments before send, instead of relying on an upstream 400. |
 
 **Do not add yet (no consumer):** audio/PDF input modalities, output modalities, per-model TPM/RPM
@@ -135,11 +147,11 @@ Until then, `ResolvedAuth` extensions carry the data and nothing declares a need
 
 ```rust
 pub enum AccountDimension { OrgId, ProjectId, AccountId, Region }
-// ProviderManifest gains:  pub account_dimensions: &'static [AccountDimension],
+// ModelProviderSpec gains:  pub account_dimensions: &'static [AccountDimension],
 ```
 
 An enum (not `Vec<String>`) keeps the dimension vocabulary closed and the picker's rendering
-exhaustive. Region is listed because the current Qoder region handling (`nuo-provider-qoder/src/region.rs`)
+exhaustive. Region is listed because the current Qoder region handling (`provider-qoder/src/region.rs`)
 has **no** `ModelProviderSpec` counterpart and is a genuine open question about whether it is a
 provider-level or endpoint-level axis — settle it against a real use case, not by guessing.
 

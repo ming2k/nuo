@@ -73,7 +73,7 @@ coherent-but-incompatible designs. This ADR picks one and fixes the rules.
 
 ## Decision Drivers
 
-- **`[INV-TOOL-01]` fidelity**: capabilities own their tools on the zero-runtime trait.
+- **`[INV-TOOL-01]` (restates ADR-0001) fidelity**: capabilities own their tools on the zero-runtime trait.
 - **Dependency acyclicity**: the layering must be expressible in Cargo without cycles.
 - **Compile-time pluggability**: adding or removing a tool family must be a
   one-line change gated at compile time, with no central enumeration to maintain.

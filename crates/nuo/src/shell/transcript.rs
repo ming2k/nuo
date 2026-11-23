@@ -15,25 +15,32 @@ use view::disclosure_config::DisclosureSource;
 use view::model::document::{TranscriptMessage, UserMessageOrigin};
 
 pub(super) fn transcript_message_from_core(message: Message) -> Option<TranscriptMessage> {
+    // A compaction checkpoint is classified by its provenance and read through
+    // the one envelope reader; the bytes are not a classifier (ADR-0232,
+    // ADR-0226). A checkpoint is hidden from the ordinary message stream but
+    // still owns a card, so this check precedes the hidden filter.
+    if message
+        .origin
+        .as_ref()
+        .is_some_and(|origin| origin.kind == tool::InjectionKind::CompactionCheckpoint)
+        && let Some((envelope, body)) = tool::parse_envelope_with_body(&message.content)
+        && envelope.tag == tool::Tag::Checkpoint
+    {
+        let mut card =
+            TranscriptMessage::compacted_card(0, 0, 0, Some(body.trim().to_string()), Vec::new());
+        card.provider = message.provider;
+        card.model = message.model;
+        card.sent_at_ms = message.sent_at_ms.or_else(|| {
+            message
+                .timestamp
+                .map(|seconds| seconds.saturating_mul(1000))
+        });
+        return Some(card);
+    }
     if message.hidden {
         return None;
     }
     if message.role == Role::System {
-        if message
-            .content
-            .starts_with("[Conversation Summary Checkpoint")
-        {
-            let mut card =
-                TranscriptMessage::compacted_card(0, 0, 0, Some(message.content), Vec::new());
-            card.provider = message.provider;
-            card.model = message.model;
-            card.sent_at_ms = message.sent_at_ms.or_else(|| {
-                message
-                    .timestamp
-                    .map(|seconds| seconds.saturating_mul(1000))
-            });
-            return Some(card);
-        }
         return None;
     }
     let provider = message.provider.clone();
@@ -43,15 +50,6 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
             .timestamp
             .map(|seconds| seconds.saturating_mul(1000))
     });
-    // Whether the harness carried a curated `display_content` for this user
-    // message — slash commands set this to the literal `/cmd` (their `content`
-    // is the harness-expanded form), so its presence is the signal that the
-    // turn was a slash command rather than a genuine chat prompt.
-    let had_display_content = message.display_content.is_some();
-    // Capture non-driving provenance before `content` is moved (ADR-0050): a
-    // durable `CommandEcho` origin unambiguously marks the message as a
-    // non-driving command regardless of text shape.
-    let is_echo = message.is_command_echo();
     let is_insert = message
         .origin
         .as_ref()
@@ -81,41 +79,16 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
             .filter(|effort| !effort.is_empty() && !effort.eq_ignore_ascii_case("none"));
         msg.sent_at_ms = sent_at_ms;
         msg.injection_origin = message.origin;
-        // Infer the turn origin for restored user messages so a resumed
-        // session's Activity modal still skips slash/shell turns. The durable
-        // `origin` field is consulted first (ADR-0050): a `CommandEcho`
-        // provenance unambiguously marks the message as a non-driving command,
-        // regardless of its text shape. When `origin` is `None` (legacy
-        // sessions predating the field, or genuine chat prompts) the shape
-        // heuristic below applies: slash commands carry a `display_content`
-        // that is the literal `/cmd` (the `content` is the harness-expanded
-        // form); shell passthroughs persist as the `!command` the user typed.
-        // Only a real prompt surfaces a leading `/` or `!` *not* followed by a
-        // word char would still be misclassified — but in practice both are
-        // followed by a command word, so the heuristic is exact for the shapes
-        // the harness produces.
-        if message.role == Role::User {
-            // Slash origin: a durable `CommandEcho` provenance (ADR-0050, which
-            // unambiguously marks the message as a non-driving command
-            // regardless of text shape) OR the legacy shape signal of a
-            // `display_content` whose text is the literal `/cmd`. Both fold to
-            // Slash; the echo check runs first so a durable echo without
-            // `display_content` is still classified correctly.
-            let is_slash = is_echo
-                || (had_display_content
-                    && msg.raw.strip_prefix('/').is_some_and(|rest| {
-                        rest.chars().next().is_some_and(|c| c.is_alphanumeric())
-                    }));
-            if is_slash {
-                msg.origin = UserMessageOrigin::Slash;
-            } else if is_insert {
-                msg.origin = UserMessageOrigin::Steer;
-                // ADR-0137: durable steers were persisted only at the turn
-                // seam, so every restored steer is an in-round interjection.
-                // The render tag is rebuilt here so any consumer of the
-                // restored document sees the one-body-row form.
-                msg.origin_tags = vec![view::model::document::SteerOriginTag::InRound];
-            }
+        // Infer the turn origin for restored user messages. There is no slash
+        // case: a command is a ledger row, never a message, so nothing to
+        // classify here (ADR-0233).
+        if message.role == Role::User && is_insert {
+            msg.origin = UserMessageOrigin::Steer;
+            // ADR-0137: durable steers were persisted only at the turn seam, so
+            // every restored steer is an in-round interjection. The render tag is
+            // rebuilt here so any consumer of the restored document sees the
+            // one-body-row form.
+            msg.origin_tags = vec![view::model::document::SteerOriginTag::InRound];
         }
         Some(msg)
     }
@@ -292,8 +265,8 @@ fn transcript_from_core_inner(
     let mut restored = Vec::new();
     // Reconstruct the canonical Round -> Turn position from the durable
     // transcript. A driving visible user message opens a round; every
-    // assistant response advances the ReAct turn within it. Inserts and
-    // non-driving command echoes do not open rounds.
+    // assistant response advances the ReAct turn within it. Steering inserts
+    // do not open rounds.
     let mut restored_round: u64 = 0;
     let mut restored_turn: u64 = 0;
     // ADR-0166 `[INV-TOOL-ID-01]`: a restored step carries the call's real id.
@@ -319,8 +292,7 @@ fn transcript_from_core_inner(
                 .origin
                 .as_ref()
                 .is_some_and(|origin| origin.kind == tool::InjectionKind::UserSteer);
-            let opens_round =
-                message.role == Role::User && !is_insert && !message.is_command_echo();
+            let opens_round = message.role == Role::User && !is_insert;
             if opens_round {
                 restored_round = restored_round.saturating_add(1);
                 restored_turn = 0;
@@ -501,28 +473,6 @@ fn transcript_from_core_inner(
                 }
             }
         }
-        // Fold a restored slash/shell echo into the command ledger
-        // projection: the invocation belongs to the command
-        // component (`⌘ /cmd`), never to a second user bubble — the ledger
-        // row for the same invocation is merged in later by
-        // `merge_command_rows`, so dropping the echo keeps exactly one row
-        // per command after resume, matching the live path. Classification
-        // mirrors `transcript_message_from_core` exactly: a durable
-        // `CommandEcho` provenance, or the legacy shape signal of a
-        // `display_content` that is the literal `/cmd` (its `content` is the
-        // harness-expanded form). Round bookkeeping is unaffected — echoes
-        // never opened rounds (`opens_round` already excluded them).
-        if message.role == Role::User {
-            let is_echo = message.is_command_echo();
-            let slash_shaped = message
-                .display_content
-                .as_deref()
-                .and_then(|raw| raw.strip_prefix('/'))
-                .is_some_and(|rest| rest.chars().next().is_some_and(|c| c.is_alphanumeric()));
-            if is_echo || slash_shaped {
-                continue;
-            }
-        }
         if let Some(mut transcript_message) = transcript_message_from_core(message) {
             if track_rounds {
                 if transcript_message.role == Role::Assistant {
@@ -604,10 +554,8 @@ pub fn finalize_streaming_reasoning(messages: &mut [TranscriptMessage], duration
     }
 }
 
-pub(super) fn parse_tool_result(content: &str) -> Option<(&str, &str)> {
-    let content = content.strip_prefix('[')?;
-    let (name, output) = content.split_once(" result]:")?;
-    Some((name, output.trim_start_matches('\n')))
+fn parse_tool_result(content: &str) -> Option<(&str, &str)> {
+    tool::tool_result_header::parse(content)
 }
 
 pub(super) fn format_tool_call(name: &str, arguments: &str) -> String {

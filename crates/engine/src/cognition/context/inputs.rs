@@ -38,8 +38,6 @@ pub enum InputKey {
     ProviderGuidance,
     /// The declared tool surface.
     ToolSurface,
-    /// A directive that applies to this turn only.
-    TurnDirective,
 }
 
 impl InputKey {
@@ -56,7 +54,6 @@ impl InputKey {
         InputKey::ResponseLanguage,
         InputKey::ProviderGuidance,
         InputKey::ToolSurface,
-        InputKey::TurnDirective,
     ];
 
     /// How volatile this input is. A source's stability is the maximum over the
@@ -77,8 +74,6 @@ impl InputKey {
             Self::ProjectRules | Self::ProjectInstructions | Self::WorkspaceTopology => {
                 Stability::Workspace
             }
-            // A boundary fact for the request being assembled.
-            Self::TurnDirective => Stability::Turn,
         }
     }
 
@@ -95,7 +90,6 @@ impl InputKey {
             Self::ResponseLanguage => "response_language",
             Self::ProviderGuidance => "provider_guidance",
             Self::ToolSurface => "tool_surface",
-            Self::TurnDirective => "turn_directive",
         }
     }
 }
@@ -105,49 +99,28 @@ impl InputKey {
 /// Prompt policy reads declared *capability*, never a tool name (ADR-0216): a
 /// rename or alias cannot delete guidance, and activating a deferred tool cannot
 /// move the instruction prefix.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ToolSurface {
     native: BTreeSet<BuiltinTool>,
     parallel: bool,
-    spawns_subagent: bool,
-    deferred_active: usize,
 }
-
-impl PartialEq for ToolSurface {
-    fn eq(&self, other: &Self) -> bool {
-        // `deferred_active` is diagnostic state and is deliberately absent: the
-        // identity of the surface is the capability set and the channel's
-        // parallel support, so activating a deferred tool cannot invalidate the
-        // render memo ([`INV-TOOLSURFACE-03`]).
-        self.native == other.native
-            && self.parallel == other.parallel
-            && self.spawns_subagent == other.spawns_subagent
-    }
-}
-
-impl Eq for ToolSurface {}
 
 impl ToolSurface {
     /// Build the surface from the admitted toolset.
-    pub fn new<'a>(
-        tools: impl IntoIterator<Item = &'a dyn tool::Tool>,
-        parallel: bool,
-        deferred_active: usize,
-    ) -> Self {
-        let mut native = BTreeSet::new();
-        let mut spawns_subagent = false;
-        for tool in tools {
-            if let Some(builtin) = tool.builtin() {
-                native.insert(builtin);
-            }
-            spawns_subagent |= tool.spawns_subagent();
-        }
-        Self {
-            native,
-            parallel,
-            spawns_subagent,
-            deferred_active,
-        }
+    ///
+    /// There is deliberately no `deferred_active` counter and no
+    /// `spawns_subagent` flag. Both were declared here and read by nobody; a
+    /// capability set that also carries non-identity state is the shape that put
+    /// the deferred-tool count into the source memo key in the first place
+    /// (`[INV-TOOLSURFACE-03]`, ADR-0229). The deferred count and the subagent
+    /// capability are both readable from the tool manager and the snapshot, which
+    /// is where their consumers live.
+    pub fn new<'a>(tools: impl IntoIterator<Item = &'a dyn tool::Tool>, parallel: bool) -> Self {
+        let native = tools
+            .into_iter()
+            .filter_map(tool::Tool::builtin)
+            .collect::<BTreeSet<_>>();
+        Self { native, parallel }
     }
 
     /// Whether a declared native capability is admitted this request.
@@ -163,27 +136,6 @@ impl ToolSurface {
     /// Whether the active channel supports parallel tool calls.
     pub fn supports_parallel(&self) -> bool {
         self.parallel
-    }
-
-    /// Whether an admitted tool spawns a subagent.
-    pub fn spawns_subagent(&self) -> bool {
-        self.spawns_subagent
-    }
-
-    /// How many deferred tools are currently activated. Diagnostic only
-    /// (`[INV-TOOLSURFACE-03]`): no context source may declare it as an input.
-    pub fn deferred_active(&self) -> usize {
-        self.deferred_active
-    }
-}
-
-impl Hash for ToolSurface {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.native.hash(state);
-        self.parallel.hash(state);
-        self.spawns_subagent.hash(state);
-        // `deferred_active` is deliberately excluded: it is diagnostic state, so
-        // activating a deferred tool must not invalidate the render memo.
     }
 }
 
@@ -231,7 +183,7 @@ mod tests {
         // Project rules are Workspace-stable even when the string is empty.
         assert_eq!(InputKey::ProjectRules.stability(), Stability::Workspace);
         assert_eq!(InputKey::ToolSurface.stability(), Stability::Route);
-        assert_eq!(InputKey::TurnDirective.stability(), Stability::Turn);
+        assert_eq!(InputKey::ResponseLanguage.stability(), Stability::Session);
     }
 
     #[test]
@@ -243,24 +195,22 @@ mod tests {
         assert_eq!(labels.len(), count);
     }
 
+    /// The surface is a capability set and the channel's parallel support, and
+    /// nothing else — there is no field a mid-session activation could move
+    /// (`[INV-TOOLSURFACE-03]`, ADR-0229).
     #[test]
-    fn deferred_activation_does_not_change_the_surface_identity() {
-        let surface = |deferred| ToolSurface {
+    fn the_surface_identity_is_a_capability_set() {
+        let surface = ToolSurface {
             native: BTreeSet::from([BuiltinTool::Read]),
             parallel: false,
-            spawns_subagent: false,
-            deferred_active: deferred,
         };
-        assert_eq!(surface(0), surface(7));
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        surface(0).hash(&mut hasher);
-        let idle = hasher.finish();
+        surface.hash(&mut hasher);
+        let first = hasher.finish();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        surface(7).hash(&mut hasher);
-        assert_eq!(
-            idle,
-            hasher.finish(),
-            "a deferred activation must not invalidate the render memo"
-        );
+        surface.clone().hash(&mut hasher);
+        assert_eq!(first, hasher.finish());
+        assert!(surface.has_native(BuiltinTool::Read));
+        assert!(!surface.has_native(BuiltinTool::WriteFile));
     }
 }

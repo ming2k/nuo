@@ -81,7 +81,7 @@ Under an uncompromising zero-legacy standard, we complete the modernization and 
 - **Cognitive Hygiene**: `nuo-inference-wire` contains zero mentions of "harness" or "tool error".
 
 ### Tightened Invariant
-- **`[INV-AP-01] Pure Codec Aperture`**: `nuo-inference-wire` shall contain strictly wire-level primitives: vendor request/response codecs, SSE stream demuxing, canonical block IR (`WireRequest`, `ContentBlock`), and physical telemetry facts (`TokenClass`, `TokenBreakdown`). It must declare zero network I/O runtime dependencies (no `netune`, no direct `tokio` in `[dependencies]`, no `nuo-egress`).
+- **`[INV-AP-01] (revises ADR-0084) Pure Codec Aperture`**: `nuo-inference-wire` shall contain strictly wire-level primitives: vendor request/response codecs, SSE stream demuxing, canonical block IR (`WireRequest`, `ContentBlock`), and physical telemetry facts (`TokenClass`, `TokenBreakdown`). It must declare zero network I/O runtime dependencies (no `netune`, no direct `tokio` in `[dependencies]`, no `nuo-egress`).
 
 ---
 

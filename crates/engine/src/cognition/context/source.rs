@@ -23,8 +23,8 @@ pub enum SourceOrder {
 
 /// One declared context source.
 ///
-/// Implementations are pure: `render` and `is_active` read `inputs` only
-/// (`[INV-CTXSRC-08]`). The render memo is keyed on the inputs hash, so an
+/// Implementations are pure: `block` and `is_active` read `inputs` only
+/// (`[INV-CTXSRC-08]`). The source memo is keyed on the inputs hash, so an
 /// impure read would silently serve a stale body.
 pub trait ContextSource: Send + Sync {
     /// Stable identity for overrides, disables, telemetry, and `supersedes`.
@@ -61,8 +61,8 @@ pub trait ContextSource: Send + Sync {
         true
     }
 
-    /// Render one block body. `None` means "active but no text this turn".
-    fn render(&self, inputs: &ContextInputs) -> Option<Block>;
+    /// Declare this source's block. `None` means "active but no text this turn".
+    fn block(&self, inputs: &ContextInputs) -> Option<Block>;
 
     /// The size bound, with its overflow policy. Mandatory: an unbounded source
     /// is the defect this trait exists to prevent (`[INV-CTXSRC-02]`).

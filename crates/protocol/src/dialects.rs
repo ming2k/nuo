@@ -303,7 +303,7 @@ fn should_fold_display_hyphens(s: &str) -> bool {
     s.chars().any(|c| c.is_ascii_uppercase())
 }
 
-/// The closed set of relay service tiers (ADR-0081 [INV-CATALOG-05]).
+/// The closed set of relay service tiers (ADR-0081 [INV-CATALOGPIPE-02]).
 ///
 /// A gateway appends `:<tier>` to select a routing *variant* of the same model
 /// (`nex-n2.5-pro:free`, `grok-4.7:nitro`). The tier is routing syntax, never
@@ -313,7 +313,7 @@ fn should_fold_display_hyphens(s: &str) -> bool {
 /// that label to `OpenAI`.
 pub const SERVICE_TIERS: &[&str] = &["free", "nitro", "floor", "online", "beta", "extended"];
 
-/// Brand tokens that lead a model id (ADR-0081 [INV-CATALOG-05]).
+/// Brand tokens that lead a model id (ADR-0081 [INV-CATALOGPIPE-02]).
 ///
 /// Shared by the casing pass (`capitalize_token`) and the namespace-redundancy
 /// test in `format_structural_tokens`, so "does the tail already name the
@@ -509,7 +509,7 @@ fn capitalize_token(token: &str) -> String {
     }
 }
 
-/// Rule-based structural display name normalizer (ADR-0081 [INV-CATALOG-05]).
+/// Rule-based structural display name normalizer (ADR-0081 [INV-CATALOGPIPE-02]).
 ///
 /// Lifts raw model identifiers or uncurated remote labels into polished,
 /// human-readable typography:
@@ -529,12 +529,12 @@ pub fn format_model_display_name(raw_name: Option<&str>, model_id: &str) -> Stri
     format_structural_tokens(model_id)
 }
 
-/// Whether this model identifier represents ephemeral relay noise (ADR-0081 [INV-CATALOG-06]).
+/// Whether this model identifier represents ephemeral relay noise (ADR-0081 [INV-CATALOGPIPE-03]).
 ///
 /// Prunes ephemeral promotional tiers, unstable preview snapshots, and partner contributor
 /// nodes from default listing surfaces on multi-model aggregation relays. Both tier
 /// spellings are read (`-free` and `:free`) because they are the same routing fact
-/// (ADR-0081 [INV-CATALOG-05]): a gateway that suffixes `:free` must not slip a
+/// (ADR-0081 [INV-CATALOGPIPE-02]): a gateway that suffixes `:free` must not slip a
 /// promotional tier past a valve that only recognises `-free`.
 pub fn is_relay_promotional_noise(id: &str) -> bool {
     let lower = id.to_ascii_lowercase();

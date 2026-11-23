@@ -5,7 +5,7 @@ status: accepted
 date: 2026-03-29
 scope: tui/nuo, devtools/storybook, test/fixtures, cli/dev
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0148. Canonical Extreme Fixtures and Zero-Dependency Developer Watch Supervisor

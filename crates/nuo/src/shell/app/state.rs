@@ -508,6 +508,27 @@ pub struct SurfacesState {
     pub config_hover_index: Option<usize>,
     /// Scroll offset for the `/config` detail pane body.
     pub config_detail_scroll: usize,
+    /// What the pointer currently rests on inside the Tier 1 TabBar (ADR-0223, ADR-0152).
+    ///
+    /// Kept on the app rather than derived from the pointer position at draw
+    /// time because the *committed* scene is the authority for what is under the
+    /// pointer: the pill that painted the close mark is the pill that answers
+    /// the click on it.
+    pub tab_hover: Option<crate::shell::view_header::TabBarHover>,
+    /// When the pointer arrived on [`Self::tab_hover`]'s **anchor** (a pill, the
+    /// add affordance, or the rail).
+    ///
+    /// Deliberately not reset when the pointer steps from a pill onto its own
+    /// close mark: that is one continuous visit, and restarting the clock there
+    /// would rewind the title reveal under the user's pointer (ADR-0152).
+    pub tab_hover_since: Option<std::time::Instant>,
+    /// Whether the last drawn frame had a TabBar hover title reveal in flight.
+    ///
+    /// Written by the draw, read by the event loop's `animating` predicate — the
+    /// same one-way reporting the Models dialog uses for focused-row reveal
+    /// (ADR-0152), so an idle strip costs no repaints while a hovered overflow
+    /// still finishes its single pass.
+    pub tab_reveal_active: bool,
     /// Latest authoritative `[web]` selection/readiness snapshot from the harness.
     /// Refreshed when the Settings view opens (`QueryWebSearchConfig`) and
     /// on every `WebSearchConfigUpdated` ack.

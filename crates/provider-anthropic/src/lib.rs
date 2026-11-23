@@ -225,7 +225,6 @@ impl AnthropicMessagesProvider {
     ) -> serde_json::Value {
         request::body_with_capabilities(
             &request.messages,
-            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream,

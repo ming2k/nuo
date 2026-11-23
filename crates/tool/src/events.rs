@@ -86,6 +86,17 @@ pub enum NoticeKind {
     /// transcript keeps its images either way — only the request projection
     /// drops them.
     ImageInputWithheld,
+    /// Image attachments were left out of a request because the **serialized
+    /// body** exceeded the transport's byte ceiling — not because the route
+    /// cannot see images.
+    ///
+    /// Distinct from [`Self::ImageInputWithheld`] because the facts and the
+    /// remedies differ: that one is a capability fact about the route ("switch
+    /// model, or force Vision on"), this one is a budget fact about one request
+    /// ("the newest attachments were kept; older ones are readable by artifact
+    /// path"). While they shared a kind, a body-size refusal would have told the
+    /// user to change models to fix a problem the model never had.
+    PayloadRelief,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

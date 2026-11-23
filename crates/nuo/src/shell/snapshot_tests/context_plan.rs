@@ -97,7 +97,6 @@ fn fixture() -> ContextPlanView {
             untrusted,
         ],
         fixed_tokens: 768,
-        transient_tokens: 0,
         notices: vec![ContextNotice {
             source_id: "project.rules".to_owned(),
             kind: NoticeKind::Elided,
@@ -108,7 +107,7 @@ fn fixture() -> ContextPlanView {
         },
         window_tokens: 200_000,
         instructions_ceiling_tokens: 16_000,
-        estimate: Some(RequestTokenEstimate::layered(41_207, 768, 9_412, 0)),
+        estimate: Some(RequestTokenEstimate::layered(41_207, 768, 9_412)),
     }
 }
 

@@ -78,14 +78,6 @@ pub(crate) fn build_overview_body(
                 Style::default().fg(theme.muted()),
             );
         }
-        if let Some(t) = snap.temporary_context_tokens {
-            layout = layout.kv_indented(
-                4,
-                "Temporary",
-                format!("{} tokens", fmt_num(t)),
-                Style::default().fg(theme.muted()),
-            );
-        }
     }
     if context.draft_tokens > 0 {
         layout = layout.kv_muted(

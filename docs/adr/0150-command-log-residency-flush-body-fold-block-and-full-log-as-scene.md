@@ -5,7 +5,7 @@ status: accepted
 date: 2026-12-22
 scope: presentation/nuo-view, presentation/nuo-ui-primitives, tui/disclosure, tui/overlays, tui/surfaces, interaction/affordance
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0150. Command Log Residency: the Flush Body, the Fold Block, and the Full Log as a Scene

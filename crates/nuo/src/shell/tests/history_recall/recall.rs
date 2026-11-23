@@ -280,13 +280,11 @@ async fn resumed_session_backfills_prompt_rows_from_transcript() {
     app.composer.input_history.last_mut().unwrap().session_id = Some("session-b".to_string());
 
     // The resumed transcript: genuine chat prompts (oldest-first, as the
-    // listener rebuilds it) plus a slash command and a shell passthrough —
-    // neither of which may become a recall row.
+    // listener rebuilds it) plus a steer — which must not become a recall row.
     let transcript = vec![
         TranscriptMessage::new(Role::User, "first turn").with_sent_at_ms(100),
         TranscriptMessage::new(Role::Assistant, "ok"),
         TranscriptMessage::new(Role::User, "live prompt").with_sent_at_ms(200),
-        TranscriptMessage::new(Role::User, "/model").with_origin(UserMessageOrigin::Slash),
         TranscriptMessage::new(Role::User, "steering").with_origin(UserMessageOrigin::Steer),
     ];
     app.backfill_session_history(&prompt_tail(&transcript), 1000);

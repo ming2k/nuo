@@ -1,6 +1,7 @@
 //! Tool-history reconciliation: only replay complete, signed pairings.
 
 use serde_json::Value;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use tool::{Message, Role};
 
@@ -21,6 +22,7 @@ pub const SKIP_THOUGHT_SIGNATURE_VALIDATOR: &str = "skip_thought_signature_valid
 
 pub(super) fn reconcile_tool_history(messages: Vec<Message>) -> Vec<Message> {
     let mut known_ids = HashSet::new();
+    let mut call_names: HashMap<String, String> = HashMap::new();
     let mut messages: Vec<Message> = messages
         .into_iter()
         .filter(|message| match message.role {
@@ -28,6 +30,7 @@ pub(super) fn reconcile_tool_history(messages: Vec<Message>) -> Vec<Message> {
                 if let Some(calls) = message.tool_calls.as_ref() {
                     for call in calls {
                         known_ids.insert(call.id.clone());
+                        call_names.insert(call.id.clone(), call.name.clone());
                     }
                 }
                 !assistant_is_empty(message)
@@ -85,7 +88,8 @@ pub(super) fn reconcile_tool_history(messages: Vec<Message>) -> Vec<Message> {
     });
     // Strip tool results whose producing call degraded to text, then splice in
     // a text-fact user message at the same position so the model still sees
-    // the outcome (mirroring [`tool_result_parts`]' degradation wording).
+    // the outcome. The header comes from the one producer: a provider may drop
+    // a header it cannot name, but never invent a sixth spelling (ADR-0227).
     let mut reconciled: Vec<Message> = Vec::with_capacity(messages.len());
     for m in messages.into_iter() {
         if m.role == Role::Tool
@@ -93,10 +97,17 @@ pub(super) fn reconcile_tool_history(messages: Vec<Message>) -> Vec<Message> {
             && degraded_answered.contains(id)
         {
             let content = m.content.clone();
+            let content = match call_names.get(id) {
+                Some(name) => tool::tool_result::render(name, &content),
+                // The originating call is no longer in the history, so there is
+                // nothing to name. The body survives without a header; the
+                // header is presentation, not state.
+                None => content,
+            };
             reconciled.push(Message {
                 tool_call_id: None,
                 role: Role::User,
-                content: format!("[Tool result for call \"{id}\"]:\n{content}"),
+                content,
                 ..m
             });
             continue;
@@ -110,4 +121,31 @@ fn assistant_is_empty(message: &Message) -> bool {
     message.content.is_empty()
         && message.images.as_ref().is_none_or(Vec::is_empty)
         && message.tool_calls.as_ref().is_none_or(Vec::is_empty)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tool::ToolCall;
+
+    #[test]
+    fn a_degraded_tool_result_uses_the_one_header_producer() {
+        let mut assistant = Message::new(Role::Assistant, "calling read");
+        assistant.tool_calls = Some(vec![ToolCall {
+            id: "call-1".to_string(),
+            name: "read".to_string(),
+            arguments: "not json".to_string(),
+        }]);
+        let mut result = Message::new(Role::Tool, "file data");
+        result.tool_call_id = Some("call-1".to_string());
+
+        let reconciled = reconcile_tool_history(vec![assistant, result]);
+        let degraded = reconciled.last().expect("degraded result");
+        assert_eq!(degraded.role, Role::User);
+        assert_eq!(
+            tool::tool_result::parse(&degraded.content),
+            Some(("read", "file data"))
+        );
+        assert!(!degraded.content.contains("Tool result for call"));
+    }
 }

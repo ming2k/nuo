@@ -477,7 +477,7 @@ impl ClientTab {
         if self.current_scene() == scene {
             return;
         }
-        // [INV-SCENE-02] Container-Scoped Scene Discipline (ADR-0075):
+        // [INV-SCENE-04] Container-Scoped Scene Discipline (ADR-0075):
         // Enforce container-scene compatibility. A tab container accepts only
         // scenes matching its domain, rejecting cross-container pollution.
         match &self.kind {

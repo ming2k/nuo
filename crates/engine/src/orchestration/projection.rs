@@ -18,8 +18,8 @@ pub struct ContextProjectionSettings {
     /// `× CHARS_PER_TOKEN` conversion existed only to feed a char-space
     /// pruner).
     pub prune_protect_tokens: usize,
-    /// Tokens the surrounding request (instructions, tool schemas, temporary
-    /// context) adds on top of the window. The compaction gate is compared
+    /// Tokens the surrounding request (instructions and tool schemas) adds on
+    /// top of the window. The compaction gate is compared
     /// against the **request** estimate, so a fold must reserve these tokens or
     /// it can hand back a window that is still over the gate.
     pub request_overhead_tokens: usize,
@@ -82,8 +82,7 @@ pub struct CompactionReport {
 /// Tail and summary budgets that make the compaction post-condition reachable.
 ///
 /// The summary is part of the window, and the surrounding request
-/// (`instructions`, tool schemas, temporary context) is part of the estimate the
-/// gate compares. Reserving both is what keeps a fold from landing *at* the
+/// (`instructions`, tool schemas) is part of the estimate the gate compares. Reserving both is what keeps a fold from landing *at* the
 /// target but *above* the gate.
 pub(super) fn compaction_budgets(settings: &ContextProjectionSettings) -> (usize, usize) {
     let gate = settings.budget.compaction_threshold_tokens;

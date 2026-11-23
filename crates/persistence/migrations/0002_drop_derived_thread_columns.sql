@@ -4,7 +4,7 @@
 -- for the list view. They are duplicate state: the fact log already owns every
 -- message, and the view already prefers it. Keeping the columns let two
 -- writers disagree about the same conversation. Drop them and let the view be
--- the only projection (ADR-0189).
+-- the only projection (ADR-0059).
 
 DROP VIEW thread_list_view;
 

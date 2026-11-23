@@ -110,6 +110,16 @@ pub enum ProviderErrorKind {
     Authentication,
     InvalidRequest,
     ContextOverflow,
+    /// The request was refused because its **serialized body** exceeded the
+    /// edge's byte limit (`413`, `request_too_large`).
+    ///
+    /// Deliberately distinct from [`Self::ContextOverflow`]: that is a
+    /// token-window verdict answered by folding history, while this is a
+    /// transport-byte verdict answered by removing attachments from the
+    /// projection. Conflating them sent a 55 MB image payload down the
+    /// vision-capability probe, which withheld every image and then reported
+    /// the refusal as unrelated to images.
+    PayloadTooLarge,
     Upstream,
     Decode,
     Protocol,
@@ -239,6 +249,17 @@ impl ProviderError {
         matches!(self.kind, ProviderErrorKind::ContextOverflow)
     }
 
+    /// Whether this failure says the request was **too large to deliver**.
+    ///
+    /// The remedy is not compaction and not the image-capability probe: the
+    /// request must lose bytes, which on an attachment-heavy session means
+    /// offloading the oldest media from the projection. The status is accepted
+    /// as evidence too, so a route that answers `413` without a recognizable
+    /// code is still classified by what the number means.
+    pub const fn is_payload_too_large(&self) -> bool {
+        matches!(self.kind, ProviderErrorKind::PayloadTooLarge) || matches!(self.status, Some(413))
+    }
+
     /// Whether this failure indicates local/routing network unreachability
     /// (DNS failure or OS no-route/network-down) rather than a remote peer
     /// fault (ADR-0224).
@@ -270,25 +291,33 @@ impl ProviderError {
     ///    [`ProviderErrorKind::InvalidRequest`].
     ///
     /// What remains is the "this payload is unacceptable" family: `400` and
-    /// `422` (validation), `413` (too large — a base64 image is the likeliest
-    /// cause), and `415` (unsupported media type, the canonical image
+    /// `422` (validation) and `415` (unsupported media type, the canonical image
     /// rejection).
     ///
     /// [`ProviderErrorKind::ContextOverflow`] is excluded on purpose: a
     /// too-long prompt has its own recovery (compaction), and letting it also
     /// arm the probe would withhold images to fix a problem that is not about
-    /// them.
+    /// them. [`ProviderErrorKind::PayloadTooLarge`] is excluded for the same
+    /// reason on the byte axis: `413` means the **request body** was too big,
+    /// and its own recovery ([`Self::is_payload_too_large`]) removes the oldest
+    /// attachments proportionally. Arming the capability probe there withheld
+    /// *every* image and then latched nothing, because the retry succeeded but
+    /// the next turn re-sent the same 55 MB body — the refusal surfaced as if
+    /// images had been ruled out, and the session repeated it.
     ///
     /// An in-band refusal (HTTP 2xx carrying an `error` object) has no status to
     /// read, so the kinds only a request-shape refusal produces are accepted
     /// there. This is the *only* classification the image recovery consults, and
     /// it reads none of the vendor's prose.
     pub const fn is_request_refusal(&self) -> bool {
-        if matches!(self.kind, ProviderErrorKind::ContextOverflow) {
+        if matches!(
+            self.kind,
+            ProviderErrorKind::ContextOverflow | ProviderErrorKind::PayloadTooLarge
+        ) {
             return false;
         }
         match self.status {
-            Some(status) => matches!(status, 400 | 413 | 415 | 422),
+            Some(status) => matches!(status, 400 | 415 | 422),
             None => matches!(
                 self.kind,
                 ProviderErrorKind::InvalidRequest
@@ -375,13 +404,46 @@ mod request_refusal_tests {
     #[test]
     fn payload_rejections_may_arm_the_image_probe() {
         // The "this payload is unacceptable" family: deterministic AND
-        // body-caused, so the probe's inference is sound.
-        for status in [400, 413, 415, 422] {
+        // body-caused, so the probe's inference is sound. `413` is *not* in this
+        // family any more: it is a byte verdict with its own proportional
+        // recovery, and probing it withheld every attachment.
+        for status in [400, 415, 422] {
             assert!(
                 http(status, ProviderErrorKind::InvalidRequest).is_request_refusal(),
                 "{status} must be probeable"
             );
         }
+    }
+
+    #[test]
+    fn a_body_too_large_refusal_belongs_to_payload_relief() {
+        // `413` says the request exceeded the edge's byte cap. The remedy is to
+        // remove the oldest attachments from the projection — not to conclude
+        // the route cannot see images, and not to fold the transcript.
+        for kind in [
+            ProviderErrorKind::PayloadTooLarge,
+            ProviderErrorKind::InvalidRequest,
+        ] {
+            let error = http(413, kind);
+            assert!(
+                !error.is_request_refusal(),
+                "413 must not arm the vision-capability probe"
+            );
+            assert!(
+                error.is_payload_too_large(),
+                "413 is payload pressure whatever the parsed code says"
+            );
+        }
+        assert!(
+            ProviderError::new("mock", ProviderErrorKind::PayloadTooLarge, "body too large")
+                .is_payload_too_large(),
+            "a status-less payload verdict is still payload pressure"
+        );
+        assert!(
+            !ProviderError::new("mock", ProviderErrorKind::ContextOverflow, "too long")
+                .is_payload_too_large(),
+            "a token overflow is compaction's, not payload relief's"
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn relay_surfaces_default_to_curated_noise_hygiene() {
-    // ADR-0081 [INV-CATALOG-06]: a surface that publishes bare ids publishes a
+    // ADR-0081 [INV-CATALOGPIPE-03]: a surface that publishes bare ids publishes a
     // noisy catalog too, so its default admission gate is `Curated`. The
     // predicate is the spec's declared display policy, never a hardcoded
     // provider-id list.
@@ -68,7 +68,7 @@ fn relay_surfaces_default_to_curated_noise_hygiene() {
 fn relay_labels_and_seeds_survive_the_hygiene_valve() {
     ensure_test_init();
     // An ids-only relay advertises no metadata at all, so the structural label
-    // must be produced from the id itself (ADR-0081 [INV-CATALOG-05]) — gating
+    // must be produced from the id itself (ADR-0081 [INV-CATALOGPIPE-02]) — gating
     // the mapping on an existing remote record is how it silently never runs.
     let mut cache = RemoteCatalogCache::default();
     cache.connection_models.insert(

@@ -56,7 +56,15 @@ impl ThreadSession {
             }
         };
         if let Some(data) = data {
-            self.persist_metadata_off_runtime(data).await?;
+            // The state entry is a transcript fact: persist it as a delta so
+            // both the journal and the derived index retain it.
+            self.persist_with_mode_guarded(
+                data,
+                crate::db::SaveMode::Delta,
+                Vec::new(),
+                crate::db::CommitGuard::default(),
+            )
+            .await?;
         }
         Ok(())
     }

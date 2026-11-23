@@ -58,6 +58,14 @@ pub enum UiKey {
     TabBar,
     /// An interactive Tab Bar item at the top of the viewport (ADR-0039, ADR-0040).
     TabBarItem(usize),
+    /// Tier 1: the close mark inside a hovered Tab Bar pill (ADR-0219).
+    ///
+    /// Mounted only while the mark is painted, and mounted *after* its pill so
+    /// the mark wins the hit test on its own column. A tab whose pointer path
+    /// to closing it is a guess is a tab that gets closed by accident.
+    TabBarClose(usize),
+    /// Tier 1: the trailing add-tab affordance (`+`) (ADR-0219).
+    TabBarAdd,
     /// Tier 1: Interactive Tab Bar previous overflow button (`‹N`).
     TabBarPrev,
     /// Tier 1: Interactive Tab Bar next overflow button (`N›`).
@@ -338,6 +346,8 @@ impl ComponentTree {
                 false,
             ),
             UiKey::TabBarItem(_)
+            | UiKey::TabBarClose(_)
+            | UiKey::TabBarAdd
             | UiKey::TabBarPrev
             | UiKey::TabBarNext
             | UiKey::TabBarOverview

@@ -1,8 +1,8 @@
 # TUI Visual Language Reference
 
-Factual reference for the text-join grammar `nuo-tui` uses to compose labels. The rule is stated in `crates/nuo-tui/src/design.rs`: keep labels free of punctuation soup.
+Factual reference for the text-join grammar the presentation crates (`ui-primitives`, `view`) use to compose labels. The rule is stated in `crates/ui-primitives/src/design.rs`: keep labels free of punctuation soup.
 
-This page is cited directly by `crates/nuo-tui/src/design.rs` (the `JOIN_*` token block).
+This page is cited directly by `crates/ui-primitives/src/design.rs` (the `JOIN_*` token block).
 
 ---
 
@@ -72,7 +72,7 @@ A key token (`keyvocab`, ADR-0054 §Amendment) says what the keycap says. Modifi
 | ASCII for the modifier | `⇧` is Apple's *menu* symbol, not a legend printed on a PC keyboard, and it renders as `□` when the terminal font lacks U+21E7 — `□Tab` loses the one word the token existed to carry. It is also East-Asian *Ambiguous*: one column under `unicode-width`, two under a CJK-locale terminal, so the row's tail shifts with the user's locale. |
 | Direction glyphs stay glyphs | `↑↓` / `←→` / `↑` / `↓` **are** the key rather than a modifier around one, need no translation, and `Up` / `Down` would spend columns on every navigation hint. |
 
-A key token is a display string, never a binding: the chord lives in `chord.rs` (`Key::BACKTAB`), `Key::display()` reads the same constant the footers do, and `cargo nextest run -p nuo-ui-primitives --profile unit -E 'test(keyvocab)'` fails if a modifier token regains a glyph.
+A key token is a display string, never a binding: the chord lives in `chord.rs` (`Key::BACKTAB`), `Key::display()` reads the same constant the footers do, and `cargo nextest run -p ui-primitives --profile unit -E 'test(keyvocab)'` fails if a modifier token regains a glyph.
 
 ### In-Flight Running State Demarcation (ADR-0110 `[INV-TUI-RUNNING-01..04]`)
 

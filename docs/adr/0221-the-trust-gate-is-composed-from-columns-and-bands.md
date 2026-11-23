@@ -184,7 +184,7 @@ checkbox — the pointed-at row is already the answer.
 
 ### 7. The panel width is a reading measure
 
-`panel_width` claims `PANEL_MAX_WIDTH` (84 columns) whenever the screen can fund
+`panel_width` claims `PANEL_MAX_WIDTH` (56 columns) whenever the screen can fund
 it and gives back only the frame's `PANEL_H_MARGIN` when it cannot. A percentage
 of the viewport is the wrong model twice over: it narrows the panel on a narrow
 terminal, where the prompt most needs its columns, and widens it on a wide one,

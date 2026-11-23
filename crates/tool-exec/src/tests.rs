@@ -462,3 +462,84 @@ fn tool_accesses_reads_the_command_argument() {
     );
     assert!(tool.accesses(&serde_json::json!({})).declares_write());
 }
+
+#[tokio::test]
+async fn test_exec_tool_noninteractive_env_prevents_editor_hang() {
+    let dir = tempdir().unwrap();
+    let ctx = Arc::new(ExecToolContext::new(dir.path()));
+    let tool = ExecuteCommandTool::new(ctx);
+    let t_ctx = ToolContext::default();
+
+    #[cfg(not(windows))]
+    let cmd = r#"printf "%s|%s|%s|%s\n" "$GIT_TERMINAL_PROMPT" "$GIT_EDITOR" "$EDITOR" "$GIT_PAGER" && "$GIT_EDITOR""#;
+    #[cfg(windows)]
+    let cmd = r#"powershell -Command "Write-Output \"$($env:GIT_TERMINAL_PROMPT)|$($env:GIT_EDITOR)|$($env:EDITOR)|$($env:GIT_PAGER)\"; exit 1""#;
+
+    let res = tool
+        .execute(&t_ctx, json!({"command": cmd, "timeout": 2}))
+        .await
+        .unwrap();
+
+    if let ToolOutput::Shell {
+        stdout,
+        exit,
+        termination,
+        ..
+    } = res
+    {
+        assert_eq!(termination, ShellTermination::Exited);
+        assert_ne!(exit, Some(0));
+        assert!(stdout.contains("0|false|false|cat"), "stdout was: {stdout}");
+    } else {
+        panic!("expected Shell output");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_exec_tool_cancellation_kills_process_group() {
+    let dir = tempdir().unwrap();
+    let pid_file = dir.path().join("grandchild.pid");
+    let ctx = Arc::new(ExecToolContext::new(dir.path()));
+    let tool = ExecuteCommandTool::new(ctx);
+    let t_ctx = ToolContext::default();
+
+    let cancel_token = t_ctx.cancel_token.clone();
+    let pid_file_for_wait = pid_file.clone();
+    tokio::spawn(async move {
+        for _ in 0..50 {
+            if pid_file_for_wait.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        cancel_token.cancel();
+    });
+
+    let cmd = format!("sleep 30 & echo $! > '{}' ; wait", pid_file.display());
+    let res = tool.execute(&t_ctx, json!({"command": cmd})).await.unwrap();
+
+    if let ToolOutput::Shell { termination, .. } = res {
+        assert_eq!(termination, ShellTermination::Cancelled);
+    } else {
+        panic!("expected Shell output");
+    }
+
+    let pid_str = std::fs::read_to_string(&pid_file).unwrap();
+    let pid: libc::pid_t = pid_str.trim().parse().unwrap();
+
+    // Give the kernel a brief window to reap/remove the killed process.
+    let mut alive = true;
+    for _ in 0..20 {
+        let rc = unsafe { libc::kill(pid, 0) };
+        if rc == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+            alive = false;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        !alive,
+        "grandchild process {pid} must be terminated with its process group"
+    );
+}

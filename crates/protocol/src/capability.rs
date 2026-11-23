@@ -1,5 +1,5 @@
 //! Provider-agnostic request vocabulary: the canonical model request, tool
-//! declarations, prompt hints, and per-turn transient state.
+//! declarations and prompt hints.
 //!
 //! These are pure data contracts, including the `Provider` execution trait and
 //! stream-event vocabulary. Concrete adapters in `provider` implement the
@@ -132,17 +132,10 @@ impl ToolSpec {
 pub struct ModelRequest {
     #[serde(skip)]
     pub turn_context: Arc<ProviderTurnContext>,
-    /// Structured instruction manifest (tiers: Base, Session, Task, Ephemeral).
+    /// The one instruction text that becomes the request's instruction region.
     #[serde(default, skip_serializing_if = "InstructionText::is_empty")]
     pub instructions: InstructionText,
     pub messages: Vec<Message>,
-    /// Request-local temporary context (`E_n`): optional,
-    /// bounded, and never persisted to the durable interaction record. Provider
-    /// adapters append it at the tail of the wire message sequence; it is
-    /// deliberately excluded from the request envelope's revisions and from the
-    /// cacheable prefix identity because it does not survive a request.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub temporary_context: Vec<Message>,
     /// Tool declarations in the provider-neutral [`ToolSpec`] shape. Provider
     /// adapters translate these into their own wire format.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -188,7 +181,6 @@ impl ModelRequest {
             turn_context: Arc::default(),
             instructions,
             messages,
-            temporary_context: Vec::new(),
             tool_specs,
             ephemeral,
             delivery: RequestDelivery::FullReplay,
@@ -312,22 +304,8 @@ impl ModelRequest {
         self
     }
 
-    /// Attach request-local temporary context (`E_n`). It is appended at the
-    /// wire tail by adapters and excluded from the cacheable prefix identity, so
-    /// it does not recompute the request revisions.
-    pub fn with_temporary_context(mut self, temporary_context: Vec<Message>) -> Self {
-        self.temporary_context = temporary_context;
-        self
-    }
-
-    /// Borrow the request-local temporary context (`E_n`).
-    pub fn temporary_context(&self) -> &[Message] {
-        &self.temporary_context
-    }
-
     /// Derive the provider-neutral cache plan: the identity of the cacheable
-    /// prefix `S | H | I` plus message counts separated from `E`. See
-    /// [`CachePlan`] and.
+    /// prefix and the message count it covers. See [`CachePlan`].
     pub fn cache_plan(&self) -> CachePlan {
         // Assembly already walks the conversation once to derive every revision;
         // reuse that prefix identity instead of serializing it a second time.
@@ -338,18 +316,7 @@ impl ModelRequest {
         } else {
             self.cached_prefix_fingerprint.clone()
         };
-        CachePlan::new(
-            prefix_fingerprint,
-            self.messages.len(),
-            self.temporary_context.len(),
-        )
-    }
-
-    /// The provider-visible message sequence: the conversation followed by the
-    /// request-local temporary tail (`E_n`). Borrowed on purpose — building a
-    /// wire body must never require a deep copy of the window.
-    pub fn wire_messages(&self) -> impl Iterator<Item = &Message> {
-        self.messages.iter().chain(self.temporary_context.iter())
+        CachePlan::new(prefix_fingerprint, self.messages.len())
     }
 
     /// Borrow tool declarations in the optional form used by request builders.

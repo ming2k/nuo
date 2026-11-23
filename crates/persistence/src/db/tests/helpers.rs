@@ -11,6 +11,7 @@ pub(super) fn save_session_full(
         crate::db::SaveMode::FullRewrite,
         &[],
         &crate::db::CommitGuard::default(),
+        None,
     )
     .map(|_| ())
 }

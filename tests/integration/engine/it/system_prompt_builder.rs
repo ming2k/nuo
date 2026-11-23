@@ -67,7 +67,7 @@ impl ContextSource for ProductPolicy {
     fn order(&self) -> SourceOrder {
         self.order.clone()
     }
-    fn render(&self, _inputs: &ContextInputs) -> Option<Block> {
+    fn block(&self, _inputs: &ContextInputs) -> Option<Block> {
         Some(Block::new(self.id, self.text))
     }
     fn budget(&self) -> Budget {
@@ -91,10 +91,15 @@ fn system_of(agent: &Agent) -> String {
 
 #[test]
 fn embedding_can_extend_and_remove_prompt_policy_before_build() {
+    // An embedding claims a topic by *replacing* its owner, never by colliding
+    // with it: every `Topic` has exactly one owner (ADR-0229), so the default
+    // source is disabled first and the slot is then free.
     let agent = builder()
+        .disable_context_source("workspace.topology")
+        .unwrap()
         .add_context_source(ProductPolicy::new(
             "embedding.test.policy",
-            Topic::Memory,
+            Topic::WorkspaceTopology,
             "PRODUCT-POLICY",
         ))
         .unwrap()
@@ -119,7 +124,7 @@ fn embedding_configuration_errors_are_structured() {
     // A duplicate id is rejected, naming the offender.
     let result = builder().add_context_source(ProductPolicy::new(
         "agent.identity",
-        Topic::Memory,
+        Topic::WorkspaceTopology,
         "collision",
     ));
     assert!(matches!(
@@ -175,16 +180,21 @@ fn the_identity_lines_lead_the_prompt() {
 
 #[test]
 fn embedding_can_order_sources_semantically() {
+    // Two topics freed by disabling their default owners.
     let agent = builder()
+        .disable_context_source("workspace.topology")
+        .unwrap()
+        .disable_context_source("provider.guidance")
+        .unwrap()
         .add_context_source(ProductPolicy::new(
             "embedding.first",
-            Topic::Memory,
+            Topic::ProviderDialect,
             "FIRST-GUIDANCE",
         ))
         .unwrap()
         .add_context_source(ProductPolicy::new(
             "embedding.second",
-            Topic::Retrieval,
+            Topic::WorkspaceTopology,
             "SECOND-GUIDANCE",
         ))
         .unwrap()
@@ -198,12 +208,20 @@ fn embedding_can_order_sources_semantically() {
 
 #[test]
 fn a_before_anchor_is_honored_across_declaration_order() {
-    let mut second = ProductPolicy::new("embedding.second", Topic::Retrieval, "SECOND-GUIDANCE");
+    let mut second = ProductPolicy::new(
+        "embedding.second",
+        Topic::WorkspaceTopology,
+        "SECOND-GUIDANCE",
+    );
     second.order = SourceOrder::Before("embedding.first");
     let agent = builder()
+        .disable_context_source("workspace.topology")
+        .unwrap()
+        .disable_context_source("provider.guidance")
+        .unwrap()
         .add_context_source(ProductPolicy::new(
             "embedding.first",
-            Topic::Memory,
+            Topic::ProviderDialect,
             "FIRST-GUIDANCE",
         ))
         .unwrap()
@@ -362,7 +380,6 @@ fn exploration_guidance_follows_the_declared_tool_surface() {
                 &FakeTool(BuiltinTool::CodeQuery),
             ],
             true,
-            0,
         ),
         ..Default::default()
     });

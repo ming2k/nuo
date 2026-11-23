@@ -114,12 +114,12 @@ point inward along the enforced order: `dispatch`/`orchestration` → `cognition
 
 ### Normative Invariants
 
-- **`[INV-HARNESS-03]` (reaffirmed, ADR-0100)**: `governance` is a strict inner layer — it
+- **`[INV-HARNESS-03]` (reaffirms ADR-0100)**: `governance` is a strict inner layer — it
   never references `cognition`/`orchestration`/`dispatch`/`tools`.
 - **`[INV-HARNESS-04]` (established here)**: `runtime` is the innermost group (references no
   other group), and `cognition` is wrapped — it never references `orchestration` or
   `dispatch`. Both enforced by `tests/layering.rs`.
-- **`[INV-RUNTIME-01]` (reaffirmed, ADR-0100)**: `nuo-harness` is the sole cognitive-runtime
+- **`[INV-RUNTIME-01]` (reaffirms ADR-0100)**: `nuo-harness` is the sole cognitive-runtime
   crate; the retired `nuo-agent` twin must not be re-created. Enforced by
   `tests/layering.rs::single_cognitive_runtime_crate`.
 

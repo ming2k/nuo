@@ -79,21 +79,16 @@ pub(crate) async fn inject_mentioned_files(
     }
 
     // Deduplication ledger: the set of canonical addresses already resolved in
-    // this conversation. Legacy sessions persisted `[File '…' loaded]` prose
-    // notes, so both shapes are read (`[INV-REF-07]`).
+    // this conversation.
+    //
+    // There is deliberately no legacy `[File '<path>' loaded]` branch. The prose
+    // marker was replaced by the `<file>` envelope without an alias; a session
+    // file from before the change re-injects its file once and then deduplicates
+    // normally. Carrying two parsers forever is the worse trade (ADR-0226).
     let already_attempted: HashSet<String> = messages
         .iter()
         .filter(|message| message.role == Role::User && message.hidden)
-        .filter_map(|message| {
-            if let Some(address) = extract_file_envelope(&message.content) {
-                return Some(address);
-            }
-            // Legacy `[File '<path>' …]` marker.
-            let prefix = "[File '";
-            let start = message.content.find(prefix)? + prefix.len();
-            let end = message.content[start..].find('\'')?;
-            Some(message.content[start..start + end].to_string())
-        })
+        .filter_map(|message| extract_file_envelope(&message.content))
         .collect();
 
     let mut injected = 0usize;
@@ -147,16 +142,20 @@ struct Loaded {
     total: usize,
 }
 
-/// Extract the canonical address from an already-injected file envelope
-/// (`ref="@file:…"`). Returns `None` for every other message. This is the
-/// canonical half of the dedup reader.
+/// Extract the canonical **address** (`src/main.rs`, not `@file:src/main.rs`)
+/// from an already-injected file envelope.
+///
+/// Returns `None` for every other message. The reader goes through the shared
+/// envelope parser, so it cannot drift from the writer ([`INV-ENVELOPE-02`]).
 fn extract_file_envelope(content: &str) -> Option<String> {
-    if !content.starts_with("<file ") {
+    let parsed = tool::parse_envelope(content)?;
+    if parsed.tag != tool::Tag::File {
         return None;
     }
-    let start = content.find("ref=\"@file:")? + "ref=\"@file:".len();
-    let end = content[start..].find('"')?;
-    Some(content[start..start + end].to_string())
+    parsed
+        .attr("ref")?
+        .strip_prefix("@file:")
+        .map(str::to_owned)
 }
 
 /// Normalize a raw load failure into a single wire-safe attribute value:
@@ -311,20 +310,16 @@ fn is_binary_content(buf: &[u8]) -> bool {
 /// Render a resolved file as its canonical envelope (`[INV-REF-02]`). The
 /// `ref` attribute is the canonical address the user's prompt named; `bytes`,
 /// `total`, and `truncated` are machine-readable size facts.
+///
+/// The body is file content — untrusted third-party bytes — so the envelope
+/// neutralizes a `</file>` terminator and escapes every attribute
+/// (ADR-0226).
 fn render_file(display_path: &str, loaded: &Loaded) -> String {
     let body = String::from_utf8_lossy(&loaded.bytes);
-    if loaded.total > loaded.bytes.len() {
-        format!(
-            "<file path=\"{display_path}\" ref=\"@file:{display_path}\" bytes=\"{}\" total=\"{}\" truncated=\"true\">\n{body}\n</file>",
-            loaded.bytes.len(),
-            loaded.total
-        )
-    } else {
-        format!(
-            "<file path=\"{display_path}\" ref=\"@file:{display_path}\" bytes=\"{}\">\n{body}\n</file>",
-            loaded.bytes.len()
-        )
-    }
+    let total = (loaded.total > loaded.bytes.len()).then_some(loaded.total);
+    tool::file_loaded(display_path, loaded.bytes.len(), total, &body)
+        .neutralize_terminators()
+        .render()
 }
 
 /// Append a hidden envelope explaining why a referenced file was not loaded,
@@ -340,10 +335,7 @@ fn push_rejected(messages: &mut Vec<Message>, raw: &str, reason: &str) {
     messages.push(super::hidden_user_with_reason(
         InjectionKind::ImplicitFile,
         raw,
-        format!(
-            "<file ref=\"@file:{raw}\" status=\"{status}\" reason=\"{}\"/>",
-            reason_string(reason)
-        ),
+        tool::file_rejected(raw, status, &reason_string(reason)).render(),
     ));
 }
 
@@ -538,11 +530,14 @@ mod tests {
         assert_eq!(messages.len(), 4);
     }
 
-    /// `[INV-REF-07]`: sessions persisted by earlier versions carry the legacy
-    /// `[File '<path>' …]` marker; dedup must recognize it so those files are
-    /// not re-injected after an upgrade.
+    /// The legacy `[File '<path>' …]` prose marker is **not** recognized.
+    ///
+    /// Breaking clean: the format was replaced by the `<file>` envelope with no
+    /// alias and no second parser. A pre-change session re-injects its file once
+    /// and then deduplicates normally, which is the correct trade against
+    /// carrying two readers forever (ADR-0226).
     #[tokio::test]
-    async fn legacy_marker_still_deduplicates() {
+    async fn the_legacy_prose_marker_is_not_a_reader_shape() {
         let tmp = tempdir();
         std::fs::write(tmp.path().join("lib.rs"), "pub fn x() {}").unwrap();
         let mut messages = vec![
@@ -553,8 +548,15 @@ mod tests {
             Message::new(Role::User, "@file:lib.rs".to_string()),
         ];
         inject_mentioned_files(Some(tmp.path()), &mut messages).await;
-        // No new envelope: the legacy marker already recorded the address.
-        assert_eq!(messages.len(), 2);
+        assert_eq!(
+            messages.len(),
+            3,
+            "a legacy marker carries no address this reader understands"
+        );
+        // ...and the re-injection now deduplicates against the envelope it wrote.
+        messages.push(Message::new(Role::User, "again @file:lib.rs".to_string()));
+        inject_mentioned_files(Some(tmp.path()), &mut messages).await;
+        assert_eq!(messages.len(), 4);
     }
 
     #[test]

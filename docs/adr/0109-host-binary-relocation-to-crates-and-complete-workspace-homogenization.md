@@ -5,7 +5,7 @@ status: accepted
 date: 2026-12-04
 scope: workspace/topology, packaging/crates, host/nuo, architecture/enforcement
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0109. Host Binary Relocation to `crates/nuo` and Complete Workspace Homogenization

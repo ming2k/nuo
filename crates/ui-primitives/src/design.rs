@@ -189,6 +189,71 @@ pub const ACTIVITY_STRIP_ROWS: u16 = 1;
 /// a small gap would let a `[▾]` or a `…` butt directly against it.
 pub const BAR_LEGEND_GAP_MIN: usize = 6;
 
+// TabBar tab lifecycle affordances (ADR-0235).
+
+/// The TabBar's per-tab close affordance glyph, painted on the trailing edge of
+/// a **hovered** pill.
+///
+/// One column, so the pill can reserve it without changing width; the pill's
+/// title gives up the column instead (the reveal window then scrolls it back
+/// into view). `✕` rather than the theme's `cross` (`✗`): the latter degrades to
+/// `[X]` on the ASCII glyph set, which is three columns and would break the
+/// reserve on exactly the terminals that can least afford it.
+pub const TAB_CLOSE_GLYPH: &str = "✕";
+
+/// The same affordance on the ASCII glyph set.
+pub const TAB_CLOSE_GLYPH_ASCII: &str = "x";
+
+/// The close glyph a theme actually draws. Geometry-preserving (1 column in,
+/// 1 column out) so the pill's width never depends on the glyph set.
+pub const fn tab_close_glyph(ascii: bool) -> &'static str {
+    if ascii {
+        TAB_CLOSE_GLYPH_ASCII
+    } else {
+        TAB_CLOSE_GLYPH
+    }
+}
+
+/// Columns the TabBar reserves for its trailing add-tab affordance.
+///
+/// Both forms are three columns — `" + "` on chromatic surfaces, `"[+]"` on the
+/// framed (monochrome / ANSI-16) surfaces that frame every pill in brackets —
+/// so the reserve is a width, not a glyph-set branch.
+pub const TAB_ADD_WIDTH: usize = 3;
+
+/// Columns a hovered pill frees for its close affordance: one separating space
+/// plus the glyph.
+pub const TAB_CLOSE_RESERVE: usize = 2;
+
+/// Narrowest a tab pill may become, chrome included.
+///
+/// The floor exists for one reason: a hovered pill must be able to host its
+/// `✕` without growing or reflowing the strip. `TAB_PILL_CHROME_COLS (2) +
+/// TAB_CLOSE_RESERVE (2)` is the hard minimum; 8 keeps a few columns of title
+/// legible beside it, so the close mark never backs a nameless pill.
+pub const TAB_PILL_MIN_WIDTH: usize = 8;
+
+/// Largest number of columns a hover title reveal may travel.
+///
+/// A tab label that would need a longer slide is not a tab label any more — the
+/// active scene's own bar already names it in full. Bounding the travel bounds
+/// the reveal pass, which is what lets the loop stop its heartbeat when the
+/// slide is over ([`TAB_TITLE_MARQUEE_CADENCE`]).
+pub const TAB_TITLE_REVEAL_MAX_TRAVEL: usize = 24;
+
+/// Cadence of the TabBar's hover title reveal (ADR-0235 `[INV-TAB-15]`).
+///
+/// Tighter than the focused-row reveal of ADR-0152: a tab title is a label the
+/// user is already pointing at, not a value they are inspecting, so the pass
+/// should finish in a couple of seconds. Declarative and time-based, never
+/// frame-count-based, so the cadence is identical on any frame rate.
+pub const TAB_TITLE_MARQUEE_CADENCE: crate::components::overflow::MarqueeCadence =
+    crate::components::overflow::MarqueeCadence {
+        hold_ms: 500,
+        step_ms: 90,
+        tail_hold_ms: 400,
+    };
+
 // Semantic joins (see docs/reference/tui/visual-language.md)
 // Keep labels free of punctuation soup. Atomic values use ordinary spaces,
 // peer metadata uses a two-column gap, secondary measures use parentheses,

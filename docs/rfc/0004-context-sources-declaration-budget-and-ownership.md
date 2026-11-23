@@ -90,10 +90,11 @@ this RFC is about *declaration* and not about *plumbing*.
 Every item below is reproducible from the tree at the time of writing.
 
 **D1 — Two spellings of one lifecycle moment.** `InstructionSection::is_transient`
-has no production implementation (`crates/engine/src/cognition/model_request/instruction.rs:84`;
-its only implementor is a test at `:425`). `HookOutcome::TemporaryContext` has no
-production producer either (`crates/protocol/src/extension.rs:137` is a test
-dummy). Worse, both are invoked from the *same* moment — `build_regions` inside
+had no production implementation (the since-deleted `crates/engine/src/cognition/model_request/instruction.rs:84`;
+its only implementor was a test at `:425`).
+`HookOutcome::TemporaryContext` had no production producer either
+(`crates/protocol/src/extension.rs:137`, a test dummy in a file since deleted with
+ADR-0231). Worse, both were invoked from the *same* moment — `build_regions` inside
 `assemble_prepared` (`model_request/mod.rs:70-73`) and the extension loop inside
 `model_request` (`cognition/agent/state.rs:657-671`). Two APIs, one moment, zero
 producers: a new contributor must guess which one is canonical, and the guess
@@ -395,8 +396,8 @@ error: two active sources own Topic::ToolDiscipline: "agent.coding_baseline",
        "workspace.topology". Declare `supersedes` or narrow with `is_active`.
 ```
 
-Topics are declared in `nuo-protocol` because embedders register sources through
-the public builder API; the registry that enforces them stays in `nuo-engine`.
+Topics are declared in `protocol` because embedders register sources through
+the public builder API; the registry that enforces them stays in `engine`.
 That is the existing ownership split (`Block` and `ScopedInstruction` are already
 in `protocol`).
 
@@ -933,7 +934,7 @@ structural work lands.
   Determinism comes from the assembler and the golden test.
 - **Keeping the panic and adding `catch_unwind`.** Turns a config error into a
   request-time failure with a worse diagnostic.
-- **A new `nuo-context` crate.** The registry depends on `Agent` state
+- **A new `context` crate.** The registry depends on `Agent` state
   (`is_active` reads turn state), so it belongs below `Agent` but inside
   `engine`. A crate boundary would force a trait-object hop per block for no
   isolation gain.

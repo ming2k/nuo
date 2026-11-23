@@ -121,7 +121,7 @@ fn request_section<'a>(
 ) -> DetailLayout<'a> {
     layout = layout.section("Request");
 
-    let instructions = plan.fixed_tokens + plan.transient_tokens;
+    let instructions = plan.fixed_tokens;
     let share = if plan.window_tokens == 0 {
         String::new()
     } else {
@@ -131,20 +131,14 @@ fn request_section<'a>(
         )
     };
     layout = layout.kv_bold("Instructions", format!("{instructions} tokens{share}"));
+    // The instruction region *is* the cacheable prefix: there is no second text
+    // region, so "prefix" and "instructions" name the same bytes (ADR-0231).
     layout = layout.kv_muted(
         "Fixed prefix",
         format!(
             "{} tokens · {} blocks",
             plan.fixed_tokens,
-            count_active(plan, false)
-        ),
-    );
-    layout = layout.kv_muted(
-        "Transient tail",
-        format!(
-            "{} tokens · {} blocks",
-            plan.transient_tokens,
-            count_active(plan, true)
+            count_active(plan)
         ),
     );
     if plan.window_tokens > 0 {
@@ -177,12 +171,6 @@ fn request_section<'a>(
                 format!("{} tokens", estimate.tool_schema_tokens),
                 muted,
             );
-            layout = layout.kv_indented(
-                2,
-                "Temporary",
-                format!("{} tokens", estimate.temporary_context_tokens),
-                muted,
-            );
             let residual = plan.attribution_residual().unwrap_or(0);
             layout = layout.kv_styled(
                 "Attribution",
@@ -200,11 +188,8 @@ fn request_section<'a>(
     layout
 }
 
-fn count_active(plan: &ContextPlanView, transient: bool) -> usize {
-    plan.blocks
-        .iter()
-        .filter(|block| block.active && block.stability.is_transient() == transient)
-        .count()
+fn count_active(plan: &ContextPlanView) -> usize {
+    plan.blocks.iter().filter(|block| block.active).count()
 }
 
 /// One band header, carrying the band's own share so the grouping answers
@@ -247,7 +232,6 @@ fn band_label(stability: Stability) -> &'static str {
         Stability::Route => "Route",
         Stability::Session => "Session",
         Stability::Workspace => "Workspace",
-        Stability::Turn => "Transient",
     }
 }
 

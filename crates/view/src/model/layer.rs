@@ -154,7 +154,8 @@ fn preferred_layer(notice: &AgentNotice) -> ContentLayer {
         | NoticeKind::CheckpointReplay
         | NoticeKind::NudgeInjected
         | NoticeKind::ReviewAlert
-        | NoticeKind::ImageInputWithheld => ContentLayer::Absorbed,
+        | NoticeKind::ImageInputWithheld
+        | NoticeKind::PayloadRelief => ContentLayer::Absorbed,
     }
 }
 

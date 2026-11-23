@@ -369,6 +369,9 @@ impl TranscriptMessage {
             tool::NoticeKind::ImageInputWithheld => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Images,
             }),
+            tool::NoticeKind::PayloadRelief => Some(NoticeOrigin::System {
+                topic: SystemNoticeTopic::Payload,
+            }),
             tool::NoticeKind::Configuration => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Configuration,
             }),

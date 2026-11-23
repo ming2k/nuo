@@ -13,7 +13,6 @@ mod engine;
 mod governance;
 mod host;
 mod inference_wire;
-mod mcp;
 mod model_routing_invariants;
 mod persistence;
 mod protocol_layering;

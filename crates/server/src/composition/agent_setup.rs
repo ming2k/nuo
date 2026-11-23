@@ -23,6 +23,11 @@ pub fn reseed_context_policy(agent: &Agent) {
     let window = active_context_window(agent);
     let budget = engine::orchestration::ContextProjectionSettings::for_window(window).budget;
     agent.set_context_prune_threshold(budget.prune_threshold_tokens);
+    // The byte ceiling is the *other* half of the same request budget. Both
+    // limits describe the live route, so they are seeded together: a model
+    // switch that refreshed only the token threshold would leave a 55 MB body
+    // gate pointing at the previous route.
+    agent.set_request_body_limit(budget.max_request_body_bytes);
 }
 
 /// Install the mid-turn projection gate for `session`.

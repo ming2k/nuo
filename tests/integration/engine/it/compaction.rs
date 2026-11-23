@@ -273,9 +273,10 @@ async fn a_fold_survives_reopening_the_session() {
             "the recorded projection did not shrink the transcript window"
         );
         assert!(
-            projected
-                .iter()
-                .any(|message| message.content.contains("Conversation checkpoint")),
+            projected.iter().any(|message| {
+                tool::parse_envelope(&message.content)
+                    .is_some_and(|envelope| envelope.tag == tool::Tag::Checkpoint)
+            }),
             "the checkpoint is not in the projected window: {projected:#?}"
         );
         (tokens_before, committed_tokens)

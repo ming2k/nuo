@@ -13,6 +13,7 @@ negative_knowledge: true
 
 - Status: Accepted
 - Date: 2026-11-15
+- Amended by: [ADR-0226](0226-one-renderer-and-one-reader-for-message-envelopes.md) — the skill envelope states facts, not directives; [ADR-0230](0230-one-mcp-client-one-adapter-and-a-reachable-skill-capability.md) — the catalog's `Resume` now names an installed `list_skills` tool.
 
 ## Context and Problem Statement
 

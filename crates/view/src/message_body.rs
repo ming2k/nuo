@@ -57,7 +57,6 @@ fn sent_header_anchor(msg: &TranscriptMessage) -> String {
             tool::InjectionKind::SubagentTask => return "subagent task".to_string(),
             tool::InjectionKind::UserSteer => return "steer".to_string(),
             tool::InjectionKind::LoopReviewNudge => return "guard:loop".to_string(),
-            tool::InjectionKind::SystemReminder => return "system:reminder".to_string(),
             tool::InjectionKind::CompactionCheckpoint => return "checkpoint".to_string(),
             tool::InjectionKind::ImplicitSkill => return "skill:inject".to_string(),
             tool::InjectionKind::ImplicitFile => return "file:inject".to_string(),
@@ -67,7 +66,6 @@ fn sent_header_anchor(msg: &TranscriptMessage) -> String {
     match msg.origin {
         crate::model::document::UserMessageOrigin::Steer => "steer".to_string(),
         crate::model::document::UserMessageOrigin::FollowUp => "follow-up".to_string(),
-        crate::model::document::UserMessageOrigin::Slash => "cmd".to_string(),
         _ => {
             if let Some(round) = msg.round {
                 format!("round {}", round)

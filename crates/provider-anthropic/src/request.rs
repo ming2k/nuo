@@ -46,13 +46,9 @@ pub struct BodyInput<'a> {
 }
 
 /// Build the `/messages` request body from the harness message list.
-pub fn body(
-    conversation: &[Message],
-    temporary_context: &[Message],
-    input: BodyInput<'_>,
-) -> Value {
+pub fn body(conversation: &[Message], input: BodyInput<'_>) -> Value {
     let capabilities = protocol::ModelCapabilities::for_channel(input.model, None);
-    body_with_capabilities(conversation, temporary_context, input, &capabilities)
+    body_with_capabilities(conversation, input, &capabilities)
 }
 
 /// Build a request with a provider-channel capability view. The provider calls
@@ -63,7 +59,6 @@ pub fn body(
 /// the whole turn, and building a wire body must not copy the conversation.
 pub fn body_with_capabilities(
     conversation: &[Message],
-    temporary_context: &[Message],
     input: BodyInput<'_>,
     capabilities: &protocol::ModelCapabilities,
 ) -> Value {
@@ -102,21 +97,15 @@ pub fn body_with_capabilities(
         )
     });
 
-    // Resolve instruction pipeline into static and ephemeral tiers (ADR-0052, [INV-INST-01] & [INV-INST-03]).
-    // Structured InstructionText is the authoritative SSOT. Leading Role::System messages
-    // in the conversation vector are grandfathered for backward compatibility but merged into the static block.
-    let (mut static_system_text, ephemeral_system_text) = if let Some(bundle) = instructions {
-        (
-            bundle.render_fixed().to_owned(),
-            bundle.render_transient().to_owned(),
-        )
-    } else {
-        (String::new(), String::new())
-    };
+    // `InstructionText` is the authoritative instruction region. Leading
+    // Role::System messages in the conversation vector are folded into it, so a
+    // caller that still passes one cannot produce a second instruction channel.
+    let mut static_system_text = instructions
+        .map(|bundle| bundle.0.clone())
+        .unwrap_or_default();
 
-    let mut visible: Vec<&Message> =
-        Vec::with_capacity(conversation.len() + temporary_context.len());
-    for message in conversation.iter().chain(temporary_context.iter()) {
+    let mut visible: Vec<&Message> = Vec::with_capacity(conversation.len());
+    for message in conversation.iter() {
         if message.role == Role::System {
             if !static_system_text.is_empty() {
                 static_system_text.push_str("\n\n");
@@ -126,16 +115,6 @@ pub fn body_with_capabilities(
         }
         visible.push(message);
     }
-
-    let system_text = match (
-        static_system_text.is_empty(),
-        ephemeral_system_text.is_empty(),
-    ) {
-        (false, false) => format!("{static_system_text}\n{ephemeral_system_text}"),
-        (false, true) => static_system_text.clone(),
-        (true, false) => ephemeral_system_text.clone(),
-        (true, true) => String::new(),
-    };
 
     // Every assistant `tool_calls` must be followed by a corresponding `tool`
     // result. Collect the ids that got a result; unanswered calls are dropped
@@ -158,8 +137,7 @@ pub fn body_with_capabilities(
     // configured budget: the thinking block is part of the same completion,
     // and a blind clamp would silently disable it.
     let max_tokens = if !thinking.mode.is_on() && capabilities.context_window > 0 {
-        let mut prompt_chars =
-            static_system_text.chars().count() + ephemeral_system_text.chars().count();
+        let mut prompt_chars = static_system_text.chars().count();
         if let Some(ref specs) = tool_specs {
             prompt_chars += serde_json::to_string(specs)
                 .map(|json| json.chars().count())
@@ -192,8 +170,8 @@ pub fn body_with_capabilities(
     if let Some(specs) = tool_specs {
         body["tools"] = specs;
     }
-    if !system_text.is_empty() {
-        body["system"] = json!(system_text);
+    if !static_system_text.is_empty() {
+        body["system"] = json!(static_system_text);
     }
 
     if let protocol::ResolvedCachePolicy::Enabled {
@@ -208,8 +186,7 @@ pub fn body_with_capabilities(
         // cache-enabled while every turn pays a full prefill. Estimate the
         // cacheable prompt from actual content, not the JSON envelope.
         let estimated_prompt_tokens = {
-            let mut chars =
-                static_system_text.chars().count() + ephemeral_system_text.chars().count();
+            let mut chars = static_system_text.chars().count();
             if let Some(tools) = body.get("tools") {
                 chars += tools.to_string().chars().count();
             }
@@ -231,12 +208,7 @@ pub fn body_with_capabilities(
                     body["cache_control"] = control;
                 }
                 protocol::PromptCacheMode::Explicit => {
-                    stamp_caching_breakpoints(
-                        &mut body,
-                        &static_system_text,
-                        &ephemeral_system_text,
-                        &control,
-                    );
+                    stamp_caching_breakpoints(&mut body, &static_system_text, &control);
                 }
                 protocol::PromptCacheMode::Implicit => {}
             }
@@ -311,12 +283,7 @@ const MAX_BREAKPOINTS: usize = 4;
 /// static system block, and the two newest messages.
 /// Ephemeral system instructions are emitted after the cached static prefix without cache control,
 /// ensuring static KV-cache reuse is not disrupted by turn-level nudges (ADR-0052, [INV-INST-03]).
-fn stamp_caching_breakpoints(
-    body: &mut Value,
-    static_system_text: &str,
-    ephemeral_system_text: &str,
-    control: &Value,
-) {
+fn stamp_caching_breakpoints(body: &mut Value, static_system_text: &str, control: &Value) {
     let mut breakpoints = 0usize;
 
     if !body["tools"].is_null()
@@ -334,12 +301,6 @@ fn stamp_caching_breakpoints(
         }
         blocks.push(static_block);
     }
-    if !ephemeral_system_text.is_empty() {
-        // Ephemeral block is placed AFTER the cached static prefix without cache_control,
-        // preserving the static cache boundary even when turn-level nudges vary.
-        blocks.push(json!({"type": "text", "text": ephemeral_system_text}));
-    }
-
     if !blocks.is_empty() {
         body["system"] = json!(blocks);
     }

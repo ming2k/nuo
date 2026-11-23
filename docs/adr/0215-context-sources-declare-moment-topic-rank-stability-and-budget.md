@@ -26,6 +26,7 @@ negative_knowledge: true
   `InstructionContext` as an open struct of `pub` fields, and the
   `nuo_engine::cognition::budget` module
 - **Derives from**: [RFC-0004](../rfc/0004-context-sources-declaration-budget-and-ownership.md)
+- **Amended by**: [ADR-0229](0229-every-context-element-has-a-production-owner.md) — the declaration surface shrinks and gains an exhaustiveness proof; [ADR-0231](0231-one-instruction-region-and-no-ghost-extension-subsystem.md) — `Stability::Turn` and `Topic::TurnDirective` are deleted, leaving the bands the cache can distinguish.
 
 ## Context and Problem Statement
 

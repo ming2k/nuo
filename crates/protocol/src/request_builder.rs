@@ -5,11 +5,10 @@
 //! live execution, resume, replay, and branch switching; there is no second
 //! instruction pipeline.
 //!
-//! The builder's containers are the request regions: `tools` and `fixed` form
-//! the cacheable prefix, `messages` is the growing conversation, and
-//! `transient` is request-local text emitted after the final cache breakpoint.
-//! Tools and messages are moved into the prepared request exactly once. They
-//! never enter the text blocks, so a provider cannot receive a duplicated tool
+//! The builder's containers are the request regions: `tools` and `instructions`
+//! form the cacheable prefix and `messages` is the growing conversation. Tools
+//! and messages are moved into the prepared request exactly once. They never
+//! enter the text blocks, so a provider cannot receive a duplicated tool
 //! declaration or a message rendered as prose.
 use crate::thread_view::RequestView;
 use crate::{Block, InstructionText, ModelRequest, ToolSpec, render_blocks};
@@ -23,18 +22,15 @@ use tool::Message;
 #[derive(Debug, Clone, Default)]
 pub struct RequestContext {
     /// Route-stable text blocks (identity, rules, project instructions).
-    pub fixed: Vec<Block>,
-    /// Request-local text blocks (steering notes, transient guidance).
-    pub transient: Vec<Block>,
+    pub instructions: Vec<Block>,
     /// Protocol tool declarations.
     pub tools: Vec<ToolSpec>,
 }
 
 impl RequestContext {
-    pub fn new(fixed: Vec<Block>, transient: Vec<Block>, tools: Vec<ToolSpec>) -> Self {
+    pub fn new(instructions: Vec<Block>, tools: Vec<ToolSpec>) -> Self {
         Self {
-            fixed,
-            transient,
+            instructions,
             tools,
         }
     }
@@ -44,13 +40,8 @@ impl RequestContext {
         self
     }
 
-    pub fn with_fixed(mut self, fixed: Vec<Block>) -> Self {
-        self.fixed = fixed;
-        self
-    }
-
-    pub fn with_transient(mut self, transient: Vec<Block>) -> Self {
-        self.transient = transient;
+    pub fn with_instructions(mut self, instructions: Vec<Block>) -> Self {
+        self.instructions = instructions;
         self
     }
 }
@@ -61,11 +52,9 @@ pub struct RequestBuilder {
     /// Protocol tool declarations.
     pub tools: Vec<ToolSpec>,
     /// Route-stable text blocks.
-    pub fixed: Vec<Block>,
+    pub instructions: Vec<Block>,
     /// Conversation turns.
     pub messages: Vec<Message>,
-    /// Request-local text blocks.
-    pub transient: Vec<Block>,
 }
 
 impl RequestBuilder {
@@ -73,17 +62,15 @@ impl RequestBuilder {
     pub fn from_view(view: &RequestView, context: &RequestContext) -> Self {
         Self {
             tools: context.tools.clone(),
-            fixed: context.fixed.clone(),
+            instructions: context.instructions.clone(),
             messages: view.messages.clone(),
-            transient: context.transient.clone(),
         }
     }
 
-    /// Render the two text regions and hand every element to the prepared
+    /// Render the instruction region and hand every element to the prepared
     /// request exactly once.
     pub fn build(self) -> ModelRequest {
-        let instructions =
-            InstructionText::new(render_blocks(&self.fixed), render_blocks(&self.transient));
+        let instructions = InstructionText::new(render_blocks(&self.instructions));
         ModelRequest::with_instructions_and_tool_specs(instructions, self.messages, self.tools)
     }
 }
@@ -92,7 +79,7 @@ impl RequestBuilder {
 mod tests {
     use super::*;
     use crate::thread_view::RequestView;
-    use crate::{BlockRender, ThreadRevision};
+    use crate::{Boundary, ThreadRevision};
     use tool::Role;
 
     #[test]
@@ -106,9 +93,9 @@ mod tests {
             vec![
                 Block::new("project.rules", "Follow the project rules.")
                     .with_title("Project Rules")
-                    .with_render(BlockRender::Xml("policy")),
+                    .with_boundary(Boundary::Tagged("policy")),
+                Block::new("agent.language", "Answer in Chinese.").with_title("Answer Language"),
             ],
-            vec![Block::new("request.transient", "current turn note")],
             vec![ToolSpec::new(
                 "read",
                 "read a file",
@@ -121,16 +108,11 @@ mod tests {
         assert_eq!(request.tool_specs[0].name, "read");
         assert_eq!(request.messages.len(), 1);
         assert_eq!(request.messages[0].content, "hello");
-        assert!(request.instructions.fixed.contains("<policy>"));
-        assert!(
-            request
-                .instructions
-                .fixed
-                .contains("Follow the project rules.")
-        );
-        assert!(request.instructions.transient.contains("current turn note"));
-        assert!(!request.instructions.fixed.contains("read"));
-        assert!(!request.instructions.fixed.contains("hello"));
+        assert!(request.instructions.0.contains("<policy>"));
+        assert!(request.instructions.0.contains("Follow the project rules."));
+        assert!(request.instructions.0.contains("Answer in Chinese."));
+        assert!(!request.instructions.0.contains("read a file"));
+        assert!(!request.instructions.0.contains("hello"));
     }
 
     #[test]

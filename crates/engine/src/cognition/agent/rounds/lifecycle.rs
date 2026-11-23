@@ -908,6 +908,7 @@ impl Agent {
                 .take(),
             started_at: std::time::Instant::now(),
             pending_request: None,
+            withhold_images: false,
             session_queue_generation: self.session_queue_generation(),
         }
     }
@@ -953,6 +954,7 @@ impl Agent {
                 .take(),
             started_at: std::time::Instant::now(),
             pending_request: None,
+            withhold_images: false,
             session_queue_generation: self.session_queue_generation(),
         }
     }
@@ -1270,6 +1272,23 @@ impl Agent {
         // share one assembly. A projection that replaces the window
         // re-assembles exactly once.
         let mut request = self.model_request(messages);
+        // Byte pressure first: a body the transport will refuse is not a
+        // question about the model's window, and relieving it may remove
+        // attachments that the token estimate barely counts. Re-assembly is
+        // needed only when the projection actually changed the window.
+        let body_limit = self.effective_request_body_limit();
+        if let Some(relief) = self
+            .relieve_payload_if_needed(messages, &request, body_limit)
+            .await?
+        {
+            request = self.model_request(messages);
+            // A request that stops carrying the screenshot the user is asking
+            // about is a behavior change, not a silent optimization.
+            on_event(AgentEvent::Notice(payload_relief_notice(
+                &self.provider.model(),
+                relief,
+            )));
+        }
         if self
             .project_context_if_needed(messages, &request, cancel)
             .await?
@@ -1277,6 +1296,14 @@ impl Agent {
             request = self.model_request(messages);
         }
         request.turn_context = Arc::clone(&round.turn_context);
+        // The vision probe withholds attachments from *every* turn of the
+        // round it armed, not only the retried one. A probe that succeeds and
+        // is then followed by a turn carrying the same images proves nothing
+        // and fails twice.
+        if round.withholds_images() {
+            crate::cognition::agent::strip_images(&mut request.messages);
+            request.recompute_revisions();
+        }
         round.pending_request = Some(request);
         Ok(())
     }
@@ -1321,7 +1348,6 @@ impl Agent {
             let plan = self.context_plan();
             self.fire_request_projection_persist(protocol::RequestProjection::from_request(
                 request,
-                request_estimate.temporary_context_tokens,
                 plan.as_ref(),
                 self.round_count(),
                 round.turn_index as u64,
@@ -1353,13 +1379,22 @@ impl Agent {
             round.turn_index,
             request_projection,
         );
-        if let (Some(ledger), Some(key)) = (&request_accounting.ledger, &request_accounting.key) {
-            ledger
-                .persist_request(key)
-                .await
-                .map_err(HarnessError::Other)?;
-        }
+        // Start the provider clock at the dispatch boundary, then persist the
+        // in-flight record off the critical path. Accounting must never delay
+        // the first byte of the turn (ADR-0238).
         request_accounting.start_request();
+        if let (Some(ledger), Some(key)) = (&request_accounting.ledger, &request_accounting.key) {
+            let ledger = Arc::clone(ledger);
+            let key = key.clone();
+            tokio::spawn(async move {
+                if let Err(error) = ledger.persist_request(&key).await {
+                    tracing::warn!(
+                        %error,
+                        "could not persist the in-flight request usage record"
+                    );
+                }
+            });
+        }
         // The provider borrows the turn's assembled request and receives
         // this attempt's telemetry as a separate handle. A retry therefore
         // costs no copy of the conversation, and one attempt's timings can
@@ -1783,9 +1818,14 @@ impl Agent {
                     ),
                 );
                 round.state.spend += cost.amount;
-                let mut conn_usage = persistence::connection_usage::ConnectionUsage::load();
-                conn_usage.record_spend(&conn_id, &model_id, cost.amount.0);
-                let _ = conn_usage.save();
+                // The snapshot is updated in memory and flushed by the
+                // debounced worker: the turn never performs a SQLite
+                // read-modify-write (ADR-0238).
+                persistence::connection_usage::ConnectionUsage::record_spend_deferred(
+                    &conn_id,
+                    &model_id,
+                    cost.amount.0,
+                );
             }
         }
         performance

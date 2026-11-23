@@ -48,11 +48,31 @@ pub fn classify_http_error(status: http::StatusCode, body: &str) -> ProviderErro
         401 | 403 => ProviderErrorKind::Authentication,
         408 => ProviderErrorKind::Timeout,
         429 => ProviderErrorKind::RateLimited,
-        400 | 413 | 422 if is_context_overflow_payload(body) => ProviderErrorKind::ContextOverflow,
-        400 | 404 | 405 | 409 | 410 | 413 | 415 | 422 => ProviderErrorKind::InvalidRequest,
+        // `413` is a verdict about the **body's size**, not about the model's
+        // context window and not about the request's shape. It is checked
+        // before every other status-based rule because the recovery differs:
+        // payload relief removes bytes from the projection, while an overflow
+        // folds history and a validation failure is the user's to fix.
+        413 => ProviderErrorKind::PayloadTooLarge,
+        400 | 422 if is_payload_too_large_payload(body) => ProviderErrorKind::PayloadTooLarge,
+        400 | 422 if is_context_overflow_payload(body) => ProviderErrorKind::ContextOverflow,
+        400 | 404 | 405 | 409 | 410 | 415 | 422 => ProviderErrorKind::InvalidRequest,
         _ if status.is_server_error() => ProviderErrorKind::Upstream,
         _ => ProviderErrorKind::Protocol,
     }
+}
+
+/// Recognize a **body-size** verdict delivered inside an otherwise generic
+/// status.
+///
+/// Only stable machine codes are matched, for the same reason
+/// [`is_context_overflow_payload`] is conservative: vendor prose drifts, and a
+/// classifier that guesses from it flips a recovery into the wrong subsystem.
+/// A plain `413` needs no body at all — the status already says it.
+pub fn is_payload_too_large_payload(body: &str) -> bool {
+    body.to_ascii_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .any(|token| matches!(token, "request_too_large" | "payload_too_large"))
 }
 
 /// Conservatively recognize the untyped context-overflow errors returned by
@@ -465,5 +485,39 @@ mod tests {
         // so `\"` escapes must not appear and the inner message must be formatted cleanly.
         assert!(!detail.contains(r#"{\"error\""#));
         assert!(detail.contains("\"canonicalSlug\": \"zai/glm-5.3-flashx\""));
+    }
+
+    #[test]
+    fn a_body_too_large_status_is_payload_pressure_even_without_a_known_code() {
+        // The reported failure: OpenAI answers `413` with
+        // `[code=request_too_large] request body exceeds configured limit`.
+        // It must not be routed to the vision probe or to compaction.
+        assert_eq!(
+            classify_http_error(
+                http::StatusCode::PAYLOAD_TOO_LARGE,
+                r#"{"error":{"message":"request body exceeds configured limit","code":"request_too_large"}}"#,
+            ),
+            ProviderErrorKind::PayloadTooLarge
+        );
+        // A gateway that reports the same verdict inside a 400 is recognized by
+        // its stable code, not by its prose.
+        assert_eq!(
+            classify_http_error(
+                http::StatusCode::BAD_REQUEST,
+                r#"{"error":{"code":"request_too_large"}}"#,
+            ),
+            ProviderErrorKind::PayloadTooLarge
+        );
+    }
+
+    #[test]
+    fn a_token_overflow_is_still_compactions_verdict() {
+        assert_eq!(
+            classify_http_error(
+                http::StatusCode::BAD_REQUEST,
+                r#"{"error":{"code":"context_length_exceeded"}}"#,
+            ),
+            ProviderErrorKind::ContextOverflow
+        );
     }
 }

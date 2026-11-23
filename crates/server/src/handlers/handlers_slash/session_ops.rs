@@ -421,11 +421,6 @@ pub(crate) async fn restore_session_runtime(
         );
         role.tools = protocol::ToolSelection::from_allowlist(&manifest.tools);
         role.admit_mcp = manifest.admit_mcp.clone();
-        if session.workspace_root().is_some() {
-            role.extensions.push(Arc::new(
-                engine::runtime::extension::CodeIntelligenceExtension::new(),
-            ));
-        }
         agent.apply_profile(&role);
         agent.set_active_role(Some(manifest.role_id));
     } else if let Some(role_id) = session.role() {

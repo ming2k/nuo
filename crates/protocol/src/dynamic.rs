@@ -44,7 +44,8 @@ pub trait DynamicToolSink: Send + Sync {
 /// A dynamically-discoverable list that refreshes from a source of truth.
 ///
 /// Implementations:
-/// - `mcp::McpCatalog` — tools from connected MCP servers.
+/// - the MCP catalog owned by the server runtime — tools from connected MCP
+///   servers.
 ///
 /// The trait is intentionally minimal: `refresh` + cadence. Each implementation
 /// manages its own `load` / fallback internally, because the

@@ -188,6 +188,9 @@ pub async fn assemble_with_store(
     session: Arc<ThreadSession>,
     params: BootstrapParams,
 ) -> Result<Bootstrap, Box<dyn std::error::Error>> {
+    // Repair a derived view left behind by a crash before anything reads it.
+    // The first assembly in the process pays for the scan; later ones no-op.
+    persistence::thread::catch_up_projections_once().await;
     let mut assembler = Assembler::new(session, params).await?;
     let skills_registry = assembler.wire_skills().await;
     let stores = assembler.open_stores(&skills_registry);
@@ -769,6 +772,17 @@ impl Assembler {
         agent.install_tool(Arc::new(engine::tools::ToolSearchTool::new(
             Arc::downgrade(&agent),
         )));
+        // The two skill tools are the `Overflow::Index` resume targets the catalog
+        // names (`call \`list_skills\` for the rest`). They are registered
+        // deferred: reachable through `tool_search` and by direct dispatch, but
+        // never declared in the prompt, because the catalog is already there
+        // (ADR-0230).
+        agent.install_tool(Arc::new(engine::cognition::skills::UseSkillTool {
+            registry: Arc::clone(skills_registry),
+        }));
+        agent.install_tool(Arc::new(engine::cognition::skills::ListSkillsTool {
+            registry: Arc::clone(skills_registry),
+        }));
         // Override axis (model): subagents are agents on the same model, so they
         // inherit the parent's tool-variant selection. The profile still owns the
         // orthogonal scope axis.
@@ -796,6 +810,7 @@ impl Assembler {
                 let budget =
                     engine::orchestration::ContextProjectionSettings::for_window(window).budget;
                 child.set_context_prune_threshold(budget.prune_threshold_tokens);
+                child.set_request_body_limit(budget.max_request_body_bytes);
                 child.set_context_projection_gate(Some(Arc::new(
                     engine::PruningProjectionGate::new(
                         child_session,

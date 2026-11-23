@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use protocol::{
-    Block, BlockRender, Budget, NoticeKind, Overflow, Position, Rank, Resume, Stability, Topic,
+    Block, Boundary, Budget, NoticeKind, Overflow, Position, Rank, Resume, Stability, Topic,
 };
 use tool::BuiltinTool;
 
@@ -72,7 +72,7 @@ impl ContextSource for TestSource {
     fn supersedes(&self) -> &'static [&'static str] {
         self.supersedes
     }
-    fn render(&self, _inputs: &ContextInputs) -> Option<Block> {
+    fn block(&self, _inputs: &ContextInputs) -> Option<Block> {
         self.text.map(|text| Block::new(self.id, text))
     }
     fn budget(&self) -> Budget {
@@ -115,8 +115,13 @@ fn the_default_declaration_order_compiles_unchanged() {
     );
 }
 
+/// Two active sources on one topic is `DuplicateTopic`. This is the *half* of
+/// ownership the policy compiler can see; the other half — a topic with no owner
+/// at all — is
+/// `governance::context_engineering::inv_ctxtopic_01_every_declared_topic_and_key_has_a_producer`
+/// (ADR-0229).
 #[test]
-fn every_default_topic_has_exactly_one_owner() {
+fn no_two_default_sources_share_a_topic() {
     let policy = super::builtin::default_policy();
     let mut topics: Vec<Topic> = policy
         .source_ids()
@@ -283,21 +288,18 @@ fn stability_is_derived_from_the_declared_inputs() {
         TestSource::new("session", Topic::UserInstructions, "S")
             .keys(&[InputKey::UserInstructions]),
         TestSource::new("workspace", Topic::ProjectAuthority, "W").keys(&[InputKey::ProjectRules]),
-        TestSource::new("turn", Topic::TurnDirective, "T").keys(&[InputKey::TurnDirective]),
     ])
     .unwrap();
     assert_eq!(policy.stability_of("frozen"), Some(Stability::Frozen));
     assert_eq!(policy.stability_of("route"), Some(Stability::Route));
     assert_eq!(policy.stability_of("session"), Some(Stability::Session));
     assert_eq!(policy.stability_of("workspace"), Some(Stability::Workspace));
-    assert_eq!(policy.stability_of("turn"), Some(Stability::Turn));
 }
 
 #[test]
 fn the_frame_leads_then_bands_ascend() {
     let policy = compile(vec![
         TestSource::new("workspace", Topic::ProjectAuthority, "W").keys(&[InputKey::ProjectRules]),
-        TestSource::new("turn", Topic::TurnDirective, "T").keys(&[InputKey::TurnDirective]),
         TestSource::new("session", Topic::UserInstructions, "S")
             .keys(&[InputKey::UserInstructions]),
         TestSource::new("route", Topic::Secrets, "R").keys(&[InputKey::ToolSurface]),
@@ -314,8 +316,7 @@ fn the_frame_leads_then_bands_ascend() {
             "frozen",
             "route",
             "session",
-            "workspace",
-            "turn"
+            "workspace"
         ]
     );
 }
@@ -343,7 +344,7 @@ fn head_anchors_win_inside_a_band() {
     let policy = compile(vec![
         TestSource::new("a", Topic::ToolDiscipline, "A"),
         TestSource::new("b", Topic::Secrets, "B").order(SourceOrder::Head),
-        TestSource::new("c", Topic::Delegation, "C"),
+        TestSource::new("c", Topic::WorkspaceTopology, "C"),
     ])
     .unwrap();
     assert_eq!(ids(&policy), vec!["b", "a", "c"]);
@@ -375,20 +376,6 @@ fn the_plan_measures_every_source_and_keeps_inactive_rows() {
     let b = plan.block("b").unwrap();
     assert!(!b.active);
     assert_eq!(b.inactive_reason, Some("active but rendered no text"));
-}
-
-#[test]
-fn a_turn_source_lands_in_the_transient_region() {
-    let policy = compile(vec![
-        TestSource::new("fixed", Topic::ToolDiscipline, "F"),
-        TestSource::new("turn", Topic::TurnDirective, "T").keys(&[InputKey::TurnDirective]),
-    ])
-    .unwrap();
-    let plan = policy.plan(&ContextInputs::empty());
-    assert_eq!(plan.fixed.len(), 1);
-    assert_eq!(plan.transient.len(), 1);
-    assert_eq!(plan.transient[0].id, "turn");
-    assert!(plan.transient_tokens > 0);
 }
 
 #[test]
@@ -490,7 +477,6 @@ fn populated_inputs() -> ContextInputs {
                 &FakeTool(BuiltinTool::ReadUrl),
             ],
             true,
-            2,
         ),
         project_rules: "Run `cargo test` before claiming success.".to_string(),
         workspace_root: Some("/data/projects/example".to_string()),
@@ -587,7 +573,6 @@ fn activating_a_deferred_tool_does_not_move_the_instruction_prefix() {
             &FakeTool(BuiltinTool::ReadUrl),
         ],
         true,
-        99,
     );
     let after = protocol::render_blocks(&policy.plan(&inputs).fixed);
     assert_eq!(
@@ -634,9 +619,10 @@ fn the_default_policy_never_emits_an_untrusted_block_into_the_prefix() {
                 Position::Body,
                 "an untrusted block may not be a frame block"
             );
-            assert!(
-                row.topic == Topic::UntrustedPolicy || row.topic == Topic::Retrieval,
-                "unexpected untrusted topic"
+            assert_eq!(
+                row.topic,
+                Topic::UntrustedPolicy,
+                "only the untrusted-policy source may carry an untrusted rank"
             );
         }
     }
@@ -706,8 +692,8 @@ impl ContextSource for LeakySource {
     fn inputs(&self) -> &'static [InputKey] {
         &[InputKey::WorkspaceTopology]
     }
-    fn render(&self, _inputs: &ContextInputs) -> Option<Block> {
-        Some(Block::new("leaky", self.body.clone()).with_render(BlockRender::Plain))
+    fn block(&self, _inputs: &ContextInputs) -> Option<Block> {
+        Some(Block::new("leaky", self.body.clone()).with_boundary(Boundary::Bare))
     }
     fn budget(&self) -> Budget {
         self.budget.clone()

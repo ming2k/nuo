@@ -313,37 +313,24 @@ fn first_non_negative(values: &[Option<i64>]) -> Option<i64> {
 /// Provider-neutral cache plan derived from a prepared request.
 ///
 /// It carries the deterministic content identity of the cacheable prefix
-/// `S | H | I` and separates the durable conversation from the request-local
-/// temporary context `E`. Breakpoint placement, block sizing, retention, and
-/// affinity stay provider concerns applied on top of this plan; this type makes
-/// no claim that a cache hit occurs.
+/// `S | H | I`: the instruction region and the durable conversation. There is
+/// no request-local temporary channel (ADR-0231). Breakpoint placement, block
+/// sizing, retention, and affinity stay provider concerns applied on top of
+/// this plan; this type makes no claim that a cache hit occurs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachePlan {
-    /// Stable content identity of the cacheable prefix. Excludes `E`.
+    /// Stable content identity of the cacheable prefix.
     pub prefix_fingerprint: String,
-    /// Number of `S | H | I` messages carried by the request.
+    /// Number of messages carried by the request.
     pub conversation_messages: usize,
-    /// Number of `E` messages, excluded from the prefix and never persisted.
-    pub temporary_context_messages: usize,
 }
 
 impl CachePlan {
-    pub fn new(
-        prefix_fingerprint: String,
-        conversation_messages: usize,
-        temporary_context_messages: usize,
-    ) -> Self {
+    pub fn new(prefix_fingerprint: String, conversation_messages: usize) -> Self {
         Self {
             prefix_fingerprint,
             conversation_messages,
-            temporary_context_messages,
         }
-    }
-
-    /// Whether the request-local temporary context is empty. An empty tail
-    /// cannot shorten a later prefix.
-    pub fn has_temporary_context(&self) -> bool {
-        self.temporary_context_messages > 0
     }
 }
 
@@ -461,15 +448,9 @@ mod tests {
 
     #[test]
     fn cache_plan_is_deterministic() {
-        let p1 = CachePlan::new("fp1".into(), 2, 0);
-        let p2 = CachePlan::new("fp1".into(), 2, 0);
+        let p1 = CachePlan::new("fp1".into(), 2);
+        let p2 = CachePlan::new("fp1".into(), 2);
         assert_eq!(p1, p2);
-        assert!(!p1.has_temporary_context());
-    }
-
-    #[test]
-    fn cache_plan_temporary_context() {
-        let p = CachePlan::new("fp1".into(), 1, 1);
-        assert!(p.has_temporary_context());
+        assert_eq!(p1.conversation_messages, 2);
     }
 }

@@ -5,7 +5,7 @@ status: accepted
 date: 2026-11-10
 scope: [workspace]
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # ADR-0166: A Tool Call Has One Identity and the Tool-Step Reducer Is Idempotent

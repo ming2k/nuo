@@ -12,32 +12,20 @@ use super::super::runtime::UiRuntime;
 use super::super::transcript::resolve_focused_mut;
 use super::modals::handle_permission_submit;
 
-/// Loop stage (input dispatch): the `SelectionStart` arm of the action match.
-pub(super) async fn handle_selection_start(
+/// The chrome family of a press: Tier 1 tabs and Tier 2 scene navigation.
+///
+/// Split out of [`handle_selection_start`] because both tiers are *container*
+/// gestures with their own closed rule set — the tab strip's lifecycle
+/// (ADR-0235) and the scene bar's drill-in stack (ADR-0092) — and keeping them
+/// beside the content hit-test cascade blurred both. Returns `true` when the
+/// press belonged to the chrome and has been fully handled.
+async fn handle_chrome_press(
     app: &mut App,
     runtime: &UiRuntime,
     viewed_session_id: &str,
-    x: u16,
-    y: u16,
-) {
+    target: Option<crate::shell::ui::UiKey>,
+) -> bool {
     use crate::shell::ui::UiKey;
-    app.composer.input_drag_scroll = None;
-    app.transcript.ui.runtime.release_pointer();
-    let target = app.transcript.ui.target(x, y);
-
-    // Dismiss open dropdown if clicking outside it
-    if app.surfaces.config_dropdown.is_some() && target != Some(UiKey::ConfigDropdown) {
-        app.surfaces.config_dropdown = None;
-    }
-
-    if let Some(key) = target
-        && let Some(id) = app.transcript.ui.scene().id(&key)
-    {
-        // A non-focusable decoration cannot steal focus. Capture belongs to
-        // the component that received the press and is released on unmount.
-        let _ = app.transcript.ui.runtime.focus(id);
-        let _ = app.transcript.ui.runtime.capture_pointer(id);
-    }
     match target {
         Some(UiKey::TabBar | UiKey::SceneBar) => {
             // [INV-TAB-11] TabBar / SceneBar Container Purity: Clicks on container-level chrome
@@ -46,13 +34,33 @@ pub(super) async fn handle_selection_start(
             // blurring the composer, altering transcript focus, or clearing selection).
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
         }
         Some(UiKey::TabBarItem(index)) => {
             super::activate_tab_at_index(app, index, runtime, viewed_session_id);
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
+        }
+        Some(UiKey::TabBarClose(index)) => {
+            // [INV-TAB-18] A close is the *named* pill, never "the active one":
+            // the mark is only mounted while it is painted, so the tab it names
+            // is the tab the user is looking at (ADR-0235 [INV-TAB-18]).
+            super::handle_close_tab_at(app, index, runtime, viewed_session_id);
+            // The pointer is still on the row, but the pill it named is gone:
+            // drop the hover so the next paint cannot light up whichever pill
+            // slid into that slot.
+            app.surfaces.tab_hover = None;
+            app.surfaces.tab_hover_since = None;
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
+            true
+        }
+        Some(UiKey::TabBarAdd) => {
+            super::handle_add_tab(app, runtime, viewed_session_id);
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
+            true
         }
         Some(UiKey::TabBarPrev) => {
             let total = app.surfaces.surfaces.tabs().len().max(1);
@@ -64,7 +72,7 @@ pub(super) async fn handle_selection_start(
             super::activate_tab_at_index(app, prev_idx, runtime, viewed_session_id);
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
         }
         Some(UiKey::TabBarNext) => {
             let next_idx = (app.surfaces.surfaces.active_tab_index() + 1)
@@ -72,7 +80,7 @@ pub(super) async fn handle_selection_start(
             super::activate_tab_at_index(app, next_idx, runtime, viewed_session_id);
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
         }
         Some(UiKey::TabBarOverview) => {
             if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Palette) {
@@ -86,19 +94,19 @@ pub(super) async fn handle_selection_start(
             }
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
         }
         Some(UiKey::SceneHistoryBack) => {
             app.tab_history_back();
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
         }
         Some(UiKey::SceneHistoryForward) => {
             app.tab_history_forward();
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
         }
         Some(UiKey::SceneBreadcrumb(target_depth)) => {
             if let Some(tab) = app.surfaces.surfaces.active_tab() {
@@ -121,8 +129,52 @@ pub(super) async fn handle_selection_start(
             }
             app.transcript.drag.cancel();
             app.transcript.ui.runtime.release_pointer();
-            return;
+            true
         }
+        _ => false,
+    }
+}
+
+/// Loop stage (input dispatch): the `SelectionStart` arm of the action match.
+pub(super) async fn handle_selection_start(
+    app: &mut App,
+    runtime: &UiRuntime,
+    viewed_session_id: &str,
+    x: u16,
+    y: u16,
+) {
+    use crate::shell::ui::UiKey;
+    app.composer.input_drag_scroll = None;
+    app.transcript.ui.runtime.release_pointer();
+    let target = app.transcript.ui.target(x, y);
+
+    // Dismiss open dropdown if clicking outside it
+    if app.surfaces.config_dropdown.is_some() && target != Some(UiKey::ConfigDropdown) {
+        app.surfaces.config_dropdown = None;
+    }
+
+    // A press that lands anywhere off the strip ends the hover: the pointer may
+    // have pressed without a motion report first, and a pill must not stay lit
+    // (or keep a reveal clock) after the user has moved on (ADR-0235).
+    if !matches!(
+        target,
+        Some(UiKey::TabBar | UiKey::TabBarItem(_) | UiKey::TabBarClose(_) | UiKey::TabBarAdd)
+    ) {
+        app.surfaces.tab_hover = None;
+        app.surfaces.tab_hover_since = None;
+    }
+    if let Some(key) = target
+        && let Some(id) = app.transcript.ui.scene().id(&key)
+    {
+        // A non-focusable decoration cannot steal focus. Capture belongs to
+        // the component that received the press and is released on unmount.
+        let _ = app.transcript.ui.runtime.focus(id);
+        let _ = app.transcript.ui.runtime.capture_pointer(id);
+    }
+    if handle_chrome_press(app, runtime, viewed_session_id, target).await {
+        return;
+    }
+    match target {
         Some(UiKey::ProviderDelete) if !app.transcript.ui.contains(UiKey::ProviderDelete, x, y) => {
             app.surfaces.pending_provider_delete = None;
             app.surfaces.provider_delete_focus = ProviderDeleteChoice::default();
@@ -724,6 +776,41 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     } else {
         app.transcript.hovered_step = None;
     }
+
+    // Tier 1 TabBar hover (ADR-0235; ADR-0223 supplies the hover input). The
+    // *hit* answer is the authority: the
+    // close mark is mounted only while it is painted, so the pill whose `✕` the
+    // pointer is on is exactly the pill this resolves to. The clock follows the
+    // anchor, not the variant — stepping from a pill onto its own close mark is
+    // the same visit, and restarting the title reveal there would rewind the
+    // text under the user's pointer.
+    let tab_hover = match app.transcript.ui.target(x, y) {
+        Some(crate::shell::ui::UiKey::TabBarClose(index)) => {
+            Some(crate::shell::view_header::TabBarHover::Close(index))
+        }
+        Some(crate::shell::ui::UiKey::TabBarItem(index)) => {
+            Some(crate::shell::view_header::TabBarHover::Tab(index))
+        }
+        Some(crate::shell::ui::UiKey::TabBarAdd) => {
+            Some(crate::shell::view_header::TabBarHover::Add)
+        }
+        Some(crate::shell::ui::UiKey::TabBar) => Some(crate::shell::view_header::TabBarHover::Rail),
+        _ => None,
+    };
+    let previous_anchor = app
+        .surfaces
+        .tab_hover
+        .map(crate::shell::view_header::TabBarHover::anchor);
+    let next_anchor = tab_hover.map(crate::shell::view_header::TabBarHover::anchor);
+    app.surfaces.tab_hover = tab_hover;
+    app.surfaces.tab_hover_since = match (tab_hover, next_anchor) {
+        (None, _) => None,
+        (Some(_), Some(anchor)) if previous_anchor == Some(anchor) => app
+            .surfaces
+            .tab_hover_since
+            .or_else(|| Some(std::time::Instant::now())),
+        (Some(_), _) => Some(std::time::Instant::now()),
+    };
 }
 
 async fn execute_help_action(

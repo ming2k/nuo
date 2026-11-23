@@ -15,6 +15,9 @@ negative_knowledge: true
 
 - **Status**: Accepted
 - **Date**: 2026-11-18
+- **Amended by**: [ADR-0243](0243-a-request-has-two-limits-and-the-byte-one-has-its-own-relief.md)
+  (the *byte* ceiling follows the route, not the model window; it remains
+  internal and non-configurable, so `[INV-CONTEXT-01]` stands)
 - **Amends**: [ADR-0153](0153-effective-input-ceiling-tool-output-retention-and-ingest-image-normalization.md)
   (the effective input ceiling is removed; retention invariants `INV-CONTEXT-02..05` stand),
   [ADR-0182](0182-context-policy-is-configuration-and-phase-a-substrate-is-deleted.md)

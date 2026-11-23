@@ -349,6 +349,12 @@ pub struct TranscriptRender {
     pub sticky: Option<StickyInfo>,
     /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
     pub tab_rects: Vec<(usize, Rect)>,
+    /// The hovered pill's close mark, when one was painted (ADR-0219).
+    pub tab_close_rects: Vec<(usize, Rect)>,
+    /// The trailing add-tab affordance, when it fit on the row (ADR-0219).
+    pub tab_add_rect: Option<Rect>,
+    /// Whether a TabBar hover title reveal is mid-pass (ADR-0152).
+    pub tab_reveal_active: bool,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
     /// Bounding rect for left overflow indicator (`‹N`), if present.
@@ -1023,6 +1029,9 @@ pub fn draw_transcript(
             view_height: 0,
             sticky: None,
             tab_rects: Vec::new(),
+            tab_close_rects: Vec::new(),
+            tab_add_rect: None,
+            tab_reveal_active: false,
             tab_bar_rect: None,
             tab_prev_rect: None,
             tab_next_rect: None,
@@ -1293,6 +1302,9 @@ pub fn draw_transcript(
         view_height: transcript_area.height,
         sticky: sticky_info,
         tab_rects: tab.tab_rects,
+        tab_close_rects: tab.close_rects,
+        tab_add_rect: tab.add_rect,
+        tab_reveal_active: tab.reveal_active,
         tab_bar_rect: head_band.tab,
         tab_prev_rect: tab.prev_rect,
         tab_next_rect: tab.next_rect,

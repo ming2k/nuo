@@ -1,5 +1,6 @@
 //! Construction, load/persist, snapshot persistence, the list/detail/active views, and the offline corruption scan tools of [`ThreadSession`].
 use super::*;
+use std::sync::Arc;
 
 /// Retry a `save_session` across the supervisor's respawn window
 /// (D3). Only [`crate::db::PersistenceError::WriterDown`] is
@@ -13,6 +14,7 @@ async fn save_retrying(
     mode: crate::db::SaveMode,
     usage_upserts: Vec<protocol::RequestUsageRecord>,
     mut guard: crate::db::CommitGuard,
+    journal_seq: Option<u64>,
 ) -> Result<u64, crate::db::PersistenceError> {
     const MAX_ATTEMPTS: u32 = 5;
     const BASE_DELAY: Duration = Duration::from_millis(100);
@@ -31,7 +33,13 @@ async fn save_retrying(
         // receipt (D3), so re-sending a possibly-delivered delta is
         // safe — that license is what makes the retry honest.
         match writer
-            .save_session(data.clone(), mode, usage_upserts.clone(), guard.clone())
+            .save_session(
+                data.clone(),
+                mode,
+                usage_upserts.clone(),
+                guard.clone(),
+                journal_seq,
+            )
             .await
         {
             Ok(revision) => return Ok(revision),
@@ -108,6 +116,8 @@ impl ThreadSession {
         );
         let defer_persist = !path.exists() && data.is_user_facing_empty();
         let role = data.role.clone();
+        let journal = open_journal(&db_path, &data.id);
+        let projection = ProjectionState::new();
         Self {
             workspace: std::sync::RwLock::new(workspace),
             role: std::sync::RwLock::new(role),
@@ -115,7 +125,13 @@ impl ThreadSession {
             db_path,
             blob_store,
             writer,
-            state: Mutex::new(ThreadSessionState::new(path, data, defer_persist)),
+            state: Mutex::new(ThreadSessionState::new(
+                path,
+                data,
+                defer_persist,
+                journal,
+                projection,
+            )),
             persist_gate: Mutex::new(()),
         }
     }
@@ -186,6 +202,8 @@ impl ThreadSession {
         };
         data.generation = uuid::Uuid::new_v4().to_string();
         let path = parent.sessions_dir.join(format!("{id}.json"));
+        let journal = open_journal(&parent.db_path, &data.id);
+        let projection = ProjectionState::new();
         let store = Self {
             workspace: std::sync::RwLock::new(parent_workspace),
             role: std::sync::RwLock::new(parent_role),
@@ -195,7 +213,9 @@ impl ThreadSession {
             writer: parent.writer.clone(),
             // Not deferred: a subagent exists because a tool call is running, so
             // its admission is already real content.
-            state: Mutex::new(ThreadSessionState::new(path, data, false)),
+            state: Mutex::new(ThreadSessionState::new(
+                path, data, false, journal, projection,
+            )),
             persist_gate: Mutex::new(()),
         };
         Ok((store, parent_id))
@@ -231,6 +251,8 @@ impl ThreadSession {
         } else {
             crate::db::PersistenceHandle::spawn(db_path.clone(), Some(blob_store.clone()))
         };
+        let journal = open_journal(&db_path, &data.id);
+        let projection = ProjectionState::new();
         Self {
             workspace: std::sync::RwLock::new(workspace),
             role: std::sync::RwLock::new(role),
@@ -238,7 +260,9 @@ impl ThreadSession {
             db_path,
             blob_store,
             writer,
-            state: Mutex::new(ThreadSessionState::new(path, data, true)),
+            state: Mutex::new(ThreadSessionState::new(
+                path, data, true, journal, projection,
+            )),
             persist_gate: Mutex::new(()),
         }
     }
@@ -365,6 +389,8 @@ impl ThreadSession {
         *self.role.write().unwrap_or_else(|e| e.into_inner()) = role;
         state.path = path;
         state.data = data;
+        state.journal = open_journal(&self.db_path, &state.data.id);
+        state.projection = ProjectionState::new();
         // Same staleness hazard as `open`: a fresh session must not inherit
         // the previous session's projected window, or `append_turn` would
         // silently drop the first durable delta (length-based delta check).
@@ -399,6 +425,8 @@ impl ThreadSession {
         *self.role.write().unwrap_or_else(|e| e.into_inner()) = role;
         state.path = path;
         state.data = data;
+        state.journal = open_journal(&self.db_path, &state.data.id);
+        state.projection = ProjectionState::new();
         state.invalidate_projection_cache();
         state.defer_persist = true;
         Ok(id)
@@ -459,6 +487,8 @@ impl ThreadSession {
         *self.role.write().unwrap_or_else(|e| e.into_inner()) = data.role.clone();
         state.path = path;
         state.data = data;
+        state.journal = open_journal(&self.db_path, &state.data.id);
+        state.projection = ProjectionState::new();
         // The projection cache belongs to the session being left.
         // A stale cache made `model_window` return the *previous* session's
         // window after a switch, and the resume path (`restore_session_runtime`)
@@ -478,6 +508,11 @@ impl ThreadSession {
             (resolved.clone(), path, state.data.id == resolved)
         };
 
+        // Drain the derived view first, then tombstone the id for the rest of
+        // this process: a projection already queued in another worker must not
+        // recreate the row being deleted.
+        self.flush_projection().await?;
+        super::projection::mark_deleted(&resolved);
         let _db_deleted = self
             .writer
             .delete_session(resolved.clone())
@@ -487,6 +522,9 @@ impl ThreadSession {
         let log = snapshot.with_extension("jsonl");
         let _ = fs::remove_file(&snapshot);
         let _ = fs::remove_file(&log);
+        if let Err(error) = open_journal(&self.db_path, &resolved).mark_deleted().await {
+            tracing::warn!(session = %resolved, %error, "could not tombstone the session journal");
+        }
 
         // Repoint at a fresh session so the store stays usable after the
         // active session is removed (even if the active session was deferred/empty
@@ -508,10 +546,57 @@ impl ThreadSession {
         if is_active {
             return self.set_title(title, manual).await;
         }
-        self.writer
-            .rename_session(resolved, title, manual)
-            .await
-            .map_err(|e| e.to_string())?;
+        self.rename_inactive(&resolved, title).await
+    }
+
+    /// Rename a session this store is not currently holding.
+    ///
+    /// The rename becomes a journal `MetadataOnly` frame, so it is durable
+    /// with the same guarantee as any other mutation and cannot be undone by
+    /// a projection that was already queued with the old title.
+    async fn rename_inactive(&self, id: &str, title: Option<String>) -> Result<(), String> {
+        if self.writer.is_lock_contention() {
+            return Err(
+                "another process owns the durable store; this session is read-only".to_string(),
+            );
+        }
+        let journal = open_journal(&self.db_path, id);
+        let mut data = {
+            let journal = Arc::clone(&journal);
+            tokio::task::spawn_blocking(move || journal.load())
+                .await
+                .map_err(|error| format!("session load task failed: {error}"))??
+                .ok_or_else(|| format!("Session '{id}' not found."))?
+        };
+        data.title = title;
+        data.updated_at = unix_timestamp();
+        let metadata = data.clone_metadata_without_history();
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        let seq = journal
+            .append(
+                &operation_id,
+                crate::db::SaveMode::MetadataOnly,
+                &metadata,
+                &[],
+            )
+            .await?;
+        let projection = ProjectionState::new();
+        projection.submitted(seq);
+        projection.enqueue(
+            self.writer.clone(),
+            Arc::clone(&journal),
+            ProjectionJob {
+                seq,
+                data: metadata,
+                mode: crate::db::SaveMode::MetadataOnly,
+                usage: Vec::new(),
+                guard: crate::db::CommitGuard {
+                    operation_id: Some(operation_id),
+                    expected_revision: None,
+                },
+            },
+        );
+        projection.wait(seq).await;
         Ok(())
     }
 
@@ -596,8 +681,11 @@ impl ThreadSession {
             Vec::new(),
             crate::db::CommitGuard::default(),
         )
-        .await
-        .map(|_| ())
+        .await?;
+        // Metadata setters are control paths (title, posture, digest), and
+        // their callers immediately render a list/overview. Make the derived
+        // view current before returning; the ReAct turn path never calls this.
+        self.flush_projection().await
     }
 
     /// Mutate session metadata in place under `self.state`, check the deferred-
@@ -626,46 +714,184 @@ impl ThreadSession {
         Ok(())
     }
 
+    /// Commit one session mutation to the journal, then hand the derived
+    /// SQLite projection to its own worker (ADR-0236).
+    ///
+    /// The async loop waits for the journal's per-file `fdatasync` only. The
+    /// projection is enqueued and never awaited here, so a slow SQLite writer
+    /// or a checkpoint burst cannot delay the next ReAct turn.
     pub(crate) async fn persist_with_mode_guarded(
         &self,
         mut data: ThreadData,
         mode: crate::db::SaveMode,
         usage_upserts: Vec<protocol::RequestUsageRecord>,
-        guard: crate::db::CommitGuard,
+        mut guard: crate::db::CommitGuard,
     ) -> Result<u64, String> {
         let started = std::time::Instant::now();
         let session_id = data.id.clone();
+        if self.writer.is_lock_contention() {
+            return Err(
+                "another process owns the durable store; this session is read-only".to_string(),
+            );
+        }
         let _persist_gate = self.persist_gate.lock().await;
         data.checksum = Some(compute_checksum(&data)?);
-        let result = save_retrying(&self.writer, data, mode, usage_upserts, guard)
+        let operation_id = guard
+            .operation_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        guard.operation_id = Some(operation_id.clone());
+
+        let (journal, projection) = {
+            let state = self.state.lock().await;
+            (state.journal.clone(), state.projection.clone())
+        };
+        if let Some(expected) = guard.expected_revision {
+            let actual = journal.durable_seq();
+            if expected != actual {
+                return Err(format!(
+                    "stale session revision: expected {expected}, durable revision is {actual}"
+                ));
+            }
+        }
+        let seq = journal
+            .append(&operation_id, mode, &data, &usage_upserts)
             .await
-            .map_err(|e| format!("session persist task failed: {e}"));
+            .map_err(|error| format!("session journal append failed: {error}"))?;
+        projection.submitted(seq);
+        projection.enqueue(
+            self.writer.clone(),
+            Arc::clone(&journal),
+            ProjectionJob {
+                seq,
+                data,
+                mode,
+                usage: usage_upserts,
+                guard,
+            },
+        );
+
         let elapsed = started.elapsed();
         if elapsed >= Duration::from_millis(250) {
             tracing::warn!(session = %session_id, duration_ms = elapsed.as_millis() as u64,
-                "slow local session persistence");
+                "slow local session journal append");
         }
-        result
+        self.maybe_compact_journal(&journal).await;
+        Ok(seq)
     }
 
     /// Persist a full rewrite (rare: wholesale working-state replacement).
     ///
-    /// A full rewrite is idempotent (it replaces every projection row), so
-    /// the same `WriterDown` retry policy applies (D3).
+    /// The journal gets a `Full` frame; the projection receives the same
+    /// snapshot asynchronously.
     pub(crate) async fn persist_full_rewrite(&self, data: ThreadData) -> Result<(), String> {
+        if self.writer.is_lock_contention() {
+            return Err(
+                "another process owns the durable store; this session is read-only".to_string(),
+            );
+        }
         let _persist_gate = self.persist_gate.lock().await;
         let mut data = data;
         data.checksum = Some(compute_checksum(&data)?);
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        let (journal, projection) = {
+            let state = self.state.lock().await;
+            (state.journal.clone(), state.projection.clone())
+        };
+        let seq = journal
+            .append(&operation_id, crate::db::SaveMode::FullRewrite, &data, &[])
+            .await
+            .map_err(|error| format!("session journal append failed: {error}"))?;
+        projection.submitted(seq);
+        projection.enqueue(
+            self.writer.clone(),
+            Arc::clone(&journal),
+            ProjectionJob {
+                seq,
+                data,
+                mode: crate::db::SaveMode::FullRewrite,
+                usage: Vec::new(),
+                guard: crate::db::CommitGuard {
+                    operation_id: Some(operation_id),
+                    expected_revision: None,
+                },
+            },
+        );
+        self.maybe_compact_journal(&journal).await;
+        // A full rewrite is a cold control-path operation (restore, branch
+        // commit, usage reseed). Its callers immediately read the projected
+        // row, so make the view current before returning.
+        self.flush_projection().await?;
+        Ok(())
+    }
+
+    /// Wait until the derived view has absorbed every submitted commit, and
+    /// repair it from the journal if a projection failed while it was behind.
+    /// Cold control paths call this before reading SQLite directly.
+    pub(crate) async fn flush_projection(&self) -> Result<(), String> {
+        let (projection, journal) = {
+            let state = self.state.lock().await;
+            (state.projection.clone(), state.journal.clone())
+        };
+        let target = projection.submitted_seq();
+        if target == 0 {
+            return Ok(());
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(10), projection.wait(target)).await;
+        if projection.projected_seq() >= target && !projection.is_desynced() {
+            return Ok(());
+        }
+        let full = tokio::task::spawn_blocking({
+            let journal = Arc::clone(&journal);
+            move || journal.load()
+        })
+        .await
+        .map_err(|error| format!("journal load task failed: {error}"))??;
+        let Some(full) = full else {
+            return Ok(());
+        };
+        let seq = journal.durable_seq();
         save_retrying(
             &self.writer,
-            data,
+            full,
             crate::db::SaveMode::FullRewrite,
             Vec::new(),
-            crate::db::CommitGuard::default(),
+            crate::db::CommitGuard {
+                operation_id: Some(uuid::Uuid::new_v4().to_string()),
+                expected_revision: None,
+            },
+            Some(seq),
         )
         .await
-        .map(|_| ())
-        .map_err(|e| format!("session persist task failed: {e}"))
+        .map_err(|error| format!("session projection repair failed: {error}"))?;
+        projection.clear_desynced();
+        Ok(())
+    }
+
+    /// Snapshot the journal occasionally so replay stays bounded. This runs
+    /// once every 512 commits, off the hot path (a blocking task), and never
+    /// changes what a commit means.
+    async fn maybe_compact_journal(&self, journal: &Arc<crate::journal::SessionJournal>) {
+        if !journal.should_compact() {
+            return;
+        }
+        let seq = journal.durable_seq();
+        let full = {
+            let state = self.state.lock().await;
+            state.data.clone()
+        };
+        if journal.durable_seq() != seq {
+            // A concurrent commit advanced the journal while the state was
+            // cloned; a snapshot labelled `seq` would contain newer state and
+            // replay would duplicate it. Compact on the next boundary instead.
+            return;
+        }
+        let journal = Arc::clone(journal);
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = journal.compact_at(seq, &full) {
+                tracing::warn!(%error, "could not compact the session journal");
+            }
+        });
     }
 
     /// Resolve `input` (a 4+ char hex id or prefix) to the full session id
@@ -800,6 +1026,7 @@ mod subagent_store_tests {
         assert_eq!(thread.graph.len(), 1);
 
         // And it is listed beneath its parent as a subagent.
+        child.flush_projection().await.unwrap();
         assert!(
             child.subagent_row_for_test(&parent_id).await,
             "the child row must carry parent_thread_id and origin = subagent"

@@ -7,8 +7,8 @@
 //!
 //! # Why a separate type instead of deriving serde on [`ContextPlan`]
 //!
-//! `ContextPlan` is the assembler's working value: its `fixed`/`transient`
-//! vectors hold the blocks that become the request, and a `PlannedBlock` names
+//! `ContextPlan` is the assembler's working value: its `fixed` vector holds the
+//! blocks that become the request, and a `PlannedBlock` names
 //! its inactivity reason as a compile-time `&'static str`. Neither belongs on
 //! the wire. The view is a *flattening* — one row per declared source, its band
 //! facts, its cost, and its exact bytes — so a reader never has to join two
@@ -100,8 +100,6 @@ pub struct ContextPlanView {
     /// reader sees the gap between "what each block costs" and "what the region
     /// costs" instead of being told a rounded story.
     pub fixed_tokens: usize,
-    /// Sum of the active `transient` block costs.
-    pub transient_tokens: usize,
     /// Every lossy decision the assembler made, in emission order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notices: Vec<ContextNotice>,
@@ -220,7 +218,6 @@ mod tests {
             total_tokens: 17,
             instructions_tokens: 17,
             tool_schema_tokens: 0,
-            temporary_context_tokens: 0,
         });
         assert_eq!(
             view.attribution_residual(),
@@ -256,8 +253,8 @@ mod tests {
     fn an_inactive_row_decodes_without_a_reason_field() {
         // A reply written by a peer that never names a reason must still decode:
         // the absence is the peer's choice, not a malformed frame.
-        let json = r#"{"id":"x","topic":"memory","rank":"reference","position":"body",
-                       "stability":"turn","tokens":0,"active":false}"#;
+        let json = r#"{"id":"x","topic":"provider_dialect","rank":"directive","position":"body",
+                       "stability":"workspace","tokens":0,"active":false}"#;
         let view: PlannedBlockView = serde_json::from_str(json).unwrap();
         assert_eq!(view.inactive_reason, None);
         assert_eq!(view.body, None);

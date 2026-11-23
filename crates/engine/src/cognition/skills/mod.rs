@@ -37,7 +37,7 @@ pub use discovery::{
     discoverable_skill_directories, project_skills_present,
 };
 pub use metadata::{Skill, SkillDependency, SkillPolicy, SkillScope};
-pub use render::{format_skill_injection, format_skill_list, list_skill_files, resolve_mentions};
+pub use render::{list_skill_files, render_skill_catalog, render_skill_envelope, resolve_mentions};
 pub use tool::SkillsConfig;
 pub use tools::{ListSkillsTool, UseSkillTool};
 

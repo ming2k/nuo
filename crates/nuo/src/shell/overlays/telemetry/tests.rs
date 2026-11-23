@@ -412,7 +412,6 @@ fn test_build_overview_and_sticky_table_headers() {
                 source: protocol::ContextTokenSource::Api,
                 overhead_tokens: None,
                 history_tokens: None,
-                temporary_context_tokens: None,
                 instructions_tokens: None,
                 tool_schema_tokens: None,
             }),

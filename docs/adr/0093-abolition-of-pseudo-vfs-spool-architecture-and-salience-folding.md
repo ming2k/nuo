@@ -16,6 +16,7 @@ negative_knowledge: true
 - Consulted: Agent Engineering (`nuo-agent`), Harness (`nuo-harness`), Tool Infrastructure (`nuo-tool`, `nuo-tool-fs`), Protocol (`nuo-protocol`), TUI Presentation (`nuo-tui`)
 - Supersedes: [ADR-0070](0070-unified-cas-vfs-projection-and-epistemic-meta-tool-abolition.md) (specifically VFS projection & in-band guidance)
 - Amends: [ADR-0063](0063-bifurcated-shell-tool-presentation-out-of-band-status-and-clean-stream-topology.md)
+- Amended by: [ADR-0228](0228-untrusted-content-has-one-framing.md) — the zero-imperative rule now applies to the untrusted framing itself, and the bracket fence is retired.
 
 ---
 

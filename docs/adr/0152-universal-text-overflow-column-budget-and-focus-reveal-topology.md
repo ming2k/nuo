@@ -19,6 +19,7 @@ negative_knowledge: true
 - Complements: [ADR-0054](0054-universal-key-affordance-engine-width-adaptive-floor-truncation-and-modeless-f1-topology.md),
   [ADR-0112](0112-unified-dual-tier-presentation-topology-and-canonical-presenter-bridges.md),
   [ADR-0147](0147-semantic-color-governance-firewall-and-first-class-palette-specimen-topology.md)
+- Amended by: [ADR-0235](0235-tabbar-carries-its-own-lifecycle-hover-reveal-visible-close-and-reserved-add.md) — §4's focused-row-only reveal is extended to a pointer-hover reveal with its own one-way cadence.
 
 ---
 

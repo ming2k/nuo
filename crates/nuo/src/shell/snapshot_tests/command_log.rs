@@ -56,6 +56,7 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
                     tabs: Some(&tabs),
                     active_tab: 0,
                     unread_faults: 0,
+                    ..crate::shell::render::TabBarProps::default()
                 }),
             },
             &mut layout_map,
@@ -118,6 +119,7 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
                         tabs: Some(&tabs),
                         active_tab: 0,
                         unread_faults: 0,
+                        ..crate::shell::render::TabBarProps::default()
                     }),
                 },
                 &mut layout_map,

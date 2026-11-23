@@ -1,22 +1,33 @@
 //! Request instruction text and block composition.
 //!
-//! An assembled request has two text regions: `fixed` (route-stable) and
-//! `transient` (request-local). [`Block`] is the assembly-time fragment used to
-//! build those regions; [`InstructionText`] is the rendered text carried by a
-//! model request. Tools and messages are protocol fields and never enter these
-//! blocks.
+//! An assembled request carries one instruction region. [`Block`] is the
+//! assembly-time fragment used to build it; [`InstructionText`] is the rendered
+//! text a model request carries. Tools and messages are protocol fields and never
+//! enter these blocks.
 use serde::{Deserialize, Serialize};
 
-/// Boundary choice for one block.
+/// How a block body is delimited.
+///
+/// A boundary is a **directive to the renderer**, never a rendered fact: it is
+/// deliberately not serialized on [`Block`], so `/context --json` can only carry
+/// the bytes [`render_blocks`] produced. Naming it `render` conflated the
+/// instruction with its output (ADR-0225).
+///
+/// A boundary is not a security control. `Rank` placement decides what may be
+/// obeyed; the boundary only makes the region legible to the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockRender {
-    /// Wrap the block in an XML envelope with the given tag.
-    Xml(&'static str),
-    /// Emit the title line and body without an envelope.
-    Plain,
+pub enum Boundary {
+    /// Wrap the block in a tag pair: `<tag source="…">body</tag>`.
+    ///
+    /// The tag is `&'static str` on purpose: the vocabulary of block tags is
+    /// closed at compile time, so a dynamic identity (a skill name, an MCP
+    /// server) can only travel in an **attribute**, never in the tag itself.
+    Tagged(&'static str),
+    /// Emit the title line and body with no envelope.
+    Bare,
 }
 
-/// One fragment of the `fixed` or `transient` request text.
+/// One fragment of the request instruction text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     /// Stable identity for deduplication, override, and telemetry.
@@ -28,7 +39,7 @@ pub struct Block {
     /// Semantic content only. Body syntax (Markdown, prose, code) is preserved.
     pub body: String,
     /// Boundary choice.
-    pub render: BlockRender,
+    pub boundary: Boundary,
 }
 
 impl Block {
@@ -38,7 +49,7 @@ impl Block {
             title: None,
             source: None,
             body: body.into(),
-            render: BlockRender::Plain,
+            boundary: Boundary::Bare,
         }
     }
 
@@ -52,64 +63,59 @@ impl Block {
         self
     }
 
-    pub fn with_render(mut self, render: BlockRender) -> Self {
-        self.render = render;
+    /// Choose how this block's body is delimited.
+    pub fn with_boundary(mut self, boundary: Boundary) -> Self {
+        self.boundary = boundary;
         self
     }
 }
 
-/// Rendered instruction text for a model request.
+/// The rendered instruction text of one model request.
 ///
-/// `fixed` is the route-stable prefix. `transient` is request-local text that
-/// must be emitted after the final cache breakpoint. Both are already formatted;
-/// providers project them to their instruction channel without further
-/// concatenation.
+/// There is exactly **one** instruction region. A model request has a cacheable
+/// prefix and a growing conversation; it has no third, per-request text channel.
+/// The previous design carried a `transient` region for "this turn only" text,
+/// but no producer ever wrote to it: every provider branched on a string that was
+/// always empty, and every reader carried the branch. Deleting the region
+/// deletes the branch (ADR-0231).
+///
+/// Already formatted: providers project this string to their instruction channel
+/// without further concatenation.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InstructionText {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub fixed: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub transient: String,
-}
+#[serde(transparent)]
+pub struct InstructionText(pub String);
 
 impl InstructionText {
-    pub fn new(fixed: impl Into<String>, transient: impl Into<String>) -> Self {
-        Self {
-            fixed: fixed.into(),
-            transient: transient.into(),
-        }
-    }
-
-    /// One text region, no transient content.
-    pub fn fixed(text: impl Into<String>) -> Self {
-        Self {
-            fixed: text.into(),
-            transient: String::new(),
-        }
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.fixed.trim().is_empty() && self.transient.trim().is_empty()
+        self.0.trim().is_empty()
     }
 
-    pub fn has_transient(&self) -> bool {
-        !self.transient.trim().is_empty()
-    }
-
-    pub fn render_fixed(&self) -> &str {
-        &self.fixed
-    }
-
-    pub fn render_transient(&self) -> &str {
-        &self.transient
+    pub fn text(&self) -> &str {
+        &self.0
     }
 }
 
-/// Render blocks into one deterministic text region.
+/// Render blocks into the request's instruction text.
 ///
-/// This is the single formatter for `fixed` and `transient` text. It owns the
-/// title line, XML envelope, and block spacing so sections never carry their
-/// own leading newlines or headings.
+/// This is the single formatter for the instruction region. It owns the title
+/// line, the boundary, and block spacing so sections never carry their own
+/// leading newlines or headings.
+///
+/// It shares [`tool::envelope::escape_attribute`] with the message renderer, so
+/// an attribute means one thing in both regions. The two formatters stay
+/// separate for a layering reason: an instruction block puts its title *inside*
+/// the tag and a message envelope never has a title. Merging them would push the
+/// prompt's tag vocabulary into `tool`.
+///
+/// `body` is emitted verbatim — an instruction body is semantic content
+/// (Markdown, prose, code) and escaping it would corrupt it. A `Tagged` boundary
+/// is therefore only safe for a body the policy compiled in or an
+/// operator-authored document, never for third-party bytes; untrusted content
+/// travels in a message with the untrusted framing (`[INV-CTXSRC-04]`).
 pub fn render_blocks(blocks: &[Block]) -> String {
     let mut out = String::new();
     for block in blocks {
@@ -121,12 +127,12 @@ pub fn render_blocks(blocks: &[Block]) -> String {
         if !out.is_empty() {
             out.push_str("\n\n");
         }
-        if let BlockRender::Xml(tag) = block.render {
+        if let Boundary::Tagged(tag) = block.boundary {
             out.push('<');
             out.push_str(tag);
             if let Some(source) = &block.source {
                 out.push_str(" source=\"");
-                out.push_str(&escape_attribute(source));
+                out.push_str(&tool::envelope::escape_attribute(source));
                 out.push('"');
             }
             out.push_str(">\n");
@@ -136,21 +142,13 @@ pub fn render_blocks(blocks: &[Block]) -> String {
             out.push_str("\n\n");
         }
         out.push_str(body);
-        if let BlockRender::Xml(tag) = block.render {
+        if let Boundary::Tagged(tag) = block.boundary {
             out.push_str("\n</");
             out.push_str(tag);
             out.push('>');
         }
     }
     out
-}
-
-fn escape_attribute(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 /// The route/role facts an instruction selector is evaluated against.
@@ -344,30 +342,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn instruction_text_distinguishes_fixed_and_transient() {
-        let text = InstructionText::new("fixed text", "transient text");
+    fn instruction_text_is_one_region() {
+        let text = InstructionText::new("the contract");
         assert!(!text.is_empty());
-        assert!(text.has_transient());
-        assert_eq!(text.render_fixed(), "fixed text");
-        assert_eq!(text.render_transient(), "transient text");
-
-        let fixed_only = InstructionText::fixed("only fixed");
-        assert!(!fixed_only.is_empty());
-        assert!(!fixed_only.has_transient());
+        assert_eq!(text.text(), "the contract");
+        assert!(InstructionText::default().is_empty());
+        assert!(InstructionText::new("   ").is_empty());
     }
 
     #[test]
     fn render_blocks_is_deterministic_and_owns_presentation() {
         let blocks = vec![
-            Block::new("agent.identity", "You are an AI assistant.")
-                .with_render(BlockRender::Plain),
+            Block::new("agent.identity", "You are an AI assistant.").with_boundary(Boundary::Bare),
             Block::new("project.rules", "Follow project rules.")
                 .with_title("Project Rules (AGENTS.md)")
                 .with_source("AGENTS.md")
-                .with_render(BlockRender::Xml("policy")),
-            Block::new("request.transient", "Temporary note.")
-                .with_title("Current Turn")
-                .with_render(BlockRender::Plain),
+                .with_boundary(Boundary::Tagged("policy")),
+            Block::new("agent.language", "Answer in Chinese.")
+                .with_title("Answer Language")
+                .with_boundary(Boundary::Bare),
         ];
         let rendered = render_blocks(&blocks);
         assert!(rendered.starts_with("You are an AI assistant."));
@@ -375,7 +368,7 @@ mod tests {
         assert!(rendered.contains("Project Rules (AGENTS.md)"));
         assert!(rendered.contains("Follow project rules."));
         assert!(rendered.contains("</policy>"));
-        assert!(rendered.ends_with("Current Turn\n\nTemporary note."));
+        assert!(rendered.ends_with("Answer Language\n\nAnswer in Chinese."));
         assert!(!rendered.starts_with('\n'));
         assert!(!rendered.ends_with('\n'));
         assert!(!rendered.contains("\n\n\n"));

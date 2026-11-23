@@ -431,7 +431,7 @@ fn user_uploaded_image_is_evicted_with_artifact_invoice() {
     assert!(
         messages[0]
             .content
-            .contains("[Image Offloaded: image/png elided to relieve context pressure]")
+            .contains("[Image Offloaded: image/png elided to relieve request size]")
     );
     // The Spool invoice carries the CAS Artifact Path (ADR-0093: zero imperative guidance).
     assert!(messages[0].content.contains("Artifact Path"));
@@ -441,15 +441,15 @@ fn user_uploaded_image_is_evicted_with_artifact_invoice() {
 
 /// The layered estimate keeps `history + overhead == total` exact.
 ///
-/// The three named layers explain what the overhead is *made of*, but they are
-/// not its definition: a system-role row in `messages` is history to nobody and
-/// belongs to no layer, so an estimate that summed its parts would understate
-/// the request by exactly that row (ADR-0220 §2).
+/// The named layers explain what the overhead is *made of*, but they are not its
+/// definition: a system-role row in `messages` is history to nobody and belongs
+/// to no layer, so an estimate that summed its parts would understate the
+/// request by exactly that row (ADR-0220 §2).
 #[test]
 fn the_layered_estimate_derives_overhead_from_the_measured_total() {
-    let layered = RequestTokenEstimate::layered(100, 20, 30, 5);
-    assert_eq!(layered.overhead_tokens, 55);
-    assert_eq!(layered.total_tokens, 155);
+    let layered = RequestTokenEstimate::layered(100, 20, 30);
+    assert_eq!(layered.overhead_tokens, 50);
+    assert_eq!(layered.total_tokens, 150);
     assert_eq!(
         layered.history_tokens + layered.overhead_tokens,
         layered.total_tokens
@@ -457,7 +457,7 @@ fn the_layered_estimate_derives_overhead_from_the_measured_total() {
 
     // A measured total 7 tokens above the sum of the parts: the difference must
     // land in `overhead`, never vanish.
-    let measured = RequestTokenEstimate::measured(100, 20, 30, 5, 162);
+    let measured = RequestTokenEstimate::measured(100, 20, 30, 162);
     assert_eq!(measured.overhead_tokens, 62);
     assert_eq!(
         measured.history_tokens + measured.overhead_tokens,
@@ -468,4 +468,106 @@ fn the_layered_estimate_derives_overhead_from_the_measured_total() {
         measured.overhead_tokens > layered.overhead_tokens,
         "an unattributed row is overhead, not nothing"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payload (byte) pressure
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn attached(text: &str, bytes: usize) -> Message {
+    Message::new(Role::User, text).with_images(vec![tool::ImagePart {
+        mime: "image/png".into(),
+        data: "A".repeat(bytes),
+    }])
+}
+
+#[test]
+fn wire_size_counts_the_attachments_tokens_barely_see() {
+    // The defect this surface exists for: one megabyte of base64 is ~1 600
+    // tokens (comfortably inside any modern window) and a megabyte of body
+    // (outside many edges' limits). A budget that only knows tokens cannot see
+    // the difference, which is how a 55 MB session stayed "healthy".
+    let message = attached("look", 1_000_000);
+    assert_eq!(estimate_message_tokens(&message), 1_600 + 1 + 4);
+    assert_eq!(message_wire_bytes(&message), 1_000_000 + 4);
+
+    let request = crate::RequestBuilder {
+        tools: Vec::new(),
+        instructions: Vec::new(),
+        messages: vec![message],
+    }
+    .build();
+    let size = request_wire_size(&request);
+    assert_eq!(size.media_bytes, 1_000_000);
+    assert_eq!(size.body_bytes, size.text_bytes + size.media_bytes);
+    assert_eq!(size.text_bytes, 4, "only the message text is left");
+}
+
+#[test]
+fn a_body_that_fits_plans_nothing() {
+    let messages = vec![attached("a", 100), attached("b", 100)];
+    assert!(plan_media_offload(&messages, 200, 10_000, PAYLOAD_KEEP_NEWEST_IMAGES).is_empty());
+}
+
+#[test]
+fn payload_relief_evicts_oldest_first_and_keeps_the_newest() {
+    let messages: Vec<Message> = (0..6).map(|i| attached(&format!("m{i}"), 1_000)).collect();
+    let plan = plan_media_offload(&messages, 6_000, 3_000, PAYLOAD_KEEP_NEWEST_IMAGES);
+    assert!(!plan.is_empty());
+    // The plan walks forward, so the oldest messages are the ones it takes.
+    assert_eq!(
+        plan.iter().map(|item| item.index).collect::<Vec<_>>(),
+        vec![0, 1, 2, 3],
+        "the four oldest messages are evicted; the two newest stay"
+    );
+    assert!(
+        plan.iter().all(|item| item.bytes > 0),
+        "an eviction that frees nothing is not a relief"
+    );
+    let mut window = messages.clone();
+    let outcome = apply_media_offload(&mut window, plan);
+    assert_eq!(outcome.offloaded_images, 4);
+    assert!(window[0].images.is_none());
+    assert!(window[5].images.is_some());
+    assert!(window[0].content.contains("- Artifact Path: \""));
+}
+
+#[test]
+fn the_newest_attachment_is_never_evicted_even_when_it_alone_exceeds_the_target() {
+    // Evicting the image the user is asking about would send a request that
+    // cannot answer the question. The plan keeps it and reports nothing to do
+    // about the residual; the caller surfaces the refusal instead of silently
+    // sending a useless turn.
+    let messages = vec![
+        attached("old", 1_000),
+        attached("older", 1_000),
+        attached("now", 5_000),
+    ];
+    let plan = plan_media_offload(&messages, 7_000, 2_000, PAYLOAD_KEEP_NEWEST_IMAGES);
+    assert_eq!(
+        plan.iter().map(|item| item.index).collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    let mut window = messages;
+    apply_media_offload(&mut window, plan);
+    assert!(
+        window[2].images.is_some(),
+        "the current turn keeps its image"
+    );
+}
+
+#[test]
+fn payload_relief_respects_its_recency_cap() {
+    let messages: Vec<Message> = (0..10).map(|i| attached(&format!("m{i}"), 100)).collect();
+    let plan = plan_media_offload(&messages, 1_000, 200, 2);
+    assert!(
+        plan.iter().all(|item| item.index < 8),
+        "only the two newest messages are protected, so eviction stops before them"
+    );
+}
+
+#[test]
+fn media_allowance_never_underflows_and_reports_hopeless_cases_as_zero() {
+    assert_eq!(media_allowance(100, 40), 60);
+    assert_eq!(media_allowance(40, 100), 0);
 }

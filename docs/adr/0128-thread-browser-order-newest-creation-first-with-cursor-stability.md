@@ -124,7 +124,7 @@ to keep a different direction from the browser's.
 
 ### Normative Invariants Established
 
-- `[INV-LINEAGE-03] Position is deterministic` — **amended in direction only**.
+- `[INV-LINEAGE-03]` (revises ADR-0120) Position is deterministic — **amended in direction only**.
   Row order remains a pure function of `(parent_id, created_at, id)` and no
   liveness signal may reorder a visible list; the key's direction is
   `created_at` descending, id ascending. Enforced by
@@ -132,7 +132,7 @@ to keep a different direction from the browser's.
   (unchanged: `updated_at` must not move a row) and
   `shell::overlays::session::tests::siblings_are_ordered_newest_creation_first`
   (roots newest-first; a newer child does not jump the queue).
-- `[INV-LINEAGE-02] The picker never drops a row` — **unaffected, and reaffirmed**.
+- `[INV-LINEAGE-02]` (reaffirms ADR-0120) The picker never drops a row — **unaffected**.
   Reversing a sort cannot drop or duplicate a row, and the stranded-tail sort in
   §3 is applied to exactly the set that was already emitted. Enforced by
   `projection_emits_every_row_exactly_once`, `deep_fork_chain_remains_visible`,

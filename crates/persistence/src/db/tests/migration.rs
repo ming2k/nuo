@@ -9,7 +9,7 @@ fn fresh_db_migrates_to_baseline() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(CURRENT_DB_VERSION, 3);
+    assert_eq!(CURRENT_DB_VERSION, 6);
 
     let (name, checksum): (String, String) = conn
         .query_row(
@@ -24,7 +24,7 @@ fn fresh_db_migrates_to_baseline() {
     let ledger_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(ledger_rows, 3);
+    assert_eq!(ledger_rows, 6);
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn concurrent_openers_apply_the_baseline_once() {
 }
 
 #[test]
-fn migration_2_removes_derived_columns_and_keeps_the_list_projection() {
+fn catalog_summary_is_materialized_and_backfilled() {
     let mut conn = Connection::open_in_memory().unwrap();
     migrate_to_for_tests(&mut conn, 1).unwrap();
 
@@ -153,8 +153,10 @@ fn migration_2_removes_derived_columns_and_keeps_the_list_projection() {
             .filter_map(Result::ok)
             .collect()
     };
-    assert!(!columns.iter().any(|column| column == "msg_count"));
-    assert!(!columns.iter().any(|column| column == "last_user_prompt"));
+    // ADR-0244 re-materialises the catalog summary after migration 0002 dropped
+    // it; the migration backfills from the fact log while both live in one DB.
+    assert!(columns.iter().any(|column| column == "msg_count"));
+    assert!(columns.iter().any(|column| column == "last_user_prompt"));
 
     let (count, prompt): (i64, Option<String>) = conn
         .query_row(

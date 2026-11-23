@@ -41,7 +41,7 @@ the real binary is an E2E test. Put it where its dependencies say it belongs.
 | :--- | :--- | :--- | :--- | :--- |
 | **L1 Unit** | `src/**` inline `#[cfg(test)] mod tests`, or sibling `src/<module>/tests.rs` | Pure functions, in-memory state, `tokio::test` with paused time | Network, real `NUO_HOME`, subprocesses, sleeps | milliseconds |
 | **L2 Integration** | Root `tests/integration/main.rs` + modules | Every workspace crate, temp dirs, local mock HTTP, in-process registries | The shipped `nuo` binary, detached daemons, live providers | seconds |
-| **L3 E2E** | Root `tests/e2e/main.rs` + modules | The freshly built binary, real UDS/WS, real SQLite, `nuo-test-support::MockProvider` | Shared `NUO_HOME`, live providers, process-global `env::set_var` | tens of seconds |
+| **L3 E2E** | Root `tests/e2e/main.rs` + modules | The freshly built binary, real UDS/WS, real SQLite, `test-support::MockProvider` | Shared `NUO_HOME`, live providers, process-global `env::set_var` | tens of seconds |
 | **L0 Governance** | `tests/integration/governance/`, per-crate `layering.rs` folded into the same entry | Source/manifest scans, AST, `cargo tree` | Business behaviour | milliseconds |
 
 The production workspace remains multi-crate under `crates/*`. The root package
@@ -105,7 +105,7 @@ tests/
   **one** E2E binary.
 - `tests/common/mod.rs` is included by both entries with
   `#[path = "../common/mod.rs"]`. It owns repository-path helpers only; process
-  sandboxes live in `nuo-test-support`.
+  sandboxes live in `test-support`.
 - The root package sets `autotests = false` and declares only the two `[[test]]`
   entries. Do not add a third external test target; add a module to one entry.
 
@@ -121,10 +121,10 @@ tests/
 
 ### L3: End-to-end tests
 
-- Every test gets a `nuo_test_support::Sandbox`: a private `NUO_HOME`
+- Every test gets a `test_support::Sandbox`: a private `NUO_HOME`
   (`config`, `state`, `data`, `cache`, `instance`), a project workspace, and a
   drop guard that stops a leaked server.
-- The only upstream is `nuo_test_support::MockProvider`: a deterministic
+- The only upstream is `test_support::MockProvider`: a deterministic
   OpenAI-compatible HTTP/SSE surface. Live-network tests are not E2E; they are
   quarantined probes (`#[ignore = "live network"]`).
 - Environment is passed to the **child process**, never installed in the test
@@ -141,15 +141,15 @@ cargo build -p nuo --bin nuo
 NUO_TEST_BIN=<target>/debug/nuo
 ```
 
-`nuo_test_support::binary_path()` reads `NUO_TEST_BIN`. Always enter E2E
+`test_support::binary_path()` reads `NUO_TEST_BIN`. Always enter E2E
 through `cargo nextest run -p nuo-tests --profile e2e`; invoking the target
 through libtest would bypass the setup script and leave `NUO_TEST_BIN` unset.
 
 ---
 
-## 4. The Shared Harness (`nuo-test-support`)
+## 4. The Shared Harness (`test-support`)
 
-`crates/nuo-test-support` is a **dev-only** crate. It is deliberately outside
+`crates/test-support` is a **dev-only** crate. It is deliberately outside
 the shipped dependency graph, and `test_architecture.rs` fails if any
 `[dependencies]` or `[build-dependencies]` section declares it.
 
@@ -192,7 +192,7 @@ Useful one-off commands:
 
 ```bash
 # One crate's unit tests
-cargo nextest run -p nuo-engine --profile unit
+cargo nextest run -p engine --profile unit
 
 # One test name, any tier
 cargo nextest run -E 'test(headless_turn_runs_against_a_hermetic_provider)'

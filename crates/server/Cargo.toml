@@ -35,7 +35,6 @@ provider-qoder = { workspace = true }
 inventory = { workspace = true }
 engine = { workspace = true }
 model-routing = { workspace = true }
-mcp = { workspace = true }
 tool = { workspace = true }
 tool-fs = { workspace = true }
 tool-exec = { workspace = true }

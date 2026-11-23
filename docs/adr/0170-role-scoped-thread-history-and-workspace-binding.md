@@ -5,7 +5,7 @@ status: accepted
 date: 2026-11-12
 scope: host/workspace, protocol/thread-scope, persistence/session-store, cli/thread, server/registry
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0170. Role-Scoped Thread History: The Role Owns the Workspace Policy
@@ -191,6 +191,6 @@ later `roles.toml` edit cannot reinterpret an existing thread's binding.
   refused for `unbound`/`fixed`; `--all-roles` expands roles inside one
   workspace; `--global` is the explicit every-role × every-binding scope and
   may be narrowed by `--role`. `--all-workspaces` is retired.
-- `[INV-SCOPE-06]` makes the thread scope write-once in the schema, not only in
+- The `[INV-SCOPE-06]` rule makes the thread scope write-once in the schema, not only in
   the command path. `/role` still switches threads; it never rebinds the
   current one.

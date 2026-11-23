@@ -75,7 +75,7 @@ impl Provider for ReasoningThenTruncatedProvider {
     }
 }
 
-/// `[INV-RETRY-02]` — the ordering contract the shell's `StreamDiscard` sweep
+/// `[INV-RETRY-11]` — the ordering contract the shell's `StreamDiscard` sweep
 /// depends on.
 ///
 /// When a stream dies mid-flight the orchestration must, in this order:

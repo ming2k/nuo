@@ -520,11 +520,16 @@ pub(crate) async fn run_app_loop(
                     .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
                 d.refreshing || d.reveal_active
             };
+        // A hover title reveal in the TabBar is the second draw-reported live
+        // state: the strip keeps its animation heartbeat only while a pass is
+        // actually in flight, so an idle row costs nothing (ADR-0235).
+        let tab_live = app.surfaces.tab_reveal_active;
         let animating = viewed_animating
             || app.has_live_transport_setback()
             || !app.composer.pending_images.is_empty()
             || app.composer.input_drag_scroll.is_some()
             || models_live
+            || tab_live
             || (app
                 .surfaces
                 .surfaces
@@ -993,7 +998,14 @@ async fn process_one_event<W: io::Write>(
         event,
         Event::Mouse(m) if m.kind == graticule::event::MouseEventKind::Moved
     );
-    let hover_before = (app.surfaces.config_hover_index, app.transcript.hovered_step);
+    // The TabBar hover is part of this snapshot: its close mark and title reveal
+    // are painted from it, so a motion that only moves *within* the strip still
+    // owes a repaint (ADR-0223).
+    let hover_before = (
+        app.surfaces.config_hover_index,
+        app.transcript.hovered_step,
+        app.surfaces.tab_hover,
+    );
 
     // A keystroke dismisses an *acknowledgement* bubble and nothing else.
     //
@@ -1296,7 +1308,12 @@ async fn process_one_event<W: io::Write>(
     queries_before.reconcile(app);
 
     if is_hover {
-        if (app.surfaces.config_hover_index, app.transcript.hovered_step) != hover_before {
+        if (
+            app.surfaces.config_hover_index,
+            app.transcript.hovered_step,
+            app.surfaces.tab_hover,
+        ) != hover_before
+        {
             *input_redraw_pending = true;
         }
     } else if matches!(

@@ -8,7 +8,7 @@ superseded_by: null
 supersedes:
   - per-project `permissions.json` permission storage and `ProjectPaths`
   - whole-string-only `execute_command` `Always` grants
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0212. Shell-Aware Command Permissions and Role-Scoped SQLite Store

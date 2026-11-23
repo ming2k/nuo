@@ -16,6 +16,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Supersedes: [ADR-0052](0052-unified-instruction-pipeline-pure-role-topology-and-end-to-end-cache-fidelity.md) (the four-tier `Base / Session / Task / Ephemeral` taxonomy and the `system.*` section namespace)
 - Related: [ADR-0064](0064-orthogonal-agent-tool-surface-meta-tool-pruning-and-mutation-topology.md), [ADR-0130](0130-model-guidance-dynamic-prompt-engineering-and-pure-cognitive-demarcation.md), [ADR-0165](0165-user-instructions-absorb-model-guidance-as-the-user-source.md), [RFC-0002](../rfc/0002-request-plan-and-wire-projection.md)
+- Amended by: [ADR-0225](0225-a-block-carries-a-boundary-not-a-render-mode.md) — `Block::render` / `BlockRender` become `boundary` / `Boundary`; [ADR-0231](0231-one-instruction-region-and-no-ghost-extension-subsystem.md) — the four containers become two text regions plus two protocol fields.
 
 ## Context
 

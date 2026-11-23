@@ -1,6 +1,6 @@
 //! Wire-surface census: the protocol number must move whenever the wire does.
 //!
-//! Rule source: ADR-0136 / `[INV-WIRE-03]`.
+//! Rule source: ADR-0136 / `[INV-WIRE-10]`.
 //!
 //! The census records two facts per wire type: its member names (for a
 //! reviewable diff) and a SHA-256 shape digest over the normalized declaration
@@ -585,7 +585,7 @@ pub fn bless_census(root: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// `[INV-WIRE-03]`: the wire census and the protocol number agree.
+/// `[INV-WIRE-10]`: the wire census and the protocol number agree.
 pub fn check_wire_census(root: &Path) -> Result<(), String> {
     let current = compute_census(root)?;
     let Some(recorded) = recorded_census(root) else {

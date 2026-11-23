@@ -17,6 +17,15 @@ To prevent ADR inflation and maintain a high-signal registry, author an ADR only
 - **The Ephemeral Workaround**: Recording temporary bug fixes, transient feature flags, or environment hacks.
 - **The Toothless Declaration**: Vague prose lacking enforceable constraints or clear behavioral boundaries.
 - **The Post-Hoc Justification**: Authoring an ADR after code is merged with zero genuine consideration of discarded alternatives.
+- **The Rename Record**: A private rename is a style edit, not an ADR. A rename
+  that changes a public contract may qualify — but only if it also answers a
+  second question (a false claim, a security consequence, or a binding red-line).
+  Say which two questions it answers; "the code now spells it" is not one.
+- **The Batch Dump**: Bundling independent decisions into one ADR. A batch may
+  share a date, and one decision may have several instances; each ADR must still
+  stand alone, and the context must say whether it records one decision or many.
+  If a reader cannot reject one part without rejecting the whole, it is one
+  decision.
 
 ---
 
@@ -47,9 +56,17 @@ status: accepted # [draft | accepted | superseded | rejected]
 date: YYYY-MM-DD
 scope: [subsystems or modules affected]
 superseded_by: null # e.g., ADR-0002 (mandatory when status is superseded)
-negative_knowledge: true
+negative_knowledge: true # true iff an alternatives/negative-knowledge section exists
 ---
 ```
+
+`date` is the **decision date on the project's logical timeline**, not the git
+author date. It must be a real `YYYY-MM-DD`; it is not required to match the
+commit date, and a gate must not compare it to the wall clock. `scope` must not
+be empty. `negative_knowledge: true` is a claim: the ADR must carry a
+`Rejected/Discarded Alternatives`, `Considered Options`, or `Negative Knowledge`
+section. An ADR that records no rejected alternative sets it to `false`; the
+flag is not a decoration copied from the template.
 
 ---
 
@@ -89,6 +106,26 @@ Explain the exact changes to workspace members, modules, and contracts.
 If a non-negotiable architectural red-line is created, specify it with its enforcement mechanism:
 - `[INV-XXX-01] Name`: Mandatory constraint backed by automated integration test or compiler typestate.
 
+An invariant tag has exactly one **unmarked definition site** in `docs/adr/`,
+counted per ADR file ([`invariants.md`](invariants.md) §5). A definition is a
+bullet or a heading whose **lead** is the tag (`- **[INV-X] Title**: …`,
+`- **INV-X** — …`, `### 1. \`[INV-X]\` Title`); a citation that starts with a
+title is not a definition. One ADR may state the rule in its Decision section
+and restate it in its Invariants summary — that is one site. A later ADR that
+restates, revises, reaffirms, or revokes the same rule keeps the tag but marks
+the bullet:
+
+```text
+- **[INV-XXX-01] (restates ADR-00NN) Name**: …
+- **[INV-XXX-01] (revises ADR-00NN) Name**: …
+- **[INV-XXX-01] (reaffirms ADR-00NN) Name**: …
+- **[INV-XXX-01] (revokes ADR-00NN) Name**: …
+```
+
+Those markers are not a second definition. A tag whose meaning actually changed
+under an old number is a collision, not a revision: give the newer rule its own
+tag (`invariants.md` §5, "Fixing a Collision").
+
 ## Consequences & Trade-offs
 
 - **Positive**: Expected architectural and operational benefits.
@@ -120,5 +157,30 @@ A citation is a promise that the reader can inspect the decision. Three rules fo
 3. **Cite the Owning Document, Not a User-Owned File**: Repository doctrine lives in `docs/adr/` and `docs/dev/standards/`. A user-owned surface such as `AGENTS.md` is untrusted workspace input loaded by the product behind the trust gate, so it is never the authority a repository document cites ([ADR-0141](../../adr/0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md), [`taxonomy.md`](taxonomy.md) §3).
    - **Nomination**: mention the file as an inline code span, never as bare prose. A bare filename is indistinguishable from an authority claim.
    - **Citation**: a code-styled mention qualified by a section number (for example the string `AGENTS.md §3`) is a citation of the file's content and is rejected. Quote a whole citation as one code span to discuss the defect itself; cite the standards document that owns the rule to state it.
+4. **Amendment backlinks are for contradictions, not for the graph.** The
+   amender's `Amends:` line is authoritative. When the target's body asserts
+   something the amendment makes false, add an `Amended by:` line to the target
+   naming the amender and the section. Do not add a backlink to a target whose
+   body is unchanged: a complete bidirectional graph doubles the registry
+   without adding information. The gate enforces reference resolution, not the
+   presence of a backlink for every edge.
+
+### Invariant Tags
+
+`docs/dev/standards/invariants.md` §5 owns the tag uniqueness rule. One
+**unmarked** definition per tag; `restates` / `revises` / `reaffirms` /
+`revokes` bullets are marked and are not definitions. The gate is
+`adr_invariant_tags_have_one_definition_site`.
+
+### Mechanical Gates
+
+`tests/integration/governance/architecture_convergence.rs` runs
+`adr_registry_has_unique_identity_and_valid_frontmatter`,
+`adr_frontmatter_values_are_well_formed`,
+`adr_invariant_tags_have_one_definition_site` (plus its shape test
+`invariant_definition_forms_are_recognized`),
+`adr_negative_knowledge_flag_is_truthful`, `adr_references_resolve`, and
+`markdown_relative_links_resolve`. A rule here without one of those gates is a
+review convention, not a mechanical invariant.
 
 These conventions preserve traceability across the repository while preventing circular references or citation of untrusted workspace files.

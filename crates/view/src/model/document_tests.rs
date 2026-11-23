@@ -900,6 +900,7 @@ fn notice_topic_labels_cover_the_contract_vocabulary() {
         (tool::NoticeKind::TrustChanged, "trust"),
         (tool::NoticeKind::CommandAck, "command"),
         (tool::NoticeKind::ImageInputWithheld, "images"),
+        (tool::NoticeKind::PayloadRelief, "payload"),
     ] {
         assert_eq!(notice_topic_label(kind), label);
     }
@@ -911,18 +912,16 @@ fn user_message_origin_defaults_to_chat_and_can_be_overridden() {
     let chat = TranscriptMessage::new(Role::User, "fix the bug");
     assert_eq!(chat.origin, UserMessageOrigin::Chat);
 
-    // Slash commands tag themselves so the Activity modal does not mistake
-    // them for the driving prompt.
-    let slash = TranscriptMessage::new(Role::User, "/review working-tree")
-        .with_origin(UserMessageOrigin::Slash);
-    assert_eq!(slash.origin, UserMessageOrigin::Slash);
+    // A user prompt beginning with `/` is still a prompt. A slash *command* is
+    // never a `Message` at all — it is a command-ledger row — so no origin
+    // variant has to distinguish the two (ADR-0233).
+    let slash_shaped = TranscriptMessage::new(Role::User, "/etc is a path");
+    assert_eq!(slash_shaped.origin, UserMessageOrigin::Chat);
 
-    // with_origin is idempotent and does not depend on the text: a
-    // genuine chat prompt that happens to start with '/' stays Slash only
-    // when explicitly tagged, never inferred from text here.
-    let explicit_chat =
-        TranscriptMessage::new(Role::User, "/etc is a path").with_origin(UserMessageOrigin::Chat);
-    assert_eq!(explicit_chat.origin, UserMessageOrigin::Chat);
+    // `with_origin` is explicit and never inferred from text.
+    let steer = TranscriptMessage::new(Role::User, "also check the tests")
+        .with_origin(UserMessageOrigin::Steer);
+    assert_eq!(steer.origin, UserMessageOrigin::Steer);
 }
 
 #[test]

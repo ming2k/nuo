@@ -5,7 +5,7 @@ status: accepted
 date: 2026-11-10
 scope: [workspace]
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # ADR-0163: Tool-Call Argument Streams Are Loop-Guarded; Batch Size Is the Model's Decision

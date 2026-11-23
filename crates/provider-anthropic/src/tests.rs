@@ -59,7 +59,7 @@ fn image_message(text: &str) -> Message {
 }
 
 fn body_of(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
-    request::body(&messages, &[], input)
+    request::body(&messages, input)
 }
 
 fn body_with_caps_of(
@@ -67,7 +67,7 @@ fn body_with_caps_of(
     input: BodyInput<'_>,
     capabilities: &protocol::ModelCapabilities,
 ) -> Value {
-    request::body_with_capabilities(&messages, &[], input, capabilities)
+    request::body_with_capabilities(&messages, input, capabilities)
 }
 
 #[test]

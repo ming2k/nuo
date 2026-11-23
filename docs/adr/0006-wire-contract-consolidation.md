@@ -94,7 +94,7 @@ aspiration is retained as a soft goal, not a hard invariant.
   must be defined exactly once. Per-crate "mirror" copies that drop fields are
   prohibited — they silently diverge and break type identity across crate
   boundaries.
-- **`[INV-ARCH-01]` (ADR-0001) remains binding**: no crate named `contracts`,
+- **`[INV-ARCH-01]` (restates ADR-0001)**: no crate named `contracts`,
   `common`, `shared`, or `core` may exist.
 
 ---

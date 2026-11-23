@@ -16,6 +16,7 @@ negative_knowledge: true
 - Consulted: Provider Integration, Server Runtime, TUI, and Model Codec Teams
 - Informed: Core Engineering
 - Amends: [ADR-0015](0015-dependency-inversion-architecture-for-model-providers.md), [ADR-0027](0027-provider-definition-single-source-and-adapters-retirement.md), [ADR-0065](0065-multi-factor-pricing-spec-dual-mode-connection-budget-and-spend-circuit-breaker.md)
+- Amended by: [ADR-0228](0228-untrusted-content-has-one-framing.md) — `InjectionKind::UntrustedDirective` and `Origin::Foreign` finally have a producer (the inter-agent note).
 
 ---
 

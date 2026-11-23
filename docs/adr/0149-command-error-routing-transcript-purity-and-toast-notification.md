@@ -5,7 +5,7 @@ status: accepted
 date: 2026-12-20
 scope: protocol/nuo-protocol, server/nuo-server, presentation/nuo-view, presentation/nuo-ui-primitives, host/nuo, tui/composer, tui/event-loop
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0149. Command Error Routing: Transcript Purity, Recoverable Draft Restoration, and Top-Right Notice Toast

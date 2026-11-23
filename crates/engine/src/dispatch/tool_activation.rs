@@ -37,11 +37,4 @@ impl ToolActivation {
             .unwrap_or_else(|e| e.into_inner())
             .contains(name)
     }
-
-    /// How many deferred tools are currently activated. Diagnostic only: no
-    /// context source may declare it as an input, so activation never moves the
-    /// instruction prefix (`[INV-TOOLSURFACE-03]`, ADR-0216).
-    pub(crate) fn len(&self) -> usize {
-        self.active.read().unwrap_or_else(|e| e.into_inner()).len()
-    }
 }

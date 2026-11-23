@@ -287,7 +287,6 @@ fn envelope_for(body: &serde_json::Value) -> serde_json::Value {
 fn qoder_golden_wire_projects_the_requested_effort_into_parameters() {
     let body = provider_openai::chat_completions::request::body_with_capabilities(
         &[tool::Message::new(tool::Role::User, "Say OK only.")],
-        &[],
         provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,
@@ -339,7 +338,6 @@ fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
     );
     let body = provider_openai::chat_completions::request::body_with_capabilities(
         &[tool::Message::new(tool::Role::User, "Say OK only.")],
-        &[],
         provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,

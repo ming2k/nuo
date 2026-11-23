@@ -5,7 +5,7 @@
 //! [`Rank`] it carries, how [`Stability`]-volatile it is, and what [`Budget`] it
 //! may spend. Region, band position, and rank are *derived* from those
 //! declarations rather than declared separately, so an illegal combination
-//! ("transient but frozen", "untrusted but cached") is unrepresentable.
+//! ("untrusted but cached") is unrepresentable.
 //!
 //! The vocabulary lives in the contract layer because embedders construct
 //! sources through the public builder API; the registry that enforces the
@@ -39,8 +39,6 @@ pub enum Stability {
     Session,
     /// Changes when a workspace file changes (`AGENTS.md`, a manifest, a skill).
     Workspace,
-    /// Changes every request. This is the `transient` region.
-    Turn,
 }
 
 impl Stability {
@@ -51,14 +49,7 @@ impl Stability {
             Self::Route => "route",
             Self::Session => "session",
             Self::Workspace => "workspace",
-            Self::Turn => "turn",
         }
-    }
-
-    /// Whether a block at this stability belongs to the request-local
-    /// `transient` region rather than the cacheable `fixed` prefix.
-    pub fn is_transient(self) -> bool {
-        self == Self::Turn
     }
 }
 
@@ -79,8 +70,6 @@ pub enum Topic {
     ToolDiscipline,
     /// How to explore an unfamiliar workspace with the admitted tools.
     ExplorationProtocol,
-    /// How to delegate to a subagent.
-    Delegation,
     /// That credentials and secrets are never echoed.
     Secrets,
     /// User-authored scoped instructions.
@@ -107,12 +96,6 @@ pub enum Topic {
     UntrustedPolicy,
     /// Dialect-specific output rules from the active provider.
     ProviderDialect,
-    /// Durable memory surfaced for this turn.
-    Memory,
-    /// Content fetched for this turn.
-    Retrieval,
-    /// A directive that applies to this turn only.
-    TurnDirective,
 }
 
 impl Topic {
@@ -122,7 +105,6 @@ impl Topic {
         Topic::Precedence,
         Topic::ToolDiscipline,
         Topic::ExplorationProtocol,
-        Topic::Delegation,
         Topic::Secrets,
         Topic::UserInstructions,
         Topic::OutputLanguage,
@@ -133,9 +115,6 @@ impl Topic {
         Topic::WorkspaceTopology,
         Topic::UntrustedPolicy,
         Topic::ProviderDialect,
-        Topic::Memory,
-        Topic::Retrieval,
-        Topic::TurnDirective,
     ];
 
     /// Short label for the inspection table. Matches the serde wire name so a
@@ -146,7 +125,6 @@ impl Topic {
             Self::Precedence => "precedence",
             Self::ToolDiscipline => "tool_discipline",
             Self::ExplorationProtocol => "exploration_protocol",
-            Self::Delegation => "delegation",
             Self::Secrets => "secrets",
             Self::UserInstructions => "user_instructions",
             Self::OutputLanguage => "output_language",
@@ -157,9 +135,6 @@ impl Topic {
             Self::WorkspaceTopology => "workspace_topology",
             Self::UntrustedPolicy => "untrusted_policy",
             Self::ProviderDialect => "provider_dialect",
-            Self::Memory => "memory",
-            Self::Retrieval => "retrieval",
-            Self::TurnDirective => "turn_directive",
         }
     }
 
@@ -167,9 +142,9 @@ impl Topic {
     pub fn rank(self) -> Rank {
         match self {
             // Data the model may consult but must not obey.
-            Self::UntrustedPolicy | Self::Retrieval => Rank::Untrusted,
+            Self::UntrustedPolicy => Rank::Untrusted,
             // Data the model may consult; never a behavioral rule.
-            Self::SkillCapability | Self::WorkspaceTopology | Self::Memory => Rank::Reference,
+            Self::SkillCapability | Self::WorkspaceTopology => Rank::Reference,
             // Everything else shapes behavior.
             _ => Rank::Directive,
         }
@@ -241,9 +216,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stability_orders_from_frozen_to_turn() {
+    fn stability_orders_from_frozen_to_workspace() {
         let mut bands = vec![
-            Stability::Turn,
             Stability::Workspace,
             Stability::Session,
             Stability::Route,
@@ -257,22 +231,8 @@ mod tests {
                 Stability::Route,
                 Stability::Session,
                 Stability::Workspace,
-                Stability::Turn,
             ]
         );
-    }
-
-    #[test]
-    fn only_turn_stability_is_transient() {
-        assert!(Stability::Turn.is_transient());
-        for stability in [
-            Stability::Frozen,
-            Stability::Route,
-            Stability::Session,
-            Stability::Workspace,
-        ] {
-            assert!(!stability.is_transient(), "{}", stability.label());
-        }
     }
 
     #[test]
@@ -290,7 +250,6 @@ mod tests {
     #[test]
     fn untrusted_rank_is_derived_from_the_topic_not_declared() {
         assert_eq!(Topic::UntrustedPolicy.rank(), Rank::Untrusted);
-        assert_eq!(Topic::Retrieval.rank(), Rank::Untrusted);
         assert_eq!(Topic::ProjectAuthority.rank(), Rank::Directive);
         assert_eq!(Topic::SkillCapability.rank(), Rank::Reference);
     }

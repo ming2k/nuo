@@ -5,7 +5,7 @@ status: accepted
 date: 2026-11-10
 scope: [workspace]
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # ADR-0164: Instructions Are One Pipeline over System and Project Sources
@@ -14,6 +14,7 @@ negative_knowledge: true
 - **Date:** 2026-11-08
 - **Related:** [ADR-0052](0052-unified-instruction-pipeline-pure-role-topology-and-end-to-end-cache-fidelity.md), [ADR-0130](0130-model-guidance-dynamic-prompt-engineering-and-pure-cognitive-demarcation.md), [ADR-0162](0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md)
 - **Amends:** ADR-0130's placement of user route tuning; the terminology of ADR-0052's instruction registry
+- **Amended by:** [ADR-0226](0226-one-renderer-and-one-reader-for-message-envelopes.md) — the lazy subtree project-rules payload shares the one envelope renderer; the one pipeline is unchanged.
 
 > **2026-11-08 Amendment:** [ADR-0165](0165-user-instructions-absorb-model-guidance-as-the-user-source.md)
 > adds the **user** source and removes `[model_guidance]` entirely. The
@@ -144,17 +145,17 @@ time so a link cannot be swapped in between attestation and load.
 
 ## Invariants
 
-- `[INV-INST-01]` **One pipeline.** System and project content render through
+- `[INV-INSTR-01]` **One pipeline.** System and project content render through
   the same registry, tiers, memoization, and protocol projection.
-- `[INV-INST-02]` **No numeric scope priority.** `model` is uniformly a glob;
+- `[INV-INSTR-02]` **No numeric scope priority.** `model` is uniformly a glob;
   composition order is scope rank, selector count, then path.
-- `[INV-INST-03]` **A missing fact never matches a set selector.** A route that
+- `[INV-INSTR-03]` **A missing fact never matches a set selector.** A route that
   cannot name its role/provider/connection/model does not admit scoped content.
-- `[INV-INST-04]` **Project instructions are attested.** The digest covers every
+- `[INV-INSTR-04]` **Project instructions are attested.** The digest covers every
   path the loader reads; symlinks are rejected by both.
-- `[INV-INST-05]` **Roles are first-class.** The active role is part of the
+- `[INV-INSTR-05]` **Roles are first-class.** The active role is part of the
   context; subagents use their profile name and inherit the parent's set.
-- `[INV-INST-06]` **Authoring errors fail loudly.** Unknown keys, malformed
+- `[INV-INSTR-06]` **Authoring errors fail loudly.** Unknown keys, malformed
   frontmatter/patterns, and empty bodies are load errors with the file path.
 
 ## Consequences

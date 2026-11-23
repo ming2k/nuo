@@ -28,7 +28,7 @@ default-members = ["crates/nuo"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.97"
+version = "0.0.98"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -134,54 +134,53 @@ mockito = "1"
 tempfile = "3"
 
 # ACP & Substrates
-acp = { version = "0.0.97", path = "crates/acp" }
-tool = { version = "0.0.97", path = "crates/tool" }
-tool-derive = { version = "0.0.97", path = "crates/tool-derive" }
-provider = { version = "0.0.97", path = "crates/provider" }
-provider-qoder = { version = "0.0.97", path = "crates/provider-qoder" }
-provider-catalog = { version = "0.0.97", path = "crates/provider-catalog" }
-provider-anthropic = { version = "0.0.97", path = "crates/provider-anthropic" }
-provider-google-antigravity = { version = "0.0.97", path = "crates/provider-google-antigravity" }
-provider-openai = { version = "0.0.97", path = "crates/provider-openai" }
-provider-chatgpt-plan = { version = "0.0.97", path = "crates/provider-chatgpt-plan" }
-provider-deepseek = { version = "0.0.97", path = "crates/provider-deepseek" }
-provider-kimi = { version = "0.0.97", path = "crates/provider-kimi" }
-provider-copilot = { version = "0.0.97", path = "crates/provider-copilot" }
-provider-commandcode-goat = { version = "0.0.97", path = "crates/provider-commandcode-goat" }
-provider-opencode-go = { version = "0.0.97", path = "crates/provider-opencode-go" }
-provider-opencode-zen = { version = "0.0.97", path = "crates/provider-opencode-zen" }
-provider-opendesign-go = { version = "0.0.97", path = "crates/provider-opendesign-go" }
-provider-openrouter = { version = "0.0.97", path = "crates/provider-openrouter" }
-provider-xai = { version = "0.0.97", path = "crates/provider-xai" }
-provider-qianwen = { version = "0.0.97", path = "crates/provider-qianwen" }
-provider-glm-cn = { version = "0.0.97", path = "crates/provider-glm-cn" }
-provider-codebuddy = { version = "0.0.97", path = "crates/provider-codebuddy" }
-mcp = { version = "0.0.97", path = "crates/mcp" }
-inference-wire = { version = "0.0.97", path = "crates/inference-wire", default-features = false }
+acp = { version = "0.0.98", path = "crates/acp" }
+tool = { version = "0.0.98", path = "crates/tool" }
+tool-derive = { version = "0.0.98", path = "crates/tool-derive" }
+provider = { version = "0.0.98", path = "crates/provider" }
+provider-qoder = { version = "0.0.98", path = "crates/provider-qoder" }
+provider-catalog = { version = "0.0.98", path = "crates/provider-catalog" }
+provider-anthropic = { version = "0.0.98", path = "crates/provider-anthropic" }
+provider-google-antigravity = { version = "0.0.98", path = "crates/provider-google-antigravity" }
+provider-openai = { version = "0.0.98", path = "crates/provider-openai" }
+provider-chatgpt-plan = { version = "0.0.98", path = "crates/provider-chatgpt-plan" }
+provider-deepseek = { version = "0.0.98", path = "crates/provider-deepseek" }
+provider-kimi = { version = "0.0.98", path = "crates/provider-kimi" }
+provider-copilot = { version = "0.0.98", path = "crates/provider-copilot" }
+provider-commandcode-goat = { version = "0.0.98", path = "crates/provider-commandcode-goat" }
+provider-opencode-go = { version = "0.0.98", path = "crates/provider-opencode-go" }
+provider-opencode-zen = { version = "0.0.98", path = "crates/provider-opencode-zen" }
+provider-opendesign-go = { version = "0.0.98", path = "crates/provider-opendesign-go" }
+provider-openrouter = { version = "0.0.98", path = "crates/provider-openrouter" }
+provider-xai = { version = "0.0.98", path = "crates/provider-xai" }
+provider-qianwen = { version = "0.0.98", path = "crates/provider-qianwen" }
+provider-glm-cn = { version = "0.0.98", path = "crates/provider-glm-cn" }
+provider-codebuddy = { version = "0.0.98", path = "crates/provider-codebuddy" }
+inference-wire = { version = "0.0.98", path = "crates/inference-wire", default-features = false }
 # Dev-only: hermetic E2E harness (sandboxed NUO_HOME, mock provider, CLI
 # runner). Never a shipped dependency; `tests/integration/governance/test_architecture.rs`
 # enforces that it stays under `[dev-dependencies]`.
-test-support = { version = "0.0.97", path = "crates/test-support" }
+test-support = { version = "0.0.98", path = "crates/test-support" }
 
 # Terminal Substrate (Graticule)
 graticule = "0.0.2"
 graticule-canvas = "0.0.2"
 
 # In-house Nuo crates
-protocol = { version = "0.0.97", path = "crates/protocol" }
-nuo = { version = "0.0.97", path = "crates/nuo" }
-server = { version = "0.0.97", path = "crates/server" }
-persistence = { version = "0.0.97", path = "crates/persistence" }
-ui-primitives = { version = "0.0.97", path = "crates/ui-primitives" }
-view = { version = "0.0.97", path = "crates/view" }
-host = { version = "0.0.97", path = "crates/host" }
-engine = { version = "0.0.97", path = "crates/engine" }
-guardrails = { version = "0.0.97", path = "crates/guardrails" }
-model-routing = { version = "0.0.97", path = "crates/model-routing" }
-tool-fs = { version = "0.0.97", path = "crates/tool-fs" }
-tool-exec = { version = "0.0.97", path = "crates/tool-exec" }
-tool-web = { version = "0.0.97", path = "crates/tool-web" }
-tool-ast = { version = "0.0.97", path = "crates/tool-ast" }
+protocol = { version = "0.0.98", path = "crates/protocol" }
+nuo = { version = "0.0.98", path = "crates/nuo" }
+server = { version = "0.0.98", path = "crates/server" }
+persistence = { version = "0.0.98", path = "crates/persistence" }
+ui-primitives = { version = "0.0.98", path = "crates/ui-primitives" }
+view = { version = "0.0.98", path = "crates/view" }
+host = { version = "0.0.98", path = "crates/host" }
+engine = { version = "0.0.98", path = "crates/engine" }
+guardrails = { version = "0.0.98", path = "crates/guardrails" }
+model-routing = { version = "0.0.98", path = "crates/model-routing" }
+tool-fs = { version = "0.0.98", path = "crates/tool-fs" }
+tool-exec = { version = "0.0.98", path = "crates/tool-exec" }
+tool-web = { version = "0.0.98", path = "crates/tool-web" }
+tool-ast = { version = "0.0.98", path = "crates/tool-ast" }
 
 # The root test host links every crate whose public surface the integration
 # and E2E suites exercise. All edges are dev-only; `nuo-tests` is not shipped.
@@ -191,7 +190,6 @@ acp = { workspace = true }
 engine = { workspace = true }
 host = { workspace = true }
 inference-wire = { workspace = true }
-mcp = { workspace = true }
 model-routing = { workspace = true }
 persistence = { workspace = true, features = ["test-path-override"] }
 protocol = { workspace = true }

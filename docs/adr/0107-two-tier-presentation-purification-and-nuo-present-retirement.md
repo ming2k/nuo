@@ -5,7 +5,7 @@ status: accepted
 date: 2026-12-03
 scope: presentation/nuo-ui-primitives, presentation/nuo-view, presentation/nuo-present, host/nuo, workspace/topology, architecture/enforcement
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0107. Two-Tier Presentation Purification: Decoupling Pure UI Primitives, Domain Views, and Retirement of `nuo-present`

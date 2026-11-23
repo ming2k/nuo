@@ -85,10 +85,10 @@ Notice review is elevated to a first-class, client-global dialog:
 
 ## Normative Invariants Established
 
-- `[INV-NOTICE-01]` **Two-Track Notice Decoupling**: Transient keyboard action gates (`Esc`, `Ctrl-C`, copy receipts) MUST NOT enter the persistent notice log. Operational disclosures MUST enter `SurfaceLog` and be viewed through `DialogKind::Notices`.
-- `[INV-NOTICE-02]` **Footer Stack Purity**: `footer_stack` MUST NOT contain notice presentation rows. Operational notice arrival MUST NOT alter footer geometry or reflow transcript lines.
-- `[INV-NOTICE-03]` **Sovereign Global Dialog Scope**: The Notice Center dialog MUST have `DialogScope::Global` so that notice navigation state survives tab switching and scene routing.
-- `[INV-NOTICE-04]` **Non-Intrusive Arrival**: Operational notice arrivals MUST NOT trigger unprompted modal overlays. Modals may only appear on explicit operator request (`Alt-o`, TabBar badge click, or command palette).
+- `[INV-NOTICE-10]` **Two-Track Notice Decoupling**: Transient keyboard action gates (`Esc`, `Ctrl-C`, copy receipts) MUST NOT enter the persistent notice log. Operational disclosures MUST enter `SurfaceLog` and be viewed through `DialogKind::Notices`.
+- `[INV-NOTICE-11]` **Footer Stack Purity**: `footer_stack` MUST NOT contain notice presentation rows. Operational notice arrival MUST NOT alter footer geometry or reflow transcript lines.
+- `[INV-NOTICE-12]` **Sovereign Global Dialog Scope**: The Notice Center dialog MUST have `DialogScope::Global` so that notice navigation state survives tab switching and scene routing.
+- `[INV-NOTICE-13]` **Non-Intrusive Arrival**: Operational notice arrivals MUST NOT trigger unprompted modal overlays. Modals may only appear on explicit operator request (`Alt-o`, TabBar badge click, or command palette).
 
 ## Consequences
 

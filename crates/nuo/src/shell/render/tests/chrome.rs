@@ -13,6 +13,7 @@ fn test_tab_bar() -> TabBarProps<'static> {
         tabs: None,
         active_tab: 0,
         unread_faults: 0,
+        ..TabBarProps::default()
     }
 }
 

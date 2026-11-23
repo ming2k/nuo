@@ -5,7 +5,7 @@ status: accepted
 date: 2026-10-19
 scope: codec/nuo-model-codec, server/nuo-server, provider/nuo-provider-catalog, providers/nuo-provider-opencode-plan, providers/nuo-provider-opencode-zen
 superseded_by: null
-negative_knowledge: true
+negative_knowledge: false
 ---
 
 # 0081. Unidirectional Catalog Pipeline, Structural Display Normalization, and Relay Noise Hygiene
@@ -39,9 +39,9 @@ Nuo supports both native direct providers (OpenAI, Anthropic, DeepSeek) and mult
 
 ## Decision Drivers
 
-1. **Source-Agnostic Ingestion (`[INV-CATALOG-04]`)**: Catalog ingestion must treat input origins (remote HTTP, static compile-time baseline, curated seeds) as pure data providers without coupling ingestion logic to transport mechanics.
-2. **Rule-Based Structural Normalization (`[INV-CATALOG-05]`)**: Replace brittle per-model dictionaries with structural tokenization and lexicon normalization. The normalization pipeline must deterministically lift raw IDs (`deepseek-v4.1-flash`) into polished names (`DeepSeek V4.1 Flash`) with zero per-model code additions.
-3. **Relay Noise Hygiene (`[INV-CATALOG-06]`)**: Ephemeral promotional models and contributor variants must be structurally filtered from primary selection surfaces by default, preserving a clean professional catalog.
+1. **Source-Agnostic Ingestion (`[INV-CATALOGPIPE-01]`)**: Catalog ingestion must treat input origins (remote HTTP, static compile-time baseline, curated seeds) as pure data providers without coupling ingestion logic to transport mechanics.
+2. **Rule-Based Structural Normalization (`[INV-CATALOGPIPE-02]`)**: Replace brittle per-model dictionaries with structural tokenization and lexicon normalization. The normalization pipeline must deterministically lift raw IDs (`deepseek-v4.1-flash`) into polished names (`DeepSeek V4.1 Flash`) with zero per-model code additions.
+3. **Relay Noise Hygiene (`[INV-CATALOGPIPE-03]`)**: Ephemeral promotional models and contributor variants must be structurally filtered from primary selection surfaces by default, preserving a clean professional catalog.
 4. **Sovereign User Overrides Primacy**: The user's explicit configuration (`connection.models.overrides`, `connection.models.include`) must remain the supreme, uncompromised authority across all stages.
 5. **Clean Epistemic Lineage**: Purge legacy external ADR references (``) from code comments and documentation.
 
@@ -49,7 +49,7 @@ Nuo supports both native direct providers (OpenAI, Anthropic, DeepSeek) and mult
 
 ## Architectural Decisions
 
-### 1. [INV-CATALOG-04] Three-Stage Unidirectional Catalog Pipeline
+### 1. [INV-CATALOGPIPE-01] Three-Stage Unidirectional Catalog Pipeline
 The model catalog ingestion and resolution pipeline is formally codified into three strictly decoupled, unidirectional stages:
 
 ```text
@@ -76,7 +76,7 @@ The model catalog ingestion and resolution pipeline is formally codified into th
 └────────────────────────────────────────────────────────┘
 ```
 
-### 2. [INV-CATALOG-05] Rule-Based Structural Display Normalization
+### 2. [INV-CATALOGPIPE-02] Rule-Based Structural Display Normalization
 Abolish manual per-model name dictionaries. In their place, `nuo-inference-wire::catalog` provides deterministic structural normalization, and each provider spec declares its `DisplayPolicy` (ADR-0081) so the *surface*, never the id string shape, decides which normalization applies:
 - `DisplayPolicy::Native` — a curated platform publishes real names; a published label is trusted verbatim (still stripped of `(Thinking)` annotations), and an absent label leaves the surfaces on the wire id.
 - `DisplayPolicy::Structural` — an aggregation relay publishes bare ids, so every label is lifted structurally.
@@ -99,7 +99,7 @@ The mapping is applied exactly once, inside the catalog derivation boundary (`nu
 
 **Which policy a surface declares is a fact about the surface, and it is machine-checked.** `Native` demands that the surface publishes human-readable names; an ids-only relay that declares it invents no label and therefore leaves the raw wire id on every presentation surface — the failure that shipped `deepseek/deepseek-v4.1-flash` (CommandCode) and `nex-agi/nex-n2.5-pro:free` (OpenRouter) in front of users. A per-surface test cannot see a surface that simply declared the wrong policy, because the defect is a *disagreement between two declarations*; the registry-wide invariant `every_registered_surface_renders_its_seeds_without_routing_syntax` (`crates/nuo-server/src/provider_registry/tests.rs`) reads both and fails on any rendered label containing `/` or `:`.
 
-### 3. [INV-CATALOG-06] Relay Noise Hygiene
+### 3. [INV-CATALOGPIPE-03] Relay Noise Hygiene
 Multi-model relay catalogs filter ephemeral, unstable, and promotional identifiers through the `NamedFilterPolicy::Curated` pipe valve, applied by default to surfaces that declare `DisplayPolicy::Structural`. Identifiers satisfying any of the following structural predicates are pruned from default display surfaces:
 - Ending with `-free` or carrying a `:free` tier (ephemeral promotional tier);
 - Ending with `-preview` (unstable staging snapshot);
@@ -118,6 +118,14 @@ generational blacklist ADR-0068 abolished, and it would silently hide a real
 model the day the relay ships one.
 
 **Sovereign Bypass**: The connection's `models.include` list is injected after the filter and therefore bypasses it unconditionally, so an operator who wants a promotional or preview model keeps full control.
+
+### 4. [INV-CATALOGPIPE-04] Routing Syntax Is Never Presentation
+`vendor/` namespaces and OpenRouter-style `:variant` service tiers are routing
+facts, not name parts. Both are absorbed by the structural lift applied to
+*wire ids*; authored labels are only stripped of execution-mode annotations. A
+relay namespace survives into the label solely when it states something the tail
+does not (`meta/muse-spark-1.1` → `Meta Muse Spark 1.1`), decided by the shared
+`BRAND_LEXICON`, so a model added upstream renders without a Nuo release.
 
 ---
 

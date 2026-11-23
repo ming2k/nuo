@@ -506,23 +506,16 @@ pub(crate) fn parse_fallback_web_article(
         .unwrap_or_default();
     let domain = extract_url_host(&url);
 
-    let mut cleaned = output;
-    if let Some(idx) = cleaned.find("[BEGIN UNTRUSTED WEB CONTENT")
-        && let Some(nl) = cleaned[idx..].find('\n')
-    {
-        cleaned = &cleaned[idx + nl + 1..];
-    }
-    if let Some(idx) = cleaned.rfind("[END UNTRUSTED WEB CONTENT]") {
-        cleaned = &cleaned[..idx];
-    }
+    let mut cleaned = tool::untrusted::body_or_whole(output);
     let trimmed = cleaned.trim();
-    let tokens = tool::tokenizer::count_tokens(trimmed);
+    cleaned = trimmed;
+    let tokens = tool::tokenizer::count_tokens(cleaned);
     let truncated = output.contains("kept the first") || output.contains("truncated to fit");
     (
         url,
         None,
         domain,
-        trimmed.to_string(),
+        cleaned.to_string(),
         "Reader".to_string(),
         tokens,
         truncated,

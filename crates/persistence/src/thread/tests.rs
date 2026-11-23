@@ -402,6 +402,7 @@ async fn crash_residue_is_durably_settled_as_abandoned() {
 
     // The classification is durable, not merely in-memory: a fresh store reads
     // the attempt resolved instead of a silently filtered in-flight.
+    store.flush_projection().await.unwrap();
     let reloaded = ThreadSession::for_path(path);
     let records = reloaded.request_usage_records().await;
     assert_eq!(records.len(), 1);
@@ -651,11 +652,6 @@ fn request_projection(round: u64, turn: u64) -> protocol::RequestProjection {
         created_at_ms: 42,
         prefix_fingerprint: format!("sha256:{round:02x}{turn:02x}"),
         conversation_messages: 1,
-        temporary_context_tokens: 7,
-        temporary_context: vec![Message::new(
-            Role::User,
-            "<temporary-context>request-local evidence</temporary-context>",
-        )],
         blocks: Vec::new(),
         drift: protocol::PrefixDrift::None,
     }
@@ -680,30 +676,33 @@ async fn request_projections_persist_outside_the_window() {
         .unwrap();
     assert_eq!(store.request_projections().await.len(), 1);
 
-    // The archive is not the window: E_n never enters model-visible history.
+    // The archive is not the window: recording a projection adds no
+    // model-visible history. The window is exactly the source messages.
     let window = store.model_window().await;
-    assert!(
+    assert_eq!(
         window
             .iter()
-            .all(|m| !m.content.contains("request-local evidence"))
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["hello"],
+        "a request projection must never enter the model window"
     );
 
     // Durable round-trip: the projection survives a reload, still outside the
     // window.
     let reloaded = ThreadSession::for_path(path);
-    let window = reloaded.model_window().await;
-    assert!(
-        window
-            .iter()
-            .all(|m| !m.content.contains("request-local evidence"))
-    );
     let restored = reloaded.request_projections().await;
     assert_eq!(restored.len(), 1);
     assert_eq!(restored[0].prefix_fingerprint, "sha256:0100");
-    assert!(
-        restored[0].temporary_context[0]
-            .content
-            .contains("request-local evidence")
+    assert_eq!(
+        reloaded
+            .model_window()
+            .await
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["hello"],
+        "the archive never becomes the window, even after a reload"
     );
 }
 
@@ -1121,8 +1120,8 @@ async fn incremental_commit_preserves_prior_fts_rows_and_no_duplicates_on_branch
         .await
         .unwrap();
 
-    // Branch save (SaveThreadAggregate) calls persist_thread_facts(..., false)
-    // with the full thread; it must not wipe or duplicate FTS rows.
+    // A branch mutation is a full rewrite frame projected through the
+    // ordinary session writer; it must not wipe or duplicate FTS rows.
     let _branch = store.fork_branch("side", None).await.unwrap();
 
     let mut t3 = t2.clone();
@@ -1132,6 +1131,7 @@ async fn incremental_commit_preserves_prior_fts_rows_and_no_duplicates_on_branch
         .await
         .unwrap();
 
+    store.flush_projection().await.unwrap();
     let reader = store.writer.reader().unwrap();
     let alpha = reader.search_history("alpha_needle_one", None, 10).unwrap();
     assert_eq!(
@@ -1200,4 +1200,197 @@ async fn metadata_setters_preserve_facts_after_branch_switch_and_todos_across_de
     let reloaded_todos = reloaded.todos().await;
     assert_eq!(reloaded_todos.items.len(), 1);
     assert_eq!(reloaded_todos.items[0].content, "keep durable todos");
+}
+
+/// A crash between the journal fsync and the derived projection must not
+/// orphan the session: opening it reads the journal and rebuilds the row.
+#[tokio::test]
+async fn a_journal_head_repairs_a_missing_derived_row() {
+    let dir = temp_dir("journal-repair");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+    store
+        .commit_turn(CommitTurn::new(&[user("durable")], CommitBasis::Appended))
+        .await
+        .unwrap();
+    let id = store.id().await;
+    store.flush_projection().await.unwrap();
+    store.writer.delete_session(id.clone()).await.unwrap();
+
+    let reopened = ThreadSession::for_path(path);
+    assert_eq!(reopened.id().await, id);
+    assert_eq!(reopened.model_window().await.len(), 1);
+    let row = reopened.writer.reader().unwrap().get_session(&id).unwrap();
+    assert!(
+        row.is_some(),
+        "the derived row must be rebuilt from the journal"
+    );
+}
+
+/// Branch cursors and their facts are journal state: deleting the derived
+/// SQLite database must not lose a sibling branch (ADR-0239).
+#[tokio::test]
+async fn branches_reload_from_the_journal_without_sqlite() {
+    let dir = temp_dir("journal-branches");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+    store
+        .replace_messages(vec![
+            user("round 1 user"),
+            assistant("round 1 assistant"),
+            user("round 2 user"),
+            assistant("round 2 assistant"),
+        ])
+        .await
+        .unwrap();
+    let branch = store
+        .fork_at_branch(ForkTarget::Round(1), "round-1")
+        .await
+        .unwrap();
+    let aggregate = store.thread_aggregate().await.unwrap();
+    let main_len = aggregate.path(&protocol::BranchId::main()).unwrap().len();
+    let branch_len = aggregate.path(&branch).unwrap().len();
+    assert_eq!((main_len, branch_len), (4, 2));
+
+    drop(store);
+    let db = dir.join("nuo.db");
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", db.display()));
+    }
+
+    let reopened = ThreadSession::for_path(path);
+    let aggregate = reopened.thread_aggregate().await.unwrap();
+    assert_eq!(
+        aggregate.path(&protocol::BranchId::main()).unwrap().len(),
+        main_len
+    );
+    assert_eq!(aggregate.path(&branch).unwrap().len(), branch_len);
+}
+
+/// A deleted session is terminal: its journal tombstone outranks the derived
+/// row, so reopening the path cannot resurrect it (ADR-0241).
+#[tokio::test]
+async fn a_deleted_session_is_terminal_across_reload() {
+    let dir = temp_dir("journal-delete");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+    store.replace_messages(vec![user("doomed")]).await.unwrap();
+    let old_id = store.id().await;
+    store.delete(&old_id[..8]).await.unwrap();
+
+    let reopened = ThreadSession::for_path(path);
+    assert_ne!(reopened.id().await, old_id);
+    assert!(reopened.model_window().await.is_empty());
+    assert!(
+        open_journal(&reopened.db_path, &old_id).is_deleted(),
+        "the old journal must carry a terminal tombstone"
+    );
+}
+
+/// A wholesale transcript rebuild clears the graph sidecar; a later replay
+/// must not resurrect old branch facts from the previous graph (ADR-0239).
+#[tokio::test]
+async fn a_wholesale_rebuild_drops_the_branch_graph() {
+    let dir = temp_dir("graph-cleared");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+    store
+        .replace_messages(vec![user("one"), assistant("two")])
+        .await
+        .unwrap();
+    store.fork_branch("side", None).await.unwrap();
+    assert!(store.thread_aggregate().await.unwrap().graph.len() >= 2);
+    store
+        .replace_messages(vec![user("replacement")])
+        .await
+        .unwrap();
+    let reopened = ThreadSession::for_path(path);
+    let aggregate = reopened.thread_aggregate().await.unwrap();
+    assert_eq!(
+        aggregate.graph.len(),
+        1,
+        "old branches must not survive a rebuild"
+    );
+    assert_eq!(
+        aggregate.path(&protocol::BranchId::main()).unwrap().len(),
+        1
+    );
+}
+
+/// A crash between the journal fsync and the projection leaves the derived
+/// row missing; the watermark catch-up rebuilds it (ADR-0242).
+#[tokio::test]
+async fn catch_up_repairs_a_missing_derived_row() {
+    let dir = temp_dir("projection-catch-up");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path);
+    store.replace_messages(vec![user("durable")]).await.unwrap();
+    let id = store.id().await;
+    store.flush_projection().await.unwrap();
+    store.writer.delete_session(id.clone()).await.unwrap();
+    assert!(
+        store
+            .writer
+            .reader()
+            .unwrap()
+            .get_session(&id)
+            .unwrap()
+            .is_none()
+    );
+
+    let repaired = catch_up_projections_for(&store.writer).unwrap();
+    assert!(repaired >= 1, "the journal head must rebuild the row");
+    let reader = store.writer.reader().unwrap();
+    assert!(reader.get_session(&id).unwrap().is_some());
+    assert!(reader.projection_watermark(&id).unwrap().is_some());
+}
+
+/// The catalog summary is materialised without reading facts, so the list
+/// picker keeps its count/prompt when content moves to a shard (ADR-0244).
+#[tokio::test]
+async fn catalog_summary_tracks_turns_and_metadata() {
+    let store = store("catalog-summary").await;
+    store
+        .commit_turn(CommitTurn::new(
+            &[user("first prompt"), assistant("first reply")],
+            CommitBasis::Appended,
+        ))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+    let id = store.id().await;
+    let row = |summaries: Vec<crate::thread::ThreadSummary>| {
+        summaries
+            .into_iter()
+            .find(|summary| summary.id == id)
+            .expect("the active session is listed")
+    };
+    let summary = row(store.list().await.unwrap());
+    assert_eq!(summary.message_count, 2);
+    assert_eq!(summary.overview, "first prompt");
+
+    store
+        .commit_turn(CommitTurn::new(
+            &[
+                user("first prompt"),
+                assistant("first reply"),
+                user("second prompt"),
+            ],
+            CommitBasis::Appended,
+        ))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+    let summary = row(store.list().await.unwrap());
+    assert_eq!(summary.message_count, 3);
+    assert_eq!(summary.overview, "second prompt");
+
+    // A metadata-only title update must not erase the materialised summary.
+    store
+        .set_title(Some("Catalog Title".to_string()), true)
+        .await
+        .unwrap();
+    let summary = row(store.list().await.unwrap());
+    assert_eq!(summary.message_count, 3);
+    assert_eq!(summary.title.as_deref(), Some("Catalog Title"));
 }

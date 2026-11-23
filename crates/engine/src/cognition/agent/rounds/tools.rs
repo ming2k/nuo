@@ -551,9 +551,10 @@ fn spool_and_fold_generic_output(call: &ToolCall, text: &str) -> Message {
     };
 
     let spool_path_str = spool_file.display().to_string();
-    let stub_content = format!(
-        "[{name} result]:\n{head_part}\n\n{banner}\n\n{tail_part}\n\n- Spool File: \"{spool_path_str}\"",
-        name = call.name
+    let stub_content = ::tool::tool_result_header::render_with_note(
+        &call.name,
+        &format!("{head_part}\n\n{banner}\n\n{tail_part}"),
+        &format!("- Spool File: \"{spool_path_str}\""),
     );
     Message::tool_result(call, stub_content)
 }
@@ -576,9 +577,10 @@ pub(crate) fn format_tool_result_message(
             let raw_full = tool::tool_output::shell_inner_text(stdout, stderr, *exit);
             let spool_file = write_spool_file(raw_full.as_bytes());
             let spool_path_str = spool_file.display().to_string();
-            let message_content = format!(
-                "[{} result]:\n{}\n\n- Spool File: \"{}\"",
-                call.name, text, spool_path_str
+            let message_content = ::tool::tool_result_header::render_with_note(
+                &call.name,
+                text,
+                &format!("- Spool File: \"{spool_path_str}\""),
             );
             Message::tool_result(call, message_content)
         }
@@ -595,11 +597,11 @@ pub(crate) fn format_tool_result_message(
         | ToolOutput::WebArticle { .. }
         | ToolOutput::Subagent { .. }
         | ToolOutput::Image { .. } => {
-            Message::tool_result(call, format!("[{} result]:\n{}", call.name, text))
+            Message::tool_result(call, ::tool::tool_result_header::render(&call.name, text))
         }
         ToolOutput::Error { .. } | ToolOutput::PermissionDenied { .. } => {
             if text.len() <= GENERIC_TOOL_MAX_ERROR_CHARS {
-                Message::tool_result(call, format!("[{} result]:\n{}", call.name, text))
+                Message::tool_result(call, ::tool::tool_result_header::render(&call.name, text))
             } else {
                 spool_and_fold_generic_output(call, text)
             }
@@ -611,7 +613,7 @@ pub(crate) fn format_tool_result_message(
             let self_bounded_tool =
                 matches!(call.name.as_str(), "read" | "code_query" | "find_files");
             if self_bounded_tool || text.len() <= GENERIC_TOOL_MAX_OUTPUT_CHARS {
-                Message::tool_result(call, format!("[{} result]:\n{}", call.name, text))
+                Message::tool_result(call, ::tool::tool_result_header::render(&call.name, text))
             } else {
                 spool_and_fold_generic_output(call, text)
             }

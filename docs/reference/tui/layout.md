@@ -1,14 +1,14 @@
 # TUI Layout Reference
 
-Factual reference for how `nuo-tui` divides the terminal viewport vertically, the identity of each chrome band, and the design tokens (`crates/nuo-tui/src/design.rs`) that size them.
+Factual reference for how the Nuo shell (`nuo::shell`) divides the terminal viewport vertically, the identity of each chrome band, and the design tokens (`crates/ui-primitives/src/design.rs`) that size them.
 
-This page is the review anchor cited by `crates/nuo-tui/src/footer_stack.rs` (the "flush-ness" of footer rows) — when a token changes, this page must be re-reviewed.
+This page is the review anchor cited by `crates/view/src/footer_stack.rs` (the "flush-ness" of footer rows) — when a token changes, this page must be re-reviewed.
 
 ---
 
 ## 1. Vertical Band Composition
 
-The full-frame entry point is `render::draw_transcript` (`crates/nuo-tui/src/render/mod.rs`). The viewport is composed top-to-bottom from three sovereign zones: the **head band**, the **content body**, and the **footer stack**.
+The full-frame entry point is `render::draw_transcript` (`crates/nuo/src/shell/render/mod.rs`). The viewport is composed top-to-bottom from three sovereign zones: the **head band**, the **content body**, and the **footer stack**.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
@@ -54,7 +54,7 @@ The head band carries three tiers (ADR-0060, ADR-0062). It is a sibling of the c
 
 | Tier | Rows | Domain | Background Token | Left content | Right content |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~0.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix | Status cluster: optional `[!N]` fault badge only (the standing `F1 help` keycap is retired; help discoverability lives in the empty-state tour) |
+| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~0.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix; a hovered pill reveals its close mark, and the strip ends with a reserved `+` (ADR-0235) | Status cluster: optional `[!N]` fault badge only (the standing `F1 help` keycap is retired; help discoverability lives in the empty-state tour) |
 | **SceneBar** | 1 | Scene | `theme.scenebar_bg()` (~8.0% offset) | Scene identity + authentic task title (`THREAD <id_tail> <title>`) | Drill-in breadcrumb stack (`‹ thread › subagent #1 › diff`) |
 | **ThreadContextBar** | 1 on thread / 0 elsewhere | Thread | `theme.contextbar_bg()` (~4.0% offset) | `[ROLE]` badge, then safety posture tokens (`auto`, `open`) — omitted entirely when the session sits in the safe default | Tilde-shortened workspace path, right-anchored and shrinkable |
 
@@ -64,11 +64,41 @@ Scene kinds are a closed set of four destinations plus one reading surface per t
 
 On Monochrome and ANSI-16 profiles, background fills converge safely onto `theme.element_bg`.
 
+The TabBar also owns its own lifecycle (ADR-0235): a hovered pill reveals a `✕` in columns it reserved at rest, the strip ends with a `+` whose three columns are budgeted **before** any title, and a pill whose title overflowed reveals it through one bounded, one-way slide while the pointer rests on it. See §2.1.
+
 The TabBar is the one band whose `tabbar_bg` **bleeds to both terminal edges**: the tier is the shell's own top border, so a broken background fill would read as a tear in the frame. However, internal interactive content is framed with a 1-column margin at both ends (`TABBAR_H_INSET = 1`), preventing tab pills and the right-pinned status cluster from sticking directly against the terminal window's outer border. Adjacent unselected tabs butt seamlessly against each other without separator gaps, disambiguated by alternating background tones (`theme.panel()` and `theme.body()`) to maximize title space in tight terminal geometries. Active tabs take `theme.selected_bg`. The tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before a *present* right-pinned status element, so a truncated rail's `…` / `[▾]` can never butt against the `[!N]` fault badge; with no unread faults the cluster is empty and the reserved gap returns to the rail. The brand fallback (`nuo`, drawn when no tabs are open) is framed on the same terms. The TabBar carries **no standing keycap**: help is discovered through the empty-state carousel's `F1` / `Alt-h` page (ADR-0219), because a permanent keycap spent the row's scarcest budget — tab titles — on a key pressed once.
+
+### 2.1 TabBar Lifecycle Affordances (ADR-0235)
+
+The row is not only a list of workspaces; it is also where they are created and
+closed.
+
+| Affordance | Where | When it is painted | Hit target |
+| :--- | :--- | :--- | :--- |
+| Close (`✕`, `x` on ASCII) | Inside the pill, one column in from its trailing edge | Only while the pointer is on the pill | Mounted only in the frame that painted it, and only for the pill it belongs to |
+| Add (`+`, `[+]` on framed surfaces) | Immediately after the last overflow marker | Always, whenever the row has room for its three reserved columns | Mounted only when it was painted |
+| Title reveal | The hovered pill's title window | Only while the pointer is on a pill whose title overflows | — (pointer-only; the keyboard path is `Alt-w` / `Alt-t`) |
+
+The pill reserves its close columns **at rest**, so hover changes only what is
+painted inside columns that already existed: the pill's rect, the strip's total
+width, and the title window are byte-identical hovered or not. A pill's floor is
+`TAB_PILL_MIN_WIDTH = 8`, which guarantees the reserve always fits — no strip
+geometry can produce a pill the pointer cannot close.
+
+The reveal is **one-way and bounded**: it rests (`TAB_TITLE_MARQUEE_CADENCE.hold_ms`),
+slides toward the tail, and stays there. A focused table row ping-pongs because
+the reader is inspecting a value; a hovered tab title is read once, so snapping
+back would take away the text the reader waited for. While the pass is in flight
+the draw reports `reveal_active`, and the event loop keeps its animation
+heartbeat only for that long — an idle strip costs no frames.
+
+Close is addressed by the pill the pointer names, never by the active tab: the
+pointer names a workspace, and a close that resolved to a different one would
+close a tab the user never pointed at.
 
 The ThreadContextBar reads **who → how → where** left to right, and the workspace is right-anchored for a correctness reason rather than a compositional one: it is the only element that may shrink, so pinning it to the right edge keeps the governance cluster (role + posture) at a fixed screen position. Toggling `/auto-approve` therefore grows the left cluster into the gap instead of re-truncating the path, and a narrow terminal degrades by shortening the path rather than by stealing columns from safety.
 
-Posture is a **closed vocabulary of lowercase tokens**, not sentences, and only deviations from the safe default are drawn (interactive confirmation + workspace-confined file tools). `auto` means tool calls are approved without asking (`--auto-approve` / `/auto-approve on`); `open` means file tools may leave the workspace (`/confinement off`). Lowercase keeps the token from competing with the `[ROLE]` badge, and the bare (unbracketed) form keeps it from reading as a `[2 queued]`-style count. Each token is deliberately self-describing (`auto`, `open` name the state they assert), so the bar needs no tooltip layer; the authoritative long-form wording lives in the slash-command catalog (`BuiltinCmd::SPECS` in `nuo-server`), projected by `/auto-approve on|off` and `/confinement on|off`. Permanent chrome carries tokens only (`[INV-TUI-12]`: no decorative emoji, terse professional tokens).
+Posture is a **closed vocabulary of lowercase tokens**, not sentences, and only deviations from the safe default are drawn (interactive confirmation + workspace-confined file tools). `auto` means tool calls are approved without asking (`--auto-approve` / `/auto-approve on`); `open` means file tools may leave the workspace (`/confinement off`). Lowercase keeps the token from competing with the `[ROLE]` badge, and the bare (unbracketed) form keeps it from reading as a `[2 queued]`-style count. Each token is deliberately self-describing (`auto`, `open` name the state they assert), so the bar needs no tooltip layer; the authoritative long-form wording lives in the slash-command catalog (`BuiltinCmd::SPECS` in `server`), projected by `/auto-approve on|off` and `/confinement on|off`. Permanent chrome carries tokens only (`[INV-TUI-12]`: no decorative emoji, terse professional tokens).
 
 Path shortening uses the shared `PathView` ladder (`Full` → `.../parent/leaf` → fish → basename → middle-truncate), so the **leaf** survives and ancestors are elided — the opposite of tail truncation. `CONTEXT_BAR_WORKSPACE_MIN_COLS` (4) is the ladder's own last stop — the bare leaf, which still names the project — so the floor is set where honest information actually runs out rather than above it. Below that the path is dropped: the bar either names the workspace or stays silent about it.
 
@@ -80,7 +110,7 @@ Every truncation marker comes from `theme.glyphs.ellipsis` (`…` under Unicode,
 
 ## 3. Footer Stack
 
-The footer is a **declarative** stack: the caller lists rows `(id, height)` in draw order and a single `place` pass computes each rect and the total height (`crates/nuo-tui/src/footer_stack.rs`). The row identity enum is exhaustive:
+The footer is a **declarative** stack: the caller lists rows `(id, height)` in draw order and a single `place` pass computes each rect and the total height (`crates/view/src/footer_stack.rs`). The row identity enum is exhaustive:
 
 | `FooterRowId` | Height | Purpose |
 | :--- | :--- | :--- |
@@ -89,13 +119,13 @@ The footer is a **declarative** stack: the caller lists rows `(id, height)` in d
 | `Composer` | adaptive, `COMPOSER_MIN_HEIGHT = 4` | The input box |
 | `ModelBar` | `MODEL_BAR_ROWS = 1` (or 0) | Context usage meter + model identity (the route's catalog-resolved label, name-first / id-fallback per ADR-0081 — never the raw `vendor/model` wire id) |
 
-The rows place flush by construction: the zero-gap tokens (`FOOTER_TOP_GAP_ROWS`, `ACTIVITY_COMPOSER_GAP_ROWS`, `COMPOSER_HINT_GAP_ROWS`, all `0`) mean no gap row is ever inserted between adjacent chrome rows. This flush-ness is the contract asserted by `crates/nuo-tui/src/footer_stack.rs`.
+The rows place flush by construction: the zero-gap tokens (`FOOTER_TOP_GAP_ROWS`, `ACTIVITY_COMPOSER_GAP_ROWS`, `COMPOSER_HINT_GAP_ROWS`, all `0`) mean no gap row is ever inserted between adjacent chrome rows. This flush-ness is the contract asserted by `crates/view/src/footer_stack.rs`.
 
 ---
 
 ## 4. Design Tokens
 
-Sizes come from `crates/nuo-tui/src/design.rs` (non-color tokens). Values below are the source of truth.
+Sizes come from `crates/ui-primitives/src/design.rs` (non-color tokens). Values below are the source of truth.
 
 ### Row counts and heights
 
@@ -127,6 +157,9 @@ Sizes come from `crates/nuo-tui/src/design.rs` (non-color tokens). Values below 
 | :--- | :--- | :--- |
 | `TRANSCRIPT_H_INSET` | 2 | Uniform horizontal inset applied once at the transcript band entry point; also the SceneBar / ThreadContextBar frame gutter |
 | `TABBAR_H_INSET` | 1 | Horizontal inset of the top `TabBar` tier content — leaves 1 column of breathing room at each edge while `tabbar_bg` bleeds full width; tabs butt seamlessly with alternating backgrounds |
+| `TAB_CLOSE_RESERVE` | 2 | Columns every pill reserves after its title for the hover close mark (separator + glyph), so hover never reflows the strip |
+| `TAB_ADD_WIDTH` | 3 | Columns reserved for the trailing add-tab affordance (`" + "` / `"[+]"`), budgeted before any title |
+| `TAB_PILL_MIN_WIDTH` | 8 | Narrowest pill; guarantees the close reserve always fits |
 | `TRANSCRIPT_BODY_LEADING_INDENT` | 2 | Only indent prose adds atop the already-inset band |
 | `FOOTER_H_INSET` | `= TRANSCRIPT_H_INSET` | Same inset inside the footer band |
 | `MODEL_BAR_INNER_PADDING` | 1 | Edge indent of the model-bar cluster |
@@ -146,7 +179,7 @@ Below either minimum, `design::below_minimum(width, height)` is the single autho
 
 ## 5. Viewport Margins
 
-The content body's margins are defined in `crates/nuo-tui/src/primitives.rs`, not `design.rs`:
+The content body's margins are defined in `crates/ui-primitives/src/primitives.rs`, not `design.rs`:
 
 | Token | Value | Meaning |
 | :--- | :--- | :--- |
@@ -154,4 +187,4 @@ The content body's margins are defined in `crates/nuo-tui/src/primitives.rs`, no
 | `VIEWPORT_BOTTOM_MARGIN` | 0 | Content-body bottom margin (the footer pins flush) |
 | `VIEWPORT_H_MARGIN` | 0 | Content-body horizontal margin |
 
-`render::transcript_band_rect` (`crates/nuo-tui/src/render/mod.rs`) is the single point where `TRANSCRIPT_H_INSET` is applied, so no downstream component re-clips or hand-pads a leading gutter.
+`render::transcript_band_rect` (`crates/nuo/src/shell/render/mod.rs`) is the single point where `TRANSCRIPT_H_INSET` is applied, so no downstream component re-clips or hand-pads a leading gutter.

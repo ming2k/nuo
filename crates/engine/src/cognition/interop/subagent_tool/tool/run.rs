@@ -244,9 +244,8 @@ impl SubagentTool {
     /// Phase 2: construct the child agent.
     ///
     /// Resolves the pool (profile selection ⊓ model selection), installs the
-    /// profile identity, the inherited instruction sources, and the
-    /// mission-scoped extension posture, then derives the child execution
-    /// policy from the parent's.
+    /// profile identity and the inherited instruction sources, then derives
+    /// the child execution policy from the parent's.
     pub(super) fn build_child_agent(&self, profile: &protocol::SubAgentProfile) -> Agent {
         // Resolve the pool for this subagent: profile selection ⊓ model selection.
         // The subagent is an agent on the *same* model as the parent, so it carries
@@ -332,21 +331,6 @@ impl SubagentTool {
             .unwrap_or_else(|error| error.into_inner())
             .clone();
         subagent.set_permission_scope(profile.name, child_root);
-
-        // Bind instance-scoped extensions according to the child's mission.
-        match profile.name {
-            "explore" => {
-                subagent.add_extension(std::sync::Arc::new(
-                    crate::runtime::extension::CodeIntelligenceExtension::read_only(),
-                ));
-            }
-            "code" => {
-                subagent.add_extension(std::sync::Arc::new(
-                    crate::runtime::extension::CodeIntelligenceExtension::new(),
-                ));
-            }
-            _ => {}
-        }
 
         let parent_policy = self
             .parent_execution_policy

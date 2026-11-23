@@ -19,7 +19,6 @@ fn compaction_target_accounts_for_projected_request_overhead() {
         total_tokens: 112_000,
         instructions_tokens: 9_000,
         tool_schema_tokens: 3_000,
-        temporary_context_tokens: 0,
     });
 
     assert_eq!(settings.budget.target_tokens, 50_000);

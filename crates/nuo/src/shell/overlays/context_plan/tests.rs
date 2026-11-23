@@ -31,20 +31,10 @@ fn block(id: &str, stability: Stability, tokens: usize) -> PlannedBlockView {
 }
 
 fn plan(blocks: Vec<PlannedBlockView>) -> ContextPlanView {
-    let fixed_tokens = blocks
-        .iter()
-        .filter(|b| b.active && !b.stability.is_transient())
-        .map(|b| b.tokens)
-        .sum();
-    let transient_tokens = blocks
-        .iter()
-        .filter(|b| b.active && b.stability.is_transient())
-        .map(|b| b.tokens)
-        .sum();
+    let fixed_tokens = blocks.iter().filter(|b| b.active).map(|b| b.tokens).sum();
     ContextPlanView {
         blocks,
         fixed_tokens,
-        transient_tokens,
         window_tokens: 200_000,
         instructions_ceiling_tokens: 16_000,
         ..ContextPlanView::default()
@@ -188,7 +178,7 @@ fn the_selected_blocks_body_is_expanded_in_place() {
 #[test]
 fn the_attribution_residual_is_a_row_and_not_a_rounding() {
     let mut plan = plan(vec![block("agent.identity", Stability::Route, 12)]);
-    plan.estimate = Some(RequestTokenEstimate::layered(41_000, 18, 9_412, 0));
+    plan.estimate = Some(RequestTokenEstimate::layered(41_000, 18, 9_412));
     let body = build_context_plan_body(Some(&plan), 0, false, &theme());
     let text = text_of(&body);
     assert!(text.contains("Attribution"), "{text}");

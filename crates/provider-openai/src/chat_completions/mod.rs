@@ -333,7 +333,6 @@ impl OpenAiChatCompletionsProvider {
             .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
         Ok(request::body_with_capabilities(
             &request.messages,
-            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream,
@@ -640,7 +639,6 @@ mod tests {
             protocol::ResolvedCachePolicy::Unsupported;
         request::body(
             &messages,
-            &[],
             request::BodyInput {
                 model: "test-model",
                 stream: false,

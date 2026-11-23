@@ -1,21 +1,23 @@
 //! MCP connector — JSON-RPC transport, server lifecycle, tool adapters, live
 //! connection state, and periodic catalog refresh.
 //!
-//! This is the standalone `mcp` crate of ADR-0060: it owns the stdio
-//! JSON-RPC client, server handles, MCP-to-`Tool` adapters, [`McpRuntime`],
-//! and [`McpCatalog`]. A session (in `server`) owns each runtime because
-//! it controls connection lifetime, user enable/disable/reconnect actions,
-//! and background refresh. The runtime (`nuo-harness`) has no MCP protocol
-//! dependency: discovered tools reach it through the
-//! [`DynamicToolSink`](protocol::DynamicToolSink) port defined in
+//! This module owns the **one** MCP client: the reconnect-capable stdio HTTP
+//! client, the server handles, the MCP-to-`Tool` adapter, [`McpRuntime`], and
+//! [`McpCatalog`]. A session owns each runtime because it controls connection
+//! lifetime, user enable/disable/reconnect actions, and background refresh. The
+//! runtime (`engine`) has no MCP protocol dependency: discovered tools reach it
+//! through the [`DynamicToolSink`](protocol::DynamicToolSink) port defined in
 //! `protocol`, and the agent is both that port's implementor
-//! (`DynamicToolRegistry`) and consumer — the trait object doesn't care
-//! which crate the MCP impl is compiled in.
+//! (`DynamicToolRegistry`) and consumer.
+//!
+//! There is deliberately no second MCP client and no second adapter module
+//! (ADR-0230). The client-facing DTOs live in `protocol::mcp`; the one client
+//! and its stdio/HTTP transports live here, and nothing exports Nuo as an MCP
+//! server (ADR-0234).
 
 mod catalog;
 mod client;
 mod runtime;
-pub mod substrate_bridge;
 
 pub use catalog::McpCatalog;
 pub use client::{
@@ -24,4 +26,3 @@ pub use client::{
     refresh_server_tools, set_attestation_verifier, set_trust_verifier,
 };
 pub use runtime::{McpRuntime, ReconfigureReport};
-pub use substrate_bridge::{adapt_mcp_tool, load_substrate_mcp_tools};

@@ -9,6 +9,17 @@ fn restored_history_hides_harness_messages() {
 }
 
 #[test]
+fn a_restored_checkpoint_becomes_a_compacted_card_not_raw_user_markup() {
+    let restored =
+        transcript_message_from_core(protocol::checkpoint_message("earlier summary")).unwrap();
+    let card = restored
+        .compacted_card_data()
+        .expect("a checkpoint restores as a compacted card");
+    assert_eq!(card.summary, Some("earlier summary"));
+    assert!(!restored.raw.contains("<checkpoint"));
+}
+
+#[test]
 fn restored_history_uses_command_display_content() {
     let message = Message::new(Role::User, "Expanded internal prompt")
         .with_display_content("/review working-tree");
@@ -84,29 +95,33 @@ fn restored_assistant_components_share_their_round_and_turn() {
     assert!(restored.iter().all(|message| message.turn == Some(1)));
 }
 
+/// A restored user message is a chat prompt unless its provenance says
+/// otherwise. There is no shape heuristic: a slash *command* never becomes a
+/// `Message` (it is a command-ledger row), so a `/`-prefixed prompt is simply a
+/// prompt (ADR-0233).
 #[test]
-fn restored_user_message_origin_inferred_from_shape() {
+fn restored_user_message_origin_is_never_inferred_from_text() {
     use view::model::document::UserMessageOrigin;
-    // A genuine chat prompt: no display_content, no leading `!`.
-    let chat = transcript_message_from_core(Message::new(Role::User, "fix the bug")).unwrap();
-    assert_eq!(chat.origin, UserMessageOrigin::Chat);
 
-    // A slash command carries a `display_content` whose text is the literal
-    // `/cmd` (its real content is the harness-expanded form) → Slash.
-    let slash = Message::new(Role::User, "expanded pursue body")
-        .with_display_content("/pursue ship the release");
-    let slash = transcript_message_from_core(slash).unwrap();
-    assert_eq!(slash.origin, UserMessageOrigin::Slash);
+    for text in [
+        "fix the bug",
+        "!ls -la",
+        "/etc is a path",
+        "/etc/hosts is wrong, please look",
+    ] {
+        let restored = transcript_message_from_core(Message::new(Role::User, text)).unwrap();
+        assert_eq!(
+            restored.origin,
+            UserMessageOrigin::Chat,
+            "`{text}` must restore as a chat prompt"
+        );
+    }
 
-    // A prompt starting with `!` is a normal chat prompt
-    let exclamation = transcript_message_from_core(Message::new(Role::User, "!ls -la")).unwrap();
-    assert_eq!(exclamation.origin, UserMessageOrigin::Chat);
-
-    // A genuine prompt that merely *starts* with `/` (no display_content) is
-    // NOT misclassified as a slash command — e.g. "/etc is a path" stays Chat.
-    let path_like =
-        transcript_message_from_core(Message::new(Role::User, "/etc is a path")).unwrap();
-    assert_eq!(path_like.origin, UserMessageOrigin::Chat);
+    // A harness-expanded prompt keeps its display text but is still a prompt.
+    let expanded =
+        Message::new(Role::User, "expanded paste body").with_display_content("/etc/hosts is wrong");
+    let restored = transcript_message_from_core(expanded).unwrap();
+    assert_eq!(restored.origin, UserMessageOrigin::Chat);
 }
 
 #[test]
@@ -124,74 +139,6 @@ fn restored_user_insert_keeps_mid_round_origin_without_opening_a_turn() {
     assert_eq!(restored[1].turn, None);
     assert_eq!(restored[2].round, Some(1));
     assert_eq!(restored[2].turn, Some(2));
-}
-
-#[test]
-fn restored_command_echo_origin_from_durable_provenance() {
-    // ADR-0050: durable slash/shell echoes are persisted as
-    // `Message::command_echo` — a visible user message carrying the
-    // `CommandEcho` provenance. On resume the stored origin is consulted
-    // FIRST (ahead of the shape heuristic), so an echo whose text lacks the
-    // `display_content` / `!` shape signals is still classified as a
-    // non-driving command, never as the round's driving prompt.
-    use view::model::document::UserMessageOrigin;
-
-    // A slash echo: content is the literal `/cmd`, no display_content. The
-    // shape heuristic alone would misread this (no display_content → fall to
-    // the `!` check → fail → Chat). The durable origin must win.
-    let slash_echo = Message::command_echo("/pursue ship it");
-    assert!(slash_echo.is_command_echo());
-    let restored = transcript_message_from_core(slash_echo).unwrap();
-    assert_eq!(
-        restored.origin,
-        UserMessageOrigin::Slash,
-        "durable echo provenance must classify as Slash, not Chat"
-    );
-
-    // A shell echo: content is `!cmd`. Even though the `!` shape heuristic
-    // would also catch it, the origin-first path must handle it too.
-    let shell_echo = Message::command_echo("!ls -la");
-    let restored_shell = transcript_message_from_core(shell_echo).unwrap();
-    assert_eq!(restored_shell.origin, UserMessageOrigin::Slash);
-}
-
-/// A restored slash/shell echo folds into the command ledger
-/// projection — the invocation renders once, on the `⌘` command component,
-/// never twice (a `▌ cmd` user bubble *and* a command row). The echo is
-/// dropped from the dialogue before merge; the ledger row keeps the record.
-#[test]
-fn restored_slash_echoes_fold_into_command_components() {
-    use tool::Role;
-    use view::model::document::UserMessageOrigin;
-
-    let restored = transcript_messages_from_core(
-        vec![
-            Message::new(Role::User, "hello"), // a real prompt: survives
-            Message::new(Role::Assistant, "hi"),
-            // A durable command echo (the legacy live path persisted these).
-            Message::command_echo("/pursue ship it"),
-            // A display-content slash shape (legacy sessions pre-ADR-0050).
-            {
-                let mut m = Message::new(Role::User, "expanded prompt text");
-                m.display_content = Some("/delegate on".to_string());
-                m
-            },
-            Message::new(Role::User, "and me too"), // another real prompt
-        ],
-        &crate::shell::config::TuiConfig::default(),
-    );
-
-    let raws: Vec<&str> = restored.iter().map(|m| m.raw.as_str()).collect();
-    assert_eq!(
-        raws,
-        vec!["hello", "hi", "and me too"],
-        "command echoes must not render as user bubbles; the ledger row owns the invocation"
-    );
-    // The projection builder still classifies them correctly when asked
-    // directly (used by Activity-modal prompt gating) — the fold happens at
-    // the list level, not by breaking classification.
-    let echo = transcript_message_from_core(Message::command_echo("/pursue ship it")).unwrap();
-    assert_eq!(echo.origin, UserMessageOrigin::Slash);
 }
 
 #[test]

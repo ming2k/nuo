@@ -254,7 +254,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
 /// withheld — and its text even *mentions* `image_url`, exactly like a relay
 /// that echoes part of the payload it rejected. That is deliberate: it proves no
 /// amount of vendor prose can latch anything, because only the probe's outcome
-/// is evidence (INV-VISION-6). Were text allowed to decide, this route would
+/// is evidence (INV-PAYLOAD-02). Were text allowed to decide, this route would
 /// silently lose every future image.
 #[tokio::test]
 async fn an_unrelated_refusal_is_not_blamed_on_images() {
@@ -348,4 +348,136 @@ fn image_round_input(prompt: &str, images: Vec<tool::ImagePart>) -> RoundInput {
         images,
         driver: engine::orchestration::RoundDriver::Fresh,
     }
+}
+
+/// A confirmed probe must survive the **next turn of the same round**.
+///
+/// The probe's evidence is that one request succeeded without attachments. A
+/// multi-turn round then assembles the next turn from the same history — and if
+/// that assembly re-adds the images, the round re-fails and the harness reports
+/// "retrying without images did not help" about a hypothesis it had just
+/// confirmed. This is the cross-turn half of the reported failure.
+struct ProbeAcrossTurnsProvider {
+    images_per_request: Arc<Mutex<Vec<usize>>>,
+}
+
+#[async_trait]
+impl Provider for ProbeAcrossTurnsProvider {
+    async fn chat(
+        &self,
+        _request: &protocol::ModelRequest,
+    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+        Err(protocol::ProviderError::new(
+            "mock",
+            protocol::ProviderErrorKind::Other,
+            "non-streaming path should not be used",
+        ))
+    }
+
+    async fn stream_chat(
+        &self,
+        _request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<
+        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+        protocol::ProviderError,
+    > {
+        Ok(Box::pin(stream::empty()))
+    }
+
+    async fn stream_chat_events(
+        &self,
+        request: &protocol::ModelRequest,
+        _telemetry: protocol::TransportTelemetry,
+    ) -> Result<
+        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+        protocol::ProviderError,
+    > {
+        let images = request
+            .messages
+            .iter()
+            .filter_map(|message| message.images.as_ref().map(Vec::len))
+            .sum::<usize>();
+        let attempt = {
+            let mut log = self.images_per_request.lock().unwrap();
+            log.push(images);
+            log.len()
+        };
+        if images > 0 {
+            // The route refuses attachments, in a format the harness has no
+            // knowledge of.
+            return Ok(Box::pin(stream::iter(vec![Err(
+                protocol::ProviderError::new(
+                    "mock",
+                    protocol::ProviderErrorKind::InvalidRequest,
+                    "relay: content part not accepted",
+                )
+                .with_status(400),
+            )])));
+        }
+        if attempt == 2 {
+            // The probe attempt succeeds, but asks for a tool — so the round
+            // has another turn, which is where the re-added images used to
+            // reappear.
+            return Ok(Box::pin(stream::iter(vec![
+                Ok(ProviderStreamEvent::ToolCallDelta {
+                    index: 0,
+                    id: Some("probe-call".to_string()),
+                    name: Some("retry_read".to_string()),
+                    arguments: "{}".to_string(),
+                }),
+                Ok(ProviderStreamEvent::Completed(
+                    protocol::ProviderCompletionMeta::default(),
+                )),
+            ])));
+        }
+        Ok(Box::pin(stream::iter(vec![
+            Ok(ProviderStreamEvent::TextDelta("done".to_string())),
+            Ok(ProviderStreamEvent::Completed(
+                protocol::ProviderCompletionMeta::default(),
+            )),
+        ])))
+    }
+}
+
+#[tokio::test]
+async fn a_confirmed_probe_keeps_withholding_across_the_rounds_next_turn() {
+    let directory = std::env::temp_dir().join(format!("nuo-image-turn2-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).expect("create test directory");
+    let session = Arc::new(ThreadSession::for_path(directory.join("session.json")));
+    let images_per_request = Arc::new(Mutex::new(Vec::new()));
+    let agent = Arc::new(Agent::new(
+        Arc::new(ProbeAcrossTurnsProvider {
+            images_per_request: Arc::clone(&images_per_request),
+        }),
+        vec![Arc::new(super::retry::RetryReadTool(Arc::new(
+            AtomicUsize::new(0),
+        )))],
+        engine::AgentIdentity::default(),
+    ));
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let session_id = session.id().await;
+
+    execute_round(
+        image_round_context(&agent, tx, &session, &session_id),
+        image_round_input(
+            "what is this?",
+            vec![tool::ImagePart {
+                mime: "image/png".to_string(),
+                data: "aGk=".to_string(),
+            }],
+        ),
+    )
+    .await
+    .expect("a confirmed probe must carry into the round's next turn");
+
+    assert_eq!(
+        *images_per_request.lock().unwrap(),
+        vec![1, 0, 0],
+        "the probe withholds for every later turn of the same round"
+    );
+    assert!(
+        agent.images_withheld_from_current_route(),
+        "the completed round is the evidence that latches the route"
+    );
 }

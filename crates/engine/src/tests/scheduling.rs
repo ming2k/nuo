@@ -223,29 +223,22 @@ async fn debug_trace_aggregates_a_full_stream_into_one_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// ADR-0050: non-driving command echoes are durable + visible on resume/export
-/// but must be **projected out before the provider wire**. Model-request
-/// assembly is the single pre-wire funnel; this proves echoes are dropped
-/// while genuine user prompts and assistant messages survive.
+/// A slash command is **not** a conversation message (ADR-0117 §5): the
+/// dispatcher writes a `CommandRecord` and a `RoundEvent::CommandResult`, so no
+/// echo can reach the wire because none is ever admitted. This proves the shape
+/// of that claim at the funnel: the assembly projects exactly the messages it was
+/// given, and a `/`-prefixed **prompt** — a genuine user turn from any client —
+/// survives untouched.
 #[test]
-fn prepare_request_messages_projects_out_command_echoes() {
+fn a_slash_prefixed_prompt_reaches_the_wire() {
     let agent = agent();
     let mut messages: Vec<Message> = vec![
         Message::new(Role::User, "first real prompt"),
-        Message::command_echo("/pursue ship it"),
+        Message::new(Role::User, "/etc/hosts is wrong, please look"),
         Message::new(Role::Assistant, "working on it"),
-        Message::command_echo("!ls -la"),
-        Message::new(Role::User, "second real prompt"),
     ];
     agent.prepare_request_messages_debug(&mut messages);
 
-    // The funnel also prepends a system prompt and removes empty assistant
-    // tails; the ADR-0050 concern is specifically the echo projection. Assert
-    // no echo leaked through and the driving content survived in order.
-    assert!(
-        messages.iter().all(|m| !m.is_command_echo()),
-        "no command echo must leak through model-request assembly: {messages:?}"
-    );
     let contents: Vec<&str> = messages
         .iter()
         .filter(|m| m.role != Role::System)
@@ -253,9 +246,12 @@ fn prepare_request_messages_projects_out_command_echoes() {
         .collect();
     assert_eq!(
         contents,
-        vec!["first real prompt", "working on it", "second real prompt"],
-        "driving prompts + assistant replies must survive in order, \
-         echoes dropped: {contents:?}"
+        vec![
+            "first real prompt",
+            "/etc/hosts is wrong, please look",
+            "working on it"
+        ],
+        "a user prompt beginning with `/` is not a command: {contents:?}"
     );
 }
 

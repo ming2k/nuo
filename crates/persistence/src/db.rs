@@ -672,6 +672,8 @@ pub(crate) enum PersistenceCommand {
         usage_upserts: Vec<protocol::RequestUsageRecord>,
         /// D3 idempotency identity and revision precondition.
         guard: CommitGuard,
+        /// Highest journal seq this projection materialises (ADR-0242).
+        journal_seq: Option<u64>,
         /// The committed session revision (D3); a replay returns the
         /// original receipt rather than a second revision.
         ack: oneshot::Sender<Result<u64, PersistenceError>>,
@@ -744,11 +746,6 @@ pub(crate) enum PersistenceCommand {
         now_ms: u64,
         ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
-    RecordRequestProjection {
-        session_id: String,
-        record: protocol::RequestProjection,
-        ack: oneshot::Sender<Result<(), PersistenceError>>,
-    },
     ProjectUsage {
         ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
@@ -810,13 +807,6 @@ pub(crate) enum PersistenceCommand {
     /// Internal: sent by the supervisor through the writer channel only,
     /// never through the front door.
     RetireEngine { ack: oneshot::Sender<()> },
-    /// Persist a full thread aggregate (branches, cursors, facts) through the
-    /// single writer. Used by branch commands.
-    SaveThreadAggregate {
-        thread: Box<protocol::Thread>,
-        transcript_generation: Option<String>,
-        ack: oneshot::Sender<Result<(), PersistenceError>>,
-    },
     /// Create an online hot backup snapshot using `VACUUM INTO`.
     CreateBackup {
         target_path: PathBuf,

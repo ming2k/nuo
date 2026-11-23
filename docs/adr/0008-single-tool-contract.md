@@ -186,7 +186,7 @@ capability crate. The seven host tools exist **once**, in `nuo-host`.
 - **`[INV-TOOL-12] Factory + Feature Pluggability`**: Tool families are selected
   at the single assembly point via explicit `create_*` factories gated by Cargo
   features. `inventory` is not a cross-crate plugin channel.
-- **`[INV-TOOL-04]` (ADR-0007) and `[INV-TOOL-06]`/`[INV-TOOL-07]` remain binding**:
+- **`[INV-TOOL-04]` (restates ADR-0007) and `[INV-TOOL-06]`/`[INV-TOOL-07]` remain binding**:
   capability ownership, no duplicate identity, single assembly point.
 
 ---

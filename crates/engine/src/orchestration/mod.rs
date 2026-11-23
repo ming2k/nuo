@@ -53,6 +53,7 @@ mod compaction;
 mod execute;
 mod harness_state;
 mod interactive;
+mod payload;
 mod projection;
 mod proxy;
 mod relay;
@@ -67,6 +68,7 @@ pub use self::compaction::{
 pub use self::execute::{RoundCompletion, execute_round};
 pub use self::harness_state::{send_harness_state_for_session, send_harness_state_running};
 pub use self::interactive::{InteractiveRoundContext, start_interactive_round};
+pub use self::payload::{MAX_PAYLOAD_RELIEFS, persist_media_artifacts};
 pub use self::projection::{CompactionReport, ContextProjectionSettings};
 pub use self::proxy::ProxyProvider;
 pub use self::relay::relay_agent_event;

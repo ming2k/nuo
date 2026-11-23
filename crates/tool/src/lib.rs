@@ -31,6 +31,7 @@ pub mod completion;
 pub mod context;
 pub mod document;
 pub mod effect;
+pub mod envelope;
 pub mod error;
 pub mod events;
 pub use events::*;
@@ -49,6 +50,8 @@ pub mod stream;
 pub mod todos;
 pub mod tokenizer;
 pub mod tool_output;
+pub mod tool_result;
+pub mod untrusted;
 pub mod usage;
 pub mod validation;
 pub mod vfs;
@@ -64,6 +67,11 @@ pub use context::{ServiceMap, ServiceMapBuilder, ToolContext, ToolInvocation, To
 pub use document::{DocumentError, DocumentExtractor, ExtractedDocument, PageRange};
 pub use effect::EffectClass;
 pub use effect::reconciling;
+pub use envelope::{
+    Attribute, Envelope, ParsedEnvelope, PromptTag, Tag, escape_attribute, file_loaded,
+    file_rejected, parse as parse_envelope, parse_with_body as parse_envelope_with_body,
+    prompt_block, subagent_result, unescape_attribute,
+};
 pub use error::{Result, ToolError};
 pub use exposure::ToolExposure;
 pub use guard::TrajectoryGuardConfig;
@@ -86,6 +94,8 @@ pub use stream::{
 pub use todos::{MAX_TODOS, TodoId, TodoItem, TodoList, TodoStatus, unix_now};
 pub use tokenizer::{StreamingCounter, Tokenizer, count_tokens, truncate_to_tokens};
 pub use tool_output::{PatchOp, WebSearchHit, normalize_carriage_returns, truncate_utf8};
+pub use tool_result as tool_result_header;
+pub use untrusted as untrusted_content;
 pub use usage::TokenUsage;
 pub use validation::{
     CompiledSchema, PreparedArguments, compile_schema, compile_schema_cached,

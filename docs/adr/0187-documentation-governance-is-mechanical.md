@@ -52,25 +52,54 @@ to a file on disk.
 ### 3. Living docs use current crate names
 
 `README.md`, `README-zh.md`, `docs/explanation/**`, `docs/dev/**`,
-`docs/how-to/**`, `docs/reference/**`, and `docs/tutorials/**` must not name a
-retired crate as a current crate. Historical ADRs may keep the names because
-they describe the state at their date.
+`docs/how-to/**`, `docs/reference/**`, `docs/tutorials/**`, and `docs/rfc/**`
+must not name a retired crate as a current crate. An RFC is a design proposal
+about the present tree, not a dated record of it, so its pointers must resolve
+too. Historical ADRs may keep the names because they describe the state at their
+date.
+
+A line may still name a retired crate when it marks the reference as history
+(`former`, `retired`, `renamed`, `consolidated from`, `predecessor`, `replaced`,
+`deleted`, `pre-consolidation`). Two names are always current: `nuo-tests` (the
+root dev-only test host) and `target/nuo-dev` (the debug sandbox directory).
 
 ### 4. The gate is native Rust
 
-`nuo::dev::docs` implements the checks, and
-`tests/integration/governance/architecture_firewall.rs` runs them. The project
-already replaced Python checkers with native Rust governance (ADR-0111); this
-extends that rule to documentation.
+`tests/integration/governance/architecture_convergence.rs` owns the checks:
+`adr_registry_has_unique_identity_and_valid_frontmatter`,
+`adr_frontmatter_values_are_well_formed`,
+`adr_invariant_tags_have_one_definition_site`,
+`adr_negative_knowledge_flag_is_truthful`, `adr_references_resolve`, and
+`markdown_relative_links_resolve`. `nuo::dev` owns only the workspace-root helper
+and the wire census; there is no `nuo::dev::docs` module. The project already
+replaced Python checkers with native Rust governance (ADR-0111); this extends
+that rule to documentation.
 
 ### 5. Invariants
 
-- **`[INV-DOC-01]` Unique ADR Identity**: Duplicate or missing frontmatter
-  fails the gate.
-- **`[INV-DOC-02]` Resolvable Citation**: A dangling ADR reference or relative
-  link fails the gate.
+- **`[INV-DOC-01]` Unique ADR Identity**: Duplicate or missing frontmatter, an
+  invalid status/date, or a `superseded_by` that does not resolve fails the gate.
+- **`[INV-DOC-02]` Resolvable Citation**: A dangling `ADR-NNNN` reference or
+  relative Markdown link fails the gate.
 - **`[INV-DOC-03]` Current Vocabulary**: A living document that names a
   retired crate fails the gate.
+- **`[INV-DOC-04]` One Invariant Definition**: A tag defined by two unmarked
+  bullets fails the gate. `restates` / `revises` / `reaffirms` / `revokes`
+  bullets keep the tag and are not definitions.
+- **`[INV-DOC-05]` The Negative-Knowledge Flag Is Falsifiable**:
+  `negative_knowledge: true` without an alternatives or negative-knowledge
+  section fails the gate; an ADR that records no rejected alternative sets it to
+  `false`.
+
+### 6. The one-time invariant cleanup
+
+The invariant registry had 40 tags with more than one definition site; 26 of the
+later definitions were genuinely different rules sharing a number. The gate could
+not be added without resolving them, so the same change gives each distinct rule
+its own tag, marks the genuine restatements/revisions, and updates every citation
+that meant the newer rule. This is a correction, not a renumbering of history: the older
+tag keeps the rule it always named; the newer rule gets the tag it should have
+had.
 
 ## Consequences & Trade-offs
 

@@ -91,13 +91,19 @@ impl InjectionOrigin {
     }
 }
 
-/// Closed classifier for every harness injection path. Adding a variant
-/// requires stamping it at the corresponding call site; the enum exhaustiveness
-/// is the design lever that forces every injection to be traceable.
+/// Closed classifier for every harness injection path.
 ///
-/// Each variant maps 1:1 to a concrete injection site in the harness; the
-/// doc-link in each arm is the single source of truth for "where does this
-/// come from".
+/// Each variant maps 1:1 to a concrete injection site; the `Site:` note in each
+/// arm is the single source of truth for "where does this come from", and a
+/// governance scan (`[INV-INJECT-01]`) fails the build if a variant has no
+/// production constructor. That scan, not this comment, is the enforcement: a
+/// declaration surface whose only guarantee is a doc comment accumulates dead
+/// members.
+///
+/// There is deliberately no `#[serde(other)]` fallback. A persisted row written
+/// by a newer build names a kind this build cannot classify, and guessing (as
+/// `Unknown`) would lose the one fact the classifier exists to carry. The
+/// durable schema version is the compatibility lever.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InjectionKind {
@@ -108,6 +114,10 @@ pub enum InjectionKind {
     Hook(HookEventKind),
     /// Inter-agent steering note (`AgentOp::InterAgentMessage`, codex
     /// `InterAgentCommunication` analogue). Site: `Agent::drain_inbox`.
+    ///
+    /// The body is authored by **another agent**, not by this session's user, so
+    /// it travels inside an `<untrusted origin="foreign">` region (ADR-0228).
+    /// The provenance names the sender; the framing names the trust.
     InterAgent,
     /// Visible parent→child steering payload (`AgentOp::InjectUserMessage`,
     /// codex `inject_if_running` analogue). Site: `Agent::drain_inbox`.
@@ -122,11 +132,6 @@ pub enum InjectionKind {
     /// `SubagentSteer`, this opens the child transcript rather than steering an
     /// already-running child. Site: `SubagentTool::run`.
     SubagentTask,
-    /// Legacy: the transcript snapshot once handed to the bounded
-    /// session-review subagent (the `/review` diagnostic, now retired). No
-    /// production site constructs it anymore; the variant stays so old
-    /// session files carrying injected rows still deserialize.
-    SessionReviewInput,
     /// Implicit skill auto-load: the latest user round mentioned a skill name,
     /// so the skill body was injected in-context. Site:
     /// `nuo-harness`'s conversation-context skill-injection policy.
@@ -137,10 +142,6 @@ pub enum InjectionKind {
     /// `ImplicitSkill` for source files. Site: `nuo-harness`'s
     /// conversation-context file-injection policy.
     ImplicitFile,
-    /// System-prompt assembly: the harness rebuilt the head system message
-    /// from live identity, model/provider, and tool state through the agent's
-    /// compiled context policy (ADR-0215).
-    SystemPrompt,
     /// Built-in anti-anchoring nudge fired by the deterministic read-loop guard
     /// when the model repeats the same read (a single page or a two-page thrash)
     /// without progress. Detection is pure signature bookkeeping — no model call
@@ -163,29 +164,54 @@ pub enum InjectionKind {
     /// `execute_round`'s `input.hidden` branch.
     #[serde(alias = "hidden_turn_input")]
     HiddenRoundInput,
-    /// A non-driving command echo: the literal text of a user invocation that
-    /// is recorded in the durable transcript for resume/export/audit
-    /// faithfulness but is **never sent to the model**. Covers commands
-    /// (e.g. `/session …`) which the harness handles directly without an LLM
-    /// roundtrip. Distinct from `HiddenRoundInput` (which *is* a driving
-    /// hidden prompt): a `CommandEcho` carries no instruction for the model.
-    /// Projected out before the wire by model-request assembly.
-    /// Site: `handlers_slash::dispatch`. (ADR-0050.)
-    CommandEcho,
     /// A user-role image companion projected from a tool result for providers
     /// that accept image inputs. Site: `conversation_context::tool_image`.
     ToolImage,
-    /// An **authoritative** harness directive wrapped in a `<system-reminder>`
-    /// block. Unlike the stable head `SystemPrompt`, a system reminder is
-    /// event-driven and mid-turn: it carries a transient, situation-specific
-    /// instruction the model MUST follow (it may override normal behavior —
-    /// e.g. "you are now read-only"). (ADR-0068.)
-    SystemReminder,
-    /// User-provided or foreign task data wrapped in an `<untrusted_…>` block
-    /// (objective text, pasted content) that the model must treat as **data,
-    /// not instructions** — it must not override system messages, tool schemas,
-    /// or permission rules. (ADR-0068.)
-    UntrustedDirective,
+}
+
+impl InjectionKind {
+    /// Every variant, for exhaustive tests and the governance scan.
+    ///
+    /// `Hook` carries a `HookEventKind`, so one representative is listed: the
+    /// scan asks "is this variant constructed anywhere", not "is every payload
+    /// exercised". Exhaustiveness is compile-enforced by the match below — a new
+    /// variant without a line here does not build.
+    pub const ALL: &'static [InjectionKind] = &[
+        InjectionKind::Hook(HookEventKind::SessionStart),
+        InjectionKind::InterAgent,
+        InjectionKind::SubagentSteer,
+        InjectionKind::UserSteer,
+        InjectionKind::SubagentTask,
+        InjectionKind::ImplicitSkill,
+        InjectionKind::ImplicitFile,
+        InjectionKind::LoopReviewNudge,
+        InjectionKind::CompactionCheckpoint,
+        InjectionKind::ProjectRulesDelta,
+        InjectionKind::HiddenRoundInput,
+        InjectionKind::ToolImage,
+    ];
+
+    /// The wire/storage tag a variant serialises under.
+    ///
+    /// Used by the governance scan to find the variant's `Site:` constructor and
+    /// by diagnostics that need a stable word per kind. One owner for the
+    /// spelling, so a rename is one edit.
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Hook(_) => "hook",
+            Self::InterAgent => "inter_agent",
+            Self::SubagentSteer => "subagent_steer",
+            Self::UserSteer => "user_steer",
+            Self::SubagentTask => "subagent_task",
+            Self::ImplicitSkill => "implicit_skill",
+            Self::ImplicitFile => "implicit_file",
+            Self::LoopReviewNudge => "loop_review_nudge",
+            Self::CompactionCheckpoint => "compaction_checkpoint",
+            Self::ProjectRulesDelta => "project_rules_delta",
+            Self::HiddenRoundInput => "hidden_round_input",
+            Self::ToolImage => "tool_image",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -391,30 +417,8 @@ impl Message {
         message
     }
 
-    /// Construct a **non-driving** command echo: a visible (`hidden = false`)
-    /// user message stamped with the `CommandEcho` provenance. Recorded in the
-    /// durable transcript for resume/export/audit faithfulness but projected
-    /// out before the provider wire (see model-request assembly, ADR-0050).
-    /// Unlike [`Message::injected`] it is *visible* — the echo must show on
-    /// resume — and unlike a driving prompt it never reaches the model.
-    pub fn command_echo(text: impl Into<String>) -> Self {
-        let mut message = Self::new(Role::User, text);
-        message.origin = Some(InjectionOrigin::new(InjectionKind::CommandEcho));
-        message
-    }
-
-    /// Whether this message is a non-driving command echo — recorded durably
-    /// for resume/export but excluded from the provider wire and from
-    /// compaction turn-counting. The single predicate consulted at both the
-    /// wire funnel and `select_compaction`; keep them in sync (ADR-0050).
-    pub fn is_command_echo(&self) -> bool {
-        self.origin
-            .as_ref()
-            .is_some_and(|o| o.kind == InjectionKind::CommandEcho)
-    }
-
     /// Whether this message opens a user round (as opposed to a mid-round
-    /// harness injection such as `ToolImage`, `SystemReminder`, `LoopReviewNudge`,
+    /// mid-round harness injection such as `ToolImage`, `LoopReviewNudge`,
     /// `ProjectRulesDelta`, `ImplicitFile`, `ImplicitSkill`, etc.).
     pub fn opens_user_round(&self) -> bool {
         if self.role != Role::User {

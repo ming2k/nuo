@@ -196,12 +196,12 @@ pub(crate) fn normalize_code_content(
     let mut header_start_line: Option<usize> = None;
     let mut detected_path: Option<String> = arg_path;
 
-    // 1. Strip leading tool-result envelope marker (e.g. `[read result]:`) if present
-    if let Some(first_idx) = lines.iter().position(|l| !l.trim().is_empty()) {
-        let first = lines[first_idx].trim();
-        if first.starts_with('[') && first.ends_with("result]:") {
-            lines.drain(..=first_idx);
-        }
+    // 1. Strip a leading tool-result header via the one shared reader. Matching
+    //    on a local suffix re-derived the format and drifted from it (ADR-0227).
+    if let Some(first_idx) = lines.iter().position(|l| !l.trim().is_empty())
+        && tool::tool_result_header::is_tool_result(lines[first_idx])
+    {
+        lines.drain(..=first_idx);
     }
 
     // 2. Strip leading `[Lines <start>-<end> of <total> from <path>]` model-facing framing

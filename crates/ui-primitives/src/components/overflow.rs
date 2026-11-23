@@ -61,8 +61,8 @@ pub enum Overflow {
     /// breadcrumbs, where the leaf is the identity.
     Start,
     /// Slide a window of `budget` columns through the string, starting `offset`
-    /// columns in. Paints no ellipsis: the text is not being shortened, it is
-    /// being **revealed**. Reserved for the focused row
+    /// columns in. A hidden head is disclosed with a leading marker; the text
+    /// is not shortened, it is **revealed**. Reserved for the focused row
     /// (`[INV-TUI-MARQUEE-01]`).
     Window { offset: usize },
 }
@@ -499,6 +499,50 @@ impl Default for MarqueeCadence {
     }
 }
 
+/// Duration of one complete reveal pass: rest at the head, slide to the tail,
+/// rest there, slide back, rest again. [`marquee_offset`] wraps at this
+/// boundary.
+pub fn marquee_cycle_len(max_offset: usize, cadence: MarqueeCadence) -> u64 {
+    if max_offset == 0 {
+        return 0;
+    }
+    let travel = max_offset as u64 * cadence.step_ms.max(1);
+    cadence.hold_ms + travel + cadence.tail_hold_ms + travel + cadence.tail_hold_ms
+}
+
+/// The offset of a **one-way** reveal at `elapsed_ms`: rest, then slide toward
+/// the tail and stay there.
+///
+/// This is the TabBar's hover reveal (ADR-0235 `[INV-TAB-15]`). A focused row's
+/// window ping-pongs because the reader is inspecting a value; a *hovered tab
+/// title* is read once — the user wants the part truncation hid — so the slide
+/// stops at the tail instead of travelling back. Both forms share the cadence
+/// type, the marker discipline, and the offset arithmetic, so they cannot drift
+/// apart.
+///
+/// Returns `0` when nothing overflows.
+pub fn marquee_reveal_offset(max_offset: usize, elapsed_ms: u64, cadence: MarqueeCadence) -> usize {
+    if max_offset == 0 {
+        return 0;
+    }
+    let step = cadence.step_ms.max(1);
+    if elapsed_ms < cadence.hold_ms {
+        return 0;
+    }
+    ((((elapsed_ms - cadence.hold_ms) / step) as usize) + 1).min(max_offset)
+}
+
+/// Duration of the one-way reveal: rest plus travel. A surface that reveals once
+/// per hover compares elapsed time against this to know when the pass is over,
+/// so its animation heartbeat can stop with the motion instead of re-deriving
+/// the arithmetic ([`marquee_reveal_offset`]).
+pub fn marquee_reveal_len(max_offset: usize, cadence: MarqueeCadence) -> u64 {
+    if max_offset == 0 {
+        return 0;
+    }
+    cadence.hold_ms + max_offset as u64 * cadence.step_ms.max(1)
+}
+
 /// The window offset for a focused cell at `elapsed_ms`, ping-ponging between
 /// the head and the tail so the reader sees both ends without the text ever
 /// jumping.
@@ -512,7 +556,7 @@ pub fn marquee_offset(max_offset: usize, elapsed_ms: u64, cadence: MarqueeCadenc
     let step = cadence.step_ms.max(1);
     let travel = max * step;
     let forward = cadence.hold_ms + travel + cadence.tail_hold_ms;
-    let cycle = forward + travel + cadence.tail_hold_ms;
+    let cycle = marquee_cycle_len(max_offset, cadence);
 
     let t = elapsed_ms % cycle;
     if t < cadence.hold_ms {
@@ -822,6 +866,36 @@ mod tests {
         let max = 20usize;
         for t in (0..20_000).step_by(37) {
             assert!(marquee_offset(max, t, cadence) <= max, "t={t}");
+        }
+    }
+
+    #[test]
+    fn a_one_way_reveal_rests_then_slides_and_stops_at_the_tail() {
+        // The TabBar's hover reveal (ADR-0235 `[INV-TAB-15]`): one pass toward
+        // the tail, then it stays there. Sliding back would take away the text
+        // the reader waited for.
+        let cadence = MarqueeCadence::default();
+        let max = 20usize;
+        assert_eq!(marquee_reveal_offset(max, 0, cadence), 0);
+        assert_eq!(marquee_reveal_offset(max, cadence.hold_ms - 1, cadence), 0);
+        assert_eq!(marquee_reveal_offset(max, cadence.hold_ms, cadence), 1);
+        let pass = marquee_reveal_len(max, cadence);
+        assert_eq!(
+            marquee_reveal_len(0, cadence),
+            0,
+            "nothing overflows, nothing is owed"
+        );
+        assert_eq!(pass, cadence.hold_ms + max as u64 * cadence.step_ms);
+        assert_eq!(
+            marquee_reveal_offset(max, pass, cadence),
+            max,
+            "the pass ends on the true tail"
+        );
+        for t in (0..20_000).step_by(37) {
+            assert!(
+                marquee_reveal_offset(max, t, cadence) <= max,
+                "a reveal never travels past the end: t={t}"
+            );
         }
     }
 

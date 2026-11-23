@@ -1,9 +1,10 @@
-//! Usage projection batching and request projection archiving.
+//! Usage projection batching.
 //!
-//! Handles token usage materialization into `usage_contributions` and `request_projections` retention.
+//! Handles token usage materialization into `usage_contributions`. Request
+//! projections are a file ring beside the journal, never a table (ADR-0240).
 use rusqlite::{Connection, Result, TransactionBehavior, params};
 
-use super::{MAX_RETAINED_REQUEST_PROJECTIONS, decode_json};
+use super::decode_json;
 
 /// Batch project dirty usage records into aggregated contributions.
 pub(crate) fn project_usage_batch(conn: &Connection, limit: usize) -> Result<usize> {
@@ -83,71 +84,4 @@ pub(crate) fn project_usage_batch(conn: &Connection, limit: usize) -> Result<usi
     }
     tx.commit()?;
     Ok(prepared.len())
-}
-
-/// Insert or replace one request-projection record. Keyed by
-/// `(session, round, turn)`, so a re-recorded logical invocation replaces
-/// its row. After the insert, the per-session archive is trimmed to the
-/// newest [`MAX_RETAINED_REQUEST_PROJECTIONS`] rows.
-pub(crate) fn insert_request_projection(
-    conn: &Connection,
-    session_id: &str,
-    record: &protocol::RequestProjection,
-) -> Result<()> {
-    let payload = serde_json::to_string(record)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-    conn.prepare_cached(
-        "INSERT OR REPLACE INTO request_projections
-            (thread_id, round, turn, created_at_ms, payload)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-    )?
-    .execute(params![
-        session_id,
-        record.round as i64,
-        record.turn as i64,
-        record.created_at_ms as i64,
-        payload,
-    ])?;
-    conn.prepare_cached(
-        "DELETE FROM request_projections
-         WHERE thread_id = ?1
-           AND rowid NOT IN (
-               SELECT rowid FROM request_projections
-               WHERE thread_id = ?1
-               ORDER BY created_at_ms DESC, rowid DESC
-               LIMIT ?2
-           )",
-    )?
-    .execute(params![session_id, MAX_RETAINED_REQUEST_PROJECTIONS as i64])?;
-    Ok(())
-}
-
-/// Load a session's request-projection archive in capture order, oldest
-/// first, capped at `limit`. Undecodable payloads are skipped with a log,
-/// never surfaced as history.
-pub(crate) fn load_request_projections(
-    conn: &Connection,
-    session_id: &str,
-    limit: usize,
-) -> Result<Vec<protocol::RequestProjection>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT payload FROM request_projections WHERE thread_id = ?1
-         ORDER BY created_at_ms ASC, rowid ASC LIMIT ?2",
-    )?;
-    let rows = stmt.query_map(params![session_id, limit as i64], |row| {
-        row.get::<_, String>(0)
-    })?;
-    let mut records = Vec::new();
-    for payload in rows {
-        let payload = payload?;
-        match serde_json::from_str(&payload) {
-            Ok(record) => records.push(record),
-            Err(error) => tracing::warn!(
-                session = %session_id,
-                error = %error,
-                "request projection payload undecodable; skipped"
-            ),
-        }
-    }
-    Ok(records)
 }

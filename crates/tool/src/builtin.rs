@@ -24,6 +24,10 @@ pub enum BuiltinTool {
     RecallMemory,
     CodeQuery,
     ToolSearch,
+    /// Load one skill's body into the conversation (`use_skill`).
+    UseSkill,
+    /// List the declared skills (`list_skills`).
+    ListSkills,
 }
 
 impl BuiltinTool {
@@ -43,6 +47,8 @@ impl BuiltinTool {
         BuiltinTool::RecallMemory,
         BuiltinTool::CodeQuery,
         BuiltinTool::ToolSearch,
+        BuiltinTool::UseSkill,
+        BuiltinTool::ListSkills,
     ];
 
     /// The canonical wire and capability name of this tool.
@@ -62,6 +68,8 @@ impl BuiltinTool {
             Self::RecallMemory => "recall_memory",
             Self::CodeQuery => "code_query",
             Self::ToolSearch => "tool_search",
+            Self::UseSkill => "use_skill",
+            Self::ListSkills => "list_skills",
         }
     }
 
@@ -85,6 +93,9 @@ impl BuiltinTool {
             Self::RecallMemory => &["memory", "recall"],
             Self::CodeQuery => &["outline", "symbols", "ast"],
             Self::ToolSearch => &["search_tools", "find_tools"],
+            // Skill loading has no foreign spelling: `@name` in a request is the
+            // user-facing mention grammar, not a tool alias (ADR-0230).
+            Self::UseSkill | Self::ListSkills => &[],
         }
     }
 

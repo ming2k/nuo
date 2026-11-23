@@ -98,14 +98,9 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
     if let Some(instructions) = input.instructions
         && !instructions.is_empty()
     {
-        // Emit stable static prefix (Base, Session, Task) followed by ephemeral nudges (ADR-0052, [INV-INST-03])
-        let static_text = instructions.render_fixed().to_owned();
+        let static_text = instructions.0.clone();
         if !static_text.is_empty() {
             system.push(static_text);
-        }
-        let ephemeral_text = instructions.render_transient().to_owned();
-        if !ephemeral_text.is_empty() {
-            system.push(ephemeral_text);
         }
     }
     let mut contents: Vec<Value> = Vec::new();

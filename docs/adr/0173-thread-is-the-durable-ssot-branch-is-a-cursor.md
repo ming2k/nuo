@@ -138,9 +138,9 @@ helper that projects a `RequestView`.
 
 ## Invariants
 
-- **INV-THREAD-01** — `Thread` is the only durable conversation SSOT.
-- **INV-THREAD-02** — Projections never write back into facts.
-- **INV-THREAD-03** — `ThreadRuntime` is rebuildable from `ThreadStore`.
+- **INV-THREADSSOT-01** — `Thread` is the only durable conversation SSOT.
+- **INV-THREADSSOT-02** — Projections never write back into facts.
+- **INV-THREADSSOT-03** — `ThreadRuntime` is rebuildable from `ThreadStore`.
 - **INV-THREAD-04** — One runtime authority per `(thread, branch)`.
 - **INV-THREAD-05** — `Client` never owns facts.
 - **INV-THREAD-06** — `TranscriptView` has no durable store or separate resume
@@ -152,7 +152,7 @@ helper that projects a `RequestView`.
 - **INV-BRANCH-03** — Compaction is branch-scoped.
 - **INV-BRANCH-04** — A fact is GC-eligible only when unreachable from every
   branch live path.
-- **INV-FOLD-01** — Request folding is a view transform, never a fact.
+- **INV-FOLDVIEW-01** — Request folding is a view transform, never a fact.
 - **INV-BLOB-01** — Large payloads live in CAS; facts hold `BlobRef`s.
 - **INV-BLOB-02** — GC never deletes a referenced blob.
 - **INV-REQUEST-01** — `RequestBuilder` is the only request path.

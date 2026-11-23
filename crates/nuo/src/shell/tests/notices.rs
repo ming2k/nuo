@@ -247,7 +247,7 @@ fn a_local_fault_takes_the_same_path_as_a_routed_notice() {
 
 #[test]
 fn the_log_survives_a_scene_switch() {
-    // `[INV-NOTICE-02]`: a fault is a fact about the client, so leaving the
+    // `[INV-NOTICE-01]`: a fault is a fact about the client, so leaving the
     // thread must not discard the record the user is about to go looking for.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     disclose(
@@ -846,7 +846,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
     });
     let with_notice_text = frame_text(&terminal);
 
-    // Invariant [INV-NOTICE-02]: arriving notice does NOT alter footer or displace composer
+    // Invariant [INV-NOTICE-11]: arriving notice does NOT alter footer or displace composer
     assert!(initial_text.contains('›'));
     assert!(with_notice_text.contains('›'));
     assert!(!app.notice_viewer_open());

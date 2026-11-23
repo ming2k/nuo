@@ -539,7 +539,7 @@ async fn subagent_head_system_message_has_no_dead_task_line() {
         .unwrap()
         .clone()
         .expect("subagent request captured");
-    let system_content = request.instructions.fixed.clone();
+    let system_content = request.instructions.0.clone();
     assert!(
         system_content.starts_with("You are a delegated research subagent"),
         "system instructions should open with the SubAgentProfile::EXPLORE task prompt"

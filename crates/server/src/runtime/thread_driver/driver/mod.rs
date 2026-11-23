@@ -624,10 +624,17 @@ impl DriverCtx {
                 protocol::JobState::TimedOut { .. } => "timed_out",
                 _ => "completed",
             };
-            let text = format!(
-                "<subagent_result job_id=\"{}\" role=\"{}\" description=\"{}\" status=\"{}\">\n{}\n</subagent_result>",
-                entry.outcome.job_id.0, role, description, status, entry.outcome.summary
-            );
+            // The description is parent-model-authored and the summary is the
+            // child's; neither may shape the message. One renderer, escaped
+            // attributes, neutralized body (ADR-0226).
+            let text = tool::subagent_result(
+                &entry.outcome.job_id.0,
+                role,
+                description,
+                status,
+                &entry.outcome.summary,
+            )
+            .render();
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

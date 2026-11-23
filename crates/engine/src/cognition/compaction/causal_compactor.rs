@@ -141,7 +141,10 @@ impl CausalCompactor {
         });
         let mut summary_context = extra_context;
         if let Some(todos) = &todo_context {
-            summary_context.push(format!("<active_todo_list>\n{todos}\n</active_todo_list>"));
+            summary_context.push(tool::envelope::prompt_block(
+                tool::PromptTag::ActiveTodoList,
+                todos,
+            ));
         }
 
         let summary = match provider {
@@ -256,8 +259,10 @@ fn build_deterministic_excerpt(
     for fact in facts {
         if let FactPayload::Message { message } = &fact.payload
             && message.role == Role::User
-            && !message.content.starts_with("[Conversation")
-            && !message.is_command_echo()
+            && !message
+                .origin
+                .as_ref()
+                .is_some_and(|origin| origin.kind == tool::InjectionKind::CompactionCheckpoint)
         {
             user_count += 1;
             let snippet = if message.content.len() > 300 {
@@ -375,6 +380,38 @@ mod tests {
             _ => None,
         });
         assert_eq!(kept_user, Some("User message 3"));
+    }
+
+    #[tokio::test]
+    async fn deterministic_excerpt_omits_checkpoints_by_provenance() {
+        let mut thread = thread_with_rounds(2);
+        thread
+            .append(
+                FactPayload::Message {
+                    message: protocol::checkpoint_message("archived summary body"),
+                },
+                FactContext::turn(3, 0),
+                2_000,
+            )
+            .unwrap();
+
+        let outcome = CausalCompactor::compact_thread(
+            &mut thread,
+            &BranchId::main(),
+            None,
+            CompactionCutMode::TargetTokens(10),
+            Vec::new(),
+            None,
+            0,
+        )
+        .await
+        .unwrap()
+        .expect("the budget must cut");
+
+        // The checkpoint is a user-role message, but it is not a user prompt:
+        // provenance decides, not the bytes.
+        assert!(!outcome.summary.contains("archived summary body"));
+        assert!(outcome.summary.contains("User message 1"));
     }
 
     #[tokio::test]

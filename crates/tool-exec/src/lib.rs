@@ -145,6 +145,24 @@ impl ExecuteCommandTool {
             }
         };
 
+        configure_noninteractive_env(&mut cmd);
+
+        #[cfg(unix)]
+        {
+            // SAFETY: `setsid` is async-signal-safe and performs no allocation.
+            // It establishes the child as its own session and process-group
+            // leader (`PGID == PID`) and detaches from any controlling terminal
+            // (`/dev/tty`), preventing interactive prompts or orphaned descendants.
+            unsafe {
+                cmd.pre_exec(|| {
+                    if libc::setsid() == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
+
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
         cmd.kill_on_drop(true);
@@ -152,6 +170,7 @@ impl ExecuteCommandTool {
         let mut child = cmd.spawn().map_err(|err| {
             ToolError::execution(self.name(), format!("failed to spawn process: {err}"))
         })?;
+        let mut pg_guard = ProcessGroupGuard::new(&child);
 
         // If prefilled data provided, write it out and close stdin immediately
         if let Some(data) = prefilled_data
@@ -264,20 +283,16 @@ impl ExecuteCommandTool {
         }
 
         let (exit_code, termination) = if cancel_halt {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            terminate_child(&mut child, &mut pg_guard).await;
             (None, ShellTermination::Cancelled)
         } else if wall_clock_halt {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            terminate_child(&mut child, &mut pg_guard).await;
             (None, ShellTermination::Timeout)
         } else if idle_halt {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            terminate_child(&mut child, &mut pg_guard).await;
             (None, ShellTermination::IdleBlocked)
         } else if flood_halt {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            terminate_child(&mut child, &mut pg_guard).await;
             (None, ShellTermination::StreamGuard)
         } else {
             let sleep_idle = async {
@@ -291,24 +306,22 @@ impl ExecuteCommandTool {
                 biased;
 
                 _ = cancel_token.cancelled() => {
-                    let _ = child.kill().await;
-                    let _ = child.wait().await;
+                    terminate_child(&mut child, &mut pg_guard).await;
                     (None, ShellTermination::Cancelled)
                 }
 
                 _ = tokio::time::sleep_until(wall_clock_deadline) => {
-                    let _ = child.kill().await;
-                    let _ = child.wait().await;
+                    terminate_child(&mut child, &mut pg_guard).await;
                     (None, ShellTermination::Timeout)
                 }
 
                 _ = sleep_idle => {
-                    let _ = child.kill().await;
-                    let _ = child.wait().await;
+                    terminate_child(&mut child, &mut pg_guard).await;
                     (None, ShellTermination::IdleBlocked)
                 }
 
                 status = child.wait() => {
+                    pg_guard.disarm();
                     match status {
                         Ok(st) => (st.code(), ShellTermination::Exited),
                         Err(_) => (None, ShellTermination::Exited),
@@ -524,6 +537,72 @@ async fn read_stream_lines(
             .to_string();
         let _ = tx.send((stream_type, line));
     }
+}
+
+/// Inject non-interactive defaults so subprocesses fail fast instead of
+/// spawning interactive editors, pagers, or credential prompts in a headless
+/// tool execution context.
+fn configure_noninteractive_env(cmd: &mut tokio::process::Command) {
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GCM_INTERACTIVE", "never");
+    cmd.env("GIT_EDITOR", "false");
+    cmd.env("GIT_SEQUENCE_EDITOR", "false");
+    cmd.env("EDITOR", "false");
+    cmd.env("VISUAL", "false");
+    cmd.env("GIT_PAGER", "cat");
+    cmd.env("PAGER", "cat");
+}
+
+#[cfg(unix)]
+struct ProcessGroupGuard(Option<libc::pid_t>);
+
+#[cfg(unix)]
+impl ProcessGroupGuard {
+    fn new(child: &tokio::process::Child) -> Self {
+        Self(child.id().map(|id| id as libc::pid_t))
+    }
+
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+
+    fn kill_group(&self) {
+        if let Some(pgid) = self.0 {
+            // SAFETY: `pre_exec` called `setsid()`, making the child the
+            // session and process-group leader (`PGID == PID`). Negating the
+            // pgid targets the entire spawned process tree.
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        self.kill_group();
+    }
+}
+
+#[cfg(not(unix))]
+struct ProcessGroupGuard;
+
+#[cfg(not(unix))]
+impl ProcessGroupGuard {
+    fn new(_child: &tokio::process::Child) -> Self {
+        Self
+    }
+
+    fn disarm(&mut self) {}
+}
+
+async fn terminate_child(child: &mut tokio::process::Child, guard: &mut ProcessGroupGuard) {
+    #[cfg(unix)]
+    guard.kill_group();
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    guard.disarm();
 }
 
 /// Creates command execution tools for an agent.

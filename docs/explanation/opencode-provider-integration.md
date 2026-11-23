@@ -10,10 +10,10 @@ OpenCode integrations are partitioned into two dedicated channel crates per ADR-
 
 | Provider id | Channel Crate | Surface | Auth | Catalog shape |
 | :--- | :--- | :--- | :--- | :--- |
-| `opencode-go` | `providers/nuo-provider-opencode-go/` | Zen Go relay (`opencode.ai/zen/go/v1`) | OpenCode Go API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
-| `opencode-zen` | `providers/nuo-provider-opencode-zen/` | Zen relay (`opencode.ai/zen/v1`) | OpenCode API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
+| `opencode-go` | `crates/provider-opencode-go/` | Zen Go relay (`opencode.ai/zen/go/v1`) | OpenCode Go API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
+| `opencode-zen` | `crates/provider-opencode-zen/` | Zen relay (`opencode.ai/zen/v1`) | OpenCode API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
 
-The legacy `opencode` Console provider and its `CatalogShape::OpencodeConsole` parser were retired outright (ADR-0079) as part of tech debt elimination, and the umbrella `nuo-provider-opencode` crate was bifurcated into dedicated channel crates.
+The legacy `opencode` Console provider and its `CatalogShape::OpencodeConsole` parser were retired outright (ADR-0079) as part of tech debt elimination, and the retired umbrella `nuo-provider-opencode` crate was bifurcated into dedicated channel crates.
 
 They are separate crates and providers because the endpoint family and model universe differ. Per [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md), the classification unit is the concrete access channel/plan, never the corporate brand; authentication mode never selects the route (`[INV-AUTH-04]`).
 
@@ -37,7 +37,7 @@ Anthropic-routed (Claude, MiniMax, Qwen) and Google-routed (Gemini) models keep 
 
 ## 3. Where Capability Metadata Comes From
 
-Intrinsic capability metadata (context window, reasoning support, tool calling, vision, effort ladder) is never duplicated per provider. It resolves through the shared model registry (`nuo-provider::model`), with a compiled baseline as the fallback when upstream advertises nothing.
+Intrinsic capability metadata (context window, reasoning support, tool calling, vision, effort ladder) is never duplicated per provider. It resolves through the shared model registry (`provider::model`), with a compiled baseline as the fallback when upstream advertises nothing.
 
 ---
 
@@ -55,10 +55,10 @@ OpenCode's legacy Console OAuth device grant (which targeted internal enterprise
 
 The **Go relay's `/models` payload carries ids only** — no capabilities and no human
 labels. That single fact determines three separate answers, all of which live inside the
-catalog boundary (`nuo-model-routing`, ADR-0082):
+catalog boundary (`model-routing`, ADR-0082):
 
 **Capabilities come from the compiled baseline.** Because the catalog publishes no
-capability fields, the **compiled baseline in `nuo-provider-opencode-go` is the only
+capability fields, the **compiled baseline in `provider-opencode-go` is the only
 capability source** for the models Nuo intends to present as first-class:
 
 - **Every id the relay serves that Nuo wants to expose needs a baseline entry here.** An
@@ -69,7 +69,7 @@ capability source** for the models Nuo intends to present as first-class:
   (`opencode.ai/docs/go`) is consulted; ids it has dropped — such as the bare
   `deepseek-flash` residue of the V4.1-Flash rename — are deliberately **not** registered
   *in this relay's table*. (`deepseek-flash` is the *official* `api.deepseek.com` id and is
-  registered by `nuo-provider-deepseek`; the relay simply does not serve it — ADR-0083.)
+  registered by `provider-deepseek`; the relay simply does not serve it — ADR-0083.)
 - **A retired id stays unregistered.** A relay that still leaks a retired id surfaces it
   capability-less (the conservative fallback) rather than via a hand-maintained shadow
   entry. The registry does not curate aliases for spellings upstream dropped; the compiled
@@ -107,5 +107,5 @@ that is the brittle blacklist ADR-0068 abolished.
 - [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md): the provider contract crate and channel namespace.
 - [ADR-0079](../adr/0079-opencode-provider-channel-bifurcation-and-legacy-container-retirement.md): provider channel bifurcation and legacy container retirement.
 - [ADR-0081](../adr/0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md): the catalog pipeline, structural labels, and relay noise hygiene.
-- [ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md): the single `nuo-model-routing` crate that owns the pipeline for both the harness and the server.
+- [ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md): the single `model-routing` crate that owns the pipeline for both the harness and the server.
 - [Reasoning Effort Reference](../reference/effort.md): the effort ladder model that these baselines populate.

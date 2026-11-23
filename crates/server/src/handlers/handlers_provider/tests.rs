@@ -397,7 +397,7 @@ async fn add_provider_snapshots_rules_without_materializing_model_ids() {
 
     let conns = Connections::load();
     let conn = conns.get("openai-test").expect("connection was saved");
-    // [INV-CATALOG-05]: filter rule is persisted, not materialized model ID list!
+    // [INV-CATALOGPIPE-02]: filter rule is persisted, not materialized model ID list!
     assert!(
         conn.models.include.is_empty(),
         "curated connection must not persist materialized model list"

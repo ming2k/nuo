@@ -94,8 +94,8 @@ nuo_provider_opencode_zen::MODEL_PROVIDER_SPEC,
 
 ## Invariants & Behavioral Boundaries
 
-- **`[INV-PROV-06] Canonical Provider Spec Export`**: Every channel crate in `providers/` MUST export its primary specification as `pub const MODEL_PROVIDER_SPEC: ModelProviderSpec`. Multi-spec container crates are strictly prohibited unless sharing a substantive in-crate runtime execution engine (e.g. `nuo-provider-google-antigravity` sharing `GoogleProvider`).
-- **`[INV-PROV-07] Channel Boundary Segregation`**: Subscription access channels (designated with `-plan`) and public or BYOK relay channels MUST NOT be bundled into a single vendor container crate.
+- **`[INV-PROV-17] Canonical Provider Spec Export`**: Every channel crate in `providers/` MUST export its primary specification as `pub const MODEL_PROVIDER_SPEC: ModelProviderSpec`. Multi-spec container crates are strictly prohibited unless sharing a substantive in-crate runtime execution engine (e.g. `nuo-provider-google-antigravity` sharing `GoogleProvider`).
+- **`[INV-PROV-18] Channel Boundary Segregation`**: Subscription access channels (designated with `-plan`) and public or BYOK relay channels MUST NOT be bundled into a single vendor container crate.
 
 ---
 

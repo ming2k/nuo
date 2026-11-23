@@ -212,11 +212,7 @@ pub struct ContextTokenSnapshot {
     pub overhead_tokens: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_tokens: Option<usize>,
-    /// Request-local temporary-context tokens (`E_n`), reported separately from
-    /// durable input so diagnostics do not conflate the two.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub temporary_context_tokens: Option<usize>,
-    /// Rendered instruction-region cost (`fixed` + `transient`), the number the
+    /// Rendered instruction-region cost, the number the
     /// context-plan dialog attributes block by block (ADR-0220).
     ///
     /// Absent on snapshots produced before the layers were named; a reader must
@@ -237,7 +233,6 @@ impl ContextTokenSnapshot {
             source,
             overhead_tokens: None,
             history_tokens: None,
-            temporary_context_tokens: None,
             instructions_tokens: None,
             tool_schema_tokens: None,
         }
@@ -252,7 +247,6 @@ impl ContextTokenSnapshot {
             source,
             overhead_tokens: Some(estimate.overhead_tokens),
             history_tokens: Some(estimate.history_tokens),
-            temporary_context_tokens: Some(estimate.temporary_context_tokens),
             instructions_tokens: Some(estimate.instructions_tokens),
             tool_schema_tokens: Some(estimate.tool_schema_tokens),
         }

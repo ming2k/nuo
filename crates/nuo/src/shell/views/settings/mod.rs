@@ -178,6 +178,9 @@ pub struct ConfigRects {
     pub row_rects: Vec<(usize, Rect)>,
     /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
     pub tab_rects: Vec<(usize, Rect)>,
+    pub tab_close_rects: Vec<(usize, Rect)>,
+    pub tab_add_rect: Option<Rect>,
+    pub tab_reveal_active: bool,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
     /// Bounding rect for left overflow indicator (`‹N`), if present.
@@ -340,6 +343,9 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         category_rects,
         row_rects: detail.rows,
         tab_rects: tab_rects.tab_rects,
+        tab_close_rects: tab_rects.close_rects,
+        tab_add_rect: tab_rects.add_rect,
+        tab_reveal_active: tab_rects.reveal_active,
         tab_bar_rect: Some(header_rect),
         tab_prev_rect: tab_rects.prev_rect,
         tab_next_rect: tab_rects.next_rect,

@@ -1,6 +1,6 @@
 # The Terminal UI: A Rendering Philosophy
 
-This article explains why the `nuo-tui` terminal interface is built the way it is. It is an orientation, not a specification. For the authoritative layout tokens, modal presets, and input pipeline, consult the [Terminal UI Reference](../reference/tui/index.md).
+This article explains why the Nuo terminal interface is built the way it is. It is an orientation, not a specification. For the authoritative layout tokens, modal presets, and input pipeline, consult the [Terminal UI Reference](../reference/tui/index.md).
 
 ---
 

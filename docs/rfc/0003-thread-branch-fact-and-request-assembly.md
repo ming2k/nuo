@@ -16,16 +16,16 @@
 
 > **Implementation note (2026-11-13):** The RFC core is implemented.
 > The protocol-level `Thread` / `ThreadFact` / `BranchState` / `BlobRef` model
-> is in `crates/nuo-protocol/src/thread.rs` with fork, branch-scoped
+> is in `crates/protocol/src/thread.rs` with fork, branch-scoped
 > compaction, live paths, GC roots, command envelopes, writer leases, clients,
 > transcript pages, and schema envelopes.
 > `ThreadWindow` / `RequestView` are protocol projections in
-> `crates/nuo-protocol/src/thread_view.rs`; `RequestBuilder` is the single
+> `crates/protocol/src/thread_view.rs`; `RequestBuilder` is the single
 > builder in `request_builder.rs`.
 > `ThreadDelta`, `ThreadStore`, `CommandAck`, `BlobStore`, and the in-memory
-> conformance store are in `crates/nuo-protocol/src/thread_store.rs`;
-> `ThreadRuntime` is in `crates/nuo-engine/src/cognition/thread_runtime.rs`.
-> The SQLite adapter in `crates/nuo-persistence/src/db/thread_store.rs`
+> conformance store are in `crates/protocol/src/thread_store.rs`;
+> `ThreadRuntime` is in `crates/engine/src/cognition/thread_runtime.rs`.
+> The SQLite adapter in `crates/persistence/src/db/thread_store.rs`
 > round-trips create/hydrate/append/fork/compaction, command receipts,
 > fencing leases, blob CAS, and mark-and-sweep GC. Migrations 34–37 add
 > branch cursors, command receipts, leases, blob liveness, thread facts as the
@@ -210,10 +210,10 @@ belong to no turn (compaction, termination, notice).
 
 ## 5. Invariants
 
-- **INV-THREAD-01** — `Thread` is the only durable SSOT for conversation facts.
-- **INV-THREAD-02** — `TranscriptView` and `RequestView` never write back into
+- **INV-THREADSSOT-01** — `Thread` is the only durable SSOT for conversation facts.
+- **INV-THREADSSOT-02** — `TranscriptView` and `RequestView` never write back into
   `Thread`.
-- **INV-THREAD-03** — `ThreadRuntime` is rebuildable from `ThreadStore`; it is
+- **INV-THREADSSOT-03** — `ThreadRuntime` is rebuildable from `ThreadStore`; it is
   never a second SSOT.
 - **INV-THREAD-04** — Exactly one runtime authority exists per
   `(thread, branch)`.
@@ -234,7 +234,7 @@ belong to no turn (compaction, termination, notice).
 - **INV-BRANCH-04** — Compaction is branch-scoped: it never hides facts from a
   sibling branch.
 - **INV-BRANCH-05** — A subagent is a new `Thread`, not a branch.
-- **INV-FOLD-01** — Request-time folding is a `RequestView` transform and is
+- **INV-FOLDVIEW-01** — Request-time folding is a `RequestView` transform and is
   never persisted as a fact.
 - **INV-FOLD-02** — Compaction is a `ThreadFact` and changes only its branch's
   horizon.

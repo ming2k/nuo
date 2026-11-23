@@ -6,6 +6,58 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.98] - 2026-11-23
+
+### Fixed
+
+- **Checkpoint restore survives the envelope migration.** A resumed
+  `CompactionCheckpoint` message is classified by its provenance and read
+  through `tool::envelope::parse_with_body`, so it restores as a compacted card
+  instead of rendering raw `<checkpoint …>` markup. The deterministic excerpt
+  excludes checkpoints by provenance, not by a text prefix (`[INV-CMDMSG-02]`,
+  ADR-0232/ADR-0226).
+- **One tool-result header everywhere.** Google Antigravity's degraded history
+  path now renders through `tool::tool_result::render`; the provider-invented
+  `[Tool result for call …]` spelling is gone and the governance scan rejects
+  any future variant (`[INV-TOOLHEADER-03]`, ADR-0227).
+- **Every external text door is framed.** MCP `tools/call`, `resources/list`,
+  and web-search snippets are framed as untrusted data alongside web articles
+  and MCP resources (`[INV-UNTRUSTED-03]`, ADR-0228).
+- **A corrupt journal tail no longer poisons future appends.** Segment scan
+  verifies the frame CRC and commit JSON and truncates at the first invalid
+  frame; replay stops there instead of failing the session (ADR-0236 §2).
+- **Deletion is serialized and reclaimable.** `mark_deleted` takes the append
+  gate, fsyncs the marker, and re-running it reclaims bodies left by a crash;
+  the bootstrap catch-up sweeps orphaned bodies under a `DELETED` marker
+  (ADR-0241).
+- **One forensics writer.** `record_request_projection` enqueues through the
+  process-wide ring thread and waits for the attempt; there is no second
+  direct-write path (ADR-0240).
+- **`url` 2.5.9**: fixes RUSTSEC-2026-0592 (stack overflow on nested `blob:`
+  URLs).
+
+### Changed
+
+- **Invariant registry cleanup.** Renamed colliding tags (`INV-CMDMSG-*`,
+  `INV-CATALOGPIPE-*`, `INV-CATALOGSUMMARY-*`, `INV-INSTR-*`,
+  `INV-THREADSSOT-*`, `INV-FOLDVIEW-*`), defined the previously phantom
+  `INV-PAYLOAD-01/02`, and tightened
+  `adr_invariant_tags_have_one_definition_site` to recognize heading and
+  bullet leads and to count one site per ADR file.
+- **ADR-0243 is disambiguated.** The catalog-summary decision is now ADR-0244;
+  it amends ADR-0059 and migration 0002 rather than the migrations-baseline
+  ADR-0189.
+- **ADR-0236 is reconciled with ADR-0241.** Deletion semantics, the derived-row
+  catch-up, and the `commit_receipts` role are stated as implemented.
+- **ADR-0230 now states the adapter rule as implemented.** One adapter module
+  owns both `McpTool` and `McpResourceTool`; `McpResourceTool` declares its
+  access scope and every MCP text door is framed.
+- **Compaction prompt scaffolds have one renderer.** `<conversation_to_compact>`,
+  `<prior_summary>`, `<additional_context>`, and `<active_todo_list>` are
+  produced by `tool::envelope::prompt_block`, which neutralizes terminators.
+- **Removed the dead `SaveThreadAggregate` writer command.** Branch mutations
+  already persist through the journal full-rewrite path and its projection.
+
 ## [0.0.97] - 2026-11-19
 
 ### Added

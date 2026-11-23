@@ -7,6 +7,14 @@ use super::*;
 /// byte budget of its own.
 const MAX_STRUCTURED_OUTPUT_BYTES: usize = 512 * 1024;
 
+/// Byte ceiling on one lazily-injected nested `AGENTS.md`.
+const NESTED_RULES_MAX_BYTES: usize = 64 * 1024;
+
+/// Declarative disclosure appended when a nested `AGENTS.md` exceeds the cap:
+/// a fact, never an instruction ([`INV-TRUNC-01`], ADR-0093).
+const NESTED_RULES_TRUNCATION_NOTICE: &str =
+    "\n\n[nested AGENTS.md truncated at 64 KiB by the context budget]";
+
 /// Resolve and admit one model-supplied path against the live workspace
 /// boundary. Kept pure so the lexical and canonical checks are testable
 /// without constructing an [`Agent`].
@@ -649,6 +657,11 @@ impl Agent {
     /// subtree, so this is the lazy counterpart: walk from the read path's
     /// directory up to (but excluding) the workspace root, inject each unseen
     /// `AGENTS.md` once, and remember the path for the rest of the session.
+    ///
+    /// The message states **facts** — this directory has these rules — and stops
+    /// there. It does not instruct the model to obey them: authority is a
+    /// `Rank` property of the instruction region, not something a hidden user
+    /// message can grant itself ([INV-CTXSRC-04], ADR-0226).
     pub(crate) fn inject_nested_project_rules(
         &self,
         call: &ToolCall,
@@ -699,26 +712,32 @@ impl Agent {
                 };
                 if !already_loaded && let Ok(text) = std::fs::read_to_string(&rules_path) {
                     let mut text = text;
-                    if text.len() > 64 * 1024 {
-                        let mut cut = 64 * 1024;
+                    if text.len() > NESTED_RULES_MAX_BYTES {
+                        let mut cut = NESTED_RULES_MAX_BYTES;
                         while cut > 0 && !text.is_char_boundary(cut) {
                             cut -= 1;
                         }
                         text.truncate(cut);
-                        text.push_str("\n\n[nested AGENTS.md truncated at 64 KiB]");
+                        text.push_str(NESTED_RULES_TRUNCATION_NOTICE);
                     }
                     let relative = rules_path
                         .strip_prefix(&root)
                         .map(|path| path.to_string_lossy().into_owned())
                         .unwrap_or_else(|_| rules_path.to_string_lossy().into_owned());
+                    // Facts only: which directory's rules these are. The
+                    // instruction to obey them is not this message's to give —
+                    // a hidden user message carries the asset, and `Rank`
+                    // placement decides authority ([INV-CTXSRC-04], ADR-0226).
+                    let envelope = tool::Envelope::new(tool::Tag::ProjectRules)
+                        .attr("path", relative.clone())
+                        .attr("ref", format!("@{relative}"))
+                        .body(text)
+                        .neutralize_terminators()
+                        .render();
                     messages.push(crate::runtime::message::hidden_user_with_reason(
                         InjectionKind::ProjectRulesDelta,
-                        relative.clone(),
-                        format!(
-                            "<project-rules path=\"{relative}\">\n{text}\n</project-rules>\n\
-                                 These rules apply to files under this directory. Follow them for \
-                                 the rest of the session unless the user says otherwise."
-                        ),
+                        relative,
+                        envelope,
                     ));
                     injected += 1;
                 }

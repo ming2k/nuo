@@ -1,4 +1,4 @@
-//! Tab management handlers (activation, close).
+//! Tab management handlers (activation, close, create).
 use super::ActionFlow;
 use super::navigation::enter_scene;
 use crate::shell::App;
@@ -65,15 +65,26 @@ pub(crate) fn activate_tab_at_index(
     ActionFlow::Handled
 }
 
-/// Close active tab and automatically activate the next tab according to MRU history,
-/// re-attaching or refreshing the focused scene.
-pub(crate) fn handle_close_tab(
+/// Close the tab at `index` and automatically activate the next tab according to
+/// MRU history, re-attaching or refreshing the focused scene.
+///
+/// `index` is stated by the caller rather than assumed to be the active tab: the
+/// TabBar's hover close mark (ADR-0235) names the pill it belongs to, and a
+/// pointer affordance that closes "whatever happens to be active" would close
+/// the wrong workspace whenever the strip and the selection disagree — which is
+/// exactly the frame in which a user clicks a mark they can see.
+pub(crate) fn handle_close_tab_at(
     app: &mut App,
+    index: usize,
     runtime: &UiRuntime,
     viewed_session_id: &str,
 ) -> ActionFlow {
-    let active_idx = app.surfaces.surfaces.active_tab_index();
-    app.close_tab(active_idx);
+    // An index the strip no longer paints (a click racing a close) is a no-op,
+    // never a panic and never a close of a different tab.
+    if index >= app.surfaces.surfaces.tabs().len() {
+        return ActionFlow::Handled;
+    }
+    app.close_tab(index);
     if app.surfaces.surfaces.tabs().is_empty() {
         tracing::info!(reason = "close_last_tab", "client detaching");
         return ActionFlow::Exit;
@@ -104,5 +115,40 @@ pub(crate) fn handle_close_tab(
     runtime.dirty.store(true, Ordering::SeqCst);
     runtime.dirty_notify.notify_waiters();
 
+    ActionFlow::Handled
+}
+
+/// Close the active tab (the keyboard and palette path).
+pub(crate) fn handle_close_tab(
+    app: &mut App,
+    runtime: &UiRuntime,
+    viewed_session_id: &str,
+) -> ActionFlow {
+    let active_idx = app.surfaces.surfaces.active_tab_index();
+    handle_close_tab_at(app, active_idx, runtime, viewed_session_id)
+}
+
+/// The strip's own creation verb: open a brand-new thread tab (ADR-0235).
+///
+/// This is the same resolution `Alt-t` / `NewTab` uses — `/new` in place while
+/// the current thread is still empty, otherwise a fresh tab — because two
+/// spellings of "new tab" that disagree about when an empty thread is recycled
+/// would leave the user guessing which one they pressed.
+pub(crate) fn handle_add_tab(
+    app: &mut App,
+    runtime: &UiRuntime,
+    viewed_session_id: &str,
+) -> ActionFlow {
+    let _ = (runtime, viewed_session_id);
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
+    app.dismiss_active_dialog();
+    if app.is_current_thread_empty() {
+        app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
+    } else {
+        // A fresh tab is a new attachment: the runner re-dials and mounts it,
+        // carrying the current tabs across the gap.
+        app.surfaces.switch_to_new = true;
+        app.link.should_quit.store(true, Ordering::SeqCst);
+    }
     ActionFlow::Handled
 }

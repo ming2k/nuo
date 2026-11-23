@@ -710,8 +710,7 @@ impl GoogleProvider {
         // validates on the backend that issued it, and the model id alone cannot
         // distinguish AI Studio from Cloud Code or from a relay.
         let signature_origin = self.signature_origin();
-        let mut messages = request.messages.clone();
-        messages.extend(request.temporary_context.iter().cloned());
+        let messages = request.messages.clone();
         // Shared route-scoped image projection: Google's
         // `inline_data` parts were previously emitted unconditionally, so a
         // route that declares no image input failed the turn instead of having

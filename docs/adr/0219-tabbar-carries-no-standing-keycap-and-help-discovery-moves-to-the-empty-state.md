@@ -19,6 +19,9 @@ negative_knowledge: true
   §2, [ADR-0092](0092-uncompromising-scenebar-breadcrumb-topology-bidirectional-navigation-and-symmetric-keybindings.md),
   [ADR-0054](0054-universal-key-affordance-engine-width-adaptive-floor-truncation-and-modeless-f1-topology.md)
   (`F1 help` as a TabBar *label* — the `F1 more` overflow trigger is untouched)
+- **Amended by**: [ADR-0235](0235-tabbar-carries-its-own-lifecycle-hover-reveal-visible-close-and-reserved-add.md)
+  — the row still carries no standing keycap; the `+` is an affordance for the
+  row's own verb, not a chord legend.
 
 ## Context and Problem Statement
 

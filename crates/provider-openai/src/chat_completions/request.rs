@@ -148,13 +148,9 @@ pub struct BodyInput<'a> {
 /// `images` — so durable sidecars (`children`, `subagent_meta`, `origin`) never
 /// reach the wire. Serialization is therefore a pure projection of the
 /// session: no field on the wire exists that the session did not produce.
-pub fn body(
-    conversation: &[Message],
-    temporary_context: &[Message],
-    input: BodyInput<'_>,
-) -> Value {
+pub fn body(conversation: &[Message], input: BodyInput<'_>) -> Value {
     let capabilities = protocol::ModelCapabilities::for_channel(input.model, None);
-    body_with_capabilities(conversation, temporary_context, input, &capabilities)
+    body_with_capabilities(conversation, input, &capabilities)
 }
 
 /// Build a request with a provider-channel capability view. The provider calls
@@ -167,7 +163,6 @@ pub fn body(
 /// caller's window in place.
 pub fn body_with_capabilities(
     conversation: &[Message],
-    temporary_context: &[Message],
     input: BodyInput<'_>,
     capabilities: &protocol::ModelCapabilities,
 ) -> Value {
@@ -193,15 +188,7 @@ pub fn body_with_capabilities(
     if let Some(instructions) = instructions
         && !instructions.is_empty()
     {
-        // Emit stable static instructions followed by ephemeral nudges (ADR-0052, [INV-INST-03])
-        let static_text = instructions.render_fixed().to_owned();
-        let ephemeral_text = instructions.render_transient().to_owned();
-        let text = match (static_text.is_empty(), ephemeral_text.is_empty()) {
-            (false, false) => format!("{static_text}\n{ephemeral_text}"),
-            (false, true) => static_text,
-            (true, false) => ephemeral_text,
-            (true, true) => String::new(),
-        };
+        let text = instructions.0.clone();
         if !text.is_empty() {
             system_message = Some(Message::new(Role::System, text));
         }
@@ -212,12 +199,11 @@ pub fn body_with_capabilities(
     // results (e.g. from text-fallback calls or older saved sessions) so the
     // request can never fail with "tool_call_id is not found".
     let mut known_ids = std::collections::HashSet::new();
-    let mut refs: Vec<&Message> =
-        Vec::with_capacity(conversation.len() + temporary_context.len() + 1);
+    let mut refs: Vec<&Message> = Vec::with_capacity(conversation.len() + 1);
     if let Some(system) = system_message.as_ref() {
         refs.push(system);
     }
-    for message in conversation.iter().chain(temporary_context.iter()) {
+    for message in conversation.iter() {
         if !valid_provider_message(message) {
             continue;
         }

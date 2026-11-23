@@ -16,6 +16,8 @@ negative_knowledge: true
 - Consulted: TUI Presentation, Wire Protocol, Server Runtime, UX Working Group
 - Informed: System Architects, Release Engineering
 - Amends: [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0042](0042-client-viewport-routing-ownership-tab-history-and-scene-self-projection.md), [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md)
+- Amended by: [ADR-0233](0233-a-slash-command-is-never-a-conversation-message.md) — a slash command is a `CommandRecord`, never a `Message`; the non-driving echo shape and its wire filter are retired.
+- Amended by: [ADR-0235](0235-tabbar-carries-its-own-lifecycle-hover-reveal-visible-close-and-reserved-add.md) — §3's title budget now reserves the pill's close columns at rest; the anchor-stable title slot is unchanged.
 
 > **Superseded in part (2026-10-23)**: safety posture flags were replaced by the `auto` / `open` posture tokens, and the workspace path moved from following the title slot to the `ThreadContextBar`'s right edge ([ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md) `[INV-HEAD-07]`, `[INV-HEAD-08]`). The anchor-stable title slot and the `thread` breadcrumb root established here are **unaffected and remain in force**.
 
@@ -100,6 +102,12 @@ Row 1 (Client TabBar) dynamically projects semantic titles with typed placeholde
 - **`[INV-TAB-08]` Semantic TabBar Projection**: Mounted thread tabs in the client TabBar MUST dynamically project the authentic thread title when present, bounded by reasonable width truncation. In the untitled initial state, tabs project `<index>:thread#<id_tail>` as a typed placeholder; once an authentic title is established, the title replaces `thread#<id_tail>` in-place. Full raw UUIDs MUST NOT be embedded unshortened into TabBar items to preserve horizontal terminal budget.
 
 ---
+
+> **2026-12-20 Amendment ([ADR-0233](0233-a-slash-command-is-never-a-conversation-message.md)):** the
+> "record the invocation as a non-driving message, then project it out before the wire" shape is retired.
+> A slash command is a `CommandRecord`; it never becomes a `Message`, so there is nothing to project out.
+> The projection that implemented it (`retain(!is_command_echo)`) was also a correctness hazard: it keyed
+> on a text prefix and could drop a real user turn from the provider request.
 
 ## Rejected Alternatives
 

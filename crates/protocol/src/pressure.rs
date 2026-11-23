@@ -37,7 +37,7 @@ pub const CRUISE_LOW_WATERMARK: f64 = 0.50;
 pub const TAIL_QUARANTINE_TOKENS: usize = 16_000;
 
 /// Fraction of the model window reserved for the whole instruction region
-/// (`fixed` + `transient`). See [`instructions_ceiling`].
+/// See [`instructions_ceiling`].
 pub const INSTRUCTIONS_CEILING_UTILIZATION: f64 = 0.08;
 
 /// Token size of a tool result above which a prune candidate is first
@@ -124,6 +124,7 @@ impl CompactionPolicy {
             quantum_floor_tokens: quantum_floor,
             cruise_low_tokens: threshold(CRUISE_LOW_WATERMARK),
             instructions_ceiling_tokens: instructions_ceiling(window),
+            max_request_body_bytes: DEFAULT_REQUEST_BODY_LIMIT_BYTES,
         }
     }
 }
@@ -158,19 +159,29 @@ pub struct ContextBudget {
     pub quantum_floor_tokens: usize,
     /// Target low-watermark landing zone for hysteresis loop.
     pub cruise_low_tokens: usize,
-    /// Ceiling for the whole instruction region (`fixed` + `transient`) in
+    /// Ceiling for the whole instruction region in
     /// tokens. Derived from the model window like every other threshold
     /// (`[INV-CONTEXT-01]`): a fixed prompt must not be able to consume the
     /// window before the conversation starts, and every downstream budget
     /// inherits the error if it does.
     pub instructions_ceiling_tokens: usize,
+    /// Ceiling for one **serialized request body**, in bytes.
+    ///
+    /// A request has two independent physical limits: the model's context
+    /// window (tokens) and the edge's body cap (bytes). Only the first was ever
+    /// budgeted, so a session inside a million-token window could still be
+    /// refused for sending a 55 MB body ([`DEFAULT_REQUEST_BODY_LIMIT_BYTES`]).
+    /// This is the second limit, and it is compared against
+    /// [`request_wire_size`], not against a token estimate.
+    pub max_request_body_bytes: usize,
 }
 
 /// Wire-size (bytes) of a message list: byte length of `content` +
-/// tool-call `name`+`arguments`. **Diagnostic only**: context
-/// pressure and every budget are token-denominated; bytes answer a transport
-/// question ("how big is the payload"), not a context question.
-/// `reasoning_content` is excluded (never sent to providers).
+/// tool-call `name`+`arguments` + inline attachment payload.
+///
+/// This is **session weight**, not the request body: it counts persisted
+/// subagent `children`, which no provider sees. Use [`request_wire_size`] for
+/// the guard that a transport edge enforces.
 pub fn estimate_bytes(messages: &[Message]) -> usize {
     messages.iter().map(message_bytes).sum()
 }
@@ -224,6 +235,58 @@ pub fn estimate_tokens_weighted(messages: &[Message], weights: &MessageTokenWeig
 // once a provider actually reports `prompt_tokens`. See the deferral note in
 // docs/adr/0019-token-pressure-measurement-and-budget-accounting.md.
 
+/// Conservative ceiling for one serialized provider request body.
+///
+/// Context pressure is measured in **tokens** because that is what the model's
+/// window charges. That is not the only physical limit on a request: every edge
+/// in front of a provider also caps the **bytes** it will accept, and the two
+/// are independent. An attachment is the worst case — roughly 1 600 tokens but
+/// hundreds of kilobytes of base64 — so a session can sit comfortably inside a
+/// million-token window and still be refused as a 55 MB body.
+///
+/// No vendor publishes a portable number, so this is a deliberately
+/// conservative default rather than a claimed vendor fact. A refusal is better
+/// evidence than any published figure: when a provider answers with a
+/// payload-size error, the route's ceiling is lowered to the size that failed
+/// and the next request is projected against it ([`ContextBudget::max_request_body_bytes`]).
+pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+
+/// Fraction of the request-body limit a relief pass aims for.
+///
+/// Relieving exactly to the limit leaves no room for the current turn to grow
+/// (one more tool result, one more image), so the very next turn would trip the
+/// same gate. Ten percent of headroom is cheap: it is one old attachment.
+pub const PAYLOAD_RELIEF_UTILIZATION: f64 = 0.90;
+
+/// The body size to aim for after a payload refusal.
+///
+/// `observed` is the size of the request that was just refused; it is the only
+/// number the provider supplied. `configured` is what we believed the ceiling
+/// was. The target never exceeds either, and it steps a quarter below the
+/// smaller of them: the transport said "too large" without saying by how much,
+/// so a decisive step is the only one that does not risk re-sending the same
+/// failure.
+pub fn payload_relief_target(observed_body_bytes: usize, configured_ceiling: usize) -> usize {
+    let ceiling = if configured_ceiling == 0 {
+        observed_body_bytes
+    } else {
+        configured_ceiling.min(observed_body_bytes)
+    };
+    ceiling.saturating_sub(ceiling / 4).max(1)
+}
+
+/// The most recent attachments a payload relief pass protects.
+///
+/// The newest images are the ones the conversation is *about*; evicting them
+/// would make the current turn incomprehensible to the model while freeing
+/// bytes it needed. This is a **cap**, not a guarantee: protection is also
+/// limited by the byte target, so four 4 MB screenshots are not kept in front
+/// of a 1 MB ceiling. The single newest attachment is always kept (the request
+/// would otherwise answer a different question), and everything older is
+/// evicted oldest-first. The transcript still holds every image, and each
+/// eviction leaves an invoice the model can act on.
+pub const PAYLOAD_KEEP_NEWEST_IMAGES: usize = 4;
+
 pub(crate) fn message_bytes(message: &Message) -> usize {
     let own = message.content.len()
         + message
@@ -248,6 +311,112 @@ pub(crate) fn message_bytes(message: &Message) -> usize {
         .map(|children| children.iter().map(message_bytes).sum::<usize>())
         .unwrap_or(0);
     own + nested
+}
+
+/// Bytes one message contributes to the **serialized provider body**.
+///
+/// This is a different physical quantity from [`estimate_message_tokens`]:
+/// tokens bound what the model can attend to, bytes bound what the transport
+/// can deliver. Attachments dominate the second and are nearly free in the
+/// first, so a budget that only knows tokens cannot see a 55 MB request.
+///
+/// The count is the sum of the fields a provider serializes, with the image
+/// payload measured exactly (base64 is ASCII and contains no JSON-escapable
+/// characters, so its serialized length *is* its length). Text is counted at
+/// its UTF-8 length; JSON escaping can expand control characters, so callers
+/// treat the result as a lower bound and the gate reserves
+/// [`PAYLOAD_RELIEF_UTILIZATION`] headroom rather than spending the exact limit.
+///
+/// Nested `children` are deliberately excluded: they are a persisted subagent
+/// transcript for the parent's *session weight*, not bytes on this request.
+pub fn message_wire_bytes(message: &Message) -> usize {
+    let mut bytes = message.content.len();
+    if let Some(reasoning) = message.reasoning_content.as_deref() {
+        bytes += reasoning.len();
+    }
+    if let Some(calls) = message.tool_calls.as_ref() {
+        bytes += calls
+            .iter()
+            .map(|call| call.name.len() + call.arguments.len())
+            .sum::<usize>();
+    }
+    if let Some(images) = message.images.as_ref() {
+        bytes += images.iter().map(|image| image.data.len()).sum::<usize>();
+    }
+    bytes
+}
+
+/// The wire-size accounting of one assembled provider request.
+///
+/// `body_bytes` is the guard: it is what an edge measures before it answers
+/// `413`. The split exists so a relief decision can name what it is shrinking
+/// (`media_bytes` is the only term that can be evicted without losing
+/// conversation) instead of blindly folding history.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RequestWireSize {
+    /// Bytes the serialized body will occupy, all parts included.
+    pub body_bytes: usize,
+    /// Of which: inline attachment payload.
+    pub media_bytes: usize,
+    /// Of which: instructions, message text, and tool-call arguments.
+    pub text_bytes: usize,
+    /// Of which: serialized tool specs.
+    pub tool_schema_bytes: usize,
+}
+
+/// Measure the bytes an assembled request will put on the wire.
+pub fn request_wire_size(request: &crate::ModelRequest) -> RequestWireSize {
+    let instructions = request.instructions.text().len();
+    let tool_schema_bytes = request
+        .tool_specs
+        .iter()
+        .map(|spec| {
+            spec.name.len()
+                + spec.description.len()
+                + serde_json::to_string(&spec.parameters).map_or(0, |schema| schema.len())
+        })
+        .sum::<usize>();
+    let mut media_bytes = 0usize;
+    let mut message_text = 0usize;
+    for message in &request.messages {
+        if let Some(images) = message.images.as_ref() {
+            media_bytes += images.iter().map(|image| image.data.len()).sum::<usize>();
+        }
+        message_text += message_wire_bytes(message).saturating_sub(
+            message
+                .images
+                .as_ref()
+                .map(|images| images.iter().map(|image| image.data.len()).sum())
+                .unwrap_or(0),
+        );
+    }
+    let text_bytes = instructions + message_text + tool_schema_bytes;
+    RequestWireSize {
+        body_bytes: text_bytes + media_bytes,
+        media_bytes,
+        text_bytes,
+        tool_schema_bytes,
+    }
+}
+
+/// The attachment bytes a request may still carry.
+///
+/// Everything media eviction cannot touch — instructions, tool schemas, message
+/// text — is subtracted first, so a request whose **text alone** already
+/// exceeds the ceiling reports `0` and the caller knows media relief cannot
+/// help it.
+pub const fn media_allowance(limit_bytes: usize, non_media_bytes: usize) -> usize {
+    limit_bytes.saturating_sub(non_media_bytes)
+}
+
+/// Bytes the inline attachments in `messages` occupy.
+pub fn media_bytes(messages: &[Message]) -> usize {
+    messages
+        .iter()
+        .filter_map(|message| message.images.as_ref())
+        .flat_map(|images| images.iter())
+        .map(|image| image.data.len())
+        .sum()
 }
 
 #[derive(Debug, Clone, Default)]
@@ -526,28 +695,7 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
             continue;
         }
 
-        let mut invoices = Vec::new();
-        for img in images {
-            let hash = artifact_hash_for_base64(&img.data);
-            let short_hash = if hash.len() >= 12 { &hash[..12] } else { &hash };
-            let ext = match img.mime.as_str() {
-                "image/jpeg" => "jpg",
-                "image/webp" => "webp",
-                "image/gif" => "gif",
-                _ => "png",
-            };
-            let artifact_path = tool::spool_canonical_path(short_hash, ext);
-            invoices.push(format!(
-                "[Image Offloaded: {} elided to relieve context pressure]\n- Artifact Path: \"{artifact_path}\"",
-                img.mime
-            ));
-        }
-
-        let new_content = if msg.content.is_empty() {
-            invoices.join("\n")
-        } else {
-            format!("{}\n{}", msg.content, invoices.join("\n"))
-        };
+        let new_content = with_invoice(&msg.content, images);
 
         let reclaim = 1600 * images.len();
         plan.push(PrunePlan {
@@ -557,6 +705,249 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
         });
     }
     plan
+}
+
+/// One message's attachments that a payload-relief pass would offload.
+///
+/// The pixels travel with the plan so the caller can persist them **before**
+/// the projection drops them: the invoice prints an artifact path, and a path
+/// that names a file nobody wrote would be a claim the producer never makes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaOffload {
+    /// Index of the message the attachments belong to.
+    pub index: usize,
+    /// The attachments removed from this message, exactly as they will be
+    /// persisted. A message keeps the rest.
+    pub removed: Vec<tool::ImagePart>,
+    /// The content-addressed path each removed attachment must be persisted to
+    /// before the projection drops it. Parallel to `removed`; this is the path
+    /// the invoice prints, so the producer and the claim cannot drift.
+    pub artifact_paths: Vec<String>,
+    /// The attachments that stay on the message.
+    pub kept: Vec<tool::ImagePart>,
+    /// The message's original text, kept verbatim so the projection appends
+    /// the invoice instead of replacing the conversation.
+    pub content: String,
+    /// The full replacement content: original text plus one invoice per
+    /// removed attachment.
+    pub invoice: String,
+    /// Net wire bytes the eviction frees (attachments minus invoice lines).
+    pub bytes: usize,
+}
+
+/// Plan the oldest attachments to offload so the body fits its byte ceiling.
+///
+/// This is the relief for a constraint tokens cannot see. Selection is by
+/// **recency and budget**, at *attachment* granularity — a single message can
+/// carry six screenshots, and protecting the whole message would protect all
+/// six:
+///
+/// - the newest attachment always survives: the conversation is about it, and
+///   sending a request without it answers a different question;
+/// - older attachments survive while they still fit inside
+///   [`PAYLOAD_RELIEF_UTILIZATION`] of `max_body_bytes`, up to
+///   `keep_newest_images`;
+/// - everything older is evicted oldest-first until the projected body lands
+///   under that target.
+///
+/// Returns an empty plan when the request already fits or when every remaining
+/// attachment is inside the protected window; the caller then surfaces the
+/// refusal instead of pretending it relieved something.
+pub fn plan_media_offload(
+    messages: &[Message],
+    request_body_bytes: usize,
+    max_body_bytes: usize,
+    keep_newest_images: usize,
+) -> Vec<MediaOffload> {
+    let target = (max_body_bytes as f64 * PAYLOAD_RELIEF_UTILIZATION) as usize;
+    if request_body_bytes <= target {
+        return Vec::new();
+    }
+    /// One attachment's position, for the recency walk.
+    struct Slot {
+        message: usize,
+        image: usize,
+        bytes: usize,
+    }
+    let mut slots: Vec<Slot> = Vec::new();
+    for (message_index, message) in messages.iter().enumerate() {
+        let Some(images) = message.images.as_ref() else {
+            continue;
+        };
+        for (image_index, image) in images.iter().enumerate() {
+            slots.push(Slot {
+                message: message_index,
+                image: image_index,
+                bytes: image.data.len(),
+            });
+        }
+    }
+    if slots.is_empty() {
+        return Vec::new();
+    }
+
+    let mut protected: HashSet<(usize, usize)> = HashSet::new();
+    let mut protected_bytes = 0usize;
+    for (protected_count, slot) in slots.iter().rev().enumerate() {
+        if protected_count >= keep_newest_images {
+            break;
+        }
+        let first = protected_count == 0;
+        if !first && protected_bytes.saturating_add(slot.bytes) > target {
+            break;
+        }
+        protected_bytes = protected_bytes.saturating_add(slot.bytes);
+        protected.insert((slot.message, slot.image));
+    }
+
+    // Evict oldest-first until the projection fits. Removal is accounted
+    // exactly: the attachment leaves, and its invoice line arrives.
+    let mut projected = request_body_bytes;
+    let mut evicted: Vec<(usize, usize)> = Vec::new();
+    for slot in slots.iter() {
+        if projected <= target {
+            break;
+        }
+        if protected.contains(&(slot.message, slot.image)) {
+            continue;
+        }
+        let image = messages[slot.message]
+            .images
+            .as_ref()
+            .and_then(|images| images.get(slot.image));
+        let Some(image) = image else {
+            continue;
+        };
+        let freed = image
+            .data
+            .len()
+            .saturating_sub(image_invoice_line(image).len());
+        if freed == 0 {
+            continue;
+        }
+        projected = projected.saturating_sub(freed);
+        evicted.push((slot.message, slot.image));
+    }
+    if evicted.is_empty() {
+        return Vec::new();
+    }
+
+    // Group by message: one projection per message, so the invoice replaces
+    // exactly the pixels that left and the rest stay attached.
+    let mut plan: Vec<MediaOffload> = Vec::new();
+    for (message_index, message) in messages.iter().enumerate() {
+        let Some(images) = message.images.as_ref() else {
+            continue;
+        };
+        let mut removed = Vec::new();
+        let mut kept = Vec::new();
+        for (image_index, image) in images.iter().enumerate() {
+            if evicted
+                .iter()
+                .any(|(m, i)| *m == message_index && *i == image_index)
+            {
+                removed.push(image.clone());
+            } else {
+                kept.push(image.clone());
+            }
+        }
+        if removed.is_empty() {
+            continue;
+        }
+        let invoice = with_invoice(&message.content, &removed);
+        let media: usize = removed.iter().map(|image| image.data.len()).sum();
+        let bytes = media.saturating_sub(invoice.len().saturating_sub(message.content.len()));
+        plan.push(MediaOffload {
+            index: message_index,
+            artifact_paths: removed.iter().map(image_artifact_path).collect(),
+            removed,
+            kept,
+            content: message.content.clone(),
+            invoice,
+            bytes,
+        });
+    }
+    plan
+}
+
+/// What a payload-relief pass did, for the durable checkpoint and the notice.
+#[derive(Debug, Clone, Default)]
+pub struct MediaOffloadOutcome {
+    /// Attachments removed from the request projection.
+    pub offloaded_images: usize,
+    /// Net wire bytes reclaimed.
+    pub reclaimed_bytes: usize,
+    /// The original messages, oldest-first, for durable archival.
+    pub originals: Vec<Message>,
+}
+
+/// Apply a [`plan_media_offload`], removing the planned attachments and
+/// appending their invoices. Text is preserved verbatim; only the pixels leave
+/// the request, and a message that keeps attachments keeps them attached.
+pub fn apply_media_offload(
+    messages: &mut [Message],
+    plan: Vec<MediaOffload>,
+) -> MediaOffloadOutcome {
+    let mut outcome = MediaOffloadOutcome::default();
+    for item in plan {
+        let Some(message) = messages.get_mut(item.index) else {
+            continue;
+        };
+        outcome.originals.push(message.clone());
+        outcome.offloaded_images += item.removed.len();
+        outcome.reclaimed_bytes += item.bytes;
+        message.images = if item.kept.is_empty() {
+            None
+        } else {
+            Some(item.kept)
+        };
+        message.content = item.invoice;
+    }
+    outcome
+}
+
+/// The invoice that replaces attachments removed from a request.
+///
+/// It names the artifact this projection persisted, so the model can read the
+/// pixels back instead of guessing what it lost. The wording is shared by every
+/// producer, so a reader can recognise an offloaded attachment wherever it
+/// appears.
+fn with_invoice(content: &str, images: &[tool::ImagePart]) -> String {
+    let lines = images
+        .iter()
+        .map(image_invoice_line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if content.is_empty() {
+        lines
+    } else {
+        format!("{content}\n{lines}")
+    }
+}
+
+/// The one invoice line an offloaded attachment leaves behind.
+fn image_invoice_line(image: &tool::ImagePart) -> String {
+    let artifact_path = image_artifact_path(image);
+    format!(
+        "[Image Offloaded: {} elided to relieve request size]\n- Artifact Path: \"{artifact_path}\"",
+        image.mime
+    )
+}
+
+/// The content-addressed spool path one attachment is persisted to.
+///
+/// The same function produces the invoice text and the write target, so an
+/// invoice can never name a path no producer wrote (`[INV-SPOOL-01]`).
+fn image_artifact_path(image: &tool::ImagePart) -> String {
+    let hash = artifact_hash_for_base64(&image.data);
+    let short_hash = if hash.len() >= 12 { &hash[..12] } else { &hash };
+    let ext = match image.mime.as_str() {
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "png",
+    };
+    tool::spool_canonical_path(short_hash, ext)
 }
 
 /// Apply a plan, recording originals for archival and recursing into any nested
@@ -1037,9 +1428,6 @@ impl ToolSchemaWeights {
 pub struct LayeredRequestWeights {
     pub instructions_tokens: usize,
     pub per_message: Vec<std::sync::Arc<i64>>,
-    /// Weight of the request-local temporary tail (`E_n`). It is not history,
-    /// but it is part of the provider-visible request.
-    pub temporary_context_tokens: usize,
     pub tool_schema_tokens: usize,
 }
 
@@ -1055,12 +1443,10 @@ impl LayeredRequestWeights {
             .max(0) as usize
     }
 
-    /// Total prepared-request weight including instructions and the request-local
-    /// temporary tail.
+    /// Total prepared-request weight: instructions plus every message.
     pub fn prepared_tokens(&self) -> usize {
         self.instructions_tokens
             .saturating_add(self.per_message.iter().map(|t| **t).sum::<i64>().max(0) as usize)
-            .saturating_add(self.temporary_context_tokens)
     }
 
     pub fn total_tokens(&self) -> usize {
@@ -1077,18 +1463,12 @@ pub fn layered_request_weights(
     weights: &MessageTokenWeights,
     tool_schema_weights: &ToolSchemaWeights,
 ) -> LayeredRequestWeights {
-    let instructions_tokens = estimate_string_tokens(&request.instructions.fixed).max(0) as usize
-        + estimate_string_tokens(&request.instructions.transient).max(0) as usize;
+    let instructions_tokens = estimate_string_tokens(&request.instructions.0).max(0) as usize;
     let per_message = request
         .messages
         .iter()
         .map(|message| weights.weight(message))
         .collect();
-    let temporary_context_tokens = request
-        .temporary_context
-        .iter()
-        .map(|message| (*weights.weight(message)).max(0) as usize)
-        .sum();
     let tool_schema_tokens = request
         .tool_specs
         .iter()
@@ -1097,7 +1477,6 @@ pub fn layered_request_weights(
     LayeredRequestWeights {
         instructions_tokens,
         per_message,
-        temporary_context_tokens,
         tool_schema_tokens,
     }
 }
@@ -1106,9 +1485,8 @@ pub fn layered_request_weights(
 ///
 /// `history_tokens` is the prepared, non-system conversation, including any
 /// skill messages injected for this request. `instructions_tokens` is the
-/// rendered system prompt (`fixed` + `transient`), `tool_schema_tokens` is the
-/// visible tool surface, and `temporary_context_tokens` is the request-local
-/// tail (`E_n`, a subset of the instruction-side overhead).
+/// rendered instruction region, and `tool_schema_tokens` is
+/// the visible tool surface.
 ///
 /// `overhead_tokens` is **derived** as `total - history`, never summed from the
 /// parts: that keeps `history + overhead == total` exact even if a future change
@@ -1119,14 +1497,10 @@ pub struct RequestTokenEstimate {
     pub history_tokens: usize,
     pub overhead_tokens: usize,
     pub total_tokens: usize,
-    /// Rendered instruction-region cost (`fixed` + `transient`).
+    /// Rendered instruction-region cost.
     pub instructions_tokens: usize,
     /// Cost of every visible tool spec's schema.
     pub tool_schema_tokens: usize,
-    /// Request-local temporary-context tokens (`E_n`), a subset of
-    /// `overhead_tokens`. Diagnostics must report this separately from durable
-    /// input and provider-reported cache usage.
-    pub temporary_context_tokens: usize,
 }
 
 impl RequestTokenEstimate {
@@ -1137,29 +1511,24 @@ impl RequestTokenEstimate {
             total_tokens: history_tokens.saturating_add(overhead_tokens),
             instructions_tokens: 0,
             tool_schema_tokens: 0,
-            temporary_context_tokens: 0,
         }
     }
 
     /// An estimate whose overhead is the sum of its named layers.
     ///
-    /// `overhead_tokens` is recomputed from `instructions + tool schemas +
-    /// temporary tail` rather than trusted from a caller, so the layered fields
-    /// and the coarse field cannot disagree.
+    /// `overhead_tokens` is recomputed from `instructions + tool schemas` rather
+    /// than trusted from a caller, so the layered fields and the coarse field
+    /// cannot disagree.
     pub fn layered(
         history_tokens: usize,
         instructions_tokens: usize,
         tool_schema_tokens: usize,
-        temporary_context_tokens: usize,
     ) -> Self {
-        let overhead_tokens = instructions_tokens
-            .saturating_add(tool_schema_tokens)
-            .saturating_add(temporary_context_tokens);
+        let overhead_tokens = instructions_tokens.saturating_add(tool_schema_tokens);
         Self::measured(
             history_tokens,
             instructions_tokens,
             tool_schema_tokens,
-            temporary_context_tokens,
             history_tokens.saturating_add(overhead_tokens),
         )
     }
@@ -1175,7 +1544,6 @@ impl RequestTokenEstimate {
         history_tokens: usize,
         instructions_tokens: usize,
         tool_schema_tokens: usize,
-        temporary_context_tokens: usize,
         total_tokens: usize,
     ) -> Self {
         Self {
@@ -1184,7 +1552,6 @@ impl RequestTokenEstimate {
             total_tokens,
             instructions_tokens,
             tool_schema_tokens,
-            temporary_context_tokens,
         }
     }
 }

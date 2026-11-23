@@ -138,14 +138,14 @@ types, and lets a client project a connection without linking a codec.
 
 ## Normative Invariants Established
 
-- **`[INV-WIRE-03] No Direct Async Runtime in the Codec`**: `nuo-inference-wire` declares no I/O runtime in its
+- **`[INV-WIRE-09] No Direct Async Runtime in the Codec`**: `nuo-inference-wire` declares no I/O runtime in its
   dependency table; its encoding and demuxing surface is synchronous and in-memory. Mechanism: Cargo manifest
   inspection (`crates/nuo-inference-wire/Cargo.toml` names no `tokio`/`reqwest`/`nuo-egress` for shipped code) plus
   the pure-codec test suite. Tightened to full zero-I/O by ADR-0088.
 - **`[INV-OAUTH-01] OAuth Engine Independence from Codecs`**: `nuo-oauth` must not depend on
   `nuo-inference-wire`. Mechanism: Cargo dependency graph (the crate compiles with the codec removed) and
   `cargo tree` inspection in review.
-- **`[INV-PROV-12] Behaviour Preservation Through Relocation`**: relocation changes ownership, never wire bytes,
+- **`[INV-PROV-12] (revises ADR-0027) Behaviour Preservation Through Relocation`**: relocation changes ownership, never wire bytes,
   capability resolution or cache semantics. Mechanism: golden-frame and route-derivation tests
   (`providers/*/tests/*_golden.rs`, `nuo-server::provider_registry::tests`) pass unchanged across the move.
 

@@ -105,7 +105,7 @@ pub fn route_models(
         spec.models.iter().map(|m| (*m).to_string()).collect()
     };
 
-    // Connection pipe admission gate (ADR-0081 [INV-CATALOG-06]):
+    // Connection pipe admission gate (ADR-0081 [INV-CATALOGPIPE-03]):
     // 1. Filter candidates through the connection pipe valve. The default is a
     //    declared property of the surface, never a hardcoded id list: a relay
     //    that publishes bare ids is exactly the surface whose catalog is a
@@ -208,7 +208,7 @@ pub fn derive_channel(
     }
     let user_overrides = (!effective_overrides.is_empty()).then_some(effective_overrides);
 
-    // ── Mapping stage (ADR-0081 [INV-CATALOG-05]) ────────────────────────────
+    // ── Mapping stage (ADR-0081 [INV-CATALOGPIPE-02]) ────────────────────────────
     // The label a route shows is resolved ONCE, here, inside the catalog
     // boundary — never re-derived by the server projections or the client. The
     // provider spec's display policy decides whether a published name is
@@ -456,8 +456,8 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
 /// [`protocol::RemoteModelMetadata`]; this resolves it against the
 /// connection's own scope. A model the connection (or the provider scope)
 /// explicitly injected stays usable even when the provider declared otherwise:
-/// [INV-CATALOG-04] gives sovereign injection unconditional
-/// precedence, and [INV-CATALOG-04] requires the override to be
+/// [INV-CATALOGPIPE-01] gives sovereign injection unconditional
+/// precedence, and [INV-CATALOGPIPE-01] requires the override to be
 /// *disclosed* rather than silently erasing the upstream declaration.
 ///
 /// This is the single source of truth for "may this be run"; the server gate

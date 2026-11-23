@@ -70,11 +70,11 @@ In production execution traces, this legacy topology introduced four critical sy
 
 ## Invariants Established
 
-- **`[INV-TOOL-09]` Workspace Discovery Orthogonality**:
+- **`[INV-TOOL-17]` Workspace Discovery Orthogonality**:
   Agent role profiles MUST NOT admit single-directory traversal tools (`list_dir`). Workspace discovery MUST be conducted via glob pattern resolution (`find_files`) or content indexing (`search_text`).
-- **`[INV-TOOL-10]` Surgical Mutation Preservation**:
+- **`[INV-TOOL-18]` Surgical Mutation Preservation**:
   Modifications to existing workspace files MUST utilize `edit_text` with context anchor lines. Full-file overwriting via `write_file` is strictly prohibited for localized edits.
-- **`[INV-TOOL-11]` Unobstructed Communication Channel**:
+- **`[INV-TOOL-19]` Unobstructed Communication Channel**:
   User interaction MUST NOT depend on synchronous blocking meta-tools. Inquiries and confirmations are expressed through natural language responses.
 
 ---

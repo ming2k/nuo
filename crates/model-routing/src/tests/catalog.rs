@@ -514,7 +514,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_server() {
         super::build_provider_for_model(&config, "qoder", Some("qfmodel"), None).is_some(),
         "an available sibling must still route"
     );
-    // A user injection overrides the verdict ([INV-CATALOG-04]):
+    // A user injection overrides the verdict ([INV-CATALOGPIPE-01]):
     // the route is built, and the override is disclosed rather than silent.
     let mut injected = qoder;
     // An explicit filter keeps the connection out of the legacy-policy

@@ -108,7 +108,7 @@ pub fn build_picker_state_with_rules(
                     // the row can never claim a model is runnable when the
                     // route would be refused, and a sovereign override is
                     // disclosed rather than silently erasing the upstream
-                    // declaration ([INV-CATALOG-04]).
+                    // declaration ([INV-CATALOGPIPE-01]).
                     if let Some(connection) = connection {
                         let remote = channels_to_show
                             .iter()
@@ -562,7 +562,7 @@ mod display_policy_tests {
     }
 
     /// The mapping stage is a declared property of the surface, never a guess
-    /// from the id shape (ADR-0081 [INV-CATALOG-05]).
+    /// from the id shape (ADR-0081 [INV-CATALOGPIPE-02]).
     #[test]
     fn native_policy_trusts_a_published_label_verbatim() {
         ensure_init();

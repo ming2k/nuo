@@ -135,6 +135,9 @@ pub enum SystemNoticeTopic {
     /// Image attachments were withheld from a request because the route cannot
     /// take them.
     Images,
+    /// Attachments were left out of one request because its serialized body was
+    /// over the transport's byte ceiling.
+    Payload,
     /// A user-authored configuration surface was rejected.
     Configuration,
     Custom(String),
@@ -461,6 +464,7 @@ pub fn notice_topic_label(kind: tool::NoticeKind) -> &'static str {
         tool::NoticeKind::TrustFailure => "trust error",
         tool::NoticeKind::CommandAck => "command",
         tool::NoticeKind::ImageInputWithheld => "images",
+        tool::NoticeKind::PayloadRelief => "payload",
         tool::NoticeKind::Configuration => "config",
     }
 }
@@ -504,9 +508,10 @@ pub enum DeliveryStatus {
 /// ([`UserMessageOrigin::Chat`]) and it is never consulted for them.
 ///
 /// The Activity modal uses this to decide whether a `Role::User` message is
-/// the genuine prompt that drove the current round: slash commands
-/// (`/review …`) are surfaced as user messages in the transcript but are
-/// *not* the LLM prompt, so they must not be shown as the round's "Prompt".
+/// the genuine prompt that drove the current round. Slash commands never
+/// become conversation messages (ADR-0233); they are a `CommandRecord`, so a
+/// `Role::User` row is always dialogue and its origin only distinguishes a
+/// prompt from an admitted steer/follow-up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UserMessageOrigin {
     /// A normal chat prompt the user composed and sent to the model. This is
@@ -517,7 +522,4 @@ pub enum UserMessageOrigin {
     Steer,
     /// Follow-up input executed after the current round completes.
     FollowUp,
-    /// A slash command (`/review`, `/pursue …`, …). The harness handles these
-    /// directly; the model never sees them as a prompt.
-    Slash,
 }

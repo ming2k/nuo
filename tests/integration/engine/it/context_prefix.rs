@@ -84,7 +84,6 @@ fn rich_inputs() -> ContextInputs {
                 &FakeTool(BuiltinTool::ReadUrl),
             ],
             true,
-            0,
         ),
         provider_guidance: "Prefer fenced code blocks.",
         project_rules: "Run the project test command before claiming success.".to_string(),
@@ -178,7 +177,7 @@ fn the_bodies_join_back_into_the_rendered_prefix() {
     let joined: Vec<&str> = view
         .blocks
         .iter()
-        .filter(|block| block.active && !block.stability.is_transient())
+        .filter(|block| block.active)
         .filter_map(|block| block.body.as_deref())
         .collect();
     assert_eq!(

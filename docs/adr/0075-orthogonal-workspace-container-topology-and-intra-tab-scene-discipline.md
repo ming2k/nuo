@@ -78,7 +78,7 @@ d=1 │ 1: Subagent(id)│
   - `TabKind::Settings`: Client appearance, configuration, and provider settings workspace.
 - Opening or focusing a workspace (via `C-x d`, `C-x ,`, or `/dashboard`) is exclusively a **Tab Container Operation** (`open_tab` or `focus_tab`). It MUST NEVER push a scene onto another tab's stack.
 
-### 2. Container-Scoped Scene Discipline (`[INV-SCENE-02]`)
+### 2. Container-Scoped Scene Discipline (`[INV-SCENE-04]`)
 
 - Every `ClientTab` owns its own autonomous, isolated `history: Vec<SceneKind>`.
 - Scene transitions (`push_scene`) are strictly **intra-tab**:
@@ -87,7 +87,7 @@ d=1 │ 1: Subagent(id)│
   - `TabKind::Settings` initializes its own scene stack with `[SceneKind::Settings]`.
 - Back navigation (`tab.back()`, `Esc`, `< Back`) operates strictly within the active tab's stack. Stepping back at depth 0 is a spent gesture and NEVER switches tabs or closes the container (`[INV-NAV-02]`).
 
-### 3. Component Nesting Boundary (`[INV-COMP-01]`)
+### 3. Component Nesting Boundary (`[INV-COMP-05]`)
 
 - Low-level interactive presentations—including Myers code diffs, command execution outputs, web search results, and reasoning disclosures—are strictly **Components nested within a Scene**.
 - Components MUST NOT be elevated to full-canvas Scenes or pushed onto the router's navigation stack.
@@ -98,8 +98,8 @@ d=1 │ 1: Subagent(id)│
 ## Normative Invariants
 
 - **`[INV-TAB-10] Workspace Container Purity`**: The Dashboard and Settings surfaces are sovereign Tab containers (`TabKind::Dashboard`, `TabKind::Settings`). Opening a workspace surface MUST allocate or focus its dedicated Tab container and MUST NOT push into another tab's history.
-- **`[INV-SCENE-02] Container-Scoped Scene Discipline`**: Each `ClientTab` container strictly owns its own navigation stack. `ClientTab::push_scene` MUST reject cross-container scene injections (e.g. attempting to push `Dashboard` onto a `Thread` tab).
-- **`[INV-COMP-01] Component Nesting Boundary`**: Visual inspectors for tool outputs (such as code diffs and process logs) MUST remain encapsulated as components within the active scene canvas and MUST NOT generate navigation stack entries or breadcrumb labels.
+- **`[INV-SCENE-04] Container-Scoped Scene Discipline`**: Each `ClientTab` container strictly owns its own navigation stack. `ClientTab::push_scene` MUST reject cross-container scene injections (e.g. attempting to push `Dashboard` onto a `Thread` tab).
+- **`[INV-COMP-05] Component Nesting Boundary`**: Visual inspectors for tool outputs (such as code diffs and process logs) MUST remain encapsulated as components within the active scene canvas and MUST NOT generate navigation stack entries or breadcrumb labels.
 
 ---
 
@@ -118,13 +118,13 @@ d=1 │ 1: Subagent(id)│
 ## Rejected Alternatives & Negative Knowledge
 
 ### 1. Elevating File Diffs to Navigation Scenes (Rejected Alternative)
-- *Failure Mode*: Violates `[INV-COMP-01]`. Elevating diffs to scenes causes scene inflation, requiring bash outputs, search queries, and thought blocks to also be scenes, resulting in unreadable 4-tier breadcrumbs and hijacking universal `Esc` semantics.
+- *Failure Mode*: Violates `[INV-COMP-05]`. Elevating diffs to scenes causes scene inflation, requiring bash outputs, search queries, and thought blocks to also be scenes, resulting in unreadable 4-tier breadcrumbs and hijacking universal `Esc` semantics.
 
 ### 2. Subagent as an Independent Tab Container (Rejected Alternative)
 - *Failure Mode*: Subagents are transient child delegations tied to a single turn of a parent thread. Spawning tabs for ephemeral 5-second subtasks causes severe TabBar clutter and severs the visual causal link to the parent turn.
 
 ### 3. Universal Shared Scene Stack across Tabs (Rejected Alternative)
-- *Failure Mode*: Violates `[INV-SCENE-02]`. When tabs share or cross-inject scenes, switching to Tab 1 and pressing `Esc` unexpectedly pops scenes that were pushed in Tab 0, violating viewport isolation.
+- *Failure Mode*: Violates `[INV-SCENE-04]`. When tabs share or cross-inject scenes, switching to Tab 1 and pressing `Esc` unexpectedly pops scenes that were pushed in Tab 0, violating viewport isolation.
 
 ---
 

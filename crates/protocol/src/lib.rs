@@ -62,9 +62,9 @@ pub use error::{
 
 pub mod transcript;
 pub use transcript::{
-    CHECKPOINT_HEADER, CompactionMeta, DirectiveKind, DirectivePayload, EntryKind, EntryOrigin,
-    EntryPayload, MessagePayload, ProjectionDirective, PrunedMediaOutput, PrunedToolOutput,
-    StatePayload, SubagentRef, Transcript, TranscriptEntry, checkpoint_message,
+    CompactionMeta, DirectiveKind, DirectivePayload, EntryKind, EntryOrigin, EntryPayload,
+    MessagePayload, ProjectionDirective, PrunedMediaOutput, PrunedToolOutput, StatePayload,
+    SubagentRef, Transcript, TranscriptEntry, checkpoint_message,
 };
 
 pub mod context;
@@ -82,7 +82,7 @@ pub mod thread;
 pub mod thread_store;
 pub mod thread_view;
 pub use instructions::{
-    Block, BlockRender, InstructionRoute, InstructionSelector, InstructionSource, InstructionText,
+    Block, Boundary, InstructionRoute, InstructionSelector, InstructionSource, InstructionText,
     ScopedInstruction, render_blocks,
 };
 
@@ -134,12 +134,10 @@ pub mod agent_kind;
 pub mod agent_role;
 pub mod cognitive;
 pub mod execution_policy;
-pub mod extension;
 pub mod hooks;
+pub mod job;
 pub mod mcp;
 pub mod model;
-pub use extension::{Extension, HookPhase};
-pub mod job;
 pub mod subagent;
 pub use agent_kind::AgentKind;
 pub use agent_role::{
@@ -247,11 +245,14 @@ pub use model::{
 pub use monitor::*;
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
-    ContextBudget, LayeredRequestWeights, MessageContentFingerprint, MessageTokenWeights,
-    PRUNE_QUANTUM_FLOOR_TOKENS, PruneOutcome, RequestTokenEstimate, TAIL_QUARANTINE_TOKENS,
-    ToolSchemaWeights, estimate_bytes, estimate_draft_tokens, estimate_message_tokens,
+    ContextBudget, DEFAULT_REQUEST_BODY_LIMIT_BYTES, LayeredRequestWeights, MediaOffload,
+    MediaOffloadOutcome, MessageContentFingerprint, MessageTokenWeights,
+    PAYLOAD_KEEP_NEWEST_IMAGES, PAYLOAD_RELIEF_UTILIZATION, PRUNE_QUANTUM_FLOOR_TOKENS,
+    PruneOutcome, RequestTokenEstimate, RequestWireSize, TAIL_QUARANTINE_TOKENS, ToolSchemaWeights,
+    apply_media_offload, estimate_bytes, estimate_draft_tokens, estimate_message_tokens,
     estimate_semantic_json_tokens, estimate_tokens, estimate_tokens_weighted,
-    layered_request_weights, prune_tool_results,
+    layered_request_weights, media_allowance, media_bytes, message_wire_bytes,
+    payload_relief_target, plan_media_offload, prune_tool_results, request_wire_size,
 };
 pub use secret::SecretString;
 pub use session_title::{TITLE_MAX_LEN, ThreadTitle, clean_title};

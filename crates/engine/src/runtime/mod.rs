@@ -1,8 +1,7 @@
 //! Runtime substrate — host ports, execution environment, durability sinks,
 //! hooks, inflight deduplication, offstream memory, the provider sentinel,
-//! workspace journal capture, and harness extensions.
+//! workspace journal capture.
 pub mod execution;
-pub mod extension;
 pub(crate) mod hook_runner;
 pub mod hooks;
 pub mod host;

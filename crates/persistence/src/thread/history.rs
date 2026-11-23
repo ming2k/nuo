@@ -92,6 +92,10 @@ fn wire_eq(a: &[Message], b: &[Message]) -> bool {
 }
 
 impl ThreadSession {
+    fn forensics_dir(&self, session_id: &str) -> std::path::PathBuf {
+        super::journal_root(&self.db_path).join(session_id)
+    }
+
     /// The durable round-interrupt records (C11): one per round stopped
     /// before completing, newest last. Pure projection state — never part
     /// of the transcript.
@@ -119,56 +123,40 @@ impl ThreadSession {
         .await
     }
 
-    /// The durable request-projection archive: forensic snapshots
-    /// of assembled requests, oldest first. Pure projection state — never part
-    /// of the transcript, never replayed into a later model request. Read from
-    /// the key-addressed `request_projections` table on demand; it is not held
-    /// in `ThreadData`.
+    /// The request-projection archive: a best-effort ring, never the window.
+    /// Pure forensic state — no SQLite row, no foreign key, no round failure.
     pub async fn request_projections(&self) -> Vec<protocol::RequestProjection> {
-        let handle = self.writer.clone();
-        let session_id = self.id().await;
+        let dir = self.forensics_dir(&self.id().await);
         tokio::task::spawn_blocking(move || {
-            handle
-                .reader()
-                .and_then(|reader| {
-                    reader.load_request_projections(
-                        &session_id,
-                        crate::db::MAX_RETAINED_REQUEST_PROJECTIONS,
-                    )
-                })
-                .unwrap_or_default()
+            crate::forensics::read(&dir, crate::db::MAX_RETAINED_REQUEST_PROJECTIONS)
         })
         .await
         .unwrap_or_default()
     }
 
-    /// Insert one request-projection record, awaiting the durable
-    /// write. Keyed by `(session, round, turn)`, so re-recording a logical
-    /// invocation replaces its row rather than duplicating it. Retention is a
-    /// bounded ring enforced by the storage layer.
+    /// Append one request-projection record to the session's ring and wait
+    /// until the one writer thread has attempted it. Cold path (tests,
+    /// tooling); the request path uses `try_record_request_projection`.
     pub async fn record_request_projection(
         &self,
         record: protocol::RequestProjection,
     ) -> Result<(), String> {
-        let session_id = self.id().await;
-        self.writer
-            .record_request_projection(session_id, record)
+        let dir = self.forensics_dir(&self.id().await);
+        tokio::task::spawn_blocking(move || crate::forensics::record_wait(&dir, &record))
             .await
             .map_err(|error| error.to_string())
     }
 
-    /// Fire-and-forget request-projection insert for the model
-    /// request hot path: forensic persistence must never block dispatch. The
-    /// caller passes the session id because this path cannot await the store
-    /// lock to read it. A dropped write is logged, never surfaced as a round
+    /// Fire-and-forget request-projection append for the model-request path.
+    /// The caller passes the session id because this path must not await the
+    /// store lock; a dropped write is a dropped forensic record, not a round
     /// failure.
     pub fn try_record_request_projection(
         &self,
         session_id: String,
         record: protocol::RequestProjection,
     ) {
-        self.writer
-            .try_record_request_projection(session_id, record);
+        crate::forensics::record(&self.forensics_dir(&session_id), &record);
     }
 
     /// Clear every round-interrupt record (C11). Called when the interrupted
@@ -219,6 +207,9 @@ impl ThreadSession {
         let (data, children, should_persist) = {
             let mut state = self.state.lock().await;
             state.data.transcript = rebuild_transcript_from_messages(&messages);
+            // A wholesale rebuild mints new fact ids; the old graph sidecar
+            // would contain unreachable ghosts (ADR-0239).
+            state.data.graph = None;
             state.data.generation = uuid::Uuid::new_v4().to_string();
             let children = admit_subagent_children(&mut state.data, &messages);
             state.projected_cache = Some(messages.clone());
@@ -229,7 +220,7 @@ impl ThreadSession {
             }
             (state.data.clone(), children, !empty_unpersisted)
         };
-        persist_subagent_children(&self.writer, &self.blob_store, &children);
+        persist_subagent_children(&self.writer, &children).await;
         if should_persist {
             self.persist_full_rewrite(data).await?;
         }
@@ -281,6 +272,7 @@ impl ThreadSession {
                 state.append_to_projection_cache(tail);
             } else if !wire_eq(current, state.get_or_project_messages()) {
                 state.data.transcript = rebuild_transcript_from_messages(current);
+                state.data.graph = None;
                 state.data.generation = uuid::Uuid::new_v4().to_string();
                 children = admit_subagent_children(&mut state.data, current);
                 state.invalidate_projection_cache();
@@ -304,7 +296,7 @@ impl ThreadSession {
             };
             (data, mode, children)
         };
-        persist_subagent_children(&self.writer, &self.blob_store, &children);
+        persist_subagent_children(&self.writer, &children).await;
         self.persist_with_mode_guarded(data, mode, Vec::new(), crate::db::CommitGuard::default())
             .await
             .map(|_| ())
@@ -357,6 +349,7 @@ impl ThreadSession {
                 }
             } else if !wire_eq(commit.messages, state.get_or_project_messages()) {
                 state.data.transcript = rebuild_transcript_from_messages(commit.messages);
+                state.data.graph = None;
                 state.data.generation = uuid::Uuid::new_v4().to_string();
                 children = admit_subagent_children(&mut state.data, commit.messages);
                 state.invalidate_projection_cache();
@@ -457,7 +450,7 @@ impl ThreadSession {
             };
             (data, mode, children, usage_upserts)
         };
-        persist_subagent_children(&self.writer, &self.blob_store, &children);
+        persist_subagent_children(&self.writer, &children).await;
         self.persist_with_mode_guarded(data, mode, usage_upserts, guard)
             .await
     }
@@ -507,7 +500,7 @@ impl ThreadSession {
     ///
     /// Pruning and folding are `RequestView` transforms. They may change the
     /// window for the current request, but they never rewrite history and never
-    /// survive a restart (`INV-FOLD-01`).
+    /// survive a restart (`INV-FOLDVIEW-01`).
     pub async fn commit_context_projection(
         &self,
         result: ContextProjectionResult,
@@ -526,44 +519,53 @@ impl ThreadSession {
         target: ForkTarget,
         name: impl Into<String>,
     ) -> Result<protocol::BranchId, String> {
-        let mut thread = self.thread_aggregate().await?;
-        let branch = thread.state.active_branch.clone();
-        let path = thread.path(&branch).map_err(|error| error.to_string())?;
-        if path.is_empty() {
-            return Err("Cannot fork an empty thread.".to_string());
-        }
-        let from = fork_fact_for_target(&path, target)?;
-        let mut name = name.into();
-        if thread
-            .state
-            .branches
-            .values()
-            .any(|branch| branch.name == name)
-        {
-            // A repeated `/fork` name is not a user error; make it unique.
-            name = format!("{name}-{}", uuid::Uuid::new_v4().simple());
-        }
-        let id = thread
-            .fork_from(
-                &branch,
-                from,
-                name,
-                protocol::BranchPolicy::default(),
-                unix_timestamp() * 1000,
-            )
-            .map_err(|error| error.to_string())?;
-        thread.state.active_branch = id.clone();
-        let generation = uuid::Uuid::new_v4().to_string();
-        self.writer
-            .save_thread_aggregate_with_generation(thread.clone(), Some(generation.clone()))
-            .await
-            .map_err(|error| error.to_string())?;
-        let mut state = self.state.lock().await;
-        state.data.active_branch = id.clone();
-        state.data.transcript = transcript_from_thread(&thread);
-        state.data.generation = generation;
-        state.invalidate_projection_cache();
+        let (data, id) = {
+            let mut state = self.state.lock().await;
+            let mut thread = thread_from_session_data(&state.data);
+            let branch = thread.state.active_branch.clone();
+            let path = thread.path(&branch).map_err(|error| error.to_string())?;
+            if path.is_empty() {
+                return Err("Cannot fork an empty thread.".to_string());
+            }
+            let from = fork_fact_for_target(&path, target)?;
+            let mut name = name.into();
+            if thread
+                .state
+                .branches
+                .values()
+                .any(|existing| existing.name == name)
+            {
+                // A repeated `/fork` name is not a user error; make it unique.
+                name = format!("{name}-{}", uuid::Uuid::new_v4().simple());
+            }
+            let id = thread
+                .fork_from(
+                    &branch,
+                    from,
+                    name,
+                    protocol::BranchPolicy::default(),
+                    unix_timestamp() * 1000,
+                )
+                .map_err(|error| error.to_string())?;
+            thread.state.active_branch = id.clone();
+            state.data.active_branch = id.clone();
+            state.data.branches = thread.state.branches.clone();
+            state.data.graph = Some(thread.clone());
+            state.data.transcript = transcript_from_thread(&thread);
+            state.data.generation = uuid::Uuid::new_v4().to_string();
+            state.data.updated_at = unix_timestamp();
+            state.invalidate_projection_cache();
+            (state.data.clone(), id)
+        };
+        self.persist_full_rewrite(data).await?;
         Ok(id)
+    }
+
+    /// Project the durable transcript into the canonical [`protocol::Thread`]
+    /// aggregate (a pure derivation; SQLite is not consulted).
+    pub async fn thread(&self) -> protocol::Thread {
+        let state = self.state.lock().await;
+        thread_from_session_data(&state.data)
     }
 
     /// Project the live thread facts into the UI tree.
@@ -578,36 +580,26 @@ impl ThreadSession {
     /// Project the durable transcript into the canonical [`protocol::Thread`]
     /// aggregate.
     ///
-    /// This is the migration boundary for code that already holds a
-    /// `ThreadSession`: the projection preserves fact identity (`entry.id`), the
-    /// parent chain, compaction summaries, and canonical tool observations.
-    /// The returned value is a projection, not a second SSOT — writing it back
-    /// still goes through this store until the live path moves to
-    /// `protocol::ThreadSession`.
-    pub async fn thread(&self) -> protocol::Thread {
-        let state = self.state.lock().await;
-        thread_from_session_data(&state.data)
-    }
-
-    /// Hydrate the full thread aggregate, including sibling branches.
+    /// The projection preserves fact identity (`entry.id`), the parent chain,
+    /// compaction summaries, branch cursors, and canonical tool observations.
+    /// It is a pure derivation of the in-memory session state; SQLite is not
+    /// consulted (ADR-0239).
     pub async fn thread_aggregate(&self) -> Result<protocol::Thread, String> {
-        let id = self.id().await;
-        let writer = self.writer.clone();
-        tokio::task::spawn_blocking(move || {
-            let reader = writer.reader().map_err(|error| error.to_string())?;
-            reader
-                .load_thread(&id)
-                .map_err(|error| error.to_string())?
-                .ok_or_else(|| format!("thread '{id}' not found"))
-        })
-        .await
-        .map_err(|error| format!("thread hydrate task failed: {error}"))?
+        let state = self.state.lock().await;
+        Ok(thread_from_session_data(&state.data))
     }
 
     /// All branch cursors for this thread.
     pub async fn branches(&self) -> Result<Vec<protocol::BranchState>, String> {
-        let thread = self.thread_aggregate().await?;
-        Ok(thread.state.branches.into_values().collect())
+        Ok(self
+            .state
+            .lock()
+            .await
+            .data
+            .branches
+            .values()
+            .cloned()
+            .collect())
     }
 
     /// Fork a branch cursor at `from` (default: the active head). Facts are
@@ -617,82 +609,95 @@ impl ThreadSession {
         name: impl Into<String>,
         from: Option<protocol::FactId>,
     ) -> Result<protocol::BranchId, String> {
-        let mut thread = self.thread_aggregate().await?;
-        let branch = thread.state.active_branch.clone();
-        let from = match from {
-            Some(from) => from,
-            None => thread
-                .state
-                .branch(&branch)
-                .map_err(|error| error.to_string())?
-                .head
-                .clone()
-                .ok_or_else(|| "cannot fork an empty branch".to_string())?,
+        let (data, id) = {
+            let mut state = self.state.lock().await;
+            let mut thread = thread_from_session_data(&state.data);
+            let branch = thread.state.active_branch.clone();
+            let from = match from {
+                Some(from) => from,
+                None => thread
+                    .state
+                    .branch(&branch)
+                    .map_err(|error| error.to_string())?
+                    .head
+                    .clone()
+                    .ok_or_else(|| "cannot fork an empty branch".to_string())?,
+            };
+            let id = thread
+                .fork_from(
+                    &branch,
+                    from,
+                    name.into(),
+                    protocol::BranchPolicy::default(),
+                    unix_timestamp() * 1000,
+                )
+                .map_err(|error| error.to_string())?;
+            state.data.branches = thread.state.branches.clone();
+            state.data.graph = Some(thread.clone());
+            state.data.updated_at = unix_timestamp();
+            (state.data.clone(), id)
         };
-        let id = thread
-            .fork_from(
-                &branch,
-                from,
-                name,
-                protocol::BranchPolicy::default(),
-                unix_timestamp() * 1000,
-            )
-            .map_err(|error| error.to_string())?;
-        self.writer
-            .save_thread_aggregate(thread)
-            .await
-            .map_err(|error| error.to_string())?;
+        self.persist_full_rewrite(data).await?;
         Ok(id)
     }
 
     /// Switch this store's transcript view to another branch.
+    ///
+    /// The switch is one full journal frame: the branch cursor and the
+    /// transcript it projects commit atomically, and the derived SQLite view
+    /// materialises both from the same snapshot (ADR-0239).
     pub async fn switch_branch(&self, branch: protocol::BranchId) -> Result<(), String> {
-        let mut thread = self.thread_aggregate().await?;
-        if !thread.state.branches.contains_key(&branch) {
-            return Err(format!("unknown branch '{}'", branch.0));
-        }
-        thread.state.active_branch = branch.clone();
-        let generation = uuid::Uuid::new_v4().to_string();
-        self.writer
-            .save_thread_aggregate_with_generation(thread.clone(), Some(generation.clone()))
-            .await
-            .map_err(|error| error.to_string())?;
-        let mut state = self.state.lock().await;
-        state.data.active_branch = branch;
-        state.data.transcript = transcript_from_thread(&thread);
-        state.data.generation = generation;
-        state.invalidate_projection_cache();
-        Ok(())
+        let data = {
+            let mut state = self.state.lock().await;
+            let mut thread = thread_from_session_data(&state.data);
+            if !thread.state.branches.contains_key(&branch) {
+                return Err(format!("unknown branch '{}'", branch.0));
+            }
+            thread.state.active_branch = branch.clone();
+            state.data.active_branch = branch;
+            state.data.branches = thread.state.branches.clone();
+            state.data.graph = Some(thread.clone());
+            state.data.transcript = transcript_from_thread(&thread);
+            state.data.generation = uuid::Uuid::new_v4().to_string();
+            state.data.updated_at = unix_timestamp();
+            state.invalidate_projection_cache();
+            state.data.clone()
+        };
+        self.persist_full_rewrite(data).await
     }
 
     /// Delete a branch cursor. Facts remain while another branch reaches them.
     pub async fn delete_branch(&self, branch: protocol::BranchId) -> Result<(), String> {
-        let mut thread = self.thread_aggregate().await?;
-        thread
-            .delete_branch(&branch, unix_timestamp() * 1000)
-            .map_err(|error| error.to_string())?;
-        self.writer
-            .save_thread_aggregate(thread.clone())
-            .await
-            .map_err(|error| error.to_string())?;
-        if thread.state.active_branch != self.state.lock().await.data.active_branch {
-            self.switch_branch(thread.state.active_branch.clone())
-                .await?;
-        }
-        Ok(())
+        let data = {
+            let mut state = self.state.lock().await;
+            let mut thread = thread_from_session_data(&state.data);
+            thread
+                .delete_branch(&branch, unix_timestamp() * 1000)
+                .map_err(|error| error.to_string())?;
+            let active = thread.state.active_branch.clone();
+            state.data.branches = thread.state.branches.clone();
+            state.data.graph = Some(thread.clone());
+            if state.data.active_branch != active {
+                state.data.active_branch = active;
+                state.data.transcript = transcript_from_thread(&thread);
+                state.data.generation = uuid::Uuid::new_v4().to_string();
+                state.invalidate_projection_cache();
+            }
+            state.data.updated_at = unix_timestamp();
+            state.data.clone()
+        };
+        self.persist_full_rewrite(data).await
     }
 
-    /// Replace the in-memory transcript with the projection of `thread` and
-    /// persist the aggregate.
-    ///
-    /// The durable write is still routed through this store during the
-    /// migration; the transcript is a projection of the facts, never an
-    /// independent source.
+    /// Replace the in-memory transcript with `thread`'s projection and persist
+    /// the whole session (transcript, cursors, working state) as one frame.
     pub async fn commit_thread(&self, thread: &protocol::Thread) -> Result<u64, String> {
         let (data, revision) = {
             let mut state = self.state.lock().await;
             state.data.transcript = transcript_from_thread(thread);
             state.data.active_branch = thread.state.active_branch.clone();
+            state.data.branches = thread.state.branches.clone();
+            state.data.graph = Some(thread.clone());
             state.data.generation = uuid::Uuid::new_v4().to_string();
             state.data.round_counter = thread.state.round_counter;
             state.data.updated_at = thread.updated_at_ms / 1000;
@@ -978,7 +983,7 @@ pub(crate) fn transcript_from_thread(thread: &protocol::Thread) -> protocol::Tra
 /// execution representation); every other message stays a `Message` fact. The
 /// projection keeps entry ids as fact ids so a later durable store can adopt
 /// them without rewriting parent links.
-pub(crate) fn thread_from_session_data(data: &ThreadData) -> protocol::Thread {
+fn linear_thread_from_data(data: &ThreadData) -> protocol::Thread {
     use protocol::{
         BlobRef, FactContext, FactId, FactPayload, ObservationLifecycle, ObservationMetrics,
         Thread, ThreadFact, ThreadId, ThreadRevision, ThreadStatus,
@@ -1081,24 +1086,109 @@ pub(crate) fn thread_from_session_data(data: &ThreadData) -> protocol::Thread {
         parent = Some(id);
     }
 
-    if let Some(head) = parent {
-        let branch = data.active_branch.clone();
-        thread.state.active_branch = branch.clone();
-        thread.state.branches.insert(
-            branch.clone(),
-            protocol::BranchState {
-                id: branch,
-                name: data.active_branch.0.clone(),
-                head: Some(head),
-                forked_from: None,
-                compaction_horizon,
-                policy: protocol::BranchPolicy::default(),
-                created_at_ms: thread.created_at_ms,
-                updated_at_ms: thread.updated_at_ms,
-            },
-        );
+    thread.state.active_branch = data.active_branch.clone();
+    if data.branches.is_empty() {
+        // Frames written before branch state moved into the journal only name
+        // an active branch; reconstruct the single-cursor shape from the
+        // linear fact chain (ADR-0239).
+        if let Some(head) = parent.clone() {
+            let branch = data.active_branch.clone();
+            thread.state.branches.insert(
+                branch.clone(),
+                protocol::BranchState {
+                    id: branch,
+                    name: data.active_branch.0.clone(),
+                    head: Some(head),
+                    forked_from: None,
+                    compaction_horizon,
+                    policy: protocol::BranchPolicy::default(),
+                    created_at_ms: thread.created_at_ms,
+                    updated_at_ms: thread.updated_at_ms,
+                },
+            );
+        }
+    } else {
+        thread.state.branches = data.branches.clone();
+        if !thread.state.branches.contains_key(&data.active_branch) {
+            // A journal from a store that predates branch durability may name
+            // an active branch with no cursor. Fall back to the linear head so
+            // the aggregate still hydrates rather than becoming unreadable.
+            thread.state.active_branch = protocol::BranchId::main();
+            if let Some(head) = parent.clone() {
+                let branch = protocol::BranchId::main();
+                thread.state.branches.insert(
+                    branch.clone(),
+                    protocol::BranchState {
+                        id: branch,
+                        name: "main".to_string(),
+                        head: Some(head),
+                        forked_from: None,
+                        compaction_horizon,
+                        policy: protocol::BranchPolicy::default(),
+                        created_at_ms: thread.created_at_ms,
+                        updated_at_ms: thread.updated_at_ms,
+                    },
+                );
+            }
+        }
     }
+    // The transcript is the active branch's projection, so its tail is the
+    // active cursor's head by construction. Deriving it here keeps a normal
+    // delta (which never rewrites the branch map) from leaving the cursor at
+    // `None` and makes a transcript switch self-consistent (ADR-0239).
+    if let Some(head) = parent.as_ref()
+        && let Some(branch) = thread.state.branches.get_mut(&thread.state.active_branch)
+    {
+        branch.head = Some(head.clone());
+        branch.updated_at_ms = thread.updated_at_ms;
+    }
+
     thread.revision = ThreadRevision(seq.max(data.transcript.entries.len() as u64));
+    thread
+}
+
+/// Project `data` into the canonical thread aggregate.
+///
+/// Ordinary deltas only extend the active transcript; the full fact DAG lives
+/// in `data.graph` (written on branch mutations and full rewrites). This
+/// merges the active transcript's new facts into that DAG, so sibling branches
+/// survive a reload without SQLite (ADR-0239).
+pub(crate) fn thread_from_session_data(data: &ThreadData) -> protocol::Thread {
+    let linear = linear_thread_from_data(data);
+    let Some(graph) = data.graph.as_ref() else {
+        return linear;
+    };
+    let mut thread = graph.clone();
+    let mut max_seq = thread.graph.iter().map(|fact| fact.seq).max().unwrap_or(0);
+    for fact in linear.graph.facts_in_seq_order() {
+        if thread.graph.contains(&fact.id) {
+            continue;
+        }
+        let mut fact = fact.clone();
+        max_seq = max_seq.saturating_add(1);
+        // A fork's new turn can reuse a sequence already used by the other
+        // branch. Renumber above the whole DAG; parent order is preserved.
+        fact.seq = max_seq;
+        // A missing parent means the fact cannot anchor a path; dropping it is
+        // safer than fabricating lineage.
+        let _ = thread.graph.insert(fact);
+    }
+    thread.state.active_branch = data.active_branch.clone();
+    thread.state.round_counter = data.round_counter;
+    thread.updated_at_ms = data.updated_at.saturating_mul(1000);
+    if !data.branches.is_empty() {
+        thread.state.branches = data.branches.clone();
+    }
+    // The transcript is the active branch's projection, so its tail is that
+    // branch's head by construction.
+    if let Some(active) = linear.state.branches.get(&linear.state.active_branch)
+        && let Some(head) = active.head.clone()
+        && let Some(branch) = thread.state.branches.get_mut(&data.active_branch)
+    {
+        branch.head = Some(head);
+        branch.updated_at_ms = thread.updated_at_ms;
+    }
+    thread.revision = protocol::ThreadRevision(thread.graph.len() as u64);
     thread
 }
 
@@ -1157,14 +1247,65 @@ fn admit_subagent_children(state: &mut ThreadData, candidates: &[Message]) -> Ve
 /// Persist admitted subagent sessions. Called after the session lock is
 /// released; failures leave the parent entry's pointer dangling, which the
 /// load path reports rather than silently dropping the run.
-fn persist_subagent_children(
+async fn persist_subagent_children(
     writer: &crate::db::PersistenceHandle,
-    blob_store: &BlobStore,
     subagents: &[ThreadData],
 ) {
+    // The owner lock is the write lease for the whole store, child journals
+    // included. Checking it here matters because this runs before the parent's
+    // guarded append: without it a read-only client would write children and
+    // then fail the parent, leaving a half-admitted run (ADR-0241).
+    if writer.is_lock_contention() {
+        tracing::warn!(
+            children = subagents.len(),
+            "store is owned by another process; skipping subagent journal admission"
+        );
+        return;
+    }
     for subagent in subagents {
-        if let Err(error) = crate::thread::persist_to(writer, subagent, blob_store) {
-            tracing::warn!(%error, subagent = %subagent.id, "could not persist subagent session; nested transcript is dropped");
+        // A subagent is a session like any other: its admission is one full
+        // journal frame, projected asynchronously. The parent's turn must not
+        // block on a SQLite write just to record a child (ADR-0236/0237).
+        let journal = open_journal(writer.db_path(), &subagent.id);
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        match journal
+            .append(
+                &operation_id,
+                crate::db::SaveMode::FullRewrite,
+                subagent,
+                &[],
+            )
+            .await
+        {
+            Ok(seq) => {
+                let projection = ProjectionState::new();
+                projection.submitted(seq);
+                projection.enqueue(
+                    writer.clone(),
+                    Arc::clone(&journal),
+                    ProjectionJob {
+                        seq,
+                        data: subagent.clone(),
+                        mode: crate::db::SaveMode::FullRewrite,
+                        usage: Vec::new(),
+                        guard: crate::db::CommitGuard {
+                            operation_id: Some(operation_id),
+                            expected_revision: None,
+                        },
+                    },
+                );
+                // Subagent admission is a cold control path: the parent's
+                // durable entry already points at the child, so make the
+                // derived row visible before the parent's commit returns.
+                projection.wait(seq).await;
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    subagent = %subagent.id,
+                    "could not admit the subagent session into its journal"
+                );
+            }
         }
     }
 }

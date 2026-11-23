@@ -79,6 +79,9 @@ pub struct DashboardRects {
     pub tab_rects: Vec<(usize, Rect)>,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
+    pub tab_close_rects: Vec<(usize, Rect)>,
+    pub tab_add_rect: Option<Rect>,
+    pub tab_reveal_active: bool,
     /// Bounding rect for left overflow indicator (`‹N`), if present.
     pub tab_prev_rect: Option<Rect>,
     /// Bounding rect for right overflow indicator (`N›`), if present.
@@ -399,6 +402,9 @@ pub fn draw_dashboard(
             list_body: usage_body,
             detail_body: None,
             tab_rects: tab_rects.tab_rects,
+            tab_close_rects: tab_rects.close_rects,
+            tab_add_rect: tab_rects.add_rect,
+            tab_reveal_active: tab_rects.reveal_active,
             tab_bar_rect: Some(header_rect),
             tab_prev_rect: tab_rects.prev_rect,
             tab_next_rect: tab_rects.next_rect,
@@ -473,6 +479,9 @@ pub fn draw_dashboard(
         list_body,
         detail_body,
         tab_rects: tab_rects.tab_rects,
+        tab_close_rects: tab_rects.close_rects,
+        tab_add_rect: tab_rects.add_rect,
+        tab_reveal_active: tab_rects.reveal_active,
         tab_bar_rect: Some(header_rect),
         tab_prev_rect: tab_rects.prev_rect,
         tab_next_rect: tab_rects.next_rect,

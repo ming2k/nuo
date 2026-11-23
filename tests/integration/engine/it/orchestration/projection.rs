@@ -66,12 +66,23 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
     assert!(!projections[0].prefix_fingerprint.is_empty());
     assert!(projections[0].conversation_messages >= 1);
 
-    // The archive is not history.
+    // The archive is not history: a projection is forensic evidence and never
+    // becomes a model-visible message, so the window is exactly the round that
+    // ran and nothing the archive recorded.
     let window = session.model_window().await;
+    assert_eq!(
+        window
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["work", "done"],
+        "the recorded projection must not appear in the window"
+    );
     assert!(
         window
             .iter()
-            .all(|m| !m.content.contains("temporary-context"))
+            .all(|m| !m.content.contains("prefix_fingerprint")),
+        "no projection field leaks into a message"
     );
     let _ = std::fs::remove_dir_all(directory);
 }

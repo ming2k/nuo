@@ -1114,7 +1114,14 @@ impl Tool for McpTool {
         watcher.abort();
 
         match result {
-            Ok(result) => Ok(render_tool_result(&result)),
+            Ok(result) => Ok(render_tool_result(
+                &result,
+                &format!(
+                    "tool `{}` on MCP server `{}`",
+                    self.original_name,
+                    self.server.name()
+                ),
+            )),
             Err(McpError::Cancelled) => Ok(tool::ToolOutput::Error {
                 message: format!("MCP tool `{}` was cancelled", self.public_name),
                 detail: Some(
@@ -1493,6 +1500,13 @@ impl Tool for McpResourceTool {
         tool::RiskProfile::ReadOnly
     }
 
+    /// A resource read touches remote state, not the local filesystem. The
+    /// empty declaration is explicit: it is parallelizable, and it never claims
+    /// a path the scheduler would have to serialize against.
+    fn accesses(&self, _arguments: &Value) -> tool::ToolAccesses {
+        tool::ToolAccesses::none()
+    }
+
     fn exposure(&self) -> tool::ToolExposure {
         if self.server.defer_tools() {
             tool::ToolExposure::Deferred
@@ -1551,7 +1565,11 @@ impl Tool for McpResourceTool {
                     .map(|result| {
                         let content = serde_json::to_string_pretty(&result).unwrap_or_default();
                         tool::ToolOutput::Structured {
-                            content,
+                            content: tool::untrusted::frame_with_note(
+                                tool::untrusted::Origin::Mcp,
+                                &format!("resources/list on MCP server `{}`", self.server.name()),
+                                &content,
+                            ),
                             value: result,
                             failed: false,
                         }
@@ -1585,6 +1603,12 @@ impl Tool for McpResourceTool {
     }
 }
 
+/// Project one `resources/read` response into a model-facing output.
+///
+/// Text resources are third-party bytes served by an external process, so they
+/// are framed as an `<untrusted origin="mcp">` region (ADR-0228). A web page gets
+/// that framing today; an MCP resource reaches the model through the same door
+/// and must not be the one door without it.
 fn render_resource_result(result: &Value) -> tool::ToolOutput {
     use tool::tool_output::MediaPart;
 
@@ -1594,7 +1618,11 @@ fn render_resource_result(result: &Value) -> tool::ToolOutput {
             let uri = item.get("uri").and_then(Value::as_str).unwrap_or_default();
             let mime = item.get("mimeType").and_then(Value::as_str);
             if let Some(text) = item.get("text").and_then(Value::as_str) {
-                parts.push(MediaPart::text(text));
+                parts.push(MediaPart::text(tool::untrusted::frame_with_note(
+                    tool::untrusted::Origin::Mcp,
+                    &format!("source: {uri}"),
+                    text,
+                )));
             } else if let Some(blob) = item.get("blob").and_then(Value::as_str) {
                 match mime {
                     Some(mime) if mime.starts_with("image/") => {
@@ -1611,7 +1639,10 @@ fn render_resource_result(result: &Value) -> tool::ToolOutput {
         }
     }
     if parts.is_empty() {
-        return tool::ToolOutput::text(result.to_string());
+        return tool::ToolOutput::text(tool::untrusted::frame(
+            tool::untrusted::Origin::Mcp,
+            &result.to_string(),
+        ));
     }
     tool::ToolOutput::media(parts)
 }
@@ -1804,8 +1835,17 @@ fn mcp_image_part(mime: &str, data: &str) -> tool::tool_output::MediaPart {
     }
 }
 
-fn render_tool_result(result: &Value) -> tool::ToolOutput {
+/// Project a `tools/call` result into a tool output.
+///
+/// A tool result carries the peer's bytes, so every text it returns is framed
+/// as untrusted data. The note names the tool and server the model is talking
+/// to; framing is presentation, the tool-result header still owns the call
+/// identity (ADR-0228).
+fn render_tool_result(result: &Value, note: &str) -> tool::ToolOutput {
     use tool::tool_output::MediaPart;
+
+    let frame =
+        |text: &str| tool::untrusted::frame_with_note(tool::untrusted::Origin::Mcp, note, text);
 
     let failed = result
         .get("isError")
@@ -1840,15 +1880,24 @@ fn render_tool_result(result: &Value) -> tool::ToolOutput {
                             .get("name")
                             .and_then(Value::as_str)
                             .map(str::to_string),
-                        text: resource
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
+                        text: resource.get("text").and_then(Value::as_str).map(|text| {
+                            tool::untrusted::frame_with_note(
+                                tool::untrusted::Origin::Mcp,
+                                &format!(
+                                    "resource: {}",
+                                    resource
+                                        .get("uri")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or_default()
+                                ),
+                                text,
+                            )
+                        }),
                     });
                 }
                 _ => {
                     if let Some(text) = item.get("text").and_then(Value::as_str) {
-                        parts.push(MediaPart::text(compact_mcp_output(text)));
+                        parts.push(MediaPart::text(frame(&compact_mcp_output(text))));
                     }
                 }
             }
@@ -1875,7 +1924,7 @@ fn render_tool_result(result: &Value) -> tool::ToolOutput {
     if let Some(value) = structured {
         return tool::ToolOutput::Structured {
             content: if text.is_empty() {
-                value.to_string()
+                frame(&value.to_string())
             } else {
                 text
             },
@@ -1884,7 +1933,7 @@ fn render_tool_result(result: &Value) -> tool::ToolOutput {
         };
     }
     if text.is_empty() {
-        return tool::ToolOutput::text(result.to_string());
+        return tool::ToolOutput::text(frame(&result.to_string()));
     }
     if failed {
         return tool::ToolOutput::Error {

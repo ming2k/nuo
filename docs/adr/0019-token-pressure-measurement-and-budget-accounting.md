@@ -15,6 +15,9 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Wire, Model-Codec, and Harness maintainers
 - Informed: System Architects
+- Amended by: [ADR-0243](0243-a-request-has-two-limits-and-the-byte-one-has-its-own-relief.md)
+  (pressure is not token-only: a request also has a serialized-body limit, with
+  its own measurement and relief)
 - Complements: [ADR-0005](0005-unified-binary-and-concentric-runtime-architecture.md), [ADR-0006](0006-wire-contract-consolidation.md), [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md)
 
 ---

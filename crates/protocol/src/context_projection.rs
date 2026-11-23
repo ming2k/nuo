@@ -21,6 +21,13 @@ pub enum ContextProjectionKind {
     /// Summarizing compaction: replace a prefix of the window with a generative
     /// summary.
     Compact,
+    /// Attachment offload: keep the conversation intact and replace inline
+    /// media with an artifact invoice, so the **serialized body** fits the
+    /// transport's byte ceiling. Distinct from [`Self::Prune`] because it
+    /// answers a different limit and because a reader auditing a session must
+    /// be able to tell "the tool output was cleared" from "the pixels left the
+    /// request".
+    Payload,
 }
 
 /// The record of one projection, as the kernel measured it.

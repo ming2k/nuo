@@ -31,3 +31,24 @@ This document specifies the style guide, markdown conventions, and hyperlink sta
 1. **Pragmatic and Objective**: Write in active, direct, and unambiguous language. Avoid marketing hyperbole or unnecessary jargon.
 2. **Mechanisms Over Aspirations**: When describing behavioral constraints, describe the concrete enforcing mechanism (compiler proof, type, test assertion, or CI gate) rather than vague prose.
 3. **Zero Dead Links**: Never link to non-existent historical tickets or dead internal paths.
+
+---
+
+## 4. Name the Mechanism, Not Its Output
+
+A name is a contract with the next reader. Three rules follow:
+
+1. **Name the role, not the verb the consumer performs.** A field or type that
+   selects a presentation is named for what it selects. `boundary: Boundary`
+   selects a boundary; `render: BlockRender` describes what a renderer will do
+   with it, which makes the instruction indistinguishable from the result.
+2. **Never claim a format the producer does not emit.** `Tagged` names the tag
+   pair the renderer actually writes. `Xml` claims a declaration, escaping,
+   nesting, and CDATA that the same renderer does not produce; a reader who
+   believes the name will assume hostile bytes are safe.
+3. **Never claim an absence of syntax.** `Bare` says there is no boundary. It
+   says nothing about whether the body is Markdown, prose, or code; body syntax
+   and boundary choice are orthogonal (`RFC-0002` §6).
+
+These are style rules, not invariants. No compiler or test proves a name; the
+testable properties belong in the ADR that owns the type.

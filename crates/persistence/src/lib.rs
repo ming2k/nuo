@@ -32,6 +32,8 @@ pub mod config_check;
 pub mod connection_usage;
 pub mod connections;
 pub mod db;
+pub(crate) mod forensics;
+pub(crate) mod journal;
 // Application filesystem infrastructure now lives in `host`; these
 // re-exports keep the server-side crates' stable import paths.
 pub use host::fsutil;

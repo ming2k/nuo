@@ -14,6 +14,7 @@ impl PersistenceCommand {
                 mode,
                 usage_upserts,
                 guard,
+                journal_seq,
                 ack,
             } => {
                 let res = guarded_save(|| {
@@ -24,6 +25,7 @@ impl PersistenceCommand {
                         mode,
                         &usage_upserts,
                         &guard,
+                        journal_seq,
                     )
                 });
                 let _ = ack.send(res);
@@ -144,20 +146,6 @@ impl PersistenceCommand {
                 });
                 let _ = ack.send(res);
             }
-            Self::RecordRequestProjection {
-                session_id,
-                record,
-                ack,
-            } => {
-                let res = guarded(|| {
-                    crate::db::usage_projection::insert_request_projection(
-                        &engine.conn,
-                        &session_id,
-                        &record,
-                    )
-                });
-                let _ = ack.send(res);
-            }
             Self::ProjectUsage { ack } => {
                 let _ = ack.send(guarded(|| {
                     crate::db::usage_projection::project_usage_batch(&engine.conn, 64)
@@ -196,42 +184,6 @@ impl PersistenceCommand {
             // the supervisor is its only sender, so this arm is unreachable
             // by construction.
             Self::RetireEngine { .. } => {}
-            Self::SaveThreadAggregate {
-                thread,
-                transcript_generation,
-                ack,
-            } => {
-                let res = guarded(|| {
-                    engine.conn.execute("BEGIN IMMEDIATE", [])?;
-                    let outcome = (|| -> rusqlite::Result<()> {
-                        engine
-                            .conn
-                            .prepare_cached("DELETE FROM thread_branches WHERE thread_id = ?1")?
-                            .execute(rusqlite::params![thread.id.0])?;
-                        crate::db::thread_store::persist_thread_facts(&engine.conn, &thread, false)
-                            .map_err(|error| {
-                                rusqlite::Error::InvalidParameterName(error.to_string())
-                            })?;
-                        if let Some(generation) = transcript_generation.as_deref() {
-                            engine
-                                .conn
-                                .prepare_cached(
-                                    "UPDATE threads SET transcript_generation = ?2 WHERE id = ?1",
-                                )?
-                                .execute(rusqlite::params![thread.id.0, generation])?;
-                        }
-                        Ok(())
-                    })();
-                    match outcome {
-                        Ok(()) => engine.conn.execute("COMMIT", []).map(|_| ()),
-                        Err(err) => {
-                            let _ = engine.conn.execute("ROLLBACK", []);
-                            Err(err)
-                        }
-                    }
-                });
-                let _ = ack.send(res);
-            }
             Self::CreateBackup { target_path, ack } => {
                 let res = guarded(|| engine.create_backup(&target_path));
                 let _ = ack.send(res);
@@ -355,6 +307,7 @@ impl PersistenceCommand {
                         mode,
                         &usage_upserts,
                         &guard,
+                        None,
                     )
                 });
                 // Die without acknowledging: the commit is durable, its ack is
@@ -378,8 +331,6 @@ impl PersistenceCommand {
                 let _ = ack.send(Err(error));
             }
             Self::UpsertSession { ack, .. }
-            | Self::SaveThreadAggregate { ack, .. }
-            | Self::RecordRequestProjection { ack, .. }
             | Self::SetKV { ack, .. }
             | Self::SaveInputHistory { ack, .. }
             | Self::ClearInputHistory { ack } => {

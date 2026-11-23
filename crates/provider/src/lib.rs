@@ -41,6 +41,7 @@ pub use pipeline::{
 pub use prompt_cache::PromptCacheConfig;
 pub use response::{
     classify_http_error, decode_response_json, ensure_success, is_context_overflow_payload,
+    is_payload_too_large_payload,
 };
 pub use vision::project_images_for_route;
 

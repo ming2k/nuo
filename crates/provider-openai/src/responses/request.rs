@@ -67,13 +67,9 @@ pub struct BodyInput<'a> {
 /// and results are reconciled so the request is always wire-valid: every
 /// `function_call_output` references a preceding `function_call`, and every
 /// `function_call` has its output (mirrors the chat-completions builder).
-pub fn body(
-    conversation: &[Message],
-    temporary_context: &[Message],
-    input: BodyInput<'_>,
-) -> Result<Value, RequestBuildError> {
+pub fn body(conversation: &[Message], input: BodyInput<'_>) -> Result<Value, RequestBuildError> {
     let capabilities = protocol::ModelCapabilities::for_channel(input.model, None);
-    body_with_capabilities(conversation, temporary_context, input, &capabilities)
+    body_with_capabilities(conversation, input, &capabilities)
 }
 
 /// Build a request with a provider-channel capability view. The provider calls
@@ -81,7 +77,6 @@ pub fn body(
 /// point for standalone callers and tests.
 pub fn body_with_capabilities(
     conversation: &[Message],
-    temporary_context: &[Message],
     input: BodyInput<'_>,
     capabilities: &protocol::ModelCapabilities,
 ) -> Result<Value, RequestBuildError> {
@@ -110,18 +105,10 @@ pub fn body_with_capabilities(
     // route that *declared* no image input loses its attachments.
     let (conversation, _dropped_images) =
         provider::project_images_for_route(model_id, conversation, capabilities);
-    let messages: Vec<&Message> = conversation
-        .iter()
-        .chain(temporary_context.iter())
-        .collect();
-    let (mut instructions, ephemeral_instructions) = if let Some(bundle) = input_instructions {
-        (
-            bundle.render_fixed().to_owned(),
-            bundle.render_transient().to_owned(),
-        )
-    } else {
-        (String::new(), String::new())
-    };
+    let messages: Vec<&Message> = conversation.iter().collect();
+    let mut instructions = input_instructions
+        .map(|bundle| bundle.0.clone())
+        .unwrap_or_default();
     let mut working: Vec<&Message> = Vec::with_capacity(messages.len());
     for (index, m) in messages.into_iter().enumerate() {
         match m.role {
@@ -146,23 +133,6 @@ pub fn body_with_capabilities(
     let working: Vec<&Message> = working.into_iter().filter(|m| valid_message(m)).collect();
 
     let mut input_items: Vec<InputItem> = Vec::new();
-    // Ephemeral instruction slice is emitted as a developer item rather than polluting
-    // the top-level instructions, preserving prefix cache reuse on OpenAI (ADR-0052, [INV-INST-03]).
-    // Dialects that reject the developer role (DeepSeek) fold it directly into instructions.
-    if !ephemeral_instructions.is_empty() {
-        if dialect.supports_developer_role() {
-            input_items.push(InputItem::plain(json!({
-                "type": "message",
-                "role": "developer",
-                "content": [{ "type": "input_text", "text": ephemeral_instructions }]
-            })));
-        } else {
-            if !instructions.is_empty() {
-                instructions.push_str("\n\n");
-            }
-            instructions.push_str(&ephemeral_instructions);
-        }
-    }
     let active_round_start = working
         .iter()
         .rposition(|m| m.opens_user_round())

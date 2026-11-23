@@ -7,7 +7,7 @@ catalog is in `src/db/migrations/catalog.rs`.
 ## Layout
 
 ```text
-crates/nuo-persistence/
+crates/persistence/
   migrations/
     0001_baseline.sql        # immutable snapshot of the whole schema (v1)
     README.md
@@ -28,10 +28,10 @@ database (ADR-0190).
 
 ## Adding a schema-only migration
 
-The catalog currently ends at v2 (`drop_derived_thread_columns`). The next
-change is v3. Example: add an index for thread title search.
+The catalog currently ends at v6 (`catalog_summary`). The next change is v7.
+Example: add an index for thread title search.
 
-1. Create `migrations/0003_thread_title_index.sql`:
+1. Create `migrations/0007_thread_title_index.sql`:
 
 ```sql
 CREATE INDEX idx_threads_title ON threads(title);
@@ -43,21 +43,21 @@ CREATE INDEX idx_threads_title ON threads(title);
 pub const MIGRATIONS: &[Migration] = &[
     // ... existing v1 and v2 entries ...
     Migration {
-        version: 3,
+        version: 7,
         name: "thread_title_index",
         code_revision: 1,
-        body: Body::Sql(include_str!("../../../migrations/0003_thread_title_index.sql")),
+        body: Body::Sql(include_str!("../../../migrations/0007_thread_title_index.sql")),
     },
 ];
 
-pub const CURRENT_DB_VERSION: u32 = 3;
+pub const CURRENT_DB_VERSION: u32 = 7;
 ```
 
 3. Add an upgrade test (see below).
 
 4. Update `CHANGELOG.md`.
 
-The next app start applies v2 automatically. There is no `nuo db migrate`
+The next app start applies pending migrations automatically. There is no `nuo db migrate`
 command (ADR-0191).
 
 ## Adding a data migration
@@ -66,7 +66,7 @@ Use a Rust body when the change needs typed decoding, table rebuilds, or data
 transformation:
 
 ```rust
-// src/db/migrations/data_0003.rs
+// src/db/migrations/data_0007.rs
 use rusqlite::{Result, Transaction};
 
 pub fn run(tx: &Transaction<'_>) -> Result<()> {
@@ -81,15 +81,15 @@ pub fn run(tx: &Transaction<'_>) -> Result<()> {
 Catalog entry:
 
 ```rust
-mod data_0003;
+mod data_0007;
 
 Migration {
-    version: 3,
+    version: 7,
     name: "thread_title_not_null",
     code_revision: 1,
     body: Body::SqlThenRust {
-        sql: include_str!("../../../migrations/0003_thread_title_not_null.sql"),
-        run: data_0003::run,
+        sql: include_str!("../../../migrations/0007_thread_title_not_null.sql"),
+        run: data_0007::run,
     },
 }
 ```
@@ -120,7 +120,7 @@ Rules for the Rust body:
 Run:
 
 ```bash
-cargo test -p nuo-persistence --lib
+cargo test -p persistence --lib
 cargo test -p nuo-tests --test integration
 ```
 

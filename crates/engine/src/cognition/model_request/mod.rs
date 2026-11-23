@@ -70,7 +70,6 @@ impl ModelRequestAssembler {
         let blocks: Vec<WitnessedBlock> = plan
             .fixed
             .iter()
-            .chain(plan.transient.iter())
             .map(|block| WitnessedBlock {
                 id: block.id.clone(),
                 stability: plan
@@ -80,7 +79,7 @@ impl ModelRequestAssembler {
             })
             .collect();
         let fingerprint = protocol::request_prefix_fingerprint::<()>(
-            &protocol::InstructionText::new(protocol::render_blocks(&plan.fixed), ""),
+            &protocol::InstructionText::new(protocol::render_blocks(&plan.fixed)),
             &[],
             &[],
         );
@@ -96,25 +95,18 @@ impl ModelRequestAssembler {
     }
 
     /// Render one request from a plan produced by [`Self::plan`].
-    ///
-    /// `temporary_context` is the request-local tail: it is attached to the
-    /// snapshot but excluded from the cacheable prefix and never enters durable
-    /// history.
     pub(crate) fn build(
         &self,
         plan: ContextPlan,
         messages: Vec<crate::Message>,
-        temporary_context: Vec<crate::Message>,
         tools: &[Arc<dyn crate::Tool>],
     ) -> protocol::ModelRequest {
         protocol::RequestBuilder {
             tools: tool_specs(tools),
-            fixed: plan.fixed,
+            instructions: plan.fixed,
             messages,
-            transient: plan.transient,
         }
         .build()
-        .with_temporary_context(temporary_context)
     }
 
     /// Render one request from a durable thread projection.
@@ -127,16 +119,12 @@ impl ModelRequestAssembler {
         plan: ContextPlan,
         thread: &protocol::Thread,
         branch: &protocol::BranchId,
-        temporary_context: Vec<crate::Message>,
         tools: &[Arc<dyn crate::Tool>],
     ) -> Result<protocol::ModelRequest, protocol::ThreadError> {
         let window = protocol::ThreadWindow::from_thread(thread, branch, usize::MAX)?;
         let view = protocol::RequestView::from_window(&window);
-        let request_context =
-            protocol::RequestContext::new(plan.fixed, plan.transient, tool_specs(tools));
-        Ok(protocol::RequestBuilder::from_view(&view, &request_context)
-            .build()
-            .with_temporary_context(temporary_context))
+        let request_context = protocol::RequestContext::new(plan.fixed, tool_specs(tools));
+        Ok(protocol::RequestBuilder::from_view(&view, &request_context).build())
     }
 
     fn classify(&self, route: &str, fingerprint: &str, blocks: &[WitnessedBlock]) -> PrefixDrift {

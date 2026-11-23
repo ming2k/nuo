@@ -33,8 +33,8 @@ pub struct TranscriptMessage {
     pub raw: String,
     pub kind: MessageKind,
     /// What kind of user message this `Role::User` message is. Defaults to
-    /// [`UserMessageOrigin::Chat`]; slash commands and shell passthroughs mark
-    /// themselves so they are not mistaken for the round's driving prompt.
+    /// [`UserMessageOrigin::Chat`]; an admitted steer or follow-up marks itself
+    /// so it is not mistaken for the round's driving prompt.
     pub origin: UserMessageOrigin,
     /// Lifecycle of this message from the user's point of view. Only
     /// `Role::User` messages ever carry anything but the default
@@ -174,9 +174,8 @@ impl TranscriptMessage {
         self.rev = self.rev.wrapping_add(1);
     }
 
-    /// Label this `Role::User` message with its turn origin (slash command /
-    /// shell passthrough). No-op for non-user messages, which never surface
-    /// an origin. Builder-style, used alongside `queued`.
+    /// Label this `Role::User` message with its turn origin (prompt, steer, or
+    /// follow-up). Builder-style, used alongside `queued`.
     pub fn with_origin(mut self, origin: UserMessageOrigin) -> Self {
         self.origin = origin;
         self
@@ -201,7 +200,6 @@ impl TranscriptMessage {
             UserMessageOrigin::Chat => UserPromptKind::Normal,
             UserMessageOrigin::Steer => UserPromptKind::Steer,
             UserMessageOrigin::FollowUp => UserPromptKind::FollowUp,
-            _ => UserPromptKind::Normal,
         }
     }
 

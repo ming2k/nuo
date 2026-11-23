@@ -25,10 +25,10 @@ fn a_fresh_database_has_one_conversation_shape() {
         "causal_nodes",
         "thread_blob_refs",
         "thread_commands",
-        "request_projections",
         "workspace_effects",
         "fts_thread_facts",
         "permission_rules",
+        "projection_watermarks",
     ] {
         assert!(
             tables.iter().any(|name| name == expected),
@@ -36,6 +36,7 @@ fn a_fresh_database_has_one_conversation_shape() {
         );
     }
     for retired in [
+        "request_projections",
         "sessions",
         "entries",
         "entry_memberships",
@@ -104,22 +105,11 @@ fn thread_delete_cascades_per_thread_state() {
         [],
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO request_projections(thread_id, round, turn, created_at_ms, payload)
-         VALUES('t1', 0, 0, 1, '{}')",
-        [],
-    )
-    .unwrap();
 
     conn.execute("DELETE FROM threads WHERE id = 't1'", [])
         .unwrap();
 
-    for table in [
-        "thread_policies",
-        "causal_nodes",
-        "thread_commands",
-        "request_projections",
-    ] {
+    for table in ["thread_policies", "causal_nodes", "thread_commands"] {
         let count: i64 = conn
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
                 row.get(0)

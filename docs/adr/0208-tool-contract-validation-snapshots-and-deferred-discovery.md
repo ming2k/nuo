@@ -15,6 +15,7 @@ negative_knowledge: true
 
 - Status: Accepted
 - Date: 2026-11-17
+- Amended by: [ADR-0230](0230-one-mcp-client-one-adapter-and-a-reachable-skill-capability.md) — deferred exposure has a second declared producer (`use_skill` / `list_skills`); the snapshot and validation rules are unchanged.
 
 ## Context and Problem Statement
 

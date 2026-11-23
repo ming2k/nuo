@@ -47,6 +47,22 @@ impl AsRef<BTreeMap<String, UserDeclaredProvider>> for ModelProviders {
     }
 }
 
+/// Process-wide read cache for `model_providers.toml`. Freshness is the
+/// file's metadata (mtime + length), so an external edit is observed without a
+/// per-request read + parse.
+type ProvidersCache = (
+    std::time::SystemTime,
+    u64,
+    std::path::PathBuf,
+    ModelProviders,
+);
+
+fn providers_cache() -> &'static std::sync::Mutex<Option<ProvidersCache>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<Option<ProvidersCache>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 impl ModelProviders {
     fn path() -> std::path::PathBuf {
         paths::get().model_providers_file()
@@ -60,14 +76,34 @@ impl ModelProviders {
     }
 
     pub fn try_load() -> Result<Self, String> {
-        let content = match std::fs::read_to_string(Self::path()) {
+        let path = Self::path();
+        let stamp = std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| meta.modified().ok().map(|mtime| (mtime, meta.len())));
+        if let Some((mtime, len)) = stamp
+            && let Ok(guard) = providers_cache().lock()
+            && let Some((cached_mtime, cached_len, cached_path, value)) = guard.as_ref()
+            && *cached_path == path
+            && *cached_mtime == mtime
+            && *cached_len == len
+        {
+            return Ok(value.clone());
+        }
+        let content = match std::fs::read_to_string(&path) {
             Ok(content) => content,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::default());
             }
             Err(error) => return Err(error.to_string()),
         };
-        Self::parse(&content)
+        let parsed = Self::parse(&content)?;
+        let stamp = std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| meta.modified().ok().map(|mtime| (mtime, meta.len())));
+        if let (Some((mtime, len)), Ok(mut guard)) = (stamp, providers_cache().lock()) {
+            *guard = Some((mtime, len, path, parsed.clone()));
+        }
+        Ok(parsed)
     }
 
     /// Decode old fields only at the persistence boundary; runtime sees one schema.
@@ -128,7 +164,15 @@ impl ModelProviders {
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.validate()?;
         let bytes = toml::to_string_pretty(self)?.into_bytes();
-        fsutil::atomic_write_bytes(&Self::path(), &bytes)?;
+        let path = Self::path();
+        fsutil::atomic_write_bytes(&path, &bytes)?;
+        if let Some((mtime, len)) = std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| meta.modified().ok().map(|mtime| (mtime, meta.len())))
+            && let Ok(mut guard) = providers_cache().lock()
+        {
+            *guard = Some((mtime, len, path, self.clone()));
+        }
         Ok(())
     }
 

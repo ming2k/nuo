@@ -1,11 +1,19 @@
-//! Tools for interacting with the skill registry.
+//! The two model-facing skill tools.
+//!
+//! Both are **deferred**: registered so `tool_search` and an `Overflow::Index`
+//! resume can reach them, but never declared in every prompt. The skill catalog
+//! is already in the instruction region; putting a second copy of the same
+//! capability in the tool schemas would pay for it twice (ADR-0230).
 use super::{SkillRegistry, SkillScope};
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
-use tool::Tool;
+use tool::{Tool, ToolExposure};
 
-/// Load a skill into the conversation context.
+/// Load a skill's body into the conversation context.
+///
+/// The body arrives as a `<skill>` envelope with the same shape an `@name`
+/// mention produces: one renderer, two doors, one format (ADR-0226).
 pub struct UseSkillTool {
     pub registry: Arc<SkillRegistry>,
 }
@@ -17,7 +25,16 @@ impl Tool for UseSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Load a skill's domain instructions into the conversation context."
+        "Load a skill's body into the conversation context. Prefer an `@name` mention in a \
+         request; call this when the catalog is elided and you need the body now."
+    }
+
+    fn builtin(&self) -> Option<tool::BuiltinTool> {
+        Some(tool::BuiltinTool::UseSkill)
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -90,7 +107,7 @@ impl Tool for UseSkillTool {
             .ok_or_else(|| format!("Skill '{}' not found.", name))?;
 
         Ok(::tool::ToolOutput::text(
-            super::render::format_skill_injection(&skill, &content),
+            super::render::render_skill_envelope(&skill, &content),
         ))
     }
 }
@@ -107,7 +124,15 @@ impl Tool for ListSkillsTool {
     }
 
     fn description(&self) -> &str {
-        "List all available skills with their scope, description, and enabled state."
+        "List every declared skill, including the ones the catalog elided."
+    }
+
+    fn builtin(&self) -> Option<tool::BuiltinTool> {
+        Some(tool::BuiltinTool::ListSkills)
+    }
+
+    fn exposure(&self) -> ToolExposure {
+        ToolExposure::Deferred
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -124,22 +149,11 @@ impl Tool for ListSkillsTool {
         _arguments: serde_json::Value,
     ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
         let registry = self.registry.lock();
-        Ok(::tool::ToolOutput::text(super::render::format_skill_list(
-            &registry.list(),
-        )))
+        Ok(::tool::ToolOutput::text(
+            super::render::render_skill_catalog(&registry.list()),
+        ))
     }
 }
-
-// Programmatic skill utilities, not model-facing built-ins.
-//
-// `Agent::with_skills` attaches the registry only, and no code path installs
-// `UseSkillTool`/`ListSkillsTool`. The intended design is progressive
-// disclosure — skill metadata in the request with bodies loaded on demand — and
-// that is not yet implemented either, so today the model reaches skills through
-// mention injection and the `skill` subagent role, and reaches skill files with
-// the ordinary file tools. These names therefore stay out of `BuiltinTool`:
-// advertising a capability that no toolset installs is the defect ADR-0176
-// removed for `read_image`.
 
 #[cfg(test)]
 mod tests {

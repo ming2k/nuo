@@ -1,6 +1,6 @@
 # TUI Interaction Reference
 
-Factual reference for how `nuo-tui` turns terminal input into state changes and repaints: the event pipeline, the routing path, and the hit-testing registry.
+Factual reference for how the Nuo shell (`nuo::shell`) turns terminal input into state changes and repaints: the event pipeline, the routing path, and the hit-testing registry.
 
 ---
 
@@ -93,9 +93,9 @@ The marker is **not** `selected_bg`: "the keyboard is on this entry" must never 
 
 Clicks resolve through a geometry registry rather than ad-hoc rect comparisons:
 
-- **Footer rows** are recorded as `(FooterRowId, Rect)` by the declarative footer stack (`crates/nuo-tui/src/footer_stack.rs`); the event loop resolves a click by looking the id up (`rect_of`).
-- **Transcript content** is recorded in a `LayoutMap` (`crates/nuo-tui/src/model/layout.rs`) built during render.
-- **Every interactive target** is mounted as a `UiKey` (from `crates/nuo-tui/src/ui.rs`) into the `ComponentTree`, then hit-tested on click.
+- **Footer rows** are recorded as `(FooterRowId, Rect)` by the declarative footer stack (`crates/view/src/footer_stack.rs`); the event loop resolves a click by looking the id up (`rect_of`).
+- **Transcript content** is recorded in a `LayoutMap` (`crates/view/src/model/layout.rs`) built during render.
+- **Every interactive target** is mounted as a `UiKey` (from `crates/nuo/src/shell/ui.rs`) into the `ComponentTree`, then hit-tested on click.
 
 Because the same render pass both paints and registers hit rects, a click and the pixels it lands on can never disagree.
 
@@ -103,7 +103,7 @@ Because the same render pass both paints and registers hit rects, a click and th
 
 ## 4. Mutation Vocabulary
 
-Applied changes are described as typed mutations (`AppMutation`, with `Buffer`, `TranscriptEdit`, `ChromeEdit`, and `CompletionSignal` variants) in `crates/nuo-tui/src/event_loop/mutations.rs`. Coordination state that must *not* be mirrored into the app — dirty flags, the viewed session id, responding state, trust-gate dismissal — lives in a separate `UiRuntime` (`crates/nuo-tui/src/event_loop/runtime.rs`).
+Applied changes are described as typed mutations (`AppMutation`, with `Buffer`, `TranscriptEdit`, `ChromeEdit`, and `CompletionSignal` variants) in `crates/nuo/src/shell/event_loop/mutations.rs`. Coordination state that must *not* be mirrored into the app — dirty flags, the viewed session id, responding state, trust-gate dismissal — lives in a separate `UiRuntime` (`crates/nuo/src/shell/event_loop/runtime.rs`).
 
 ---
 
