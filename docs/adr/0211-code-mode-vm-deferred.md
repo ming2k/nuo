@@ -1,7 +1,7 @@
 ---
 id: ADR-0211
 title: "Code Mode VM Is Deferred Behind Measured Tool Economics"
-status: accepted
+status: rejected
 date: 2026-11-17
 scope: tools, cognition, prompt-budget
 superseded_by: null
@@ -11,7 +11,7 @@ negative_knowledge: true
 
 # 0211. Code Mode VM Is Deferred Behind Measured Tool Economics
 
-- Status: Accepted
+- Status: Rejected (deferred) — no Code Mode VM is built; the revisit criteria below are the bar for reopening the proposal.
 - Date: 2026-11-17
 
 ## Context and Problem Statement

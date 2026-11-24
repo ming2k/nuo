@@ -4,13 +4,13 @@ title: "Help Dialog Architecture, TabBar Status Cluster, and Model Bar Purificat
 status: accepted
 date: 2026-10-31
 scope: presentation/nuo-view, presentation/nuo-ui-primitives, host/nuo, tui/chrome, tui/event-loop, tui/overlays
-superseded_by: null
+superseded_by: ADR-0151
 negative_knowledge: true
 ---
 
 # 0131. Help Dialog Architecture, TabBar Status Cluster, and Model Bar Purification
 
-- Status: Accepted
+- Status: Accepted; §3's in-modal single-key accelerators (`[INV-HELP-02]`) superseded by [ADR-0151](0151-command-domain-orthogonality-sovereign-tab-navigation-and-help-modal-purification.md); §2's TabBar cluster amended by [ADR-0219](0219-tabbar-carries-no-standing-keycap-and-help-discovery-moves-to-the-empty-state.md) and [ADR-0245](0245-tabbar-elastic-help-portal-and-in-situ-progressive-disclosure.md).
 - Date: 2026-10-31
 - Deciders: Core Engineering, Architecture Working Group
 - Amends: [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md) (Retires `C-x` scene namespace), [ADR-0121](0121-notice-log-residency-retained-disclosure-record-and-bubble-as-pointer.md) §5 (Relocates persistent notice affordance from model bar to TabBar status cluster)

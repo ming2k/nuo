@@ -1,16 +1,16 @@
 ---
 id: ADR-0146
 title: "Live Storybook Engine, Sub-Second Hot Loop, and Broad Catalog Expansion"
-status: accepted
+status: superseded
 date: 2026-03-29
 scope: tui/nuo, devtools/storybook, presentation/nuo-ui-primitives, presentation/nuo-view, test/visual-regression
-superseded_by: null
+superseded_by: ADR-0185
 negative_knowledge: true
 ---
 
 # 0146. Live Storybook Engine, Sub-Second Hot Loop, and Broad Catalog Expansion
 
-- Status: Accepted
+- Status: Superseded by [ADR-0185](0185-storybook-retirement-and-single-presentation-path.md) — the storybook and its live tick engine are deleted.
 - Date: 2026-03-29
 - Deciders: Nuo Architecture Working Group
 - Consulted: Presentation Substrate, TUI Runtime, Developer Experience, Quality Engineering

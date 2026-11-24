@@ -4,13 +4,13 @@ title: "Cross-Domain Action Matrix, Three-Tier Header Topology, and Polymorphic 
 status: accepted
 date: 2026-10-18
 scope: tui/nuo-tui, architecture/spatial, wire/nuo-wire, server/nuo-server, interaction/keyboard
-superseded_by: null
+superseded_by: ADR-0062
 negative_knowledge: true
 ---
 
 # 0040. Cross-Domain Action Matrix, Three-Tier Header Topology, and Polymorphic TUI Architecture
 
-- Status: Accepted
+- Status: Accepted; §2's header tiers superseded by [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md). The action matrix (§1) and per-tab history (§3) stand.
 - Date: 2026-10-18
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface, Design, Runtime, Terminal, and Usability Teams

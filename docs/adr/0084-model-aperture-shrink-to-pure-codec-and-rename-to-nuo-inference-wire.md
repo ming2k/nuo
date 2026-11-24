@@ -4,13 +4,13 @@ title: "Model Aperture: Shrink `nuo-model-codec` to a Pure Wire Codec and Rename
 status: accepted
 date: 2026-10-21
 scope: codec/nuo-inference-wire, provider/nuo-provider, wire/nuo-protocol, server/nuo-server, agent/nuo-agent, harness/nuo-harness, transport/nuo-provider-transport, providers/all
-superseded_by: null
+superseded_by: ADR-0143
 negative_knowledge: true
 ---
 
 # 0084. Model Aperture: Shrink `nuo-model-codec` to a Pure Wire Codec and Rename to `nuo-inference-wire`
 
-- Status: Accepted
+- Status: Accepted; the rename is history (the crate is now `inference-wire`) and the unexecuted stages it recorded are corrected by [ADR-0143](0143-codec-aperture-completed-delete-the-unwired-codec-lane.md). `[INV-AP-01]` / `[INV-AP-02]` stand as revised by [ADR-0088](0088-pure-zero-io-inference-wire-and-transport-pruning.md) and [ADR-0143](0143-codec-aperture-completed-delete-the-unwired-codec-lane.md).
 - Date: 2026-10-21
 - Deciders: Nuo Architecture Working Group
 - Consulted: Provider Integration, Server Runtime

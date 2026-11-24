@@ -1,16 +1,16 @@
 ---
 id: ADR-0148
 title: "Canonical Extreme Fixtures and Zero-Dependency Developer Watch Supervisor"
-status: accepted
+status: superseded
 date: 2026-03-29
 scope: tui/nuo, devtools/storybook, test/fixtures, cli/dev
-superseded_by: null
+superseded_by: ADR-0185
 negative_knowledge: false
 ---
 
 # 0148. Canonical Extreme Fixtures and Zero-Dependency Developer Watch Supervisor
 
-- Status: Accepted
+- Status: Superseded by [ADR-0185](0185-storybook-retirement-and-single-presentation-path.md) — the storybook watch supervisor is deleted; snapshot tests remain the visual-regression mechanism.
 - Date: 2026-03-29
 - Deciders: Nuo Architecture Working Group
 - Consulted: Presentation Substrate, Quality Engineering, Developer Experience, TUI Runtime

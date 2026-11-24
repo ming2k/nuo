@@ -4,13 +4,13 @@ title: "Provider Retry Is Chrome, Not Conversation: A Typed Retry State Machine,
 status: accepted
 date: 2026-12-12
 scope: presentation/nuo-view, protocol/nuo-protocol, protocol/nuo-tool, harness/nuo-harness, host/nuo, tui/chrome, tui/event-loop
-superseded_by: null
+superseded_by: ADR-0162
 negative_knowledge: true
 ---
 
 # 0122. Provider Retry Is Chrome, Not Conversation: A Typed Retry State Machine, One Attempt Vocabulary, and Turn-Outcome Anchors
 
-- Status: Accepted
+- Status: Accepted; §"one attempt vocabulary" superseded by [ADR-0162](0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md); `TranscriptMessage::retry_recovered` superseded by [ADR-0134](0134-two-track-notice-architecture-sovereign-notice-center-dialog-and-footer-dock-eradication.md).
 - Date: 2026-12-12
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface Architecture, Runtime Kernel, Protocol

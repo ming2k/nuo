@@ -4,13 +4,13 @@ title: "Causal Lineage Is Write-Once; Derived Views Repair on Read"
 status: accepted
 date: 2026-11-10
 scope: [workspace]
-superseded_by: null
+superseded_by: ADR-0173
 negative_knowledge: true
 ---
 
 # ADR-0159: Causal Lineage Is Write-Once; Derived Views Repair on Read
 
-- **Status:** Accepted; §INV-IR-04 amended by [ADR-0160](0160-compaction-is-a-transcript-fact-and-the-causal-node-is-a-derive.md)
+- **Status:** Accepted; §INV-IR-04 (the two-write commit) superseded by [ADR-0160](0160-compaction-is-a-transcript-fact-and-the-causal-node-is-a-derive.md) and, through it, by [ADR-0173](0173-thread-is-the-durable-ssot-branch-is-a-cursor.md).
 - **Date:** 2026-11-08
 - **Supersedes:** none
 - **Related:** [ADR-0155](0155-turn-persistence-is-o-delta-and-storage-maintenance-never-blocks-the-writer.md), [ADR-0158](0158-derived-indexes-are-built-off-the-commit-path-from-durable-cursors.md), [ADR-0160](0160-compaction-is-a-transcript-fact-and-the-causal-node-is-a-derive.md)

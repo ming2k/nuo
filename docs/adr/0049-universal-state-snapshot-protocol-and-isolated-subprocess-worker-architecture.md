@@ -1,7 +1,7 @@
 ---
 id: ADR-0049
 title: "Universal State Snapshot Protocol and Isolated Subprocess Worker Architecture"
-status: draft
+status: rejected
 date: 2026-10-25
 scope: wire/nuo-wire, server/nuo-server, runtime/isolation, substrate/workers
 superseded_by: null
@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0049. Universal State Snapshot Protocol and Isolated Subprocess Worker Architecture
 
-- Status: Draft
+- Status: Rejected — the subprocess worker architecture was never built. Attach hydration is the `ThreadSnapshot` handshake of [ADR-0133](0133-attach-readiness-boundary-network-free-handshake-typed-session-phases-and-authoritative-late-hydration.md); `AttachSyncBuffer` remains.
 - Date: 2026-10-25
 - Deciders: Nuo Architecture Working Group
 - Consulted: Server Runtime, Wire Protocol, Security, and Agent Harness Maintainers

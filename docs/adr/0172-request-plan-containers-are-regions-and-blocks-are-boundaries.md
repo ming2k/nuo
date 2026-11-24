@@ -4,14 +4,14 @@ title: "Request Plan: Containers Are Regions, Blocks Are Boundary Choices"
 status: accepted
 date: 2026-11-13
 scope: protocol/instructions, engine/model-request, providers/request, persistence/session-ir
-superseded_by: null
+superseded_by: ADR-0215
 supersedes: [ADR-0052]
 negative_knowledge: true
 ---
 
 # 0172. Request Plan: Containers Are Regions, Blocks Are Boundary Choices
 
-- Status: Accepted
+- Status: Accepted; §1 (the four-container `RequestPlan`) superseded by [ADR-0215](0215-context-sources-declare-moment-topic-rank-stability-and-budget.md) (sources over a `ContextPlan`), and its `transient` container was deleted by [ADR-0231](0231-one-instruction-region-and-no-ghost-extension-subsystem.md). §2 (a block is text plus a `Boundary`) stands.
 - Date: 2026-11-13
 - Deciders: Nuo Architecture Working Group
 - Supersedes: [ADR-0052](0052-unified-instruction-pipeline-pure-role-topology-and-end-to-end-cache-fidelity.md) (the four-tier `Base / Session / Task / Ephemeral` taxonomy and the `system.*` section namespace)

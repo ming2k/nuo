@@ -1,16 +1,16 @@
 ---
 id: ADR-0024
 title: "Two-Row Head Band: Uniform Session-Identity Row and Scene Row"
-status: accepted
+status: superseded
 date: 2026-10-06
 scope: tui/nuo-tui, presentation/chrome, interaction/affordance
-superseded_by: null
+superseded_by: ADR-0062
 negative_knowledge: true
 ---
 
 # 0024. Two-Row Head Band: Uniform Session-Identity Row and Scene Row
 
-- Status: Accepted
+- Status: Superseded by [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md) (via [ADR-0060](0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md)) — the head band is three tiers: TabBar, SceneBar, ThreadContextBar.
 - Date: 2026-10-06
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI, Interaction, and Design-System maintainers

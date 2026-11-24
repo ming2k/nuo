@@ -4,13 +4,13 @@ title: "Thread Domain Nomenclature Unification, Compact TabBar Affordance, and C
 status: accepted
 date: 2026-10-20
 scope: tui/nuo-tui, architecture/taxonomy, interface/cli, presentation/chrome, interaction/keyboard
-superseded_by: null
+superseded_by: ADR-0131
 negative_knowledge: true
 ---
 
 # 0043. Thread Domain Nomenclature Unification, Compact TabBar Affordance, and C-x Namespace Reorganization
 
-- Status: Accepted
+- Status: Accepted; §3 (the `C-x` namespace) superseded by [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md); §2's tab affordance is now governed by [ADR-0235](0235-tabbar-carries-its-own-lifecycle-hover-reveal-visible-close-and-reserved-add.md). §1 thread nomenclature stands.
 - Date: 2026-10-20
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface, Usability, Terminal, Runtime, and Core Infrastructure Teams

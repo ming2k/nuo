@@ -626,7 +626,10 @@ fn adr_frontmatter_values_are_well_formed() {
                 .unwrap_or("")
         };
         let status = field("status");
-        if !matches!(status, "draft" | "accepted" | "superseded" | "rejected") {
+        if !matches!(
+            status,
+            "draft" | "accepted" | "superseded" | "deprecated" | "rejected"
+        ) {
             violations.push(format!("{name}: invalid status `{status}`"));
         }
         let date = field("date");
@@ -645,6 +648,13 @@ fn adr_frontmatter_values_are_well_formed() {
         let successor = field("superseded_by");
         if status == "superseded" && successor == "null" {
             violations.push(format!("{name}: superseded without a successor"));
+        }
+        // `deprecated` means the decision was removed with no direct successor
+        // (docs/dev/standards/adr.md §2). Naming one makes it `superseded`.
+        if status == "deprecated" && successor != "null" {
+            violations.push(format!(
+                "{name}: deprecated names successor `{successor}`; use `superseded`"
+            ));
         }
         if successor != "null" {
             let Some(id) = successor.strip_prefix("ADR-") else {

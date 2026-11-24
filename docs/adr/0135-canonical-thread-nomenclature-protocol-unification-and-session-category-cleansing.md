@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0135. Canonical Thread Nomenclature: Protocol-Level Wire Unification, Zero-Compromise Invariant Enforcement, and Session Category Cleansing
 
-- Status: Accepted
+- Status: Accepted; the per-crate rename sections (§1–§4) are history. The binding content is `[INV-THREAD-03]` and `[INV-SESSION-01]`.
 - Date: 2026-12-14
 - Deciders: Nuo Architecture Working Group
 - Amends: [ADR-0038](0038-thread-entity-server-ssot-fanout-and-orthogonal-action-lifecycle.md) (§1, `[INV-THREAD-01]`), [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md) (Completes full-stack naming unification), [ADR-0133](0133-attach-readiness-boundary-network-free-handshake-typed-session-phases-and-authoritative-late-hydration.md) (Advances protocol version to 19)

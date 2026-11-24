@@ -4,13 +4,13 @@ title: "Three-Tier Spatial Header Topology: Dedicated Thread Governance Band, Cl
 status: accepted
 date: 2026-10-31
 scope: tui/nuo-tui, presentation/chrome, interaction/tabs, architecture/spatial
-superseded_by: null
+superseded_by: ADR-0062
 negative_knowledge: true
 ---
 
 # 0060. Three-Tier Spatial Header Topology: Dedicated Thread Governance Band, Clean Tab Projection, and Right-Aligned Scene Stack
 
-- Status: Accepted
+- Status: Accepted; the Row 2 layout (thread governance sharing the scene row) superseded by [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md).
 - Date: 2026-10-31
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI Presentation, Interaction Design, Product Architecture

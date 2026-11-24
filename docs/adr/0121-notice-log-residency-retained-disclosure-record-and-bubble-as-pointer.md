@@ -4,13 +4,13 @@ title: "Notice Log Residency: The Retained Disclosure Record, Its Viewer, and th
 status: accepted
 date: 2026-12-11
 scope: presentation/nuo-view, presentation/nuo-ui-primitives, host/nuo, tui/event-loop, tui/overlays, tui/chrome
-superseded_by: null
+superseded_by: ADR-0134
 negative_knowledge: true
 ---
 
 # 0121. Notice Log Residency: The Retained Disclosure Record, Its Viewer, and the Bubble as a Pointer
 
-- Status: Accepted (Amended by [ADR-0134](0134-two-track-notice-architecture-sovereign-notice-center-dialog-and-footer-dock-eradication.md) §2 — Footer dock replaced by Sovereign Notice Center Dialog; and by [ADR-0138](0138-notice-catalog-typed-registry-of-every-client-disclosure.md) — the funnel now accepts the typed `RenderedNotice` catalog payload instead of `(severity, topic, text, at_ms)`)
+- Status: Accepted; §3–§3a (the footer-stack viewer) superseded by [ADR-0134](0134-two-track-notice-architecture-sovereign-notice-center-dialog-and-footer-dock-eradication.md); §5's badge relocated by [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md); producers typed by [ADR-0138](0138-notice-catalog-typed-registry-of-every-client-disclosure.md).
 - Date: 2026-12-11
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface Architecture, Presentation Substrate

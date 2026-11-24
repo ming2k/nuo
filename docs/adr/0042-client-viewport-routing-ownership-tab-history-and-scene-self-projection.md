@@ -4,13 +4,13 @@ title: "Client Viewport Routing Ownership, Tab-Autonomous Scene Stacks, and Doma
 status: accepted
 date: 2026-10-19
 scope: tui/nuo-tui, architecture/spatial, presentation/navigation, domain/scenes
-superseded_by: null
+superseded_by: ADR-0062
 negative_knowledge: true
 ---
 
 # 0042. Client Viewport Routing Ownership, Tab-Autonomous Scene Stacks, and Domain Scene Self-Projection
 
-- Status: Accepted
+- Status: Accepted; the "2+1" header topology superseded by [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md). Viewport routing ownership and per-tab scene stacks stand.
 - Date: 2026-10-19
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface, Usability, Terminal, Runtime, and Core Infrastructure Teams

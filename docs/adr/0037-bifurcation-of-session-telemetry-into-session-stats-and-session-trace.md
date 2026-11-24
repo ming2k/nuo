@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0037. Bifurcation of Session Telemetry into Dedicated Session Stats and Session Trace Surfaces
 
-- Status: Accepted
+- Status: Accepted; the `SessionStats` dialog is now `ThreadStats` (nomenclature of [ADR-0135](0135-canonical-thread-nomenclature-protocol-unification-and-session-category-cleansing.md)).
 - Date: 2026-10-16
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface, TUI, Observability, and Interaction Architecture Teams

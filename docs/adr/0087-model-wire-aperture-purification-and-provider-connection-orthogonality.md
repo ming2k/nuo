@@ -4,13 +4,13 @@ title: "Model Wire Aperture Purification and Provider/Connection Orthogonality"
 status: accepted
 date: 2026-11-24
 scope: codec/nuo-inference-wire, oauth/nuo-oauth, provider/nuo-provider, protocol/nuo-protocol, persistence/nuo-persistence, providers/all
-superseded_by: null
+superseded_by: ADR-0088
 negative_knowledge: true
 ---
 
 # 0087. Model Wire Aperture Purification and Provider/Connection Orthogonality
 
-- Status: Accepted
+- Status: Accepted; the residual `WireClient` transport face and its I/O runtimes superseded by [ADR-0088](0088-pure-zero-io-inference-wire-and-transport-pruning.md).
 - Date: 2026-11-24
 - Deciders: Nuo Architecture Working Group
 - Consulted: Codec Engineering, OAuth Platform, Provider Integration, Protocol Governance, Persistence

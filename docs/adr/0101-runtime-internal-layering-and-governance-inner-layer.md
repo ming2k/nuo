@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0101. Runtime Internal Layering: Subsystem Grouping and Enforced Inner Layers
 
-- Status: Accepted
+- Status: Accepted; amended 2026-11-25 — the `governance/` group is now the separate `guardrails` crate. See "Amendment (2026-11-25)".
 - Date: 2026-11-29
 - Deciders: Nuo Architecture Working Group
 - Amends: [ADR-0100](0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md) §Migration Roadmap (executes the internal-organization step it deferred)
@@ -21,6 +21,27 @@ negative_knowledge: true
 > the `aspects` member listed for `cognition/`/`orchestration/` below was deleted
 > because it had no production consumer. The layering rules in this record are
 > unchanged.
+
+## Amendment (2026-11-25): Governance Is a Separate Crate
+
+The `governance/` group in §1 no longer lives inside the engine. Its members
+(`permission_policy`, `permission_store`, `bash_policy`, `guard`,
+`trajectory_guard`, `stream_loop_detector`, `interaction`, `scoped_tools`) now
+form the `guardrails` crate. That crate depends on `tool`, `protocol`, and
+`inference-wire`, and never on `engine`. The engine's groups are now `cognition`,
+`dispatch`, `orchestration`, `runtime`, and `tools`. The `aspects` member was
+deleted by ADR-0154.
+
+The partial order from §2 still holds, but it is enforced in two ways:
+
+- **Cargo** enforces `governance ⊳ engine`: `guardrails` cannot name an engine
+  group because it does not depend on the engine. `runtime` may import
+  `guardrails::` (for example `runtime::permission_backend`). That is an inward
+  edge, so it does not violate the order.
+- **`tests/integration/engine/layering.rs`** still enforces
+  `runtime ⊳ cognition ⊳ { dispatch, orchestration }` inside `engine`
+  (`[INV-HARNESS-04]`). Its `governance_is_a_strict_inner_layer` case now scans
+  `crates/guardrails/src`. Because of the crate boundary, that case cannot fail.
 
 ## Context and Problem Statement
 

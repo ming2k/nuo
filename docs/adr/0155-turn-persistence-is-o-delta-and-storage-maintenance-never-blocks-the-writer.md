@@ -4,13 +4,13 @@ title: "Turn Persistence Is O(Delta) and Storage Maintenance Never Blocks the Wr
 status: accepted
 date: 2026-11-07
 scope: persistence/session-store, persistence/ir-mirror, persistence/wal, harness/orchestration, presentation/phase
-superseded_by: null
+superseded_by: ADR-0236
 negative_knowledge: true
 ---
 
 # 0155. Turn Persistence Is O(Delta) and Storage Maintenance Never Blocks the Writer
 
-- Status: Accepted
+- Status: Accepted; the per-turn SQLite commit superseded by [ADR-0236](0236-the-session-journal-is-the-durable-source-of-truth-and-sqlite-is-a-derived-projection.md): the session journal fsync is the acknowledgement and SQLite is derived. O(delta) persistence stands.
 - Date: 2026-11-07
 - Deciders: Nuo Architecture Working Group
 - Consulted: Storage Engine, Agent Runtime, Presentation Substrate, Performance Engineering

@@ -4,13 +4,13 @@ title: "Authentic Thread Title Lifecycle, Clean Scene Head, and Semantic Tab Pro
 status: accepted
 date: 2026-10-26
 scope: tui/nuo-tui, wire/nuo-wire, server/nuo-server, presentation/chrome, architecture/surfaces
-superseded_by: null
+superseded_by: ADR-0062
 negative_knowledge: true
 ---
 
 # 0050. Authentic Thread Title Lifecycle, Clean Scene Head, and Semantic Tab Projection
 
-- Status: Accepted
+- Status: Accepted; the posture flags and workspace-path placement superseded by [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md); §3's title budget amended by [ADR-0235](0235-tabbar-carries-its-own-lifecycle-hover-reveal-visible-close-and-reserved-add.md).
 - Date: 2026-10-26
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI Presentation, Wire Protocol, Server Runtime, UX Working Group

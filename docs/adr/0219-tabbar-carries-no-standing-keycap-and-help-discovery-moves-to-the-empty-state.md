@@ -1,10 +1,10 @@
 ---
 id: ADR-0219
 title: "TabBar Carries No Standing Keycap and Help Discovery Moves to the Empty State"
-status: accepted
+status: superseded
 date: 2026-12-20
 scope: presentation/nuo-view, presentation/nuo-ui-primitives, tui/chrome, tui/event-loop
-superseded_by: null
+superseded_by: ADR-0245
 amends:
   - "[ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md) §2 (the constant `F1 help` affordance is retired from the TabBar status cluster)"
   - "[ADR-0092](0092-uncompromising-scenebar-breadcrumb-topology-bidirectional-navigation-and-symmetric-keybindings.md) (the chord-free SceneBar no longer leans on a standing TabBar entrance)"
@@ -13,7 +13,7 @@ negative_knowledge: true
 
 # 0219. TabBar Carries No Standing Keycap and Help Discovery Moves to the Empty State
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0245](0245-tabbar-elastic-help-portal-and-in-situ-progressive-disclosure.md) — the TabBar carries an elastic help portal again; the empty-state carousel alone left no in-session help entrance.
 - **Date**: 2026-12-20
 - **Amends**: [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md)
   §2, [ADR-0092](0092-uncompromising-scenebar-breadcrumb-topology-bidirectional-navigation-and-symmetric-keybindings.md),

@@ -4,13 +4,13 @@ title: "Domain-Aligned Capability Topology and Tool Asymmetry Elimination"
 status: accepted
 date: 2026-10-03
 scope: workspace/topology, architecture/layering, capability/tools, domain/nuo-web, domain/nuo-code
-superseded_by: null
+superseded_by: ADR-0234
 negative_knowledge: true
 ---
 
 # 0012. Domain-Aligned Capability Topology and Tool Asymmetry Elimination
 
-- Status: Accepted
+- Status: Accepted; §3 (the `nuo-mcp` crate) superseded by [ADR-0234](0234-nuo-is-an-mcp-client-and-has-three-capability-entrances.md). The domain tool crates stand (now `tool-fs`, `tool-web`, `tool-exec`, `tool-ast`).
 - Date: 2026-10-03
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, and Interface Teams

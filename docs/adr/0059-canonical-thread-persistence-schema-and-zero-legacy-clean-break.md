@@ -4,13 +4,13 @@ title: "Canonical Thread Persistence Schema, Zero-Legacy Clean Break, and Junk D
 status: accepted
 date: 2026-10-30
 scope: persistence/sqlite, architecture/database, domain/thread, runtime/lifecycle
-superseded_by: null
+superseded_by: ADR-0189
 negative_knowledge: true
 ---
 
 # 0059. Canonical Thread Persistence Schema, Zero-Legacy Clean Break, and Junk Drawer Elimination
 
-- Status: Accepted
+- Status: Accepted; the Migration-24 clean-break mechanics superseded by [ADR-0189](0189-immutable-baseline-plus-numbered-migrations.md) (immutable baseline plus numbered migrations). The canonical schema and zero-legacy rule stand.
 - Date: 2026-10-30
 - Deciders: Nuo Architecture Working Group
 - Consulted: Persistence, Runtime, Wire, Server, and Storage Teams

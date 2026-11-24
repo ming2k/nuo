@@ -1,16 +1,16 @@
 ---
 id: ADR-0077
 title: "Workspace Namespace Pure Surface Topology, Legacy Stroke Pruning, and Categorized Palette Architecture"
-status: accepted
+status: superseded
 date: 2026-11-20
 scope: tui/nuo-tui, interaction/keymap, presentation/chrome, interaction/command-palette
-superseded_by: null
+superseded_by: ADR-0218
 negative_knowledge: true
 ---
 
 # 0077. Workspace Namespace Pure Surface Topology, Legacy Stroke Pruning, and Categorized Palette Architecture
 
-- Status: Accepted
+- Status: Superseded by [ADR-0218](0218-the-command-palette-is-a-pure-projection-of-context.md) — §1's `C-x` second-stroke verbs were retired by [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md); §2's categorized palette was replaced by context-first groups.
 - Date: 2026-11-20
 - Deciders: Nuo Architecture Working Group
 - Consulted: Presentation (`nuo-tui`), Interaction Design, Runtime Governance

@@ -4,13 +4,13 @@ title: "Cognitive Runtime Consolidation: Orphaned Twin Retirement and Governance
 status: accepted
 date: 2026-11-29
 scope: architecture/workspace-topology, harness/nuo-harness, agent/nuo-agent, harness/governance
-superseded_by: null
+superseded_by: ADR-0181
 negative_knowledge: true
 ---
 
 # 0100. Cognitive Runtime Consolidation: Orphaned Twin Retirement and Governance-Layer Inversion
 
-- Status: Accepted
+- Status: Accepted; §2's crate identity (`nuo-harness`) superseded by [ADR-0181](0181-cognitive-runtime-identity-nuo-engine-is-the-only-crate-name.md) (the crate is now `engine`). §3's governance layer is now the `guardrails` crate ([ADR-0101](0101-runtime-internal-layering-and-governance-inner-layer.md) amendment).
 - Date: 2026-11-29
 - Deciders: Nuo Architecture Working Group
 - Supersedes: [ADR-0010](0010-harness-decomposition-and-agent-unification.md) §2–§3 (cognitive-engine unification *into* `nuo-agent`)

@@ -1,16 +1,16 @@
 ---
 id: ADR-0161
 title: "Thread Purge Is a Client-Side Orchestration over the Existing Kill Contract"
-status: accepted
+status: superseded
 date: 2026-11-10
 scope: [workspace]
-superseded_by: null
+superseded_by: ADR-0171
 negative_knowledge: false
 ---
 
 # ADR-0161: Thread Purge Is a Client-Side Orchestration over the Existing Kill Contract
 
-- **Status:** Superseded by [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md)
+- **Status:** Superseded by [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md) — thread removal is durable and server-owned, not a client-side orchestration over the kill contract.
 - **Date:** 2026-11-08
 - **Supersedes:** none
 - **Superseded by:** [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md)

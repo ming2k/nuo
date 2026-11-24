@@ -1,16 +1,16 @@
 ---
 id: ADR-0103
 title: "Presentation Substrate Purification: Extraction of Pure Declarative nuo-ui, Relocation of Client Transport, and Retirement of nuo-tui"
-status: accepted
+status: superseded
 date: 2026-11-30
 scope: presentation/nuo-ui, presentation/nuo-tui, host/nuo, workspace/topology, transport/client
-superseded_by: null
+superseded_by: ADR-0107
 negative_knowledge: true
 ---
 
 # 0103. Presentation Substrate Purification: Extraction of Pure Declarative nuo-ui, Relocation of Client Transport, and Retirement of nuo-tui
 
-- Status: Accepted
+- Status: Superseded by [ADR-0107](0107-two-tier-presentation-purification-and-nuo-present-retirement.md) — `nuo-ui` was extracted here and deleted by ADR-0106; the two-tier `ui-primitives` / `view` split is current.
 - Date: 2026-11-30
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface Architecture, Terminal Rendering, Core Runtime, Protocol Teams

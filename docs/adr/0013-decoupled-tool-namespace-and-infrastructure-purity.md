@@ -1,16 +1,16 @@
 ---
 id: ADR-0013
 title: "Decoupled Tool Architecture: Dedicated Tool Namespace, Semantic Nomenclature, and Infrastructure Purity"
-status: accepted
+status: superseded
 date: 2026-10-03
 scope: workspace/topology, architecture/layering, capability/tools, tools/namespace
-superseded_by: null
+superseded_by: ADR-0109
 negative_knowledge: true
 ---
 
 # 0013. Decoupled Tool Architecture: Dedicated Tool Namespace, Semantic Nomenclature, and Infrastructure Purity
 
-- Status: Accepted
+- Status: Superseded by [ADR-0109](0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md) — no `tools/` namespace exists; tool crates are flat `crates/tool-*` members.
 - Date: 2026-10-03
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, and Interface Teams

@@ -1,16 +1,16 @@
 ---
 id: ADR-0160
 title: "Compaction Is a Transcript Fact; the Causal Node Is a Derive"
-status: accepted
+status: superseded
 date: 2026-11-10
 scope: [workspace]
-superseded_by: null
+superseded_by: ADR-0173
 negative_knowledge: true
 ---
 
 # ADR-0160: Compaction Is a Transcript Fact; the Causal Node Is a Derive
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0173](0173-thread-is-the-durable-ssot-branch-is-a-cursor.md) — the causal node is deleted; the thread is the durable SSOT and compaction is a transcript fact within it.
 - **Date:** 2026-11-08
 - **Related:** [RFC-0001](../rfc/0001-compaction-as-a-transcript-fact.md), [ADR-0155](0155-turn-persistence-is-o-delta-and-storage-maintenance-never-blocks-the-writer.md), [ADR-0158](0158-derived-indexes-are-built-off-the-commit-path-from-durable-cursors.md), [ADR-0159](0159-causal-lineage-is-write-once-and-derived-views-repair-on-read.md)
 - **Supersedes in part:** ADR-0159 §INV-IR-04 (the two-write commit) and the "compaction node is written by `commit_session_ir`" half of ADR-0158

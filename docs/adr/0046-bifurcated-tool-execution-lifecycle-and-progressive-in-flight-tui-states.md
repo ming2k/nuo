@@ -1,7 +1,7 @@
 ---
 id: ADR-0046
 title: "Autonomous Tool Execution Slot, Fault-Tolerant Streaming Projection, and Bifurcated Lifecycle Architecture"
-status: draft
+status: accepted
 date: 2026-10-23
 scope: tui/nuo-tui, presentation/disclosure, protocol/wire, harness/dispatch, interaction/affordance
 superseded_by: null
@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0046. Autonomous Tool Execution Slot, Fault-Tolerant Streaming Projection, and Bifurcated Lifecycle Architecture
 
-- Status: Draft
+- Status: Accepted — implemented as `ToolStepStatus::Ingesting` / `Executing` (amended by [ADR-0110](0110-running-state-interaction-topology-and-action-permissibility-discipline.md) and [ADR-0166](0166-a-tool-call-has-one-identity-and-the-tool-step-reducer-is-idempotent.md)).
 - Date: 2026-10-23
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI, Interaction, Harness Runtime, and Protocol Maintainers

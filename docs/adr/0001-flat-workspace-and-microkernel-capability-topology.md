@@ -4,13 +4,13 @@ title: "Flat Workspace Topology and Microkernel Capability Architecture"
 status: accepted
 date: 2026-10-02
 scope: workspace/topology, architecture/microkernel, capability/tools
-superseded_by: null
+superseded_by: ADR-0109
 negative_knowledge: true
 ---
 
 # 0001. Flat Workspace Topology and Microkernel Capability Architecture
 
-- Status: Accepted
+- Status: Accepted; §1 (flat workspace topology) superseded by [ADR-0055](0055-hierarchical-workspace-topology-and-component-namespace.md) and then [ADR-0109](0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md). The microkernel capability model stands.
 - Date: 2026-10-02
 - Deciders: Nuo Architecture Working Group
 - Consulted: Core Contributors, Runtime & Tooling Teams

@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0018. On-Demand Session Review Diagnostics and Multi-Process History Union
 
-- Status: Accepted
+- Status: Accepted; the `/review` half (§ on-demand diagnostics, `[INV-REVIEW-01]`) is deprecated in place — the command and `server::review` were removed with no successor. The multi-process history union and `[INV-HIST-01]` stand.
 - Date: 2026-10-04
 - Deciders: Nuo Architecture Working Group
 - Consulted: Harness, CLI, Persistence, and Storage maintainers

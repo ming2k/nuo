@@ -4,13 +4,13 @@ title: "Scene-Namespace Palette Entry, Standing Head Legend, and Borderless Elev
 status: accepted
 date: 2026-10-06
 scope: tui/nuo-tui, presentation/chrome, interaction/affordance, terminal/elevation
-superseded_by: null
+superseded_by: ADR-0131
 negative_knowledge: true
 ---
 
 # 0023. Scene-Namespace Palette Entry, Standing Head Legend, and Borderless Elevation Popups
 
-- Status: Accepted
+- Status: Accepted; §1–§2 (`C-x p` palette entry, standing `C-x` legend, `INV-PAL-01/02`, `INV-HINT-01`) superseded by [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md) — leader chords are gone and the palette is `Ctrl-Shift-P`. §3 borderless elevation popups stand.
 - Date: 2026-10-06
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI, Interaction, and Design-System maintainers

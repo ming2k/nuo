@@ -1,16 +1,16 @@
 ---
 id: ADR-0106
 title: "Final Presentation Topology: nuo-present as the Sole Zero-IO Substrate and nuo::shell as the Interactive Runtime"
-status: accepted
+status: superseded
 date: 2026-12-02
 scope: presentation/nuo-present, presentation/nuo-ui, host/nuo, workspace/topology, architecture/enforcement
-superseded_by: null
+superseded_by: ADR-0107
 negative_knowledge: true
 ---
 
 # 0106. Final Presentation Topology: `nuo-present` as the Sole Zero-IO Substrate and `nuo::shell` as the Interactive Runtime
 
-- Status: Accepted
+- Status: Superseded by [ADR-0107](0107-two-tier-presentation-purification-and-nuo-present-retirement.md) — `nuo-present` is retired; presentation is the two-tier `ui-primitives` / `view` split.
 - Date: 2026-12-02
 - Deciders: Nuo Architecture Working Group
 - Amends: [ADR-0103](0103-presentation-substrate-purification-nuo-ui-extraction-and-nuo-tui-retirement.md), [ADR-0105](0105-presentation-linkage-mechanism-and-dependency-firewall.md)

@@ -34,15 +34,33 @@ To prevent ADR inflation and maintain a high-signal registry, author an ADR only
 ADRs evolve strictly in-place through YAML frontmatter transitions. Files are never physically moved to an `archive/` directory:
 
 ```text
-       [ draft ] ───► [ accepted ] ───► [ superseded ]
-           │
+       [ draft ] ───► [ accepted ] ───┬──► [ superseded ]
+           │                          │
+           │                          └──► [ deprecated ]
            └───► [ rejected ]
 ```
 
+Five statuses, each with one meaning:
+
 - **draft**: Proposal under active deliberation.
 - **accepted**: Ratified invariant or architectural contract binding on the repository.
-- **superseded**: Formally replaced by a subsequent ADR (`superseded_by: ADR-NNNN`).
-- **rejected**: Discarded alternative preserved in-place for negative knowledge audit.
+- **superseded**: Formally replaced by a subsequent ADR (`superseded_by: ADR-NNNN`, mandatory).
+- **deprecated**: Was accepted and in force, but the decision, the feature, or the
+  structure it governed has since been removed **without a direct successor ADR**
+  (for example a crate deleted in a consolidation, or a rename record that no
+  longer carries an architectural rule). `superseded_by` stays `null`; the body's
+  status line names what removed it.
+- **rejected**: Never became binding — a proposal discarded or never implemented,
+  preserved in-place for negative knowledge audit.
+
+Choosing between them: if a later ADR replaces the decision, use `superseded`;
+if the decision was once true but is now simply gone, use `deprecated`; if it was
+never true of the code, use `rejected`.
+
+**Partial supersession.** When a later ADR replaces only part of a decision and
+the rest still binds, keep `status: accepted`, set `superseded_by` to the
+successor, and say which section in the body's status line
+(`Accepted; §2 superseded by ADR-NNNN`).
 
 ### Self-Indexing Directory
 The `docs/adr/` directory is flat and self-indexing. File names follow `NNNN-<slug>.md` (e.g. `0145-composer-and-transcript-are-peer-focus-planes.md`), encoding both the permanent ID and semantic domain directly in the filesystem. No separate `archive/` directory or manually maintained `index.md` is kept: this eliminates dual-maintenance drift and cognitive context traps while preserving permanent, stable citation targets across git history.
@@ -52,7 +70,7 @@ The `docs/adr/` directory is flat and self-indexing. File names follow `NNNN-<sl
 ---
 id: ADR-NNNN
 title: "[Title of Decision]"
-status: accepted # [draft | accepted | superseded | rejected]
+status: accepted # [draft | accepted | superseded | deprecated | rejected]
 date: YYYY-MM-DD
 scope: [subsystems or modules affected]
 superseded_by: null # e.g., ADR-0002 (mandatory when status is superseded)
@@ -85,7 +103,7 @@ negative_knowledge: true
 
 # NNNN. [Title of Decision]
 
-- Status: Draft | Accepted | Superseded by `ADR-NNNN` (`NNNN-slug.md`) | Rejected
+- Status: Draft | Accepted | Superseded by `ADR-NNNN` (`NNNN-slug.md`) | Deprecated (reason) | Rejected
 - Date: YYYY-MM-DD
 - Amends: [Optional links to amended ADRs]
 

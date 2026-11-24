@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0102. Model Routing Aperture: Rename nuo-catalog to nuo-model-routing and Cleanse Route Derivation Semantics
 
-- Status: Accepted
+- Status: Accepted; the rename is history (the crate is now `model-routing`). The binding content is `[INV-ROUTING-01]` (gated by `tests/integration/model_routing_invariants.rs`) and §2's route-building API.
 - Date: 2026-11-29
 - Deciders: Nuo Architecture Working Group
 - Consulted: Agent Runtime, Provider Integration, Server Core, Presentation/TUI

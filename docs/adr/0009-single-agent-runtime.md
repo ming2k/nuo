@@ -1,16 +1,16 @@
 ---
 id: ADR-0009
 title: "Single Agent Runtime and Contract-Layer Ownership of Agent Identity"
-status: accepted
+status: superseded
 date: 2026-10-03
 scope: architecture/layering, runtime/agent, workspace/topology
-superseded_by: null
+superseded_by: ADR-0100
 negative_knowledge: true
 ---
 
 # 0009. Single Agent Runtime and Contract-Layer Ownership of Agent Identity
 
-- Status: Accepted
+- Status: Superseded by [ADR-0100](0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md) — restructured by ADR-0010 (itself superseded) and replaced by the cognitive-runtime consolidation.
 - Date: 2026-10-03
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime & Interface Teams

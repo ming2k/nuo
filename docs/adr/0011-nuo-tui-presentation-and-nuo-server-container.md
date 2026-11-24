@@ -1,16 +1,16 @@
 ---
 id: ADR-0011
 title: "Nuo-Tui Presentation Decoupling, Nuo-Server Extraction, and Unified Host Architecture"
-status: accepted
+status: superseded
 date: 2026-10-03
 scope: workspace/topology, architecture/cli, tui/nuo-tui, server/nuo-server
-superseded_by: null
+superseded_by: ADR-0103
 negative_knowledge: true
 ---
 
 # 0011. Nuo-Tui Presentation Decoupling, Nuo-Server Extraction, and Unified Host Architecture
 
-- Status: Accepted
+- Status: Superseded by [ADR-0103](0103-presentation-substrate-purification-nuo-ui-extraction-and-nuo-tui-retirement.md) — `nuo-tui` is retired; the server-extraction half is restated by [ADR-0184](0184-server-is-the-application-core.md).
 - Date: 2026-10-03
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface, Runtime, and Protocol Teams

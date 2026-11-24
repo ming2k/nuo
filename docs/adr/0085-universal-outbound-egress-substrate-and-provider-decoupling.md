@@ -1,16 +1,16 @@
 ---
 id: ADR-0085
 title: "Universal Outbound Egress Substrate (nuo-egress) and Cognitive Provider Decoupling"
-status: accepted
+status: superseded
 date: 2026-11-22
 scope: egress/nuo-egress, provider/nuo-provider, providers/all, oauth/nuo-oauth, server/nuo-server, wire/nuo-inference-wire
-superseded_by: null
+superseded_by: ADR-0108
 negative_knowledge: true
 ---
 
 # 0085. Universal Outbound Egress Substrate (nuo-egress) and Cognitive Provider Decoupling
 
-- Status: Accepted
+- Status: Superseded by [ADR-0108](0108-provider-substrate-consolidation-and-satellite-crate-retirement.md) — egress is model-provider transport, not a universal substrate; `nuo-egress` was absorbed into `provider::transport`.
 - Date: 2026-11-22
 - Deciders: Nuo Architecture Working Group
 - Consulted: Platform Architecture, Engine, Network, and Provider Integration Teams

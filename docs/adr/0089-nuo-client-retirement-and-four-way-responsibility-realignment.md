@@ -4,13 +4,13 @@ title: "nuo-client Retirement and Four-Way Responsibility Realignment"
 status: accepted
 date: 2026-11-25
 scope: client/nuo-client, protocol/nuo-protocol, tui/nuo-tui, server/nuo-server, host/nuo-host
-superseded_by: null
+superseded_by: ADR-0103
 negative_knowledge: true
 ---
 
 # 0089. nuo-client Retirement and Four-Way Responsibility Realignment
 
-- Status: Accepted
+- Status: Accepted; §4–§5 (`nuo-tui::client`) superseded by [ADR-0103](0103-presentation-substrate-purification-nuo-ui-extraction-and-nuo-tui-retirement.md): the client transport lives in `nuo::transport`.
 - Date: 2026-11-25
 - Deciders: Nuo Architecture Working Group
 - Consulted: Core Runtime, Protocol Governance, TUI Engineering, Security

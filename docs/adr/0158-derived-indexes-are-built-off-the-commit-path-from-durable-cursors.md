@@ -4,13 +4,13 @@ title: "Derived Indexes Are Built Off the Commit Path from Durable Cursors"
 status: accepted
 date: 2026-11-07
 scope: persistence/derived-index, persistence/session-store, persistence/migrations, harness/session-ir, server/history
-superseded_by: null
+superseded_by: ADR-0236
 negative_knowledge: true
 ---
 
 # 0158. Derived Indexes Are Built Off the Commit Path from Durable Cursors
 
-- Status: Accepted
+- Status: Accepted; §1 (a commit writes the transcript and one outbox row) superseded by [ADR-0236](0236-the-session-journal-is-the-durable-source-of-truth-and-sqlite-is-a-derived-projection.md). The durable-cursor derived-index model stands.
 - Date: 2026-11-07
 - Deciders: Nuo Architecture Working Group
 - Consulted: Storage Engine, Agent Runtime, Retrieval, Performance Engineering

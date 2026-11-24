@@ -1,16 +1,16 @@
 ---
 id: ADR-0055
 title: "Hierarchical Workspace Topology, Component Library Namespace, and Root Cleanliness"
-status: accepted
+status: superseded
 date: 2026-10-28
 scope: workspace/topology, architecture/layering, packaging/crates
-superseded_by: null
+superseded_by: ADR-0109
 negative_knowledge: true
 ---
 
 # 0055. Hierarchical Workspace Topology, Component Library Namespace, and Root Cleanliness
 
-- Status: Accepted
+- Status: Superseded by [ADR-0109](0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md) — the `nuo` binary moved into `crates/nuo`; every member lives under `crates/`.
 - Date: 2026-10-28
 - Deciders: Nuo Architecture Working Group, Infrastructure & Release Engineering
 - Consulted: Core Contributors, Runtime & Tooling Teams

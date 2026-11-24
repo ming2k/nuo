@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0053. Capability-First Orthogonal Terminal Composition, Autonomous Visual Archetype Projection, and Zero-Heuristic Adaptation Topology
 
-- Status: Accepted
+- Status: Accepted; the terminal driver is now the graticule substrate of [ADR-0223](0223-graticule-substrate-vt-input-parser-and-all-motion-hover.md).
 - Date: 2026-10-27
 - Deciders: Nuo Architecture Working Group
 - Consulted: Terminal Substrate (`nuotc`), Presentation (`nuo-tui`), Runtime Architecture, Documentation Governance

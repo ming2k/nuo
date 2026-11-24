@@ -11,9 +11,25 @@ negative_knowledge: true
 
 # 0181. Cognitive Runtime Identity: nuo-engine Is the Only Crate Name
 
-- Status: Accepted
+- Status: Accepted; amended 2026-11-25 — the crate is named `engine`, not `nuo-engine`. See "Amendment (2026-11-25)".
 - Date: 2026-11-14
 - Amends: [ADR-0100](0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md), [ADR-0101](0101-runtime-internal-layering-and-governance-inner-layer.md)
+
+## Amendment (2026-11-25): The `nuo-` Prefix Is Gone
+
+A later layout change (commit `5c442a3`) removed the `nuo-` prefix from every
+library package, and no ADR records that rename. As a result this crate is
+named **`engine`**, and its path is `engine::`. Where this ADR says `nuo-engine`
+/ `nuo_engine`, read `engine`. Likewise, `nuo-guardrails` is now `guardrails`,
+and `crates/nuo-engine/README.md` is now `crates/engine/README.md`. Only the
+`nuo` binary and the root `nuo-tests` host keep the prefix.
+
+The decision is unchanged: the runtime has one name, and that name has no
+alias. `[INV-ENGINE-01]` (no `nuo_harness` identifier) and `[INV-ENGINE-02]`
+(no `extern crate … as …` alias) remain in force, gated by
+`no_retired_engine_alias` in `tests/integration/governance/architecture_convergence.rs`.
+The same gate's `living_docs_use_current_crate_names` lists every former
+`nuo-*` library name as retired.
 
 ## Context and Problem Statement
 

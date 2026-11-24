@@ -4,13 +4,13 @@ title: "Tool Ownership, Contract Layering, and Compile-Time Plugin Mechanism"
 status: accepted
 date: 2026-10-03
 scope: capability/tools, architecture/layering, plugin/registration
-superseded_by: null
+superseded_by: ADR-0008
 negative_knowledge: true
 ---
 
 # 0007. Tool Ownership, Contract Layering, and Compile-Time Plugin Mechanism
 
-- Status: Accepted
+- Status: Accepted; §1 (the two-trait decision) superseded by [ADR-0008](0008-single-tool-contract.md).
 - Date: 2026-10-03
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, and Interface Teams

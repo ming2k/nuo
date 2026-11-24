@@ -4,13 +4,13 @@ title: "Dynamic Port Sharing Palette, Orthogonal Control Plane, and Server Lifec
 status: accepted
 date: 2026-10-22
 scope: architecture/server, runtime/lifecycle, tui/nuo-tui, comm/wire, interface/cli
-superseded_by: null
+superseded_by: ADR-0131
 negative_knowledge: true
 ---
 
 # 0045. Dynamic Port Sharing Palette, Orthogonal Control Plane, and Server Lifecycle Handoff
 
-- Status: Accepted
+- Status: Accepted; §2's `C-x p` chord superseded by [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md) (port sharing opens from the palette). The rest stands.
 - Date: 2026-10-22
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Interface, Protocol, and TUI Teams

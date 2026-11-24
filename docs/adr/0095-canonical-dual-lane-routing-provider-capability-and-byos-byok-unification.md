@@ -10,12 +10,29 @@ negative_knowledge: true
 
 # 0095. Canonical Dual-Lane Model Routing, Symmetrical Credential Lifecycle, and Orthogonal Entitlement Governance
 
-- Status: Accepted
+- Status: Accepted; amended 2026-11-25 — §4–§5 (`RoutingPolicy`, `SpendGuardrail`, round failover) were never implemented and are withdrawn. See "Amendment (2026-11-25)".
 - Date: 2026-11-28
 - Deciders: Nuo Architecture Working Group
 - Amends: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), [ADR-0015](0015-dependency-inversion-architecture-for-model-providers.md), [ADR-0065](0065-multi-factor-pricing-spec-dual-mode-connection-budget-and-spend-circuit-breaker.md), [ADR-0094](0094-codebuddy-browser-web-handoff-oauth-subscription-lane.md)
 
 ---
+
+## Amendment (2026-11-25): §4–§5 Were Never Implemented
+
+An audit against the codebase found that §1–§3 shipped and §4–§5 did not:
+
+- **In force.** Ingress/wire orthogonality (§1), the `Static` / `Negotiated`
+  credential lifecycle (§2, `protocol::connection_auth`), and the
+  `FlatRate` / `Metered` entitlement axis (§3, `protocol::Entitlement`).
+- **Withdrawn.** No `RoutingPolicy`, `PriorityFailover`, `SpendGuardrail`,
+  `FailoverAuditRequired`, or round-failover engine exists. A route still names
+  one connection through `default_connection`. Spend is capped per connection by
+  `protocol::ConnectionBudget` (ADR-0065), and the engine's spend circuit
+  breaker refuses an over-budget round instead of failing over.
+- **Invariants.** `[INV-ROUTE-01]`–`[INV-ROUTE-03]` bind. `[INV-ROUTE-04]` and
+  `[INV-ROUTE-05]` are not in force: there is no automatic cross-connection
+  failover for them to govern. If failover is built, it needs a new ADR, and
+  that ADR must restate these two rules before it relies on them.
 
 ## Context and Problem Statement
 
@@ -185,8 +202,8 @@ When `PriorityFailover` encounters an HTTP 429 (`TooManyRequests`) or explicit q
 - **`[INV-ROUTE-01] Provider Ingress and Wire Contract Orthogonality`**: A `ModelProviderSpec` represents exclusively physical network ingress host, protocol serializer, and catalog discovery. Provider specs must never be bifurcated along commercial pricing plans or vendor brand umbrellas.
 - **`[INV-ROUTE-02] Symmetrical Credential Lifecycle Typestate`**: Credential capabilities must be modeled symmetrically as `Static` vs `Negotiated`. Top-level enum variants like `ApiKey` vs `OAuth` are prohibited as category errors. Specific protocols (`OAuth2`, `CloudIam`) reside strictly as sub-variants of `Negotiated`.
 - **`[INV-ROUTE-03] Orthogonal Entitlement and Credential Decoupling`**: Authentication mechanisms and economic entitlement models (`FlatRate` vs `Metered`) are strictly independent. No transport or authentication struct may assume that OAuth denotes a subscription or that an API key denotes metered billing.
-- **`[INV-ROUTE-04] Strict Non-Silent Failover and Spend Guardrail Barrier`**: Automated transition from a zero-marginal-cost `FlatRate` connection to a `Metered` connection within an agent turn MUST satisfy a `SpendGuardrail`. Silent downgrade without user interactive confirmation or a configured dollar ceiling is strictly prohibited.
-- **`[INV-ROUTE-05] Context-Preserving Round Failover`**: Failover dispatch between connections preserves turn history, tool execution envelopes, and cache boundaries. Interrupted turns must never discard already verified tool outputs or duplicate side-effects.
+- **`[INV-ROUTE-04] Strict Non-Silent Failover and Spend Guardrail Barrier`**: *(Not in force; see Amendment 2026-11-25.)* Automated transition from a zero-marginal-cost `FlatRate` connection to a `Metered` connection within an agent turn MUST satisfy a `SpendGuardrail`. Silent downgrade without user interactive confirmation or a configured dollar ceiling is strictly prohibited.
+- **`[INV-ROUTE-05] Context-Preserving Round Failover`**: *(Not in force; see Amendment 2026-11-25.)* Failover dispatch between connections preserves turn history, tool execution envelopes, and cache boundaries. Interrupted turns must never discard already verified tool outputs or duplicate side-effects.
 
 ---
 

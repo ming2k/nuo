@@ -4,13 +4,13 @@ title: "Dual-Lane Inference Wire Topology (Generative and Discriminative) and `n
 status: accepted
 date: 2026-11-23
 scope: codec/nuo-inference-wire, protocol/nuo-protocol, crate/nuo-decision
-superseded_by: null
+superseded_by: ADR-0143
 negative_knowledge: true
 ---
 
 # 0086. Dual-Lane Inference Wire Topology (Generative and Discriminative) and `nuo-decision` Retirement
 
-- Status: Accepted, **superseded in part by [ADR-0143](0143-codec-aperture-completed-delete-the-unwired-codec-lane.md)**
+- Status: Accepted; §1 and `[INV-AP-04]` (the discriminative lane and its shared transport substrate) superseded by [ADR-0143](0143-codec-aperture-completed-delete-the-unwired-codec-lane.md).
 - Date: 2026-11-23
 - Deciders: Nuo Architecture Working Group
 - Consulted: Provider Integration, Agent Runtime, Protocol Governance

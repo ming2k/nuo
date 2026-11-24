@@ -4,7 +4,7 @@ title: "Sovereign Tab Context Isolation and TabBar Boundary Purity"
 status: accepted
 date: 2026-11-26
 scope: tui/nuo-tui, architecture/surfaces, presentation/chrome, interaction/tabs
-superseded_by: null
+superseded_by: ADR-0251
 negative_knowledge: true
 ---
 
@@ -18,7 +18,7 @@ negative_knowledge: true
 > threads. `[INV-TAB-12]`'s focus-mode and scroll half stands unchanged, and the
 > TabBar container-purity rules (`[INV-TAB-11]`) are untouched.
 
-- Status: Accepted
+- Status: Accepted; the teardown/reconnect tab-switch lifecycle superseded by [ADR-0251](0251-multiplexed-thread-sessions-and-resident-per-thread-workspaces.md); the per-tab draft fields superseded by [ADR-0247](0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md).
 - Date: 2026-11-26
 - Deciders: Core Engineering, Architecture Working Group
 - Amends: [ADR-0039](0039-client-tab-workspace-scene-unification-and-reactive-surface-sync.md), [ADR-0060](0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md), [ADR-0075](0075-orthogonal-workspace-container-topology-and-intra-tab-scene-discipline.md)

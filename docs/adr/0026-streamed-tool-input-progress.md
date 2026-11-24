@@ -4,13 +4,13 @@ title: "Streamed Tool-Input Progress: Announce the Tool Call Before Its Argument
 status: accepted
 date: 2026-10-08
 scope: tui/nuo-tui, presentation/disclosure, protocol/wire, harness/dispatch, agent/rounds, interaction/affordance
-superseded_by: null
+superseded_by: ADR-0166
 negative_knowledge: true
 ---
 
 # 0026. Streamed Tool-Input Progress: Announce the Tool Call Before Its Arguments Finish
 
-- Status: Accepted
+- Status: Accepted; the "2026-11-07 Amendment: Announcement Identity and Retraction" superseded by [ADR-0166](0166-a-tool-call-has-one-identity-and-the-tool-step-reducer-is-idempotent.md).
 - Date: 2026-10-08
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI, Interaction, Wire-Protocol, and Runtime maintainers

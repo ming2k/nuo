@@ -1,16 +1,16 @@
 ---
 id: ADR-0005
 title: "Unified Binary, Concentric Runtime, and Wire Entity Architecture"
-status: accepted
+status: superseded
 date: 2026-10-02
 scope: workspace/topology, architecture/cli, protocol/wire, runtime/concentric
-superseded_by: null
+superseded_by: ADR-0109
 negative_knowledge: true
 ---
 
 # 0005. Unified Binary, Concentric Runtime, and Wire Entity Architecture
 
-- Status: Accepted
+- Status: Superseded by [ADR-0109](0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md) — `nuo-tui` and `nuo-wire` no longer exist; the three-tier crate topology replaced the concentric one (protocol ownership: [ADR-0089](0089-nuo-client-retirement-and-four-way-responsibility-realignment.md); presentation: [ADR-0107](0107-two-tier-presentation-purification-and-nuo-present-retirement.md)).
 - Date: 2026-10-02
 - Deciders: Nuo Architecture Working Group
 - Consulted: Core Contributors, Runtime & Interface Teams
