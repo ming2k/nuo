@@ -6,6 +6,89 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.99] - 2026-11-25
+
+### Added
+
+- **Multiplexed thread sessions and O(1) resident per-thread workspaces (Wire Protocol v34).**
+  One client connection now hosts `N` subscribed threads (`Wire::Subscribe`,
+  `Wire::Unsubscribe`, `Wire::Subscribed`, thread-addressed `Wire::Request`), and
+  each open tab keeps a resident `ThreadWorkspace` in memory so tab switches are
+  O(1) swaps with zero reconnect or Markdown re-layout while background threads
+  continue streaming live
+  ([ADR-0251](docs/adr/0251-multiplexed-thread-sessions-and-resident-per-thread-workspaces.md),
+  `[INV-MUX-01..04]`). **Breaking wire change**: `PROTOCOL_VERSION` and
+  `MIN_PROTOCOL_VERSION` advance to `34`.
+- **Fixed-K rebuildable content shards and split storage lanes.** Derived
+  thread content (`causal_nodes`, `thread_branches`, `thread_blob_refs`,
+  `command_acts`, `workspace_effects`) is partitioned across `K = 16`
+  rebuildable SQLite content shards (`content-XX.db`), while the single catalog
+  writer executes SQL only (`PreparedSave`), backups/optimize run off the writer
+  lock, and projection workers run on a bounded fair lane pool
+  ([ADR-0242](docs/adr/0242-the-derived-index-is-split-into-a-catalog-plane-and-rebuildable-content-shards.md),
+  [ADR-0248](docs/adr/0248-storage-work-is-split-by-what-it-needs.md),
+  `[INV-STORAGE-01..06]`).
+- **Workspace effects and command acts as journal frames (DB migration 0007).**
+  `/undo` workspace effects and unbounded command acts are now durable journal
+  frames projected append-only into `workspace_effects` and the new normalized
+  `command_acts` table, retiring `thread_policies.commands_json`
+  ([ADR-0249](docs/adr/0249-workspace-effects-and-command-acts-are-journal-frames-and-append-only-projections.md),
+  `[INV-TRUTH-01..02]`).
+- **Server-scoped drafts with deterministic catalog reconciliation.** Unsent
+  drafts are partitioned per server endpoint under
+  `$XDG_STATE_HOME/nuo/drafts/<server-scope>/` and reconciled against the server
+  catalog via `CheckThreadsExist` / `ThreadsExistence` and live `ThreadDeleted`
+  broadcasts
+  ([ADR-0250](docs/adr/0250-drafts-are-server-scoped-and-reconciled-against-the-catalog.md),
+  `[INV-DRAFT-06..08]`).
+
+### Fixed
+
+- **A resumed transcript can be scrolled back to the first turn.** Compaction
+  now folds the *model window* and never the conversation
+  ([ADR-0246](docs/adr/0246-compaction-folds-the-model-window-never-the-conversation.md),
+  `[INV-CMP-07..11]`). `Thread::path` returns the whole branch again, and the
+  horizon it used to stop at is `Thread::live_path` — the request-window walk
+  used by `ThreadWindow`, the compactor's fold candidates, and nothing else. The
+  visible history was never deleted, only projected away by the hydration
+  snapshot's source walk, so every existing session repairs on read: no
+  migration and no data recovery step.
+- **The compaction checkpoint no longer invents a watermark.** The transcript
+  mirror derived `CompactionMeta::folded_through_seq` by parsing a UUID fact id
+  as an integer, which always produced `0`; the `compact` directive hid nothing
+  and the mirror only looked right because the entries had already been
+  truncated. The checkpoint now names its seam by reference
+  (`first_kept_fact_id`) and each reader resolves it against the order it holds,
+  so a stale coordinate cannot be stored twice (`[INV-CMP-09]`).
+- **A fold is no longer a fork or GC boundary.** Fork targets and the vacuum
+  roots use the conversation: a folded round stays a legal fork point and stays
+  reachable until no branch reaches it at all.
+- **One "message count" for every surface.** The picker row, session detail,
+  hydration summary and stored `msg_count` column all count dialogue entries
+  (`Transcript::message_count()`); before, three of them counted entries
+  including working-state rows and compaction checkpoints (`[INV-CMP-11]`).
+- **Unsent composer drafts survive every view transition and the process.** A
+  draft belongs to the thread it was typed into, not to the tab that happened to
+  be showing it: it is parked in a per-thread ledger under
+  `$XDG_STATE_HOME/nuo/drafts/` and handed to the composer by one protocol
+  (`App::hand_composer_to_current_thread`). This closes six losses at their root
+  ([ADR-0247](docs/adr/0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md),
+  `[INV-DRAFT-01..05]`): a cross-thread tab switch blanking the composer on the
+  first post-attach frame; a tab replaced in place handing the arriving tab's
+  `Default` context over the typed text; staged images and large pastes dropped
+  by the lossy per-tab copy; a non-ASCII draft restoring its caret at a
+  `chars().count()` offset; and `/new` or `/threads` recycling a thread whose only
+  content was unsent text.
+- **`DraftCapsule` is one value type, `view::composer_draft::ComposerDraft`.** It
+  gained the composer view offset it was missing and is shared by the transient
+  stash and the parked-draft ledger, so a restore lands the caret and viewport
+  exactly where the user left them.
+- **The input-injection sheet parks into the one stash.** Its private
+  `injection_stashed_input: String` (which silently dropped pasted images) is
+  deleted.
+- **Ctrl+C clearing the composer deletes the parked draft** rather than leaving a
+  copy that the next transition would hand straight back.
+
 ## [0.0.98] - 2026-11-23
 
 ### Fixed

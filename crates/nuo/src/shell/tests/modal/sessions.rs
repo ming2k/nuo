@@ -97,10 +97,10 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
             .iter()
             .any(|t| t.thread_id() == Some(target_sid))
     );
-    // Runner attach queued
-    assert_eq!(app.surfaces.switch_to_target, Some(target_sid.to_string()));
+    // ADR-0251: activated in-place over the multiplexed connection without tearing down App.
+    assert_eq!(app.session.current_session_id, target_sid);
     assert!(
-        app.link
+        !app.link
             .should_quit
             .load(std::sync::atomic::Ordering::SeqCst)
     );
@@ -194,7 +194,8 @@ async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Thread
     );
-    assert_eq!(app.surfaces.switch_to_target, Some("conv-1".to_string()));
+    // ADR-0251: switched to conv-1 in-place without reconnecting.
+    assert_eq!(app.session.current_session_id, "conv-1");
 
     // Close remaining Tab 0
     let flow = crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -247,9 +248,10 @@ async fn test_close_tab_switches_to_mru_thread_and_arms_reconnect() {
     assert_eq!(app.surfaces.surfaces.tabs().len(), 2);
     assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
     assert_eq!(app.surfaces.surfaces.tabs()[0].thread_id(), Some("conv-1"));
-    assert_eq!(app.surfaces.switch_to_target, Some("conv-1".to_string()));
+    // ADR-0251: switched to MRU tab conv-1 in-place without tearing down App.
+    assert_eq!(app.session.current_session_id, "conv-1");
     assert!(
-        app.link
+        !app.link
             .should_quit
             .load(std::sync::atomic::Ordering::SeqCst)
     );
@@ -359,10 +361,20 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
         app.surfaces.surfaces.tabs()[0].thread_id(),
         Some(target_sid)
     );
-    assert_eq!(app.surfaces.switch_to_target, Some(target_sid.to_string()));
+    // ADR-0251: switched in-place over the multiplexed connection without tearing down App.
+    assert_eq!(app.session.current_session_id, target_sid);
+    assert!(
+        !app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
 
-    // Must have sent DeleteSession intent for the abandoned empty thread
-    let req = rx.try_recv().expect("DeleteSession sent for empty thread");
+    // Must have sent DeleteThread intent for the abandoned empty thread, followed by Subscribe for target
+    let req = rx
+        .try_recv()
+        .expect("DeleteSession sent for empty thread")
+        .into_request()
+        .expect("domain request");
     match req {
         protocol::AgentRequest::DeleteThread { id } => {
             assert_eq!(id, empty_sid);
@@ -415,7 +427,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
     )
     .await;
 
-    // Must append a new tab (total 2 tabs)!
+    // Must append a new tab (total 2 tabs) and activate in-place (ADR-0251)!
     assert_eq!(app.surfaces.surfaces.tabs().len(), 2);
     assert_eq!(
         app.surfaces.surfaces.tabs()[0].thread_id(),
@@ -425,9 +437,25 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         app.surfaces.surfaces.tabs()[1].thread_id(),
         Some(target_sid)
     );
-    assert_eq!(app.surfaces.switch_to_target, Some(target_sid.to_string()));
+    assert_eq!(app.session.current_session_id, target_sid);
+    assert!(
+        !app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
 
-    // Must NOT have sent DeleteSession!
+    // Must NOT have sent DeleteThread — only a multiplexed Subscribe for target!
+    let outbound = rx.try_recv().expect("Subscribe sent for target thread");
+    assert!(
+        matches!(
+            outbound,
+            crate::shell::client::ClientOutbound::Subscribe {
+                action: protocol::AttachAction::Attach(Some(ref tid)),
+                ..
+            } if tid == target_sid
+        ),
+        "expected Subscribe for target, got {outbound:?}"
+    );
     assert!(rx.try_recv().is_err());
 }
 
@@ -455,13 +483,17 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     .await;
 
     assert!(!app.surfaces.switch_to_new);
-    let req = rx.try_recv().expect("/new sent for empty thread");
+    let req = rx
+        .try_recv()
+        .expect("/new sent for empty thread")
+        .into_request()
+        .expect("domain request");
     match req {
         protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
         other => panic!("expected /new slash command, got {other:?}"),
     }
 
-    // 2. In non-empty tab: pressing 'N' should arm switch_to_new
+    // 2. In non-empty tab: pressing 'N' should subscribe a new thread in-place (ADR-0251)
     app.transcript
         .messages
         .push(view::model::document::TranscriptMessage::new(
@@ -478,11 +510,21 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     )
     .await;
 
-    assert!(app.surfaces.switch_to_new);
     assert!(
-        app.link
+        !app.link
             .should_quit
             .load(std::sync::atomic::Ordering::SeqCst)
+    );
+    let outbound = rx.try_recv().expect("Subscribe(New) sent for new tab");
+    assert!(
+        matches!(
+            outbound,
+            crate::shell::client::ClientOutbound::Subscribe {
+                action: protocol::AttachAction::New(_),
+                ..
+            }
+        ),
+        "expected Subscribe(New), got {outbound:?}"
     );
 }
 
@@ -507,7 +549,11 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
 
     assert!(!app.surfaces.switch_to_new);
-    let req = rx.try_recv().expect("/new sent for empty thread");
+    let req = rx
+        .try_recv()
+        .expect("/new sent for empty thread")
+        .into_request()
+        .expect("domain request");
     match req {
         protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
         other => panic!("expected /new slash command, got {other:?}"),

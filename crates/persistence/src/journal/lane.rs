@@ -10,6 +10,11 @@
 //! - the async loop only waits for its own ack, and that ack is bounded by
 //!   one batch + one fsync, not by unrelated SQLite work.
 //!
+//! Lane count is the parallel-fsync budget. It tracks the core count (clamped)
+//! rather than a small constant: the floor on a commit is the disk, not the
+//! CPU, and the hashed assignment means fewer lanes means more session pairs
+//! sharing one ack chain.
+//!
 //! A failed write truncates the file back to the append offset it observed, so
 //! a partially written frame can never be mistaken for a commit by the reader.
 
@@ -55,8 +60,16 @@ impl std::fmt::Debug for JournalRuntime {
 }
 
 impl JournalRuntime {
-    /// The process-wide runtime. Four lanes is enough to decouple a handful of
-    /// concurrent sessions without turning every commit into a thread.
+    /// The process-wide runtime.
+    ///
+    /// One lane is one `fsync` chain. Sessions are hashed onto a lane, so a
+    /// collision puts two sessions behind the same fsync — the exact
+    /// head-of-line blocking the lane model exists to remove. Four lanes was
+    /// enough to decouple "a handful" of sessions; on a many-core host it also
+    /// capped concurrent `fdatasync` calls at four.
+    ///
+    /// The ceiling is deliberately finite: a lane is an OS thread with a
+    /// 1024-slot queue, and beyond ~16 the disk, not the CPU, is the floor.
     pub(crate) fn global() -> Arc<Self> {
         static GLOBAL: OnceLock<Arc<JournalRuntime>> = OnceLock::new();
         GLOBAL.get_or_init(|| Self::spawn(default_lanes())).clone()
@@ -123,9 +136,13 @@ impl Drop for JournalRuntime {
 }
 
 fn default_lanes() -> usize {
+    // One lane per core, floor 2, ceiling 16. `min(4, cores)` left most of a
+    // many-core host's fsync parallelism unused and made a collision between
+    // two busy sessions likely; the ceiling keeps a pathological core count
+    // from spawning more lane threads than the disk can serve.
     std::thread::available_parallelism()
-        .map(|count| count.get().min(4))
-        .unwrap_or(2)
+        .map(|count| count.get().clamp(2, 16))
+        .unwrap_or(4)
 }
 
 fn run_lane(mut rx: mpsc::Receiver<LaneJob>) {

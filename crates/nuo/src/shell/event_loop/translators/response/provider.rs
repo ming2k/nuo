@@ -42,8 +42,18 @@ impl TranslatorState {
                 // (the acknowledgment is a command ack).
                 self.current_provider = provider.clone();
                 self.current_model = model.clone();
+                let live = self.live_session.clone();
+                if !live.is_empty() {
+                    let ts = self.thread_mut(&live);
+                    ts.provider = provider.clone();
+                    ts.model = model.clone();
+                }
                 self.mutations
-                    .send(M::ProviderSwitched { provider, model })
+                    .send(M::ProviderSwitched {
+                        thread_id: None,
+                        provider,
+                        model,
+                    })
                     .await;
             }
             AgentResponse::ProviderQuotas(snapshot) => {
@@ -143,8 +153,16 @@ impl TranslatorState {
             }
             AgentResponse::StateDelta(delta) => {
                 if let (Some(provider), Some(model)) = (delta.provider, delta.model) {
+                    let tid = delta.thread_id.clone();
+                    let ts = self.thread_mut(&tid);
+                    ts.provider = provider.clone();
+                    ts.model = model.clone();
                     self.mutations
-                        .send(M::ProviderSwitched { provider, model })
+                        .send(M::ProviderSwitched {
+                            thread_id: Some(tid),
+                            provider,
+                            model,
+                        })
                         .await;
                 }
                 if let Some(ct) = delta.context_tokens {

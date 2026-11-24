@@ -199,6 +199,13 @@ pub(crate) fn enter_scene(
     app.transcript.selection = SelectionState::None;
     app.transcript.focus.enter_composer();
     app.transcript.drag.cancel();
+    // A scene transition re-homes the composer line: leaving the chat for a
+    // workspace parks the thread's draft and releases the buffer, and returning
+    // to a thread installs that thread's draft (ADR-0247). Unconditional,
+    // because the same scene can be re-entered with a different tab — a
+    // Dashboard tab closed onto its neighbour — and the hand-off is a no-op when
+    // the owner is already correct.
+    app.hand_composer_to_current_thread();
 
     let request = match scene {
         SceneKind::Settings => {

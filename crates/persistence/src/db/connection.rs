@@ -1,19 +1,22 @@
-//! Connection lifecycle and snapshot backup management for `DatabaseEngine`.
+//! Connection lifecycle for `DatabaseEngine`.
 //!
-//! Provides factory constructors for SQLite storage backing Nuo persistence and
-//! online snapshot creation using `VACUUM INTO`.
+//! The engine is the **writer's** connection and nothing else. In particular it
+//! does not own a blob store and does not create backups: both are filesystem
+//! work, and the single writer thread must never perform filesystem work that
+//! other sessions' projections are waiting behind. Blob writes happen during
+//! `prepare_save`, backups happen on the storage-maintenance thread over its
+//! own read-only connection (see `backup.rs`).
 use std::path::Path;
 
-use rusqlite::{Result, params};
+use rusqlite::Result;
 
 use super::*;
-use crate::blobs::BlobStore;
 
 impl DatabaseEngine {
-    /// Open or create a database engine on a file path.
-    pub(crate) fn open(db_path: &Path, blob_store: Option<BlobStore>) -> Result<Self> {
+    /// Open or create the writer's database connection on a file path.
+    pub(crate) fn open(db_path: &Path) -> Result<Self> {
         let conn = initialize_db(db_path)?;
-        Ok(Self { conn, blob_store })
+        Ok(Self { conn })
     }
 
     /// Open an in-memory database engine. Test-only: the shipped surface has
@@ -22,24 +25,6 @@ impl DatabaseEngine {
     #[cfg(test)]
     pub(crate) fn open_in_memory() -> Result<Self> {
         let conn = initialize_in_memory_db()?;
-        Ok(Self {
-            conn,
-            blob_store: None,
-        })
-    }
-
-    /// Create an online hot backup snapshot using `VACUUM INTO`.
-    pub(crate) fn create_backup(&self, target_path: &Path) -> Result<()> {
-        if let Some(parent) = target_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if target_path.exists() {
-            let _ = std::fs::remove_file(target_path);
-        }
-        let target_str = target_path.to_str().ok_or_else(|| {
-            rusqlite::Error::InvalidParameterName("backup path is not valid utf-8".into())
-        })?;
-        self.conn.execute("VACUUM INTO ?1", params![target_str])?;
-        Ok(())
+        Ok(Self { conn })
     }
 }

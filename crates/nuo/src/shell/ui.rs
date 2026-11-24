@@ -64,8 +64,11 @@ pub enum UiKey {
     /// the mark wins the hit test on its own column. A tab whose pointer path
     /// to closing it is a guess is a tab that gets closed by accident.
     TabBarClose(usize),
-    /// Tier 1: the trailing add-tab affordance (`+`) (ADR-0219).
+    /// Tier 1: the trailing add-tab affordance (`+`) (ADR-0235).
     TabBarAdd,
+    /// Tier 1: the right-edge elastic help portal (`{key} help` / `{key}`),
+    /// mounted only while painted (ADR-0245 `[INV-TAB-20]`).
+    TabBarHelp,
     /// Tier 1: Interactive Tab Bar previous overflow button (`‹N`).
     TabBarPrev,
     /// Tier 1: Interactive Tab Bar next overflow button (`N›`).
@@ -348,6 +351,7 @@ impl ComponentTree {
             UiKey::TabBarItem(_)
             | UiKey::TabBarClose(_)
             | UiKey::TabBarAdd
+            | UiKey::TabBarHelp
             | UiKey::TabBarPrev
             | UiKey::TabBarNext
             | UiKey::TabBarOverview

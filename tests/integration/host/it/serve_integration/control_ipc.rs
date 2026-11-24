@@ -665,7 +665,7 @@ async fn test_inv_remote_02_remote_symmetry_and_detach() {
 
     // 3. Bidirectional pipe works across the remote WebSocket connection
     req_tx
-        .send(AgentRequest::Interrupt)
+        .send(AgentRequest::Interrupt.into())
         .expect("send request over remote wire");
 
     // 4. [INV-REMOTE-03] Sovereign Detach: drop client connection handles

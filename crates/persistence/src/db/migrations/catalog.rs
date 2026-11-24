@@ -8,7 +8,7 @@
 use sha2::{Digest, Sha256};
 
 /// Current durable schema version. A new migration bumps this to its version.
-pub const CURRENT_DB_VERSION: u32 = 6;
+pub const CURRENT_DB_VERSION: u32 = 7;
 
 /// One immutable schema step.
 pub struct Migration {
@@ -105,6 +105,12 @@ pub const MIGRATIONS: &[Migration] = &[
         code_revision: 1,
         body: Body::Sql(include_str!("../../../migrations/0006_catalog_summary.sql")),
     },
+    Migration {
+        version: 7,
+        name: "command_acts",
+        code_revision: 1,
+        body: Body::Sql(include_str!("../../../migrations/0007_command_acts.sql")),
+    },
 ];
 
 /// Immutability guard for the baseline file. The ledger checksum already
@@ -113,6 +119,44 @@ pub const MIGRATIONS: &[Migration] = &[
 #[cfg(test)]
 pub const BASELINE_CHECKSUM: &str =
     "cbaae58782a16955a53a50887ee498efd8864b57f4b3aa40ddc9caa67a052226";
+
+/// Immutability guard for every shipped migration (v1..=CURRENT_DB_VERSION).
+/// Editing any shipped SQL file after release would break existing databases on
+/// next open with a checksum mismatch (ADR-0189).
+#[cfg(test)]
+pub const SHIPPED_CHECKSUMS: &[(u32, &str, &str)] = &[
+    (1, "baseline", BASELINE_CHECKSUM),
+    (
+        2,
+        "drop_derived_thread_columns",
+        "e7d6bddaa77b2a494bd6ced770ef484e4992ea45b869364e6629227e81538513",
+    ),
+    (
+        3,
+        "permission_rules",
+        "e4fa236a51bd3dd653f8b5570653d5e51ec8aa87bc5207f4f9ae3656440af0b0",
+    ),
+    (
+        4,
+        "drop_request_projections",
+        "7ea1e4bd7747b7f9d28f7ec69443462a47b60df3f70cc6689fa8afb95277c783",
+    ),
+    (
+        5,
+        "projection_watermarks",
+        "f832b89e219e735ce85983df02af27124fbbd1e749d2526b1f26efc0dab3cf64",
+    ),
+    (
+        6,
+        "catalog_summary",
+        "8811f3485aa27caa80aab4d92e1f182e25469c6260ac297ad5356aa2b68059e7",
+    ),
+    (
+        7,
+        "command_acts",
+        "50c387f0b0ae4c0f031d925cffb8e5017c23dd7102718e8df60ace412e9513eb",
+    ),
+];
 
 pub static NUO_SCHEMA: super::schema::Schema =
     super::schema::Schema::new("nuo.db", MIGRATIONS, CURRENT_DB_VERSION);

@@ -33,33 +33,48 @@ pub struct ResponseTranslatorConfig {
     pub live_session: String,
 }
 
+/// Per-thread translator state so multiple subscribed threads can stream
+/// concurrently over one multiplexed connection without cross-contamination
+/// (ADR-0251 `[INV-MUX-03]`).
+struct ThreadTranslatorState {
+    needs_round_rebase: bool,
+    provider: String,
+    model: String,
+    harness: protocol::HarnessSnapshot,
+    retry_progress: Option<view::retry::RetryProgress>,
+    reasoning_start: Option<std::time::Instant>,
+}
+
+impl ThreadTranslatorState {
+    fn new(provider: String, model: String, round_counter: u64) -> Self {
+        Self {
+            needs_round_rebase: false,
+            provider,
+            model,
+            harness: protocol::HarnessSnapshot {
+                loop_status: LoopStatus::Idle,
+                round_counter,
+                unattended: false,
+                confined: true,
+                workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
+                retry_pending: false,
+                role: None,
+                workspace: None,
+            },
+            retry_progress: None,
+            reasoning_start: None,
+        }
+    }
+}
+
 /// Long-lived translator state, moved out of the `tokio::spawn` body.
 struct TranslatorState {
-    /// A session switch replaces the transcript before its authoritative idle
-    /// `HarnessState` arrives. Rebase the reconstructed tail exactly once when
-    /// that snapshot supplies the persisted round counter.
-    needs_round_rebase: bool,
-    /// Translator-owned mirrors of the values it itself receives (sent to
-    /// `App` via mutations): attribution, the provider-picker snapshot
-    /// (effort derivation), and the harness snapshot (idle gating). No
-    /// shared cells are read for these.
+    /// Fallback attribution for global/un-scoped responses.
     current_provider: String,
     current_model: String,
     picker: ProviderPickerSnapshot,
-    harness: protocol::HarnessSnapshot,
-    /// The round's retry episode, as the *typed* state machine
-    /// (`view::retry`). One value holds the attempt pair, the
-    /// backoff instant and the fault history, so the three consumers
-    /// that need it — the bar clause, the receipt-log line and the
-    /// settled turn anchor — cannot disagree about any of them.
-    ///
-    /// It is the only retry state in the translator: there is no
-    /// parallel counter and no second copy of the count. `None` means
-    /// the round in flight has not retried. Boundary writes below exist so
-    /// a later round's error can never be blamed for an earlier round's
-    /// attempts.
-    retry_progress: Option<view::retry::RetryProgress>,
-    reasoning_start: Option<std::time::Instant>,
+    /// Per-thread translation state keyed by `thread_id` (ADR-0251).
+    threads: std::collections::HashMap<String, ThreadTranslatorState>,
     /// The live primary session id: the translator updates it on
     /// `/new` / `/session open` / `/resume` / `/fork` and scopes
     /// session-addressed replies (the tree snapshot) against it.
@@ -116,23 +131,22 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
         // (`RoundScope::Turn`); the translator keeps no per-session
         // position or timestamp map (ADR-0168). A mid-stream attach is
         // therefore as correct as a client that observed `TurnStarted`.
+        let mut initial_threads = std::collections::HashMap::new();
+        if !live_session_for_translator.is_empty() {
+            initial_threads.insert(
+                live_session_for_translator.clone(),
+                ThreadTranslatorState::new(
+                    initial_provider_for_translator.clone(),
+                    initial_model_for_translator.clone(),
+                    initial_round_count,
+                ),
+            );
+        }
         let mut state = TranslatorState {
-            needs_round_rebase: false,
             current_provider: initial_provider_for_translator.clone(),
             current_model: initial_model_for_translator.clone(),
             picker: ProviderPickerSnapshot::default(),
-            harness: protocol::HarnessSnapshot {
-                loop_status: LoopStatus::Idle,
-                round_counter: initial_round_count,
-                unattended: false,
-                confined: true,
-                workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
-                retry_pending: false,
-                role: None,
-                workspace: None,
-            },
-            retry_progress: None,
-            reasoning_start: None,
+            threads: initial_threads,
             live_session: live_session_for_translator.clone(),
             session_gate: session_gate::SessionGate::new(),
             mutations,
@@ -200,29 +214,42 @@ fn now_ms() -> u64 {
 }
 
 impl TranslatorState {
-    /// Attribution from the translator-owned mirrors.
-    fn attribution(&self) -> (String, String) {
+    fn thread_mut(&mut self, thread_id: &str) -> &mut ThreadTranslatorState {
+        let default_provider = self.current_provider.clone();
+        let default_model = self.current_model.clone();
+        self.threads
+            .entry(thread_id.to_string())
+            .or_insert_with(|| ThreadTranslatorState::new(default_provider, default_model, 0))
+    }
+
+    /// Attribution from the per-thread translator mirror (falling back to global).
+    fn attribution_for(&self, thread_id: &str) -> (String, String) {
+        if let Some(ts) = self.threads.get(thread_id)
+            && (!ts.provider.is_empty() || !ts.model.is_empty())
+        {
+            return (ts.provider.clone(), ts.model.clone());
+        }
         (self.current_provider.clone(), self.current_model.clone())
     }
 
-    /// Effort derivation from the translator-owned picker mirror. The picker
-    /// row already carries the server's resolved depth — no protocol
-    /// sniffing, no re-derivation (ADR-0126).
-    fn picker_effort(&self) -> Option<String> {
+    /// Effort derivation from the translator-owned picker mirror for `thread_id`.
+    fn picker_effort_for(&self, thread_id: &str) -> Option<String> {
+        let (provider, model) = self.attribution_for(thread_id);
         self.picker
             .rows
             .iter()
-            .find(|row| row.id == self.current_provider)
-            .and_then(|row| {
-                row.model_info
-                    .iter()
-                    .find(|m| m.model == self.current_model)
-            })
+            .find(|row| row.id == provider)
+            .and_then(|row| row.model_info.iter().find(|m| m.model == model))
             .and_then(|m| m.effort.clone())
     }
 
-    async fn transcript(&self, edit: E) {
-        self.mutations.send(M::Transcript { edit }).await;
+    async fn transcript(&self, thread_id: &str, edit: E) {
+        self.mutations
+            .send(M::Transcript {
+                thread_id: Some(thread_id.to_string()),
+                edit,
+            })
+            .await;
     }
 
     async fn chrome(&self, session_id: &str, edit: event_loop::mutations::ChromeEdit) {
@@ -237,19 +264,16 @@ impl TranslatorState {
     /// Route one wire response to its event-family handler.
     async fn handle(&mut self, resp: AgentResponse) {
         match resp {
-            // Per-turn events arrive tagged with the session they
-            // belong to; there is a single primary transcript buffer now
-            // (the aside substrate is retired, ADR-0058), so the
-            // translator routes every event to it. Permission and
-            // user-question requests stay global so their modals surface
-            // regardless of which view is focused.
             AgentResponse::Round { thread_id, scope } => self.handle_round(thread_id, scope).await,
             AgentResponse::ConversationCleared { .. }
             | AgentResponse::ConversationReplaced { .. }
-            | AgentResponse::ThreadSnapshot(_) => self.handle_thread_hydration(resp).await,
+            | AgentResponse::ThreadSnapshot(_)
+            | AgentResponse::ThreadSubscribed { .. } => self.handle_thread_hydration(resp).await,
             AgentResponse::InputHistory(_)
             | AgentResponse::HistorySearch(_)
             | AgentResponse::ThreadsOverview(_)
+            | AgentResponse::ThreadsExistence { .. }
+            | AgentResponse::ThreadDeleted { .. }
             | AgentResponse::OpenThreadsPanel
             | AgentResponse::ThreadTreeSnapshot { .. }
             | AgentResponse::OpenTreePanel

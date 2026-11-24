@@ -39,6 +39,7 @@ pub mod composer_hints;
 pub mod config;
 pub mod copy;
 pub mod disclosure;
+pub mod draft_store;
 pub mod event_loop;
 pub mod focus;
 pub mod headless;
@@ -105,8 +106,8 @@ use tokio::sync::{Mutex, mpsc};
 
 pub use transcript::{finalize_streaming_reasoning, rebase_transcript_rounds};
 use transcript::{
-    merge_command_rows, merge_round_interrupt_rows, transcript_commands_from_ledger,
-    transcript_interrupts_from_records, transcript_messages_from_core,
+    merge_timeline_rows, transcript_commands_from_ledger, transcript_interrupts_from_records,
+    transcript_messages_from_core,
 };
 use view::model::document::{DeliveryStatus, MessageKind, TranscriptMessage};
 #[cfg(test)]
@@ -308,7 +309,7 @@ pub fn ensure_panic_hook() {
 }
 
 pub async fn run_tui(
-    tx: mpsc::UnboundedSender<AgentRequest>,
+    tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
@@ -327,7 +328,7 @@ pub async fn run_tui(
 
 pub async fn run_tui_with_terminal(
     terminal: &mut Terminal<io::Stdout>,
-    tx: mpsc::UnboundedSender<AgentRequest>,
+    tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
@@ -384,9 +385,9 @@ fn restore_transcript(
     tui_config: &config::TuiConfig,
 ) -> Vec<view::model::document::TranscriptMessage> {
     let mut restored = transcript_messages_from_core(initial_messages, tui_config);
-    restored = merge_command_rows(restored, transcript_commands_from_ledger(initial_commands));
-    restored = merge_round_interrupt_rows(
+    restored = merge_timeline_rows(
         restored,
+        transcript_commands_from_ledger(initial_commands),
         transcript_interrupts_from_records(initial_round_interrupts),
     );
     rebase_transcript_rounds(&mut restored, initial_round_count);
@@ -486,7 +487,7 @@ struct AppBoot<'a> {
     startup_overlay: StartupOverlay,
     profile: graticule::TerminalProfile,
     token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
-    tx: mpsc::UnboundedSender<AgentRequest>,
+    tx: mpsc::UnboundedSender<client::ClientOutbound>,
     should_quit: Arc<AtomicBool>,
 }
 
@@ -500,6 +501,14 @@ fn build_app(boot: AppBoot<'_>) -> App {
         session: SessionState {
             queue_exit_session: None,
             session_chrome: std::collections::HashMap::new(),
+            workspaces: std::collections::HashMap::new(),
+            subscribed_threads: {
+                let mut set = std::collections::HashSet::new();
+                if !boot.live_session_init.is_empty() {
+                    set.insert(boot.live_session_init.clone());
+                }
+                set
+            },
             session_tree: protocol::ThreadTree::default(),
             live_session_id: boot.live_session_init.clone(),
             workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
@@ -508,7 +517,13 @@ fn build_app(boot: AppBoot<'_>) -> App {
             current_provider: boot.initial_provider,
             current_model: boot.initial_model,
             cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-            current_session_id: "test-session".to_string(),
+            // The real thread id from the handshake, never a placeholder: a
+            // placeholder made the first per-frame sync believe the viewed
+            // session had changed, so it ran the whole viewed-session-change
+            // protocol (history cursor, stash, backfill) on a session the client
+            // was already on, and — before ADR-0247 keyed drafts by thread —
+            // blanked the composer that the boot path had just restored.
+            current_session_id: boot.live_session_init.clone(),
             session_phase: boot.session_phase_init.clone(),
             switching_session: (boot.session_phase_init != protocol::ThreadPhase::Ready)
                 .then(|| boot.live_session_init.clone()),
@@ -581,6 +596,8 @@ fn build_app(boot: AppBoot<'_>) -> App {
             input_scroll_follow_cursor: true,
             input_drag_scroll: None,
             pending_prompts: boot.initial_pending_prompts,
+            draft_autosave_at: std::time::Instant::now(),
+            draft_thread: None,
             input_history: if boot.input_history_config.record_commands {
                 boot.input_history
             } else {
@@ -594,7 +611,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
                     .collect()
             },
             history_index: None,
-            draft_capsule: view::composer_mode::DraftCapsule::default(),
+            stashed_draft: view::composer_draft::ComposerDraft::default(),
             history_attachments: std::collections::HashMap::new(),
             history_attachments_order: std::collections::VecDeque::new(),
             session_history_backfill: Vec::new(),
@@ -607,7 +624,6 @@ fn build_app(boot: AppBoot<'_>) -> App {
             pending_dispatch: std::collections::VecDeque::new(),
             composer_send_mode: crate::shell::app::ComposerSendMode::default(),
             suppress_steer_restore: std::collections::HashSet::new(),
-            injection_stashed_input: String::new(),
         },
         human: HumanState {
             pending_permissions: std::collections::VecDeque::new(),
@@ -632,6 +648,10 @@ fn build_app(boot: AppBoot<'_>) -> App {
             pending_fold_copy: None,
             command_log_scroll: 0,
             surface_store: crate::shell::surfaces::SurfaceStore::new(),
+            drafts: crate::shell::draft_store::DraftLedger::load_for_scope(
+                host::paths::get().drafts_dir(),
+                &host::paths::get().db_file().to_string_lossy(),
+            ),
             dev_toast_pinned: std::env::var("NUO_DEV_TOAST")
                 .map(|v| !v.is_empty() && v != "0")
                 .unwrap_or(false),
@@ -785,7 +805,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
 
 pub(crate) async fn run_tui_with_input(
     terminal: &mut Terminal<io::Stdout>,
-    tx: mpsc::UnboundedSender<AgentRequest>,
+    tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
@@ -851,6 +871,20 @@ pub(crate) async fn run_tui_with_input(
     };
     let mut app = build_app(boot);
 
+    // ADR-0250: reconcile parked drafts against the server's catalog on connect.
+    let draft_ids: Vec<String> = app
+        .surfaces
+        .drafts
+        .known_thread_ids()
+        .into_iter()
+        .filter(|id| id != &live_session_init)
+        .collect();
+    if !draft_ids.is_empty() {
+        app.send_intent(protocol::AgentRequest::CheckThreadsExist {
+            thread_ids: draft_ids,
+        });
+    }
+
     // Mount tabs: restore preserved tabs if re-attaching, or mount initial thread tab (ADR-0039, ADR-0058)
     if let Some(tabs) = initial_tabs {
         for tab in tabs {
@@ -893,6 +927,13 @@ pub(crate) async fn run_tui_with_input(
                 .open_tab(crate::shell::surfaces::ClientTab::settings());
         }
     }
+
+    // The boot hand-off (ADR-0247): whatever route mounted the tabs, the
+    // composer now belongs to the thread the foreground names, and until now it
+    // belonged to nothing — a fresh `App` has no `draft_thread`. This installs
+    // the parked draft written by the process that just exited, which is the
+    // half of the recovery a preserved tab cannot carry itself.
+    app.hand_composer_to_current_thread();
 
     if startup_overlay == StartupOverlay::SessionsPicker {
         app.surfaces
@@ -939,6 +980,11 @@ pub(crate) async fn run_tui_with_input(
     let switch_to_new = app.surfaces.switch_to_new;
     let switch_to_new_prompt = app.surfaces.switch_to_new_prompt.take();
     let switch_to_prompt = app.surfaces.switch_to_prompt.take();
+    // The exit seam for unsent input (ADR-0247): the next `App` is a new
+    // instance, so every draft must already be in the ledger. This runs on
+    // *every* outcome — switch, fork, `/new`, detach, or a dead link — because
+    // all of them end this `App`.
+    app.seal_drafts();
     let tabs = Some(app.surfaces.surfaces.tabs().to_vec());
     let tab_history = Some(app.surfaces.surfaces.tab_mru_history().to_vec());
     Ok(TuiOutcome {
@@ -973,7 +1019,7 @@ pub struct TuiOutcome {
 }
 
 pub async fn start_tui(
-    tx: mpsc::UnboundedSender<AgentRequest>,
+    tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,

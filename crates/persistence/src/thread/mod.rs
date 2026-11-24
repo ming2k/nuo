@@ -190,12 +190,7 @@ impl ThreadData {
     /// Hot-path incremental turn commits use this to send only new delta rows to
     /// SQLite, completely eliminating O(N) memory allocations inside the session mutex.
     pub(crate) fn clone_metadata_without_history(&self) -> Self {
-        let msg_count = self
-            .transcript
-            .entries
-            .iter()
-            .filter(|entry| matches!(entry.payload, protocol::EntryPayload::Message(_)))
-            .count() as u64;
+        let msg_count = self.transcript.message_count() as u64;
         let last_user_prompt = last_effective_prompt_from_data(self);
         Self {
             id: self.id.clone(),
@@ -227,7 +222,9 @@ impl ThreadData {
             // the per-session usage mirror is *not* cloned here. Cloning it made
             // every turn O(total retained attempts).
             request_usage_records: Vec::new(),
-            commands: self.commands.clone(),
+            // ADR-0249: command acts are appended as O(1) journal frames and
+            // normalized rows; ordinary turns never clone or rewrite the ledger.
+            commands: Vec::new(),
             round_interrupts: self.round_interrupts.clone(),
             retry_pending: self.retry_pending.clone(),
             unattended: self.unattended,
@@ -271,11 +268,16 @@ impl ThreadData {
             crate::db::SaveMode::FullRewrite => *self = incoming,
             crate::db::SaveMode::MetadataOnly => {
                 let transcript = std::mem::take(&mut self.transcript);
+                let commands = std::mem::take(&mut self.commands);
                 *self = incoming;
                 self.transcript = transcript;
+                if self.commands.is_empty() {
+                    self.commands = commands;
+                }
             }
             crate::db::SaveMode::Delta => {
                 let mut transcript = std::mem::take(&mut self.transcript);
+                let commands = std::mem::take(&mut self.commands);
                 *self = incoming;
                 transcript.entries.append(&mut self.transcript.entries);
                 transcript
@@ -286,6 +288,9 @@ impl ThreadData {
                     .min_next_directive_seq
                     .max(transcript.next_directive_seq());
                 self.transcript = transcript;
+                if self.commands.is_empty() {
+                    self.commands = commands;
+                }
             }
         }
         // Only a delta/metadata frame inherits the previous graph. A full
@@ -622,6 +627,107 @@ impl ThreadSessionState {
         } else {
             self.projected_cache = Some(self.data.transcript.project_messages());
         }
+    }
+}
+
+/// The pre-commit shape of everything a commit mutates in memory.
+///
+/// A commit has to mutate the session **before** its journal append: the frame
+/// it persists is the delta that mutation produces. If the append then fails —
+/// a full lane, a failed `fdatasync`, a closed season — the in-memory transcript
+/// is already ahead of the journal. Leaving it there is silent data loss: the
+/// next commit compares the caller's window against the *in-memory* projection,
+/// sees the lost entries as durable, and persists a `MetadataOnly` frame that
+/// never carries them. They are then gone from the only copy that matters.
+///
+/// So every mutating accessor captures one of these while it holds the lock and
+/// hands it to the persist path, which restores it if (and only if) the commit
+/// did not become durable.
+///
+/// The snapshot is O(1) for the appending case (lengths, not clones) and
+/// O(history) only where the commit is already O(history) — a wholesale
+/// transcript replacement.
+pub(crate) struct SessionUndo {
+    entries_len: usize,
+    directives_len: usize,
+    min_next_seq: u64,
+    min_next_directive_seq: u64,
+    updated_at: u64,
+    round_counter: u64,
+    retry_pending: Option<protocol::RetryPoint>,
+    round_interrupts_len: usize,
+    request_usage_records: Vec<protocol::RequestUsageRecord>,
+    defer_persist: bool,
+    /// Present iff the commit may replace the transcript wholesale: the exact
+    /// previous transcript, graph sidecar, and generation identity.
+    replaced: Option<(protocol::Transcript, Option<protocol::Thread>, String)>,
+}
+
+impl SessionUndo {
+    /// Snapshot a commit that only appends entries/directives and mutates
+    /// working fields. O(1).
+    pub(crate) fn appending(state: &ThreadSessionState) -> Self {
+        Self {
+            entries_len: state.data.transcript.entries.len(),
+            directives_len: state.data.transcript.directives.len(),
+            min_next_seq: state.data.transcript.min_next_seq,
+            min_next_directive_seq: state.data.transcript.min_next_directive_seq,
+            updated_at: state.data.updated_at,
+            round_counter: state.data.round_counter,
+            retry_pending: state.data.retry_pending.clone(),
+            round_interrupts_len: state.data.round_interrupts.len(),
+            request_usage_records: state.data.request_usage_records.clone(),
+            defer_persist: state.defer_persist,
+            replaced: None,
+        }
+    }
+
+    /// Snapshot a commit that may replace the transcript, its graph sidecar,
+    /// and its generation identity (a rebuild, branch switch, or full rewrite).
+    ///
+    /// Must be captured **before** the mutation, while the old transcript is
+    /// still in place.
+    pub(crate) fn replacing(state: &ThreadSessionState) -> Self {
+        let mut undo = Self::appending(state);
+        undo.replaced = Some((
+            state.data.transcript.clone(),
+            state.data.graph.clone(),
+            state.data.generation.clone(),
+        ));
+        undo
+    }
+
+    /// Restore the snapshotted fields after a commit failed to become durable.
+    pub(crate) fn restore(self, state: &mut ThreadSessionState) {
+        match self.replaced {
+            Some((transcript, graph, generation)) => {
+                state.data.transcript = transcript;
+                state.data.graph = graph;
+                state.data.generation = generation;
+            }
+            None => {
+                state.data.transcript.entries.truncate(self.entries_len);
+                state
+                    .data
+                    .transcript
+                    .directives
+                    .truncate(self.directives_len);
+                state.data.transcript.min_next_seq = self.min_next_seq;
+                state.data.transcript.min_next_directive_seq = self.min_next_directive_seq;
+            }
+        }
+        state.data.updated_at = self.updated_at;
+        state.data.round_counter = self.round_counter;
+        state.data.retry_pending = self.retry_pending;
+        state
+            .data
+            .round_interrupts
+            .truncate(self.round_interrupts_len);
+        state.data.request_usage_records = self.request_usage_records;
+        state.defer_persist = self.defer_persist;
+        // The projection cache mirrors whatever transcript was current; after a
+        // rollback it is unknown, and a lazy reprojection is always correct.
+        state.invalidate_projection_cache();
     }
 }
 
@@ -1071,20 +1177,29 @@ pub fn catch_up_projections_for(handle: &crate::db::PersistenceHandle) -> Result
         if present && watermark >= durable {
             continue;
         }
-        let Some(mut data) = journal.load()? else {
-            continue;
-        };
-        if journal.is_deleted() {
-            continue;
-        }
-        data.checksum = Some(compute_checksum(&data)?);
-        match handle.save_session_blocking(data, Some(durable)) {
-            Ok(()) => {
-                repaired = repaired.saturating_add(1);
-                tracing::info!(session = %id, seq = durable, "rebuilt a derived session from its journal");
+        let effects = journal.load_workspace_effects().unwrap_or_default();
+        if let Some(mut data) = journal.load()? {
+            if journal.is_deleted() {
+                continue;
             }
-            Err(error) => {
-                tracing::warn!(session = %id, %error, "could not rebuild a derived session");
+            data.checksum = Some(compute_checksum(&data)?);
+            match handle.save_session_blocking(data, Some(durable)) {
+                Ok(()) => {
+                    repaired = repaired.saturating_add(1);
+                    tracing::info!(session = %id, seq = durable, "rebuilt a derived session from its journal");
+                }
+                Err(error) => {
+                    tracing::warn!(session = %id, %error, "could not rebuild a derived session");
+                }
+            }
+        }
+        if !effects.is_empty() {
+            if let Err(error) =
+                handle.replay_workspace_effects_blocking(id.clone(), effects, Some(durable))
+            {
+                tracing::warn!(session = %id, %error, "could not replay workspace effects from journal");
+            } else if !present {
+                repaired = repaired.saturating_add(1);
             }
         }
     }

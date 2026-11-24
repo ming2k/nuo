@@ -1,5 +1,4 @@
 //! Session overview, thread switching, port palette, and view switcher actions.
-use std::sync::atomic::Ordering;
 
 use protocol::AgentRequest;
 
@@ -64,9 +63,15 @@ pub(super) async fn handle_session_action(
                     let is_empty = app.is_current_thread_empty();
                     let tab = crate::shell::surfaces::ClientTab::thread(&id, title.as_deref());
                     if is_empty {
+                        // The thread itself is being discarded, so its parked
+                        // draft goes too (ADR-0247): a draft file under a
+                        // deleted id can only ever be restored into a thread
+                        // that no longer exists.
+                        app.forget_thread_draft(viewed_session_id);
                         app.send_intent(AgentRequest::DeleteThread {
                             id: viewed_session_id.to_string(),
                         });
+                        app.close_thread_workspace(viewed_session_id);
                         let active_idx = app.surfaces.surfaces.active_tab_index();
                         if let Some(existing_pos) =
                             app.surfaces
@@ -92,8 +97,9 @@ pub(super) async fn handle_session_action(
                         app.open_tab(tab);
                     }
 
-                    app.surfaces.switch_to_target = Some(id);
-                    app.link.should_quit.store(true, Ordering::SeqCst);
+                    // ADR-0251: activate the target thread workspace in place
+                    // over the multiplexed connection without reconnecting.
+                    app.activate_thread_workspace(&id);
                 }
             }
             Some(ActionFlow::Handled)
@@ -117,6 +123,11 @@ pub(super) async fn handle_session_action(
                     .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                     .expanded
                     .remove(&id);
+                // Deleting a thread deletes its unsent draft with it: the draft
+                // is the thread's, and a file left behind under a deleted id can
+                // only ever be restored into a thread that no longer exists
+                // (ADR-0247).
+                app.forget_thread_draft(&id);
                 let new_rows = crate::shell::overlays::session::project_session_rows(
                     &app.session.sessions_overview,
                     Some(
@@ -137,8 +148,8 @@ pub(super) async fn handle_session_action(
             if app.is_current_thread_empty() {
                 app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
             } else {
-                app.surfaces.switch_to_new = true;
-                app.link.should_quit.store(true, Ordering::SeqCst);
+                let cwd = app.session.cwd.clone();
+                app.subscribe_thread(protocol::AttachAction::New(None), Some(cwd));
             }
             Some(ActionFlow::Handled)
         }

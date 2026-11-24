@@ -11,6 +11,8 @@ mod history;
 pub mod role_memory;
 pub mod runner;
 pub mod schema;
+#[doc(hidden)]
+pub mod test_fixtures;
 pub mod types;
 mod verify;
 

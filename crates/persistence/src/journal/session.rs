@@ -42,14 +42,75 @@ const SNAPSHOT_EVERY: u64 = 512;
 const DELETED_MARKER: &str = "DELETED";
 
 /// A point-in-time full session state written beside the segments.
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct CommitPayload {
     /// Logical operation identity. Replaying the same id returns the original
     /// seq instead of appending a duplicate frame.
+    #[allow(dead_code)]
     op_id: String,
     data: ThreadData,
     #[serde(default)]
     usage_upserts: Vec<protocol::RequestUsageRecord>,
+}
+
+/// The same payload, borrowed for encoding.
+///
+/// A commit already owns its `ThreadData` and hands it to the projection right
+/// after the append; deriving `Serialize` on the owned struct forced a full
+/// clone of the session (transcript included) purely to feed the encoder. The
+/// borrowed twin has the identical wire shape — the field order and names are
+/// the contract — and costs nothing.
+#[derive(Serialize)]
+struct CommitPayloadRef<'a> {
+    op_id: &'a str,
+    data: &'a ThreadData,
+    usage_upserts: &'a [protocol::RequestUsageRecord],
+}
+
+/// Append-only command act frame payload (ADR-0249).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CommandActPayload {
+    seq: u64,
+    record: protocol::CommandRecord,
+}
+
+/// Durable workspace effect lifecycle frame payload (ADR-0249).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum WorkspaceEffectFrame {
+    Started {
+        effect_id: i64,
+        effect: crate::workspace_effects::NewOwnedEffect,
+    },
+    RecordedCompleted {
+        effect_id: i64,
+        effect: crate::workspace_effects::NewOwnedEffect,
+        completed_at_ms: u64,
+    },
+    Completed {
+        effect_id: i64,
+        after_hash: Option<String>,
+        completed_at_ms: u64,
+    },
+    Reversed {
+        effect_id: i64,
+        reversed_at_ms: u64,
+        note: Option<String>,
+    },
+    Expired {
+        effect_id: i64,
+        expired_at_ms: u64,
+    },
+}
+
+/// Construct a deterministic, shard-safe positive `i64` effect id from the
+/// thread id and a thread-local monotonic counter (ADR-0249).
+fn compose_effect_id(thread_id: &str, local_seq: u32) -> i64 {
+    let prefix = (crc32c::crc32c(thread_id.as_bytes()) & 0x7fff_ffff) as i64;
+    (prefix << 32) | (local_seq as i64)
+}
+
+fn effect_local_seq(effect_id: i64) -> u32 {
+    (effect_id as u64 & 0xffff_ffff) as u32
 }
 
 #[derive(Debug, Clone)]
@@ -66,11 +127,18 @@ pub(crate) struct SessionJournal {
     runtime: Arc<JournalRuntime>,
     seq: AtomicU64,
     compacted_upto: AtomicU64,
+    next_effect_seq: AtomicU64,
     append_gate: tokio::sync::Mutex<()>,
     segment: Mutex<SegmentState>,
     last_op: Mutex<Option<(String, u64)>>,
     rescan: AtomicBool,
     deleted: AtomicBool,
+    /// Test-only fault injection: the next append fails without writing.
+    /// Exists so a durability test can drive the *failure* branch of every
+    /// mutating accessor, which is otherwise unreachable without breaking the
+    /// filesystem underneath a live file descriptor.
+    #[cfg(test)]
+    fail_next_append: AtomicBool,
     init_error: Option<String>,
 }
 
@@ -130,40 +198,46 @@ impl SessionJournal {
         segments.sort_by_key(|(first, _)| *first);
 
         let mut seq = snapshot_upto;
+        let mut max_effect_seq = 0u64;
         let mut segment = SegmentState {
             path: dir.join(segment_name(snapshot_upto.saturating_add(1))),
             len: 0,
         };
-        if init_error.is_none()
-            && let Some((_first, path)) = segments.last()
-        {
-            match scan_segment(path) {
-                Ok((last, valid_len)) => {
-                    let file_len = fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
-                    if valid_len < file_len {
-                        tracing::warn!(
-                            path = %path.display(),
-                            valid_len,
-                            file_len,
-                            "truncating a torn journal tail"
-                        );
-                        if let Ok(file) = OpenOptions::new().write(true).open(path) {
-                            let _ = file.set_len(valid_len);
+        if init_error.is_none() {
+            for (idx, (_first, path)) in segments.iter().enumerate() {
+                let is_last = idx + 1 == segments.len();
+                match scan_segment(path) {
+                    Ok((last, valid_len, seg_max_effect, _has_effects)) => {
+                        max_effect_seq = max_effect_seq.max(seg_max_effect);
+                        if is_last {
+                            let file_len = fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+                            if valid_len < file_len {
+                                tracing::warn!(
+                                    path = %path.display(),
+                                    valid_len,
+                                    file_len,
+                                    "truncating a torn journal tail"
+                                );
+                                if let Ok(file) = OpenOptions::new().write(true).open(path) {
+                                    let _ = file.set_len(valid_len);
+                                }
+                            }
+                            if last >= snapshot_upto {
+                                seq = last;
+                                segment = SegmentState {
+                                    path: path.clone(),
+                                    len: valid_len,
+                                };
+                            }
                         }
                     }
-                    if last >= snapshot_upto {
-                        seq = last;
-                        segment = SegmentState {
-                            path: path.clone(),
-                            len: valid_len,
-                        };
+                    Err(error) if is_last => {
+                        init_error = Some(format!(
+                            "could not scan journal segment {}: {error}",
+                            path.display()
+                        ));
                     }
-                }
-                Err(error) => {
-                    init_error = Some(format!(
-                        "could not scan journal segment {}: {error}",
-                        path.display()
-                    ));
+                    Err(_) => {}
                 }
             }
         }
@@ -174,13 +248,22 @@ impl SessionJournal {
             runtime,
             seq: AtomicU64::new(seq),
             compacted_upto: AtomicU64::new(snapshot_upto),
+            next_effect_seq: AtomicU64::new(max_effect_seq.saturating_add(1)),
             append_gate: tokio::sync::Mutex::new(()),
             segment: Mutex::new(segment),
             last_op: Mutex::new(None),
             rescan: AtomicBool::new(false),
             deleted: AtomicBool::new(false),
+            #[cfg(test)]
+            fail_next_append: AtomicBool::new(false),
             init_error,
         }
+    }
+
+    /// Test-only: make the next [`Self::append`] fail.
+    #[cfg(test)]
+    pub(crate) fn fail_next_append(&self) {
+        self.fail_next_append.store(true, Ordering::Release);
     }
 
     /// Highest seq durably appended (or recovered) so far.
@@ -203,6 +286,10 @@ impl SessionJournal {
         if let Some(error) = &self.init_error {
             return Err(error.clone());
         }
+        #[cfg(test)]
+        if self.fail_next_append.swap(false, Ordering::AcqRel) {
+            return Err("injected journal append failure".to_string());
+        }
         {
             let last = self
                 .last_op
@@ -214,10 +301,10 @@ impl SessionJournal {
                 return Ok(*seq);
             }
         }
-        let payload = serde_json::to_vec(&CommitPayload {
-            op_id: operation_id.to_string(),
-            data: data.clone(),
-            usage_upserts: usage.to_vec(),
+        let payload = serde_json::to_vec(&CommitPayloadRef {
+            op_id: operation_id,
+            data,
+            usage_upserts: usage,
         })
         .map_err(|error| format!("could not encode journal commit: {error}"))?;
         let kind = frame::FrameKind::from_save_mode(mode);
@@ -269,6 +356,174 @@ impl SessionJournal {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner()) = Some((operation_id.to_string(), seq));
         Ok(seq)
+    }
+
+    /// Low-level durable append for non-`ThreadData` frames (`CommandAct`,
+    /// `WorkspaceEffect`), waiting for `fdatasync` on this session's lane.
+    async fn append_raw(&self, kind: frame::FrameKind, payload: &[u8]) -> Result<u64, String> {
+        if let Some(error) = &self.init_error {
+            return Err(error.clone());
+        }
+        #[cfg(test)]
+        if self.fail_next_append.swap(false, Ordering::AcqRel) {
+            return Err("injected journal append failure".to_string());
+        }
+        let _gate = self.append_gate.lock().await;
+        if self.rescan.swap(false, Ordering::AcqRel)
+            && let Err(error) = self.rescan_current_segment()
+        {
+            self.rescan.store(true, Ordering::Release);
+            return Err(error);
+        }
+        let seq = self.seq.load(Ordering::Acquire).saturating_add(1);
+        let bytes = frame::encode(seq, kind, payload);
+        let path = {
+            let mut segment = self
+                .segment
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            if segment.len > 0 && segment.len.saturating_add(bytes.len() as u64) > SEGMENT_MAX_BYTES
+            {
+                *segment = SegmentState {
+                    path: self.dir.join(segment_name(seq)),
+                    len: 0,
+                };
+            }
+            segment.len = segment.len.saturating_add(bytes.len() as u64);
+            segment.path.clone()
+        };
+        let ack = self
+            .runtime
+            .submit(&self.key, path, bytes)
+            .await
+            .map_err(|error| format!("could not submit journal append: {error}"))?;
+        match ack.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                self.rescan.store(true, Ordering::Release);
+                return Err(format!("journal append failed: {error}"));
+            }
+            Err(_) => {
+                self.rescan.store(true, Ordering::Release);
+                return Err("journal lane dropped the append".to_string());
+            }
+        }
+        self.seq.store(seq, Ordering::Release);
+        Ok(seq)
+    }
+
+    /// Append one command act durably (`O(1)`, ADR-0249).
+    pub(crate) async fn append_command_act(
+        &self,
+        act_seq: u64,
+        record: &protocol::CommandRecord,
+    ) -> Result<u64, String> {
+        let payload = serde_json::to_vec(&CommandActPayload {
+            seq: act_seq,
+            record: record.clone(),
+        })
+        .map_err(|error| format!("could not encode command act frame: {error}"))?;
+        self.append_raw(frame::FrameKind::CommandAct, &payload)
+            .await
+    }
+
+    fn alloc_effect_id(&self) -> i64 {
+        let local = self.next_effect_seq.fetch_add(1, Ordering::AcqRel) as u32;
+        compose_effect_id(&self.key, local.max(1))
+    }
+
+    /// Append a write-ahead workspace effect (`fdatasync` durable, ADR-0249).
+    pub(crate) async fn append_workspace_effect_started(
+        &self,
+        effect: &crate::workspace_effects::NewOwnedEffect,
+    ) -> Result<(u64, i64), String> {
+        let effect_id = self.alloc_effect_id();
+        let payload = serde_json::to_vec(&WorkspaceEffectFrame::Started {
+            effect_id,
+            effect: effect.clone(),
+        })
+        .map_err(|error| format!("could not encode workspace effect frame: {error}"))?;
+        let seq = self
+            .append_raw(frame::FrameKind::WorkspaceEffect, &payload)
+            .await?;
+        Ok((seq, effect_id))
+    }
+
+    /// Append a non-reversible completed workspace effect receipt (`fdatasync` durable, ADR-0249).
+    pub(crate) async fn append_workspace_effect_completed_receipt(
+        &self,
+        effect: &crate::workspace_effects::NewOwnedEffect,
+        completed_at_ms: u64,
+    ) -> Result<(u64, i64), String> {
+        let effect_id = self.alloc_effect_id();
+        let payload = serde_json::to_vec(&WorkspaceEffectFrame::RecordedCompleted {
+            effect_id,
+            effect: effect.clone(),
+            completed_at_ms,
+        })
+        .map_err(|error| format!("could not encode workspace effect receipt frame: {error}"))?;
+        let seq = self
+            .append_raw(frame::FrameKind::WorkspaceEffect, &payload)
+            .await?;
+        Ok((seq, effect_id))
+    }
+
+    /// Append a completion stamp for a write-ahead workspace effect (ADR-0249).
+    pub(crate) async fn append_workspace_effect_completed(
+        &self,
+        effect_id: i64,
+        after_hash: Option<&str>,
+        completed_at_ms: u64,
+    ) -> Result<u64, String> {
+        let payload = serde_json::to_vec(&WorkspaceEffectFrame::Completed {
+            effect_id,
+            after_hash: after_hash.map(ToString::to_string),
+            completed_at_ms,
+        })
+        .map_err(|error| format!("could not encode workspace effect completion: {error}"))?;
+        self.append_raw(frame::FrameKind::WorkspaceEffect, &payload)
+            .await
+    }
+
+    /// Append a reversal stamp for a workspace effect (ADR-0249).
+    pub(crate) async fn append_workspace_effect_reversed(
+        &self,
+        effect_id: i64,
+        reversed_at_ms: u64,
+        note: Option<&str>,
+    ) -> Result<u64, String> {
+        let payload = serde_json::to_vec(&WorkspaceEffectFrame::Reversed {
+            effect_id,
+            reversed_at_ms,
+            note: note.map(ToString::to_string),
+        })
+        .map_err(|error| format!("could not encode workspace effect reversal: {error}"))?;
+        self.append_raw(frame::FrameKind::WorkspaceEffect, &payload)
+            .await
+    }
+
+    /// Replay every `WorkspaceEffect` frame across all segments of this session
+    /// journal into the materialized list of effects (ADR-0249).
+    pub(crate) fn load_workspace_effects(
+        &self,
+    ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, String> {
+        let mut effects: std::collections::BTreeMap<
+            i64,
+            crate::workspace_effects::WorkspaceEffect,
+        > = std::collections::BTreeMap::new();
+        for (_, path) in self.segment_files()? {
+            if let Err(error) = read_workspace_effects_segment(&path, &mut effects) {
+                tracing::warn!(
+                    path = %path.display(),
+                    %error,
+                    "stopped workspace-effect replay at an unreadable segment"
+                );
+                break;
+            }
+        }
+        let mut out: Vec<_> = effects.into_values().collect();
+        out.sort_by_key(|e| (e.seq, e.id));
+        Ok(out)
     }
 
     /// Recover the full session state from the newest snapshot plus every
@@ -468,7 +723,7 @@ impl SessionJournal {
                     continue;
                 }
                 let covered = scan_segment(&path)
-                    .map(|(last, _)| last <= seq)
+                    .map(|(last, _, _, has_effects)| last <= seq && !has_effects)
                     .unwrap_or(false);
                 if covered {
                     let _ = fs::remove_file(&path);
@@ -493,7 +748,8 @@ impl SessionJournal {
             segment.len = 0;
             return Ok(());
         }
-        let (last, valid_len) = scan_segment(&path).map_err(|error| error.to_string())?;
+        let (last, valid_len, max_effect_seq, _) =
+            scan_segment(&path).map_err(|error| error.to_string())?;
         let mut segment = self
             .segment
             .lock()
@@ -502,6 +758,8 @@ impl SessionJournal {
         if last > self.seq.load(Ordering::Acquire) {
             self.seq.store(last, Ordering::Release);
         }
+        self.next_effect_seq
+            .fetch_max(max_effect_seq.saturating_add(1), Ordering::AcqRel);
         Ok(())
     }
 
@@ -590,6 +848,34 @@ fn read_segment(
         if decoded.seq <= base_seq {
             continue;
         }
+        if decoded.kind == frame::FrameKind::WorkspaceEffect {
+            continue;
+        }
+        if decoded.kind == frame::FrameKind::CommandAct {
+            let act: CommandActPayload = match serde_json::from_slice(decoded.payload) {
+                Ok(act) => act,
+                Err(error) => {
+                    tracing::warn!(
+                        path = %path.display(),
+                        offset,
+                        %error,
+                        "journal replay stops at an undecodable command act"
+                    );
+                    return Ok(false);
+                }
+            };
+            if let Some(base) = state.as_mut() {
+                let idx = act.seq as usize;
+                if idx == base.commands.len() {
+                    base.commands.push(act.record);
+                } else if idx < base.commands.len() {
+                    base.commands[idx] = act.record;
+                } else {
+                    base.commands.push(act.record);
+                }
+            }
+            continue;
+        }
         let commit: CommitPayload = match serde_json::from_slice(decoded.payload) {
             Ok(commit) => commit,
             Err(error) => {
@@ -607,6 +893,7 @@ fn read_segment(
             frame::FrameKind::Delta => SaveMode::Delta,
             frame::FrameKind::Full => SaveMode::FullRewrite,
             frame::FrameKind::Deleted => return Ok(true),
+            frame::FrameKind::CommandAct | frame::FrameKind::WorkspaceEffect => continue,
         };
         match state {
             Some(base) => {
@@ -622,12 +909,142 @@ fn read_segment(
     }
 }
 
-fn scan_segment(path: &Path) -> io::Result<(u64, u64)> {
+fn read_workspace_effects_segment(
+    path: &Path,
+    effects: &mut std::collections::BTreeMap<i64, crate::workspace_effects::WorkspaceEffect>,
+) -> Result<(), String> {
+    let file = File::open(path).map_err(|error| error.to_string())?;
+    let file_len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
+    let mut offset = 0u64;
+    loop {
+        if offset == file_len {
+            return Ok(());
+        }
+        let mut header_bytes = [0u8; HEADER_LEN];
+        match reader.read_exact(&mut header_bytes) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(error) => return Err(error.to_string()),
+        }
+        let header = frame::decode_header(&header_bytes)?;
+        let total = (HEADER_LEN as u64).saturating_add(header.payload_len as u64);
+        if offset.saturating_add(total) > file_len {
+            return Ok(());
+        }
+        let mut payload = vec![0u8; header.payload_len];
+        reader
+            .read_exact(&mut payload)
+            .map_err(|error| error.to_string())?;
+        let Ok(decoded) = frame::verify_payload(header, &payload) else {
+            return Ok(());
+        };
+        offset = offset.saturating_add(total);
+        if decoded.kind != frame::FrameKind::WorkspaceEffect {
+            continue;
+        }
+        let Ok(event) = serde_json::from_slice::<WorkspaceEffectFrame>(decoded.payload) else {
+            return Ok(());
+        };
+        match event {
+            WorkspaceEffectFrame::Started { effect_id, effect } => {
+                effects.entry(effect_id).or_insert_with(|| {
+                    crate::workspace_effects::WorkspaceEffect {
+                        id: effect_id,
+                        thread_id: effect.thread_id,
+                        round_id: effect.round_id,
+                        turn_id: effect.turn_id,
+                        call_id: effect.call_id,
+                        seq: effect.seq,
+                        tool_name: effect.tool_name,
+                        path: effect.path,
+                        op: effect.op,
+                        effect_class: effect.effect_class,
+                        before_hash: effect.before_hash,
+                        after_hash: effect.after_hash,
+                        irreversible_reason: effect.irreversible_reason,
+                        completed_at_ms: None,
+                        reversed_at_ms: None,
+                        reversal_note: None,
+                        expired_at_ms: None,
+                        created_at_ms: effect.created_at_ms,
+                    }
+                });
+            }
+            WorkspaceEffectFrame::RecordedCompleted {
+                effect_id,
+                effect,
+                completed_at_ms,
+            } => {
+                effects.entry(effect_id).or_insert_with(|| {
+                    crate::workspace_effects::WorkspaceEffect {
+                        id: effect_id,
+                        thread_id: effect.thread_id,
+                        round_id: effect.round_id,
+                        turn_id: effect.turn_id,
+                        call_id: effect.call_id,
+                        seq: effect.seq,
+                        tool_name: effect.tool_name,
+                        path: effect.path,
+                        op: effect.op,
+                        effect_class: effect.effect_class,
+                        before_hash: effect.before_hash,
+                        after_hash: effect.after_hash,
+                        irreversible_reason: effect.irreversible_reason,
+                        completed_at_ms: Some(completed_at_ms),
+                        reversed_at_ms: None,
+                        reversal_note: None,
+                        expired_at_ms: None,
+                        created_at_ms: effect.created_at_ms,
+                    }
+                });
+            }
+            WorkspaceEffectFrame::Completed {
+                effect_id,
+                after_hash,
+                completed_at_ms,
+            } => {
+                if let Some(row) = effects.get_mut(&effect_id)
+                    && row.completed_at_ms.is_none()
+                {
+                    row.after_hash = after_hash;
+                    row.completed_at_ms = Some(completed_at_ms);
+                }
+            }
+            WorkspaceEffectFrame::Reversed {
+                effect_id,
+                reversed_at_ms,
+                note,
+            } => {
+                if let Some(row) = effects.get_mut(&effect_id)
+                    && row.reversed_at_ms.is_none()
+                {
+                    row.reversed_at_ms = Some(reversed_at_ms);
+                    row.reversal_note = note;
+                }
+            }
+            WorkspaceEffectFrame::Expired {
+                effect_id,
+                expired_at_ms,
+            } => {
+                if let Some(row) = effects.get_mut(&effect_id)
+                    && row.expired_at_ms.is_none()
+                {
+                    row.expired_at_ms = Some(expired_at_ms);
+                }
+            }
+        }
+    }
+}
+
+fn scan_segment(path: &Path) -> io::Result<(u64, u64, u64, bool)> {
     let file = File::open(path)?;
     let file_len = file.metadata()?.len();
     let mut reader = BufReader::with_capacity(64 * 1024, file);
     let mut offset = 0u64;
     let mut last_seq = 0u64;
+    let mut max_effect_seq = 0u64;
+    let mut has_effects = false;
     let mut header_bytes = [0u8; HEADER_LEN];
     while offset < file_len {
         if file_len.saturating_sub(offset) < HEADER_LEN as u64 {
@@ -676,20 +1093,56 @@ fn scan_segment(path: &Path) -> io::Result<(u64, u64)> {
                 break;
             }
         };
-        if decoded.kind != frame::FrameKind::Deleted
-            && serde_json::from_slice::<CommitPayload>(decoded.payload).is_err()
-        {
-            tracing::warn!(
-                path = %path.display(),
-                offset,
-                "journal segment ends at an undecodable commit"
-            );
-            break;
+        match decoded.kind {
+            frame::FrameKind::Deleted => {}
+            frame::FrameKind::CommandAct => {
+                if serde_json::from_slice::<CommandActPayload>(decoded.payload).is_err() {
+                    tracing::warn!(
+                        path = %path.display(),
+                        offset,
+                        "journal segment ends at an undecodable command act"
+                    );
+                    break;
+                }
+            }
+            frame::FrameKind::WorkspaceEffect => {
+                match serde_json::from_slice::<WorkspaceEffectFrame>(decoded.payload) {
+                    Ok(event) => {
+                        has_effects = true;
+                        let eid = match event {
+                            WorkspaceEffectFrame::Started { effect_id, .. }
+                            | WorkspaceEffectFrame::RecordedCompleted { effect_id, .. }
+                            | WorkspaceEffectFrame::Completed { effect_id, .. }
+                            | WorkspaceEffectFrame::Reversed { effect_id, .. }
+                            | WorkspaceEffectFrame::Expired { effect_id, .. } => effect_id,
+                        };
+                        max_effect_seq = max_effect_seq.max(effect_local_seq(eid) as u64);
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            path = %path.display(),
+                            offset,
+                            "journal segment ends at an undecodable workspace effect"
+                        );
+                        break;
+                    }
+                }
+            }
+            frame::FrameKind::Metadata | frame::FrameKind::Delta | frame::FrameKind::Full => {
+                if serde_json::from_slice::<CommitPayload>(decoded.payload).is_err() {
+                    tracing::warn!(
+                        path = %path.display(),
+                        offset,
+                        "journal segment ends at an undecodable commit"
+                    );
+                    break;
+                }
+            }
         }
         offset = offset.saturating_add(total);
         last_seq = header.seq;
     }
-    Ok((last_seq, offset))
+    Ok((last_seq, offset, max_effect_seq, has_effects))
 }
 
 fn parse_snapshot_name(name: &str) -> Option<u64> {

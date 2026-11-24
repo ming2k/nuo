@@ -124,6 +124,7 @@ pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
                 if let Err(error) = session
                     .persistence()
                     .mark_workspace_effect_reversed(
+                        &session_id,
                         stamp.effect_id,
                         unix_ms(),
                         Some(stamp.note.clone()),
@@ -146,6 +147,7 @@ pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
                 let _ = session
                     .persistence()
                     .mark_workspace_effect_reversed(
+                        &session_id,
                         stamp.effect_id,
                         unix_ms(),
                         Some(stamp.note.clone()),

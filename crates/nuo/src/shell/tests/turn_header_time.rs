@@ -27,7 +27,10 @@ fn apply_edit(app: &mut App, runtime: &UiRuntime, edit: TranscriptEdit) {
     crate::shell::event_loop::apply::apply(
         app,
         runtime,
-        crate::shell::event_loop::AppMutation::Transcript { edit },
+        crate::shell::event_loop::AppMutation::Transcript {
+            thread_id: None,
+            edit,
+        },
     );
 }
 

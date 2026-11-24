@@ -70,7 +70,7 @@ fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
         "composer input cleared for search query"
     );
     assert_eq!(
-        app.composer.draft_capsule.text, "my draft",
+        app.composer.stashed_draft.text, "my draft",
         "composer draft stashed in capsule"
     );
     app.composer.input = "git".to_string();
@@ -213,7 +213,7 @@ async fn ctrl_c_clears_history_recall_and_resets_draft() {
     assert!(app.history_prev(&rows));
     assert_eq!(app.composer.input, "prior command");
     assert!(app.composer.history_index.is_some());
-    assert_eq!(app.composer.draft_capsule.text, "draft text");
+    assert_eq!(app.composer.stashed_draft.text, "draft text");
 
     // Edit the recalled text
     app.composer.input.push_str(" --flag");
@@ -226,5 +226,5 @@ async fn ctrl_c_clears_history_recall_and_resets_draft() {
 
     assert_eq!(app.composer.input, "");
     assert_eq!(app.composer.history_index, None);
-    assert_eq!(app.composer.draft_capsule.text, "");
+    assert_eq!(app.composer.stashed_draft.text, "");
 }

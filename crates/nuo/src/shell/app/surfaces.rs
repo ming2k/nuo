@@ -376,6 +376,12 @@ impl App {
         tab: crate::shell::surfaces::ClientTab,
     ) -> bool {
         let is_active = index == self.surfaces.surfaces.active_tab_index();
+        if is_active {
+            // The departing thread keeps its draft even though its *view* is
+            // being replaced (ADR-0247): park it before the tab struct — and
+            // with it the view context — disappears.
+            self.checkpoint_active_tab_context();
+        }
         let sheets = self.surfaces.surfaces.take_sheets();
         let ok = self.surfaces.surfaces.replace_tab(index, tab);
         for s in sheets {
@@ -389,39 +395,70 @@ impl App {
 
     /// Whether the currently active tab is a thread that is completely empty
     /// (no turns, no messages), meaning it can be overwritten and discarded.
+    ///
+    /// "Empty" is a fact about the **thread**, and the composer's unsent draft
+    /// is not part of it: text a user typed but has not sent lives in the
+    /// parked-draft ledger, keyed by this very thread id, so discarding the
+    /// thread would destroy work the user can still see. A thread with a parked
+    /// draft is therefore *not* empty and is never recycled in place or
+    /// `DeleteThread`-ed — the draft is the user's answer to "is this thread
+    /// worth keeping?".
     pub fn is_current_thread_empty(&self) -> bool {
         let is_thread_tab = self
             .surfaces
             .surfaces
             .active_tab()
             .is_some_and(|t| matches!(t.kind, crate::shell::surfaces::TabKind::Thread(_)));
-        is_thread_tab && self.transcript.messages.is_empty() && self.session.round_count == 0
+        let parked_draft = self
+            .surfaces
+            .surfaces
+            .active_tab()
+            .and_then(|tab| tab.thread_id())
+            .is_some_and(|id| self.surfaces.drafts.has_stored(id));
+        is_thread_tab
+            && !parked_draft
+            && self.transcript.messages.is_empty()
+            && self.session.round_count == 0
+            && self.composer.input.is_empty()
+            && self.composer.pending_images.is_empty()
+            && self.composer.pending_text_pastes.is_empty()
+            && self.composer.stashed_draft.is_empty()
     }
 
-    /// Checkpoint the active tab's intra-scene interaction context (ADR-0091 [INV-TAB-12]).
+    /// Record the departing tab's view context and park its thread's draft
+    /// (ADR-0091 `[INV-TAB-12]`, ADR-0247).
+    ///
+    /// Two facts leave with the departing tab, owned by two different things: the
+    /// **view** state (plane, scroll) goes into the tab struct, while the
+    /// **draft** goes into the parked-draft ledger under the thread that tab
+    /// represents. The draft half is delegated to the shared owner so the
+    /// recall/search borrow rule is applied once, not re-derived here.
     pub(crate) fn checkpoint_active_tab_context(&mut self) {
         if let Some(active_tab) = self.surfaces.surfaces.active_tab_mut()
             && matches!(active_tab.kind, crate::shell::surfaces::TabKind::Thread(_))
         {
             active_tab.context.focus = self.transcript.focus;
             active_tab.context.scroll = self.transcript.scroll;
-            active_tab.context.input = self.composer.input.clone();
-            active_tab.context.cursor_position = self.composer.cursor_position;
-            active_tab.context.input_scroll = self.composer.input_scroll;
         }
+        self.park_current_thread_draft();
     }
 
-    /// Restore the active tab's intra-scene interaction context (ADR-0091 [INV-TAB-12]).
+    /// Restore the active tab's intra-scene **view** context and hand the
+    /// composer to that tab's thread (ADR-0091 `[INV-TAB-12]`, ADR-0247).
+    ///
+    /// View state and draft state are restored by two different owners, and that
+    /// separation is the point: the tab holds where the user was *looking*, the
+    /// parked-draft ledger holds what the user was *writing*, keyed by thread id.
+    /// A transition therefore cannot blank a draft, cross-wire two threads'
+    /// drafts, or overwrite one with a default.
     pub(crate) fn restore_active_tab_context(&mut self) {
         if let Some(tab) = self.surfaces.surfaces.active_tab()
             && matches!(tab.kind, crate::shell::surfaces::TabKind::Thread(_))
         {
             self.transcript.focus = tab.context.focus;
             self.transcript.scroll = tab.context.scroll;
-            self.composer.input = tab.context.input.clone();
-            self.composer.cursor_position = tab.context.cursor_position;
-            self.composer.input_scroll = tab.context.input_scroll;
         }
+        self.hand_composer_to_current_thread();
     }
 
     /// Dynamically update the authentic title of a thread tab (ADR-0050 [INV-TAB-08]).
@@ -483,7 +520,14 @@ impl App {
             self.deactivate_scene(leaving);
             self.surfaces.surfaces.unwind_scene(leaving);
         }
-        self.surfaces.surfaces.close_tab(index)
+        let closed = self.surfaces.surfaces.close_tab(index);
+        // Closing the active tab moves the user somewhere else: the composer
+        // follows the new foreground (ADR-0247). A closed tab's *thread* keeps
+        // its draft — closing a view is not deleting a thread.
+        if is_active {
+            self.hand_composer_to_current_thread();
+        }
+        closed
     }
 
     /// Hard reset to Thread home scene: unwind all overlays and history.
@@ -565,9 +609,29 @@ impl App {
         }
     }
 
+    /// Deleting a thread deletes its unsent draft with it: the draft is the
+    /// thread's, and a file left behind under a deleted id can only ever be
+    /// restored into a thread that no longer exists (ADR-0247).
+    pub(crate) fn forget_thread_draft(&mut self, thread_id: &str) {
+        self.surfaces.drafts.forget(thread_id);
+    }
+
+    /// The viewed thread changed: rebase session-scoped projections and hand the
+    /// composer the **incoming** thread's parked draft (ADR-0247).
+    ///
+    /// The previous shape blanked the composer here, which was the root cause of
+    /// the cross-thread tab-switch loss: a thread→thread tab switch re-attaches,
+    /// so a *new* `App` boots with the preserved tabs and the first
+    /// per-frame sync runs this hook — overwriting the very draft
+    /// `restore_active_tab_context` had just installed. Draft state is keyed by
+    /// thread id now, so the correct action at this boundary is not "clear" but
+    /// "load the draft of the thread we arrived in".
     pub fn on_viewed_session_changed(&mut self) {
-        self.composer.history_index = None;
-        self.clear_history_draft();
+        // Hand the composer over **first**: the departing thread's draft has to
+        // reach the ledger before any of the transition's own state clearing
+        // runs, and a borrow (`↑`/`↓` recall, Ctrl-R search) is only resolvable
+        // through the stash while that borrow is still in place.
+        self.hand_composer_to_current_thread();
         if let Some((sid, origin)) = self.session.queue_exit_session.take() {
             // Same symmetry as the dialog exit hook, and the same caveat:
             // switching sessions while the queue modal is up hides it, so the
@@ -597,11 +661,6 @@ impl App {
             .retain_available(self.current_scene(), self.has_session());
         self.session.session_context = None;
         self.surfaces.esc_armed_until = None;
-        self.composer.input.clear();
-        self.composer.pending_images.clear();
-        self.composer.pending_text_pastes.clear();
-        self.composer.cursor_position = 0;
-        self.composer.input_scroll = 0;
         self.composer.input_drag_scroll = None;
         self.composer.suggestion_index = None;
         self.composer.completion_dismissed = true;
@@ -703,7 +762,7 @@ impl App {
             self.deactivate_dialog(current);
         }
         if id == DialogKind::HistorySearch {
-            if self.composer.draft_capsule.is_empty()
+            if self.composer.stashed_draft.is_empty()
                 && (!self.composer.input.is_empty()
                     || !self.composer.pending_images.is_empty()
                     || !self.composer.pending_text_pastes.is_empty())

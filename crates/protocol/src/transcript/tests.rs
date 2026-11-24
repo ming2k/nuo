@@ -300,3 +300,69 @@ fn prune_replaces_user_media_with_invoice_placeholder() {
     assert!(view[0].1.images.is_none());
     assert!(view[0].1.content.contains("abc.png"));
 }
+
+/// The model-facing projection may fold; the conversation may not
+/// (ADR-0246 `[INV-CMP-08]`, `[INV-CMP-10]`).
+#[test]
+fn the_conversation_keeps_every_row_in_append_order() {
+    let mut transcript = Transcript::new();
+    transcript.push(message_entry(0, Role::User, "round one"));
+    transcript.push(message_entry(1, Role::Assistant, "answer one"));
+    transcript.push(message_entry(2, Role::User, "round two"));
+    let kept_id = transcript.entries[2].id.clone();
+
+    let mut checkpoint = Message::new(Role::User, "summary of round one");
+    checkpoint.hidden = true;
+    checkpoint.origin = Some(tool::InjectionOrigin::new(
+        InjectionKind::CompactionCheckpoint,
+    ));
+    let mut checkpoint = TranscriptEntry::from_message(3, &checkpoint);
+    checkpoint.payload = EntryPayload::Compaction(Box::new(CompactionMeta {
+        first_kept_node_id: kept_id,
+        split_parent_node_id: None,
+        tokens_before: 4_000,
+        read_files: vec![],
+        modified_files: vec![],
+    }));
+    transcript.push(checkpoint);
+    transcript.push_directive(ProjectionDirective {
+        seq: 0,
+        kind: DirectiveKind::Compact,
+        up_to_seq: 1,
+        payload: DirectivePayload::Compact { checkpoint_seq: 3 },
+    });
+
+    let conversation: Vec<String> = transcript
+        .conversation_messages()
+        .into_iter()
+        .map(|message| message.content)
+        .collect();
+    assert_eq!(conversation.len(), 4, "no row is dropped by a fold");
+    assert_eq!(conversation[0], "round one");
+    assert_eq!(conversation[1], "answer one");
+    assert_eq!(conversation[2], "round two");
+    assert!(
+        conversation[3].contains("summary of round one"),
+        "the checkpoint reads where it happened, after the tail it kept: {:?}",
+        conversation[3]
+    );
+
+    let model: Vec<String> = transcript
+        .project_messages()
+        .into_iter()
+        .map(|message| message.content)
+        .collect();
+    assert_eq!(model.len(), 2, "the model window stays folded: {model:?}");
+    assert!(model[0].contains("summary of round one"));
+    assert_eq!(model[1], "round two");
+}
+
+/// The conversation count is the row count a reader sees, not the entry count
+/// storage happens to hold.
+#[test]
+fn the_conversation_count_ignores_working_state_entries() {
+    let mut transcript = Transcript::new();
+    transcript.push(message_entry(0, Role::User, "hello"));
+    transcript.push(TranscriptEntry::from_state(1, None));
+    assert_eq!(transcript.conversation_messages().len(), 1);
+}

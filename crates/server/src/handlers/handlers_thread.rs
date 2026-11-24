@@ -38,6 +38,9 @@ pub async fn delete(
             let _ = resp_tx.send(AgentResponse::ThreadsOverview(
                 build_sessions_overview(session).await,
             ));
+            let _ = resp_tx.send(AgentResponse::ThreadDeleted {
+                thread_id: deleted_id,
+            });
         }
         Err(error) => {
             let _ = resp_tx.send(AgentResponse::ThreadsOverview(
@@ -45,6 +48,30 @@ pub async fn delete(
             ));
             let _ = resp_tx.send(AgentResponse::Error(error));
         }
+    }
+}
+
+/// `AgentRequest::CheckThreadsExist` — pure catalog primary-key check for
+/// client draft reconciliation (ADR-0250).
+pub async fn check_threads_exist(
+    session: &Arc<ThreadSession>,
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    thread_ids: Vec<String>,
+) {
+    if thread_ids.is_empty() {
+        return;
+    }
+    let writer = session.persistence().clone();
+    let missing = tokio::task::spawn_blocking(move || {
+        writer
+            .reader()
+            .and_then(|reader| reader.missing_thread_ids(&thread_ids))
+    })
+    .await;
+    if let Ok(Ok(missing_thread_ids)) = missing
+        && !missing_thread_ids.is_empty()
+    {
+        let _ = resp_tx.send(AgentResponse::ThreadsExistence { missing_thread_ids });
     }
 }
 

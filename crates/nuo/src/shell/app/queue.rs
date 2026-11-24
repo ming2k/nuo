@@ -237,7 +237,7 @@ impl App {
     /// text becomes the live buffer — but it uses `StashCurrent`, not `Replace`:
     /// a recall is exactly the case where the composer may hold a draft the user
     /// was writing, and discarding it was the silent-loss shape this policy
-    /// retired. The draft goes to the capsule, where ↓ returns it.
+    /// retired. The draft goes to the stash, where ↓ returns it.
     pub fn restore_dispatch(&mut self, dispatch: QueuedDispatch) {
         self.adopt_as_draft(
             dispatch.text,
@@ -245,12 +245,5 @@ impl App {
             dispatch.text_pastes,
             DraftAdoption::StashCurrent,
         );
-    }
-
-    /// Clear the stashed draft capsule when a prompt is committed: its content
-    /// is historicised, so it is no longer the "unsent" slot and must not come
-    /// back on a later ↓.
-    pub fn clear_history_draft(&mut self) {
-        self.clear_stashed_draft();
     }
 }

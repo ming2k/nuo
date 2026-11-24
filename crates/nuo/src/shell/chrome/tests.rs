@@ -1002,6 +1002,92 @@ fn model_bar_full_cluster_orders_model_effort_instance() {
     );
 }
 
+/// ADR-0245: the in-situ `/compact` context nudge is a pure function of context
+/// pressure — absent below 70%, dim at warn (>= 70%), warning-toned at crit
+/// (>= 90%), excluded from the `/stats` click rect, and first to drop under
+/// width pressure before telemetry or model identity.
+#[test]
+fn model_bar_shows_in_situ_compact_nudge_at_warn_and_crit_thresholds() {
+    let theme = Theme::default();
+    let render = |width: u16, tokens: usize| {
+        let mut terminal = graticule::TestTerminal::new(width, 1);
+        let mut rects = ModelBarRects::default();
+        terminal.draw(|f| {
+            rects = draw_model_bar(
+                f,
+                Rect::new(0, 0, width, 1),
+                ModelBarProps {
+                    current_model: "kimi-k2.7-code",
+                    model_available: true,
+                    provider_name: Some("kimi-code"),
+                    reasoning_effort: Some("max"),
+                    context_tokens: Some(tokens),
+                    context_window: 100_000,
+                    ..Default::default()
+                },
+                &theme,
+                &crate::shell::keymap::GlobalOverrides::default(),
+            );
+        });
+        let text: String = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect();
+        (terminal, text, rects)
+    };
+
+    // Healthy (< 70%): bar stays quiet.
+    let (_, healthy, _) = render(80, 69_000);
+    assert!(
+        !healthy.contains("/compact"),
+        "healthy context must not show /compact nudge: {healthy:?}"
+    );
+
+    // Warning (>= 70%): subdued `/compact` appears right beside the gauge,
+    // outside the `/stats` context click rect.
+    let (warn_term, warn, warn_rects) = render(80, 74_000);
+    let compact_at = warn
+        .find("/compact")
+        .expect("warn context shows /compact nudge");
+    assert_eq!(
+        warn_term.buffer().cells()[compact_at].style.fg,
+        theme.dim(),
+        "warn-tier nudge uses subdued dim tone"
+    );
+    let ctx_rect = warn_rects.context.expect("context rect present");
+    assert!(
+        (ctx_rect.right() as usize) < compact_at,
+        "/compact nudge must sit outside the /stats context click rect: {warn:?}"
+    );
+
+    // Critical (>= 90%): nudge escalates to warning tone.
+    let (crit_term, crit, _) = render(80, 92_000);
+    let crit_at = crit
+        .find("/compact")
+        .expect("crit context shows /compact nudge");
+    assert_eq!(
+        crit_term.buffer().cells()[crit_at].style.fg,
+        theme.warn(),
+        "crit-tier nudge escalates to warning tone"
+    );
+
+    // Width pressure: `/compact` drops FIRST before `@instance`, effort,
+    // context gauge, or model identity.
+    // "74.0k (74%)" (11) + "  /compact" (10) + gap (2) + "kimi-k2.7-code max @kimi-code" (29) + pad (2) = 54.
+    // At width 48, `/compact` sheds while all telemetry and model identity survive.
+    let (_, tight, _) = render(48, 74_000);
+    assert!(
+        !tight.contains("/compact"),
+        "nudge must drop first under width pressure: {tight:?}"
+    );
+    assert!(
+        tight.contains("(74%)") && tight.contains("kimi-k2.7-code max @kimi-code"),
+        "telemetry and full identity survive after shedding nudge: {tight:?}"
+    );
+}
+
 /// Paint the completion menu into a test buffer and return the rect the
 /// popup actually occupied (found by scanning for the popup background),
 /// so assertions can check alignment and full-width highlighting without

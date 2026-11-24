@@ -341,9 +341,16 @@ pub use policy_schema::*;
 /// `tool_schema_tokens`, and `ContextTokenSnapshot` carries both. A v31 peer
 /// cannot decode the new variants and would read the unnamed layers as absent,
 /// so the floor moves with the ceiling.
-pub const PROTOCOL_VERSION: u32 = 32;
+/// 33: Multiplexed thread sessions on a single connection (ADR-0251).
+/// `Wire::Request` gains an optional `thread_id` target; `Wire` gains
+/// `Subscribe`, `Unsubscribe`, and `Subscribed`; `AgentResponse` gains
+/// `ThreadSubscribed`. Floor moves with the ceiling.
+/// 34: Server-scoped draft catalog reconciliation (ADR-0250).
+/// `AgentRequest` gains `CheckThreadsExist`; `AgentResponse` gains
+/// `ThreadsExistence` and `ThreadDeleted`. Floor moves with the ceiling.
+pub const PROTOCOL_VERSION: u32 = 34;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 32;
+pub const MIN_PROTOCOL_VERSION: u32 = 34;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -673,7 +680,31 @@ pub enum Wire {
     },
 
     /// Full-duplex client agent request envelope.
-    Request { request: AgentRequest },
+    ///
+    /// On a multiplexed connection (ADR-0251), `thread_id` names the target
+    /// subscribed thread explicitly. `None` targets the connection's primary
+    /// thread (single-thread clients).
+    Request {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        request: AgentRequest,
+    },
+    /// Subscribe this connection to an additional thread (attach or create new)
+    /// without tearing down existing subscriptions (ADR-0251).
+    Subscribe {
+        action: AttachAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<std::path::PathBuf>,
+    },
+    /// Detach a subscribed thread from this connection, releasing its
+    /// `HumanChannel` hold and stopping event forwarding (ADR-0251).
+    Unsubscribe { thread_id: String },
+    /// Server acknowledgement for [`Wire::Subscribe`], preceding that thread's
+    /// authoritative [`AgentResponse::ThreadSnapshot`] and `ThreadPhase::Ready`.
+    Subscribed {
+        thread_id: String,
+        phase: ThreadPhase,
+    },
     /// Full-duplex server agent response envelope.
     Response { response: AgentResponse },
     /// Server observability event envelope.

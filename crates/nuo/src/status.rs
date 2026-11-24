@@ -330,15 +330,26 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     println!("  Transport: {transport} | Project: {root}");
 
     let db_path = host::paths::get().db_file();
-    let db_status = if let Some(health) = &snapshot.persistence_health {
-        if health.is_healthy() {
-            "WAL healthy".to_string()
-        } else {
-            let detail = health.detail().unwrap_or_default();
-            format!("Degraded: {detail}")
+    let db_status = match (&snapshot.persistence_health, snapshot.storage) {
+        (Some(health), _) if !health.is_healthy() => {
+            format!("Degraded: {}", health.detail().unwrap_or_default())
         }
-    } else {
-        "WAL healthy".to_string()
+        (_, Some(storage)) if storage.is_elevated() => {
+            // A healthy writer with an unreclaimable WAL: the writer is fine,
+            // the *storage* is not, and the cause is a reader holding a
+            // snapshot older than the checkpoint can pass (ADR-0248).
+            let oldest = storage
+                .oldest_reader_ms
+                .map(|age| format!(", oldest reader {age} ms"))
+                .unwrap_or_default();
+            format!(
+                "WAL {} KiB, {}/{} readers{oldest}",
+                storage.wal_bytes / 1024,
+                storage.active_readers,
+                storage.reader_capacity
+            )
+        }
+        _ => "WAL healthy".to_string(),
     };
     println!("  Database:  {} ({})", db_path.display(), db_status);
     println!();
@@ -389,6 +400,22 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         root,
         snapshot.threads.len()
     ));
+    // Storage pressure is a separate question from writer health: a live
+    // writer behind a pinned WAL looks "healthy" while the database grows.
+    if let Some(storage) = snapshot.storage
+        && storage.is_elevated()
+    {
+        out.push_str(&format!(
+            "  WARNING: WAL is {} KiB with {}/{} readers checked out{}\n",
+            storage.wal_bytes / 1024,
+            storage.active_readers,
+            storage.reader_capacity,
+            storage
+                .oldest_reader_ms
+                .map(|age| format!(" (oldest snapshot {age} ms old)"))
+                .unwrap_or_default(),
+        ));
+    }
     // Durability health (D4): visible in the operator's first line
     // of view, never log-only.
     if let Some(health) = &snapshot.persistence_health
@@ -559,6 +586,7 @@ mod persistence_health_tests {
             server_started_at: 50,
             threads: Vec::new(),
             tasks: Vec::new(),
+            storage: None,
             persistence_health: Some(PersistenceHealth::Down {
                 attempt: 6,
                 since_ms: 1_000,

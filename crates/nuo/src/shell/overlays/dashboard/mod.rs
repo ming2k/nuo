@@ -89,6 +89,7 @@ pub struct DashboardRects {
     /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
     pub tab_overflow_rect: Option<Rect>,
     pub tab_notices_rect: Option<Rect>,
+    pub tab_help_rect: Option<Rect>,
 }
 
 /// entries; `current_session_id` marks the session this TUI is attached to.
@@ -410,6 +411,7 @@ pub fn draw_dashboard(
             tab_next_rect: tab_rects.next_rect,
             tab_overflow_rect: tab_rects.overview_rect,
             tab_notices_rect: tab_rects.notices_rect,
+            tab_help_rect: tab_rects.help_rect,
         };
     }
 
@@ -487,6 +489,7 @@ pub fn draw_dashboard(
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,
         tab_notices_rect: tab_rects.notices_rect,
+        tab_help_rect: tab_rects.help_rect,
     }
 }
 

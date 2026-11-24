@@ -12,19 +12,22 @@ impl ThreadSession {
         state.get_or_project_messages().to_vec()
     }
 
-    /// The full factual transcript — every message entry, unprojected (no
-    /// prune placeholders, no compaction checkpoint substitution). Consumers
-    /// that need the real content (summarizers, review, export) read this.
+    /// The full factual transcript in **reading order**: every message entry,
+    /// unprojected (no prune placeholders), with each compaction checkpoint
+    /// placed immediately before the rows its fold kept
+    /// (ADR-0246 `[INV-CMP-10]`).
+    ///
+    /// Consumers that need the real conversation (the client hydration
+    /// snapshot, export, review, summarizers) read this. What the next request
+    /// may send is [`Self::model_window`]; the two are deliberately different
+    /// answers (ADR-0246 `[INV-CMP-08]`).
     pub async fn full_transcript(&self) -> Vec<Message> {
         self.state
             .lock()
             .await
             .data
             .transcript
-            .entries
-            .iter()
-            .filter_map(|entry| entry.to_message())
-            .collect()
+            .conversation_messages()
     }
 
     /// The current todo list, derived from the newest `state` entry.
@@ -42,17 +45,18 @@ impl ThreadSession {
     /// (latest wins on derivation) and persist.
     pub async fn set_todos(&self, todos: tool::TodoList) -> Result<(), String> {
         let state_entry = protocol::TranscriptEntry::from_state(0, Some(todos));
-        let data = {
+        let (data, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::appending(&state);
             state.data.transcript.push(state_entry.clone());
             state.data.updated_at = unix_timestamp();
             if Self::should_skip_persist(&state) {
-                None
+                (None, undo)
             } else {
                 state.defer_persist = false;
                 let mut delta = state.data.clone_metadata_without_history();
                 delta.transcript.push(state_entry);
-                Some(delta)
+                (Some(delta), undo)
             }
         };
         if let Some(data) = data {
@@ -63,6 +67,7 @@ impl ThreadSession {
                 crate::db::SaveMode::Delta,
                 Vec::new(),
                 crate::db::CommitGuard::default(),
+                undo,
             )
             .await?;
         }
@@ -267,18 +272,19 @@ impl ThreadSession {
         &self,
         records: Vec<protocol::RequestUsageRecord>,
     ) -> Result<(), String> {
-        let (data, should_persist) = {
+        let (data, should_persist, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::replacing(&state);
             state.data.request_usage_records = records;
             state.data.updated_at = unix_timestamp();
             let empty_unpersisted = Self::should_skip_persist(&state);
             if !empty_unpersisted {
                 state.defer_persist = false;
             }
-            (state.data.clone(), !empty_unpersisted)
+            (state.data.clone(), !empty_unpersisted, undo)
         };
         if should_persist {
-            self.persist_full_rewrite(data).await?;
+            self.persist_full_rewrite(data, undo).await?;
         }
         Ok(())
     }

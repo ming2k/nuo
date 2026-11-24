@@ -327,12 +327,19 @@ pub(crate) fn migrate_to_for_tests(conn: &mut Connection, through: u32) -> Resul
 /// backup keeps the pre-migration `user_version` and ledger, so restoring it is
 /// a plain file replacement.
 fn backup_before_migration(conn: &Connection, db_path: &Path, next_version: u32) -> Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static BACKUP_SEQ: AtomicU64 = AtomicU64::new(0);
+
     let stamp = now_ms();
+    let pid = std::process::id();
+    let seq = BACKUP_SEQ.fetch_add(1, Ordering::Relaxed);
     let file_name = db_path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "nuo.db".to_string());
-    let backup = db_path.with_file_name(format!("{file_name}.pre-v{next_version}.{stamp}.bak"));
+    let backup = db_path.with_file_name(format!(
+        "{file_name}.pre-v{next_version}.{stamp}-{pid}-{seq}.bak"
+    ));
     let backup_str = backup.to_str().ok_or_else(|| {
         history::incompatible(format!(
             "pre-migration backup path is not valid UTF-8: {}",

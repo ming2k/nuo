@@ -383,7 +383,25 @@ impl ThreadRegistry {
             threads: sessions,
             tasks,
             persistence_health: self.persistence_health.lock().unwrap().clone(),
+            storage: self.storage_pressure(),
         }
+    }
+
+    /// Read the storage plane's live pressure signals (ADR-0248).
+    ///
+    /// `storage_metrics` already existed but had no caller, so "the WAL is
+    /// large" and "a reader is pinning a snapshot" were invisible in every
+    /// frontend and in `nuo status`. They are now part of the snapshot the
+    /// monitor already publishes.
+    fn storage_pressure(&self) -> Option<protocol::monitor::StoragePressure> {
+        let metrics = persistence::db::get_persistence_handle().storage_metrics();
+        Some(protocol::monitor::StoragePressure {
+            main_bytes: metrics.main_bytes,
+            wal_bytes: metrics.wal_bytes,
+            active_readers: metrics.active_readers,
+            reader_capacity: metrics.reader_capacity,
+            oldest_reader_ms: metrics.oldest_reader_ms,
+        })
     }
 
     /// The role-scoped history listing: durable rows plus live rows for the

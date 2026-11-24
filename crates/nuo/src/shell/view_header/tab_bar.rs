@@ -5,33 +5,237 @@
 //! and the `[!N]` fault badge pinned to the right edge. ADR-0235 gives the row
 //! the three lifecycle affordances a tab strip owes its user:
 //!
-//! - **Close** — a hovered pill reveals a `✕` inside columns it already reserved,
-//!   and only then mounts the hit target. A tab you cannot see yourself closing
-//!   is a tab you click by accident, so the mark and its hit rect appear
-//!   together.
+//! - **Fade-out overflow** — overflowing titles do not terminate in `…`; their
+//!   outermost columns dissolve smoothly toward the pill's background color so
+//!   every column goes to real title characters.
+//! - **In-place close** — pills do not reserve blank columns at rest for a
+//!   close button. On hover, `✕` replaces the rightmost title columns in place
+//!   (without changing pill width or reflowing the strip) and only then mounts
+//!   its hit target.
 //! - **Add** — a trailing `+` that is *reserved* out of the rail's budget, so a
 //!   wall of long titles can never starve the strip's own creation affordance.
-//! - **Hover reveal** — a title that overflowed its pill slides through a bounded
-//!   window while the pointer rests on it, so the full title is reachable
-//!   without widening the terminal. One pass, then rest: a parked pointer is not
-//!   a permanent animation (`[INV-TAB-15]`).
+//! - **Hover reveal** — a title that overflowed its pill at rest slides through
+//!   a bounded window while the pointer rests on it, fading hidden edges into
+//!   the pill background. One pass, then rest: a parked pointer is not a
+//!   permanent animation (`[INV-TAB-15]`).
 
 use super::*;
 
 use super::thread_bar::id_tail;
 use crate::shell::{BAR_LEGEND_GAP_MIN, TABBAR_H_INSET};
-use ui_primitives::components::overflow::{
-    Overflow, fit_with, marquee_reveal_len, marquee_reveal_offset, window_max_offset,
-};
+use graticule::Color;
+use ui_primitives::components::overflow::{marquee_reveal_len, marquee_reveal_offset};
 use ui_primitives::design::{
-    TAB_ADD_WIDTH, TAB_CLOSE_RESERVE, TAB_PILL_MIN_WIDTH, TAB_TITLE_MARQUEE_CADENCE,
-    TAB_TITLE_REVEAL_MAX_TRAVEL, tab_close_glyph,
+    TAB_ADD_WIDTH, TAB_CLOSE_WIDTH, TAB_HELP_GAP_MIN, TAB_PILL_MIN_WIDTH, TAB_TITLE_FADE_WIDTH,
+    TAB_TITLE_MARQUEE_CADENCE, TAB_TITLE_REVEAL_MAX_TRAVEL, tab_close_glyph,
 };
 
+/// Width-adaptive form of the TabBar's right-edge help portal (ADR-0245
+/// `[INV-TAB-19]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TabHelpForm {
+    /// `{key} help`: painted only when all tabs fit without overflow and idle
+    /// slack covers `BAR_LEGEND_GAP_MIN` plus the expanded label.
+    Expanded,
+    /// `{key}`: compact fallback under width or tab-count pressure.
+    Compact,
+    /// Omitted: `OpenHelp` is unbound or even the compact portal would starve
+    /// the active tab window, `+`, or `[!N]`.
+    Hidden,
+}
+
+fn help_portal_width(form: TabHelpForm, key_text: &str) -> usize {
+    match form {
+        TabHelpForm::Expanded => key_text.width() + " help".len(),
+        TabHelpForm::Compact => key_text.width(),
+        TabHelpForm::Hidden => 0,
+    }
+}
+
+/// Style pair `(key_style, label_style)` for the right-edge help portal.
+///
+/// Mirrors [`tab_add_style`] so hover lifts quietly onto `theme.raised()`
+/// without changing the portal's geometry.
+fn tab_help_styles(theme: &Theme, bg: Color, hovered: bool) -> (Style, Style) {
+    if !theme.elevation.is_chromatic() {
+        return if hovered {
+            let bold = Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD);
+            (bold, bold)
+        } else {
+            (
+                Style::default()
+                    .fg(theme.muted())
+                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.muted()),
+            )
+        };
+    }
+    if hovered {
+        let raised = theme.raised();
+        (
+            Style::default()
+                .bg(raised)
+                .fg(theme.fg())
+                .add_modifier(Modifier::BOLD),
+            Style::default().bg(raised).fg(theme.fg()),
+        )
+    } else {
+        (
+            Style::default()
+                .bg(bg)
+                .fg(theme.muted())
+                .add_modifier(Modifier::BOLD),
+            Style::default().bg(bg).fg(theme.keycap_label()),
+        )
+    }
+}
+use unicode_segmentation::UnicodeSegmentation;
+
 /// Columns a pill spends on its own edges: the padding pair on chromatic
-/// surfaces, the bracket pair on framed ones. The title budget, the close
-/// reserve, and the hit rect all derive from it, so it is stated once.
+/// surfaces, the bracket pair on framed ones. The title budget and the hit
+/// rect both derive from it, so it is stated once.
 const TAB_PILL_CHROME_COLS: usize = 2;
+
+/// One grapheme unit for tab-title slicing, with control graphemes flattened to
+/// a single space so a title can never break the row it lands in.
+struct TitleUnit<'a> {
+    text: &'a str,
+    width: usize,
+}
+
+fn title_units(text: &str) -> Vec<TitleUnit<'_>> {
+    text.graphemes(true)
+        .map(|g| {
+            if g.chars().all(char::is_control) {
+                TitleUnit {
+                    text: " ",
+                    width: 1,
+                }
+            } else {
+                TitleUnit {
+                    text: g,
+                    width: g.width(),
+                }
+            }
+        })
+        .collect()
+}
+
+/// Fade blend factor in `[0.0, 0.92]` toward the pill background for a column
+/// at `position` steps inside a `fade_w`-column fade edge (`1` = innermost
+/// faded column, `fade_w` = outermost edge column).
+///
+/// Matches opencode's `fadeTitleColor` ramp (`0.20 → 0.44 → 0.68 → 0.92` for
+/// the default 4-column edge) so overflowing titles dissolve smoothly into the
+/// pill background instead of cutting into `…`.
+fn title_fade_opacity(position: usize, fade_w: usize) -> f32 {
+    if position == 0 || fade_w == 0 {
+        return 0.0;
+    }
+    if fade_w == 1 {
+        return 0.68;
+    }
+    0.20 + 0.72 * ((position - 1) as f32 / (fade_w - 1) as f32)
+}
+
+fn faded_title_style(style: Style, opacity: f32) -> Style {
+    if opacity <= 0.0 {
+        return style;
+    }
+    if let (fg @ Color::Rgb(..), bg @ Color::Rgb(..)) = (style.fg, style.bg) {
+        style.fg(ui_primitives::theme::mix(fg, bg, opacity))
+    } else {
+        style.add_modifier(Modifier::DIM)
+    }
+}
+
+/// Paint a tab title into `budget` columns starting `offset` columns in,
+/// fading any overflowing edge toward the pill's background color instead of
+/// emitting `…`, and padding any remaining columns with spaces in `style`.
+fn push_faded_title_spans<'a>(
+    spans: &mut Vec<Span<'a>>,
+    units: &[TitleUnit<'_>],
+    budget: usize,
+    offset: usize,
+    style: Style,
+) {
+    if budget == 0 {
+        return;
+    }
+
+    let mut skipped_w = 0usize;
+    let mut start_idx = 0usize;
+    if offset > 0 {
+        for (i, u) in units.iter().enumerate() {
+            if skipped_w + u.width > offset {
+                start_idx = i;
+                break;
+            }
+            skipped_w += u.width;
+            start_idx = i + 1;
+        }
+    }
+
+    let mut shown: Vec<(&str, usize, usize)> = Vec::new();
+    let mut shown_w = 0usize;
+    let mut end_idx = start_idx;
+    for (i, u) in units.iter().enumerate().skip(start_idx) {
+        if shown_w + u.width > budget {
+            break;
+        }
+        shown.push((u.text, shown_w, u.width));
+        shown_w += u.width;
+        end_idx = i + 1;
+    }
+
+    let has_hidden_head = start_idx > 0;
+    let has_hidden_tail = end_idx < units.len();
+    let fade_w = if !has_hidden_head && !has_hidden_tail {
+        0
+    } else if has_hidden_head && has_hidden_tail {
+        TAB_TITLE_FADE_WIDTH.min(shown_w.saturating_sub(1) / 2)
+    } else if shown_w > TAB_TITLE_FADE_WIDTH {
+        TAB_TITLE_FADE_WIDTH
+    } else {
+        shown_w / 2
+    };
+
+    let mut pending = String::new();
+    let mut pending_style: Option<Style> = None;
+    for &(grapheme, col_start, col_w) in &shown {
+        let col_end = col_start + col_w;
+        let lead_pos = if has_hidden_head && col_start < fade_w {
+            fade_w - col_start
+        } else {
+            0
+        };
+        let tail_pos = if has_hidden_tail {
+            let dist = shown_w.saturating_sub(col_end);
+            fade_w.saturating_sub(dist)
+        } else {
+            0
+        };
+        let opacity =
+            title_fade_opacity(lead_pos, fade_w).max(title_fade_opacity(tail_pos, fade_w));
+        let cell_style = faded_title_style(style, opacity);
+        if pending_style == Some(cell_style) {
+            pending.push_str(grapheme);
+        } else {
+            if let Some(prev_style) = pending_style.replace(cell_style) {
+                spans.push(Span::styled(std::mem::take(&mut pending), prev_style));
+            }
+            pending.push_str(grapheme);
+        }
+    }
+    if let Some(last_style) = pending_style {
+        spans.push(Span::styled(pending, last_style));
+    }
+
+    let pad_w = budget.saturating_sub(shown_w);
+    if pad_w > 0 {
+        spans.push(Span::styled(" ".repeat(pad_w), style));
+    }
+}
 
 fn overflow_indicators_width(hidden_left: usize, hidden_right: usize) -> (usize, usize, usize) {
     let left_w = if hidden_left > 0 {
@@ -195,15 +399,17 @@ fn tab_add_style(theme: &Theme, hovered: bool) -> Style {
 }
 
 /// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09],
-/// ADR-0062, ADR-0219).
+/// ADR-0062, ADR-0235, ADR-0245).
 ///
 /// Projects open tabs with clean semantic titles without ordinal prefixes (`1:`),
 /// sliding viewport auto-centering the active tab with bilateral overflow
-/// guidance. The right edge carries the conditional `[!N]` fault badge — no
-/// standing keycap (ADR-0219) — and the strip ends with its own `+` creation
-/// affordance. Returns bounding rects for mouse click hit-testing, including the
-/// hovered pill's close mark, and reports whether a hover title reveal is mid-pass
-/// so the loop keeps its animation heartbeat alive.
+/// guidance. The right edge carries the conditional `[!N]` fault badge and a
+/// yield-first elastic help portal (`{key} help` → `{key}` → omitted,
+/// ADR-0245 `[INV-TAB-19]`), while the strip ends with its own `+` creation
+/// affordance. Returns bounding rects for mouse click hit-testing — mounted
+/// strictly when painted (`[INV-TAB-18]`, `[INV-TAB-20]`) — and reports whether
+/// a hover title reveal is mid-pass so the loop keeps its animation heartbeat
+/// alive.
 pub(crate) fn draw_tab_bar(
     frame: &mut Frame,
     rect: Rect,
@@ -227,16 +433,92 @@ pub(crate) fn draw_tab_bar(
     let text_width = full_width.saturating_sub(2 * pad);
     let framed = !theme.elevation.is_chromatic();
     let ascii = theme.glyphs.border_v == "|";
-    let ellipsis = theme.glyphs.ellipsis;
-    let ellipsis_w = ellipsis.width();
 
-    // Status Cluster (ADR-0131, amended by ADR-0219): the unread fault notice
-    // badge (`[!N]`, present only when `unread_faults > 0`) is the row's sole
-    // standing right-edge status. The constant `F1 help` keycap stays retired.
+    // Precompute tab pill widths once so both the elastic help portal decision
+    // and the sliding-window pass measure the exact same pills.
+    let active_tabs = tab_bar.tabs.filter(|t| !t.is_empty());
+    let labels: Vec<String> = active_tabs
+        .map(|tabs| tabs.iter().map(tab_label).collect())
+        .unwrap_or_default();
+    let label_units: Vec<Vec<TitleUnit<'_>>> =
+        labels.iter().map(|label| title_units(label)).collect();
+    let label_widths: Vec<usize> = label_units
+        .iter()
+        .map(|units| units.iter().map(|u| u.width).sum())
+        .collect();
+    // A pill's width is decided here, once, and **hover does not change it**:
+    // chrome + the budgeted title, with no blank columns reserved for the
+    // close button at rest. On hover, the close mark replaces the rightmost
+    // title columns in place so the strip never reflows (`[INV-TAB-16]`).
+    // The floor guarantees the close slot always fits beside a legible title.
+    let tab_widths: Vec<usize> = if let Some(tabs) = active_tabs {
+        let title_budget = adaptive_tab_title_width(tabs.len());
+        label_widths
+            .iter()
+            .map(|&label_w| label_w.min(title_budget) + TAB_PILL_CHROME_COLS)
+            .map(|width| width.max(TAB_PILL_MIN_WIDTH))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Status Cluster (ADR-0131, amended by ADR-0219 and ADR-0245 `[INV-TAB-19]`):
+    // optional unread-fault badge (`[!N]`) plus a yield-first elastic help
+    // portal resolved from the live keymap (`Option<Key>`).
     let notice_badge_text =
         (tab_bar.unread_faults > 0).then(|| format!("!{}", tab_bar.unread_faults));
     let notice_badge_w = notice_badge_text.as_ref().map_or(0, |t| t.width() + 2); // "[!N]"
-    let right_width = notice_badge_w;
+    let help_key_text = tab_bar
+        .help_key
+        .as_ref()
+        .map(crate::shell::keymap::Key::display);
+
+    let cluster_metrics = |form: TabHelpForm, key_text: Option<&str>| -> (usize, usize) {
+        let help_w = key_text.map_or(0, |k| help_portal_width(form, k));
+        let sep = if notice_badge_w > 0 && help_w > 0 {
+            JOIN_ENUMERATE_COLS
+        } else {
+            0
+        };
+        let right_w = notice_badge_w + sep + help_w;
+        let gap = if notice_badge_w > 0 || matches!(form, TabHelpForm::Expanded) {
+            BAR_LEGEND_GAP_MIN
+        } else if help_w > 0 {
+            TAB_HELP_GAP_MIN
+        } else {
+            0
+        };
+        (right_w, gap)
+    };
+
+    let help_form = match help_key_text {
+        None => TabHelpForm::Hidden,
+        Some(key_text) => {
+            let (expanded_right_w, expanded_gap) =
+                cluster_metrics(TabHelpForm::Expanded, Some(key_text));
+            let (compact_right_w, compact_gap) =
+                cluster_metrics(TabHelpForm::Compact, Some(key_text));
+
+            let (natural_left_w, min_left_w) = if let Some(tabs) = active_tabs {
+                let active = tab_bar.active_tab.min(tabs.len() - 1);
+                let all_w: usize = tab_widths.iter().sum::<usize>();
+                let min_window_w = window_total_width(&tab_widths, active, active, tabs.len());
+                (all_w + TAB_ADD_WIDTH, min_window_w + TAB_ADD_WIDTH)
+            } else {
+                let brand_w = "nuo".width() + TAB_ADD_WIDTH;
+                (brand_w, brand_w)
+            };
+
+            if natural_left_w + expanded_gap + expanded_right_w <= text_width {
+                TabHelpForm::Expanded
+            } else if min_left_w + compact_gap + compact_right_w <= text_width {
+                TabHelpForm::Compact
+            } else {
+                TabHelpForm::Hidden
+            }
+        }
+    };
+    let (right_width, rail_gap) = cluster_metrics(help_form, help_key_text);
 
     // A hover that names a pill the strip no longer paints (a close racing the
     // pointer's own motion report) is stale: it must paint nothing, not light up
@@ -263,16 +545,7 @@ pub(crate) fn draw_tab_bar(
 
     // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01],
     // ADR-0060 [INV-TAB-09]).
-    if let Some(tabs) = tab_bar.tabs.filter(|t| !t.is_empty()) {
-        // The rail may fill the row, but a right-pinned status element keeps the
-        // standing legend gap: a truncated overflow marker must never butt
-        // against the fault badge. With no badge there is nothing to separate
-        // from, so the gap is not reserved.
-        let rail_gap = if right_width > 0 {
-            BAR_LEGEND_GAP_MIN
-        } else {
-            0
-        };
+    if let Some(tabs) = active_tabs {
         // The add affordance is *reserved* here, not competed for above it:
         // creation belongs to the strip, so titles are what yield
         // (`[INV-TAB-17]`).
@@ -280,20 +553,6 @@ pub(crate) fn draw_tab_bar(
             .saturating_sub(right_width)
             .saturating_sub(rail_gap)
             .saturating_sub(TAB_ADD_WIDTH);
-        let title_budget = adaptive_tab_title_width(tabs.len());
-
-        let labels: Vec<String> = tabs.iter().map(tab_label).collect();
-        // A pill's width is decided here, once, and **hover does not change it**:
-        // chrome + the close reserve + the budgeted title. Reserving the close
-        // columns at rest is what lets a hovered pill reveal its `✕` without
-        // reflowing the strip or re-truncating a title (`[INV-TAB-16]`). The
-        // floor then guarantees the reserve always fits, so no strip geometry
-        // can produce a pill the pointer cannot close.
-        let tab_widths: Vec<usize> = labels
-            .iter()
-            .map(|label| label.width().min(title_budget) + TAB_PILL_CHROME_COLS + TAB_CLOSE_RESERVE)
-            .map(|width| width.max(TAB_PILL_MIN_WIDTH))
-            .collect();
         let (start, end) = compute_tab_window(&tab_widths, tab_bar.active_tab, available_for_tabs);
 
         // Left overflow indicator: ‹N
@@ -316,45 +575,47 @@ pub(crate) fn draw_tab_bar(
             current_x = current_x.saturating_add(ind_w as u16);
         }
 
-        for (i, label) in labels.iter().enumerate().skip(start).take(end - start + 1) {
+        for i in start..=end {
+            let units = &label_units[i];
+            let label_w = label_widths[i];
             let width = tab_widths[i];
             let active = i == tab_bar.active_tab;
             let hovered = hover.is_some_and(|hover| hover.tab() == Some(i));
             let close_hovered = close_hovered_tab == Some(i);
             let style = tab_pill_style(theme, active, hovered, i);
-            // The close mark occupies the reserve every pill carries, and is
-            // painted only while the pointer is on the pill. The title column is
-            // therefore the same width hovered or not.
-            let close = hovered && width >= TAB_PILL_CHROME_COLS + TAB_CLOSE_RESERVE;
-            let title_w = width - TAB_PILL_CHROME_COLS - TAB_CLOSE_RESERVE;
+            // At rest the title owns every interior column. On hover the close
+            // mark replaces the rightmost `TAB_CLOSE_WIDTH` columns in place,
+            // keeping pill geometry identical so the strip never reflows.
+            let resting_title_w = width - TAB_PILL_CHROME_COLS;
+            let close = hovered && width >= TAB_PILL_CHROME_COLS + TAB_CLOSE_WIDTH;
+            let title_w = if close {
+                resting_title_w - TAB_CLOSE_WIDTH
+            } else {
+                resting_title_w
+            };
 
-            // Hover is the only state that moves a title, and it moves for one
-            // bounded pass toward the tail (`[INV-TAB-15]`): the offset is a
-            // function of elapsed time, and when the pass ends the pill rests on
-            // the tail it travelled to rather than snapping back to the head.
-            let overflow = if hovered && label.width() > title_w {
-                let max_offset = window_max_offset(label.width(), title_w, ellipsis_w)
+            // Hover is the only state that moves a title, and only for titles
+            // that actually overflowed at rest (`label_w > resting_title_w`): a
+            // fitting title simply yields its rightmost columns to the close
+            // mark (fading the clipped edge) without jittering. For overflowing
+            // titles it slides one bounded pass toward the tail (`[INV-TAB-15]`)
+            // and rests there rather than snapping back to the head.
+            let offset = if hovered && label_w > resting_title_w {
+                let max_offset = label_w
+                    .saturating_sub(title_w)
                     .min(TAB_TITLE_REVEAL_MAX_TRAVEL);
                 let pass = marquee_reveal_len(max_offset, TAB_TITLE_MARQUEE_CADENCE);
-                // A pass that is still owed keeps the heartbeat alive; a pass
-                // that is over rests at the tail it travelled to. Snapping back
-                // to the truncated head would take away the text the user just
-                // waited to read.
                 if tab_bar.hover_elapsed_ms < pass {
                     reveal_active = true;
                 }
-                Overflow::Window {
-                    offset: marquee_reveal_offset(
-                        max_offset,
-                        tab_bar.hover_elapsed_ms,
-                        TAB_TITLE_MARQUEE_CADENCE,
-                    ),
-                }
+                marquee_reveal_offset(
+                    max_offset,
+                    tab_bar.hover_elapsed_ms,
+                    TAB_TITLE_MARQUEE_CADENCE,
+                )
             } else {
-                Overflow::End
+                0
             };
-            let fitted = fit_with(label, title_w, overflow, ellipsis);
-            let title_pad = " ".repeat(title_w.saturating_sub(fitted.text.width()));
 
             let hit_start = current_x;
             let hit_end = current_x.saturating_add(width as u16);
@@ -376,33 +637,14 @@ pub(crate) fn draw_tab_bar(
 
             let close_style = tab_close_style(theme, style, close_hovered);
             let close_glyph = tab_close_glyph(ascii);
-            if framed {
-                spans.push(Span::styled("[", style));
-                spans.push(Span::styled(fitted.text, style));
-                if !title_pad.is_empty() {
-                    spans.push(Span::styled(title_pad, style));
-                }
-                if close {
-                    spans.push(Span::styled(" ", style));
-                    spans.push(Span::styled(close_glyph, close_style));
-                } else {
-                    spans.push(Span::styled("  ", style));
-                }
-                spans.push(Span::styled("]", style));
-            } else {
+            let (lead_chrome, trail_chrome) = if framed { ("[", "]") } else { (" ", " ") };
+            spans.push(Span::styled(lead_chrome, style));
+            push_faded_title_spans(&mut spans, units, title_w, offset, style);
+            if close {
                 spans.push(Span::styled(" ", style));
-                spans.push(Span::styled(fitted.text, style));
-                if !title_pad.is_empty() {
-                    spans.push(Span::styled(title_pad, style));
-                }
-                if close {
-                    spans.push(Span::styled(" ", style));
-                    spans.push(Span::styled(close_glyph, close_style));
-                } else {
-                    spans.push(Span::styled("  ", style));
-                }
-                spans.push(Span::styled(" ", style));
+                spans.push(Span::styled(close_glyph, close_style));
             }
+            spans.push(Span::styled(trail_chrome, style));
 
             used_w += width;
             current_x = current_x.saturating_add(width as u16);
@@ -465,9 +707,14 @@ pub(crate) fn draw_tab_bar(
     let add_rect =
         (add_width > 0).then(|| Rect::new(current_x, rect.y, add_width as u16, rect.height.min(1)));
     if add_width > 0 {
-        let add_text = if framed { "[+]" } else { " + " };
+        let add_text = match (framed, add_width) {
+            (true, w) if w >= 3 => "[+]",
+            (false, w) if w >= 3 => " + ",
+            (_, 2) => " +",
+            _ => "+",
+        };
         spans.push(Span::styled(
-            fit_with(add_text, add_width, Overflow::End, ellipsis).text,
+            add_text,
             tab_add_style(theme, hover == Some(TabBarHover::Add)),
         ));
         used_w += add_width;
@@ -476,14 +723,16 @@ pub(crate) fn draw_tab_bar(
     let gap = text_width.saturating_sub(used_w + right_width);
     spans.push(Span::styled(" ".repeat(gap), fill));
 
-    // Right-aligned status cluster: [!N] only.
+    // Right-aligned status cluster: optional `[!N]` fault badge followed by the
+    // yield-first elastic help portal (ADR-0245 `[INV-TAB-19]`, `[INV-TAB-20]`).
     let mut notices_rect = None;
-    let right_x = rect.x + pad as u16 + (used_w + gap) as u16;
+    let mut help_rect = None;
+    let mut cluster_x = rect.x + pad as u16 + (used_w + gap) as u16;
 
     if let Some(ref text) = notice_badge_text {
         let label = format!("[{text}]");
         let lw = label.width() as u16;
-        notices_rect = Some(Rect::new(right_x, rect.y, lw, 1));
+        notices_rect = Some(Rect::new(cluster_x, rect.y, lw, 1));
         spans.push(Span::styled(
             label,
             Style::default()
@@ -491,6 +740,24 @@ pub(crate) fn draw_tab_bar(
                 .add_modifier(Modifier::BOLD)
                 .bg(bg),
         ));
+        cluster_x = cluster_x.saturating_add(lw);
+    }
+
+    if help_form != TabHelpForm::Hidden
+        && let Some(key_text) = help_key_text
+    {
+        if notice_badge_text.is_some() {
+            spans.push(Span::styled(" ".repeat(JOIN_ENUMERATE_COLS), fill));
+            cluster_x = cluster_x.saturating_add(JOIN_ENUMERATE_COLS as u16);
+        }
+        let help_hovered = hover == Some(TabBarHover::Help);
+        let (key_style, label_style) = tab_help_styles(theme, bg, help_hovered);
+        let hw = help_portal_width(help_form, key_text) as u16;
+        help_rect = Some(Rect::new(cluster_x, rect.y, hw, 1));
+        spans.push(Span::styled(key_text, key_style));
+        if help_form == TabHelpForm::Expanded {
+            spans.push(Span::styled(" help", label_style));
+        }
     }
 
     spans.push(Span::styled(" ".repeat(pad), fill));
@@ -504,6 +771,7 @@ pub(crate) fn draw_tab_bar(
         next_rect,
         overview_rect,
         notices_rect,
+        help_rect,
         reveal_active,
     }
 }

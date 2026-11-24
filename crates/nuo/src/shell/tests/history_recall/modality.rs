@@ -184,7 +184,7 @@ async fn adr0051_ctrl_r_continuous_cycling_in_history_search() {
 }
 
 #[test]
-fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
+fn adr0051_stashed_draft_atomic_stashing_and_restoration() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-test".to_string();
 
@@ -200,14 +200,14 @@ fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
         .pending_text_pastes
         .push("paste payload".to_string());
 
-    // 1. Open history search -> draft is captured into draft_capsule ([INV-COMP-03])
+    // 1. Open history search -> draft is captured into stashed_draft ([INV-COMP-03])
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
-    assert!(!app.composer.draft_capsule.is_empty());
-    assert_eq!(app.composer.draft_capsule.text, "in-flight prompt");
-    assert_eq!(app.composer.draft_capsule.cursor_position, 8);
-    assert_eq!(app.composer.draft_capsule.pending_images, vec![img.clone()]);
+    assert!(!app.composer.stashed_draft.is_empty());
+    assert_eq!(app.composer.stashed_draft.text, "in-flight prompt");
+    assert_eq!(app.composer.stashed_draft.cursor_position, 8);
+    assert_eq!(app.composer.stashed_draft.pending_images, vec![img.clone()]);
     assert_eq!(
-        app.composer.draft_capsule.pending_text_pastes,
+        app.composer.stashed_draft.pending_text_pastes,
         vec!["paste payload".to_string()]
     );
     assert_eq!(app.composer.input, "");
@@ -220,7 +220,7 @@ fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
         app.composer.pending_text_pastes,
         vec!["paste payload".to_string()]
     );
-    assert!(app.composer.draft_capsule.is_empty());
+    assert!(app.composer.stashed_draft.is_empty());
 }
 
 #[tokio::test]
@@ -315,7 +315,7 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
     // Newest-first order: index 0 is "command 3", index 1 is "command 2", index 2 is "command 1"
     assert_eq!(app.composer.input, "command 2");
     assert!(
-        app.composer.draft_capsule.is_empty(),
+        app.composer.stashed_draft.is_empty(),
         "Draft capsule must be cleared on successful history insertion"
     );
 }

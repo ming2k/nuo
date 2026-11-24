@@ -255,8 +255,8 @@ async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
     .await;
     // Opening auto-pauses the server's queue so nothing ships mid-edit.
     assert!(matches!(
-        rx.try_recv(),
-        Ok(AgentRequest::QueuePaused { paused: true, .. })
+        rx.try_recv().ok().and_then(|o| o.into_request()),
+        Some(AgentRequest::QueuePaused { paused: true, .. })
     ));
 
     // `D` on row 0 deletes q1 remotely as well as locally.
@@ -267,8 +267,8 @@ async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
         sid,
     )
     .await;
-    match rx.try_recv() {
-        Ok(AgentRequest::QueueRemove {
+    match rx.try_recv().ok().and_then(|o| o.into_request()) {
+        Some(AgentRequest::QueueRemove {
             thread_id,
             input_id,
         }) => {
@@ -287,8 +287,8 @@ async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
         sid,
     )
     .await;
-    match rx.try_recv() {
-        Ok(AgentRequest::QueueRemove { input_id, .. }) => assert_eq!(input_id, "q2"),
+    match rx.try_recv().ok().and_then(|o| o.into_request()) {
+        Some(AgentRequest::QueueRemove { input_id, .. }) => assert_eq!(input_id, "q2"),
         other => panic!("recall must send QueueRemove, got {other:?}"),
     }
     assert_eq!(
@@ -302,8 +302,8 @@ async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
     // the next thing on the wire.)
     assert!(
         matches!(
-            rx.try_recv(),
-            Ok(AgentRequest::QueuePaused { paused: false, .. })
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueuePaused { paused: false, .. })
         ),
         "every close path must resume the server's queue"
     );
@@ -332,8 +332,8 @@ async fn queue_block_toggles_are_mirrored_to_the_server() {
     assert!(app.is_queue_blocked(sid));
     assert!(
         matches!(
-            rx.try_recv(),
-            Ok(AgentRequest::QueuePaused { paused: true, .. })
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueuePaused { paused: true, .. })
         ),
         "/queue block must pause the driver, not just the projection"
     );
@@ -347,8 +347,8 @@ async fn queue_block_toggles_are_mirrored_to_the_server() {
     .await;
     assert!(!app.is_queue_blocked(sid));
     assert!(matches!(
-        rx.try_recv(),
-        Ok(AgentRequest::QueuePaused { paused: false, .. })
+        rx.try_recv().ok().and_then(|o| o.into_request()),
+        Some(AgentRequest::QueuePaused { paused: false, .. })
     ));
 }
 
@@ -380,8 +380,10 @@ async fn clear_queue_command_cancels_a_live_steer() {
     .await;
 
     let mut sent = Vec::new();
-    while let Ok(req) = rx.try_recv() {
-        sent.push(req);
+    while let Ok(out) = rx.try_recv() {
+        if let Some(req) = out.into_request() {
+            sent.push(req);
+        }
     }
     assert!(
         sent.iter().any(|req| matches!(
@@ -429,8 +431,8 @@ async fn clear_queue_command_is_session_scoped_and_mirrored() {
     )
     .await;
 
-    match rx.try_recv() {
-        Ok(AgentRequest::QueueClear { thread_id }) => assert_eq!(thread_id, "s1"),
+    match rx.try_recv().ok().and_then(|o| o.into_request()) {
+        Some(AgentRequest::QueueClear { thread_id }) => assert_eq!(thread_id, "s1"),
         other => panic!("clear must send QueueClear, got {other:?}"),
     }
     assert_eq!(app.pending_count("s1"), 0);
@@ -502,8 +504,8 @@ async fn closing_the_queue_panel_does_not_undo_an_explicit_pause() {
     );
     assert!(
         !matches!(
-            rx.try_recv(),
-            Ok(AgentRequest::QueuePaused { paused: false, .. })
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueuePaused { paused: false, .. })
         ),
         "and it must not tell the server to resume either"
     );

@@ -19,6 +19,33 @@ fn a_restored_checkpoint_becomes_a_compacted_card_not_raw_user_markup() {
     assert!(!restored.raw.contains("<checkpoint"));
 }
 
+/// A resumed transcript keeps the fold boundary **and** the numbering of the
+/// rows around it: the checkpoint is hidden dialogue, so it must neither vanish
+/// nor open a round or advance a turn (ADR-0246 `[INV-CMP-10]`).
+#[test]
+fn a_restored_checkpoint_opens_no_round_and_advances_no_turn() {
+    let checkpoint = protocol::checkpoint_message("round one folded");
+    let messages = vec![
+        Message::new(Role::User, "round one prompt"),
+        Message::new(Role::Assistant, "round one answer"),
+        checkpoint,
+        Message::new(Role::User, "round two prompt"),
+        Message::new(Role::Assistant, "round two answer"),
+    ];
+
+    let restored = transcript_messages_from_core(messages, &config::TuiConfig::default());
+    assert_eq!(restored.len(), 5, "no row is dropped by the fold");
+    assert!(
+        restored[2].is_compacted_card(),
+        "the checkpoint keeps its own card"
+    );
+    assert_eq!(restored[0].round, Some(1));
+    assert_eq!(restored[1].turn, Some(1));
+    assert_eq!(restored[2].round, None, "a checkpoint is not a turn");
+    assert_eq!(restored[3].round, Some(2), "numbering stays authoritative");
+    assert_eq!(restored[4].turn, Some(1));
+}
+
 #[test]
 fn restored_history_uses_command_display_content() {
     let message = Message::new(Role::User, "Expanded internal prompt")

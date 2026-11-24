@@ -204,8 +204,9 @@ impl ThreadSession {
     /// decision history is cleared — the caller asserts the window is the
     /// whole truth.
     pub async fn replace_messages(&self, messages: Vec<Message>) -> Result<(), String> {
-        let (data, children, should_persist) = {
+        let (data, children, undo, should_persist) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::replacing(&state);
             state.data.transcript = rebuild_transcript_from_messages(&messages);
             // A wholesale rebuild mints new fact ids; the old graph sidecar
             // would contain unreachable ghosts (ADR-0239).
@@ -218,11 +219,11 @@ impl ThreadSession {
             if !empty_unpersisted {
                 state.defer_persist = false;
             }
-            (state.data.clone(), children, !empty_unpersisted)
+            (state.data.clone(), children, undo, !empty_unpersisted)
         };
         persist_subagent_children(&self.writer, &children).await;
         if should_persist {
-            self.persist_full_rewrite(data).await?;
+            self.persist_full_rewrite(data, undo).await?;
         }
         Ok(())
     }
@@ -233,15 +234,88 @@ impl ThreadSession {
     }
 
     /// Atomically mutate the command ledger in place under the lock and persist.
+    ///
+    /// Append-only pushes (the normal path) write `O(1)` `CommandAct` frames to
+    /// the session journal and insert only the new row(s) into `command_acts`
+    /// without rewriting the entire ledger (ADR-0249).
     pub async fn mutate_commands<F>(&self, f: F) -> Result<(), String>
     where
         F: FnOnce(&mut Vec<protocol::CommandRecord>),
     {
-        self.mutate_metadata_and_persist(|data| {
-            f(&mut data.commands);
-            true
-        })
-        .await
+        enum Action {
+            Noop,
+            Append {
+                thread_id: String,
+                start_seq: u64,
+                added: Vec<protocol::CommandRecord>,
+                journal: Arc<crate::journal::SessionJournal>,
+            },
+            FullRewrite {
+                data: Box<ThreadData>,
+                undo: Box<SessionUndo>,
+            },
+        }
+
+        let action = {
+            let mut state = self.state.lock().await;
+            let old_len = state.data.commands.len();
+            let undo = SessionUndo::replacing(&state);
+            f(&mut state.data.commands);
+            if Self::should_skip_persist(&state) {
+                Action::Noop
+            } else if state.data.commands.len() > old_len {
+                let added = state.data.commands[old_len..].to_vec();
+                state.data.updated_at = unix_timestamp();
+                state.defer_persist = false;
+                Action::Append {
+                    thread_id: state.data.id.clone(),
+                    start_seq: old_len as u64,
+                    added,
+                    journal: Arc::clone(&state.journal),
+                }
+            } else if state.data.commands.len() == old_len {
+                Action::Noop
+            } else {
+                state.data.updated_at = unix_timestamp();
+                state.defer_persist = false;
+                Action::FullRewrite {
+                    data: Box::new(state.data.clone()),
+                    undo: Box::new(undo),
+                }
+            }
+        };
+
+        match action {
+            Action::Noop => Ok(()),
+            Action::Append {
+                thread_id,
+                start_seq,
+                added,
+                journal,
+            } => {
+                for (offset, record) in added.into_iter().enumerate() {
+                    let seq = start_seq + offset as u64;
+                    let jseq = journal
+                        .append_command_act(seq, &record)
+                        .await
+                        .map_err(|error| format!("command act journal append failed: {error}"))?;
+                    if let Err(error) = self
+                        .writer
+                        .append_command_act(thread_id.clone(), seq, &record, Some(jseq))
+                        .await
+                    {
+                        tracing::warn!(
+                            session = %thread_id,
+                            seq,
+                            %error,
+                            "command act projection failed; journal remains authoritative"
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Action::FullRewrite { data, undo } => self.persist_full_rewrite(*data, *undo).await,
+        }
     }
 
     /// Incrementally persist new messages appended since the last durable
@@ -249,8 +323,12 @@ impl ThreadSession {
     /// on divergence the transcript is rebuilt (the caller's window is the
     /// truth).
     pub async fn append_turn(&self, current: &[Message]) -> Result<(), String> {
-        let (data, mode, children) = {
+        let (data, mode, children, undo) = {
             let mut state = self.state.lock().await;
+            // Built before the first mutation; restored if the frame never
+            // becomes durable. A wholesale rebuild makes this an O(history)
+            // clone, which is the cost the rebuild itself already pays.
+            let undo = SessionUndo::replacing(&state);
             let durable_len = state.get_or_project_messages().len();
             if current.len() <= durable_len && !wire_eq(current, state.get_or_project_messages()) {
                 return Ok(());
@@ -294,12 +372,18 @@ impl ThreadSession {
                     state.data.transcript.entries[old_entries_len..].to_vec();
                 (delta, crate::db::SaveMode::Delta)
             };
-            (data, mode, children)
+            (data, mode, children, undo)
         };
         persist_subagent_children(&self.writer, &children).await;
-        self.persist_with_mode_guarded(data, mode, Vec::new(), crate::db::CommitGuard::default())
-            .await
-            .map(|_| ())
+        self.persist_with_mode_guarded(
+            data,
+            mode,
+            Vec::new(),
+            crate::db::CommitGuard::default(),
+            undo,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Commit everything a finished ReAct turn changed, in **one** lock
@@ -310,8 +394,15 @@ impl ThreadSession {
             operation_id: commit.operation_id.clone(),
             expected_revision: commit.expected_revision,
         };
-        let (data, mode, children, usage_upserts) = {
+        let (data, mode, children, usage_upserts, undo) = {
             let mut state = self.state.lock().await;
+            // A turn reports `Reprojected` when it may have rewritten committed
+            // messages, so the undo must be able to restore the old transcript.
+            let undo = if commit.basis == CommitBasis::Reprojected {
+                SessionUndo::replacing(&state)
+            } else {
+                SessionUndo::appending(&state)
+            };
 
             // 1. Message-tail delta against the projection.
             //
@@ -448,10 +539,10 @@ impl ThreadSession {
                     state.data.transcript.entries[old_entries_len..].to_vec();
                 (delta, crate::db::SaveMode::Delta)
             };
-            (data, mode, children, usage_upserts)
+            (data, mode, children, usage_upserts, undo)
         };
         persist_subagent_children(&self.writer, &children).await;
-        self.persist_with_mode_guarded(data, mode, usage_upserts, guard)
+        self.persist_with_mode_guarded(data, mode, usage_upserts, guard, undo)
             .await
     }
 
@@ -466,8 +557,9 @@ impl ThreadSession {
     /// second call finds nothing to settle.
     pub async fn settle_abandoned_attempts(&self) -> Result<usize, String> {
         use protocol::{RequestUsageSource, RequestUsageStatus};
-        let (data, settled): (ThreadData, Vec<protocol::RequestUsageRecord>) = {
+        let (data, settled, undo): (ThreadData, Vec<protocol::RequestUsageRecord>, SessionUndo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::appending(&state);
             let mut settled = Vec::new();
             for record in state.data.request_usage_records.iter_mut() {
                 if record.status == RequestUsageStatus::InFlight {
@@ -483,7 +575,7 @@ impl ThreadSession {
             }
             state.data.updated_at = unix_timestamp();
             state.defer_persist = false;
-            (state.data.clone_metadata_without_history(), settled)
+            (state.data.clone_metadata_without_history(), settled, undo)
         };
         let count = settled.len();
         self.persist_with_mode_guarded(
@@ -491,6 +583,7 @@ impl ThreadSession {
             crate::db::SaveMode::MetadataOnly,
             settled,
             crate::db::CommitGuard::default(),
+            undo,
         )
         .await?;
         Ok(count)
@@ -519,8 +612,9 @@ impl ThreadSession {
         target: ForkTarget,
         name: impl Into<String>,
     ) -> Result<protocol::BranchId, String> {
-        let (data, id) = {
+        let (data, id, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::replacing(&state);
             let mut thread = thread_from_session_data(&state.data);
             let branch = thread.state.active_branch.clone();
             let path = thread.path(&branch).map_err(|error| error.to_string())?;
@@ -555,9 +649,9 @@ impl ThreadSession {
             state.data.generation = uuid::Uuid::new_v4().to_string();
             state.data.updated_at = unix_timestamp();
             state.invalidate_projection_cache();
-            (state.data.clone(), id)
+            (state.data.clone(), id, undo)
         };
-        self.persist_full_rewrite(data).await?;
+        self.persist_full_rewrite(data, undo).await?;
         Ok(id)
     }
 
@@ -609,8 +703,9 @@ impl ThreadSession {
         name: impl Into<String>,
         from: Option<protocol::FactId>,
     ) -> Result<protocol::BranchId, String> {
-        let (data, id) = {
+        let (data, id, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::replacing(&state);
             let mut thread = thread_from_session_data(&state.data);
             let branch = thread.state.active_branch.clone();
             let from = match from {
@@ -635,9 +730,9 @@ impl ThreadSession {
             state.data.branches = thread.state.branches.clone();
             state.data.graph = Some(thread.clone());
             state.data.updated_at = unix_timestamp();
-            (state.data.clone(), id)
+            (state.data.clone(), id, undo)
         };
-        self.persist_full_rewrite(data).await?;
+        self.persist_full_rewrite(data, undo).await?;
         Ok(id)
     }
 
@@ -647,8 +742,9 @@ impl ThreadSession {
     /// transcript it projects commit atomically, and the derived SQLite view
     /// materialises both from the same snapshot (ADR-0239).
     pub async fn switch_branch(&self, branch: protocol::BranchId) -> Result<(), String> {
-        let data = {
+        let (data, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::replacing(&state);
             let mut thread = thread_from_session_data(&state.data);
             if !thread.state.branches.contains_key(&branch) {
                 return Err(format!("unknown branch '{}'", branch.0));
@@ -661,15 +757,16 @@ impl ThreadSession {
             state.data.generation = uuid::Uuid::new_v4().to_string();
             state.data.updated_at = unix_timestamp();
             state.invalidate_projection_cache();
-            state.data.clone()
+            (state.data.clone(), undo)
         };
-        self.persist_full_rewrite(data).await
+        self.persist_full_rewrite(data, undo).await
     }
 
     /// Delete a branch cursor. Facts remain while another branch reaches them.
     pub async fn delete_branch(&self, branch: protocol::BranchId) -> Result<(), String> {
-        let data = {
+        let (data, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::replacing(&state);
             let mut thread = thread_from_session_data(&state.data);
             thread
                 .delete_branch(&branch, unix_timestamp() * 1000)
@@ -684,16 +781,17 @@ impl ThreadSession {
                 state.invalidate_projection_cache();
             }
             state.data.updated_at = unix_timestamp();
-            state.data.clone()
+            (state.data.clone(), undo)
         };
-        self.persist_full_rewrite(data).await
+        self.persist_full_rewrite(data, undo).await
     }
 
     /// Replace the in-memory transcript with `thread`'s projection and persist
     /// the whole session (transcript, cursors, working state) as one frame.
     pub async fn commit_thread(&self, thread: &protocol::Thread) -> Result<u64, String> {
-        let (data, revision) = {
+        let (data, revision, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::replacing(&state);
             state.data.transcript = transcript_from_thread(thread);
             state.data.active_branch = thread.state.active_branch.clone();
             state.data.branches = thread.state.branches.clone();
@@ -703,9 +801,9 @@ impl ThreadSession {
             state.data.updated_at = thread.updated_at_ms / 1000;
             state.invalidate_projection_cache();
             state.defer_persist = false;
-            (state.data.clone(), thread.revision.0)
+            (state.data.clone(), thread.revision.0, undo)
         };
-        self.persist_full_rewrite(data).await?;
+        self.persist_full_rewrite(data, undo).await?;
         Ok(revision)
     }
 }
@@ -825,6 +923,7 @@ fn tree_from_thread(thread: &protocol::Thread) -> protocol::ThreadTree {
                 tokens_before,
                 read_files,
                 modified_files,
+                ..
             } => protocol::ThreadEntryKind::Compaction {
                 summary: summary.clone(),
                 first_kept_entry_id: first_kept_fact_id.0.clone(),
@@ -878,14 +977,30 @@ fn tree_from_thread(thread: &protocol::Thread) -> protocol::ThreadTree {
 ///
 /// The transcript is a view: entry ids and sequences are derived from fact ids
 /// and positive fact sequences, so a reload never invents a different order.
+///
+/// The mirror carries the branch's **whole conversation** ([`Thread::path`]),
+/// plus one `compact` directive per checkpoint so the model-facing
+/// [`protocol::Transcript::project`] can still bound the request window
+/// (ADR-0246 `[INV-CMP-08]`, `[INV-CMP-09]`). Those two facts are independent:
+/// what the thread said, and what the next request may send.
 pub(crate) fn transcript_from_thread(thread: &protocol::Thread) -> protocol::Transcript {
-    use protocol::{CompactionMeta, EntryPayload, TranscriptEntry};
+    use protocol::{
+        CompactionMeta, DirectiveKind, DirectivePayload, EntryPayload, ProjectionDirective,
+        TranscriptEntry,
+    };
 
     let branch = &thread.state.active_branch;
     let mut transcript = protocol::Transcript::new();
     let Ok(facts) = thread.path(branch) else {
         return transcript;
     };
+    // The fold's seam is resolved from the *kept* fact's position in the
+    // mirrored order, not from any stored number: a checkpoint says "everything
+    // before `first_kept` was folded", and the mirror is the only thing that can
+    // turn that reference into a membership sequence
+    // (ADR-0246 `[INV-CMP-09]`).
+    // (checkpoint entry index, watermark membership seq or None)
+    let mut folds: Vec<(usize, Option<u64>)> = Vec::new();
     for fact in facts {
         let seq = fact.seq.saturating_sub(1);
         match &fact.payload {
@@ -914,26 +1029,35 @@ pub(crate) fn transcript_from_thread(thread: &protocol::Thread) -> protocol::Tra
                 read_files,
                 modified_files,
             } => {
-                let mut entry = TranscriptEntry::from_message(
-                    seq,
-                    &Message::new(tool::Role::System, summary.clone()),
-                );
+                // ADR-0246 `[INV-CMP-10]`: the checkpoint's *node* is appended at
+                // the head, but its meaning is "everything before the kept fact
+                // was folded". The mirror keeps the node where it was appended
+                // and records the seam twice — as the directive the model window
+                // obeys, and as the kept fact's id so reading order can resolve
+                // it ([`protocol::Transcript::conversation_messages`]).
+                let watermark = transcript
+                    .entries
+                    .iter()
+                    .rposition(|entry| entry.id == first_kept_fact_id.0)
+                    .and_then(|kept| kept.checked_sub(1))
+                    .map(|folded| transcript.entries[folded].seq);
+                let mut entry =
+                    TranscriptEntry::from_message(seq, &protocol::checkpoint_message(summary));
                 entry.id = fact.id.0.clone();
                 entry.created_at_ms = fact.timestamp_ms;
                 entry.content = Some(summary.clone());
+                // ADR-0160 `[INV-CMP-01]`: a checkpoint is hidden dialogue, not a
+                // visible turn the model or the user authored.
+                entry.hidden = true;
                 entry.payload = EntryPayload::Compaction(Box::new(CompactionMeta {
                     first_kept_node_id: first_kept_fact_id.0.clone(),
                     split_parent_node_id: fact.parent_id.as_ref().map(|id| id.0.clone()),
-                    folded_through_seq: first_kept_fact_id
-                        .0
-                        .trim_start_matches("fact_")
-                        .parse::<u64>()
-                        .unwrap_or(0),
                     tokens_before: *tokens_before,
                     read_files: read_files.clone(),
                     modified_files: modified_files.clone(),
                 }));
                 transcript.push(entry);
+                folds.push((transcript.entries.len() - 1, watermark));
             }
             protocol::FactPayload::Termination {
                 reason,
@@ -973,6 +1097,27 @@ pub(crate) fn transcript_from_thread(thread: &protocol::Thread) -> protocol::Tra
                 transcript.push(entry);
             }
         }
+    }
+
+    for (checkpoint_index, watermark) in folds {
+        let Some(watermark) = watermark else {
+            // The kept fact is the oldest row: nothing was folded, so the
+            // checkpoint hides nothing. It keeps its appended position.
+            continue;
+        };
+        let Some(checkpoint_seq) = transcript
+            .entries
+            .get(checkpoint_index)
+            .map(|entry| entry.seq)
+        else {
+            continue;
+        };
+        transcript.push_directive(ProjectionDirective {
+            seq: 0,
+            kind: DirectiveKind::Compact,
+            up_to_seq: watermark,
+            payload: DirectivePayload::Compact { checkpoint_seq },
+        });
     }
     transcript
 }
@@ -1280,20 +1425,18 @@ async fn persist_subagent_children(
             Ok(seq) => {
                 let projection = ProjectionState::new();
                 projection.submitted(seq);
-                projection.enqueue(
-                    writer.clone(),
-                    Arc::clone(&journal),
-                    ProjectionJob {
-                        seq,
-                        data: subagent.clone(),
-                        mode: crate::db::SaveMode::FullRewrite,
-                        usage: Vec::new(),
-                        guard: crate::db::CommitGuard {
-                            operation_id: Some(operation_id),
-                            expected_revision: None,
-                        },
+                projection.enqueue(ProjectionJob {
+                    seq,
+                    data: subagent.clone(),
+                    mode: crate::db::SaveMode::FullRewrite,
+                    usage: Vec::new(),
+                    guard: crate::db::CommitGuard {
+                        operation_id: Some(operation_id),
+                        expected_revision: None,
                     },
-                );
+                    writer: writer.clone(),
+                    journal: Arc::clone(&journal),
+                });
                 // Subagent admission is a cold control path: the parent's
                 // durable entry already points at the child, so make the
                 // derived row visible before the parent's commit returns.

@@ -111,6 +111,12 @@ Applied changes are described as typed mutations (`AppMutation`, with `Buffer`, 
 
 After applying mutations, each frame reconciles derived state before drawing: request surfaces, toast timers, transcripts and session sync, navigation signals, and completion signals. The engine then diffs the retained cell grid, so only dirty lines are repainted.
 
+### Unsent drafts (ADR-0247)
+
+A draft belongs to the **thread** it was typed into, not to the tab showing it. `ComposerState::draft_thread` records which thread currently owns the composer buffer, and `App::hand_composer_to_current_thread` is the one hand-off protocol: park the departing thread's draft in the per-thread ledger, install the arriving thread's. It runs on tab activation, tab replacement, tab close, scene entry, the viewed-session change hook, the boot hand-off, and the exit seal — so a switch, a re-attach, a `/new`, or a process restart cannot lose it.
+
+Parking is a **signal comparison**, not a copy: an unchanged draft (same text hash, caret, view offset, and attachment shape) is never cloned and never written. Transitions park synchronously; a one-second tick covers a crash mid-sentence. Drafts live under `$XDG_STATE_HOME/nuo/drafts/`, one JSON file per thread, and a thread holding a draft is **not** empty, so `/new` or `/threads` cannot recycle it. While `↑`/`↓` recall or <kbd>Ctrl-R</kbd> search borrows the composer line, the thread's draft is the stash (`stashed_draft`), and a transition parks that — never the borrowed row.
+
 ---
 
 ## 6. Action Permissibility in Running State (ADR-0110 `[INV-TUI-RUNNING-02]`)

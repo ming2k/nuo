@@ -22,14 +22,19 @@ pub struct ThreadWindow {
 }
 
 impl ThreadWindow {
-    /// Project the last `max_facts` facts of one branch path.
+    /// Project the last `max_facts` facts of one branch's **request window**.
+    ///
+    /// The walk is [`Thread::live_path`], not [`Thread::path`]: a window is what
+    /// the next model request assembles from, so the compaction horizon is its
+    /// oldest point by construction and there is nothing to re-filter here
+    /// (ADR-0246).
     pub fn from_thread(
         thread: &Thread,
         branch: &BranchId,
         max_facts: usize,
     ) -> Result<Self, ThreadError> {
         let branch_state = thread.state.branch(branch)?;
-        let mut facts: Vec<ThreadFact> = thread.path(branch)?.into_iter().cloned().collect();
+        let mut facts: Vec<ThreadFact> = thread.live_path(branch)?.into_iter().cloned().collect();
         if facts.len() > max_facts.max(1) {
             // Keep the newest facts, but never drop the latest compaction
             // summary that defines the window's oldest visible point.

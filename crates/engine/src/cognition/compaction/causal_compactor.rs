@@ -41,8 +41,6 @@ pub struct CausalCompactionOutcome {
     pub split_parent_fact_id: Option<FactId>,
     /// Number of facts folded into the compaction checkpoint.
     pub nodes_folded: usize,
-    /// Sequence of the last folded fact.
-    pub folded_through_seq: u64,
     /// Token weight of the folded prefix.
     pub tokens_before: usize,
     /// Generated structured summary.
@@ -72,7 +70,12 @@ impl CausalCompactor {
         todos: Option<&str>,
         summary_budget: usize,
     ) -> Result<Option<CausalCompactionOutcome>, String> {
-        let active_facts = thread.path(branch).map_err(|error| error.to_string())?;
+        // Fold candidates come from the request window, never from the whole
+        // conversation: a second fold must examine only the unfolded tail
+        // (ADR-0246 `[INV-CMP-07]`, ADR-0160 `[INV-CMP-04]`).
+        let active_facts = thread
+            .live_path(branch)
+            .map_err(|error| error.to_string())?;
         if active_facts.is_empty() {
             return Ok(None);
         }
@@ -101,7 +104,6 @@ impl CausalCompactor {
 
         let nodes_to_fold = &active_facts[..cut_point.first_kept_index];
         let nodes_folded = nodes_to_fold.len();
-        let folded_through_seq = cut_point.folded_through_seq;
 
         let previous_summary = horizon_fact
             .and_then(|fact| match &fact.payload {
@@ -223,7 +225,6 @@ impl CausalCompactor {
             first_kept_fact_id: cut_point.first_kept_fact_id,
             split_parent_fact_id,
             nodes_folded,
-            folded_through_seq,
             tokens_before: cut_point.tokens_before,
             summary,
             tracked_files,
@@ -372,14 +373,29 @@ mod tests {
         .expect("3 rounds with preserve=1 must fold");
 
         assert_eq!(outcome.nodes_folded, 4);
-        let path = thread.path(&BranchId::main()).unwrap();
-        let kept_user = path.iter().find_map(|fact| match &fact.payload {
+        // The fold bounds the *request window*; the conversation keeps every
+        // round (ADR-0246 `[INV-CMP-07]`/`[INV-CMP-08]`). The newest round must
+        // survive in both walks.
+        let window = thread.live_path(&BranchId::main()).unwrap();
+        let kept_user = window.iter().find_map(|fact| match &fact.payload {
             FactPayload::Message { message } if message.role == Role::User => {
                 Some(message.content.as_str())
             }
             _ => None,
         });
         assert_eq!(kept_user, Some("User message 3"));
+
+        let conversation = thread.path(&BranchId::main()).unwrap();
+        for round in 1..=3 {
+            assert!(
+                conversation.iter().any(|fact| matches!(
+                    &fact.payload,
+                    FactPayload::Message { message }
+                        if message.content == format!("User message {round}")
+                )),
+                "round {round} must still be in the conversation after a fold"
+            );
+        }
     }
 
     #[tokio::test]

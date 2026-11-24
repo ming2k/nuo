@@ -190,6 +190,7 @@ pub struct ConfigRects {
     /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
     pub tab_overflow_rect: Option<Rect>,
     pub tab_notices_rect: Option<Rect>,
+    pub tab_help_rect: Option<Rect>,
 }
 
 /// Properties passed to render the complete Settings View.
@@ -351,6 +352,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,
         tab_notices_rect: tab_rects.notices_rect,
+        tab_help_rect: tab_rects.help_rect,
     }
 }
 

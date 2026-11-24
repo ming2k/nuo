@@ -287,7 +287,7 @@ impl ThreadRegistry {
         {
             let scope =
                 protocol::ThreadScope::from_binding(role_id.as_deref(), resume_workspace.as_ref());
-            if let Some(id) = lookup_latest_session_in_scope(&scope) {
+            if let Some(id) = lookup_latest_session_in_scope(&scope).await {
                 startup = crate::composition::startup::ThreadStart::Resume(id);
             }
         }

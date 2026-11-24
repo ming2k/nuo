@@ -12,7 +12,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
     // staged image, plus a backfilled row.
     app.composer.input = "walked row".to_string();
     app.composer.history_index = Some(0);
-    app.composer.draft_capsule.text = "half-typed draft in a".to_string();
+    app.composer.stashed_draft.text = "half-typed draft in a".to_string();
     app.composer.pending_images = vec![tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
@@ -31,7 +31,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
         app.composer.history_index, None,
         "cursor does not cross the boundary"
     );
-    assert!(app.composer.draft_capsule.is_empty(), "draft does not leak");
+    assert!(app.composer.stashed_draft.is_empty(), "draft does not leak");
     assert!(app.composer.input.is_empty(), "composer starts clean");
     assert!(
         app.composer.pending_images.is_empty(),
@@ -150,7 +150,7 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     app.record_input_history("older".to_string(), Vec::new(), Vec::new());
 
     // A stale remembered draft from an earlier session of editing.
-    app.composer.draft_capsule.text = "stale draft".to_string();
+    app.composer.stashed_draft.text = "stale draft".to_string();
     app.composer.input = "whatever".to_string();
 
     let image = tool::ImagePart {
@@ -170,10 +170,10 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
         "adoption enters draft mode"
     );
     assert_eq!(
-        app.composer.draft_capsule.text, "interrupted input",
+        app.composer.stashed_draft.text, "interrupted input",
         "stale draft replaced"
     );
-    assert_eq!(app.composer.draft_capsule.pending_images.len(), 1);
+    assert_eq!(app.composer.stashed_draft.pending_images.len(), 1);
     assert_eq!(app.composer.pending_images.len(), 1);
 
     // ↑ then ↓ past the newest restores the adopted input, not the stale one.

@@ -182,23 +182,29 @@ pub const MODEL_BAR_MODEL_GAP: usize = 1;
 pub const ACTIVITY_STRIP_ROWS: u16 = 1;
 
 /// Minimum gap between a bar's left content and its right-pinned legend
-/// (the queue bar's `Ctrl+Q expand`, the TabBar's `[!N]` fault badge).
+/// (the queue bar's `Ctrl+Q expand`, the TabBar's `[!N]` fault badge or
+/// expanded help portal).
 /// Deliberately wider than the 2-col inter-cluster gap used by the hint bar: a
 /// legend is a keyboard affordance, not prose, so it needs real visual distance
 /// from the content — especially when content truncates to fill the row, where
 /// a small gap would let a `[▾]` or a `…` butt directly against it.
 pub const BAR_LEGEND_GAP_MIN: usize = 6;
 
+/// Minimum gap between the TabBar's left rail and a *compact* help portal
+/// (`F1`) when no `[!N]` fault badge leads the right cluster (ADR-0245
+/// `[INV-TAB-19]`). Matches [`JOIN_ENUMERATE_COLS`] so the compact fallback
+/// stays legible without spending six columns on a narrow or overflowing strip.
+pub const TAB_HELP_GAP_MIN: usize = JOIN_ENUMERATE_COLS;
+
 // TabBar tab lifecycle affordances (ADR-0235).
 
 /// The TabBar's per-tab close affordance glyph, painted on the trailing edge of
 /// a **hovered** pill.
 ///
-/// One column, so the pill can reserve it without changing width; the pill's
-/// title gives up the column instead (the reveal window then scrolls it back
-/// into view). `✕` rather than the theme's `cross` (`✗`): the latter degrades to
-/// `[X]` on the ASCII glyph set, which is three columns and would break the
-/// reserve on exactly the terminals that can least afford it.
+/// One column, overlaid in place over the trailing end of the title slot on
+/// hover without changing pill width. `✕` rather than the theme's `cross`
+/// (`✗`): the latter degrades to `[X]` on the ASCII glyph set, which is three
+/// columns and would break the 1-column close geometry on narrow terminals.
 pub const TAB_CLOSE_GLYPH: &str = "✕";
 
 /// The same affordance on the ASCII glyph set.
@@ -221,15 +227,21 @@ pub const fn tab_close_glyph(ascii: bool) -> &'static str {
 /// so the reserve is a width, not a glyph-set branch.
 pub const TAB_ADD_WIDTH: usize = 3;
 
-/// Columns a hovered pill frees for its close affordance: one separating space
-/// plus the glyph.
-pub const TAB_CLOSE_RESERVE: usize = 2;
+/// Columns a hovered pill replaces at the trailing end of its title slot for
+/// its close affordance: one separating space plus the glyph. Resting pills do
+/// not reserve these columns; hover swaps them in place so the strip never
+/// reflows and resting pills spend every column on the title.
+pub const TAB_CLOSE_WIDTH: usize = 2;
+
+/// Columns over which an overflowing TabBar title fades toward the pill's
+/// background color instead of terminating in an ellipsis (`…`).
+pub const TAB_TITLE_FADE_WIDTH: usize = 4;
 
 /// Narrowest a tab pill may become, chrome included.
 ///
 /// The floor exists for one reason: a hovered pill must be able to host its
 /// `✕` without growing or reflowing the strip. `TAB_PILL_CHROME_COLS (2) +
-/// TAB_CLOSE_RESERVE (2)` is the hard minimum; 8 keeps a few columns of title
+/// TAB_CLOSE_WIDTH (2)` is the hard minimum; 8 keeps a few columns of title
 /// legible beside it, so the close mark never backs a nameless pill.
 pub const TAB_PILL_MIN_WIDTH: usize = 8;
 

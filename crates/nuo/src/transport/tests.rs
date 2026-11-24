@@ -68,6 +68,7 @@ async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
             threads: Vec::new(),
             tasks: Vec::new(),
             persistence_health: None,
+            storage: None,
         }),
     };
     let after = Wire::Monitor {

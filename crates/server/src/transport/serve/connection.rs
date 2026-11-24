@@ -717,22 +717,120 @@ async fn handle_wire_stream(
             return Ok(());
         }
     };
+    run_attach_multiplexed(
+        wire_sink,
+        wire_source,
+        registry,
+        caller_project,
+        client_posture,
+        handle,
+    )
+    .await
+}
+
+/// One thread subscribed on a multiplexed client connection (ADR-0251).
+struct SubscribedThread {
+    handle: crate::runtime::registry::AttachHandle,
+    last_snapshot: Option<protocol::ThreadSnapshot>,
+    forwarder: tokio::task::JoinHandle<()>,
+}
+
+/// Multiplexed event delivered from any subscribed thread's broadcast stream
+/// to the connection writer loop.
+enum MuxEvent {
+    Response {
+        sub_key: String,
+        response: Box<AgentResponse>,
+    },
+    Lagged {
+        sub_key: String,
+        skipped: u64,
+    },
+    Closed {
+        sub_key: String,
+    },
+}
+
+fn spawn_thread_forwarder(
+    sub_key: String,
+    mut rx: broadcast::Receiver<AgentResponse>,
+    mux_tx: tokio::sync::mpsc::Sender<MuxEvent>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(response) => {
+                    if mux_tx
+                        .send(MuxEvent::Response {
+                            sub_key: sub_key.clone(),
+                            response: Box::new(response),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    if mux_tx
+                        .send(MuxEvent::Lagged {
+                            sub_key: sub_key.clone(),
+                            skipped,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    let _ = mux_tx.send(MuxEvent::Closed { sub_key }).await;
+                    break;
+                }
+            }
+        }
+    })
+}
+
+/// Subscribe a resolved thread handle onto `wire_sink`, sending either
+/// `Wire::Welcome` (initial handshake) or `Wire::Subscribed` (multiplexed
+/// attach), accounting the human channel posture, and emitting the
+/// authoritative snapshot + readiness transition (`[INV-ATTACH-04]`).
+async fn hydrate_subscribed_thread(
+    wire_sink: &mut BoxWireSink,
+    handle: &crate::runtime::registry::AttachHandle,
+    client_posture: protocol::human_request::HumanChannelPosture,
+    is_initial: bool,
+) -> Result<
+    (
+        String,
+        broadcast::Receiver<AgentResponse>,
+        Option<protocol::ThreadSnapshot>,
+    ),
+    String,
+> {
     // Subscribe before reading any cached state: anything the build task or the
     // live driver publishes from here on is buffered for this connection.
     // `[INV-ATTACH-04]` (ADR-0133): the authoritative snapshot precedes `Ready`.
-    let mut rx = handle.events().subscribe();
+    let rx = handle.events().subscribe();
     let session_id = handle.session_id().await;
     let phase = handle.phase();
 
-    // Welcome is an identity acknowledgement, not hydration. It is written
-    // before the store, transcript, skills, hooks, or credentials are touched.
-    wire_sink
-        .send(Wire::Welcome {
+    let ack = if is_initial {
+        Wire::Welcome {
             thread_id: session_id.clone(),
             phase: phase.clone(),
-        })
+        }
+    } else {
+        Wire::Subscribed {
+            thread_id: session_id.clone(),
+            phase: phase.clone(),
+        }
+    };
+    wire_sink
+        .send(ack)
         .await
-        .map_err(|e| format!("send welcome: {e}"))?;
+        .map_err(|e| format!("send thread ack: {e}"))?;
 
     // Fold this client's declared posture into the session's human channel
     // before publishing the snapshot, so the trust gate sees the effective
@@ -747,7 +845,7 @@ async fn handle_wire_stream(
     // Hydrate, then announce readiness. A hosted session builds the snapshot
     // on demand (local reads only); a building session returns the snapshot
     // cached at promotion, or receives it on the phase stream below.
-    let mut last_snapshot = handle.snapshot().await;
+    let last_snapshot = handle.snapshot().await;
     if let Some(snapshot) = &last_snapshot {
         wire_sink
             .send(Wire::Response {
@@ -792,146 +890,568 @@ async fn handle_wire_stream(
             .map_err(|e| format!("send thread phase: {e}"))?;
     }
 
+    Ok((session_id, rx, last_snapshot))
+}
+
+/// Tracks every thread subscribed on one multiplexed connection, with flat
+/// path-compressed aliases for in-place `/new`, `/resume`, and `/fork` re-keying.
+struct SubscriptionTable {
+    entries: std::collections::HashMap<String, SubscribedThread>,
+    /// Flat map from historical `sub_key` -> current live key in `entries`.
+    aliases: std::collections::HashMap<String, String>,
+    primary_thread_id: String,
+}
+
+impl SubscriptionTable {
+    fn new(initial_id: String, initial_sub: SubscribedThread) -> Self {
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(initial_id.clone(), initial_sub);
+        Self {
+            entries,
+            aliases: std::collections::HashMap::new(),
+            primary_thread_id: initial_id,
+        }
+    }
+
+    fn primary(&self) -> &str {
+        &self.primary_thread_id
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn get(&self, thread_id: &str) -> Option<&SubscribedThread> {
+        self.entries.get(thread_id)
+    }
+
+    fn get_mut(&mut self, thread_id: &str) -> Option<&mut SubscribedThread> {
+        self.entries.get_mut(thread_id)
+    }
+
+    fn insert(&mut self, thread_id: String, sub: SubscribedThread) {
+        self.aliases.remove(&thread_id);
+        self.entries.insert(thread_id, sub);
+    }
+
+    /// Resolve a forwarder's `sub_key` to its current live subscription key in O(1).
+    fn resolve_key(&self, key: &str) -> Option<String> {
+        if self.entries.contains_key(key) {
+            return Some(key.to_string());
+        }
+        self.aliases
+            .get(key)
+            .filter(|target| self.entries.contains_key(*target))
+            .cloned()
+    }
+
+    /// Re-key an existing subscription after an in-place reset (`/new`,
+    /// `/resume`, `/fork`), flattening all prior aliases to point directly to
+    /// `next_id` so alias resolution is always O(1) with no hop limit.
+    fn rekey(&mut self, previous_id: &str, next_id: String) {
+        if previous_id == next_id {
+            return;
+        }
+        if let Some(sub) = self.entries.remove(previous_id) {
+            self.entries.insert(next_id.clone(), sub);
+            for target in self.aliases.values_mut() {
+                if target == previous_id {
+                    *target = next_id.clone();
+                }
+            }
+            self.aliases.remove(&next_id);
+            self.aliases
+                .insert(previous_id.to_string(), next_id.clone());
+            if self.primary_thread_id == previous_id {
+                self.primary_thread_id = next_id;
+            }
+        }
+    }
+
+    /// Remove a subscription and prune all aliases targeting it.
+    fn remove(&mut self, thread_id: &str) -> Option<SubscribedThread> {
+        let removed = self.entries.remove(thread_id);
+        if removed.is_some() {
+            self.aliases.retain(|_, target| target != thread_id);
+            if self.primary_thread_id == thread_id
+                && let Some(next_primary) = self.entries.keys().next().cloned()
+            {
+                self.primary_thread_id = next_primary;
+            }
+        }
+        removed
+    }
+
+    fn teardown(&mut self) {
+        for (session_id, sub) in self.entries.drain() {
+            sub.forwarder.abort();
+            let after_detach = sub.handle.human_channel().detach();
+            tracing::info!(
+                session_id = %session_id,
+                effective = ?after_detach,
+                "nuo server: human channel released"
+            );
+        }
+        self.aliases.clear();
+    }
+}
+
+enum MuxControl {
+    Continue,
+    Stop(Result<(), String>),
+}
+
+async fn handle_mux_event(
+    event: Option<MuxEvent>,
+    subs: &mut SubscriptionTable,
+    wire_sink: &mut BoxWireSink,
+    pending_delta: &mut Option<PendingDelta>,
+    flush_deadline: &mut Option<tokio::time::Instant>,
+) -> MuxControl {
+    match event {
+        Some(MuxEvent::Response { sub_key, response }) => {
+            let response = *response;
+            let resolved_key = subs.resolve_key(&sub_key);
+            // Track in-place session re-keying (`/new`, `/resume`, `/fork`).
+            match &response {
+                AgentResponse::ConversationCleared {
+                    previous_id,
+                    thread_id,
+                }
+                | AgentResponse::ConversationReplaced {
+                    previous_id,
+                    thread_id,
+                    ..
+                } if previous_id != thread_id => {
+                    subs.rekey(previous_id, thread_id.clone());
+                }
+                AgentResponse::ThreadSnapshot(snapshot) => {
+                    if let Some(key) = &resolved_key
+                        && let Some(sub) = subs.get_mut(key)
+                    {
+                        sub.last_snapshot = Some((**snapshot).clone());
+                    }
+                }
+                _ => {}
+            }
+            match take_delta(response) {
+                Ok((thread_id, context, kind, text)) => {
+                    if let Some(displaced) =
+                        queue_delta(pending_delta, thread_id, context, kind, text)
+                        && let Err(e) = send_delta(wire_sink, displaced).await
+                    {
+                        return MuxControl::Stop(Err(e));
+                    }
+                    if flush_deadline.is_none() {
+                        *flush_deadline =
+                            Some(tokio::time::Instant::now() + STREAM_COALESCE_WINDOW);
+                    }
+                }
+                Err(response) => {
+                    if let Err(e) = flush_delta(wire_sink, pending_delta).await {
+                        return MuxControl::Stop(Err(e));
+                    }
+                    *flush_deadline = None;
+                    if let Err(e) = wire_sink.send(Wire::Response { response }).await {
+                        return MuxControl::Stop(Err(format!("wire send: {e}")));
+                    }
+                }
+            }
+            MuxControl::Continue
+        }
+        Some(MuxEvent::Lagged { sub_key, skipped }) => {
+            if let Err(e) = flush_delta(wire_sink, pending_delta).await {
+                return MuxControl::Stop(Err(e));
+            }
+            *flush_deadline = None;
+            let Some(key) = subs.resolve_key(&sub_key) else {
+                return MuxControl::Continue;
+            };
+            tracing::warn!(
+                thread_id = %key,
+                skipped,
+                "nuo server: client lagged; re-anchoring from snapshot"
+            );
+            if let Some(sub) = subs.get_mut(&key) {
+                if let Some(snapshot) = sub.handle.snapshot().await {
+                    sub.last_snapshot = Some(snapshot.clone());
+                    let _ = wire_sink
+                        .send(Wire::Response {
+                            response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
+                        })
+                        .await;
+                    let _ = wire_sink
+                        .send(Wire::Response {
+                            response: AgentResponse::ThreadPhase(protocol::ThreadPhaseUpdate {
+                                thread_id: key,
+                                phase: protocol::ThreadPhase::Ready,
+                            }),
+                        })
+                        .await;
+                } else if let Some(snapshot) = &sub.last_snapshot {
+                    let _ = wire_sink
+                        .send(Wire::Response {
+                            response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
+                        })
+                        .await;
+                }
+            }
+            MuxControl::Continue
+        }
+        Some(MuxEvent::Closed { sub_key }) => {
+            if let Err(e) = flush_delta(wire_sink, pending_delta).await {
+                return MuxControl::Stop(Err(e));
+            }
+            *flush_deadline = None;
+            if let Some(key) = subs.resolve_key(&sub_key)
+                && let Some(sub) = subs.remove(&key)
+            {
+                sub.forwarder.abort();
+                let after_detach = sub.handle.human_channel().detach();
+                tracing::info!(
+                    session_id = %key,
+                    effective = ?after_detach,
+                    "nuo server: subscribed thread closed; human channel released"
+                );
+            }
+            if subs.is_empty() {
+                MuxControl::Stop(Ok(()))
+            } else {
+                MuxControl::Continue
+            }
+        }
+        None => {
+            let _ = flush_delta(wire_sink, pending_delta).await;
+            MuxControl::Stop(Ok(()))
+        }
+    }
+}
+
+struct MuxEnv<'a> {
+    caller_project: &'a std::path::Path,
+    client_posture: protocol::human_request::HumanChannelPosture,
+    registry: &'a crate::runtime::registry::ThreadRegistry,
+    mux_tx: &'a tokio::sync::mpsc::Sender<MuxEvent>,
+}
+
+async fn handle_subscribe_frame(
+    sub_action: protocol::AttachAction,
+    sub_project: Option<std::path::PathBuf>,
+    env: &MuxEnv<'_>,
+    subs: &mut SubscriptionTable,
+    wire_sink: &mut BoxWireSink,
+) -> MuxControl {
+    let sub_caller_project = match &sub_project {
+        Some(p) => host::paths::find_project_root(p),
+        None => env.caller_project.to_path_buf(),
+    };
+    match env
+        .registry
+        .resolve_with_declaration(sub_action, &sub_caller_project, sub_project.is_some())
+        .await
+    {
+        crate::runtime::registry::ResolveOutcome::Welcome(new_handle) => {
+            let tid = new_handle.session_id().await;
+            if let Some(existing) = subs.get_mut(&tid) {
+                // Idempotent re-subscribe: re-send acknowledgement + snapshot
+                // without double-attaching the human channel.
+                let phase = existing.handle.phase();
+                if let Err(e) = wire_sink
+                    .send(Wire::Subscribed {
+                        thread_id: tid.clone(),
+                        phase,
+                    })
+                    .await
+                {
+                    return MuxControl::Stop(Err(format!("wire send subscribed: {e}")));
+                }
+                if let Some(snapshot) = existing.handle.snapshot().await {
+                    existing.last_snapshot = Some(snapshot.clone());
+                    let _ = wire_sink
+                        .send(Wire::Response {
+                            response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
+                        })
+                        .await;
+                    let _ = wire_sink
+                        .send(Wire::Response {
+                            response: AgentResponse::ThreadPhase(protocol::ThreadPhaseUpdate {
+                                thread_id: tid,
+                                phase: protocol::ThreadPhase::Ready,
+                            }),
+                        })
+                        .await;
+                }
+            } else {
+                match hydrate_subscribed_thread(wire_sink, &new_handle, env.client_posture, false)
+                    .await
+                {
+                    Ok((new_tid, new_rx, new_snapshot)) => {
+                        let forwarder =
+                            spawn_thread_forwarder(new_tid.clone(), new_rx, env.mux_tx.clone());
+                        subs.insert(
+                            new_tid,
+                            SubscribedThread {
+                                handle: new_handle,
+                                last_snapshot: new_snapshot,
+                                forwarder,
+                            },
+                        );
+                    }
+                    Err(e) => return MuxControl::Stop(Err(e)),
+                }
+            }
+        }
+        crate::runtime::registry::ResolveOutcome::Pick { sessions } => {
+            if let Err(e) = wire_sink.send(Wire::Pick { threads: sessions }).await {
+                return MuxControl::Stop(Err(format!("send pick: {e}")));
+            }
+        }
+        crate::runtime::registry::ResolveOutcome::Refused { message, code } => {
+            if let Err(e) = send_error_with_code(wire_sink, &message, code).await {
+                return MuxControl::Stop(Err(e));
+            }
+        }
+    }
+    MuxControl::Continue
+}
+
+async fn handle_end_thread(
+    target_id: String,
+    registry: &crate::runtime::registry::ThreadRegistry,
+    subs: &mut SubscriptionTable,
+    mux_rx: &mut tokio::sync::mpsc::Receiver<MuxEvent>,
+    wire_sink: &mut BoxWireSink,
+    pending_delta: &mut Option<PendingDelta>,
+    flush_deadline: &mut Option<tokio::time::Instant>,
+) -> MuxControl {
+    let killed = match registry.kill_session(&target_id).await {
+        Ok(()) => {
+            tracing::info!(session = %target_id, "nuo server: client declared session end");
+            true
+        }
+        Err(e) => {
+            if registry.cancel_building(&target_id).await {
+                tracing::info!(
+                    session = %target_id,
+                    "nuo server: client cancelled an in-flight session build"
+                );
+            } else {
+                tracing::debug!(
+                    session = %target_id,
+                    error = %e,
+                    "nuo server: session already gone on client end"
+                );
+            }
+            false
+        }
+    };
+    if let Err(e) = flush_delta(wire_sink, pending_delta).await {
+        return MuxControl::Stop(Err(e));
+    }
+    *flush_deadline = None;
+
+    // Detach and drop the handle first so this connection does not keep the
+    // broadcast channel open, while keeping the forwarder alive long enough to
+    // deliver the terminal `Exit` frame broadcast by `kill_session`.
+    let forwarder = if let Some(sub) = subs.remove(&target_id) {
+        let _ = sub.handle.human_channel().detach();
+        drop(sub.handle);
+        Some(sub.forwarder)
+    } else {
+        None
+    };
+
+    if killed && forwarder.is_some() {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(250);
+        while let Ok(Some(ev)) = tokio::time::timeout_at(deadline, mux_rx.recv()).await {
+            match ev {
+                MuxEvent::Response { response, .. } => {
+                    let is_exit = matches!(*response, AgentResponse::Exit);
+                    if wire_sink
+                        .send(Wire::Response {
+                            response: *response,
+                        })
+                        .await
+                        .is_err()
+                        || is_exit
+                    {
+                        break;
+                    }
+                }
+                MuxEvent::Closed { sub_key } if sub_key == target_id => break,
+                MuxEvent::Lagged { .. } | MuxEvent::Closed { .. } => {}
+            }
+        }
+    }
+
+    if let Some(forwarder) = forwarder {
+        forwarder.abort();
+    }
+
+    if subs.is_empty() {
+        MuxControl::Stop(Ok(()))
+    } else {
+        MuxControl::Continue
+    }
+}
+
+async fn forward_thread_request(
+    target_id: &str,
+    request: AgentRequest,
+    subs: &SubscriptionTable,
+    wire_sink: &mut BoxWireSink,
+) {
+    let Some(sub) = subs.get(target_id) else {
+        tracing::warn!(
+            target = %target_id,
+            "nuo server: request addressed to unsubscribed thread"
+        );
+        return;
+    };
+    let req_tx = sub.handle.req_tx();
+    match req_tx.try_send(request) {
+        Ok(()) => {}
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!("nuo server: session request queue full, shedding load");
+            let err = Wire::Error {
+                message: "server session request queue is full (server busy)".to_string(),
+                code: Some("server_busy".to_string()),
+            };
+            let _ = wire_sink.send(err).await;
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            tracing::warn!(
+                target = %target_id,
+                "nuo server: session driver channel closed"
+            );
+        }
+    }
+}
+
+async fn run_attach_multiplexed(
+    mut wire_sink: BoxWireSink,
+    mut wire_source: BoxWireStream,
+    registry: Arc<crate::runtime::registry::ThreadRegistry>,
+    caller_project: std::path::PathBuf,
+    client_posture: protocol::human_request::HumanChannelPosture,
+    initial_handle: crate::runtime::registry::AttachHandle,
+) -> Result<(), String> {
+    let (session_id, initial_rx, initial_snapshot) =
+        hydrate_subscribed_thread(&mut wire_sink, &initial_handle, client_posture, true).await?;
+
+    let (mux_tx, mut mux_rx) = tokio::sync::mpsc::channel::<MuxEvent>(256);
+    let initial_forwarder = spawn_thread_forwarder(session_id.clone(), initial_rx, mux_tx.clone());
+    let mut subs = SubscriptionTable::new(
+        session_id,
+        SubscribedThread {
+            handle: initial_handle,
+            last_snapshot: initial_snapshot,
+            forwarder: initial_forwarder,
+        },
+    );
+
     // Consecutive streamed deltas ride one frame per coalescing window. Any
     // non-delta event, a channel lag, a channel close, or the client's end
     // frame flushes the pending run first, so ordering is never reordered.
     let mut pending_delta: Option<PendingDelta> = None;
     let mut flush_deadline: Option<tokio::time::Instant> = None;
 
-    loop {
+    let loop_result: Result<(), String> = loop {
         tokio::select! {
             _ = tokio::time::sleep_until(
                 flush_deadline.unwrap_or_else(tokio::time::Instant::now),
             ), if flush_deadline.is_some() => {
-                flush_delta(&mut wire_sink, &mut pending_delta).await?;
+                if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                    break Err(e);
+                }
                 flush_deadline = None;
             }
-            resp = rx.recv() => match resp {
-                Ok(response) => {
-                    if let AgentResponse::ThreadSnapshot(snapshot) = &response {
-                        last_snapshot = Some((**snapshot).clone());
-                    }
-                    match take_delta(response) {
-                        Ok((thread_id, context, kind, text)) => {
-                            if let Some(displaced) = queue_delta(
-                                &mut pending_delta,
-                                thread_id,
-                                context,
-                                kind,
-                                text,
-                            ) {
-                                send_delta(&mut wire_sink, displaced).await?;
-                            }
-                            if flush_deadline.is_none() {
-                                flush_deadline =
-                                    Some(tokio::time::Instant::now() + STREAM_COALESCE_WINDOW);
-                            }
-                        }
-                        Err(response) => {
-                            flush_delta(&mut wire_sink, &mut pending_delta).await?;
-                            flush_deadline = None;
-                            if let Err(e) = wire_sink.send(Wire::Response { response }).await {
-                                return Err(format!("wire send: {e}"));
-                            }
-                        }
-                    }
+            mux_event = mux_rx.recv() => {
+                if let MuxControl::Stop(res) = handle_mux_event(
+                    mux_event,
+                    &mut subs,
+                    &mut wire_sink,
+                    &mut pending_delta,
+                    &mut flush_deadline,
+                ).await {
+                    break res;
                 }
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
-                    flush_deadline = None;
-                    // A slow client fell behind and the bus dropped events.
-                    // Re-anchor from the authoritative snapshot instead of
-                    // letting the view drift.
-                    tracing::warn!(skipped = n, "nuo server: client lagged; re-anchoring from snapshot");
-                    if let Some(snapshot) = handle.snapshot().await {
-                        last_snapshot = Some(snapshot.clone());
-                        let _ = wire_sink
-                            .send(Wire::Response {
-                                response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
-                            })
-                            .await;
-                        let _ = wire_sink
-                            .send(Wire::Response {
-                                response: AgentResponse::ThreadPhase(protocol::ThreadPhaseUpdate {
-                                    thread_id: session_id.clone(),
-                                    phase: protocol::ThreadPhase::Ready,
-                                }),
-                            })
-                            .await;
-                    } else if let Some(snapshot) = &last_snapshot {
-                        let _ = wire_sink
-                            .send(Wire::Response {
-                                response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
-                            })
-                            .await;
-                    }
-                    continue;
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
-                    break;
-                }
-            },
+            }
             msg = wire_source.next() => match msg {
-                Some(Ok(WireFrame::Wire(Wire::Request { request: AgentRequest::EndThread }))) => {
-                    // Client-declared session end: tear down the hosted session
-                    // through the same path as `KillSession`, or cancel an
-                    // in-flight build. Never reaches the driver queue.
-                    match registry.kill_session(&session_id).await {
-                        Ok(()) => tracing::info!(
-                            session = %session_id,
-                            "nuo server: client declared session end"
-                        ),
-                        Err(e) => {
-                            if registry.cancel_building(&session_id).await {
-                                tracing::info!(
-                                    session = %session_id,
-                                    "nuo server: client cancelled an in-flight session build"
-                                );
-                            } else {
-                                tracing::debug!(
-                                    session = %session_id,
-                                    error = %e,
-                                    "nuo server: session already gone on client end"
-                                );
-                            }
-                        }
+                Some(Ok(WireFrame::Wire(Wire::Subscribe {
+                    action: sub_action,
+                    project: sub_project,
+                }))) => {
+                    if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                        break Err(e);
                     }
-                    // Flush the pending delta run, then the terminal `Exit`
-                    // (and anything behind it) so the client observes a
-                    // graceful end marker.
-                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
-                    while let Ok(event) = rx.try_recv() {
-                        if wire_sink.send(Wire::Response { response: event }).await.is_err() {
-                            break;
-                        }
+                    flush_deadline = None;
+                    let env = MuxEnv {
+                        caller_project: &caller_project,
+                        client_posture,
+                        registry: &registry,
+                        mux_tx: &mux_tx,
+                    };
+                    if let MuxControl::Stop(res) = handle_subscribe_frame(
+                        sub_action,
+                        sub_project,
+                        &env,
+                        &mut subs,
+                        &mut wire_sink,
+                    )
+                    .await
+                    {
+                        break res;
                     }
-                    return Ok(());
                 }
-                Some(Ok(WireFrame::Wire(Wire::Request { request }))) => {
-                    let req_tx = handle.req_tx();
-                    match req_tx.try_send(request) {
-                        Ok(()) => {}
-                        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                            tracing::warn!("nuo server: session request queue full, shedding load");
-                            let err = Wire::Error {
-                                message: "server session request queue is full (server busy)".to_string(),
-                                code: Some("server_busy".to_string()),
-                            };
-                            let _ = wire_sink.send(err).await;
-                        }
-                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                            tracing::warn!("nuo server: session driver channel closed");
-                            break;
-                        }
+                Some(Ok(WireFrame::Wire(Wire::Unsubscribe { thread_id }))) => {
+                    if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                        break Err(e);
                     }
+                    flush_deadline = None;
+                    if let Some(sub) = subs.remove(&thread_id) {
+                        sub.forwarder.abort();
+                        let after_detach = sub.handle.human_channel().detach();
+                        tracing::info!(
+                            session_id = %thread_id,
+                            effective = ?after_detach,
+                            "nuo server: thread unsubscribed; human channel released"
+                        );
+                    }
+                }
+                Some(Ok(WireFrame::Wire(Wire::Request {
+                    thread_id,
+                    request: AgentRequest::EndThread,
+                }))) => {
+                    let target_id = thread_id
+                        .as_deref()
+                        .unwrap_or_else(|| subs.primary())
+                        .to_string();
+                    if let MuxControl::Stop(res) = handle_end_thread(
+                        target_id,
+                        &registry,
+                        &mut subs,
+                        &mut mux_rx,
+                        &mut wire_sink,
+                        &mut pending_delta,
+                        &mut flush_deadline,
+                    ).await {
+                        break res;
+                    }
+                }
+                Some(Ok(WireFrame::Wire(Wire::Request { thread_id, request }))) => {
+                    let target_id = thread_id
+                        .as_deref()
+                        .unwrap_or_else(|| subs.primary())
+                        .to_string();
+                    forward_thread_request(&target_id, request, &subs, &mut wire_sink).await;
                 }
                 // A frame this build cannot model: report the skew on the
                 // server's own log and keep the connection. The peer still
                 // gets its turn to be understood [ADR-0136].
                 Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
                     tracing::warn!(
-                        session = %session_id,
+                        session = %subs.primary(),
                         envelope = envelope.as_deref().unwrap_or("<none>"),
                         %detail,
                         "nuo server: undecodable frame from client; connection retained"
@@ -940,22 +1460,15 @@ async fn handle_wire_stream(
                 Some(Ok(WireFrame::Wire(_))) => {}
                 Some(Err(e)) => tracing::warn!(error = %e, "nuo server: bad wire request"),
                 None => {
-                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
-                    break;
+                    let _ = flush_delta(&mut wire_sink, &mut pending_delta).await;
+                    break Ok(());
                 }
             },
         }
-    }
-    // Release this connection's channel hold (Detach). When the last
-    // interactive watcher leaves, the session drops to Autonomous and any
-    // request parked since resolves by labeled policy instead of hanging.
-    let after_detach = handle.human_channel().detach();
-    tracing::info!(
-        session_id = %session_id,
-        effective = ?after_detach,
-        "nuo server: human channel released"
-    );
-    Ok(())
+    };
+
+    subs.teardown();
+    loop_result
 }
 
 /// Everything one accepted TCP connection brings to its handshake: the socket,

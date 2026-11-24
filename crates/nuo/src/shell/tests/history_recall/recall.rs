@@ -399,6 +399,7 @@ async fn test_app_does_not_touch_disk_history() {
     // was sent to the server.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let persistence_intents: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter_map(|o| o.into_request())
         .filter(|req| {
             matches!(
                 req,
@@ -449,7 +450,7 @@ async fn history_rows_are_readonly_snapshots() {
     assert_eq!(app.composer.input, "newest row");
     assert!(!app.history_next(&rows));
     // The adopted/empty draft comes back, never the temporary edit.
-    assert_eq!(app.composer.input, app.composer.draft_capsule.text);
+    assert_eq!(app.composer.input, app.composer.stashed_draft.text);
 }
 
 /// The composer's recall badge: a 1-based pointer position over
@@ -539,10 +540,10 @@ fn recall_queued_adopts_content_as_draft() {
     assert_eq!(app.composer.input, "queued msg");
     assert_eq!(app.composer.history_index, None, "recall enters draft mode");
     assert_eq!(
-        app.composer.draft_capsule.text, "queued msg",
+        app.composer.stashed_draft.text, "queued msg",
         "recalled text becomes the draft"
     );
-    assert_eq!(app.composer.draft_capsule.pending_images.len(), 1);
+    assert_eq!(app.composer.stashed_draft.pending_images.len(), 1);
     assert_eq!(app.composer.pending_images.len(), 1);
 }
 

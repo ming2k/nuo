@@ -618,9 +618,25 @@ impl App {
     pub fn has_composer_content(&self) -> bool {
         !self.composer.input.is_empty()
             || self.composer.history_index.is_some()
-            || !self.composer.draft_capsule.is_empty()
+            || !self.composer.stashed_draft.is_empty()
             || !self.composer.pending_images.is_empty()
             || !self.composer.pending_text_pastes.is_empty()
+    }
+
+    /// The live composer buffers as a borrowed draft, without copying payloads.
+    ///
+    /// This is what the parked-draft ledger is fed. A `ComposerDraft` would have
+    /// to clone every staged base64 image to say "nothing changed"; the borrow
+    /// lets the ledger compare a cheap signal first and copy only on a real
+    /// change ([`crate::shell::draft_store::LiveDraft`]).
+    pub fn live_draft(&self) -> crate::shell::draft_store::LiveDraft<'_> {
+        crate::shell::draft_store::LiveDraft {
+            text: &self.composer.input,
+            cursor_position: self.composer.cursor_position,
+            pending_images: &self.composer.pending_images,
+            pending_text_pastes: &self.composer.pending_text_pastes,
+            input_scroll: self.composer.input_scroll,
+        }
     }
 
     /// Clear the live composer buffer, attachments, scroll offset, and active history recall state.
@@ -636,6 +652,10 @@ impl App {
         self.composer.pending_text_pastes.clear();
         self.transcript.selection = SelectionState::None;
         self.arm_ctrl_c(None);
+        // An explicit clear is the user *deleting* the draft, not parking it
+        // (ADR-0247): the ledger must forget it, or the next view transition
+        // would hand the cleared text straight back.
+        self.clear_parked_draft();
     }
 
     /// Mint the correlation id for a busy-Enter steer or a queued follow-up.
@@ -664,12 +684,12 @@ impl App {
     /// [`DraftAdoption::StashCurrent`] is for the paths where the composer may
     /// hold work the user is mid-way through (an asynchronous steer restore, a
     /// queue recall): the adopted text becomes live and the previous content is
-    /// captured into `draft_capsule`, so ↓ brings it back. Nothing is lost in
+    /// captured into `stashed_draft`, so ↓ brings it back. Nothing is lost in
     /// either direction — which is the point: the old `OnlyIfIdle` policy made
     /// "the composer is busy" silently equivalent to "discard the restore".
     ///
     /// The staged attachments are stored both in `pending_*` (what ships on
-    /// send) and mirrored into the `history_draft_*` slots (what ↓ restores).
+    /// send) and mirrored into the stash (what ↓ restores).
     pub fn adopt_as_draft(
         &mut self,
         text: String,
@@ -682,14 +702,14 @@ impl App {
                 || !self.composer.pending_images.is_empty()
                 || !self.composer.pending_text_pastes.is_empty())
         {
-            // Capture before the overwrite: the capsule is an atomic
-            // (text, cursor, attachments) triple, so the composer's previous
-            // state returns intact rather than half-restored.
+            // Capture before the overwrite: the stash is an atomic
+            // (text, caret, attachments, view offset) value, so the composer's
+            // previous state returns intact rather than half-restored.
             self.stash_draft();
             // `stash_draft` clears the live buffers; the adopted content is
-            // installed below. The capsule must NOT then be re-pointed at that
+            // installed below. The stash must NOT then be re-pointed at that
             // content — the whole point is that ↓ brings back what the user was
-            // writing, so the capsule keeps the *previous* draft.
+            // writing, so the stash keeps the *previous* draft.
             self.composer.history_index = None;
             self.composer.input = text;
             self.set_cursor_end();
@@ -701,6 +721,7 @@ impl App {
             }
             self.composer.suggestion_index = None;
             self.composer.completion_dismissed = true;
+            self.park_live_draft();
             return;
         }
         self.composer.history_index = None;
@@ -712,47 +733,302 @@ impl App {
         if !text_pastes.is_empty() {
             self.composer.pending_text_pastes = text_pastes;
         }
-        self.composer.draft_capsule = view::composer_mode::DraftCapsule::capture(
-            self.composer.input.clone(),
-            self.composer.cursor_position,
-            self.composer.pending_images.clone(),
-            self.composer.pending_text_pastes.clone(),
-        );
         // Programmatic input replacement: latch the completion dismissal so
         // the popup doesn't flash until the next real edit.
         self.composer.suggestion_index = None;
         self.composer.completion_dismissed = true;
+        // The adopted input *is* the returned draft: `↓` past the newest history
+        // row must come back to this text, never to a stale remembered one.
+        self.sync_stash_to_live();
+        self.park_live_draft();
     }
 
-    /// Atomic capture of current prompt and attachments into `draft_capsule` (ADR-0051 [INV-COMP-03]).
+    /// Atomic capture of the live composer into `stashed_draft`
+    /// (ADR-0051 `[INV-COMP-03]`).
+    ///
+    /// This is the **park** half: the live buffers are cleared because the
+    /// caller is about to lend the composer line to something else.
     pub fn stash_draft(&mut self) {
-        self.composer.draft_capsule = view::composer_mode::DraftCapsule::capture(
+        self.composer.stashed_draft = view::composer_draft::ComposerDraft::capture(
             std::mem::take(&mut self.composer.input),
             self.composer.cursor_position,
             std::mem::take(&mut self.composer.pending_images),
             std::mem::take(&mut self.composer.pending_text_pastes),
+            self.composer.input_scroll,
         );
         self.composer.cursor_position = 0;
+        self.composer.input_scroll = 0;
     }
 
-    /// Atomic restoration of `draft_capsule` into live prompt and attachments (ADR-0051 [INV-COMP-03]).
-    pub fn restore_stashed_draft(&mut self) {
-        self.composer.draft_capsule.restore_into(
-            &mut self.composer.input,
-            &mut self.composer.pending_images,
-            &mut self.composer.pending_text_pastes,
-            &mut self.composer.cursor_position,
+    /// Mirror the live composer into `stashed_draft` **without** taking it.
+    ///
+    /// This is the **`↓` return slot** half of the same value: while `↑` walks
+    /// history the composer shows a read-only row, and the first `↑` parked the
+    /// user's draft. Whenever the composer is in plain draft mode the stash must
+    /// agree with the live buffer, otherwise walking `↓` past the newest row
+    /// would restore a stale — or an empty — draft over text the user is looking
+    /// at.
+    fn sync_stash_to_live(&mut self) {
+        self.composer.stashed_draft = view::composer_draft::ComposerDraft::capture(
+            self.composer.input.clone(),
+            self.composer.cursor_position,
+            self.composer.pending_images.clone(),
+            self.composer.pending_text_pastes.clone(),
+            self.composer.input_scroll,
         );
     }
 
-    /// Clear the stashed draft capsule (ADR-0051 [INV-COMP-03]).
-    pub fn clear_stashed_draft(&mut self) {
-        self.composer.draft_capsule.clear();
+    /// Atomic restoration of `stashed_draft` into the live prompt, caret,
+    /// attachments and view offset (ADR-0051 `[INV-COMP-03]`).
+    pub fn restore_stashed_draft(&mut self) {
+        let stashed = std::mem::take(&mut self.composer.stashed_draft);
+        self.install_draft(stashed);
     }
 
-    /// Whether an atomic draft capsule is currently held.
+    /// Install `draft` as the live composer state.
+    ///
+    /// The **only** way a stored draft becomes the live buffer. The caret is
+    /// clamped to a `char` boundary by the value type, and the view offset is
+    /// carried rather than re-derived, so restoring a long multi-line draft
+    /// lands exactly where the user left the caret instead of at the end of a
+    /// viewport that had scrolled to the top.
+    ///
+    /// Deliberately does **not** touch the stash: a restore *consumes* the stash
+    /// (`restore_stashed_draft` takes it first), and a caller that means "this
+    /// text is now the unsent draft" goes through [`Self::adopt_as_draft`].
+    /// Mirroring here would make a rollback leave a stash behind, and the next
+    /// `↓` would then resurrect text the user had just dismissed.
+    pub fn install_draft(&mut self, draft: view::composer_draft::ComposerDraft) {
+        let cursor = draft.clamped_cursor();
+        self.composer.input = draft.text;
+        self.composer.pending_images = draft.pending_images;
+        self.composer.pending_text_pastes = draft.pending_text_pastes;
+        self.composer.cursor_position = cursor;
+        self.composer.input_scroll = draft.input_scroll;
+        self.composer.input_scroll_follow_cursor = true;
+        self.composer.suggestion_index = None;
+        self.composer.completion_dismissed = true;
+        self.park_live_draft();
+    }
+
+    /// Clear the stashed draft (ADR-0051 `[INV-COMP-03]`).
+    pub fn clear_stashed_draft(&mut self) {
+        self.composer.stashed_draft.clear();
+    }
+
+    /// Whether a stashed draft is currently held.
     pub fn has_stashed_draft(&self) -> bool {
-        !self.composer.draft_capsule.is_empty()
+        !self.composer.stashed_draft.is_empty()
+    }
+
+    /// The thread whose draft the composer is currently editing, if any.
+    ///
+    /// The active **tab's** thread id, and nothing else. A tab is what the user
+    /// chose; its intra-tab scene (the transcript, a subagent zoom, a log, a
+    /// diff) is a detail of how that thread is being read, and none of those
+    /// stops the composer from owning the thread's draft. Only a workspace tab
+    /// (Dashboard, Settings) has no thread — its inline prompt borrows the same
+    /// buffer, and parking that borrow as a draft would resurrect a dashboard
+    /// directive in the chat box.
+    pub fn draft_thread_id(&self) -> Option<String> {
+        self.surfaces
+            .surfaces
+            .active_tab()
+            .and_then(|tab| tab.thread_id())
+            .map(str::to_string)
+            .filter(|id| !id.is_empty())
+    }
+
+    /// Whether the live composer buffers are the **thread's draft**.
+    ///
+    /// They are not while a sub-mode borrows the line: `↑`/`↓` recall shows a
+    /// read-only history row, and Ctrl-R search shows the query needle. In both
+    /// cases the user's actual draft is in `stashed_draft` (ADR-0051
+    /// `[INV-COMP-03]`), so parking the live buffer then would overwrite the
+    /// thread's draft with a history row or a search query.
+    pub fn composer_owns_thread_draft(&self) -> bool {
+        self.composer.history_index.is_none()
+            && self.active_dialog() != Some(crate::shell::surfaces::DialogKind::HistorySearch)
+    }
+
+    /// Park the composer under the thread that owns it, whichever mode it is in.
+    ///
+    /// Unlike [`Self::park_live_draft`], this does **not** require the composer
+    /// to be showing the thread's draft: during `↑`/`↓` recall or Ctrl-R search
+    /// it parks the stash instead of the borrowed buffer
+    /// ([`Self::park_owned_composer`]). A departure is exactly the moment the
+    /// borrow ends, so it must resolve the right source rather than skip.
+    pub(crate) fn park_current_thread_draft(&mut self) {
+        let Some(thread_id) = self.draft_owner() else {
+            return;
+        };
+        self.park_owned_composer(&thread_id);
+        self.composer.draft_thread = Some(thread_id);
+    }
+
+    /// The thread that **owns** the live composer buffers (ADR-0247).
+    ///
+    /// `draft_thread` is authoritative whenever it is set: the buffer may already
+    /// be showing an arriving tab while the text in it still belongs to the
+    /// thread being left, so re-deriving the owner from the foreground at that
+    /// instant would park one thread's draft under another's id. The foreground is
+    /// consulted only before the first hand-off (a freshly built `App`).
+    fn draft_owner(&self) -> Option<String> {
+        self.composer
+            .draft_thread
+            .clone()
+            .or_else(|| self.draft_thread_id())
+    }
+
+    /// Park the live composer as the **current thread's** draft (ADR-0247).
+    ///
+    /// The one call site that publishes unsent input to durable state. It is
+    /// cheap enough to run on every heartbeat: an unchanged draft is compared by
+    /// a content signal and not copied at all.
+    ///
+    /// Deliberately *not* called from `clear_composer`/`send`: those paths must
+    /// go through [`Self::clear_parked_draft`] instead, because "the user's input
+    /// became an empty buffer" is a deletion, not a park.
+    pub fn park_live_draft(&mut self) {
+        if !self.composer_owns_thread_draft() {
+            return;
+        }
+        let Some(thread_id) = self.draft_owner() else {
+            return;
+        };
+        self.park_owned_composer(&thread_id);
+        self.composer.draft_thread = Some(thread_id);
+    }
+
+    /// Park whatever the composer currently holds under `thread_id`.
+    ///
+    /// Three sources, one rule — the thread keeps **one** draft, and it is
+    /// whichever text the user would get back by returning to the thread:
+    ///
+    /// - the composer owns the line: the live buffers are that draft;
+    /// - a sub-mode borrows it (`↑`/`↓` recall, Ctrl-R search): the live buffers
+    ///   hold a projection and the user's draft is the stash
+    ///   ([ADR-0051](../../../../docs/adr/0051-composer-canonical-quadrant-modality-atomic-draft-capsule-and-in-place-recall-topology.md)
+    ///   `[INV-COMP-03]`), so parking the borrowed row would overwrite the
+    ///   thread's draft with whatever happened to be highlighted;
+    /// - the live buffer is **empty** while the stash is not (the
+    ///   input-injection sheet's borrow, or a queue recall the user then emptied):
+    ///   the stash is the only real text, and parking the blank would *delete*
+    ///   the thread's draft through `park_live`'s empty-means-gone rule.
+    fn park_owned_composer(&mut self, thread_id: &str) {
+        if self.composer_owns_thread_draft()
+            && (!self.composer.input.is_empty()
+                || !self.composer.pending_images.is_empty()
+                || !self.composer.pending_text_pastes.is_empty())
+        {
+            let live = crate::shell::draft_store::LiveDraft {
+                text: &self.composer.input,
+                cursor_position: self.composer.cursor_position,
+                pending_images: &self.composer.pending_images,
+                pending_text_pastes: &self.composer.pending_text_pastes,
+                input_scroll: self.composer.input_scroll,
+            };
+            self.surfaces.drafts.park_live(thread_id, live);
+        } else if !self.composer.stashed_draft.is_empty() {
+            let stashed = self.composer.stashed_draft.clone();
+            self.surfaces.drafts.park(thread_id, stashed);
+        } else if self.composer_owns_thread_draft() {
+            // A genuinely empty composer: the user emptied it, so the stored
+            // draft must go too (an explicit `clear_composer`/send already
+            // forgets it directly; this covers the transition-path equivalent).
+            self.surfaces.drafts.forget(thread_id);
+        }
+    }
+
+    /// Hand the composer to the thread the user just arrived at.
+    ///
+    /// The **one** view-transition draft protocol (ADR-0247):
+    ///
+    /// 1. park what the composer holds, under the thread that owned it — the
+    ///    departing one, read from `draft_thread`, never re-derived from whatever
+    ///    the session id happens to be mid-transition;
+    /// 2. install the arriving thread's parked draft, or a clean buffer when it
+    ///    has none.
+    ///
+    /// Arriving at the thread that already owns the buffer is a no-op, which is
+    /// what makes re-focusing the active tab (`Alt-1` on the tab you are on) a
+    /// non-event instead of a silent draft reset.
+    pub fn hand_composer_to_current_thread(&mut self) {
+        let Some(arriving) = self.draft_thread_id() else {
+            // Leaving the chat canvas for a workspace scene (Dashboard,
+            // Settings): the composer line stops being any thread's draft. Park
+            // it first — the scene borrows the same buffer for its inline
+            // prompt, and a borrow must never be mistaken for the draft — then
+            // release ownership so returning to the thread *installs* it again
+            // instead of assuming the buffer still holds it.
+            if let Some(departing) = self.composer.draft_thread.take() {
+                self.park_owned_composer(&departing);
+            }
+            // The borrow ends with the canvas: `↑`/`↓` recall and Ctrl-R search
+            // are thread-scoped modes, and leaving them armed over another
+            // scene's buffer would let `↓` restore a history row into it.
+            self.composer.history_index = None;
+            self.clear_stashed_draft();
+            self.composer.input.clear();
+            self.composer.pending_images.clear();
+            self.composer.pending_text_pastes.clear();
+            self.composer.cursor_position = 0;
+            self.composer.input_scroll = 0;
+            return;
+        };
+        if self.composer.draft_thread.as_deref() == Some(arriving.as_str()) {
+            return;
+        }
+        if let Some(departing) = self.composer.draft_thread.clone() {
+            self.park_owned_composer(&departing);
+        }
+        self.composer.draft_thread = Some(arriving.clone());
+        self.composer.history_index = None;
+        self.clear_stashed_draft();
+        self.composer.suggestion_index = None;
+        self.composer.completion_dismissed = true;
+        self.composer.input_drag_scroll = None;
+        match self.surfaces.drafts.parked(&arriving).cloned() {
+            Some(draft) => self.install_draft(draft),
+            None => {
+                self.composer.input.clear();
+                self.composer.pending_images.clear();
+                self.composer.pending_text_pastes.clear();
+                self.composer.cursor_position = 0;
+                self.composer.input_scroll = 0;
+                self.composer.input_scroll_follow_cursor = true;
+            }
+        }
+    }
+
+    /// Park whatever the composer is holding **including the stash**, then
+    /// force every parked draft on disk.
+    ///
+    /// The exit seam (ADR-0247). It runs before this `App` is torn down — a
+    /// cross-thread tab switch, a `/new`, a fork, or a plain detach — because
+    /// every one of those paths builds a *new* `App` and the unsent text must
+    /// survive the gap. Park-under-`draft_thread` is shared with every other
+    /// transition, so this adds only the flush.
+    pub fn seal_drafts(&mut self) {
+        self.park_current_thread_draft();
+        self.surfaces.drafts.flush();
+    }
+
+    /// Retire the thread's draft: it is no longer unsent input.
+    ///
+    /// Called when the prompt was sent, the composer was explicitly cleared
+    /// (Ctrl+C), or the thread was discarded. Both halves of "the draft" go:
+    /// the ledger entry the thread owns **and** the transient stash, which may
+    /// hold a duplicate of the same text (a queue recall / Ctrl+R insert mirrors
+    /// the adopted text into the stash so `↓` returns it). Leaving either behind
+    /// would resurrect text the user has already sent or deleted on the next view
+    /// transition.
+    pub fn clear_parked_draft(&mut self) {
+        self.clear_stashed_draft();
+        let Some(thread_id) = self.draft_owner() else {
+            return;
+        };
+        self.surfaces.drafts.forget(&thread_id);
     }
 
     /// The currently active `ComposerExtensionKind`, if any.
@@ -872,12 +1148,15 @@ impl App {
         }
     }
 
-    /// Park the composer draft into `stashed_input` and clear the live line so
-    /// the input-injection modal (L3.5 β) can borrow it for free-text entry.
-    /// Mirrors the stash half of the provider/history pickers.
+    /// Park the composer into the shared draft stash so the input-injection
+    /// modal (L3.5 β) can borrow the input line for free-text entry.
+    ///
+    /// Uses the same atomic stash as history recall (ADR-0051
+    /// `[INV-COMP-03]`): one slot, one restore path, staged attachments
+    /// included. The previous design kept a separate `injection_stashed_input:
+    /// String` that silently dropped the user's pasted images and caret.
     pub fn park_input_draft(&mut self) {
-        self.composer.injection_stashed_input = std::mem::take(&mut self.composer.input);
-        self.set_cursor(0);
+        self.stash_draft();
         self.composer.input_scroll = 0;
         self.composer.suggestion_index = None;
     }
@@ -885,9 +1164,8 @@ impl App {
     /// Tear down the input-injection modal's borrowed state: hand the parked
     /// composer draft back. Does **not** touch the overlay stack.
     pub fn restore_input_draft(&mut self) {
-        self.composer.input = std::mem::take(&mut self.composer.injection_stashed_input);
-        self.set_cursor_end();
-        self.composer.input_scroll = 0;
+        self.restore_stashed_draft();
+        self.composer.input_scroll_follow_cursor = true;
         self.composer.suggestion_index = None;
         self.surfaces.modal_index = 0;
     }

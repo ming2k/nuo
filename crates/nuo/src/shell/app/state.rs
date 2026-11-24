@@ -10,6 +10,14 @@ pub struct SessionState {
     /// counters) for every session this client has observed, keyed by
     /// `session_id`.
     pub session_chrome: std::collections::HashMap<String, SessionChrome>,
+    /// Resident in-memory workspaces for inactive subscribed thread tabs
+    /// (ADR-0251 `[INV-MUX-02]`). The active thread lives directly in
+    /// `App::transcript` / `App::session` and swaps in O(1) on tab switch.
+    pub workspaces:
+        std::collections::HashMap<String, crate::shell::app::workspaces::ThreadWorkspace>,
+    /// Thread IDs currently subscribed on this multiplexed connection
+    /// (ADR-0251 `[INV-MUX-01]`).
+    pub subscribed_threads: std::collections::HashSet<String>,
     /// The **live primary session id** (M1): the harness repoints
     /// its shared store on `/new`, `/session open`, `/resume`, and `/fork`;
     /// the translator reports each repoint here and session-scoped client
@@ -327,8 +335,14 @@ pub struct ComposerState {
     /// the matching chip in the input is just a short label so the input
     /// box stays compact. Order matches the chip numbering.
     pub pending_text_pastes: Vec<String>,
-    /// Atomic draft capsule snapshot captured on entering transient sub-modes (ADR-0051 [INV-COMP-03]).
-    pub draft_capsule: view::composer_mode::DraftCapsule,
+    /// Atomic draft snapshot held while a transient sub-mode borrows the
+    /// composer line (ADR-0051 `[INV-COMP-03]`, ADR-0247).
+    ///
+    /// Same value type as a parked draft ([`view::composer_draft::ComposerDraft`]),
+    /// because "the composer's text plus its caret plus its staged attachments"
+    /// is one concept with two lifetimes: a *stash* that lives as long as a
+    /// sub-mode, and a *park* that lives as long as the thread.
+    pub stashed_draft: view::composer_draft::ComposerDraft,
     /// In-memory attachment cache for recorded history entries, keyed by
     /// `(text, session_id)` — see [`HistoryAttachments`]. Seeded by
     /// `Self::record_input_history`, consumed by the ↑/↓ and Ctrl+R recall
@@ -406,14 +420,6 @@ pub struct ComposerState {
     /// and `Steering` rows exist only here (an in-flight ack, and a steer held
     /// in the running round). The client never dispatches this queue itself.
     pub pending_dispatch: VecDeque<QueuedDispatch>,
-    /// The composer draft parked while the input-injection sheet
-    /// (L3.5 β) borrows the input line. The
-    /// picker flows (Models / Connections / History) park their drafts in
-    /// per-view slots on the `PanelRegistry`; this remaining global slot
-    /// serves the one request-driven borrowed-line surface, whose
-    /// lifecycle (queue-front arrival → reply) never coexists with a
-    /// picker's.
-    pub injection_stashed_input: String,
     /// Epoch milliseconds of the last composer submission. The ledger records
     /// when the provider was dispatched; together they let the latency timeline
     /// show what happened *before* dispatch (queue, context projection, hooks).
@@ -427,6 +433,21 @@ pub struct ComposerState {
     /// Flushed in order on the `Ready` transition; the server also buffers
     /// defensively, but the client-side queue keeps the UI honest.
     pub pending_prompts: Vec<protocol::AgentRequest>,
+    /// When the live composer was last mirrored into the parked-draft ledger
+    /// (ADR-0247). Drives the autosave cadence so a crash loses at most one
+    /// second of typing, without fsyncing on every keystroke.
+    pub draft_autosave_at: std::time::Instant,
+    /// **Which thread's draft the live buffers currently are** (ADR-0247).
+    ///
+    /// The composer is one buffer and every thread has one draft, so exactly one
+    /// identity must own the buffer at any instant — and a transition is
+    /// precisely the moment the two can disagree. Recording the owner makes the
+    /// handoff explicit and checkable: arriving at the thread already named here
+    /// is a no-op (re-focusing the active tab must not reset a draft), and
+    /// arriving anywhere else parks this buffer and installs that thread's.
+    ///
+    /// `None` before the first thread is known (a pre-attach client).
+    pub draft_thread: Option<String>,
 }
 
 /// `human` state.
@@ -701,6 +722,12 @@ pub struct SurfacesState {
     /// [`ProviderDeleteChoice::Cancel`] (the safe choice) each time the overlay
     /// opens; ←/→/Tab move between the two buttons.
     pub provider_delete_focus: ProviderDeleteChoice,
+    /// The parked drafts, one per thread (ADR-0247).
+    ///
+    /// Owned here rather than on each tab: a tab is a view, and the text belongs
+    /// to the thread. This is the only place an unsent draft can outlive the
+    /// view that held it — and the only place it outlives the process.
+    pub drafts: crate::shell::draft_store::DraftLedger,
     /// Authoritative foreground surface: the root Scene plus the LIFO overlay
     /// stack floating over it. The router is the single navigation
     /// truth — there is no parallel `active_modal` / `active_panel` /
@@ -880,7 +907,7 @@ pub struct TelemetryState {
 
 /// `link` state.
 pub struct LinkState {
-    pub tx: mpsc::UnboundedSender<AgentRequest>,
+    pub tx: mpsc::UnboundedSender<crate::shell::client::ClientOutbound>,
     pub should_quit: Arc<AtomicBool>,
     /// Wall-clock instant of the last user key press or input edit. Used by
     /// the event loop to quiesce background animation redraws while active

@@ -7,7 +7,7 @@ use super::{E, M, TranslatorState};
 
 impl TranslatorState {
     /// Human-in-the-loop requests and nested subagent events.
-    pub(super) async fn handle_interaction_event(&mut self, event: RoundEvent) {
+    pub(super) async fn handle_interaction_event(&mut self, session_id: String, event: RoundEvent) {
         match event {
             RoundEvent::SubagentStep {
                 parent_call_id,
@@ -46,10 +46,13 @@ impl TranslatorState {
                     }
                     _ => {}
                 }
-                self.transcript(E::SubagentEvent {
-                    parent_call_id,
-                    event,
-                })
+                self.transcript(
+                    &session_id,
+                    E::SubagentEvent {
+                        parent_call_id,
+                        event,
+                    },
+                )
                 .await;
             }
             RoundEvent::PermissionRequest(request) => {

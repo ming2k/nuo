@@ -21,10 +21,10 @@
 //! contextual tours. A missing provider replaces the carousel with a pinned
 //! setup blocker (ADR-0057 → ADR-0104) — nothing rotates until the blocker clears.
 //!
-//! The carousel is also where the Help dialog is advertised (ADR-0219): the
-//! TabBar's former constant `F1 help` keycap is retired, so one page reads
-//! "See every shortcut with `F1` or `Alt-h`". Teaching it here costs nothing
-//! on any other row and can say what the key is for, which a keycap cannot.
+//! The carousel also teaches the Help dialog's dual chords (`F1` / `Alt-h`),
+//! complementing the TabBar's elastic help portal (ADR-0245) with a full
+//! sentence explaining what the dialog contains ("See every shortcut with
+//! `F1` or `Alt-h`").
 //!
 //! The logo source is pluggable: a caller may pass user-supplied lines (loaded
 //! from `$XDG_CONFIG_HOME/nuo/logo.txt`); when absent the built-in figlet

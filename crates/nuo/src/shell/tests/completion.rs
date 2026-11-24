@@ -1209,7 +1209,10 @@ fn esc_interrupt_fires_on_second_press_and_rearms_after() {
     super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Primary);
     assert!(app.esc_armed(), "the first Esc arms the window");
     super::event_loop::handle_esc_interrupt(&mut app, super::event_loop::InterruptTarget::Primary);
-    assert!(matches!(rx.try_recv(), Ok(AgentRequest::Interrupt)));
+    assert!(matches!(
+        rx.try_recv().ok().and_then(|o| o.into_request()),
+        Some(AgentRequest::Interrupt)
+    ));
     assert!(!app.esc_armed(), "firing consumes the arm");
 
     // The next press starts a fresh confirmation instead of firing again.
@@ -1257,12 +1260,9 @@ fn subagent_scene_esc_interrupts_only_the_viewed_child() {
 
     // The wire request is the child-scoped verb, carrying the zoomed call id —
     // NOT the primary `Interrupt`.
-    match rx.try_recv() {
-        Ok(request) => match request {
-            AgentRequest::InterruptSubagent { call_id } => assert_eq!(call_id, "call_zoom"),
-            other => panic!("expected a subagent-scoped interrupt, got {other:?}"),
-        },
-        Err(error) => panic!("expected a subagent-scoped interrupt, got recv error {error:?}"),
+    match rx.try_recv().ok().and_then(|o| o.into_request()) {
+        Some(AgentRequest::InterruptSubagent { call_id }) => assert_eq!(call_id, "call_zoom"),
+        other => panic!("expected a subagent-scoped interrupt, got {other:?}"),
     }
 
     // The primary round is untouched: its queue is not blocked and the runtime

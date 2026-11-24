@@ -82,7 +82,7 @@ pub(super) async fn handle_send_chat(
                 images,
                 sent_at_ms: Some(now_epoch_ms()),
             });
-            app.clear_history_draft();
+            app.clear_parked_draft();
             app.record_client_notice(
                 crate::shell::app::notice_catalog::ClientNotice::QueuedWhilePreparing,
             );
@@ -96,7 +96,7 @@ pub(super) async fn handle_send_chat(
                         composer_attachments::strip_orphan_image_chips(&expanded, images.len());
                     let id = app.new_insert_id();
                     app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
-                    app.clear_history_draft();
+                    app.clear_parked_draft();
                     app.transcript.follow_bottom = true;
                     app.transcript.pin_summary_line = None;
                     let queued_at_ms = now_epoch_ms();
@@ -150,7 +150,7 @@ pub(super) async fn handle_send_chat(
                             text_pastes: text_pastes.clone(),
                         });
                     app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
-                    app.clear_history_draft();
+                    app.clear_parked_draft();
                     app.transcript.follow_bottom = true;
                     app.transcript.pin_summary_line = None;
                     app.send_intent(AgentRequest::FollowUp {
@@ -199,7 +199,7 @@ pub(super) async fn handle_send_chat(
             app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
             // The draft's content has been sent — it is now a
             // history row, not the unsent slot.
-            app.clear_history_draft();
+            app.clear_parked_draft();
             app.transcript.follow_bottom = true;
             app.transcript.pin_summary_line = None;
             app.send_intent(AgentRequest::Prompt {

@@ -98,6 +98,16 @@ pub enum AgentResponse {
     /// Replace the threads picker contents. Data responses never navigate;
     /// slash-command presentation is signalled separately.
     ThreadsOverview(Vec<ThreadOverview>),
+    /// Reply to [`AgentRequest::CheckThreadsExist`] (ADR-0250): the subset of
+    /// queried thread IDs confirmed absent from the server's catalog.
+    ThreadsExistence {
+        missing_thread_ids: Vec<String>,
+    },
+    /// Live broadcast when a thread is deleted on the server (ADR-0250), so
+    /// connected clients immediately forget and unlink any parked draft for it.
+    ThreadDeleted {
+        thread_id: String,
+    },
     /// Presentation signal for bare `/threads` / `/thread list`.
     OpenThreadsPanel,
     /// Replace the thread-tree view's data without changing navigation. The
@@ -183,6 +193,12 @@ pub enum AgentResponse {
     /// `[INV-ATTACH-04]`). Sent after Welcome; `Ready` always follows the
     /// authoritative snapshot on the same connection.
     ThreadPhase(ThreadPhaseUpdate),
+    /// A multiplexed subscription (`Wire::Subscribe`) was accepted for
+    /// `thread_id` on the existing connection (ADR-0251).
+    ThreadSubscribed {
+        thread_id: String,
+        phase: ThreadPhase,
+    },
     /// Incremental state delta update (ADR-0049).
     StateDelta(StateDelta),
 }

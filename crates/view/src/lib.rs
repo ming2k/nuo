@@ -12,6 +12,7 @@ pub use ui_primitives::Theme;
 
 pub mod components;
 pub mod composer_attachments;
+pub mod composer_draft;
 pub mod composer_mode;
 pub mod disclosure;
 pub mod disclosure_config;

@@ -37,9 +37,16 @@ queue is a pure cost.
 The journal runtime owns a fixed number of lanes:
 
 ```text
-lanes = min(4, available_parallelism)
+lanes = clamp(available_parallelism, 2, 16)   # amended by ADR-0248
 lane  = crc32c(session_id) % lanes
 ```
+
+The original count was `min(4, available_parallelism)`. Four lanes decoupled a
+handful of sessions but capped concurrent `fdatasync` calls at four and made a
+collision between two busy sessions likely. ADR-0248 §6 sizes the lane count by
+the resource it contends for: the disk's parallel-fsync capacity, floored at two
+and capped at sixteen so a pathological core count cannot spawn more lane
+threads than the disk can serve.
 
 Each lane is a dedicated OS thread fed by a bounded `tokio::mpsc` channel. A
 session is hashed once, so all of its appends are FIFO by construction; two
@@ -107,3 +114,6 @@ previous one is used.
   lie; the journal's whole contract is the fsync.
 - **Do not share a lane's file handle across threads.** `O_APPEND` makes the
   write atomic, not the ordering; the lane is the ordering authority.
+- **Do not derive the lane count from the session count.** Lanes are a
+  process-wide fsync budget (ADR-0248); sizing them per hosted session turns a
+  bounded resource into an unbounded one.

@@ -6,8 +6,8 @@ use protocol::{AgentResponse, RoundEvent};
 
 use crate::shell::event_loop;
 use crate::shell::transcript::{
-    merge_command_rows, merge_round_interrupt_rows, transcript_commands_from_ledger,
-    transcript_interrupts_from_records, transcript_messages_from_core,
+    merge_timeline_rows, transcript_commands_from_ledger, transcript_interrupts_from_records,
+    transcript_messages_from_core,
 };
 
 use super::{E, M, TranslatorState};
@@ -17,6 +17,13 @@ impl TranslatorState {
     /// transcript and rebases every thread-scoped client projection.
     pub(super) async fn handle_thread_hydration(&mut self, resp: AgentResponse) {
         match resp {
+            AgentResponse::ThreadSubscribed { thread_id, phase } => {
+                self.session_gate.hydrate(&thread_id);
+                let _ = self.thread_mut(&thread_id);
+                self.mutations
+                    .send(M::ThreadSubscribed { thread_id, phase })
+                    .await;
+            }
             AgentResponse::ConversationCleared {
                 previous_id,
                 thread_id: session_id,
@@ -25,18 +32,25 @@ impl TranslatorState {
                 // it just left can no longer write into it; the session
                 // it is entering is current again.
                 self.session_gate.supersede(&previous_id, &session_id);
-                // The left session's terminal frames are now dropped by
-                // the gate, so its per-round translator state must not
-                // leak into the new session's first turn.
-                self.retry_progress = None;
-                self.reasoning_start = None;
+                self.threads.remove(&previous_id);
+                {
+                    let ts = self.thread_mut(&session_id);
+                    ts.retry_progress = None;
+                    ts.reasoning_start = None;
+                    ts.needs_round_rebase = false;
+                }
                 self.mutations
                     .send(M::Transcript {
+                        thread_id: Some(session_id.clone()),
                         edit: event_loop::mutations::TranscriptEdit::Clear,
                     })
                     .await;
-                self.mutations.send(M::SetRoundCount(0)).await;
-                self.needs_round_rebase = false;
+                self.mutations
+                    .send(M::SetRoundCount {
+                        thread_id: Some(session_id.clone()),
+                        round: 0,
+                    })
+                    .await;
                 self.mutations.send(M::ClearContextTokens).await;
                 // `/new` minted a fresh thread and switched to it: rebase
                 // **the tab that represented `previous_id`** — never "the
@@ -67,23 +81,28 @@ impl TranslatorState {
                 // buffer must never receive the superseded session's
                 // trailing frames, nor inherit its per-round state.
                 self.session_gate.supersede(&previous_id, &session_id);
-                self.retry_progress = None;
-                self.reasoning_start = None;
+                self.threads.remove(&previous_id);
+                {
+                    let ts = self.thread_mut(&session_id);
+                    ts.retry_progress = None;
+                    ts.reasoning_start = None;
+                    ts.needs_round_rebase = true;
+                }
                 self.mutations.send(M::ClearSwitchingSession).await;
                 let mut rebuilt = transcript_messages_from_core(messages, &self.tui_config);
-                rebuilt = merge_command_rows(rebuilt, transcript_commands_from_ledger(commands));
-                rebuilt = merge_round_interrupt_rows(
+                rebuilt = merge_timeline_rows(
                     rebuilt,
+                    transcript_commands_from_ledger(commands),
                     transcript_interrupts_from_records(round_interrupts),
                 );
                 self.mutations
                     .send(M::Transcript {
+                        thread_id: Some(session_id.clone()),
                         edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
                             messages: rebuilt,
                         },
                     })
                     .await;
-                self.needs_round_rebase = true;
                 // The model-window revision changed; do not reuse an API
                 // anchor from the previous thread/projection.
                 self.mutations.send(M::ClearContextTokens).await;
@@ -109,7 +128,15 @@ impl TranslatorState {
                 // buffer now holds. It cannot be a superseded one, and it
                 // repoints the live id that gates thread-scoped replies.
                 self.session_gate.hydrate(&sid);
-                self.live_session = sid.clone();
+                {
+                    let ts = self.thread_mut(&sid);
+                    ts.provider = snapshot.provider.clone();
+                    ts.model = snapshot.model.clone();
+                    ts.needs_round_rebase = true;
+                }
+                if self.live_session.is_empty() {
+                    self.live_session = sid.clone();
+                }
                 // `[INV-ATTACH-04]` (ADR-0133): this frame is the
                 // authoritative hydration payload. Rebuild the whole
                 // visible transcript from it (and the command ledger),
@@ -117,24 +144,25 @@ impl TranslatorState {
                 // the snapshot's own thread id.
                 let mut rebuilt =
                     transcript_messages_from_core(snapshot.messages, &self.tui_config);
-                rebuilt =
-                    merge_command_rows(rebuilt, transcript_commands_from_ledger(snapshot.commands));
-                rebuilt = merge_round_interrupt_rows(
+                rebuilt = merge_timeline_rows(
                     rebuilt,
+                    transcript_commands_from_ledger(snapshot.commands),
                     transcript_interrupts_from_records(snapshot.round_interrupts),
                 );
                 self.mutations
                     .send(M::Transcript {
+                        thread_id: Some(sid.clone()),
                         edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
                             messages: rebuilt,
                         },
                     })
                     .await;
                 self.mutations
-                    .send(M::SetRoundCount(snapshot.round_counter))
+                    .send(M::SetRoundCount {
+                        thread_id: Some(sid.clone()),
+                        round: snapshot.round_counter,
+                    })
                     .await;
-                self.mutations.send(M::ClearContextTokens).await;
-                self.needs_round_rebase = true;
                 if let Some(picker) = snapshot.provider_picker {
                     self.mutations.send(M::ProviderPicker(picker)).await;
                 }
@@ -146,19 +174,25 @@ impl TranslatorState {
                 if let Some(ct) = snapshot.context_tokens {
                     self.mutations
                         .send(M::ContextTokens {
-                            session_id: sid,
+                            session_id: sid.clone(),
                             snapshot: ct,
                         })
                         .await;
                 }
                 if let Some(harness) = snapshot.harness_state {
-                    self.mutations.send(M::Harness(harness)).await;
+                    self.mutations
+                        .send(M::Harness {
+                            thread_id: Some(sid.clone()),
+                            snapshot: harness,
+                        })
+                        .await;
                 }
                 if let Some(catalog) = snapshot.command_catalog {
                     self.mutations.send(M::CommandCatalog(catalog)).await;
                 }
                 self.mutations
                     .send(M::ProviderSwitched {
+                        thread_id: Some(sid),
                         provider: snapshot.provider,
                         model: snapshot.model,
                     })
@@ -184,6 +218,16 @@ impl TranslatorState {
             }
             AgentResponse::ThreadsOverview(sessions) => {
                 self.mutations.send(M::SessionsOverview(sessions)).await;
+            }
+            AgentResponse::ThreadsExistence { missing_thread_ids } => {
+                self.mutations
+                    .send(M::ReconcileMissingDrafts(missing_thread_ids))
+                    .await;
+            }
+            AgentResponse::ThreadDeleted { thread_id } => {
+                self.mutations
+                    .send(M::ForgetDeletedThreadDraft(thread_id))
+                    .await;
             }
             AgentResponse::OpenThreadsPanel => {
                 self.mutations.send(M::OpenSessionsPanel).await;
@@ -257,7 +301,12 @@ impl TranslatorState {
                 self.mutations.send(M::ServerEndpoints(report)).await;
             }
             AgentResponse::ThreadPhase(update) => {
-                self.mutations.send(M::SessionPhase(update.phase)).await;
+                self.mutations
+                    .send(M::SessionPhase {
+                        thread_id: Some(update.thread_id),
+                        phase: update.phase,
+                    })
+                    .await;
             }
             _ => {}
         }
@@ -267,8 +316,12 @@ impl TranslatorState {
     pub(super) async fn handle_harness_event(&mut self, session_id: String, event: RoundEvent) {
         match event {
             RoundEvent::HarnessState(snapshot) => {
-                self.harness.loop_status = snapshot.loop_status;
-                self.harness.round_counter = snapshot.round_counter;
+                {
+                    let ts = self.thread_mut(&session_id);
+                    ts.harness.loop_status = snapshot.loop_status;
+                    ts.harness.round_counter = snapshot.round_counter;
+                    ts.harness.workspace_security = snapshot.workspace_security.clone();
+                }
                 let running = !snapshot.loop_status.is_idle();
                 // View-scoped chrome: the authoritative
                 // running/idle transition for this session.
@@ -288,14 +341,12 @@ impl TranslatorState {
                 // deduplicates (it mounts only when the
                 // interstitial is absent).
                 {
-                    self.harness.workspace_security = snapshot.workspace_security.clone();
                     let gate_needed = !self.trust_gate_dismissed.load(Ordering::SeqCst)
-                        && view::trust_gate::gate_request(&self.harness.workspace_security)
-                            .is_some();
+                        && view::trust_gate::gate_request(&snapshot.workspace_security).is_some();
                     if gate_needed {
                         self.mutations
                             .send(M::PreAttach(crate::shell::PreAttachSignal {
-                                snapshot: self.harness.workspace_security.clone(),
+                                snapshot: snapshot.workspace_security.clone(),
                             }))
                             .await;
                     }
@@ -314,31 +365,32 @@ impl TranslatorState {
                     // command component still Pending will
                     // never receive its reply on this pass
                     // mark Cancelled.
-                    self.mutations
-                        .send(M::Transcript {
-                            edit: E::CancelPendingCommands,
-                        })
-                        .await;
+                    self.transcript(&session_id, E::CancelPendingCommands).await;
                     self.mutations.send(M::SetPhase(None)).await;
                     self.mutations.send(M::SetCurrentTurn(0)).await;
                     self.mutations.send(M::SetRoundStartedAt(None)).await;
                 }
-                if !running && self.needs_round_rebase {
+                if !running && self.thread_mut(&session_id).needs_round_rebase {
                     // A session switch replaced the transcript
                     // before its authoritative idle snapshot
                     // arrived: rebase the reconstructed tail
                     // exactly once, now that the persisted
                     // round counter is known.
-                    self.mutations
-                        .send(M::Transcript {
-                            edit: E::RebaseRounds {
-                                round_counter: snapshot.round_counter,
-                            },
-                        })
-                        .await;
-                    self.needs_round_rebase = false;
+                    self.transcript(
+                        &session_id,
+                        E::RebaseRounds {
+                            round_counter: snapshot.round_counter,
+                        },
+                    )
+                    .await;
+                    self.thread_mut(&session_id).needs_round_rebase = false;
                 }
-                self.mutations.send(M::Harness(snapshot.clone())).await;
+                self.mutations
+                    .send(M::Harness {
+                        thread_id: Some(session_id.clone()),
+                        snapshot: snapshot.clone(),
+                    })
+                    .await;
 
                 // A harness state change is always a round
                 // boundary. If the previous round ended
@@ -346,30 +398,23 @@ impl TranslatorState {
                 // arrives; freeze the orphaned trace so the
                 // spinner stops.
                 let duration_ms = self
+                    .thread_mut(&session_id)
                     .reasoning_start
                     .take()
                     .map(|started| started.elapsed().as_millis() as u64);
                 if !running {
-                    self.retry_progress = None;
-                    // ADR-0166: a `HarnessState` sample is not a
-                    // round boundary. The provisional-row sweep
-                    // lives on the round-outcome events
-                    // (`RoundCompleted` / `RoundInterrupted` /
-                    // `Error`), which *mean* "the round ended".
-                    // Making an idle sample harmless requires the
-                    // server to publish idle only when it is idle;
-                    // that is enforced at every publisher.
+                    self.thread_mut(&session_id).retry_progress = None;
                 }
-                self.transcript(E::FinalizeOrphanedReasoning { duration_ms })
+                self.transcript(&session_id, E::FinalizeOrphanedReasoning { duration_ms })
                     .await;
             }
             RoundEvent::TodosUpdated(_) => {}
             RoundEvent::UnattendedChanged(enabled) => {
-                self.harness.unattended = enabled;
+                self.thread_mut(&session_id).harness.unattended = enabled;
                 self.mutations.send(M::HarnessUnattended(enabled)).await;
             }
             RoundEvent::ConfinementChanged(confined) => {
-                self.harness.confined = confined;
+                self.thread_mut(&session_id).harness.confined = confined;
                 self.mutations.send(M::HarnessConfined(confined)).await;
             }
             _ => {}

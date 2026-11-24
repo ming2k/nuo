@@ -408,13 +408,19 @@ impl std::fmt::Debug for AssembleErr {
     }
 }
 
-pub(super) fn lookup_latest_session_in_scope(scope: &protocol::ThreadScope) -> Option<String> {
-    persistence::db::get_persistence_handle()
-        .reader()
-        .ok()?
-        .latest_session_in_scope(scope)
-        .ok()
-        .flatten()
+pub(super) async fn lookup_latest_session_in_scope(
+    scope: &protocol::ThreadScope,
+) -> Option<String> {
+    let scope = scope.clone();
+    tokio::task::spawn_blocking(move || {
+        persistence::db::get_persistence_handle()
+            .with_reader(|reader| reader.latest_session_in_scope(&scope))
+            .ok()
+            .flatten()
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Resolve a session's durable binding (scope + workspace) by exact id,

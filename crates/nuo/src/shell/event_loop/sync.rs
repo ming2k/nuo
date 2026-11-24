@@ -198,10 +198,20 @@ fn user_prompt_tail(messages: &[TranscriptMessage]) -> Vec<(String, bool, u64)> 
         .collect()
 }
 
+/// How often the live composer is mirrored into the parked-draft ledger.
+///
+/// The ledger is write-through, not synchronous-with-every-keystroke: a draft
+/// one second stale is a second of typing lost to a crash, which is the right
+/// trade against fsyncing on every character. Every *transition* (send, clear,
+/// tab switch, detach) parks synchronously; this tick only covers the "the
+/// process died mid-sentence" case.
+const DRAFT_AUTOSAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// The per-frame session/view reconciliation (M1): project the
-/// viewed session's state, publish the routing fact to the translator, and
-/// run the history backfill. Returns whether the *displayed* transcript
-/// changed shape (bottom-follow staging) and the viewed session id.
+/// viewed session's state, publish the routing fact to the translator,
+/// autosave the composer draft, and run the history backfill. Returns whether
+/// the *displayed* transcript changed shape (bottom-follow staging) and the
+/// viewed session id.
 pub(crate) async fn sync_transcripts_and_session(
     app: &mut App,
     runtime: &UiRuntime,
@@ -216,6 +226,9 @@ pub(crate) async fn sync_transcripts_and_session(
         app.on_viewed_session_changed();
         app.session.switching_session = None;
     }
+
+    autosave_draft(app);
+    app.surfaces.drafts.flush();
 
     let backfill_from = app.composer.session_history_backfill_cursor;
     let viewed_len = app.transcript.messages.len();
@@ -240,6 +253,20 @@ pub(crate) async fn sync_transcripts_and_session(
         .copied();
 
     (displayed_transcript_changed, viewed_session_id)
+}
+
+/// Mirror the live composer into the parked-draft ledger on the autosave
+/// cadence. A no-op when the draft is unchanged (the ledger compares a content
+/// signal and never copies the attachments).
+fn autosave_draft(app: &mut App) {
+    if app.session.current_session_id.is_empty() {
+        return;
+    }
+    if app.composer.draft_autosave_at.elapsed() < DRAFT_AUTOSAVE_INTERVAL {
+        return;
+    }
+    app.composer.draft_autosave_at = std::time::Instant::now();
+    app.park_live_draft();
 }
 
 /// Consume the one-shot backend navigation signals the applier latched

@@ -28,7 +28,7 @@ impl App {
     /// pressing ↑ and silently discarding it.
     ///
     /// The `draft saved` reassurance is *not* computed here — it is a
-    /// presentation fact about `Self::draft_capsule` (non-empty vs empty),
+    /// presentation fact about `Self::stashed_draft` (non-empty vs empty),
     /// appended by the renderer. This function answers only "where is the
     /// pointer and has the buffer forked".
     pub fn history_recall_badge(&self) -> Option<(usize, usize, bool)> {

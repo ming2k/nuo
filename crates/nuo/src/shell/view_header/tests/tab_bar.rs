@@ -29,8 +29,7 @@ fn row1_renders_tabs_without_ordinal_prefixes() {
     );
     assert!(
         !row.contains("F1"),
-        "the TabBar no longer spends its right edge on a help keycap — help \
-         discovery lives in the empty-state tour (ADR-0219): {row}"
+        "unbound help_key renders no fabricated keycap (ADR-0131 [INV-AFFORDANCE-08], ADR-0245): {row}"
     );
 }
 
@@ -178,8 +177,12 @@ fn row1_renders_semantic_tab_titles_with_wider_budget() {
     };
     let row = render_row1(80, tab_bar);
     assert!(
-        row.contains("Refactor Database C…"),
-        "semantic title projected with wider budget: {row}"
+        row.contains("Refactor Database Co"),
+        "semantic title uses the full budget without an ellipsis: {row}"
+    );
+    assert!(
+        !row.contains('…'),
+        "overflowing tab titles fade toward the background instead of appending `…`: {row}"
     );
     assert!(!row.contains("1:Refactor"), "no ordinal prefix: {row}");
     assert!(
@@ -386,24 +389,23 @@ fn row1_tab_bar_monochrome_renders_brackets_and_reverse_video() {
     });
     let cells = terminal.buffer().cells();
     let row_text: String = cells.iter().map(|c| c.symbol.as_str()).collect();
-    // The framed pill reserves its close slot at rest (ADR-0235), so the title
-    // is followed by the two columns the hover mark occupies.
+    // Resting pills do not reserve blank close columns: brackets hug the title.
     assert!(
-        row_text.contains("[Refactor  ]"),
+        row_text.contains("[Refactor]"),
         "active tab must be framed with brackets on monochrome: {row_text}"
     );
     assert!(
-        row_text.contains("[dashboard  ]"),
+        row_text.contains("[dashboard]"),
         "inactive tab must be framed with brackets on monochrome: {row_text}"
     );
 
-    // Find cells belonging to "[Refactor  ]" and verify they have REVERSE | BOLD
-    let refactor_start = row_text.find("[Refactor  ]").unwrap();
+    // Find cells belonging to "[Refactor]" and verify they have REVERSE | BOLD
+    let refactor_start = row_text.find("[Refactor]").unwrap();
     for (col, cell) in cells
         .iter()
         .enumerate()
         .skip(refactor_start)
-        .take("[Refactor  ]".len())
+        .take("[Refactor]".len())
     {
         assert!(
             cell.style.add.contains(graticule::Modifier::REVERSE),
@@ -423,7 +425,7 @@ fn row1_renders_brand_when_no_tabs() {
     assert!(row.contains("nuo"), "brand shown: {row}");
     assert!(
         !row.contains("F1"),
-        "the brand row carries no help keycap (ADR-0219): {row}"
+        "unbound help_key renders no fabricated keycap on the brand row (ADR-0245): {row}"
     );
 }
 
@@ -499,7 +501,7 @@ fn row1_renders_overflow_indicators_when_tabs_exceed_available_width() {
     );
     assert!(
         !row.contains("F1"),
-        "overflow row drops the help keycap too (ADR-0219): {row}"
+        "unbound help_key renders no fabricated keycap on overflow rows (ADR-0245): {row}"
     );
 }
 
@@ -576,6 +578,7 @@ fn row1_hovered_pill_reveals_its_close_mark_without_growing() {
         unread_faults: 0,
         hover,
         hover_elapsed_ms: 0,
+        ..TabBarProps::default()
     };
     let mut plain = TabBarNavRects::default();
     let mut terminal = graticule::TestTerminal::new(80, 1);
@@ -658,6 +661,7 @@ fn row1_lifecycle_hit_rects_exist_only_when_painted() {
                 unread_faults: 0,
                 hover: Some(TabBarHover::Tab(0)),
                 hover_elapsed_ms: 0,
+                ..TabBarProps::default()
             },
             &Theme::default(),
         );
@@ -723,6 +727,7 @@ fn row1_add_affordance_survives_a_wall_of_long_titles() {
                 unread_faults: 0,
                 hover: None,
                 hover_elapsed_ms: 0,
+                ..TabBarProps::default()
             },
             &Theme::default(),
         );
@@ -765,6 +770,7 @@ fn row1_hover_reveals_an_overflowing_title_for_one_bounded_pass() {
                     unread_faults: 0,
                     hover: Some(TabBarHover::Tab(0)),
                     hover_elapsed_ms: elapsed_ms,
+                    ..TabBarProps::default()
                 },
                 &Theme::default(),
             );
@@ -788,6 +794,11 @@ fn row1_hover_reveals_an_overflowing_title_for_one_bounded_pass() {
         "the pass opens on the head: {at_arrival:?}"
     );
 
+    assert!(
+        !at_arrival.contains('…'),
+        "overflow reveal uses edge fade instead of `…`: {at_arrival:?}"
+    );
+
     let (later, live_later) = draw(4_000);
     assert!(
         !live_later,
@@ -798,12 +809,13 @@ fn row1_hover_reveals_an_overflowing_title_for_one_bounded_pass() {
         "the pass ends on the tail the reader waited for: {later:?}"
     );
     assert!(
-        later.contains('✕') || later.contains('…'),
-        "the pill still reads as a tab and still carries its close mark: {later:?}"
+        later.contains("Layer") && later.contains('✕') && !later.contains('…'),
+        "the pill rests on the crisp tail beside its close mark without `…`: {later:?}"
     );
 }
 
-/// A title that fits never moves, however long the pointer rests on it.
+/// A title that fits at rest never opens a reveal pass on hover: the close mark
+/// replaces its rightmost two columns in place without starting an animation.
 #[test]
 fn row1_a_title_that_fits_never_opens_a_reveal_pass() {
     let tabs = vec![crate::shell::surfaces::ClientTab::dashboard()];
@@ -819,6 +831,7 @@ fn row1_a_title_that_fits_never_opens_a_reveal_pass() {
                 unread_faults: 0,
                 hover: Some(TabBarHover::Tab(0)),
                 hover_elapsed_ms: 0,
+                ..TabBarProps::default()
             },
             &Theme::default(),
         );
@@ -829,7 +842,11 @@ fn row1_a_title_that_fits_never_opens_a_reveal_pass() {
         .iter()
         .map(|c| c.symbol.as_str())
         .collect();
-    assert!(row.contains("dashboard"), "{row:?}");
+    assert!(
+        row.contains("dashboa ✕"),
+        "hover replaces the trailing two title columns with the close mark: {row:?}"
+    );
+    assert!(!row.contains('…'), "no ellipsis on clipped title: {row:?}");
     assert!(!nav.reveal_active, "a fitting title costs no animation");
 }
 
@@ -864,14 +881,31 @@ fn row1_brand_row_still_offers_the_add_affordance() {
     assert!(nav.add_rect.is_some());
 }
 
-/// On the framed glyph set the close mark stays one column, so the reserve that
-/// keeps a hovered pill from growing holds there too.
+/// On the framed glyph set the close mark stays one column and replaces the
+/// rightmost title columns in place without growing the pill.
 #[test]
 fn row1_ascii_close_mark_is_one_column() {
     let tabs = vec![
         crate::shell::surfaces::ClientTab::thread("sess-01a2b3c4", Some("Refactor DB")),
         crate::shell::surfaces::ClientTab::dashboard(),
     ];
+    let mut rest_terminal = graticule::TestTerminal::new(80, 1);
+    let mut rest_nav = TabBarNavRects::default();
+    rest_terminal.draw(|frame| {
+        rest_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                hover: None,
+                hover_elapsed_ms: 0,
+                ..TabBarProps::default()
+            },
+            &Theme::monochrome(),
+        );
+    });
     let mut terminal = graticule::TestTerminal::new(80, 1);
     let mut nav = TabBarNavRects::default();
     terminal.draw(|frame| {
@@ -884,6 +918,7 @@ fn row1_ascii_close_mark_is_one_column() {
                 unread_faults: 0,
                 hover: Some(TabBarHover::Tab(0)),
                 hover_elapsed_ms: 0,
+                ..TabBarProps::default()
             },
             &Theme::monochrome(),
         );
@@ -895,9 +930,515 @@ fn row1_ascii_close_mark_is_one_column() {
         .map(|c| c.symbol.as_str())
         .collect();
     assert!(
-        row.contains("[Refactor DB x]"),
-        "the framed close mark degrades to a 1-column `x`: {row:?}"
+        row.contains("[Refactor  x]"),
+        "the framed close mark degrades to a 1-column `x` replacing the tail in place: {row:?}"
+    );
+    assert_eq!(
+        nav.tab_rects[0].1, rest_nav.tab_rects[0].1,
+        "hover replacement keeps pill width unchanged"
     );
     assert_eq!(nav.close_rects.len(), 1);
     assert_eq!(nav.close_rects[0].1.width, 1);
+}
+
+fn rgb_dist_sq(a: graticule::Color, b: graticule::Color) -> i32 {
+    let (graticule::Color::Rgb(ar, ag, ab), graticule::Color::Rgb(br, bg, bb)) = (a, b) else {
+        panic!("expected Rgb colors, got {a:?} and {b:?}");
+    };
+    let dr = ar as i32 - br as i32;
+    let dg = ag as i32 - bg as i32;
+    let db = ab as i32 - bb as i32;
+    dr * dr + dg * dg + db * db
+}
+
+/// Overflowing titles dissolve smoothly toward the pill background over their
+/// trailing fade columns instead of terminating in `…`.
+#[test]
+fn row1_overflowing_title_fades_toward_pill_background_without_ellipsis() {
+    let tabs = vec![crate::shell::surfaces::ClientTab::thread(
+        "sess-01a2b3c4",
+        Some("Refactor Database Connection"),
+    )];
+    let theme = Theme::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    let mut nav = TabBarNavRects::default();
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                hover: None,
+                hover_elapsed_ms: 0,
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+    let cells = terminal.buffer().cells();
+    let row: String = cells.iter().map(|c| c.symbol.as_str()).collect();
+    assert!(
+        !row.contains('…'),
+        "no ellipsis on overflowing tab: {row:?}"
+    );
+
+    let pill = nav.tab_rects[0].1;
+    // Active pill width: 20 title cols + 2 chrome cols = 22 (no resting close reserve).
+    assert_eq!(pill.width, 22, "pill spends zero resting columns on close");
+    let title_start = pill.x as usize + 1;
+    let title_end = pill.right() as usize - 1;
+    let bg = theme.selected_bg;
+    let base_fg = theme.heading();
+
+    // Unfaded head stays at full foreground color.
+    assert_eq!(cells[title_start].style.fg, base_fg);
+    assert_eq!(cells[title_end - 5].style.fg, base_fg);
+
+    // The last 4 columns monotonically approach the pill background color.
+    let mut prev_dist = rgb_dist_sq(base_fg, bg);
+    for (col, cell) in cells.iter().enumerate().take(title_end).skip(title_end - 4) {
+        let fg = cell.style.fg;
+        let dist = rgb_dist_sq(fg, bg);
+        assert!(
+            dist < prev_dist,
+            "col {col} ({:?}) must fade closer to bg ({bg:?}) than previous step",
+            cell.symbol
+        );
+        prev_dist = dist;
+    }
+}
+
+/// Hovering a scrolled overflowing title fades only the hidden edge(s): trailing
+/// at arrival, both mid-pass, and leading-only once the reveal reaches the tail.
+#[test]
+fn row1_hover_reveal_fades_hidden_edges_without_ellipsis() {
+    let tabs = vec![crate::shell::surfaces::ClientTab::thread(
+        "sess-01a2b3c4",
+        Some("Refactor Database Connection Layer"),
+    )];
+    let theme = Theme::default();
+    let draw = |elapsed_ms: u64| {
+        let mut terminal = graticule::TestTerminal::new(60, 1);
+        let mut nav = TabBarNavRects::default();
+        terminal.draw(|frame| {
+            nav = draw_tab_bar(
+                frame,
+                frame.area(),
+                &TabBarProps {
+                    tabs: Some(&tabs),
+                    active_tab: 0,
+                    unread_faults: 0,
+                    hover: Some(TabBarHover::Tab(0)),
+                    hover_elapsed_ms: elapsed_ms,
+                    ..TabBarProps::default()
+                },
+                &theme,
+            );
+        });
+        (terminal.buffer().cells().to_vec(), nav)
+    };
+
+    let bg = theme.selected_bg;
+    let base_fg = theme.heading();
+
+    // Mid-pass: both leading and trailing edges are hidden, so both fade.
+    let (mid_cells, mid_nav) = draw(1_000);
+    let mid_row: String = mid_cells.iter().map(|c| c.symbol.as_str()).collect();
+    assert!(!mid_row.contains('…'), "no ellipsis mid-pass: {mid_row:?}");
+    let pill = mid_nav.tab_rects[0].1;
+    let title_start = pill.x as usize + 1;
+    let title_end = pill.right() as usize - 3; // before " ✕ "
+    assert!(
+        rgb_dist_sq(mid_cells[title_start].style.fg, bg) < rgb_dist_sq(base_fg, bg),
+        "leading edge fades when head is scrolled out"
+    );
+    assert!(
+        rgb_dist_sq(mid_cells[title_end - 1].style.fg, bg) < rgb_dist_sq(base_fg, bg),
+        "trailing edge fades when tail is still hidden"
+    );
+    assert_eq!(
+        mid_cells[(title_start + title_end) / 2].style.fg,
+        base_fg,
+        "center of the title remains crisp"
+    );
+
+    // End of pass: tail reached, so leading edge fades while tail stays crisp.
+    let (tail_cells, tail_nav) = draw(4_000);
+    let tail_row: String = tail_cells.iter().map(|c| c.symbol.as_str()).collect();
+    assert!(!tail_row.contains('…'), "no ellipsis at tail: {tail_row:?}");
+    assert!(!tail_nav.reveal_active);
+    assert!(
+        rgb_dist_sq(tail_cells[title_start].style.fg, bg) < rgb_dist_sq(base_fg, bg),
+        "leading edge fades at the tail"
+    );
+    assert_eq!(
+        tail_cells[title_end - 1].style.fg,
+        base_fg,
+        "final visible tail character is crisp once nothing remains hidden on the right"
+    );
+}
+
+/// Wide CJK titles slice cleanly on grapheme boundaries, never emit `…`, and
+/// fade their trailing characters toward the pill background.
+#[test]
+fn row1_cjk_overflowing_title_fades_without_splitting_or_ellipsis() {
+    let tabs = vec![crate::shell::surfaces::ClientTab::thread(
+        "sess-01a2b3c4",
+        Some("数据库连接池重构优化方案设计与验证"),
+    )];
+    let theme = Theme::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    let mut nav = TabBarNavRects::default();
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                hover: None,
+                hover_elapsed_ms: 0,
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+    let cells = terminal.buffer().cells();
+    let row: String = cells.iter().map(|c| c.symbol.as_str()).collect();
+    let compact: String = cells
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .filter(|s| *s != " ")
+        .collect();
+    assert!(!row.contains('…'), "no ellipsis on CJK title: {row:?}");
+    assert!(
+        compact.contains("数据库连接池重构优化"),
+        "CJK head intact without splitting graphemes: {row:?}"
+    );
+
+    let pill = nav.tab_rects[0].1;
+    assert_eq!(pill.width, 22);
+    let title_start = pill.x as usize + 1;
+    let last_cjk_lead_col = pill.right() as usize - 3; // width-2 char occupies -3..-1
+    assert_eq!(cells[title_start].style.fg, theme.heading());
+    assert!(
+        rgb_dist_sq(cells[last_cjk_lead_col].style.fg, theme.selected_bg)
+            < rgb_dist_sq(theme.heading(), theme.selected_bg),
+        "trailing CJK grapheme fades toward the pill background"
+    );
+}
+
+// ---- ADR-0245: yield-first elastic help portal ([INV-TAB-19], [INV-TAB-20]) ----
+
+/// When all tabs fit with idle slack covering `BAR_LEGEND_GAP_MIN`, the TabBar
+/// paints the expanded `{key} help` portal at the right inset without causing
+/// any tab overflow ([INV-TAB-19]).
+#[test]
+fn row1_help_portal_expands_in_idle_slack_and_never_triggers_overflow() {
+    let tabs = vec![
+        crate::shell::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
+        crate::shell::surfaces::ClientTab::dashboard(),
+    ];
+    let mut nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+                help_key: Some(crate::shell::keymap::Key::F1),
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    let row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(row.contains("F1 help"), "expanded portal shown: {row:?}");
+    assert!(
+        nav.prev_rect.is_none() && nav.next_rect.is_none(),
+        "expanded portal must never trigger tab overflow: {row:?}"
+    );
+    let help = nav.help_rect.expect("help hit rect painted");
+    assert_eq!(help.right(), 79, "pinned to right inset: {row:?}");
+    assert_eq!(help.width, "F1 help".len() as u16);
+    let painted: String = (help.x..help.right())
+        .map(|x| terminal.buffer().cells()[x as usize].symbol.as_str())
+        .collect();
+    assert_eq!(painted, "F1 help");
+
+    // Brand row (no tabs) also expands cleanly.
+    let mut brand_nav = TabBarNavRects::default();
+    terminal.draw(|frame| {
+        brand_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                help_key: Some(crate::shell::keymap::Key::F1),
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    let brand_row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(brand_row.contains("nuo") && brand_row.contains("F1 help"));
+    assert_eq!(brand_nav.help_rect.expect("brand help rect").right(), 79);
+}
+
+/// Under tab-count or width pressure, the help portal shrinks from `{key} help`
+/// to compact `{key}`, sharing the right cluster with `[!N]` cleanly while
+/// preserving `[!N]`'s `BAR_LEGEND_GAP_MIN` ([INV-TAB-19]).
+#[test]
+fn row1_help_portal_shrinks_to_compact_under_tab_pressure() {
+    let tabs: Vec<_> = (0..10)
+        .map(|i| {
+            crate::shell::surfaces::ClientTab::thread(
+                format!("session-{i}"),
+                Some(format!("Task {i}")),
+            )
+        })
+        .collect();
+
+    // 1. Overflowing tabs without unread faults: compact `F1` separated by TAB_HELP_GAP_MIN.
+    let mut nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(60, 1);
+    terminal.draw(|frame| {
+        nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 5,
+                unread_faults: 0,
+                help_key: Some(crate::shell::keymap::Key::F1),
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    let row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(
+        row.contains("F1") && !row.contains("F1 help"),
+        "overflowing strip shrinks portal to compact key: {row:?}"
+    );
+    let help = nav.help_rect.expect("compact help rect");
+    assert_eq!(help.width, 2);
+    assert_eq!(help.right(), 59);
+    let add = nav.add_rect.expect("add rect survives");
+    assert!(
+        help.x >= add.right() + ui_primitives::design::TAB_HELP_GAP_MIN as u16,
+        "compact portal keeps TAB_HELP_GAP_MIN after rail: {row:?}"
+    );
+
+    // 2. Minimum terminal width (44) with unread faults + overflowing tabs:
+    // `[!2]  F1` both fit, `[!2]` keeps BAR_LEGEND_GAP_MIN before it.
+    let mut min_nav = TabBarNavRects::default();
+    let mut min_term = graticule::TestTerminal::new(44, 1);
+    min_term.draw(|frame| {
+        min_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 5,
+                unread_faults: 2,
+                help_key: Some(crate::shell::keymap::Key::F1),
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    let min_row: String = min_term
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    let notices = min_nav.notices_rect.expect("fault badge survives at 44");
+    let min_help = min_nav.help_rect.expect("compact F1 survives at 44");
+    assert_eq!(min_help.right(), 43);
+    assert_eq!(
+        notices.right() + JOIN_ENUMERATE_COLS as u16,
+        min_help.x,
+        "fault badge and compact help separate by JOIN_ENUMERATE_COLS: {min_row:?}"
+    );
+    let badge_at = min_row.find("[!2]").expect("fault badge painted");
+    assert!(
+        min_row[..badge_at].ends_with(&" ".repeat(BAR_LEGEND_GAP_MIN)),
+        "fault badge keeps BAR_LEGEND_GAP_MIN before it: {min_row:?}"
+    );
+}
+
+/// Remapping `OpenHelp` updates the portal text; unbinding it omits the portal;
+/// starving the strip drops the portal before starving `[!N]`, the active tab,
+/// or `+` ([INV-TAB-19], [INV-AFFORDANCE-08]).
+#[test]
+fn row1_help_portal_yields_when_unbound_or_starved_and_follows_remaps() {
+    let tabs: Vec<_> = (0..10)
+        .map(|i| {
+            crate::shell::surfaces::ClientTab::thread(
+                format!("session-{i}"),
+                Some(format!("A very long tab title number {i}")),
+            )
+        })
+        .collect();
+
+    // Remapped key renders its resolved display string.
+    let mut remapped_nav = TabBarNavRects::default();
+    let mut terminal = graticule::TestTerminal::new(80, 1);
+    terminal.draw(|frame| {
+        remapped_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs[..1]),
+                active_tab: 0,
+                unread_faults: 0,
+                help_key: Some(crate::shell::keymap::Key::ALT_H),
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    let remapped_row: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(
+        remapped_row.contains("Alt-h help") && !remapped_row.contains("F1"),
+        "portal follows remapped chord: {remapped_row:?}"
+    );
+    assert_eq!(
+        remapped_nav.help_rect.expect("remapped help rect").width,
+        "Alt-h help".len() as u16
+    );
+
+    // Unbound key paints nothing and mounts no hit rect.
+    let mut unbound_nav = TabBarNavRects::default();
+    terminal.draw(|frame| {
+        unbound_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs[..1]),
+                active_tab: 0,
+                unread_faults: 0,
+                help_key: None,
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    assert!(unbound_nav.help_rect.is_none());
+
+    // Starved at 44 cols with faults + long remapped chord: portal omits itself
+    // so `[!2]`, the active tab, and `+` stay intact.
+    let mut starved_nav = TabBarNavRects::default();
+    let mut narrow = graticule::TestTerminal::new(44, 1);
+    narrow.draw(|frame| {
+        starved_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 5,
+                unread_faults: 2,
+                help_key: Some(crate::shell::keymap::Key::CTRL_SHIFT_P),
+                ..TabBarProps::default()
+            },
+            &Theme::default(),
+        );
+    });
+    let starved_row: String = narrow
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(
+        starved_nav.help_rect.is_none() && !starved_row.contains("Ctrl-Shift-p"),
+        "starved row yields the help portal cleanly: {starved_row:?}"
+    );
+    assert!(
+        starved_nav.notices_rect.is_some() && starved_nav.add_rect.is_some(),
+        "fault badge and add affordance outrank the help portal: {starved_row:?}"
+    );
+}
+
+/// Hovering the help portal lifts its background onto `theme.raised()` without
+/// changing its geometry, and its hit rect exists if and only if painted
+/// ([INV-TAB-20]).
+#[test]
+fn row1_help_portal_hit_rect_matches_painted_state() {
+    let tabs = lifecycle_tabs();
+    let theme = Theme::default();
+
+    let mut rest_nav = TabBarNavRects::default();
+    let mut rest_term = graticule::TestTerminal::new(80, 1);
+    rest_term.draw(|frame| {
+        rest_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                help_key: Some(crate::shell::keymap::Key::F1),
+                hover: None,
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+
+    let mut hover_nav = TabBarNavRects::default();
+    let mut hover_term = graticule::TestTerminal::new(80, 1);
+    hover_term.draw(|frame| {
+        hover_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                help_key: Some(crate::shell::keymap::Key::F1),
+                hover: Some(TabBarHover::Help),
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+
+    let rest_rect = rest_nav.help_rect.expect("help rect at rest");
+    let hover_rect = hover_nav.help_rect.expect("help rect on hover");
+    assert_eq!(rest_rect, hover_rect, "hover must never reflow the portal");
+    assert_eq!(
+        rest_term.buffer().cells()[rest_rect.x as usize].style.bg,
+        theme.tabbar_bg()
+    );
+    assert_eq!(
+        hover_term.buffer().cells()[hover_rect.x as usize].style.bg,
+        theme.raised()
+    );
+    assert_eq!(TabBarHover::Help.anchor(), TabBarHover::Help);
 }

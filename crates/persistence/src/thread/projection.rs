@@ -1,39 +1,54 @@
-//! The derived SQLite projection worker (ADR-0236).
+//! The derived SQLite projection runtime (ADR-0236).
 //!
-//! The journal is the durable truth; this worker is the only consumer that
-//! turns committed frames into the queryable SQLite view. It runs on its own
-//! OS thread with a bounded queue:
+//! The journal is the durable truth; these workers are the only consumers that
+//! turn committed frames into the queryable SQLite view.
 //!
-//! - `enqueue` never awaits the async runtime and never blocks the ReAct loop;
-//! - a full queue marks the session **desynced** instead of dropping a commit;
-//! - the next drained job repairs a desynced session with one full rewrite
-//!   read from the journal, so the projection can always catch up;
-//! - a cold reader flushes through [`ProjectionState::wait`] before it relies
-//!   on SQLite.
+//! ## Why a shared pool, not a thread per session
 //!
-//! Ownership is deliberately split: the state owns the channel sender, the
-//! worker owns the receiver plus a sender-free [`ProjectionShared`]. Dropping
-//! the last session reference therefore closes the channel and lets the worker
-//! exit; sharing the whole state would keep the sender alive and leak the
-//! worker thread.
+//! A projection is blocking work: it prepares a fact graph, may write CAS
+//! blobs, and commits one SQL transaction. The obvious wiring is one OS thread
+//! per session with its own queue — and that is what this module did while the
+//! session count was small. It does not scale: a hosted fleet of `N` sessions
+//! then owns `N` permanently parked threads and `N` channel buffers, for work
+//! that is almost always idle.
 //!
-//! The worker uses `futures::executor::block_on` for the channel-based
-//! `PersistenceHandle::save_session` future. The future only waits on tokio
-//! sync primitives (no timer/reactor), and the writer actor owns its own
-//! thread, so this never needs a tokio runtime context.
+//! The pool keeps the properties that mattered and drops the ones that did not:
+//!
+//! - **Per-session FIFO.** Each session has its own queue, and a queue is
+//!   appended by the session's commit gate (one writer at a time), so job order
+//!   is commit order. Two jobs of one session never run concurrently.
+//! - **Fairness.** A lane's ready list holds a session at most once. A busy
+//!   session yields its turn after every job, so a burst in one session cannot
+//!   starve another session sharing the lane.
+//! - **Bounded memory.** Each session queue is capped; the cap is a *signal*,
+//!   not a stall: a full queue marks the session desynced and the next job
+//!   repairs the view from the journal.
+//! - **Automatic healing.** A job that fails marks the session desynced; the
+//!   next drained job rebuilds from the journal head rather than trusting a
+//!   gap.
+//!
+//! Enqueueing never awaits and never touches the ReAct loop: it is a lock, a
+//! push, and a notify on the caller's thread.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use crate::db::{CommitGuard, PersistenceHandle, SaveMode};
 use crate::journal::SessionJournal;
 use crate::thread::ThreadData;
 
-/// Bound on the in-flight projection queue. A full queue is a *signal* that
-/// the derived view is behind, not a reason to stall the writer.
+/// Bound on one session's in-flight projection queue. A full queue is a
+/// *signal* that the derived view is behind, not a reason to stall the writer.
 const QUEUE_CAPACITY: usize = 256;
+
+/// Projection lanes (OS threads). The work is SQL plus occasional file I/O;
+/// past a handful of lanes the single SQLite writer is the limit, not the CPU.
+fn lane_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|count| count.get().clamp(2, 8))
+        .unwrap_or(2)
+}
 
 /// Sessions deleted in this process. A projection that was already queued
 /// when the delete landed must not recreate the row it was deleting.
@@ -56,17 +71,32 @@ fn is_deleted(session_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// One committed frame awaiting projection.
+/// One committed frame awaiting projection, plus the doors it needs.
+///
+/// The job is self-contained on purpose: it carries the writer door, the
+/// session's journal (for a repair), and the shared watermarks. A lane thread
+/// therefore needs no session registry to process it, which is what lets one
+/// fixed pool serve an unbounded number of sessions.
 pub(crate) struct ProjectionJob {
     pub(crate) seq: u64,
     pub(crate) data: ThreadData,
     pub(crate) mode: SaveMode,
     pub(crate) usage: Vec<protocol::RequestUsageRecord>,
     pub(crate) guard: CommitGuard,
+    /// The writer door this session projects through.
+    pub(crate) writer: PersistenceHandle,
+    /// The session's journal, for a repair after a desync.
+    pub(crate) journal: Arc<SessionJournal>,
 }
 
-/// The atomics and watch channel shared with the worker. It intentionally does
-/// **not** own the sender (see the module docs).
+impl ProjectionJob {
+    fn session_id(&self) -> &str {
+        &self.data.id
+    }
+}
+
+/// The atomics and watch channel shared with the pool. It intentionally does
+/// **not** own a queue (see [`ProjectionState`]).
 pub(crate) struct ProjectionShared {
     /// Highest journal seq handed to the projection.
     submitted: AtomicU64,
@@ -99,16 +129,142 @@ impl ProjectionShared {
     }
 }
 
-/// Per-session projection bookkeeping plus the lazily spawned worker.
+/// One session's queued work, in commit order, plus the watermarks the jobs
+/// report against.
+struct SessionQueue {
+    shared: Arc<ProjectionShared>,
+    jobs: VecDeque<ProjectionJob>,
+}
+
+/// One lane's queues. `ready` and `ready_order` contain the same session ids:
+/// the set answers "is this session already waiting?" in O(1), the deque gives
+/// round-robin order.
+struct LaneInner {
+    queues: HashMap<String, SessionQueue>,
+    ready: HashSet<String>,
+    ready_order: VecDeque<String>,
+}
+
+impl LaneInner {
+    fn new() -> Self {
+        Self {
+            queues: HashMap::new(),
+            ready: HashSet::new(),
+            ready_order: VecDeque::new(),
+        }
+    }
+}
+
+struct Lane {
+    inner: Mutex<LaneInner>,
+    wake: Condvar,
+}
+
+impl Lane {
+    /// Append one job. Returns `false` when the session's queue is full, which
+    /// the caller turns into a desync signal.
+    pub(crate) fn push(&self, shared: Arc<ProjectionShared>, job: ProjectionJob) -> bool {
+        let session = job.session_id().to_string();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let queue = inner
+            .queues
+            .entry(session.clone())
+            .or_insert_with(|| SessionQueue {
+                shared,
+                jobs: VecDeque::new(),
+            });
+        if queue.jobs.len() >= QUEUE_CAPACITY {
+            return false;
+        }
+        queue.jobs.push_back(job);
+        if inner.ready.insert(session.clone()) {
+            inner.ready_order.push_back(session);
+        }
+        drop(inner);
+        self.wake.notify_all();
+        true
+    }
+
+    /// Block until one job is available, then take it.
+    ///
+    /// A lane thread lives for the process: returning `None` on an empty queue
+    /// would retire the lane the first time it caught up, and every later job
+    /// on that lane would be stranded. Waiting on the condvar is what makes an
+    /// idle lane cost nothing.
+    fn pop_blocking(&self) -> (Arc<ProjectionShared>, ProjectionJob) {
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        loop {
+            if let Some(item) = take_next(&mut inner) {
+                return item;
+            }
+            inner = self
+                .wake
+                .wait(inner)
+                .unwrap_or_else(|poison| poison.into_inner());
+        }
+    }
+}
+
+/// The process-wide projection lanes.
+struct ProjectionRuntime {
+    lanes: Vec<Arc<Lane>>,
+}
+
+impl ProjectionRuntime {
+    fn global() -> &'static Arc<Self> {
+        static GLOBAL: OnceLock<Arc<ProjectionRuntime>> = OnceLock::new();
+        GLOBAL.get_or_init(|| {
+            let count = lane_count();
+            let lanes: Vec<Arc<Lane>> = (0..count)
+                .map(|_| {
+                    Arc::new(Lane {
+                        inner: Mutex::new(LaneInner::new()),
+                        wake: Condvar::new(),
+                    })
+                })
+                .collect();
+            for (index, lane) in lanes.iter().enumerate() {
+                let lane = Arc::clone(lane);
+                let spawned = std::thread::Builder::new()
+                    .name(format!("nuo-projection-{index}"))
+                    .spawn(move || run_lane(lane));
+                if let Err(error) = spawned {
+                    // A missing lane degrades throughput, never correctness: the
+                    // other lanes keep draining, and its own jobs stay queued
+                    // until a later process. Log and continue.
+                    tracing::warn!(%error, lane = index, "could not start a projection lane");
+                }
+            }
+            tracing::debug!(lanes = count, "projection lane pool started");
+            Arc::new(Self { lanes })
+        })
+    }
+
+    /// Pick a session's lane. A session always hashes to the same lane, which
+    /// is what makes its queue the only ordering authority it needs.
+    fn lane_for(&self, session_id: &str) -> &Arc<Lane> {
+        let index = crc32c::crc32c(session_id.as_bytes()) as usize % self.lanes.len();
+        &self.lanes[index]
+    }
+}
+
+/// Per-session projection bookkeeping.
+///
+/// This type no longer owns a thread. It owns the session's watermark and
+/// desync flag, and routes jobs to the process-wide lane pool.
 pub(crate) struct ProjectionState {
-    worker: Mutex<Option<SyncSender<ProjectionJob>>>,
     shared: Arc<ProjectionShared>,
 }
 
 impl ProjectionState {
     pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
-            worker: Mutex::new(None),
             shared: ProjectionShared::new(),
         })
     }
@@ -134,59 +290,22 @@ impl ProjectionState {
         self.shared.desynced.store(false, Ordering::Release);
     }
 
-    /// Hand one committed frame to the worker. Never blocks and never awaits.
-    pub(crate) fn enqueue(
-        self: &Arc<Self>,
-        writer: PersistenceHandle,
-        journal: Arc<SessionJournal>,
-        job: ProjectionJob,
-    ) {
+    /// Hand one committed frame to the pool. Never blocks and never awaits.
+    ///
+    /// A refused enqueue (queue full) is not a dropped commit: the journal
+    /// already holds it, and marking the session desynced makes the next job
+    /// rebuild the whole view from that journal.
+    pub(crate) fn enqueue(self: &Arc<Self>, job: ProjectionJob) {
         let seq = job.seq;
-        let mut worker = self
-            .worker
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if worker.is_none() {
-            let (tx, rx) = sync_channel(QUEUE_CAPACITY);
-            let shared = Arc::clone(&self.shared);
-            let spawned = std::thread::Builder::new()
-                .name("nuo-projection".to_string())
-                .spawn(move || run_worker(shared, writer, journal, rx));
-            match spawned {
-                Ok(_) => *worker = Some(tx),
-                Err(error) => {
-                    tracing::warn!(
-                        %error,
-                        "could not start the session projection worker; the journal remains authoritative"
-                    );
-                    // Do not pretend the row was projected: mark the session
-                    // desynced so the next worker (or the bootstrap catch-up)
-                    // rebuilds from the journal instead of trusting a gap.
-                    self.shared.desynced.store(true, Ordering::Release);
-                    self.shared.mark_projected(seq);
-                    return;
-                }
-            }
-        }
-        let Some(tx) = worker.as_ref() else {
+        let runtime = ProjectionRuntime::global();
+        // The queue is the ordering authority: a lane processes one session's
+        // jobs strictly in push order.
+        if !runtime
+            .lane_for(job.session_id())
+            .push(Arc::clone(&self.shared), job)
+        {
             self.shared.desynced.store(true, Ordering::Release);
             self.shared.mark_projected(seq);
-            return;
-        };
-        match tx.try_send(job) {
-            Ok(()) => {}
-            Err(TrySendError::Full(job)) => {
-                // The view is behind. Do not block the turn: mark it and let
-                // the worker repair from the journal before it absorbs the
-                // next frame (which includes this one).
-                self.shared.desynced.store(true, Ordering::Release);
-                self.shared.mark_projected(job.seq);
-            }
-            Err(TrySendError::Disconnected(job)) => {
-                *worker = None;
-                self.shared.desynced.store(true, Ordering::Release);
-                self.shared.mark_projected(job.seq);
-            }
         }
     }
 
@@ -204,53 +323,85 @@ impl ProjectionState {
     }
 }
 
-fn run_worker(
-    state: Arc<ProjectionShared>,
-    writer: PersistenceHandle,
-    journal: Arc<SessionJournal>,
-    rx: std::sync::mpsc::Receiver<ProjectionJob>,
-) {
-    let mut skip_through = 0u64;
-    while let Ok(job) = rx.recv() {
-        if job.seq <= skip_through {
-            state.mark_projected(job.seq);
+/// Take the next ready session and its first job.
+///
+/// The session goes to the **back** of the ready list when it still has work,
+/// so a session that is producing faster than it is being drained cannot
+/// monopolise the lane while other sessions wait behind it.
+fn take_next(inner: &mut LaneInner) -> Option<(Arc<ProjectionShared>, ProjectionJob)> {
+    loop {
+        let session = inner.ready_order.pop_front()?;
+        inner.ready.remove(&session);
+        let Some(queue) = inner.queues.get_mut(&session) else {
             continue;
+        };
+        let job = queue.jobs.pop_front();
+        let shared = Arc::clone(&queue.shared);
+        if queue.jobs.is_empty() {
+            inner.queues.remove(&session);
+        } else if inner.ready.insert(session.clone()) {
+            inner.ready_order.push_back(session);
         }
-        if state.desynced.load(Ordering::Acquire) {
-            match repair(&state, &writer, &journal, &job.data.id) {
-                Some(durable) => {
-                    skip_through = durable.max(skip_through);
-                    state.mark_projected(skip_through.max(job.seq));
-                }
-                None => {
-                    // Repair failed; keep the session marked and advance the
-                    // barrier so a cold reader cannot hang on an old seq.
-                    state.mark_projected(job.seq);
-                }
-            }
-            continue;
+        if let Some(job) = job {
+            return Some((shared, job));
         }
-        if is_deleted(&job.data.id) {
-            state.mark_projected(job.seq);
-            continue;
+    }
+}
+
+fn run_lane(lane: Arc<Lane>) {
+    loop {
+        let (shared, job) = lane.pop_blocking();
+        // A lane is a process-wide resource with no supervisor: a panic in one
+        // session's projection must cost that projection, not the lane and every
+        // session queued behind it. The failed session is marked desynced so its
+        // next job rebuilds the view from the journal.
+        let seq = job.seq;
+        let guard = Arc::clone(&shared);
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| process(shared, job))).is_err()
+        {
+            guard.desynced.store(true, Ordering::Release);
+            guard.mark_projected(seq);
+            tracing::error!(
+                seq,
+                "a projection lane caught a panic; the session will be repaired"
+            );
         }
-        match futures::executor::block_on(writer.save_session(
-            job.data,
-            job.mode,
-            job.usage,
-            job.guard,
-            Some(job.seq),
-        )) {
-            Ok(_) => state.mark_projected(job.seq),
-            Err(error) => {
-                tracing::warn!(
-                    seq = job.seq,
-                    %error,
-                    "session projection failed; the journal remains authoritative"
-                );
-                state.desynced.store(true, Ordering::Release);
-                state.mark_projected(job.seq);
-            }
+    }
+}
+
+fn process(shared: Arc<ProjectionShared>, job: ProjectionJob) {
+    let session = job.session_id().to_string();
+    let writer = job.writer.clone();
+    let journal = Arc::clone(&job.journal);
+
+    if shared.desynced.load(Ordering::Acquire) {
+        match repair(&shared, &writer, &journal, &session) {
+            Some(durable) => shared.mark_projected(durable.max(job.seq)),
+            None => shared.mark_projected(job.seq),
+        }
+        return;
+    }
+    if is_deleted(&session) {
+        shared.mark_projected(job.seq);
+        return;
+    }
+    match futures::executor::block_on(writer.save_session(
+        job.data,
+        job.mode,
+        job.usage,
+        job.guard,
+        Some(job.seq),
+    )) {
+        Ok(_) => shared.mark_projected(job.seq),
+        Err(error) => {
+            tracing::warn!(
+                seq = job.seq,
+                session = %session,
+                %error,
+                "session projection failed; the journal remains authoritative"
+            );
+            shared.desynced.store(true, Ordering::Release);
+            shared.mark_projected(job.seq);
         }
     }
 }

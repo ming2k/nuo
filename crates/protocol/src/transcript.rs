@@ -175,9 +175,6 @@ pub struct CompactionMeta {
     /// anchor, not an ancestor of the kept tail (`INV-CHK-01`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split_parent_node_id: Option<String>,
-    /// Membership seq of the last folded entry. The `compact` directive hides
-    /// entries through here (snapped down to an existing entry).
-    pub folded_through_seq: u64,
     /// Token weight of the folded prefix, for the checkpoint card.
     pub tokens_before: usize,
     /// Files the folded range read / modified, carried into the next summary.
@@ -567,6 +564,48 @@ impl Transcript {
     /// only need the wire history).
     pub fn project_messages(&self) -> Vec<Message> {
         self.project().into_iter().map(|(_, m)| m).collect()
+    }
+
+    /// The **conversation**: every entry the thread holds that reads as a row,
+    /// in the order the thread produced it.
+    ///
+    /// This is the human-facing projection, and it is deliberately not a
+    /// filtered one: a `compact` directive bounds the model's request window
+    /// ([`Self::project`]), never what the thread said (ADR-0246
+    /// `[INV-CMP-08]`). The only rows omitted are `state` entries, which are
+    /// working state by kind rather than dialogue.
+    ///
+    /// A compaction checkpoint stays **where it was appended** — the moment the
+    /// fold happened — rather than being moved to the seam it describes
+    /// (`[INV-CMP-10]`). The live client learns of the fold as an event at the
+    /// tail, so any other position would make the live and the restored
+    /// transcript disagree; and once nothing is hidden, the seam needs no
+    /// marker to explain a hole.
+    pub fn conversation_messages(&self) -> Vec<Message> {
+        self.conversation_rows()
+            .into_iter()
+            .map(|(_, message)| message)
+            .collect()
+    }
+
+    /// [`Self::conversation_messages`] with each row's membership sequence, for
+    /// readers that address a row (the Archivist's transcript tail, export).
+    pub fn conversation_rows(&self) -> Vec<(u64, Message)> {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.is_hidden_kind())
+            .filter_map(|entry| entry.to_message().map(|message| (entry.seq, message)))
+            .collect()
+    }
+
+    /// Number of **dialogue** entries: the count every catalog surface reports
+    /// as "messages". One definition, so a picker row, a session detail and a
+    /// stored summary column cannot disagree (ADR-0246).
+    pub fn message_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| matches!(entry.payload, EntryPayload::Message(_)))
+            .count()
     }
 
     /// Entries projected out of the view by the current directives — the

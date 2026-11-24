@@ -54,7 +54,7 @@ thresholds from `protocol::CompactionPolicy` only.
 | Add a rule that must survive every turn | M1 | `fixed` | a new `Topic`+`InputKey`+source, in one change (ADR-0229) |
 | Record something the user said | M2 | `messages` | `cognition::conversation_context`, with an `InjectionKind` |
 | Shrink an old tool result | M3/M4 | `messages` | `CompactionPolicy::prune_*` — never a source |
-| Shrink history | M3 | `messages` + a `Compaction` fact | `CompactionPolicy` |
+| Shrink the **model window** | M3 | `messages` + a `Compaction` fact | `CompactionPolicy` — the fact bounds `Thread::live_path`; the conversation (`Thread::path`) is untouched (ADR-0246) |
 | Make something large discoverable | M1 | index entry + a tool | `Overflow::Index` |
 | Change what wins on conflict | — | structure *and* prose | `supersedes()` for text; `agent.precedence` for behaviour |
 

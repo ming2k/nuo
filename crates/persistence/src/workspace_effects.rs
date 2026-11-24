@@ -228,7 +228,7 @@ pub struct NewWorkspaceEffect<'a> {
 /// The borrowed form keeps the storage API allocation-free at the call site; the
 /// owned form is what crosses the channel. `as_borrowed` is the only bridge, so
 /// the field set cannot drift between them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewOwnedEffect {
     pub thread_id: String,
     pub round_id: String,
@@ -376,6 +376,132 @@ pub fn append_completed_effect(
         effect.created_at_ms as i64,
     ])?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Append one write-ahead effect with an explicit journal-assigned `id` (ADR-0249).
+pub fn append_effect_with_id(
+    conn: &Connection,
+    id: i64,
+    effect: &NewWorkspaceEffect<'_>,
+) -> Result<i64, PersistenceError> {
+    conn.prepare_cached(
+        "INSERT OR IGNORE INTO workspace_effects (
+            id, thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
+            effect_class, before_hash, irreversible_reason, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+    )?
+    .execute(params![
+        id,
+        effect.thread_id,
+        effect.round_id,
+        effect.turn_id,
+        effect.call_id,
+        effect.seq,
+        effect.tool_name,
+        effect.path,
+        effect.op.as_str(),
+        effect.effect_class,
+        effect.before_hash,
+        effect.irreversible_reason,
+        effect.created_at_ms as i64,
+    ])?;
+    Ok(id)
+}
+
+/// Append one already-completed effect with an explicit journal-assigned `id` (ADR-0249).
+pub fn append_completed_effect_with_id(
+    conn: &Connection,
+    id: i64,
+    effect: &NewWorkspaceEffect<'_>,
+    completed_at_ms: u64,
+) -> Result<i64, PersistenceError> {
+    conn.prepare_cached(
+        "INSERT OR IGNORE INTO workspace_effects (
+            id, thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
+            effect_class, before_hash, after_hash, irreversible_reason,
+            completed_at_ms, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+    )?
+    .execute(params![
+        id,
+        effect.thread_id,
+        effect.round_id,
+        effect.turn_id,
+        effect.call_id,
+        effect.seq,
+        effect.tool_name,
+        effect.path,
+        effect.op.as_str(),
+        effect.effect_class,
+        effect.before_hash,
+        effect.after_hash,
+        effect.irreversible_reason,
+        completed_at_ms as i64,
+        effect.created_at_ms as i64,
+    ])?;
+    Ok(id)
+}
+
+/// Replay journal-recovered workspace effects idempotently into the derived
+/// SQLite projection (ADR-0249). Respects all monotonicity and immutability
+/// triggers so both fresh shard rebuilds and partial catch-ups converge.
+pub fn replay_effects(
+    conn: &Connection,
+    effects: &[WorkspaceEffect],
+) -> Result<(), PersistenceError> {
+    for effect in effects {
+        conn.prepare_cached(
+            "INSERT OR IGNORE INTO workspace_effects (
+                id, thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
+                effect_class, before_hash, after_hash, irreversible_reason,
+                completed_at_ms, reversed_at_ms, reversal_note, expired_at_ms, created_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        )?
+        .execute(params![
+            effect.id,
+            effect.thread_id,
+            effect.round_id,
+            effect.turn_id,
+            effect.call_id,
+            effect.seq,
+            effect.tool_name,
+            effect.path,
+            effect.op.as_str(),
+            effect.effect_class,
+            effect.before_hash,
+            effect.after_hash,
+            effect.irreversible_reason,
+            effect.completed_at_ms.map(|ms| ms as i64),
+            effect.reversed_at_ms.map(|ms| ms as i64),
+            effect.reversal_note,
+            effect.expired_at_ms.map(|ms| ms as i64),
+            effect.created_at_ms as i64,
+        ])?;
+        if let Some(completed_at_ms) = effect.completed_at_ms {
+            let _ = complete_effect(
+                conn,
+                effect.id,
+                effect.after_hash.as_deref(),
+                completed_at_ms,
+            )?;
+        }
+        if let Some(reversed_at_ms) = effect.reversed_at_ms {
+            let _ = mark_reversed(
+                conn,
+                effect.id,
+                reversed_at_ms,
+                effect.reversal_note.as_deref(),
+            )?;
+        }
+        if let Some(expired_at_ms) = effect.expired_at_ms {
+            conn.prepare_cached(
+                "UPDATE workspace_effects SET expired_at_ms = ?1 \
+                 WHERE id = ?2 AND expired_at_ms IS NULL",
+            )?
+            .execute(params![expired_at_ms as i64, effect.id])?;
+        }
+    }
+    Ok(())
 }
 
 /// Complete a write-ahead effect with its post-image. Returns `false` when the

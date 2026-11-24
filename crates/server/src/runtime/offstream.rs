@@ -11,9 +11,31 @@ use engine::runtime::offstream::{
     OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent,
 };
 use persistence::blobs::BlobStore;
-use persistence::db::get_persistence_handle;
+use persistence::db::{DbReader, get_persistence_handle};
 use protocol::FactPayload;
 use tool::Role;
+
+/// Run one store read on the blocking pool.
+///
+/// Every source below builds its whole answer from one read snapshot, and that
+/// construction is O(transcript). Doing it inline would park an async worker
+/// that every hosted session shares, and holding the reader across the
+/// `async` boundary would pin the WAL against checkpointing for as long as the
+/// caller takes to render. The closure owns the reader for exactly its own run.
+async fn read_store<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&DbReader) -> Result<T, String> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let reader = get_persistence_handle()
+            .reader()
+            .map_err(|error| format!("could not read the session store: {error}"))?;
+        f(&reader)
+    })
+    .await
+    .map_err(|error| format!("session store task failed: {error}"))?
+}
 
 /// Pagination and text filtering helper for offstream sources.
 pub fn paginate_text(
@@ -96,66 +118,66 @@ impl OffstreamSource for SubagentSource {
             session_id
         };
 
-        let reader = get_persistence_handle()
-            .reader()
-            .map_err(|e| format!("Failed to acquire reader: {e}"))?;
+        let sid = sid.to_string();
+        read_store(move |reader| {
+            let subagents = reader
+                .list_subagent_sessions(&sid)
+                .map_err(|e| e.to_string())?;
 
-        let subagents = reader
-            .list_subagent_sessions(sid)
-            .map_err(|e| e.to_string())?;
+            let mut entries = Vec::new();
+            for sub in subagents {
+                let mut status = OffstreamStatus::Ready;
+                let mut size_tokens = None;
 
-        let mut entries = Vec::new();
-        for sub in subagents {
-            let mut status = OffstreamStatus::Ready;
-            let mut size_tokens = None;
+                // Inspect child session termination status dynamically without modifying SubagentRef
+                if let Ok(Some(child)) = reader.load_thread(&sub.id) {
+                    let total_text: usize = child
+                        .all_facts()
+                        .iter()
+                        .map(|fact| match &fact.payload {
+                            FactPayload::Message { message } => message.content.len(),
+                            FactPayload::Observation {
+                                lifecycle: protocol::ObservationLifecycle::Raw { content },
+                                ..
+                            } => content.len(),
+                            FactPayload::Compaction { summary, .. } => summary.len(),
+                            _ => 0,
+                        })
+                        .sum();
+                    size_tokens = Some(total_text.div_ceil(4));
 
-            // Inspect child session termination status dynamically without modifying SubagentRef
-            if let Ok(Some(child)) = reader.load_thread(&sub.id) {
-                let total_text: usize = child
-                    .all_facts()
-                    .iter()
-                    .map(|fact| match &fact.payload {
-                        FactPayload::Message { message } => message.content.len(),
-                        FactPayload::Observation {
-                            lifecycle: protocol::ObservationLifecycle::Raw { content },
-                            ..
-                        } => content.len(),
-                        FactPayload::Compaction { summary, .. } => summary.len(),
-                        _ => 0,
-                    })
-                    .sum();
-                size_tokens = Some(total_text.div_ceil(4));
-
-                for fact in child.all_facts() {
-                    if let FactPayload::Termination { reason, .. } = &fact.payload {
-                        status = match reason {
-                            protocol::TerminationReason::UserInterrupt => {
-                                OffstreamStatus::Interrupted
-                            }
-                            protocol::TerminationReason::FatalError { .. } => {
-                                OffstreamStatus::Failed
-                            }
-                            _ => OffstreamStatus::Ready,
-                        };
-                        break;
+                    for fact in child.all_facts() {
+                        if let FactPayload::Termination { reason, .. } = &fact.payload {
+                            status = match reason {
+                                protocol::TerminationReason::UserInterrupt => {
+                                    OffstreamStatus::Interrupted
+                                }
+                                protocol::TerminationReason::FatalError { .. } => {
+                                    OffstreamStatus::Failed
+                                }
+                                _ => OffstreamStatus::Ready,
+                            };
+                            break;
+                        }
                     }
                 }
+
+                let label = sub
+                    .title
+                    .or(sub.last_user_prompt)
+                    .unwrap_or_else(|| "Subagent session".to_string());
+
+                entries.push(OffstreamEntry {
+                    handle: format!("sub:{}", sub.id),
+                    label,
+                    status,
+                    size_tokens,
+                });
             }
 
-            let label = sub
-                .title
-                .or(sub.last_user_prompt)
-                .unwrap_or_else(|| "Subagent session".to_string());
-
-            entries.push(OffstreamEntry {
-                handle: format!("sub:{}", sub.id),
-                label,
-                status,
-                size_tokens,
-            });
-        }
-
-        Ok(entries)
+            Ok(entries)
+        })
+        .await
     }
 
     async fn read(
@@ -165,71 +187,81 @@ impl OffstreamSource for SubagentSource {
         query: Option<&str>,
         budget_tokens: usize,
     ) -> Result<PagedOffstreamContent, String> {
-        let reader = get_persistence_handle()
-            .reader()
-            .map_err(|e| format!("Failed to acquire reader: {e}"))?;
+        let key = key.to_string();
+        let cursor = cursor.map(str::to_string);
+        let query = query.map(str::to_string);
+        read_store(move |reader| {
+            if let Ok(Some(thread)) = reader.load_thread(&key) {
+                let branch = thread.state.active_branch.clone();
+                let facts = thread.path(&branch).unwrap_or_default();
 
-        if let Ok(Some(thread)) = reader.load_thread(key) {
-            let branch = thread.state.active_branch.clone();
-            let facts = thread.path(&branch).unwrap_or_default();
-
-            let mut formatted = format!("# Subagent Session Transcript ({key})\n\n");
-            for fact in facts {
-                match &fact.payload {
-                    FactPayload::Message { message } => {
-                        let role_label = match message.role {
-                            Role::User => "User",
-                            Role::Assistant => "Assistant",
-                            Role::Tool => "Tool Result",
-                            Role::System => "System",
-                        };
-                        formatted.push_str(&format!("### [{role_label}]\n{}\n\n", message.content));
-                        if let Some(calls) = &message.tool_calls {
-                            for c in calls {
-                                formatted.push_str(&format!(
-                                    "-> Tool Call: {}({})\n\n",
-                                    c.name, c.arguments
-                                ));
+                let mut formatted = format!("# Subagent Session Transcript ({key})\n\n");
+                for fact in facts {
+                    match &fact.payload {
+                        FactPayload::Message { message } => {
+                            let role_label = match message.role {
+                                Role::User => "User",
+                                Role::Assistant => "Assistant",
+                                Role::Tool => "Tool Result",
+                                Role::System => "System",
+                            };
+                            formatted
+                                .push_str(&format!("### [{role_label}]\n{}\n\n", message.content));
+                            if let Some(calls) = &message.tool_calls {
+                                for c in calls {
+                                    formatted.push_str(&format!(
+                                        "-> Tool Call: {}({})\n\n",
+                                        c.name, c.arguments
+                                    ));
+                                }
                             }
                         }
-                    }
-                    FactPayload::Observation {
-                        call_id,
-                        tool_name,
-                        lifecycle,
-                        ..
-                    } => {
-                        let message = lifecycle.lower_to_message(call_id, tool_name);
-                        formatted.push_str(&format!(
-                            "### [Tool Result ({tool_name})]\n{}\n\n",
-                            message.content
-                        ));
-                    }
-                    FactPayload::Compaction { summary, .. } => {
-                        formatted.push_str(&format!("### [Compacted Checkpoint]\n{summary}\n\n"));
-                    }
-                    FactPayload::Termination {
-                        reason,
-                        partial_output,
-                        ..
-                    } => {
-                        formatted.push_str(&format!(
-                            "### [Execution Terminated: {:?}]\n{}\n\n",
+                        FactPayload::Observation {
+                            call_id,
+                            tool_name,
+                            lifecycle,
+                            ..
+                        } => {
+                            let message = lifecycle.lower_to_message(call_id, tool_name);
+                            formatted.push_str(&format!(
+                                "### [Tool Result ({tool_name})]\n{}\n\n",
+                                message.content
+                            ));
+                        }
+                        FactPayload::Compaction { summary, .. } => {
+                            formatted
+                                .push_str(&format!("### [Compacted Checkpoint]\n{summary}\n\n"));
+                        }
+                        FactPayload::Termination {
                             reason,
-                            partial_output.as_deref().unwrap_or("(no partial output)")
-                        ));
-                    }
-                    FactPayload::SystemNotice {
-                        content, source, ..
-                    } => {
-                        formatted.push_str(&format!("### [Notice from {source}]\n{content}\n\n"));
+                            partial_output,
+                            ..
+                        } => {
+                            formatted.push_str(&format!(
+                                "### [Execution Terminated: {:?}]\n{}\n\n",
+                                reason,
+                                partial_output.as_deref().unwrap_or("(no partial output)")
+                            ));
+                        }
+                        FactPayload::SystemNotice {
+                            content, source, ..
+                        } => {
+                            formatted
+                                .push_str(&format!("### [Notice from {source}]\n{content}\n\n"));
+                        }
                     }
                 }
+                return Ok(paginate_text(
+                    &formatted,
+                    cursor.as_deref(),
+                    query.as_deref(),
+                    budget_tokens,
+                ));
             }
-            return Ok(paginate_text(&formatted, cursor, query, budget_tokens));
-        }
 
-        Err(format!("Subagent session '{key}' not found"))
+            Err(format!("Subagent session '{key}' not found"))
+        })
+        .await
     }
 }
 
@@ -259,34 +291,33 @@ impl OffstreamSource for FoldedCausalSource {
             session_id
         };
 
-        let reader = get_persistence_handle()
-            .reader()
-            .map_err(|e| format!("Failed to acquire reader: {e}"))?;
+        let sid = sid.to_string();
+        read_store(move |reader| {
+            let Ok(Some(thread)) = reader.load_thread(&sid) else {
+                return Ok(Vec::new());
+            };
 
-        let thread = match reader.load_thread(sid) {
-            Ok(Some(thread)) => thread,
-            _ => return Ok(Vec::new()),
-        };
-
-        let mut entries = Vec::new();
-        for fact in thread.all_facts() {
-            if let FactPayload::Compaction {
-                summary,
-                tokens_before,
-                ..
-            } = &fact.payload
-            {
-                let first_line = summary.lines().next().unwrap_or("Compaction checkpoint");
-                entries.push(OffstreamEntry {
-                    handle: format!("fold:{}", fact.id.0),
-                    label: first_line.chars().take(80).collect(),
-                    status: OffstreamStatus::Compacted,
-                    size_tokens: Some(*tokens_before),
-                });
+            let mut entries = Vec::new();
+            for fact in thread.all_facts() {
+                if let FactPayload::Compaction {
+                    summary,
+                    tokens_before,
+                    ..
+                } = &fact.payload
+                {
+                    let first_line = summary.lines().next().unwrap_or("Compaction checkpoint");
+                    entries.push(OffstreamEntry {
+                        handle: format!("fold:{}", fact.id.0),
+                        label: first_line.chars().take(80).collect(),
+                        status: OffstreamStatus::Compacted,
+                        size_tokens: Some(*tokens_before),
+                    });
+                }
             }
-        }
 
-        Ok(entries)
+            Ok(entries)
+        })
+        .await
     }
 
     async fn read(
@@ -296,87 +327,96 @@ impl OffstreamSource for FoldedCausalSource {
         query: Option<&str>,
         budget_tokens: usize,
     ) -> Result<PagedOffstreamContent, String> {
-        let reader = get_persistence_handle()
-            .reader()
-            .map_err(|e| format!("Failed to acquire reader: {e}"))?;
+        let session_id = self.session_id.clone();
+        let key = key.to_string();
+        let cursor = cursor.map(str::to_string);
+        let query = query.map(str::to_string);
+        read_store(move |reader| {
+            let thread = reader
+                .load_thread(&session_id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("Session '{session_id}' not found"))?;
 
-        let thread = reader
-            .load_thread(&self.session_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Session '{}' not found", self.session_id))?;
+            let target_fact = thread
+                .graph
+                .get(&protocol::FactId::from_raw(&key))
+                .ok_or_else(|| format!("Compaction fact '{key}' not found"))?;
 
-        let target_fact = thread
-            .graph
-            .get(&protocol::FactId::from_raw(key))
-            .ok_or_else(|| format!("Compaction fact '{key}' not found"))?;
-
-        let mut formatted = format!("# Folded Causal Checkpoint ({key})\n\n");
-        if let FactPayload::Compaction {
-            summary,
-            tokens_before,
-            read_files,
-            modified_files,
-            ..
-        } = &target_fact.payload
-        {
-            formatted.push_str(&format!(
-                "Tokens before compaction: ~{tokens_before}\n\n## Summary\n{summary}\n\n"
-            ));
-            if !modified_files.is_empty() {
-                formatted.push_str(&format!("Modified Files: {}\n", modified_files.join(", ")));
-            }
-            if !read_files.is_empty() {
-                formatted.push_str(&format!("Consulted Files: {}\n\n", read_files.join(", ")));
-            }
-        }
-
-        // Trace upstream parent nodes that were folded into this compaction
-        let mut curr_parent = target_fact.parent_id.as_ref();
-        let mut folded_nodes = Vec::new();
-        while let Some(pid) = curr_parent {
-            if let Some(parent) = thread.graph.get(pid) {
-                if matches!(parent.payload, FactPayload::Compaction { .. }) {
-                    break; // stop at previous compaction boundary
+            let mut formatted = format!("# Folded Causal Checkpoint ({key})\n\n");
+            if let FactPayload::Compaction {
+                summary,
+                tokens_before,
+                read_files,
+                modified_files,
+                ..
+            } = &target_fact.payload
+            {
+                formatted.push_str(&format!(
+                    "Tokens before compaction: ~{tokens_before}\n\n## Summary\n{summary}\n\n"
+                ));
+                if !modified_files.is_empty() {
+                    formatted.push_str(&format!("Modified Files: {}\n", modified_files.join(", ")));
                 }
-                folded_nodes.push(parent);
-                curr_parent = parent.parent_id.as_ref();
-            } else {
-                break;
-            }
-        }
-        folded_nodes.reverse();
-
-        if !folded_nodes.is_empty() {
-            formatted.push_str("## Folded Dialogue History\n\n");
-            for fact in folded_nodes {
-                match &fact.payload {
-                    FactPayload::Message { message } => {
-                        let role_str = match message.role {
-                            Role::User => "User",
-                            Role::Assistant => "Assistant",
-                            Role::Tool => "Tool Result",
-                            Role::System => "System",
-                        };
-                        formatted.push_str(&format!("### [{role_str}]\n{}\n\n", message.content));
-                    }
-                    FactPayload::Observation {
-                        call_id,
-                        tool_name,
-                        lifecycle,
-                        ..
-                    } => {
-                        let message = lifecycle.lower_to_message(call_id, tool_name);
-                        formatted.push_str(&format!(
-                            "### [Tool Result ({tool_name})]\n{}\n\n",
-                            message.content
-                        ));
-                    }
-                    _ => {}
+                if !read_files.is_empty() {
+                    formatted.push_str(&format!("Consulted Files: {}\n\n", read_files.join(", ")));
                 }
             }
-        }
 
-        Ok(paginate_text(&formatted, cursor, query, budget_tokens))
+            // Trace upstream parent nodes that were folded into this compaction
+            let mut curr_parent = target_fact.parent_id.as_ref();
+            let mut folded_nodes = Vec::new();
+            while let Some(pid) = curr_parent {
+                if let Some(parent) = thread.graph.get(pid) {
+                    if matches!(parent.payload, FactPayload::Compaction { .. }) {
+                        break; // stop at previous compaction boundary
+                    }
+                    folded_nodes.push(parent);
+                    curr_parent = parent.parent_id.as_ref();
+                } else {
+                    break;
+                }
+            }
+            folded_nodes.reverse();
+
+            if !folded_nodes.is_empty() {
+                formatted.push_str("## Folded Dialogue History\n\n");
+                for fact in folded_nodes {
+                    match &fact.payload {
+                        FactPayload::Message { message } => {
+                            let role_str = match message.role {
+                                Role::User => "User",
+                                Role::Assistant => "Assistant",
+                                Role::Tool => "Tool Result",
+                                Role::System => "System",
+                            };
+                            formatted
+                                .push_str(&format!("### [{role_str}]\n{}\n\n", message.content));
+                        }
+                        FactPayload::Observation {
+                            call_id,
+                            tool_name,
+                            lifecycle,
+                            ..
+                        } => {
+                            let message = lifecycle.lower_to_message(call_id, tool_name);
+                            formatted.push_str(&format!(
+                                "### [Tool Result ({tool_name})]\n{}\n\n",
+                                message.content
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            Ok(paginate_text(
+                &formatted,
+                cursor.as_deref(),
+                query.as_deref(),
+                budget_tokens,
+            ))
+        })
+        .await
     }
 }
 

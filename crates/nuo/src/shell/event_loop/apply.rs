@@ -40,7 +40,9 @@ fn find_tool_step_mut<'a>(
 /// observe (the loop ORs this into its dirty computation).
 pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -> bool {
     match mutation {
-        AppMutation::Transcript { edit } => apply_transcript(app, edit),
+        AppMutation::Transcript { thread_id, edit } => {
+            apply_transcript_for(app, thread_id.as_deref(), edit)
+        }
 
         // ---- Chrome / round lifecycle -------------------------------------
         AppMutation::ChromeEdit { session_id, edit } => {
@@ -53,9 +55,16 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 .store(responding, std::sync::atomic::Ordering::SeqCst);
             true
         }
-        AppMutation::SetRoundCount(round) => {
-            app.session.round_count = round;
-            true
+        AppMutation::SetRoundCount { thread_id, round } => {
+            if is_background_thread(app, thread_id.as_deref()) {
+                if let Some(tid) = thread_id {
+                    app.session.workspaces.entry(tid).or_default().round_count = round;
+                }
+                false
+            } else {
+                app.session.round_count = round;
+                true
+            }
         }
         AppMutation::SetCurrentTurn(turn) => {
             app.session.current_turn = turn;
@@ -71,8 +80,16 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
 
         // ---- Session / thread lifecycle -----------------------------------
-        AppMutation::Harness(snapshot) => apply_harness_snapshot(app, runtime, snapshot),
-        AppMutation::SessionPhase(phase) => apply_session_phase(app, phase),
+        AppMutation::Harness {
+            thread_id,
+            snapshot,
+        } => apply_harness_snapshot(app, runtime, thread_id.as_deref(), snapshot),
+        AppMutation::SessionPhase { thread_id, phase } => {
+            apply_session_phase(app, thread_id.as_deref(), phase)
+        }
+        AppMutation::ThreadSubscribed { thread_id, phase } => {
+            apply_thread_subscribed(app, thread_id, phase)
+        }
         AppMutation::CommandCatalog(catalog) => {
             app.composer.command_catalog = catalog;
             true
@@ -94,6 +111,18 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             next_id,
         } => apply_live_session(app, previous_id, next_id),
         AppMutation::SessionsOverview(sessions) => apply_sessions_overview(app, sessions),
+        AppMutation::ReconcileMissingDrafts(missing) => {
+            let active = app.session.current_session_id.clone();
+            app.surfaces
+                .drafts
+                .reconcile_missing(&missing, Some(active.as_str()));
+            false
+        }
+        AppMutation::ForgetDeletedThreadDraft(thread_id) => {
+            app.surfaces.drafts.forget(&thread_id);
+            app.surfaces.drafts.flush();
+            false
+        }
         AppMutation::OpenSessionsPanel => {
             app.link.open_sessions_signal = true;
             true
@@ -196,10 +225,23 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::ProviderPicker(snapshot) => apply_provider_picker(app, snapshot),
-        AppMutation::ProviderSwitched { provider, model } => {
-            app.session.current_provider = provider;
-            app.session.current_model = model;
-            true
+        AppMutation::ProviderSwitched {
+            thread_id,
+            provider,
+            model,
+        } => {
+            if is_background_thread(app, thread_id.as_deref()) {
+                if let Some(tid) = thread_id {
+                    let ws = app.session.workspaces.entry(tid).or_default();
+                    ws.provider = provider;
+                    ws.model = model;
+                }
+                false
+            } else {
+                app.session.current_provider = provider;
+                app.session.current_model = model;
+                true
+            }
         }
         AppMutation::WebSearchConfig(snapshot) => {
             app.surfaces.websearch_config = snapshot;
@@ -293,12 +335,42 @@ fn apply_chrome_mutation(app: &mut App, session_id: &str, edit: ChromeEdit) -> b
     true
 }
 
+/// Whether `thread_id` names a subscribed background thread rather than the
+/// currently foreground viewed thread.
+fn is_background_thread(app: &App, thread_id: Option<&str>) -> bool {
+    match thread_id {
+        Some(tid) if !tid.is_empty() && !app.session.current_session_id.is_empty() => {
+            tid != app.session.current_session_id
+        }
+        _ => false,
+    }
+}
+
 /// Fold a harness snapshot into the loop-status and trust-gate projection.
 fn apply_harness_snapshot(
     app: &mut App,
     runtime: &UiRuntime,
+    thread_id: Option<&str>,
     snapshot: protocol::HarnessSnapshot,
 ) -> bool {
+    if is_background_thread(app, thread_id) {
+        if let Some(tid) = thread_id {
+            let ws = app.session.workspaces.entry(tid.to_string()).or_default();
+            ws.loop_status = snapshot.loop_status;
+            ws.unattended = snapshot.unattended;
+            ws.confined = snapshot.confined;
+            ws.harness_retry_pending = snapshot.retry_pending;
+            if let Some(role) = snapshot.role {
+                ws.role = Some(role);
+            }
+            if let Some(w) = snapshot.workspace {
+                ws.workspace = crate::shell::chrome::tilde_home(std::path::Path::new(&w));
+            } else if ws.role.is_some() {
+                ws.workspace.clear();
+            }
+        }
+        return false;
+    }
     app.session.loop_status = snapshot.loop_status;
     app.session.unattended = snapshot.unattended;
     app.session.confined = snapshot.confined;
@@ -342,7 +414,57 @@ fn apply_harness_snapshot(
 
 /// Apply a server-attested readiness transition, flushing queued prompts and
 /// disclosing a post-Welcome failure as a notice rather than a death.
-fn apply_session_phase(app: &mut App, phase: protocol::ThreadPhase) -> bool {
+fn apply_thread_subscribed(app: &mut App, thread_id: String, phase: protocol::ThreadPhase) -> bool {
+    app.session.subscribed_threads.insert(thread_id.clone());
+    let has_tab = app
+        .surfaces
+        .surfaces
+        .tabs()
+        .iter()
+        .any(|t| t.thread_id() == Some(thread_id.as_str()));
+    if !has_tab {
+        // A newly created thread from `Alt+T` / `+` (`Subscribe(AttachAction::New)`):
+        // mount its tab and activate its workspace in place without reconnecting.
+        let tab = crate::shell::surfaces::ClientTab::thread(&thread_id, None::<String>);
+        app.open_tab(tab);
+        app.activate_thread_workspace(&thread_id);
+        app.session.session_phase = phase;
+    } else if thread_id == app.session.current_session_id {
+        app.session.session_phase = phase;
+    } else {
+        app.session
+            .workspaces
+            .entry(thread_id)
+            .or_default()
+            .session_phase = phase;
+    }
+    true
+}
+
+fn apply_session_phase(
+    app: &mut App,
+    thread_id: Option<&str>,
+    phase: protocol::ThreadPhase,
+) -> bool {
+    if is_background_thread(app, thread_id) {
+        if let Some(tid) = thread_id {
+            let ready = phase == protocol::ThreadPhase::Ready;
+            app.session
+                .workspaces
+                .entry(tid.to_string())
+                .or_default()
+                .session_phase = phase;
+            if ready {
+                let _ = app.send_intent_to(
+                    tid,
+                    protocol::AgentRequest::QueueSnapshot {
+                        thread_id: tid.to_string(),
+                    },
+                );
+            }
+        }
+        return false;
+    }
     let failed = match &phase {
         protocol::ThreadPhase::Failed { message, .. } => Some(message.clone()),
         _ => None,
@@ -379,7 +501,11 @@ fn apply_session_phase(app: &mut App, phase: protocol::ThreadPhase) -> bool {
 /// Record the live session move and rebase only the tab carrying the session
 /// being left (ADR-0123 `[INV-TAB-13]`).
 fn apply_live_session(app: &mut App, previous_id: String, next_id: String) -> bool {
+    app.rekey_thread_workspace(&previous_id, &next_id);
     app.session.live_session_id = next_id.clone();
+    if app.session.current_session_id == previous_id {
+        app.session.current_session_id = next_id.clone();
+    }
     // `[INV-TAB-13]`: address the tab by the session it is *leaving*.
     // Rebasing "the active tab" is the ghost-tab generator — the active
     // tab may already be a replacement that has nothing to do with this
@@ -959,6 +1085,40 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
     let mut apply = TranscriptApply::new(tui_config);
     apply_transcript_edit(&mut app.transcript.messages, edit, &mut apply);
     apply.finish(app)
+}
+
+/// Apply one transcript edit routed by `thread_id` (ADR-0251 `[INV-MUX-03]`).
+///
+/// Foreground edits land directly on `app.transcript`; background edits land
+/// directly on `app.session.workspaces[thread_id]` so background streaming
+/// tabs stay live in memory without disturbing the active viewport.
+pub(crate) fn apply_transcript_for(
+    app: &mut App,
+    thread_id: Option<&str>,
+    edit: TranscriptEdit,
+) -> bool {
+    if !is_background_thread(app, thread_id) {
+        return apply_transcript(app, edit);
+    }
+    let Some(tid) = thread_id else {
+        return apply_transcript(app, edit);
+    };
+    let tui_config = app.session.tui_config.clone();
+    let mut apply = TranscriptApply::new(tui_config);
+    let ws = app.session.workspaces.entry(tid.to_string()).or_default();
+    apply_transcript_edit(&mut ws.messages, edit, &mut apply);
+    match apply.post {
+        PostEdit::None => {}
+        PostEdit::Invalidate(id) => {
+            ws.layout_height_cache
+                .invalidate_messages(std::iter::once(id));
+        }
+        PostEdit::ClearCache => ws.layout_height_cache.clear(),
+    }
+    if apply.changed {
+        ws.transcript_changed_pending = true;
+    }
+    false
 }
 
 /// The turn position and send time an edit's payload *would* join, captured

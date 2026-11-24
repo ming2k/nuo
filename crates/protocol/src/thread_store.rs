@@ -661,14 +661,31 @@ mod tests {
                 .branch(&crate::BranchId::main())
                 .unwrap()
                 .compaction_horizon,
-            Some(b)
+            Some(b.clone())
+        );
+        // The horizon moved into the *request window*; the conversation still
+        // reaches the folded fact (ADR-0246 `[INV-CMP-08]`).
+        assert!(
+            hydrated
+                .live_path(&crate::BranchId::main())
+                .unwrap()
+                .iter()
+                .any(|fact| fact.id == b)
         );
         assert!(
             !hydrated
-                .path(&crate::BranchId::main())
+                .live_path(&crate::BranchId::main())
                 .unwrap()
                 .iter()
                 .any(|fact| fact.id == a)
+        );
+        assert!(
+            hydrated
+                .path(&crate::BranchId::main())
+                .unwrap()
+                .iter()
+                .any(|fact| fact.id == a),
+            "a fold never removes a row from the conversation"
         );
     }
 

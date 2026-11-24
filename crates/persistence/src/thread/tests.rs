@@ -64,6 +64,94 @@ async fn full_transcript_includes_everything_unprojected() {
     let _ = store.archived_transcript_count().await; // no directives yet
 }
 
+/// ADR-0246 `[INV-CMP-08]`/`[INV-CMP-10]`: a fold bounds the model window and
+/// leaves the conversation untouched — across a durable reload, which is the
+/// path a resumed or re-attached client hydrates from.
+#[tokio::test]
+async fn a_fold_survives_reload_as_a_window_boundary_not_a_history_loss() {
+    let dir = temp_dir("fold-window");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+    store
+        .replace_messages(vec![
+            user("round one"),
+            assistant("answer one"),
+            user("round two"),
+            assistant("answer two"),
+            user("round three"),
+        ])
+        .await
+        .unwrap();
+
+    let mut thread = store.thread().await;
+    let branch = protocol::BranchId::main();
+    let path_facts = thread.path(&branch).unwrap();
+    let kept = path_facts[2].id.clone();
+    let folded = path_facts[1].id.clone();
+    thread
+        .compact(&branch, "summary of round one", kept, 4_000, 1_009)
+        .unwrap();
+    store.commit_thread(&thread).await.unwrap();
+
+    let reloaded = ThreadSession::for_path(path.clone());
+    // The request window stops at the horizon.
+    let window = reloaded.model_window().await;
+    assert!(
+        window
+            .iter()
+            .any(|message| message.content.contains("summary of round one")),
+        "the model sees the checkpoint: {window:?}"
+    );
+    assert!(
+        !window.iter().any(|message| message.content == "round one"),
+        "the folded round is not in the model window"
+    );
+    assert!(
+        window
+            .iter()
+            .any(|message| message.content == "round three"),
+        "the kept tail is in the model window"
+    );
+
+    // The conversation keeps every row, checkpoint at its seam.
+    let conversation = reloaded.full_transcript().await;
+    let contents: Vec<&str> = conversation
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect();
+    assert!(
+        contents.contains(&"round one"),
+        "a resumed client hydrates the folded round: {contents:?}"
+    );
+    assert!(
+        contents.contains(&"answer one"),
+        "…and its reply: {contents:?}"
+    );
+    // The checkpoint reads where the fold happened — after the tail it kept —
+    // matching the live client, which learned of the fold as an event at the
+    // tail (ADR-0246 `[INV-CMP-10]`).
+    let checkpoint_index = contents
+        .iter()
+        .position(|content| content.contains("summary of round one"))
+        .expect("the checkpoint row");
+    assert_eq!(
+        checkpoint_index,
+        contents.len() - 1,
+        "the checkpoint closes the conversation it summarises: {contents:?}"
+    );
+    assert!(
+        contents.contains(&"round three"),
+        "the tail survives too: {contents:?}"
+    );
+    assert!(
+        thread
+            .path(&branch)
+            .unwrap()
+            .iter()
+            .any(|fact| fact.id == folded)
+    );
+}
+
 // ---------------------------------------------------------------
 // Session switching must not inherit the previous session's projection.
 // ---------------------------------------------------------------
@@ -1393,4 +1481,221 @@ async fn catalog_summary_tracks_turns_and_metadata() {
     let summary = row(store.list().await.unwrap());
     assert_eq!(summary.message_count, 3);
     assert_eq!(summary.title.as_deref(), Some("Catalog Title"));
+}
+
+/// A commit whose journal append fails must leave the session exactly as the
+/// journal still has it.
+///
+/// The mutation happens before the append (the frame is derived from it), so a
+/// failed append that left the transcript in place would make the *next*
+/// commit believe those entries were already durable and persist a
+/// metadata-only frame that never carries them — silent, permanent loss.
+#[tokio::test]
+async fn a_failed_journal_append_rolls_the_session_back() {
+    let dir = temp_dir("rollback");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path);
+    store
+        .replace_messages(vec![user("committed")])
+        .await
+        .unwrap();
+    let before = store.model_window().await;
+
+    store.fail_next_journal_append().await;
+    let mut window = before.clone();
+    window.push(assistant("must not survive"));
+    let failed = store
+        .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+        .await;
+    assert!(
+        failed.is_err(),
+        "an injected append failure must fail the commit"
+    );
+
+    let after = store.model_window().await;
+    assert_eq!(
+        after, before,
+        "a failed commit must not leave the mutation in memory"
+    );
+
+    // The next commit must carry only its own turn; if the rolled-back entries
+    // had been treated as durable, this file would lose them on reload.
+    let mut recovered = after.clone();
+    recovered.push(assistant("recovered"));
+    store
+        .commit_turn(CommitTurn::new(&recovered, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    let reopened = ThreadSession::for_path(store.state_lock_for_test().await.path.clone());
+    let reloaded = reopened.model_window().await;
+    assert_eq!(
+        reloaded.len(),
+        2,
+        "the rolled-back entry must be absent while the retried turn is durable"
+    );
+    assert_eq!(reloaded[0].content, "committed");
+    assert_eq!(reloaded[1].content, "recovered");
+}
+
+/// Many independent sessions commit concurrently without serialising on one
+/// another's journal.
+///
+/// This is the property the lane model exists for (ADR-0237): a commit's ack
+/// is bounded by its own session's `fdatasync`, never by another session's
+/// work. The assertion is deliberately structural rather than a wall-clock
+/// threshold — a shared ack chain would make the slowest session's latency the
+/// floor for all of them, so 16 sessions × 8 turns must all finish well inside
+/// a per-session budget.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn independent_sessions_commit_concurrently() {
+    const SESSIONS: usize = 16;
+    const TURNS: usize = 8;
+
+    let dir = temp_dir("concurrent-sessions");
+    let mut tasks = Vec::with_capacity(SESSIONS);
+    for session in 0..SESSIONS {
+        let path = dir.join(format!("session-{session}.json"));
+        tasks.push(tokio::spawn(async move {
+            let store = ThreadSession::for_path(path);
+            let mut window = Vec::new();
+            for turn in 0..TURNS {
+                window.push(user(&format!("s{session} user {turn}")));
+                window.push(assistant(&format!("s{session} reply {turn}")));
+                store
+                    .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+                    .await
+                    .expect("every session's commits must succeed");
+            }
+            store.id().await
+        }));
+    }
+
+    let started = std::time::Instant::now();
+    let mut ids = Vec::with_capacity(SESSIONS);
+    for (session, task) in tasks.into_iter().enumerate() {
+        ids.push((session, task.await.expect("session task must not panic")));
+    }
+    let elapsed = started.elapsed();
+
+    let mut unique: Vec<String> = ids.iter().map(|(_, id)| id.clone()).collect();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        SESSIONS,
+        "each session keeps its own identity"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(20),
+        "{SESSIONS} sessions × {TURNS} turns took {elapsed:?}; a shared ack chain \
+         would make the slowest session everyone's floor"
+    );
+
+    // Every commit is durable and isolated: reopening one session shows exactly
+    // its own history, never a neighbour's.
+    for (session, id) in ids.iter() {
+        let reopened = ThreadSession::for_path(dir.join(format!("session-{session}.json")));
+        assert_eq!(&reopened.id().await, id);
+        let window = reopened.model_window().await;
+        assert_eq!(window.len(), TURNS * 2);
+        assert!(
+            window
+                .iter()
+                .all(|message| message.content.starts_with(&format!("s{session} "))),
+            "a session's history must never contain another session's turn"
+        );
+    }
+}
+
+/// ADR-0242 + ADR-0249: deleting all content shards (`rm -rf shards/`) and
+/// running `catch_up_projections_for` rebuilds transcript facts, FTS index,
+/// normalized `command_acts`, and journal-truth `workspace_effects` (`/undo`)
+/// completely from the session journals.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_all_content_shards_rebuilds_facts_fts_commands_and_workspace_effects() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let store = ThreadSession::for_path(dir.join("rebuild-all.json"));
+    let id = store.id().await;
+
+    let window = vec![
+        Message::new(Role::User, "rebuildable_needle_phoenix".to_string()),
+        Message::new(Role::Assistant, "rebuilt cleanly".to_string()),
+    ];
+    store
+        .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+        .await
+        .unwrap();
+    store
+        .mutate_commands(|cmds| {
+            cmds.push(protocol::CommandRecord::new("unattended", "on"));
+            cmds.push(protocol::CommandRecord::new("role", "developer"));
+        })
+        .await
+        .unwrap();
+
+    let effect_id = store
+        .writer
+        .append_workspace_effect(crate::workspace_effects::NewOwnedEffect {
+            thread_id: id.clone(),
+            round_id: "r1".to_string(),
+            turn_id: "t1".to_string(),
+            call_id: "c1".to_string(),
+            seq: 1,
+            tool_name: "write_file".to_string(),
+            path: Some("/tmp/demo.rs".to_string()),
+            op: crate::workspace_effects::JournalOp::Edit,
+            effect_class: "file_bytes".to_string(),
+            before_hash: Some("pre-hash-1".to_string()),
+            after_hash: None,
+            irreversible_reason: None,
+            created_at_ms: 1000,
+        })
+        .await
+        .unwrap();
+    assert!(
+        store
+            .writer
+            .complete_workspace_effect(&id, effect_id, Some("post-hash-1".to_string()), 1500)
+            .await
+            .unwrap()
+    );
+    store.flush_projection().await.unwrap();
+
+    // Wipe the entire content shards directory (ADR-0242 acceptance criterion).
+    let shards_dir = store.writer.shards_dir().to_path_buf();
+    assert!(shards_dir.exists());
+    std::fs::remove_dir_all(&shards_dir).unwrap();
+    assert!(!shards_dir.exists());
+
+    // Open a fresh PersistenceHandle (fresh shard pool) and catch up from journals.
+    let db_path = store.writer.db_path().to_path_buf();
+    drop(store);
+    let fresh = crate::db::PersistenceHandle::spawn(db_path, None);
+    let repaired = catch_up_projections_for(&fresh).unwrap();
+    assert!(
+        repaired >= 1,
+        "catch-up must detect missing shard and rebuild"
+    );
+
+    let reader = fresh.reader().unwrap();
+    let reloaded = reader.load_session_full(&id).unwrap().expect("session");
+    assert_eq!(reloaded.transcript.entries.len(), 2);
+    assert_eq!(reloaded.commands.len(), 2);
+    assert_eq!(reloaded.commands[0].name, "unattended");
+    assert_eq!(reloaded.commands[1].name, "role");
+
+    let hits = reader
+        .search_history("rebuildable_needle_phoenix", None, 10)
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].session_id, id);
+
+    let effects = fresh.list_workspace_effects(id.clone()).await.unwrap();
+    assert_eq!(effects.len(), 1);
+    assert_eq!(effects[0].id, effect_id);
+    assert_eq!(effects[0].before_hash.as_deref(), Some("pre-hash-1"));
+    assert_eq!(effects[0].after_hash.as_deref(), Some("post-hash-1"));
+    assert!(effects[0].is_undoable());
 }

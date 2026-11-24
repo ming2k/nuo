@@ -68,6 +68,7 @@ pub struct LogSceneRects {
     pub tab_next_rect: Option<Rect>,
     pub tab_overflow_rect: Option<Rect>,
     pub tab_notices_rect: Option<Rect>,
+    pub tab_help_rect: Option<Rect>,
 }
 
 /// What the scene needs to paint itself.
@@ -245,6 +246,7 @@ pub fn draw_command_log_scene(
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,
         tab_notices_rect: tab_rects.notices_rect,
+        tab_help_rect: tab_rects.help_rect,
     }
 }
 

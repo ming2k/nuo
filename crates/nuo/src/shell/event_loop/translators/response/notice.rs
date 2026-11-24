@@ -105,13 +105,11 @@ impl TranslatorState {
             }
             RoundEvent::Error(e) => {
                 let attempts = self
+                    .thread_mut(&session_id)
                     .retry_progress
                     .as_ref()
                     .map_or(0, view::retry::RetryProgress::retries);
-                self.retry_progress = None;
-                // A terminal round error may still carry the raw
-                // retryable-envelope encoding: strip it so the
-                // user sees the message, never the wire framing.
+                self.thread_mut(&session_id).retry_progress = None;
                 let message = if attempts > 1 {
                     if e.starts_with("Failed after") || e.starts_with("Exhausted") {
                         e
@@ -121,24 +119,17 @@ impl TranslatorState {
                 } else {
                     e
                 };
-                // A round-level failure is a turn outcome: it
-                // holds a position in time (the round ended
-                // here) but says nothing to the model.
-                //
-                // ADR-0166: a terminal error ends the round just
-                // as a completion does (`RoundInterrupted` is not
-                // emitted for `reason == Error`), so it is the
-                // boundary the provisional-row sweep must read.
-                // `RoundEvent::Error` is only ever a terminal
-                // round error or a pre-round admission refusal —
-                // never an error while a round continues.
-                self.transcript(E::RetractPendingToolSteps).await;
+                self.transcript(&session_id, E::RetractPendingToolSteps)
+                    .await;
                 let notice = TranscriptMessage::notice(NoticeSeverity::Error, message)
                     .with_sent_at_ms(now_ms());
-                self.transcript(E::Append {
-                    class: protocol::EventClass::TurnOutcome,
-                    message: notice,
-                })
+                self.transcript(
+                    &session_id,
+                    E::Append {
+                        class: protocol::EventClass::TurnOutcome,
+                        message: notice,
+                    },
+                )
                 .await;
 
                 self.mutations.send(M::SetResponding(false)).await;
@@ -153,7 +144,7 @@ impl TranslatorState {
 
     /// Provider retry scheduling.
     #[allow(clippy::single_match)]
-    pub(super) async fn handle_retry_event(&mut self, event: RoundEvent) {
+    pub(super) async fn handle_retry_event(&mut self, session_id: String, event: RoundEvent) {
         match event {
             RoundEvent::RetryScheduled {
                 attempt,
@@ -161,20 +152,11 @@ impl TranslatorState {
                 delay_ms,
                 message,
             } => {
-                // ADR-0166: a scheduled retry is an attempt
-                // boundary — the failed attempt is over and its
-                // provisional rows cannot become calls. The
-                // harness retracted them by id; this sweep makes
-                // the invariant hold even if that frame was lost
-                // or arrived after the retry.
-                self.transcript(E::RetractPendingToolSteps).await;
+                self.transcript(&session_id, E::RetractPendingToolSteps)
+                    .await;
                 let delay = std::time::Duration::from_millis(delay_ms);
                 let retry_at = std::time::Instant::now() + delay;
-                // Advance the one typed state machine. Every
-                // consumer below reads *this* value, so the
-                // ordinal on the bar and the ordinal in the
-                // receipt are the same number by construction.
-                let progress = match self.retry_progress.take() {
+                let progress = match self.thread_mut(&session_id).retry_progress.take() {
                     Some(progress) => {
                         progress.with_next_attempt(attempt, max_attempts, retry_at, message.clone())
                     }
@@ -186,22 +168,9 @@ impl TranslatorState {
                     ),
                 };
                 let fault = view::model::notice_text::display_text(&message);
-                // The record's ordinal pair, composed by the same
-                // owner as the bar's clause (`receipt_label`), so
-                // the two can never disagree about which retry
-                // this was — and this is the one place the
-                // attempt *budget* is stated: `retry 2 of 30`
-                // answers "how much rope is left?" for a reader
-                // consulting the log afterwards, which is exactly
-                // the question the live bar must not spend
-                // columns on.
                 let receipt = progress.receipt_label();
-                // The bar's clause and the stored state are the
-                // same value: clone once here so the published
-                // setback cannot be a second, independently
-                // constructed copy.
                 let published = progress.clone();
-                self.retry_progress = Some(progress);
+                self.thread_mut(&session_id).retry_progress = Some(progress);
 
                 // Publish-only. The clause is retired by the
                 // next phase write for *this* session — each
@@ -224,7 +193,7 @@ impl TranslatorState {
                 // scroll and copy from), never in the
                 // conversation. One line per scheduled attempt,
                 // tagged with the route that failed.
-                let (provider, model) = self.attribution();
+                let (provider, model) = self.attribution_for(&session_id);
                 let summary = if provider.is_empty() {
                     format!("{receipt} — {fault}")
                 } else if model.is_empty() {
@@ -252,7 +221,11 @@ impl TranslatorState {
     }
 
     /// Background job lifecycle notices.
-    pub(super) async fn handle_background_job_event(&mut self, event: RoundEvent) {
+    pub(super) async fn handle_background_job_event(
+        &mut self,
+        session_id: String,
+        event: RoundEvent,
+    ) {
         match event {
             RoundEvent::BackgroundJobStarted(info) => {
                 let label = match &info.spec {
@@ -278,10 +251,13 @@ impl TranslatorState {
                     format!("Background job started: {label} ({})", info.id.0),
                 )
                 .with_sent_at_ms(now_ms());
-                self.transcript(E::Append {
-                    class: protocol::EventClass::TurnOutcome,
-                    message,
-                })
+                self.transcript(
+                    &session_id,
+                    E::Append {
+                        class: protocol::EventClass::TurnOutcome,
+                        message,
+                    },
+                )
                 .await;
             }
             RoundEvent::BackgroundJobProgress { .. } => {}
@@ -292,10 +268,13 @@ impl TranslatorState {
                     format!("Background service ready: {}", job_id.0),
                 )
                 .with_sent_at_ms(now_ms());
-                self.transcript(E::Append {
-                    class: protocol::EventClass::TurnOutcome,
-                    message,
-                })
+                self.transcript(
+                    &session_id,
+                    E::Append {
+                        class: protocol::EventClass::TurnOutcome,
+                        message,
+                    },
+                )
                 .await;
             }
             RoundEvent::BackgroundJobCompleted(outcome) => {
@@ -365,10 +344,13 @@ impl TranslatorState {
                     NoticeSeverity::Warning
                 };
                 let message = TranscriptMessage::notice(severity, label).with_sent_at_ms(now_ms());
-                self.transcript(E::Append {
-                    class: protocol::EventClass::TurnOutcome,
-                    message,
-                })
+                self.transcript(
+                    &session_id,
+                    E::Append {
+                        class: protocol::EventClass::TurnOutcome,
+                        message,
+                    },
+                )
                 .await;
             }
             _ => {}

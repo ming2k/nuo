@@ -41,8 +41,8 @@ impl TranslatorState {
                     ))),
                 )
                 .await;
-                let (provider, model) = self.attribution();
-                let effort = self.picker_effort();
+                let (provider, model) = self.attribution_for(&session_id);
+                let effort = self.picker_effort_for(&session_id);
                 let Some(context) = ctx.turn_context else {
                     return;
                 };
@@ -59,7 +59,8 @@ impl TranslatorState {
                 if let Some((round, turn)) = position {
                     message = message.with_round(round).with_turn(turn);
                 }
-                self.transcript(E::ToolStepUpsert { message }).await;
+                self.transcript(&session_id, E::ToolStepUpsert { message })
+                    .await;
             }
             RoundEvent::ToolInputProgress {
                 id,
@@ -69,11 +70,14 @@ impl TranslatorState {
                 // ADR-0026 / ADR-0046: progress tick and streaming arguments.
                 self.mutations.send(M::SetResponding(true)).await;
 
-                self.transcript(E::ToolInputProgress {
-                    id,
-                    bytes,
-                    arguments,
-                })
+                self.transcript(
+                    &session_id,
+                    E::ToolInputProgress {
+                        id,
+                        bytes,
+                        arguments,
+                    },
+                )
                 .await;
             }
             RoundEvent::ToolCallsRetracted { ids } => {
@@ -81,7 +85,8 @@ impl TranslatorState {
                 // before dispatch. Drop the provisional rows;
                 // they never described a call, so a terminal
                 // "cancelled" row would be a lie.
-                self.transcript(E::ToolCallsRetracted { ids }).await;
+                self.transcript(&session_id, E::ToolCallsRetracted { ids })
+                    .await;
             }
             RoundEvent::ToolCall {
                 id,
@@ -94,9 +99,9 @@ impl TranslatorState {
                     )))))
                     .await;
 
-                let (provider, model) = self.attribution();
-                let effort = self.picker_effort();
-                self.retry_progress = None;
+                let (provider, model) = self.attribution_for(&session_id);
+                let effort = self.picker_effort_for(&session_id);
+                self.thread_mut(&session_id).retry_progress = None;
                 let Some(context) = ctx.turn_context else {
                     return;
                 };
@@ -117,7 +122,8 @@ impl TranslatorState {
                 if let Some((round, turn)) = position {
                     message = message.with_round(round).with_turn(turn);
                 }
-                self.transcript(E::ToolStepUpsert { message }).await;
+                self.transcript(&session_id, E::ToolStepUpsert { message })
+                    .await;
 
                 self.mutations.send(M::SetResponding(true)).await;
             }
@@ -127,7 +133,8 @@ impl TranslatorState {
                 // dispatch id finds it. No phase change and no
                 // responding toggle: nothing is running yet, and the
                 // card simply gains its diff.
-                self.transcript(E::ToolPreview { id, preview }).await;
+                self.transcript(&session_id, E::ToolPreview { id, preview })
+                    .await;
             }
             RoundEvent::ToolResult {
                 id,
@@ -145,7 +152,7 @@ impl TranslatorState {
                     event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Preparing)),
                 )
                 .await;
-                let (provider, model) = self.attribution();
+                let (provider, model) = self.attribution_for(&session_id);
                 let Some(context) = ctx.turn_context else {
                     return;
                 };
@@ -161,14 +168,17 @@ impl TranslatorState {
                     fallback.turn = Some(turn);
                 }
                 fallback.finish_tool_step(&id, output.clone(), structured.clone(), duration_ms);
-                self.transcript(E::ToolResult {
-                    id,
-                    name,
-                    output,
-                    structured,
-                    duration_ms,
-                    fallback: Some(fallback),
-                })
+                self.transcript(
+                    &session_id,
+                    E::ToolResult {
+                        id,
+                        name,
+                        output,
+                        structured,
+                        duration_ms,
+                        fallback: Some(fallback),
+                    },
+                )
                 .await;
             }
             RoundEvent::ToolCancelled { id, .. } => {
@@ -185,14 +195,18 @@ impl TranslatorState {
                 }
                 fallback.cancel_tool_step(&id);
                 fallback.set_tool_step_expanded(false);
-                self.transcript(E::ToolCancel {
-                    id,
-                    fallback: Some(fallback),
-                })
+                self.transcript(
+                    &session_id,
+                    E::ToolCancel {
+                        id,
+                        fallback: Some(fallback),
+                    },
+                )
                 .await;
             }
             RoundEvent::ToolStream { id, stream } => {
-                self.transcript(E::ToolStream { id, stream }).await;
+                self.transcript(&session_id, E::ToolStream { id, stream })
+                    .await;
             }
             _ => {}
         }

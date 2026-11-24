@@ -233,13 +233,13 @@ fn reversal_stamp_is_written_through_the_door_and_is_one_shot() {
 
         assert!(
             handle
-                .mark_workspace_effect_reversed(id, 2_000, Some("restored".to_string()))
+                .mark_workspace_effect_reversed("thread-1", id, 2_000, Some("restored".to_string()))
                 .await
                 .unwrap()
         );
         assert!(
             !handle
-                .mark_workspace_effect_reversed(id, 3_000, None)
+                .mark_workspace_effect_reversed("thread-1", id, 3_000, None)
                 .await
                 .unwrap(),
             "a second reversal must lose the race, not overwrite"

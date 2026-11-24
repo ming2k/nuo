@@ -185,8 +185,10 @@ fn compaction_is_branch_scoped() {
     let main_path = thread.path(&BranchId::main()).unwrap();
     let side_path = thread.path(&branch).unwrap();
     assert!(side_path.iter().any(|fact| fact.id == a));
+    // ADR-0246 `[INV-CMP-08]`: the fold bounds the request window, not the
+    // conversation. `a` is still on the branch, and still said.
+    assert!(main_path.iter().any(|fact| fact.id == a));
     assert!(main_path.iter().any(|fact| fact.id == b));
-    assert!(!main_path.iter().any(|fact| fact.id == a));
     assert!(
         main_path
             .iter()
@@ -195,7 +197,47 @@ fn compaction_is_branch_scoped() {
 }
 
 #[test]
-fn fork_after_compaction_only_accepts_live_facts() {
+fn the_compaction_checkpoint_names_the_fact_it_kept() {
+    let mut thread = thread();
+    let a = thread
+        .append(notice("a"), FactContext::default(), 1_001)
+        .unwrap();
+    let b = thread
+        .append(notice("b"), FactContext::default(), 1_002)
+        .unwrap();
+    let checkpoint = thread
+        .compact(&BranchId::main(), "summary", b.clone(), 100, 1_003)
+        .unwrap();
+
+    let fact = thread.graph.get(&checkpoint).expect("the checkpoint fact");
+    let FactPayload::Compaction {
+        first_kept_fact_id, ..
+    } = &fact.payload
+    else {
+        panic!("a compact call appends a Compaction fact");
+    };
+    assert_eq!(
+        first_kept_fact_id, &b,
+        "the checkpoint names the seam by identity, never by a parsed position"
+    );
+    // The seam is *derivable* from that reference: the folded range is
+    // everything before the kept fact in conversation order.
+    let conversation: Vec<_> = thread
+        .path(&BranchId::main())
+        .unwrap()
+        .into_iter()
+        .map(|fact| fact.id.clone())
+        .collect();
+    let kept_index = conversation
+        .iter()
+        .position(|id| id == &b)
+        .expect("the kept fact is on the conversation path");
+    assert_eq!(kept_index, 1, "everything before `b` was folded");
+    assert_eq!(conversation[0], a);
+}
+
+#[test]
+fn a_fold_never_moves_a_fact_out_of_the_gc_roots() {
     let mut thread = thread();
     let a = thread
         .append(notice("a"), FactContext::default(), 1_001)
@@ -206,13 +248,65 @@ fn fork_after_compaction_only_accepts_live_facts() {
     thread
         .compact(&BranchId::main(), "summary", b.clone(), 100, 1_003)
         .unwrap();
-    assert_eq!(
-        thread
-            .fork(a.clone(), "old", BranchPolicy::default(), 1_004)
-            .unwrap_err(),
-        ThreadError::FactNotLive(a.clone())
+    // `a` is folded but still reachable: the kept tail's parent edge crosses
+    // the folded range, so retention is not a side effect of a token budget.
+    assert!(thread.live_facts().contains(&a));
+    assert!(!thread.gc_eligible_facts().contains(&a));
+    assert!(!thread.gc_eligible_facts().contains(&b));
+}
+
+#[test]
+fn the_request_window_stops_at_the_horizon() {
+    let mut thread = thread();
+    let a = thread
+        .append(notice("a"), FactContext::default(), 1_001)
+        .unwrap();
+    let b = thread
+        .append(notice("b"), FactContext::default(), 1_002)
+        .unwrap();
+    thread
+        .compact(&BranchId::main(), "summary", b.clone(), 100, 1_003)
+        .unwrap();
+
+    let conversation: Vec<_> = thread
+        .path(&BranchId::main())
+        .unwrap()
+        .into_iter()
+        .map(|fact| fact.id.clone())
+        .collect();
+    let window: Vec<_> = thread
+        .live_path(&BranchId::main())
+        .unwrap()
+        .into_iter()
+        .map(|fact| fact.id.clone())
+        .collect();
+    assert!(conversation.contains(&a));
+    assert!(
+        !window.contains(&a),
+        "the horizon bounds the request window"
     );
-    // The first kept fact is live.
+    assert!(window.contains(&b));
+}
+
+#[test]
+fn fork_after_compaction_accepts_folded_facts() {
+    let mut thread = thread();
+    let a = thread
+        .append(notice("a"), FactContext::default(), 1_001)
+        .unwrap();
+    let b = thread
+        .append(notice("b"), FactContext::default(), 1_002)
+        .unwrap();
+    thread
+        .compact(&BranchId::main(), "summary", b.clone(), 100, 1_003)
+        .unwrap();
+    // A fold is context relief, so a folded round is still a fork point: the
+    // branch cursor can name any fact the conversation reaches (ADR-0246).
+    assert!(
+        thread
+            .fork(a, "old", BranchPolicy::default(), 1_004)
+            .is_ok()
+    );
     assert!(
         thread
             .fork(b, "kept", BranchPolicy::default(), 1_005)
@@ -250,12 +344,30 @@ fn gc_eligibility_is_reachability_from_every_branch() {
     let b = thread
         .append(notice("b"), FactContext::default(), 1_002)
         .unwrap();
-    thread
-        .compact(&BranchId::main(), "summary", b.clone(), 100, 1_003)
+    let branch = thread
+        .fork(a.clone(), "side", BranchPolicy::default(), 1_003)
         .unwrap();
-    // With no sibling, `a` is unreachable from the only live path.
-    assert!(thread.gc_eligible_facts().contains(&a));
-    assert!(!thread.gc_eligible_facts().contains(&b));
+    thread
+        .compact(&BranchId::main(), "summary", b.clone(), 100, 1_004)
+        .unwrap();
+    // `a` is reachable from `side`, so it is not garbage; only a fact no
+    // branch reaches at all is.
+    assert!(!thread.gc_eligible_facts().contains(&a));
+    thread.delete_branch(&branch, 1_005).unwrap();
+    assert!(
+        !thread.gc_eligible_facts().contains(&a),
+        "the folded fact is still on main's conversation path"
+    );
+    let orphan = thread
+        .append(notice("orphan"), FactContext::default(), 1_006)
+        .unwrap();
+    thread
+        .compact(&BranchId::main(), "second", orphan.clone(), 10, 1_007)
+        .unwrap();
+    assert!(
+        !thread.gc_eligible_facts().contains(&orphan),
+        "the kept fact is live by construction"
+    );
 }
 
 #[test]

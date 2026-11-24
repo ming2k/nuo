@@ -10,12 +10,20 @@ negative_knowledge: true
 
 # 0051. Composer Canonical Quadrant Modality, Unified Filter Engine, and Atomic Draft Capsule Topology
 
+> **The draft type is superseded.** `DraftCapsule` is deleted;
+> [ADR-0247](0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md)
+> replaces it with `view::composer_draft::ComposerDraft` (which gained the
+> composer view offset the capsule was missing) and shares that one type between
+> the transient stash this ADR defined and the per-thread parked-draft ledger.
+> The `[INV-COMP-03]` stash/rollback rule below is unchanged.
+
 - Status: Accepted
 - Date: 2026-10-26
 - Deciders: Nuo Architecture Working Group
 - Consulted: TUI Presentation, Terminal Infrastructure, Usability Working Group
 - Informed: System Architects, Release Engineering
 - Amends: [ADR-0044](0044-composer-native-history-search-ghost-preview-and-draft-stash-topology.md)
+- Amended by: [ADR-0247](0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md) — `DraftCapsule` is deleted in favour of `view::composer_draft::ComposerDraft`, which the transient stash and the parked-draft ledger share. `[INV-COMP-03]`'s atomic stash and rollback guarantee is unchanged and is restated there.
 - Complements: [ADR-0035](0035-domain-scoped-surface-architecture-and-encapsulated-dialog-lifecycle.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0047](0047-autonomous-surface-interaction-architecture-and-spatial-event-delegation.md)
 
 ---

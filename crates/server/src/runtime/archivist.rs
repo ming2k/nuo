@@ -25,13 +25,32 @@ use tool::Tool;
 
 use acp::{AgentAddress, AgentEnvelope, Fabric, MessageIntent, SteerAction};
 
-/// A read snapshot of the unified store, obtained from the single-writer
-/// handle: the lookup and recall tools never open a connection of
-/// their own.
-fn read_store() -> Result<DbReader, String> {
-    get_persistence_handle()
-        .reader()
-        .map_err(|e| format!("could not open session store: {e}"))
+/// Run one read against the unified store on the blocking pool.
+///
+/// The closure owns the reader for exactly as long as it runs, so no WAL read
+/// snapshot is ever held across an `await`. Both halves matter:
+///
+/// - the checkout is synchronous and may wait for a lease, so it must not park
+///   an async worker that every hosted session shares;
+/// - a reader held across an `await` (an ACP dispatch, an HTTP call) pins the
+///   WAL against checkpointing for the duration of unrelated network I/O,
+///   which is how a single slow call grows the WAL on the whole server.
+///
+/// The lookup and recall tools therefore never open a connection of their own
+/// and never keep one alive past their own answer.
+async fn read_store<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&DbReader) -> Result<T, String> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let reader = get_persistence_handle()
+            .reader()
+            .map_err(|error| format!("could not read the session store: {error}"))?;
+        f(&reader)
+    })
+    .await
+    .map_err(|error| format!("session store task failed: {error}"))?
 }
 
 /// Build the Archivist agent for this server instance: a Root-posture agent
@@ -132,22 +151,26 @@ impl Tool for ArchivistInstructSessionTool {
 
         // The id may be a prefix the search tools surfaced; resolve it
         // against the durable store first so delegation fails honestly
-        // instead of mis-addressing an unrelated session.
-        let reader = read_store()?;
-        let resolved = if reader
-            .get_session(session_id)
-            .map_err(|e| format!("session lookup failed: {e}"))?
-            .is_some()
-        {
-            session_id.to_string()
-        } else {
+        // instead of mis-addressing an unrelated session. The lookup is one
+        // blocking read; it must not hold a WAL snapshot across the ACP
+        // dispatch below.
+        let requested = session_id.to_string();
+        let resolved = read_store(move |reader| {
+            if reader
+                .get_session(&requested)
+                .map_err(|e| format!("session lookup failed: {e}"))?
+                .is_some()
+            {
+                return Ok(requested);
+            }
             reader
-                .resolve_session_prefix(session_id, &protocol::ThreadFilter::global())
+                .resolve_session_prefix(&requested, &protocol::ThreadFilter::global())
                 .map_err(|e| format!("session resolve failed: {e}"))?
                 .into_iter()
                 .next()
-                .ok_or_else(|| format!("no session matches '{session_id}'"))?
-        };
+                .ok_or_else(|| format!("no session matches '{requested}'"))
+        })
+        .await?;
 
         let recipient = AgentAddress::parse(&format!("agent://local/session/{resolved}"))
             .map_err(|e| format!("invalid session recipient: {e}"))?;
@@ -217,20 +240,25 @@ impl Tool for ArchivistSearchHistoryTool {
         let limit = args["limit"].as_u64().unwrap_or(20).clamp(1, 100) as usize;
         let filter = workspace.map(|w| protocol::WorkspaceFilter::Path(w.into()));
 
-        let reader = read_store()?;
+        let search_term = query.to_string();
         // Two-stage recall (Layer 3, deterministic leg): strict
         // AND first; an empty strict result widens to OR so a gist whose
-        // words never co-occur still recalls candidates.
-        let mut relaxed = false;
-        let mut hits = reader
-            .search_history(query, filter.as_ref(), limit)
-            .map_err(|e| format!("history search failed: {e}"))?;
-        if hits.is_empty() {
-            relaxed = true;
-            hits = reader
-                .search_history_relaxed(query, filter.as_ref(), limit)
+        // words never co-occur still recalls candidates. Both stages run
+        // inside one blocking read transaction, so they see one snapshot and
+        // the reader is released before any network call.
+        let (relaxed, hits) = read_store(move |reader| {
+            let strict = reader
+                .search_history(&search_term, filter.as_ref(), limit)
                 .map_err(|e| format!("history search failed: {e}"))?;
-        }
+            if !strict.is_empty() {
+                return Ok((false, strict));
+            }
+            let relaxed = reader
+                .search_history_relaxed(&search_term, filter.as_ref(), limit)
+                .map_err(|e| format!("history search failed: {e}"))?;
+            Ok((true, relaxed))
+        })
+        .await?;
 
         let hits_json: Vec<serde_json::Value> = hits
             .iter()
@@ -303,10 +331,12 @@ impl Tool for ArchivistListSessionsTool {
             None => protocol::ThreadFilter::global(),
         };
 
-        let reader = read_store()?;
-        let rows = reader
-            .list_sessions(&filter, true)
-            .map_err(|e| format!("session listing failed: {e}"))?;
+        let rows = read_store(move |reader| {
+            reader
+                .list_sessions(&filter, true)
+                .map_err(|e| format!("session listing failed: {e}"))
+        })
+        .await?;
 
         let sessions: Vec<serde_json::Value> = rows
             .into_iter()
@@ -377,31 +407,34 @@ impl Tool for ArchivistReadSessionTool {
             .ok_or("Missing 'session_id' argument")?;
         let tail = args["tail_messages"].as_u64().unwrap_or(20).clamp(1, 200) as usize;
 
-        let reader = read_store()?;
-        // Resolve prefix → full id first (the search tools surface ids; a
-        // user may quote a shortened one).
-        let resolved = if reader
-            .get_session(session_id)
-            .map_err(|e| format!("session lookup failed: {e}"))?
-            .is_some()
-        {
-            session_id.to_string()
-        } else {
+        // Resolve prefix → full id and read the tail inside one blocking
+        // transaction: the search tools surface ids, a user may quote a
+        // shortened one, and both steps must see the same snapshot.
+        let requested = session_id.to_string();
+        let view = read_store(move |reader| {
+            let resolved = if reader
+                .get_session(&requested)
+                .map_err(|e| format!("session lookup failed: {e}"))?
+                .is_some()
+            {
+                requested.clone()
+            } else {
+                reader
+                    .resolve_session_prefix(&requested, &protocol::ThreadFilter::global())
+                    .map_err(|e| format!("session resolve failed: {e}"))?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| format!("no session matches '{requested}'"))?
+            };
+            // Full transcript tail (the same projection session resume
+            // renders), field-private behind the persistence view so the
+            // Archivist reads exactly what a human would see.
             reader
-                .resolve_session_prefix(session_id, &protocol::ThreadFilter::global())
-                .map_err(|e| format!("session resolve failed: {e}"))?
-                .into_iter()
-                .next()
-                .ok_or_else(|| format!("no session matches '{session_id}'"))?
-        };
-
-        // Full transcript tail (the same projection session resume renders),
-        // field-private behind the persistence view so the Archivist reads
-        // exactly what a human would see.
-        let view = reader
-            .read_session_transcript(&resolved, tail)
-            .map_err(|e| format!("session read failed: {e}"))?
-            .ok_or_else(|| format!("session '{resolved}' not found"))?;
+                .read_session_transcript(&resolved, tail)
+                .map_err(|e| format!("session read failed: {e}"))?
+                .ok_or_else(|| format!("session '{resolved}' not found"))
+        })
+        .await?;
 
         let messages: Vec<serde_json::Value> = view
             .messages

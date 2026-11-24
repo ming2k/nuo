@@ -38,17 +38,19 @@ pub(crate) fn activate_tab_at_index(
         app.surfaces.surfaces.select_tab(index);
         match &target_tab.kind {
             crate::shell::surfaces::TabKind::Thread(id) => {
-                if id != viewed_session_id {
-                    app.surfaces.switch_to_target = Some(id.clone());
-                    app.link.should_quit.store(true, Ordering::SeqCst);
-                    return ActionFlow::Exit;
-                } else {
-                    if !was_in_thread {
-                        enter_scene(app, crate::shell::surfaces::SceneKind::Thread, runtime);
-                    }
-                    app.restore_active_tab_context();
-                    app.transcript.selection = SelectionState::None;
+                // ADR-0251 `[INV-MUX-02]`: switch resident workspaces in O(1)
+                // over the multiplexed connection without tearing down `App`
+                // or reconnecting. Enter the Thread scene first so its scene
+                // entry hook never clobbers the restored focus plane.
+                if !was_in_thread {
+                    enter_scene(app, crate::shell::surfaces::SceneKind::Thread, runtime);
                 }
+                if id != viewed_session_id {
+                    app.activate_thread_workspace(id);
+                } else {
+                    app.restore_active_tab_context();
+                }
+                app.transcript.selection = SelectionState::None;
             }
             crate::shell::surfaces::TabKind::Dashboard => {
                 enter_scene(app, crate::shell::surfaces::SceneKind::Dashboard, runtime);
@@ -84,7 +86,16 @@ pub(crate) fn handle_close_tab_at(
     if index >= app.surfaces.surfaces.tabs().len() {
         return ActionFlow::Handled;
     }
-    app.close_tab(index);
+    let closed_tab = app.close_tab(index);
+    if let Some(crate::shell::surfaces::ClientTab {
+        kind: crate::shell::surfaces::TabKind::Thread(closed_id),
+        ..
+    }) = closed_tab
+    {
+        // ADR-0251: release the closed tab's resident workspace and
+        // unsubscribe it on the multiplexed connection.
+        app.close_thread_workspace(&closed_id);
+    }
     if app.surfaces.surfaces.tabs().is_empty() {
         tracing::info!(reason = "close_last_tab", "client detaching");
         return ActionFlow::Exit;
@@ -93,15 +104,13 @@ pub(crate) fn handle_close_tab_at(
     if let Some(target_tab) = app.surfaces.surfaces.active_tab().cloned() {
         match &target_tab.kind {
             crate::shell::surfaces::TabKind::Thread(id) => {
+                enter_scene(app, crate::shell::surfaces::SceneKind::Thread, runtime);
                 if id != viewed_session_id {
-                    app.surfaces.switch_to_target = Some(id.clone());
-                    app.link.should_quit.store(true, Ordering::SeqCst);
-                    return ActionFlow::Exit;
+                    app.activate_thread_workspace(id);
                 } else {
-                    enter_scene(app, crate::shell::surfaces::SceneKind::Thread, runtime);
                     app.restore_active_tab_context();
-                    app.transcript.selection = SelectionState::None;
                 }
+                app.transcript.selection = SelectionState::None;
             }
             crate::shell::surfaces::TabKind::Dashboard => {
                 enter_scene(app, crate::shell::surfaces::SceneKind::Dashboard, runtime);
@@ -145,10 +154,10 @@ pub(crate) fn handle_add_tab(
     if app.is_current_thread_empty() {
         app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
     } else {
-        // A fresh tab is a new attachment: the runner re-dials and mounts it,
-        // carrying the current tabs across the gap.
-        app.surfaces.switch_to_new = true;
-        app.link.should_quit.store(true, Ordering::SeqCst);
+        // ADR-0251: create and subscribe a new thread tab directly over the
+        // live multiplexed connection without tearing down `App`.
+        let cwd = app.session.cwd.clone();
+        app.subscribe_thread(protocol::AttachAction::New(None), Some(cwd));
     }
     ActionFlow::Handled
 }

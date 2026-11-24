@@ -9,24 +9,11 @@ impl PersistenceCommand {
     /// `false` only for the test-only death command.
     fn execute(self, engine: &DatabaseEngine) -> bool {
         match self {
-            Self::SaveSession {
-                data,
-                mode,
-                usage_upserts,
-                guard,
-                journal_seq,
-                ack,
-            } => {
+            // Every `PreparedSave` arrives fully encoded and fact-projected;
+            // this arm performs SQL only. See `prepare_save`.
+            Self::SaveSession { prepared, ack } => {
                 let res = guarded_save(|| {
-                    crate::db::thread_session::save_session_inner(
-                        &engine.conn,
-                        engine.blob_store.as_ref(),
-                        &data,
-                        mode,
-                        &usage_upserts,
-                        &guard,
-                        journal_seq,
-                    )
+                    crate::db::thread_session::save_session_inner(&engine.conn, &prepared)
                 });
                 let _ = ack.send(res);
             }
@@ -54,95 +41,6 @@ impl PersistenceCommand {
                         title.as_deref(),
                         manual,
                     )
-                });
-                let _ = ack.send(res);
-            }
-            Self::AppendWorkspaceEffect { effect, ack } => {
-                let res = guarded(|| {
-                    crate::workspace_effects::append_effect(&engine.conn, &effect.as_borrowed())
-                        .map_err(engine_error)
-                });
-                let _ = ack.send(res);
-            }
-            Self::AppendCompletedWorkspaceEffect {
-                effect,
-                completed_at_ms,
-                ack,
-            } => {
-                let res = guarded(|| {
-                    crate::workspace_effects::append_completed_effect(
-                        &engine.conn,
-                        &effect.as_borrowed(),
-                        completed_at_ms,
-                    )
-                    .map_err(engine_error)
-                });
-                let _ = ack.send(res);
-            }
-            Self::CompleteWorkspaceEffect {
-                effect_id,
-                after_hash,
-                completed_at_ms,
-                ack,
-            } => {
-                let res = guarded(|| {
-                    crate::workspace_effects::complete_effect(
-                        &engine.conn,
-                        effect_id,
-                        after_hash.as_deref(),
-                        completed_at_ms,
-                    )
-                    .map_err(engine_error)
-                });
-                let _ = ack.send(res);
-            }
-            Self::MarkWorkspaceEffectReversed {
-                effect_id,
-                reversed_at_ms,
-                note,
-                ack,
-            } => {
-                let res = guarded(|| {
-                    crate::workspace_effects::mark_reversed(
-                        &engine.conn,
-                        effect_id,
-                        reversed_at_ms,
-                        note.as_deref(),
-                    )
-                    .map_err(engine_error)
-                });
-                let _ = ack.send(res);
-            }
-            Self::ListWorkspaceEffects { thread_id, ack } => {
-                let res = guarded(|| {
-                    crate::workspace_effects::list_effects(&engine.conn, &thread_id)
-                        .map_err(engine_error)
-                });
-                let _ = ack.send(res);
-            }
-            Self::ExpirePreimages {
-                older_than_ms,
-                now_ms,
-                ack,
-            } => {
-                let res = guarded(|| {
-                    crate::workspace_effects::expire_preimages(&engine.conn, older_than_ms, now_ms)
-                        .map_err(engine_error)
-                });
-                let _ = ack.send(res);
-            }
-            Self::UndoableWorkspaceEffects {
-                thread_id,
-                limit,
-                ack,
-            } => {
-                let res = guarded(|| {
-                    crate::workspace_effects::undoable_effects(
-                        &engine.conn,
-                        &thread_id,
-                        limit as usize,
-                    )
-                    .map_err(engine_error)
                 });
                 let _ = ack.send(res);
             }
@@ -184,17 +82,6 @@ impl PersistenceCommand {
             // the supervisor is its only sender, so this arm is unreachable
             // by construction.
             Self::RetireEngine { .. } => {}
-            Self::CreateBackup { target_path, ack } => {
-                let res = guarded(|| engine.create_backup(&target_path));
-                let _ = ack.send(res);
-            }
-            Self::Optimize { ack } => {
-                let res = guarded(|| {
-                    engine.conn.execute_batch("PRAGMA optimize;")?;
-                    Ok(())
-                });
-                let _ = ack.send(res);
-            }
             Self::UpsertPermissionRule {
                 target,
                 tool,
@@ -293,22 +180,9 @@ impl PersistenceCommand {
                 return false;
             }
             #[cfg(test)]
-            Self::SaveSessionThenDie {
-                data,
-                mode,
-                usage_upserts,
-                guard,
-            } => {
+            Self::SaveSessionThenDie { prepared } => {
                 let _ = guarded_save(|| {
-                    crate::db::thread_session::save_session_inner(
-                        &engine.conn,
-                        engine.blob_store.as_ref(),
-                        &data,
-                        mode,
-                        &usage_upserts,
-                        &guard,
-                        None,
-                    )
+                    crate::db::thread_session::save_session_inner(&engine.conn, &prepared)
                 });
                 // Die without acknowledging: the commit is durable, its ack is
                 // gone. Recovery must resolve the outcome by operation identity.
@@ -334,22 +208,6 @@ impl PersistenceCommand {
             | Self::SetKV { ack, .. }
             | Self::SaveInputHistory { ack, .. }
             | Self::ClearInputHistory { ack } => {
-                let _ = ack.send(Err(error));
-            }
-            // The journal's acks carry a value (`i64` id, `bool` race result, or
-            // the effect list), so they cannot share the unit-ack arm above.
-            Self::AppendWorkspaceEffect { ack, .. }
-            | Self::AppendCompletedWorkspaceEffect { ack, .. } => {
-                let _ = ack.send(Err(error));
-            }
-            Self::CompleteWorkspaceEffect { ack, .. }
-            | Self::MarkWorkspaceEffectReversed { ack, .. } => {
-                let _ = ack.send(Err(error));
-            }
-            Self::ListWorkspaceEffects { ack, .. } | Self::UndoableWorkspaceEffects { ack, .. } => {
-                let _ = ack.send(Err(error));
-            }
-            Self::ExpirePreimages { ack, .. } => {
                 let _ = ack.send(Err(error));
             }
             Self::DeleteSession { ack, .. } | Self::RenameSession { ack, .. } => {
@@ -386,10 +244,7 @@ impl PersistenceCommand {
                 }
             }
             Self::TouchPermissionRuleLastUsed { .. } => {}
-            Self::CreateBackup { ack, .. }
-            | Self::Optimize { ack }
-            | Self::UpsertPermissionRule { ack, .. }
-            | Self::ClearPermissionRules { ack, .. } => {
+            Self::UpsertPermissionRule { ack, .. } | Self::ClearPermissionRules { ack, .. } => {
                 let _ = ack.send(Err(error));
             }
             #[cfg(test)]
@@ -405,7 +260,6 @@ impl PersistenceCommand {
 /// Shared wiring passed to [`run_supervisor`].
 pub(super) struct SupervisorContext {
     pub(super) db_path: PathBuf,
-    pub(super) blob_store: Option<BlobStore>,
     pub(super) health: watch::Sender<WriterHealth>,
     pub(super) lease: Arc<host::lock::ProcessLock>,
     pub(super) reader_ages: Arc<ReaderAges>,
@@ -427,7 +281,6 @@ pub(super) async fn run_supervisor(
 ) {
     let SupervisorContext {
         db_path,
-        blob_store,
         health,
         lease,
         reader_ages,
@@ -483,7 +336,6 @@ pub(super) async fn run_supervisor(
             }
             match spawn_writer(
                 &db_path,
-                blob_store.as_ref(),
                 &health,
                 lease.clone(),
                 initial_engine.take(),
@@ -541,7 +393,6 @@ pub(super) async fn run_supervisor(
             } else if Instant::now() >= next_try {
                 match spawn_writer(
                     &db_path,
-                    blob_store.as_ref(),
                     &health,
                     lease.clone(),
                     initial_engine.take(),
@@ -932,7 +783,6 @@ fn run_maintenance(
 /// stall the supervisor.
 async fn spawn_writer(
     db_path: &Path,
-    blob_store: Option<&BlobStore>,
     health: &watch::Sender<WriterHealth>,
     lease: Arc<host::lock::ProcessLock>,
     initial_engine: Option<DatabaseEngine>,
@@ -940,10 +790,9 @@ async fn spawn_writer(
 ) -> std::result::Result<mpsc::Sender<PersistenceCommand>, rusqlite::Error> {
     let path = db_path.to_path_buf();
     let metrics_path = db_path.to_path_buf();
-    let blobs = blob_store.cloned();
     let engine = tokio::task::spawn_blocking(move || match initial_engine {
         Some(engine) => Ok(engine),
-        None => DatabaseEngine::open(&path, blobs),
+        None => DatabaseEngine::open(&path),
     })
     .await
     .map_err(|join| {
@@ -1066,7 +915,7 @@ mod tests {
     fn maintenance_is_safe_in_every_wal_state() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nuo.db");
-        let engine = DatabaseEngine::open(&path, None).unwrap();
+        let engine = DatabaseEngine::open(&path).unwrap();
         let reader_ages = ReaderAges::default();
         // A registered snapshot is reported as over-age at any non-negative
         // bound.
@@ -1092,7 +941,7 @@ mod tests {
     fn a_completed_pass_enters_backoff_before_retrying() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nuo.db");
-        let engine = DatabaseEngine::open(&path, None).unwrap();
+        let engine = DatabaseEngine::open(&path).unwrap();
         let reader_ages = ReaderAges::default();
         let mut backoff = WalBackoff::new();
 
@@ -1119,7 +968,7 @@ mod tests {
     fn a_pinned_snapshot_never_makes_maintenance_wait() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nuo.db");
-        let engine = DatabaseEngine::open(&path, None).unwrap();
+        let engine = DatabaseEngine::open(&path).unwrap();
         engine
             .conn
             .execute_batch("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (1);")
@@ -1175,7 +1024,7 @@ mod tests {
     fn a_small_wal_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nuo.db");
-        let engine = DatabaseEngine::open(&path, None).unwrap();
+        let engine = DatabaseEngine::open(&path).unwrap();
         let reader_ages = ReaderAges::default();
         let mut backoff = WalBackoff::new();
 

@@ -54,7 +54,7 @@ The head band carries three tiers (ADR-0060, ADR-0062). It is a sibling of the c
 
 | Tier | Rows | Domain | Background Token | Left content | Right content |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~0.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix; a hovered pill reveals its close mark, and the strip ends with a reserved `+` (ADR-0235) | Status cluster: optional `[!N]` fault badge only (the standing `F1 help` keycap is retired; help discoverability lives in the empty-state tour) |
+| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~0.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix; a hovered pill reveals its close mark, and the strip ends with a reserved `+` (ADR-0235) | Status cluster: optional `[!N]` fault badge + yield-first elastic help portal (`{key} help` in idle slack → compact `{key}` under pressure → omitted if starved or unbound, ADR-0245) |
 | **SceneBar** | 1 | Scene | `theme.scenebar_bg()` (~8.0% offset) | Scene identity + authentic task title (`THREAD <id_tail> <title>`) | Drill-in breadcrumb stack (`‹ thread › subagent #1 › diff`) |
 | **ThreadContextBar** | 1 on thread / 0 elsewhere | Thread | `theme.contextbar_bg()` (~4.0% offset) | `[ROLE]` badge, then safety posture tokens (`auto`, `open`) — omitted entirely when the session sits in the safe default | Tilde-shortened workspace path, right-anchored and shrinkable |
 
@@ -64,9 +64,9 @@ Scene kinds are a closed set of four destinations plus one reading surface per t
 
 On Monochrome and ANSI-16 profiles, background fills converge safely onto `theme.element_bg`.
 
-The TabBar also owns its own lifecycle (ADR-0235): a hovered pill reveals a `✕` in columns it reserved at rest, the strip ends with a `+` whose three columns are budgeted **before** any title, and a pill whose title overflowed reveals it through one bounded, one-way slide while the pointer rests on it. See §2.1.
+The TabBar also owns its own lifecycle (ADR-0235): overflowing titles dissolve toward the pill's background color over `TAB_TITLE_FADE_WIDTH` columns instead of appending `…`, a hovered pill replaces its trailing title columns in place with a `✕` (no resting reserve, no reflow), the strip ends with a `+` whose three columns are budgeted **before** any title, and a pill whose title overflowed at rest reveals it through one bounded, one-way slide while the pointer rests on it. See §2.1.
 
-The TabBar is the one band whose `tabbar_bg` **bleeds to both terminal edges**: the tier is the shell's own top border, so a broken background fill would read as a tear in the frame. However, internal interactive content is framed with a 1-column margin at both ends (`TABBAR_H_INSET = 1`), preventing tab pills and the right-pinned status cluster from sticking directly against the terminal window's outer border. Adjacent unselected tabs butt seamlessly against each other without separator gaps, disambiguated by alternating background tones (`theme.panel()` and `theme.body()`) to maximize title space in tight terminal geometries. Active tabs take `theme.selected_bg`. The tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before a *present* right-pinned status element, so a truncated rail's `…` / `[▾]` can never butt against the `[!N]` fault badge; with no unread faults the cluster is empty and the reserved gap returns to the rail. The brand fallback (`nuo`, drawn when no tabs are open) is framed on the same terms. The TabBar carries **no standing keycap**: help is discovered through the empty-state carousel's `F1` / `Alt-h` page (ADR-0219), because a permanent keycap spent the row's scarcest budget — tab titles — on a key pressed once.
+The TabBar is the one band whose `tabbar_bg` **bleeds to both terminal edges**: the tier is the shell's own top border, so a broken background fill would read as a tear in the frame. However, internal interactive content is framed with a 1-column margin at both ends (`TABBAR_H_INSET = 1`), preventing tab pills and the right-pinned status cluster from sticking directly against the terminal window's outer border. Adjacent unselected tabs butt seamlessly against each other without separator gaps, disambiguated by alternating background tones (`theme.panel()` and `theme.body()`) to maximize title space in tight terminal geometries. Active tabs take `theme.selected_bg`. The tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before a `[!N]` fault badge or expanded `{key} help` portal, and `TAB_HELP_GAP_MIN` (`2`) before a compact `{key}` portal alone; when `OpenHelp` is unbound and there are no unread faults, the cluster is empty and the gap returns to the rail. The brand fallback (`nuo`, drawn when no tabs are open) is framed on the same terms. Per ADR-0245 (`[INV-TAB-19]`), the TabBar's help portal is **yield-first and elastic**: it expands to `{key} help` only in idle slack when no tab overflows, shrinks to compact `{key}` under width or tab-count pressure, and yields completely before starving the active tab, `+`, or `[!N]`.
 
 ### 2.1 TabBar Lifecycle Affordances (ADR-0235)
 
@@ -79,11 +79,15 @@ closed.
 | Add (`+`, `[+]` on framed surfaces) | Immediately after the last overflow marker | Always, whenever the row has room for its three reserved columns | Mounted only when it was painted |
 | Title reveal | The hovered pill's title window | Only while the pointer is on a pill whose title overflows | — (pointer-only; the keyboard path is `Alt-w` / `Alt-t`) |
 
-The pill reserves its close columns **at rest**, so hover changes only what is
-painted inside columns that already existed: the pill's rect, the strip's total
-width, and the title window are byte-identical hovered or not. A pill's floor is
-`TAB_PILL_MIN_WIDTH = 8`, which guarantees the reserve always fits — no strip
-geometry can produce a pill the pointer cannot close.
+Resting pills do **not** reserve blank columns for the close mark — every
+interior column goes to the title. On hover, the close mark replaces the
+rightmost `TAB_CLOSE_WIDTH` (2) columns of the title slot in place (separator +
+glyph), so the pill's rect and the strip's total width stay byte-identical and
+the row never reflows under the pointer. Overflowing titles fade smoothly toward
+the pill background over `TAB_TITLE_FADE_WIDTH` (4) edge columns instead of
+appending `…` (degrading to `Modifier::DIM` on non-chromatic surfaces). A pill's
+floor is `TAB_PILL_MIN_WIDTH = 8`, which guarantees the close slot always fits
+beside legible title characters.
 
 The reveal is **one-way and bounded**: it rests (`TAB_TITLE_MARQUEE_CADENCE.hold_ms`),
 slides toward the tail, and stays there. A focused table row ping-pongs because
@@ -157,14 +161,16 @@ Sizes come from `crates/ui-primitives/src/design.rs` (non-color tokens). Values 
 | :--- | :--- | :--- |
 | `TRANSCRIPT_H_INSET` | 2 | Uniform horizontal inset applied once at the transcript band entry point; also the SceneBar / ThreadContextBar frame gutter |
 | `TABBAR_H_INSET` | 1 | Horizontal inset of the top `TabBar` tier content — leaves 1 column of breathing room at each edge while `tabbar_bg` bleeds full width; tabs butt seamlessly with alternating backgrounds |
-| `TAB_CLOSE_RESERVE` | 2 | Columns every pill reserves after its title for the hover close mark (separator + glyph), so hover never reflows the strip |
+| `TAB_CLOSE_WIDTH` | 2 | Columns a hovered pill replaces at the trailing end of its title slot for the close mark (separator + glyph), without reserving space at rest or reflowing the strip |
+| `TAB_TITLE_FADE_WIDTH` | 4 | Edge columns over which an overflowing tab title fades toward the pill background instead of appending `…` |
 | `TAB_ADD_WIDTH` | 3 | Columns reserved for the trailing add-tab affordance (`" + "` / `"[+]"`), budgeted before any title |
-| `TAB_PILL_MIN_WIDTH` | 8 | Narrowest pill; guarantees the close reserve always fits |
+| `TAB_PILL_MIN_WIDTH` | 8 | Narrowest pill; guarantees the in-place hover close mark always fits beside legible title characters |
 | `TRANSCRIPT_BODY_LEADING_INDENT` | 2 | Only indent prose adds atop the already-inset band |
 | `FOOTER_H_INSET` | `= TRANSCRIPT_H_INSET` | Same inset inside the footer band |
 | `MODEL_BAR_INNER_PADDING` | 1 | Edge indent of the model-bar cluster |
 | `MODEL_BAR_GAP_MIN` | 2 | Minimum gap between the model bar's two halves |
-| `BAR_LEGEND_GAP_MIN` | 6 | Bar content ↔ right-pinned keycap legend |
+| `BAR_LEGEND_GAP_MIN` | 6 | Bar content ↔ right-pinned keycap legend or `[!N]` fault badge |
+| `TAB_HELP_GAP_MIN` | 2 | Compact TabBar help portal (`{key}`) separation from the tab rail (ADR-0245) |
 
 ### Minimum terminal geometry
 

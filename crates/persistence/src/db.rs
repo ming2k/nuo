@@ -18,12 +18,12 @@ pub mod backup;
 mod connection;
 pub mod garbage_collection;
 mod handle;
-pub mod history_search;
 pub mod input_history;
 pub mod kv_store;
 pub mod migrations;
 pub mod permissions;
 mod reader;
+pub(crate) mod shards;
 pub mod thread_session;
 pub mod thread_store;
 pub mod usage_projection;
@@ -154,18 +154,6 @@ fn push_summary(
     });
 }
 
-fn map_search_row(row: &Row) -> Result<HistorySearchResult> {
-    Ok(HistorySearchResult {
-        entry_id: row.get(0)?,
-        session_id: row.get(1)?,
-        workspace_root: row.get(2)?,
-        session_title: row.get(3)?,
-        role: row.get(4)?,
-        snippet: row.get(5)?,
-        score: row.get(6)?,
-    })
-}
-
 /// Sanitize a free-text query into a safe FTS5 MATCH expression.
 ///
 /// Every whitespace-separated word becomes a quoted phrase token (`"retry"`
@@ -206,13 +194,64 @@ fn sanitize_fts_words(query: &str) -> Vec<String> {
 }
 
 /// Authoritative relational database access object for Nuo persistence.
+///
+/// Deliberately holds **only** a SQL connection. Everything a save needs that
+/// is not SQL — building the fact projection, moving oversized observation
+/// bodies into the CAS (a file write plus an fsync), hashing the commit
+/// payload — is prepared by the caller and arrives as [`PreparedSave`].
+///
+/// That is a type-level invariant, not a convention: the writer has no blob
+/// store and no file path, so it *cannot* perform filesystem I/O, a
+/// `VACUUM INTO` backup, or a checkpoint on the one thread every session's
+/// projection queues behind.
 pub(crate) struct DatabaseEngine {
     pub(crate) conn: Connection,
-    /// CAS store used to offload oversized entry bodies at insert time
-    /// only rows this transaction inserts are offloaded, so the
-    /// per-save cost stays proportional to the delta. `None` keeps content
-    /// inline (readers, tests).
-    pub(crate) blob_store: Option<BlobStore>,
+}
+
+/// Everything a `SaveSession` needs that is **not** SQL, computed before the
+/// command crosses the writer door.
+///
+/// Preparing this is the expensive half of a projection: it walks the
+/// transcript into the canonical fact graph, offloads oversized observation
+/// bodies to the CAS (fsync included), derives the materialised catalog
+/// summary, encodes the JSON columns, and fingerprints the commit payload for
+/// idempotency. None of it needs the write lock, so none of it may hold one.
+///
+/// The split also means a CAS write that fails leaves the database untouched
+/// (there is no half-applied transaction to roll back): the projection is
+/// retried, and any blob whose row never landed is an unreferenced file the
+/// collector reclaims.
+pub(crate) struct PreparedSave {
+    /// The payload the SQL transaction reads its parameters from.
+    pub(crate) data: Box<crate::thread::ThreadData>,
+    /// How much of `data` to write (`MetadataOnly`, `Delta`, `FullRewrite`).
+    pub(crate) mode: SaveMode,
+    /// Usage-record upserts applied by a delta/metadata save.
+    pub(crate) usage_upserts: Vec<protocol::RequestUsageRecord>,
+    /// Idempotency identity and revision precondition (D3).
+    pub(crate) guard: CommitGuard,
+    /// Highest journal seq this projection materialises (ADR-0242).
+    pub(crate) journal_seq: Option<u64>,
+    /// Complete fact projection. `None` for [`SaveMode::MetadataOnly`], which
+    /// must never rewrite transcript lineage.
+    pub(crate) thread: Option<protocol::Thread>,
+    /// SHA-256 of the commit payload, present only when the caller supplied an
+    /// idempotency identity (D3).
+    pub(crate) payload_hash: Option<String>,
+    pub(crate) digest_json: Option<String>,
+    pub(crate) additional_roots_json: String,
+    pub(crate) disabled_tools_json: String,
+    pub(crate) round_interrupts_json: String,
+    pub(crate) role_manifest_json: Option<String>,
+    pub(crate) provider_pin_json: Option<String>,
+    pub(crate) retry_pending_json: Option<String>,
+    /// `None` means "keep the stored todos" (`COALESCE` in the upsert).
+    pub(crate) todos_json: Option<String>,
+    pub(crate) msg_count: i64,
+    pub(crate) last_user_prompt: Option<String>,
+    pub(crate) fork_str: &'static str,
+    pub(crate) active_branch_id: String,
+    pub(crate) active_leaf: Option<String>,
 }
 
 /// The **only** way to read the unified store.
@@ -236,6 +275,7 @@ pub struct DbReader {
     /// connection back to the pool. No method can observe the `None` state.
     conn: Option<Connection>,
     db_path: PathBuf,
+    shards: Arc<shards::ContentShardPool>,
     pool: Option<Arc<ReaderPool>>,
     generation: u64,
     _permit: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -426,7 +466,7 @@ impl From<rusqlite::Error> for SaveError {
 }
 
 impl SaveError {
-    fn into_persistence(self) -> PersistenceError {
+    pub(crate) fn into_persistence(self) -> PersistenceError {
         match self {
             Self::Sql(error) => PersistenceError::Engine(error),
             Self::StaleRevision { expected, actual } => {
@@ -663,17 +703,15 @@ pub(crate) enum SaveMode {
 
 /// Command variants dispatched to the single-writer persistence actor.
 pub(crate) enum PersistenceCommand {
+    /// Commit one already-prepared projection.
+    ///
+    /// The payload is a [`PreparedSave`], not a `ThreadData`: everything that
+    /// is not SQL — the fact-graph projection, CAS offload (fsync), catalog
+    /// summary, JSON encoding, payload fingerprint — happened on the caller's
+    /// thread before this command was sent. The actor therefore only ever
+    /// executes `BEGIN`/`INSERT`/`UPDATE`/`COMMIT`.
     SaveSession {
-        data: Box<crate::thread::ThreadData>,
-        /// How much of `data` to persist (`MetadataOnly`, `Delta`, or `FullRewrite`).
-        mode: SaveMode,
-        /// Usage-record upserts to apply on a delta/metadata save (the durable usage
-        /// ledger lives in its own table; a full save rewrites it from `data`).
-        usage_upserts: Vec<protocol::RequestUsageRecord>,
-        /// D3 idempotency identity and revision precondition.
-        guard: CommitGuard,
-        /// Highest journal seq this projection materialises (ADR-0242).
-        journal_seq: Option<u64>,
+        prepared: Box<PreparedSave>,
         /// The committed session revision (D3); a replay returns the
         /// original receipt rather than a second revision.
         ack: oneshot::Sender<Result<u64, PersistenceError>>,
@@ -691,60 +729,6 @@ pub(crate) enum PersistenceCommand {
         title: Option<String>,
         manual: bool,
         ack: oneshot::Sender<Result<bool, PersistenceError>>,
-    },
-    /// Append a write-ahead workspace effect and return its journal id
-    /// (ADR-0125). Sent *after* the pre-image is durably stored and *before*
-    /// the tool mutates the path, so a crash mid-mutation leaves a record.
-    AppendWorkspaceEffect {
-        effect: Box<crate::workspace_effects::NewOwnedEffect>,
-        ack: oneshot::Sender<Result<i64, PersistenceError>>,
-    },
-    /// Append a workspace effect that needs no recovery point (shell, network,
-    /// process): the row arrives already completed.
-    AppendCompletedWorkspaceEffect {
-        effect: Box<crate::workspace_effects::NewOwnedEffect>,
-        completed_at_ms: u64,
-        ack: oneshot::Sender<Result<i64, PersistenceError>>,
-    },
-    /// Complete a write-ahead effect with its post-image. `false` means the row
-    /// was already completed or does not exist.
-    CompleteWorkspaceEffect {
-        effect_id: i64,
-        after_hash: Option<String>,
-        completed_at_ms: u64,
-        ack: oneshot::Sender<Result<bool, PersistenceError>>,
-    },
-    /// Stamp a row as reversed. `false` means it was already reversed (another
-    /// caller won the race) or does not exist.
-    MarkWorkspaceEffectReversed {
-        effect_id: i64,
-        reversed_at_ms: u64,
-        note: Option<String>,
-        ack: oneshot::Sender<Result<bool, PersistenceError>>,
-    },
-    /// Read a thread's whole journal, in observation order — the `/diff`
-    /// projection.
-    ListWorkspaceEffects {
-        thread_id: String,
-        ack: oneshot::Sender<
-            Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError>,
-        >,
-    },
-    /// Read the newest confirmed, not-yet-reversed reversible effects, newest
-    /// first — the `/undo` candidate set.
-    UndoableWorkspaceEffects {
-        thread_id: String,
-        limit: u32,
-        ack: oneshot::Sender<
-            Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError>,
-        >,
-    },
-    /// Expire pre-images past `older_than_ms`, so the collector can reclaim their
-    /// bytes while the journal keeps recording that the change happened.
-    ExpirePreimages {
-        older_than_ms: u64,
-        now_ms: u64,
-        ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
     ProjectUsage {
         ack: oneshot::Sender<Result<usize, PersistenceError>>,
@@ -807,15 +791,6 @@ pub(crate) enum PersistenceCommand {
     /// Internal: sent by the supervisor through the writer channel only,
     /// never through the front door.
     RetireEngine { ack: oneshot::Sender<()> },
-    /// Create an online hot backup snapshot using `VACUUM INTO`.
-    CreateBackup {
-        target_path: PathBuf,
-        ack: oneshot::Sender<Result<(), PersistenceError>>,
-    },
-    /// Optimize SQLite internal indexes and statistics via `PRAGMA optimize`.
-    Optimize {
-        ack: oneshot::Sender<Result<(), PersistenceError>>,
-    },
     /// Upsert a role+workspace permission rule (`allow` or `revoked`).
     UpsertPermissionRule {
         target: permissions::PermissionScopeTarget,
@@ -851,12 +826,7 @@ pub(crate) enum PersistenceCommand {
     /// operation identity, never assumed uncommitted).
     #[cfg(test)]
     #[allow(dead_code)]
-    SaveSessionThenDie {
-        data: Box<crate::thread::ThreadData>,
-        mode: SaveMode,
-        usage_upserts: Vec<protocol::RequestUsageRecord>,
-        guard: CommitGuard,
-    },
+    SaveSessionThenDie { prepared: Box<PreparedSave> },
 }
 
 /// Run one engine call, catching handler panics (D1).
@@ -872,18 +842,6 @@ fn guarded<T>(f: impl FnOnce() -> Result<T>) -> Result<T, PersistenceError> {
 ///
 /// The workspace-journal helpers return the public error type so direct
 /// (non-actor) callers get a precise failure. The actor's handler runs them
-/// through [`guarded`], which owns the panic containment and the
-/// down/poisoned classification — so the handler must hand it a
-/// `rusqlite::Result`. A non-engine variant is a programming error at this
-/// boundary (nothing here encodes or resolves a revision), and is surfaced as a
-/// constraint failure rather than silently swallowed.
-fn engine_error(error: PersistenceError) -> rusqlite::Error {
-    match error {
-        PersistenceError::Engine(error) => error,
-        other => rusqlite::Error::InvalidParameterName(other.to_string()),
-    }
-}
-
 /// Run one session commit, catching handler panics and preserving the typed
 /// D3 refusals (`StaleRevision` / `OperationConflict`) instead of
 /// flattening them into `Engine`.
@@ -917,6 +875,7 @@ pub struct PersistenceHandle {
     supervisor: mpsc::Sender<PersistenceCommand>,
     health: watch::Receiver<WriterHealth>,
     db_path: PathBuf,
+    shards: Arc<shards::ContentShardPool>,
     blob_store: Option<BlobStore>,
     startup_error: Option<Arc<str>>,
     readers: Arc<tokio::sync::Semaphore>,
@@ -931,7 +890,21 @@ pub struct PersistenceHandle {
 }
 
 /// Reader-pool capacity (one lease per read session).
-const READER_POOL_CAPACITY: usize = 16;
+///
+/// 32 concurrent snapshots is sized for "every hosted session is doing a read
+/// at once" with headroom for control-plane queries. Each lease is a real
+/// read-only connection, so this is also the ceiling on open file handles the
+/// pool can add to the process.
+const READER_POOL_CAPACITY: usize = 32;
+
+/// How long a reader checkout waits for a free lease before reporting
+/// exhaustion.
+///
+/// A read that waits briefly and succeeds is strictly better than one that
+/// fails instantly: every caller treats a reader error as "no rows", so an
+/// instant refusal silently turns contention into missing data. The budget is
+/// short enough that a genuinely wedged pool still reports failure promptly.
+const READER_LEASE_WAIT: std::time::Duration = std::time::Duration::from_millis(750);
 
 /// Maximum number of idle read-only SQLite connections kept warm with their
 /// `prepare_cached` statement caches intact.
@@ -1068,6 +1041,7 @@ static GLOBAL_HANDLE: std::sync::Mutex<Option<PersistenceHandle>> = std::sync::M
 struct RegisteredOwner {
     supervisor: mpsc::WeakSender<PersistenceCommand>,
     health: watch::Receiver<WriterHealth>,
+    shards: Arc<shards::ContentShardPool>,
     blob_store: Option<BlobStore>,
     readers: Arc<tokio::sync::Semaphore>,
     reader_pool: Arc<ReaderPool>,

@@ -860,7 +860,10 @@ mod view_entry_tests {
             &runtime,
             "s1"
         ));
-        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QueryThreadTree)));
+        assert!(matches!(
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueryThreadTree)
+        ));
         app.dismiss_surface();
         assert!(!enter_panel(
             &mut app,
@@ -868,7 +871,10 @@ mod view_entry_tests {
             &runtime,
             "s1"
         ));
-        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QueryThreadTree)));
+        assert!(matches!(
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueryThreadTree)
+        ));
     }
 
     #[test]
@@ -886,7 +892,10 @@ mod view_entry_tests {
             &runtime,
             "s1",
         );
-        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QueryContextPlan)));
+        assert!(matches!(
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueryContextPlan)
+        ));
     }
 
     #[test]
@@ -903,8 +912,8 @@ mod view_entry_tests {
             "s1",
         );
         assert!(matches!(
-            rx.try_recv(),
-            Ok(AgentRequest::QueryThreadsOverview)
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueryThreadsOverview)
         ));
         enter_panel(
             &mut app,
@@ -913,8 +922,8 @@ mod view_entry_tests {
             "s1",
         );
         assert!(matches!(
-            rx.try_recv(),
-            Ok(AgentRequest::QueryThreadContext)
+            rx.try_recv().ok().and_then(|o| o.into_request()),
+            Some(AgentRequest::QueryThreadContext)
         ));
     }
 }
@@ -1009,17 +1018,23 @@ mod tab_lifecycle_tests {
         );
         app.transcript.ui.commit();
 
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        app.link.tx = tx;
         mouse::handle_selection_start(&mut app, &runtime, "s1", 41, 0).await;
 
         assert!(
-            app.surfaces.switch_to_new,
-            "the strip's own creation verb arms the same path as `Alt-t`"
-        );
-        assert!(
-            app.link
+            !app.link
                 .should_quit
-                .load(std::sync::atomic::Ordering::SeqCst)
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "ADR-0251: creating a new tab subscribes over the live multiplexed connection without quitting"
         );
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(crate::shell::client::ClientOutbound::Subscribe {
+                action: protocol::AttachAction::New(_),
+                ..
+            })
+        ));
     }
 
     /// The add affordance recycles an empty thread in place instead of leaving
@@ -1048,8 +1063,8 @@ mod tab_lifecycle_tests {
         mouse::handle_selection_start(&mut app, &runtime, sid, 41, 0).await;
 
         assert!(!app.surfaces.switch_to_new);
-        match rx.try_recv() {
-            Ok(protocol::AgentRequest::SlashCommand(command)) => assert_eq!(command, "/new"),
+        match rx.try_recv().ok().and_then(|o| o.into_request()) {
+            Some(protocol::AgentRequest::SlashCommand(command)) => assert_eq!(command, "/new"),
             other => panic!("expected `/new` for an empty thread, got {other:?}"),
         }
     }
@@ -1102,5 +1117,45 @@ mod tab_lifecycle_tests {
         mouse::handle_hover(&mut app, &runtime, 5, 10).await;
         assert_eq!(app.surfaces.tab_hover, None, "leaving the row clears it");
         assert!(app.surfaces.tab_hover_since.is_none());
+    }
+
+    /// ADR-0245 `[INV-TAB-20]`: hovering the elastic TabBar help portal lights
+    /// up `TabBarHover::Help`, and clicking it toggles `DialogKind::Help`
+    /// identically to `F1` / `Alt-h`.
+    #[tokio::test]
+    async fn clicking_tabbar_help_toggles_help_dialog() {
+        use crate::shell::surfaces::DialogKind;
+        use crate::shell::view_header::TabBarHover;
+
+        let mut app = app_with_tabs();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBar,
+            graticule::Rect::new(0, 0, 80, 1),
+        );
+        app.transcript.ui.mount(
+            crate::shell::ui::UiKey::TabBarHelp,
+            graticule::Rect::new(72, 0, 7, 1),
+        );
+        app.transcript.ui.commit();
+
+        mouse::handle_hover(&mut app, &runtime, 74, 0).await;
+        assert_eq!(app.surfaces.tab_hover, Some(TabBarHover::Help));
+
+        mouse::handle_selection_start(&mut app, &runtime, "sess-1", 74, 0).await;
+        assert_eq!(
+            app.active_dialog(),
+            Some(DialogKind::Help),
+            "first click on TabBarHelp opens the Help dialog"
+        );
+
+        mouse::handle_selection_start(&mut app, &runtime, "sess-1", 74, 0).await;
+        assert_eq!(
+            app.active_dialog(),
+            None,
+            "second click on TabBarHelp dismisses the Help dialog"
+        );
     }
 }

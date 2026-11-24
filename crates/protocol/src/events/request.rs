@@ -364,6 +364,12 @@ pub enum AgentRequest {
     DeleteThread {
         id: String,
     },
+    /// Batch catalog existence check for client draft reconciliation (ADR-0250).
+    /// Returns [`AgentResponse::ThreadsExistence`] containing only the IDs
+    /// confirmed absent from the server's catalog.
+    CheckThreadsExist {
+        thread_ids: Vec<String>,
+    },
     /// Set (or clear) a thread's display title — the manual title the
     /// monitor row and thread pickers show (ADR-0022's AI title fills it
     /// only while no manual title exists). `title: None` clears the manual

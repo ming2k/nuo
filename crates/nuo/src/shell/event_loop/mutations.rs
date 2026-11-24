@@ -255,6 +255,10 @@ pub(crate) enum ChromeEdit {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum AppMutation {
     Transcript {
+        /// Target thread id (ADR-0251). `Some(id)` routes to the foreground
+        /// transcript when `id` is viewed or directly to the resident
+        /// background `ThreadWorkspace`; `None` targets the active foreground.
+        thread_id: Option<String>,
         edit: TranscriptEdit,
     },
     ChromeEdit {
@@ -263,9 +267,21 @@ pub(crate) enum AppMutation {
     },
 
     // Session lifecycle / harness.
-    Harness(protocol::HarnessSnapshot),
+    Harness {
+        thread_id: Option<String>,
+        snapshot: protocol::HarnessSnapshot,
+    },
     /// Server-attested readiness transition (ADR-0133 `[INV-ATTACH-04]`).
-    SessionPhase(protocol::ThreadPhase),
+    SessionPhase {
+        thread_id: Option<String>,
+        phase: protocol::ThreadPhase,
+    },
+    /// Server accepted a multiplexed `Wire::Subscribe` on the live connection
+    /// (ADR-0251 `[INV-MUX-01]`).
+    ThreadSubscribed {
+        thread_id: String,
+        phase: protocol::ThreadPhase,
+    },
     /// Replace the server-owned slash-command vocabulary from an authoritative
     /// hydration snapshot.
     CommandCatalog(tool::CommandCatalog),
@@ -290,7 +306,10 @@ pub(crate) enum AppMutation {
     // Activity / phase / counters.
     SetPhase(Option<Phase>),
     SetResponding(bool),
-    SetRoundCount(u64),
+    SetRoundCount {
+        thread_id: Option<String>,
+        round: u64,
+    },
     SetCurrentTurn(u64),
     SetRoundStartedAt(Option<std::time::Instant>),
     /// Publish the primary session's transport setback (provider retry
@@ -384,6 +403,10 @@ pub(crate) enum AppMutation {
     KeyStatus(HashMap<String, bool>),
     ProviderPicker(ProviderPickerSnapshot),
     SessionsOverview(Vec<ThreadOverview>),
+    /// Confirmed-missing thread IDs from catalog reconciliation (ADR-0250).
+    ReconcileMissingDrafts(Vec<String>),
+    /// Live notification that a thread was deleted on the server (ADR-0250).
+    ForgetDeletedThreadDraft(String),
     OpenSessionsPanel,
     OpenTreePanel,
     SessionDetail(protocol::ThreadDetail),
@@ -425,6 +448,7 @@ pub(crate) enum AppMutation {
     /// notice keeps its normal transcript/toast flow.
     PreAttachAttestationError(String),
     ProviderSwitched {
+        thread_id: Option<String>,
         provider: String,
         model: String,
     },

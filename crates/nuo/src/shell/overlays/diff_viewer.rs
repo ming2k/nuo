@@ -174,6 +174,7 @@ pub struct DiffSceneRects {
     pub tab_next_rect: Option<Rect>,
     pub tab_overflow_rect: Option<Rect>,
     pub tab_notices_rect: Option<Rect>,
+    pub tab_help_rect: Option<Rect>,
 }
 
 /// Props for [`draw_diff_scene`].
@@ -351,5 +352,6 @@ pub fn draw_diff_scene(
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,
         tab_notices_rect: tab_rects.notices_rect,
+        tab_help_rect: tab_rects.help_rect,
     }
 }

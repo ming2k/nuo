@@ -835,7 +835,11 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
 
     crate::shell::event_loop::actions::handle_submit_custom_provider(&mut app);
 
-    let req1 = rx.try_recv().expect("should send RegisterProvider request");
+    let req1 = rx
+        .try_recv()
+        .expect("should send RegisterProvider request")
+        .into_request()
+        .expect("domain request");
     match req1 {
         protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom-wechat-multi");
@@ -847,7 +851,11 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
         _ => panic!("Expected RegisterProvider request"),
     }
 
-    let req2 = rx.try_recv().expect("should send AddConnection request");
+    let req2 = rx
+        .try_recv()
+        .expect("should send AddConnection request")
+        .into_request()
+        .expect("domain request");
     match req2 {
         protocol::AgentRequest::AddConnection {
             name,
@@ -879,7 +887,11 @@ fn curated_template_submits_the_provider_id_without_a_protocol_override() {
 
     crate::shell::event_loop::actions::handle_submit_custom_provider(&mut app);
 
-    let req = rx.try_recv().expect("should send a request");
+    let req = rx
+        .try_recv()
+        .expect("should send a request")
+        .into_request()
+        .expect("domain request");
     match req {
         protocol::AgentRequest::AddConnection {
             name,
@@ -938,7 +950,11 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
 
     crate::shell::event_loop::actions::handle_submit_custom_provider(&mut app);
 
-    let rename = rx.try_recv().expect("rename transaction first");
+    let rename = rx
+        .try_recv()
+        .expect("rename transaction first")
+        .into_request()
+        .expect("domain request");
     match rename {
         protocol::AgentRequest::RenameConnection { from, to } => {
             assert_eq!(from, "my-relay");
@@ -946,7 +962,11 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         }
         other => panic!("Expected RenameConnection first, got {other:?}"),
     }
-    let reg = rx.try_recv().expect("register provider second");
+    let reg = rx
+        .try_recv()
+        .expect("register provider second")
+        .into_request()
+        .expect("domain request");
     match reg {
         protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom");
@@ -954,7 +974,11 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         }
         other => panic!("Expected RegisterProvider second, got {other:?}"),
     }
-    let edit = rx.try_recv().expect("metadata edit third");
+    let edit = rx
+        .try_recv()
+        .expect("metadata edit third")
+        .into_request()
+        .expect("domain request");
     match edit {
         protocol::AgentRequest::EditConnection { name, provider, .. } => {
             assert_eq!(name, "My Relay Renamed", "the edit follows the rename");
@@ -993,7 +1017,11 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
             .info_standalone
     );
 
-    let req = rx.try_recv().expect("should query connection detail");
+    let req = rx
+        .try_recv()
+        .expect("should query connection detail")
+        .into_request()
+        .expect("domain request");
     match req {
         protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "anthropic-prod");
@@ -1137,7 +1165,9 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
 
     let req = rx
         .try_recv()
-        .expect("should query connection detail for refresh");
+        .expect("should query connection detail for refresh")
+        .into_request()
+        .expect("domain request");
     match req {
         protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "custom-relay");
@@ -1180,7 +1210,11 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     assert_eq!(app.surfaces.copy_toast_message, "Refreshing models…");
     assert!(app.surfaces.copy_toast_until.is_some());
 
-    let req = rx.try_recv().expect("should send refresh request");
+    let req = rx
+        .try_recv()
+        .expect("should send refresh request")
+        .into_request()
+        .expect("domain request");
     assert!(matches!(req, protocol::AgentRequest::RefreshProviderModels));
 
     // Second press while refreshing: warns already in progress, does not send duplicate request
@@ -1610,7 +1644,9 @@ async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availab
     // Must trigger QueryProviderQuotas in background with force_refresh: false
     let req = rx
         .try_recv()
-        .expect("should send QueryProviderQuotas request");
+        .expect("should send QueryProviderQuotas request")
+        .into_request()
+        .expect("domain request");
     match req {
         protocol::AgentRequest::QueryProviderQuotas {
             provider,

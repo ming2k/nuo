@@ -81,6 +81,7 @@ impl PersistenceHandle {
                     supervisor,
                     health: owner.health.clone(),
                     db_path,
+                    shards: owner.shards.clone(),
                     blob_store: owner.blob_store.clone(),
                     startup_error: None,
                     readers: owner.readers.clone(),
@@ -100,7 +101,6 @@ impl PersistenceHandle {
         let (supervisor, front_rx) = mpsc::channel::<PersistenceCommand>(256);
         let (health_tx, health_rx) = watch::channel(WriterHealth::Healthy);
         let path = db_path.clone();
-        let blobs = blob_store.clone();
         // Initialization owns its thread: no Tokio worker is needed to make
         // progress while a synchronous constructor waits for readiness.
         let opened = std::thread::spawn(move || {
@@ -109,11 +109,15 @@ impl PersistenceHandle {
                 &path.with_extension("db.owner.lock"),
                 Duration::from_millis(2000),
             )?);
-            let engine = DatabaseEngine::open(&path, blobs).map_err(|e| e.to_string())?;
+            let engine = DatabaseEngine::open(&path).map_err(|e| e.to_string())?;
             Ok::<_, String>((engine, lease))
         })
         .join()
         .unwrap_or_else(|_| Err("database initialization panicked".into()));
+        let shards = crate::db::shards::ContentShardPool::new(
+            crate::db::shards::shards_dir_for_catalog(&db_path),
+            crate::db::shards::DEFAULT_SHARD_COUNT,
+        );
         let readers = Arc::new(tokio::sync::Semaphore::new(READER_POOL_CAPACITY));
         let reader_pool = Arc::new(ReaderPool::default());
         let reader_ages = Arc::new(ReaderAges::default());
@@ -126,6 +130,7 @@ impl PersistenceHandle {
                     RegisteredOwner {
                         supervisor: supervisor.downgrade(),
                         health: health_rx.clone(),
+                        shards: shards.clone(),
                         blob_store: blob_store.clone(),
                         readers: readers.clone(),
                         reader_pool: reader_pool.clone(),
@@ -139,7 +144,6 @@ impl PersistenceHandle {
                     front_rx,
                     SupervisorContext {
                         db_path: db_path.clone(),
-                        blob_store: blob_store.clone(),
                         health: health_tx,
                         lease,
                         reader_ages: reader_ages.clone(),
@@ -173,6 +177,7 @@ impl PersistenceHandle {
             supervisor,
             health: health_rx,
             db_path,
+            shards,
             blob_store,
             startup_error,
             readers,
@@ -202,15 +207,24 @@ impl PersistenceHandle {
         self.health.clone()
     }
 
-    /// The database file path.
+    /// The catalog database file path.
     pub fn db_path(&self) -> &Path {
         &self.db_path
     }
 
-    /// Asynchronously save a session in SQLite, returning the committed
-    /// session revision (D3). The `guard` carries an optional
-    /// idempotency identity and revision precondition; a replay returns the
-    /// original revision without re-applying.
+    /// Directory containing the fixed-K rebuildable content shards (ADR-0242).
+    pub fn shards_dir(&self) -> &Path {
+        self.shards.shards_dir()
+    }
+
+    /// Number of content shards in this store's pool.
+    pub fn shard_count(&self) -> usize {
+        self.shards.shard_count()
+    }
+
+    /// Asynchronously save a session across the catalog and its owning content
+    /// shard (ADR-0242 `[INV-INDEX-03]`): no cross-shard transaction, and
+    /// content writes for different sessions execute in parallel across shards.
     pub(crate) async fn save_session(
         &self,
         data: crate::thread::ThreadData,
@@ -219,14 +233,41 @@ impl PersistenceHandle {
         guard: CommitGuard,
         journal_seq: Option<u64>,
     ) -> Result<u64, PersistenceError> {
+        let mut prepared = crate::db::thread_session::prepare_save(
+            data,
+            mode,
+            &usage_upserts,
+            &guard,
+            journal_seq,
+            self.blob_store.as_ref(),
+        )
+        .map_err(SaveError::into_persistence)?;
+
+        // Route content-plane data (facts, branches, blob_refs, FTS, command_acts)
+        // to the owning content shard before the catalog commit.
+        let thread = prepared.thread.take();
+        let commands = if mode == SaveMode::FullRewrite {
+            Some(prepared.data.commands.clone())
+        } else {
+            None
+        };
+        if thread.is_some() || commands.is_some() {
+            let replace = mode == SaveMode::FullRewrite;
+            self.shards
+                .save_content(
+                    prepared.data.id.clone(),
+                    thread,
+                    replace,
+                    commands,
+                    journal_seq,
+                )
+                .await?;
+        }
+
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::SaveSession {
-                data: Box::new(data),
-                mode,
-                usage_upserts,
-                guard,
-                journal_seq,
+                prepared: Box::new(prepared),
                 ack: ack_tx,
             })
             .await
@@ -241,14 +282,30 @@ impl PersistenceHandle {
         data: crate::thread::ThreadData,
         journal_seq: Option<u64>,
     ) -> Result<(), PersistenceError> {
+        let mut prepared = crate::db::thread_session::prepare_save(
+            data,
+            SaveMode::FullRewrite,
+            &[],
+            &CommitGuard::default(),
+            journal_seq,
+            self.blob_store.as_ref(),
+        )
+        .map_err(SaveError::into_persistence)?;
+
+        let thread = prepared.thread.take();
+        let commands = Some(prepared.data.commands.clone());
+        self.shards.save_content_blocking(
+            prepared.data.id.clone(),
+            thread,
+            true,
+            commands,
+            journal_seq,
+        )?;
+
         let (ack_tx, ack_rx) = oneshot::channel();
         self.run_blocking(
             PersistenceCommand::SaveSession {
-                data: Box::new(data),
-                mode: SaveMode::FullRewrite,
-                usage_upserts: Vec::new(),
-                guard: CommitGuard::default(),
-                journal_seq,
+                prepared: Box::new(prepared),
                 ack: ack_tx,
             },
             ack_rx,
@@ -280,8 +337,9 @@ impl PersistenceHandle {
         }
     }
 
-    /// Asynchronously delete a session record.
+    /// Asynchronously delete a session record from both catalog and content shard.
     pub async fn delete_session(&self, session_id: String) -> Result<bool, PersistenceError> {
+        let _ = self.shards.delete_thread(session_id.clone()).await;
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::DeleteSession {
@@ -313,164 +371,155 @@ impl PersistenceHandle {
         ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
     }
 
+    /// Append one command act row (`O(1)`, ADR-0249, routed to content shard).
+    pub(crate) async fn append_command_act(
+        &self,
+        thread_id: String,
+        seq: u64,
+        record: &protocol::CommandRecord,
+        journal_seq: Option<u64>,
+    ) -> Result<(), PersistenceError> {
+        let payload_json = serde_json::to_string(record)
+            .map_err(|error| PersistenceError::Encode(error.to_string()))?;
+        self.shards
+            .append_command_act(thread_id, seq, payload_json, journal_seq)
+            .await
+    }
+
+    /// Replay journal-recovered workspace effects synchronously into the owning
+    /// content shard during startup catch-up / shard rebuild (ADR-0249, ADR-0242).
+    pub(crate) fn replay_workspace_effects_blocking(
+        &self,
+        thread_id: String,
+        effects: Vec<crate::workspace_effects::WorkspaceEffect>,
+        journal_seq: Option<u64>,
+    ) -> Result<(), PersistenceError> {
+        self.shards
+            .replay_workspace_effects_blocking(thread_id, effects, journal_seq)
+    }
+
     /// Append a write-ahead workspace effect, returning its journal id
-    /// (ADR-0125).
+    /// (ADR-0125, ADR-0249, ADR-0242).
     ///
-    /// Called *before* the mutating tool runs. This is deliberately a blocking
-    /// `send().await` on the writer ack rather than a fire-and-forget: a
-    /// pre-image that is not durable is a pre-image that does not exist, and the
-    /// point of the write-ahead row is that it survives the crash that follows
-    /// the mutation. If the journal cannot be written the caller must **not**
-    /// perform the mutation — an unrecorded reversible write would be silently
-    /// irreversible.
+    /// Journal-first: the pre-image intent is appended and `fdatasync`-ed to
+    /// the thread's session journal **before** projecting to the owning content
+    /// shard, guaranteeing power-loss durability and full rebuildability.
     pub async fn append_workspace_effect(
         &self,
         effect: crate::workspace_effects::NewOwnedEffect,
     ) -> Result<i64, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::AppendWorkspaceEffect {
-                effect: Box::new(effect),
-                ack: ack_tx,
-            })
+        let journal = crate::thread::open_journal(&self.db_path, &effect.thread_id);
+        let (journal_seq, effect_id) = journal
+            .append_workspace_effect_started(&effect)
             .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+            .map_err(PersistenceError::Encode)?;
+        self.shards
+            .append_workspace_effect(effect_id, effect, Some(journal_seq))
+            .await
     }
 
     /// Append a workspace effect that needs no recovery point, returning its
-    /// journal id. Used for shell, network, and process effects, whose value is
-    /// the receipt rather than the ability to restore.
+    /// journal id (ADR-0249: journal-first, routed to content shard).
     pub async fn append_completed_workspace_effect(
         &self,
         effect: crate::workspace_effects::NewOwnedEffect,
         completed_at_ms: u64,
     ) -> Result<i64, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::AppendCompletedWorkspaceEffect {
-                effect: Box::new(effect),
-                completed_at_ms,
-                ack: ack_tx,
-            })
+        let journal = crate::thread::open_journal(&self.db_path, &effect.thread_id);
+        let (journal_seq, effect_id) = journal
+            .append_workspace_effect_completed_receipt(&effect, completed_at_ms)
             .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+            .map_err(PersistenceError::Encode)?;
+        self.shards
+            .append_completed_workspace_effect(
+                effect_id,
+                effect,
+                completed_at_ms,
+                Some(journal_seq),
+            )
+            .await
     }
 
-    /// Complete a write-ahead effect with its post-image. `Ok(false)` means the
-    /// row was already completed or does not exist.
+    /// Complete a write-ahead effect with its post-image (ADR-0249: journal-first).
+    /// `Ok(false)` means the row was already completed or does not exist.
     pub async fn complete_workspace_effect(
         &self,
+        thread_id: &str,
         effect_id: i64,
         after_hash: Option<String>,
         completed_at_ms: u64,
     ) -> Result<bool, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::CompleteWorkspaceEffect {
-                effect_id,
-                after_hash,
-                completed_at_ms,
-                ack: ack_tx,
-            })
+        let journal = crate::thread::open_journal(&self.db_path, thread_id);
+        let _ = journal
+            .append_workspace_effect_completed(effect_id, after_hash.as_deref(), completed_at_ms)
             .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+            .map_err(PersistenceError::Encode)?;
+        self.shards
+            .complete_workspace_effect(thread_id, effect_id, after_hash, completed_at_ms)
+            .await
     }
 
-    /// Stamp a journal row as reversed. `Ok(false)` means another caller
-    /// already reversed it.
+    /// Stamp a journal row as reversed (ADR-0249: journal-first).
+    /// `Ok(false)` means another caller already reversed it.
     pub async fn mark_workspace_effect_reversed(
         &self,
+        thread_id: &str,
         effect_id: i64,
         reversed_at_ms: u64,
         note: Option<String>,
     ) -> Result<bool, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::MarkWorkspaceEffectReversed {
-                effect_id,
-                reversed_at_ms,
-                note,
-                ack: ack_tx,
-            })
+        let journal = crate::thread::open_journal(&self.db_path, thread_id);
+        let _ = journal
+            .append_workspace_effect_reversed(effect_id, reversed_at_ms, note.as_deref())
             .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+            .map_err(PersistenceError::Encode)?;
+        self.shards
+            .mark_workspace_effect_reversed(thread_id, effect_id, reversed_at_ms, note)
+            .await
     }
 
-    /// Read a thread's whole journal in observation order.
+    /// Read a thread's whole journal in observation order from its content shard.
     pub async fn list_workspace_effects(
         &self,
         thread_id: String,
     ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::ListWorkspaceEffects {
-                thread_id,
-                ack: ack_tx,
-            })
+        let shards = Arc::clone(&self.shards);
+        tokio::task::spawn_blocking(move || shards.list_workspace_effects(&thread_id))
             .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+            .map_err(|_| PersistenceError::WriterDown)?
     }
 
-    /// Expire pre-images older than `older_than_ms`, returning how many rows were
-    /// newly expired. Their bytes leave the collector's live set on the next sweep;
-    /// the journal rows keep their observation (ADR-0125 `INV-EFFECT-05`).
+    /// Expire pre-images older than `older_than_ms` across all content shards.
     pub async fn expire_preimages(
         &self,
         older_than_ms: u64,
         now_ms: u64,
     ) -> Result<usize, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::ExpirePreimages {
-                older_than_ms,
-                now_ms,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+        self.shards.expire_preimages(older_than_ms, now_ms).await
     }
 
-    /// Blocking variant of [`Self::expire_preimages`], for the maintenance pass
-    /// which runs on a dedicated blocking thread (never on an async worker).
+    /// Blocking variant of [`Self::expire_preimages`], for the maintenance pass.
     pub fn expire_preimages_blocking(
         &self,
         older_than_ms: u64,
         now_ms: u64,
     ) -> Result<usize, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.run_blocking(
-            PersistenceCommand::ExpirePreimages {
-                older_than_ms,
-                now_ms,
-                ack: ack_tx,
-            },
-            ack_rx,
-        )
+        self.shards.expire_preimages_blocking(older_than_ms, now_ms)
     }
 
-    /// Read the newest confirmed, not-yet-reversed reversible effects, newest
-    /// first.
+    /// Read the newest confirmed, not-yet-reversed reversible effects from the
+    /// owning content shard, newest first.
     pub async fn undoable_workspace_effects(
         &self,
         thread_id: String,
         limit: u32,
     ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::UndoableWorkspaceEffects {
-                thread_id,
-                limit,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+        let shards = Arc::clone(&self.shards);
+        tokio::task::spawn_blocking(move || {
+            shards.undoable_workspace_effects(&thread_id, limit as usize)
+        })
+        .await
+        .map_err(|_| PersistenceError::WriterDown)?
     }
 
     pub(crate) fn catch_up_usage(&self) -> Result<usize, PersistenceError> {
@@ -671,8 +720,15 @@ impl PersistenceHandle {
     /// This is the **only** way to obtain a connection snapshot: the engine
     /// type is crate-private, so a caller cannot open one on a path of its own
     /// choosing. Reads never need the actor — WAL readers run concurrently
-    /// with the writer — so this returns immediately instead of queueing
-    /// behind a slow write.
+    /// with the writer — so this returns without queueing behind a slow write.
+    ///
+    /// Capacity is a **bounded wait**, not an instant refusal. With a fixed
+    /// pool and a server hosting many sessions, a burst of concurrent reads
+    /// (history listing, recall search, offstream enumeration) used to turn
+    /// into a hard error at the call site — which most callers mapped to
+    /// `.ok()` and therefore to an *empty result*, silently. A short wait
+    /// converts that into latency, which is honest, and only a genuinely
+    /// saturated pool reports exhaustion.
     pub fn reader(&self) -> Result<DbReader> {
         if let Some(error) = &self.startup_error {
             // When another process already holds the single-writer advisory lock (e.g. background server),
@@ -681,9 +737,7 @@ impl PersistenceHandle {
                 return Err(rusqlite::Error::InvalidParameterName(error.to_string()));
             }
         }
-        let permit = self.readers.clone().try_acquire_owned().map_err(|_| {
-            rusqlite::Error::InvalidParameterName("database reader capacity exhausted".into())
-        })?;
+        let permit = self.acquire_reader_lease(READER_LEASE_WAIT)?;
         // The whole checkout/open sequence is wedge-sensitive: against a
         // missing `-wal`/`-shm` pair, an open succeeds and the first
         // access that attaches the WAL index fails. Every fallible step is
@@ -722,6 +776,7 @@ impl PersistenceHandle {
             Ok(DbReader {
                 conn: Some(conn),
                 db_path: self.db_path.clone(),
+                shards: self.shards.clone(),
                 pool: Some(self.reader_pool.clone()),
                 generation,
                 _permit: Some(permit),
@@ -741,6 +796,38 @@ impl PersistenceHandle {
             Err(error) => {
                 self.note_reader_open_failure(&error);
                 Err(error)
+            }
+        }
+    }
+
+    /// Take one reader lease, waiting at most `budget`.
+    ///
+    /// Deliberately a bounded poll rather than an async wait: this API is
+    /// synchronous and is called from async workers, blocking-pool threads, and
+    /// plain threads alike. Polling a semaphore is correct in all three without
+    /// depending on a runtime being present or on `block_on` being legal in the
+    /// current context. The sleep is short enough that a lease handed back by a
+    /// finishing read is picked up promptly, and long enough not to spin a core.
+    fn acquire_reader_lease(&self, budget: Duration) -> Result<tokio::sync::OwnedSemaphorePermit> {
+        let deadline = std::time::Instant::now() + budget;
+        loop {
+            match self.readers.clone().try_acquire_owned() {
+                Ok(permit) => return Ok(permit),
+                Err(tokio::sync::TryAcquireError::Closed) => {
+                    return Err(rusqlite::Error::InvalidParameterName(
+                        "database reader pool closed".into(),
+                    ));
+                }
+                Err(tokio::sync::TryAcquireError::NoPermits) => {
+                    let now = std::time::Instant::now();
+                    if now >= deadline {
+                        return Err(rusqlite::Error::InvalidParameterName(format!(
+                            "database reader capacity exhausted after {}ms",
+                            budget.as_millis()
+                        )));
+                    }
+                    std::thread::sleep((deadline - now).min(Duration::from_millis(2)));
+                }
             }
         }
     }
@@ -831,42 +918,19 @@ impl PersistenceHandle {
         }
     }
 
-    /// Create an online hot backup snapshot of the database using SQLite's `VACUUM INTO`.
+    /// Create a rolling online hot backup with automatic retention pruning
+    /// (ADR-0090).
     ///
-    /// The backup is written to `target_path` in a defragmented, standalone,
-    /// consistent state while concurrent readers continue uninterrupted.
-    pub async fn create_backup(&self, target_path: PathBuf) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::CreateBackup {
-                target_path,
-                ack: ack_tx,
-            })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Synchronous/blocking variant of [`Self::create_backup`].
-    pub fn create_backup_blocking(&self, target_path: PathBuf) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.run_blocking(
-            PersistenceCommand::CreateBackup {
-                target_path,
-                ack: ack_tx,
-            },
-            ack_rx,
-        )
-    }
-
-    /// Create a rolling online hot backup with automatic retention pruning (ADR-0090).
+    /// The snapshot runs on its own read-only connection, never on the writer:
+    /// `VACUUM INTO` is a whole-database read, and serialising it behind the
+    /// single writer would stop every session's projection for its duration.
     pub fn create_rolling_backup_blocking(
         &self,
         backups_dir: PathBuf,
         retention_limit: usize,
     ) -> Result<super::backup::BackupMetadata, String> {
         let manager = super::backup::BackupManager::new(backups_dir);
-        manager.create_rolling_backup(self, retention_limit)
+        manager.create_rolling_backup(&self.db_path, retention_limit)
     }
 
     /// A storage-observability snapshot (D7): WAL size, active reader
@@ -915,20 +979,17 @@ impl PersistenceHandle {
         )
     }
 
-    /// Asynchronously optimize internal indexes and statistics via `PRAGMA optimize`.
-    pub async fn optimize(&self) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::Optimize { ack: ack_tx })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Synchronously optimize internal indexes and statistics on a blocking thread.
+    /// Refresh SQLite's query-planner statistics (`PRAGMA optimize`).
+    ///
+    /// Runs on its own write connection, not through the writer queue:
+    /// `optimize` may run `ANALYZE` over the whole schema, which is cold,
+    /// periodic work and must not queue ahead of a session projection.
     pub fn optimize_blocking(&self) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.run_blocking(PersistenceCommand::Optimize { ack: ack_tx }, ack_rx)
+        let conn = rusqlite::Connection::open(&self.db_path).map_err(PersistenceError::Engine)?;
+        conn.busy_timeout(Duration::from_millis(250))
+            .map_err(PersistenceError::Engine)?;
+        conn.execute_batch("PRAGMA optimize;")
+            .map_err(PersistenceError::Engine)
     }
 
     /// Synchronously load all persisted permission rules for `target`.
@@ -1050,10 +1111,10 @@ impl PersistenceHandle {
             report.reclaimed_blob_bytes = blob_bytes;
         }
 
-        // 3. Online hot rolling backup
+        // 3. Online hot rolling backup (its own read-only connection)
         let backup_dir = super::backup::BackupManager::default_dir();
         let backup_mgr = super::backup::BackupManager::new(backup_dir);
-        match backup_mgr.create_rolling_backup(self, retention_limit) {
+        match backup_mgr.create_rolling_backup(&self.db_path, retention_limit) {
             Ok(meta) => {
                 report.created_backup = Some(meta.path);
             }

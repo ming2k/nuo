@@ -104,10 +104,58 @@ pub type AttachResult = Result<Handshake, AttachError>;
 /// the response stream closes — `None` means the connection ended cleanly.
 pub type LinkLostMarker = Arc<Mutex<Option<String>>>;
 
+/// One outbound frame sent from the client over a multiplexed attach
+/// connection (ADR-0251 `[INV-MUX-04]`). All domain requests and subscription
+/// verbs share a single FIFO channel so ordering is strictly preserved.
+#[derive(Debug, Clone)]
+pub enum ClientOutbound {
+    /// Route an [`AgentRequest`] to `thread_id` (`None` targets the
+    /// connection's primary thread).
+    Request {
+        thread_id: Option<String>,
+        request: AgentRequest,
+    },
+    /// Subscribe this connection to an additional thread (attach or create new)
+    /// without disturbing existing subscriptions.
+    Subscribe {
+        action: AttachAction,
+        project: Option<std::path::PathBuf>,
+    },
+    /// Detach a subscribed thread from this connection.
+    Unsubscribe { thread_id: String },
+}
+
+impl ClientOutbound {
+    /// Extract the inner [`AgentRequest`] when this frame is a domain request.
+    pub fn into_request(self) -> Option<AgentRequest> {
+        match self {
+            Self::Request { request, .. } => Some(request),
+            Self::Subscribe { .. } | Self::Unsubscribe { .. } => None,
+        }
+    }
+
+    /// Borrow the inner [`AgentRequest`] when this frame is a domain request.
+    pub fn as_request(&self) -> Option<&AgentRequest> {
+        match self {
+            Self::Request { request, .. } => Some(request),
+            Self::Subscribe { .. } | Self::Unsubscribe { .. } => None,
+        }
+    }
+}
+
+impl From<AgentRequest> for ClientOutbound {
+    fn from(request: AgentRequest) -> Self {
+        Self::Request {
+            thread_id: None,
+            request,
+        }
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 pub enum Handshake {
     Attached {
-        req_tx: mpsc::UnboundedSender<AgentRequest>,
+        req_tx: mpsc::UnboundedSender<ClientOutbound>,
         resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
         /// Where the reader's *transport* failure lands, when there is one.
         ///
@@ -236,7 +284,7 @@ pub(super) async fn finish_handshake_with_project(
         }
     };
 
-    let (req_out_tx, mut req_out_rx) = mpsc::unbounded_channel::<AgentRequest>();
+    let (req_out_tx, mut req_out_rx) = mpsc::unbounded_channel::<ClientOutbound>();
     let (resp_in_tx, resp_in_rx) = mpsc::unbounded_channel::<AgentResponse>();
     // Shared with the reader task: after `resp_rx` closes, this is *how* the
     // consumer learns whether the link failed and why, without guessing.
@@ -248,11 +296,20 @@ pub(super) async fn finish_handshake_with_project(
 
     tokio::spawn(async move {
         let mut end_pending = false;
-        while let Some(request) = req_out_rx.recv().await {
-            if matches!(request, AgentRequest::EndThread) {
-                end_pending = true;
-            }
-            if let Err(error) = wire_sink.send(Wire::Request { request }).await {
+        while let Some(outbound) = req_out_rx.recv().await {
+            let wire = match outbound {
+                ClientOutbound::Request { thread_id, request } => {
+                    if matches!(request, AgentRequest::EndThread) {
+                        end_pending = true;
+                    }
+                    Wire::Request { thread_id, request }
+                }
+                ClientOutbound::Subscribe { action, project } => {
+                    Wire::Subscribe { action, project }
+                }
+                ClientOutbound::Unsubscribe { thread_id } => Wire::Unsubscribe { thread_id },
+            };
+            if let Err(error) = wire_sink.send(wire).await {
                 tracing::warn!(%error, "attach: wire send failed");
                 let mut marker = link_lost_for_writer
                     .lock()
@@ -279,6 +336,19 @@ pub(super) async fn finish_handshake_with_project(
                         *exit_seen_inner.lock().unwrap_or_else(|e| e.into_inner()) = true;
                     }
                     if resp_in_tx.send(response).is_err() {
+                        return;
+                    }
+                }
+                Ok(WireFrame::Wire(Wire::Subscribed { thread_id, phase })) => {
+                    if resp_in_tx
+                        .send(AgentResponse::ThreadSubscribed { thread_id, phase })
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                Ok(WireFrame::Wire(Wire::Error { message, .. })) => {
+                    if resp_in_tx.send(AgentResponse::Error(message)).is_err() {
                         return;
                     }
                 }

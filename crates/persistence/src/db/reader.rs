@@ -25,9 +25,8 @@ impl DbReader {
         session_revision(self.conn(), session_id)
     }
 
-    /// The highest journal seq this session's derived view has materially
-    /// absorbed, if it has ever been projected (ADR-0242).
-    pub fn projection_watermark(&self, session_id: &str) -> Result<Option<u64>> {
+    /// The durable journal seq absorbed by the catalog plane (`nuo.db`) alone.
+    pub fn catalog_projection_watermark(&self, session_id: &str) -> Result<Option<u64>> {
         self.conn()
             .query_row(
                 "SELECT seq FROM projection_watermarks WHERE thread_id = ?1",
@@ -36,6 +35,34 @@ impl DbReader {
             )
             .optional()
             .map(|value| value.map(|seq| seq.max(0) as u64))
+    }
+
+    /// The minimum durable journal seq absorbed by **both** the catalog plane
+    /// and the owning content shard (ADR-0242). If either plane is missing or
+    /// behind, catch-up rebuilds it from the journal.
+    pub fn projection_watermark(&self, session_id: &str) -> Result<Option<u64>> {
+        let catalog_wm = self.catalog_projection_watermark(session_id)?;
+        let shard_wm = self.shards.projection_watermark(session_id)?;
+        match (catalog_wm, shard_wm) {
+            (Some(c), Some(s)) => Ok(Some(c.min(s))),
+            _ => Ok(None),
+        }
+    }
+
+    /// Pure catalog primary-key check for draft reconciliation (ADR-0250):
+    /// returns the subset of `thread_ids` that do **not** exist in the catalog.
+    pub fn missing_thread_ids(&self, thread_ids: &[String]) -> Result<Vec<String>> {
+        let mut missing = Vec::new();
+        let mut stmt = self
+            .conn()
+            .prepare_cached("SELECT 1 FROM threads WHERE id = ?1")?;
+        for id in thread_ids {
+            let exists: Option<i64> = stmt.query_row([id], |row| row.get(0)).optional()?;
+            if exists.is_none() {
+                missing.push(id.clone());
+            }
+        }
+        Ok(missing)
     }
 
     /// The latest durable commit receipt for a session (D3):
@@ -47,10 +74,17 @@ impl DbReader {
             .map(|receipt| receipt.map(|(operation_id, _hash, revision)| (operation_id, revision)))
     }
 
-    /// Load the canonical durable thread aggregate.
+    /// Load the canonical durable thread aggregate from catalog + content shard (ADR-0242).
     pub fn load_thread(&self, thread_id: &str) -> Result<Option<protocol::Thread>> {
-        crate::db::thread_store::load_thread(self.conn(), &protocol::ThreadId::new(thread_id))
-            .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))
+        let Some(content_conn) = self.shards.open_reader_for(thread_id)? else {
+            return Ok(None);
+        };
+        crate::db::thread_store::load_thread_from_planes(
+            self.conn(),
+            &content_conn,
+            &protocol::ThreadId::new(thread_id),
+        )
+        .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))
     }
 
     #[allow(dead_code)]
@@ -253,41 +287,60 @@ impl DbReader {
         session_id: &str,
         active_id: &str,
     ) -> Result<Option<protocol::ThreadDetail>> {
-        crate::db::thread_session::get_session_detail(self.conn(), session_id, active_id)
+        let content_conn = self.shards.open_reader_for(session_id)?;
+        crate::db::thread_session::get_session_detail_from_planes(
+            self.conn(),
+            content_conn.as_ref(),
+            session_id,
+            active_id,
+        )
     }
 
-    /// One session's raw durable data (the load path of `ThreadSession`).
+    /// One session's raw durable data (the load path of `ThreadSession`),
+    /// assembled from catalog metadata + owning content shard (ADR-0242).
     pub fn load_session_full(&self, session_id: &str) -> Result<Option<crate::thread::ThreadData>> {
-        crate::db::thread_session::load_session_full(self.conn(), session_id)
+        let content_conn = self.shards.open_reader_for(session_id)?;
+        crate::db::thread_session::load_session_full_from_planes(
+            self.conn(),
+            content_conn.as_ref(),
+            session_id,
+        )
     }
 
     /// A session's projected transcript tail as wire rows (the Archivist's
-    /// read tool).
+    /// read tool), assembled from catalog + owning content shard (ADR-0242).
     pub fn read_session_transcript(
         &self,
         session_id: &str,
         tail: usize,
     ) -> Result<Option<ThreadTranscriptView>> {
-        crate::db::thread_session::read_session_transcript(self.conn(), session_id, tail)
+        let content_conn = self.shards.open_reader_for(session_id)?;
+        crate::db::thread_session::read_session_transcript_from_planes(
+            self.conn(),
+            content_conn.as_ref(),
+            session_id,
+            tail,
+        )
     }
 
-    /// Every blob hash the durable reference ledger still mentions. The sweep
-    /// that consumes this is a *filesystem* pass, so it runs on the caller's
-    /// thread rather than blocking the writer.
+    /// Every blob hash the durable reference ledger still mentions across all
+    /// content shards (ADR-0242).
     pub fn live_blob_hashes(&self) -> Result<std::collections::HashSet<String>> {
-        crate::db::garbage_collection::live_blob_hashes(self.conn())
+        self.shards.live_blob_hashes()
     }
 
     // -- recall / history --------------------------------------------------
 
-    /// BM25 search over every persisted transcript entry (strict AND form).
+    /// BM25 search over every persisted transcript entry (strict AND form),
+    /// fanning out across all content shards and merging by score (ADR-0242).
     pub fn search_history(
         &self,
         query: &str,
         filter: Option<&protocol::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
-        crate::db::history_search::search_history(self.conn(), query, filter, limit)
+        self.shards
+            .search_history_fanout(self.conn(), query, filter, limit, false)
     }
 
     /// [`Self::search_history`] with the words OR-joined (recall fallback).
@@ -297,7 +350,8 @@ impl DbReader {
         filter: Option<&protocol::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
-        crate::db::history_search::search_history_relaxed(self.conn(), query, filter, limit)
+        self.shards
+            .search_history_fanout(self.conn(), query, filter, limit, true)
     }
 
     /// The prompt history, oldest first, capped at `limit`.

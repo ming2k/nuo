@@ -119,43 +119,101 @@ pub(super) fn transcript_interrupts_from_records(
         .collect()
 }
 
-/// Merge rebuilt round-interrupt rows into a restored transcript (C11),
-/// mirroring [`merge_command_rows`]'s seam rule: each marker lands **before
-/// the first user message whose send time is later than the stop** — at the
-/// seam between thread turns, never inside one. An interrupt older
-/// than every seam, or carrying no comparable seam, lands at the tail: it
-/// was the last thing that happened before the transcript ended, which is
-/// exactly the "the process died mid-round" case the marker exists to show.
-pub(super) fn merge_round_interrupt_rows(
-    dialogue: Vec<TranscriptMessage>,
-    interrupts: Vec<TranscriptMessage>,
-) -> Vec<TranscriptMessage> {
-    use tool::Role;
+/// Whether `message` is an assistant turn component (mirrors
+/// `view::layout::is_turn_component`), used so timeline merging never splits
+/// the components of a single `(round, turn)` band.
+fn is_turn_component(message: &TranscriptMessage) -> bool {
+    message.is_tool_step()
+        || message.is_subagent_task()
+        || message.is_reasoning()
+        || message.role == Role::Assistant
+}
 
-    if interrupts.is_empty() {
+/// Merge timestamped out-of-band rows (commands and/or round interrupts) into
+/// a restored dialogue transcript at their chronological turn seams.
+///
+/// Ordering rule, stable and total:
+///
+/// 1. Sidecar rows are stably sorted by `sent_at_ms` ascending, with
+///    un-timestamped rows (`None`) placed last so they never block timestamped
+///    rows from reaching earlier seams.
+/// 2. Each timestamped row lands **before the first valid timeline seam whose
+///    timestamp is `>=` the row's timestamp** — i.e. before a user message,
+///    compaction card, or the start of a new assistant turn, never inside one
+///    turn's components.
+/// 3. Rows newer than every seam, or carrying no timestamp, land at the tail
+///    in chronological (or original) order.
+fn merge_sidecar_rows(
+    dialogue: Vec<TranscriptMessage>,
+    mut rows: Vec<TranscriptMessage>,
+) -> Vec<TranscriptMessage> {
+    if rows.is_empty() {
         return dialogue;
     }
-    let mut out = Vec::with_capacity(dialogue.len() + interrupts.len());
-    let mut interrupts = interrupts.into_iter().peekable();
+    rows.sort_by(|a, b| match (a.sent_at_ms, b.sent_at_ms) {
+        (Some(a_ms), Some(b_ms)) => a_ms.cmp(&b_ms),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+
+    let mut out = Vec::with_capacity(dialogue.len() + rows.len());
+    let mut rows = rows.into_iter().peekable();
+    let mut prev_turn_key: Option<(Option<u64>, Option<u64>)> = None;
 
     for message in dialogue {
-        if message.role == Role::User
-            && let Some(seam_ms) = message.sent_at_ms
-        {
-            while let Some(marker) = interrupts.peek() {
-                if marker.sent_at_ms.is_some_and(|ms| ms <= seam_ms) {
+        let curr_turn_key = is_turn_component(&message).then_some((message.round, message.turn));
+        let same_turn = matches!(
+            (prev_turn_key, curr_turn_key),
+            (Some(prev), Some(curr)) if curr.1.is_some() && prev == curr
+        );
+        if !same_turn && let Some(seam_ms) = message.sent_at_ms {
+            while let Some(item) = rows.peek() {
+                if item.sent_at_ms.is_some_and(|ms| ms <= seam_ms) {
                     #[allow(clippy::expect_used)]
-                    out.push(interrupts.next().expect("peeked interrupt exists"));
+                    out.push(rows.next().expect("peeked timeline row exists"));
                 } else {
                     break;
                 }
             }
         }
+        prev_turn_key = curr_turn_key;
         out.push(message);
     }
-    // Markers after the last seam land at the tail, in record order.
-    out.extend(interrupts);
+    // Rows after the last seam (or with no timestamp) land at the tail.
+    out.extend(rows);
     out
+}
+
+/// Merge rebuilt command and round-interrupt rows together into a restored
+/// dialogue transcript in a single chronological pass.
+///
+/// Merging both ledgers in one pass guarantees that commands and interrupts
+/// occurring at the same seam (or at the tail) interleave by timestamp rather
+/// than grouping all commands before all interrupts. On an exact-millisecond
+/// tie, interrupts precede commands (e.g. a round error precedes `/retry`).
+pub(super) fn merge_timeline_rows(
+    dialogue: Vec<TranscriptMessage>,
+    commands: Vec<TranscriptMessage>,
+    interrupts: Vec<TranscriptMessage>,
+) -> Vec<TranscriptMessage> {
+    if commands.is_empty() && interrupts.is_empty() {
+        return dialogue;
+    }
+    let mut combined = Vec::with_capacity(interrupts.len() + commands.len());
+    combined.extend(interrupts);
+    combined.extend(commands);
+    merge_sidecar_rows(dialogue, combined)
+}
+
+/// Merge rebuilt round-interrupt rows into a restored transcript (C11) at
+/// their chronological turn seams.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn merge_round_interrupt_rows(
+    dialogue: Vec<TranscriptMessage>,
+    interrupts: Vec<TranscriptMessage>,
+) -> Vec<TranscriptMessage> {
+    merge_sidecar_rows(dialogue, interrupts)
 }
 
 /// Rebuild the act rows of the durable command ledger into the
@@ -182,62 +240,14 @@ pub(super) fn transcript_commands_from_ledger(
         .collect()
 }
 
-/// Merge rebuilt command rows into a restored dialogue transcript (
-/// §2: the transcript is a projection — command rows render *at the moment
-/// they happened*, not appended to the tail).
-///
-/// Ordering rule, stable and total:
-///
-/// 1. Each command row lands **before the first user message whose send time
-///    is later than the command's invocation** — i.e. at the seam between
-///    thread turns, never inside one. A command issued between turn 2
-///    and turn 3 renders after turn 2's assistant reply and before turn 3's
-///    prompt, exactly where it appeared live.
-/// 2. Commands older than every user seam, or carrying no timestamp, keep
-///    their ledger order at the **tail** (they were the last thing run), and
-///    dialogue with no user timestamps at all simply takes the tail too —
-///    dialogue order is never disturbed.
-/// 3. Ties (a command and the next prompt within the same millisecond) place
-///    the command before the seam, matching how a command is dispatched
-///    before the round it precedes opens.
-///
-/// Timestamps compare against user messages' `sent_at_ms` — assistant/tool
-/// parts of a turn are never split, because a turn's parts share the turn
-/// boundary established by its user message.
+/// Merge rebuilt command rows into a restored dialogue transcript at their
+/// chronological turn seams.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn merge_command_rows(
     dialogue: Vec<TranscriptMessage>,
     commands: Vec<TranscriptMessage>,
 ) -> Vec<TranscriptMessage> {
-    use tool::Role;
-
-    if commands.is_empty() {
-        return dialogue;
-    }
-    let mut out = Vec::with_capacity(dialogue.len() + commands.len());
-    let mut commands = commands.into_iter().peekable();
-
-    for message in dialogue {
-        // Spill every command whose invocation precedes this turn seam.
-        if message.role == Role::User
-            && let Some(seam_ms) = message.sent_at_ms
-        {
-            while let Some(cmd) = commands.peek() {
-                if cmd.sent_at_ms.is_some_and(|ms| ms < seam_ms) {
-                    // The peek above guarantees the item; `expect` documents
-                    // the invariant without a fallible API change.
-                    #[allow(clippy::expect_used)]
-                    out.push(commands.next().expect("peeked command exists"));
-                } else {
-                    break;
-                }
-            }
-        }
-        out.push(message);
-    }
-    // Commands after the last seam (or with no timestamp) land at the tail,
-    // still in ledger order.
-    out.extend(commands);
-    out
+    merge_sidecar_rows(dialogue, commands)
 }
 
 /// Rebuild the nested transcript of a subagent run (the `children` carried by a
@@ -284,6 +294,21 @@ fn transcript_from_core_inner(
     // calls must never share one.
     let mut restored_seq: usize = 0;
     for mut message in messages {
+        // A compaction checkpoint is *hidden* dialogue but still owns a card:
+        // it is the one row that explains why the model's window is shorter
+        // than the thread. Classifying it before the hidden filter is what
+        // keeps a resumed transcript from looking like history was deleted
+        // (ADR-0246 `[INV-CMP-10]`).
+        if message
+            .origin
+            .as_ref()
+            .is_some_and(|origin| origin.kind == tool::InjectionKind::CompactionCheckpoint)
+        {
+            if let Some(card) = transcript_message_from_core(message) {
+                restored.push(card);
+            }
+            continue;
+        }
         if message.hidden || message.role == Role::System {
             continue;
         }
@@ -567,175 +592,4 @@ pub(super) fn format_tool_call(name: &str, arguments: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        merge_round_interrupt_rows, rebase_transcript_rounds, transcript_interrupts_from_records,
-    };
-    use tool::Role;
-    use view::model::document::TranscriptMessage;
-
-    #[test]
-    fn rebases_a_compacted_relative_tail_to_the_session_round_counter() {
-        let mut messages = vec![
-            TranscriptMessage::new(Role::User, "older").with_round(1),
-            TranscriptMessage::new(Role::Assistant, "reply").with_round(2),
-        ];
-
-        rebase_transcript_rounds(&mut messages, 42);
-
-        assert_eq!(messages[0].round, Some(41));
-        assert_eq!(messages[1].round, Some(42));
-    }
-
-    /// An interrupted subagent survives a resume with its true classification and
-    /// its partial children intact: the persisted `subagent_meta.interrupted` flag
-    /// drives the `Interrupted` status (not `Ok` — the bare summary text cannot
-    /// say it), and the nested transcript rebuilds the drill-in view.
-    #[test]
-    fn restores_interrupted_subagent_with_children_and_status() {
-        use crate::shell::config::TuiConfig;
-        use tool::SubagentMeta;
-        use tool::{Message, ToolCall};
-
-        let call = ToolCall {
-            id: "call_9".to_string(),
-            name: "spawn_agent".to_string(),
-            arguments: r#"{"description":"d","prompt":"p"}"#.to_string(),
-        };
-        let inner_call = ToolCall {
-            id: "inner_1".to_string(),
-            name: "read".to_string(),
-            arguments: "{}".to_string(),
-        };
-        // The subagent's partial internal transcript: one completed read round.
-        let children = vec![
-            Message {
-                role: Role::Assistant,
-                content: String::new(),
-                tool_calls: Some(vec![inner_call.clone()]),
-                ..Message::new(Role::Assistant, "")
-            },
-            Message::tool_result(&inner_call, "[read result]:\nfound 1 of 3"),
-        ];
-        let messages = vec![
-            Message::new(Role::User, "research the handlers"),
-            Message {
-                role: Role::Assistant,
-                content: String::new(),
-                tool_calls: Some(vec![call.clone()]),
-                ..Message::new(Role::Assistant, "")
-            },
-            Message::tool_result(
-                &call,
-                "[spawn_agent result]:\nInterrupted: stopped by the user",
-            )
-            .with_children(children)
-            .with_subagent_meta(SubagentMeta {
-                duration_ms: Some(42),
-                failed: false,
-                interrupted: true,
-                ..Default::default()
-            }),
-        ];
-
-        let restored = super::transcript_messages_from_core(messages, &TuiConfig::default());
-        let step = restored
-            .iter()
-            .find(|m| m.is_subagent_task())
-            .expect("the subagent step must be restored");
-        assert_eq!(
-            step.tool_step_status(),
-            Some(view::model::document::ToolStepStatus::Interrupted),
-            "restored interrupted subagent must classify as Interrupted, not Ok/Failed"
-        );
-        let kids = step.subagent_children().expect("children must be restored");
-        assert_eq!(kids.len(), 1, "one completed child tool step expected");
-        assert!(kids[0].is_tool_step());
-        assert_eq!(
-            kids[0].tool_step_status(),
-            Some(view::model::document::ToolStepStatus::Ok),
-            "the child read step completed normally"
-        );
-    }
-
-    /// C11: interrupt markers re-project at their timestamp seam — before the
-    /// first user message sent *after* the stop — and a marker newer than
-    /// every seam lands at the tail (the process died mid-round).
-    #[test]
-    fn round_interrupt_markers_land_at_their_seams() {
-        use protocol::{RoundInterrupt, RoundInterruptReason};
-
-        let dialogue = vec![
-            TranscriptMessage::new(Role::User, "first").with_sent_at_ms(1_000),
-            TranscriptMessage::new(Role::Assistant, "reply 1"),
-            TranscriptMessage::new(Role::User, "second").with_sent_at_ms(5_000),
-            TranscriptMessage::new(Role::Assistant, "reply 2"),
-        ];
-        let markers = transcript_interrupts_from_records(vec![
-            RoundInterrupt {
-                reason: RoundInterruptReason::User,
-                at_ms: 3_000,
-                round: Some(1),
-                detail: None,
-            },
-            RoundInterrupt {
-                reason: RoundInterruptReason::Terminated,
-                at_ms: 9_000,
-                round: Some(2),
-                detail: None,
-            },
-        ]);
-
-        let merged = merge_round_interrupt_rows(dialogue, markers);
-
-        // 6 rows: u1, a1, marker1, u2, a2, marker2(tail).
-        assert_eq!(merged.len(), 6);
-        assert!(merged[2].is_round_interrupt());
-        assert_eq!(
-            merged[2].sent_at_ms,
-            Some(3_000),
-            "mid-transcript marker keeps its own timestamp"
-        );
-        assert!(
-            merged[5].is_round_interrupt(),
-            "post-tail marker at the end"
-        );
-        assert!(!merged[1].is_round_interrupt(), "seam order preserved");
-    }
-
-    /// The marker row's raw text carries the round + reason vocabulary shared
-    /// with the live path.
-    #[test]
-    fn round_interrupt_marker_text_uses_shared_vocabulary() {
-        use protocol::{RoundInterrupt, RoundInterruptReason};
-
-        let marker = TranscriptMessage::round_interrupted(RoundInterrupt {
-            reason: RoundInterruptReason::User,
-            at_ms: 42,
-            round: Some(3),
-            detail: None,
-        });
-        assert_eq!(marker.raw, "Round 3 — cancelled via [Esc Esc]");
-
-        let unnumbered = TranscriptMessage::round_interrupted(RoundInterrupt {
-            reason: RoundInterruptReason::Terminated,
-            at_ms: 42,
-            round: None,
-            detail: None,
-        });
-        assert_eq!(unnumbered.raw, "Process exited");
-
-        let err_marker = TranscriptMessage::round_interrupted(RoundInterrupt {
-            reason: RoundInterruptReason::Error,
-            at_ms: 42,
-            round: Some(4),
-            detail: Some(
-                "Exhausted 30 retry attempts — Google HTTP 429 Too Many Requests".to_string(),
-            ),
-        });
-        assert_eq!(
-            err_marker.raw,
-            "Exhausted 30 retry attempts — Google HTTP 429 Too Many Requests"
-        );
-    }
-}
+mod tests;

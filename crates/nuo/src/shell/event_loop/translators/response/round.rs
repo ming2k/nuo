@@ -85,8 +85,8 @@ impl TranslatorState {
             RoundEvent::SubagentStep { .. }
             | RoundEvent::PermissionRequest(_)
             | RoundEvent::UserQuestionRequest(_)
-            | RoundEvent::StdinRequest(_) => self.handle_interaction_event(event).await,
-            RoundEvent::CommandResult { .. } => self.handle_command_event(event).await,
+            | RoundEvent::StdinRequest(_) => self.handle_interaction_event(session_id, event).await,
+            RoundEvent::CommandResult { .. } => self.handle_command_event(session_id, event).await,
             RoundEvent::Notice(_) | RoundEvent::Error(_) => {
                 self.handle_notice_event(session_id, event).await
             }
@@ -96,12 +96,12 @@ impl TranslatorState {
             | RoundEvent::ConfinementChanged(_) => {
                 self.handle_harness_event(session_id, event).await
             }
-            RoundEvent::RetryScheduled { .. } => self.handle_retry_event(event).await,
+            RoundEvent::RetryScheduled { .. } => self.handle_retry_event(session_id, event).await,
             RoundEvent::BackgroundJobStarted(_)
             | RoundEvent::BackgroundJobProgress { .. }
             | RoundEvent::BackgroundJobReady { .. }
             | RoundEvent::BackgroundJobCompleted(_) => {
-                self.handle_background_job_event(event).await
+                self.handle_background_job_event(session_id, event).await
             }
         }
     }
@@ -132,25 +132,13 @@ impl TranslatorState {
             }
             RoundEvent::RoundCompleted(_summary) => {
                 // The retry episode is over; retire any transient state.
-                self.retry_progress = None;
-                // ADR-0166 `[INV-TOOL-ID-05]`: the round is over,
-                // so no step it announced can still be ingesting
-                // arguments. A round outcome is the boundary
-                // signal; a `HarnessState` snapshot is a *state*
-                // sample and must not be used as an edge.
-                self.transcript(E::RetractPendingToolSteps).await;
+                self.thread_mut(&session_id).retry_progress = None;
+                self.transcript(&session_id, E::RetractPendingToolSteps)
+                    .await;
             }
             RoundEvent::RoundInterrupted(record) => {
-                // C11: the durable twin of the live stop.
-                //
-                // If the round died while backing off, the last
-                // fault is the *reason*, and the anchor's
-                // one-line detail is where it belongs — one
-                // line, not a pretty-printed HTTP body in the
-                // timeline. The full payload is already in the
-                // notice log (each scheduled attempt wrote its
-                // receipt) and in the client log file.
                 let last_fault = self
+                    .thread_mut(&session_id)
                     .retry_progress
                     .as_ref()
                     .and_then(|progress| progress.faults().last().cloned());
@@ -161,22 +149,22 @@ impl TranslatorState {
                     },
                     (detail, _) => protocol::RoundInterrupt { detail, ..record },
                 };
-                self.retry_progress = None;
+                self.thread_mut(&session_id).retry_progress = None;
                 self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundEnded)
                     .await;
 
                 self.mutations.send(M::SetPhase(None)).await;
                 self.mutations.send(M::SetResponding(false)).await;
 
-                // ADR-0166: a stopped round is a boundary for the
-                // same reason a completed one is.
-                self.transcript(E::RetractPendingToolSteps).await;
-                self.transcript(E::Interrupted { record }).await;
+                self.transcript(&session_id, E::RetractPendingToolSteps)
+                    .await;
+                self.transcript(&session_id, E::Interrupted { record })
+                    .await;
             }
             RoundEvent::Text(t) => {
-                self.retry_progress = None;
-                let (provider, model) = self.attribution();
-                let effort = self.picker_effort();
+                self.thread_mut(&session_id).retry_progress = None;
+                let (provider, model) = self.attribution_for(&session_id);
+                let effort = self.picker_effort_for(&session_id);
                 let mut message = TranscriptMessage::new(Role::Assistant, t)
                     .with_attribution(provider, model)
                     .with_effort(effort)
@@ -185,27 +173,21 @@ impl TranslatorState {
                     message.round = Some(round);
                     message.turn = Some(turn);
                 }
-                self.transcript(E::Append {
-                    class: protocol::EventClass::Dialogue,
-                    message,
-                })
+                self.transcript(
+                    &session_id,
+                    E::Append {
+                        class: protocol::EventClass::Dialogue,
+                        message,
+                    },
+                )
                 .await;
-                // A one-shot text payload is the degenerate case
-                // of the delta stream: it *is* visible model
-                // output, so it moves the session's phase
-                // exactly as a delta does. Otherwise the bar
-                // keeps reading "waiting for model" after the
-                // model has answered — and, since the setback
-                // clause is retired when the phase leaves
-                // `AwaitingModel`, the countdown for
-                // the attempt that just landed rides on.
                 self.chrome(
                     &session_id,
                     event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Answering)),
                 )
                 .await;
 
-                if self.harness.loop_status.is_idle() {
+                if self.thread_mut(&session_id).harness.loop_status.is_idle() {
                     self.mutations.send(M::SetResponding(false)).await;
                     self.mutations.send(M::SetPhase(None)).await;
                 } else {
@@ -215,11 +197,7 @@ impl TranslatorState {
                 }
             }
             RoundEvent::Activity(status) => {
-                // View-scoped chrome: record this session's own
-                // phase regardless of focus. Stale in-flight
-                // activity events must not revive the bar if the
-                // harness is already idle (e.g. after interrupt).
-                if !self.harness.loop_status.is_idle() {
+                if !self.thread_mut(&session_id).harness.loop_status.is_idle() {
                     let folded = Phase::classify(&status);
                     self.chrome(
                         &session_id,
@@ -236,12 +214,16 @@ impl TranslatorState {
                     return;
                 };
                 let round = context.round;
-                // 1-indexed for display: turn 0 is the first
-                // model request, shown as `turn 1`.
                 let turn = transcript_turn(context.turn);
-                self.transcript(E::StampTurnPrompt { round }).await;
+                self.transcript(&session_id, E::StampTurnPrompt { round })
+                    .await;
 
-                self.mutations.send(M::SetRoundCount(round)).await;
+                self.mutations
+                    .send(M::SetRoundCount {
+                        thread_id: Some(session_id.clone()),
+                        round,
+                    })
+                    .await;
                 self.mutations.send(M::SetCurrentTurn(turn)).await;
 
                 self.chrome(
@@ -255,12 +237,7 @@ impl TranslatorState {
                     .await;
             }
             RoundEvent::StreamStart => {
-                // A stream lifecycle event is not visible
-                // transcript content; the first visible delta
-                // lazily creates its own typed component. A
-                // successful stream does retire any transient
-                // provider-retry disclosure.
-                self.transcript(E::BeginStream).await;
+                self.transcript(&session_id, E::BeginStream).await;
                 self.chrome(
                     &session_id,
                     event_loop::mutations::ChromeEdit::StreamStarted,
@@ -291,27 +268,26 @@ impl TranslatorState {
                 let sent_at_ms = context.sent_at_ms;
                 let round = position.map(|(round, _)| round);
                 let turn = position.map(|(_, turn)| turn);
-                let (provider, model) = self.attribution();
-                let effort = self.picker_effort();
+                let (provider, model) = self.attribution_for(&session_id);
+                let effort = self.picker_effort_for(&session_id);
                 let mut created = TranscriptMessage::new(Role::Assistant, delta.clone())
                     .with_attribution(provider, model)
                     .with_effort(effort)
-                    // The turn header's `HH:MM` reads this
-                    // stamp. It is the *turn's* send time, so
-                    // thinking / text / tools of one turn can
-                    // never disagree, live or resumed.
                     .with_sent_at_ms(sent_at_ms);
                 if let Some((r, t)) = position {
                     created.round = Some(r);
                     created.turn = Some(t);
                 }
-                self.transcript(E::StreamTextDelta {
-                    round,
-                    turn,
-                    delta,
-                    created: Some(created),
-                    clear_retry: false,
-                })
+                self.transcript(
+                    &session_id,
+                    E::StreamTextDelta {
+                        round,
+                        turn,
+                        delta,
+                        created: Some(created),
+                        clear_retry: false,
+                    },
+                )
                 .await;
             }
             RoundEvent::StreamEnd(final_content) => {
@@ -320,7 +296,7 @@ impl TranslatorState {
                     .send(M::SetPhase(Some(Phase::Finalizing)))
                     .await;
 
-                self.retry_progress = None;
+                self.thread_mut(&session_id).retry_progress = None;
                 let Some(context) = ctx.turn_context else {
                     return;
                 };
@@ -328,20 +304,13 @@ impl TranslatorState {
                 let sent_at_ms = context.sent_at_ms;
                 let round = position.map(|(round, _)| round);
                 let turn = position.map(|(_, turn)| turn);
-                // Identity-addressed: the applier
-                // resolves the streaming entry by position. The
-                // fallback (providers that deliver only a final
-                // payload) is built only for non-empty content.
                 let created = if !final_content.is_empty() {
-                    let (provider, model) = self.attribution();
-                    let effort = self.picker_effort();
+                    let (provider, model) = self.attribution_for(&session_id);
+                    let effort = self.picker_effort_for(&session_id);
                     let mut message =
                         TranscriptMessage::new(Role::Assistant, final_content.clone())
                             .with_attribution(provider, model)
                             .with_effort(effort)
-                            // Same rule as the delta arm: this
-                            // only-visible-bytes path must carry the
-                            // turn's send time into the band header.
                             .with_sent_at_ms(sent_at_ms);
                     if let Some((r, t)) = position {
                         message.round = Some(r);
@@ -351,40 +320,36 @@ impl TranslatorState {
                 } else {
                     None
                 };
-                self.transcript(E::StreamTextFinalize {
-                    round,
-                    turn,
-                    content: final_content,
-                    created,
-                })
+                self.transcript(
+                    &session_id,
+                    E::StreamTextFinalize {
+                        round,
+                        turn,
+                        content: final_content,
+                        created,
+                    },
+                )
                 .await;
             }
             RoundEvent::StreamDiscard => {
-                self.retry_progress = None;
-                // The turn context rides the envelope
-                // (ADR-0168); no `TurnStarted` observation is
-                // required. The wire ordinal is 0-based; the
-                // transcript row is 1-based.
+                self.thread_mut(&session_id).retry_progress = None;
                 let Some(context) = ctx.turn_context else {
                     return;
                 };
-                self.transcript(stream_discard_edit(context.round, context.turn))
-                    .await;
+                self.transcript(
+                    &session_id,
+                    stream_discard_edit(context.round, context.turn),
+                )
+                .await;
             }
             RoundEvent::UnsentInput { .. } => {
-                // Retraction is removed: entries only grow and
-                // update in place; the prompt is marked Cancelled.
-                self.retry_progress = None;
-                self.transcript(E::CancelLastUserPrompt).await;
+                self.thread_mut(&session_id).retry_progress = None;
+                self.transcript(&session_id, E::CancelLastUserPrompt).await;
 
                 self.mutations.send(M::SetResponding(false)).await;
                 self.mutations.send(M::SetPhase(None)).await;
             }
             RoundEvent::StreamReasoningDelta(delta) => {
-                // Phase fact before anything else: the reasoning
-                // stream is alive. Hidden-chain models also land
-                // here (their summary deltas still prove thinking).
-
                 self.mutations
                     .send(M::SetPhase(Some(Phase::Reasoning)))
                     .await;
@@ -394,11 +359,8 @@ impl TranslatorState {
                     event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Reasoning)),
                 )
                 .await;
-                // Surface only a reasoning summary, never their
-                // full chain: gate at message creation. Unrecognized
-                // ids default to disclosed — only known
-                // `ReasoningSummary` models are gated.
-                let hidden_chain = !protocol::model_by_id(&self.current_model)
+                let (provider, model) = self.attribution_for(&session_id);
+                let hidden_chain = !protocol::model_by_id(&model)
                     .map(|m| m.thinking.chain_disclosed())
                     .unwrap_or(true);
                 if hidden_chain {
@@ -411,34 +373,30 @@ impl TranslatorState {
                 let sent_at_ms = context.sent_at_ms;
                 let round = position.map(|(round, _)| round);
                 let turn = position.map(|(_, turn)| turn);
-                let (provider, model) = self.attribution();
-                let effort = self.picker_effort();
+                let effort = self.picker_effort_for(&session_id);
                 let mut created = TranscriptMessage::reasoning(delta.clone())
                     .with_attribution(provider, model)
                     .with_effort(effort)
-                    // A reasoning trace is a turn component, so it
-                    // carries the turn's send time: when thinking
-                    // is the *first* thing a turn emits (the common
-                    // case for a reasoning channel), this entry
-                    // owns the band header and its `HH:MM`.
                     .with_sent_at_ms(sent_at_ms);
                 if let Some((r, t)) = position {
                     created.round = Some(r);
                     created.turn = Some(t);
                 }
-                // Disclosure default is applied by the applier
-                // (`App::reasoning_default_expanded`).
-                self.transcript(E::ReasoningDelta {
-                    round,
-                    turn,
-                    delta,
-                    created: Some(created),
-                })
+                self.transcript(
+                    &session_id,
+                    E::ReasoningDelta {
+                        round,
+                        turn,
+                        delta,
+                        created: Some(created),
+                    },
+                )
                 .await;
-                self.reasoning_start = Some(std::time::Instant::now());
+                self.thread_mut(&session_id).reasoning_start = Some(std::time::Instant::now());
             }
             RoundEvent::StreamReasoningEnd(content) => {
                 let duration_ms = self
+                    .thread_mut(&session_id)
                     .reasoning_start
                     .take()
                     .map(|started| started.elapsed().as_millis() as u64);
@@ -446,12 +404,15 @@ impl TranslatorState {
                     return;
                 };
                 let position = Some((context.round, transcript_turn(context.turn)));
-                self.transcript(E::ReasoningFinalize {
-                    round: position.map(|(round, _)| round),
-                    turn: position.map(|(_, turn)| turn),
-                    content,
-                    duration_ms,
-                })
+                self.transcript(
+                    &session_id,
+                    E::ReasoningFinalize {
+                        round: position.map(|(round, _)| round),
+                        turn: position.map(|(_, turn)| turn),
+                        content,
+                        duration_ms,
+                    },
+                )
                 .await;
             }
             RoundEvent::Compacted {
@@ -469,10 +430,13 @@ impl TranslatorState {
                     tracked_files,
                 )
                 .with_sent_at_ms(now_ms());
-                self.transcript(E::Append {
-                    class: protocol::EventClass::TurnOutcome,
-                    message,
-                })
+                self.transcript(
+                    &session_id,
+                    E::Append {
+                        class: protocol::EventClass::TurnOutcome,
+                        message,
+                    },
+                )
                 .await;
             }
             _ => {}
@@ -529,7 +493,7 @@ impl TranslatorState {
                 // a one-body-row interjection (ADR-0137).
                 admitted =
                     admitted.with_origin_tags(vec![view::model::document::SteerOriginTag::InRound]);
-                self.transcript(E::InsertAdmittedSeam { message: admitted })
+                self.transcript(&session_id, E::InsertAdmittedSeam { message: admitted })
                     .await;
                 self.mutations
                     .send(M::DispatchRemoved {
@@ -618,7 +582,7 @@ impl TranslatorState {
                 // full round-panel weight.
                 admitted = admitted
                     .with_origin_tags(vec![view::model::document::SteerOriginTag::RoundOpening]);
-                self.transcript(E::InsertAdmittedSeam { message: admitted })
+                self.transcript(&session_id, E::InsertAdmittedSeam { message: admitted })
                     .await;
                 self.mutations
                     .send(M::DispatchRemoved {

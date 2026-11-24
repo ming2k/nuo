@@ -76,9 +76,10 @@ so a crash cannot poison the next append.
 
 ### 3. `[INV-JOURNAL-03]` No SQLite write is on the commit acknowledgement path
 
-The journal ack is the commit. The same `ThreadData` is then handed to a
-per-session projection worker (an OS thread with a bounded channel) that
-applies it to SQLite. The worker:
+The journal ack is the commit. The same `ThreadData` is then handed to the
+derived-view projection (originally one OS thread per session; now a bounded,
+fair lane pool — see [ADR-0248](0248-storage-work-is-split-by-what-it-needs.md)
+§3) which applies it to SQLite. The projection:
 
 - never runs on the tokio runtime and never blocks the ReAct loop;
 - preserves per-session order with a FIFO channel;
@@ -145,5 +146,12 @@ the journal state. SQLite's branch rows are now purely derived.
 - **Do not make the projection synchronous "just for safety".** That
   reintroduces exactly the coupling this ADR removes; cold reads use
   `flush_projection()` instead.
+- **Do not give the projection a thread per session.** Per-session threads are
+  `O(sessions)` resident stacks for work that is idle almost always; the pool is
+  bounded and still keeps per-session FIFO (ADR-0248).
+- **Do not let the writer touch the filesystem.** A projection's CAS offload is
+  prepared before the command crosses the writer door, so a large tool output's
+  `fdatasync` cannot stall another session's projection (ADR-0248
+  `[INV-STORAGE-01]`).
 - **Do not use the journal as a query engine.** It is an append-only log with
   no index; every list/search/report reads the derived view.

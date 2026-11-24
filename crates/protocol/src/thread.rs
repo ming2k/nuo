@@ -202,6 +202,11 @@ pub enum FactPayload {
     },
     Compaction {
         summary: String,
+        /// The first fact the next request assembles from. The branch cursor's
+        /// `compaction_horizon` names this same fact, and every reader derives
+        /// the fold's *seam* by resolving this reference through the order it
+        /// actually holds — never by parsing an id as a number
+        /// (ADR-0246 `[INV-CMP-09]`).
         first_kept_fact_id: FactId,
         tokens_before: usize,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -867,7 +872,10 @@ impl Thread {
         timestamp_ms: u64,
     ) -> Result<FactId, ThreadError> {
         self.ensure_writable()?;
-        let path = self.path(branch_id)?;
+        // A fold may only *keep* something already inside the request window.
+        // Resolving against the conversation would let a caller move the horizon
+        // backwards, which would re-enlarge the window it was asked to relieve.
+        let path = self.live_path(branch_id)?;
         if !path.iter().any(|fact| fact.id == first_kept) {
             return Err(ThreadError::FactNotLive(first_kept));
         }
@@ -886,11 +894,38 @@ impl Thread {
         Ok(id)
     }
 
-    /// Facts on one branch from horizon to head, oldest first.
+    /// The branch's **conversation**: head → root, oldest first, every fact the
+    /// branch reaches.
     ///
-    /// The horizon is inclusive: the first kept fact is the oldest visible fact.
+    /// A fold never removes a fact from the conversation (ADR-0246
+    /// `[INV-CMP-08]`): the compaction horizon bounds the *request window*
+    /// ([`Self::live_path`]), not what the thread has said. The compaction fact
+    /// itself sits in the chain where it was appended — after the tail it kept,
+    /// the moment the fold happened — so reading order needs no rewriting:
+    /// [`crate::Transcript::conversation_messages`] is this walk, minus working
+    /// state.
+    ///
     /// A branch with no head has an empty path.
     pub fn path(&self, branch_id: &BranchId) -> Result<Vec<&ThreadFact>, ThreadError> {
+        self.walk(branch_id, false)
+    }
+
+    /// The branch's **request window**: head → `compaction_horizon` inclusive,
+    /// oldest first.
+    ///
+    /// The horizon is inclusive: the first kept fact is the oldest fact the next
+    /// model request assembles from. This is the only walk the request path may
+    /// use; every reader that answers "what did this thread say" uses
+    /// [`Self::path`].
+    pub fn live_path(&self, branch_id: &BranchId) -> Result<Vec<&ThreadFact>, ThreadError> {
+        self.walk(branch_id, true)
+    }
+
+    fn walk(
+        &self,
+        branch_id: &BranchId,
+        stop_at_horizon: bool,
+    ) -> Result<Vec<&ThreadFact>, ThreadError> {
         let branch = self.state.branch(branch_id)?;
         let mut current = branch.head.clone();
         let mut seen = HashSet::new();
@@ -904,7 +939,7 @@ impl Thread {
                 .get(&id)
                 .ok_or_else(|| ThreadError::UnknownFact(id.clone()))?;
             facts.push(fact);
-            if branch.compaction_horizon.as_ref() == Some(&id) {
+            if stop_at_horizon && branch.compaction_horizon.as_ref() == Some(&id) {
                 break;
             }
             current = fact.parent_id.clone();
@@ -913,6 +948,9 @@ impl Thread {
         Ok(facts)
     }
 
+    /// Whether `fact` lies on the branch's conversation path. Fork targets are
+    /// validated against this: folding is context relief, so a folded fact is
+    /// still a legitimate fork point (ADR-0246).
     pub fn path_contains(&self, branch_id: &BranchId, fact: &FactId) -> Result<bool, ThreadError> {
         Ok(self
             .path(branch_id)?
@@ -920,7 +958,7 @@ impl Thread {
             .any(|candidate| &candidate.id == fact))
     }
 
-    /// Whether a fact is on at least one branch's live path.
+    /// Whether a fact is on at least one branch's conversation path.
     pub fn is_live(&self, fact: &FactId) -> bool {
         self.state.branches.keys().any(|branch| {
             self.path(branch)
@@ -929,7 +967,9 @@ impl Thread {
         })
     }
 
-    /// Union of all branch live paths. This is the GC root set.
+    /// Union of all branch conversation paths. This is the GC root set: a fact
+    /// stays reachable for the whole life of the branch that carries it, folded
+    /// or not (ADR-0246 `[INV-CMP-08]`).
     pub fn live_facts(&self) -> BTreeSet<FactId> {
         let mut live = BTreeSet::new();
         for branch in self.state.branches.values() {
@@ -940,9 +980,13 @@ impl Thread {
         live
     }
 
-    /// Facts unreachable from every branch. The compaction metadata fields are
-    /// not owning references, so a pre-horizon fact is GC-eligible once no
-    /// sibling branch traverses it.
+    /// Facts no branch reaches at all: a structural orphan left by an explicit
+    /// rebuild or a deleted branch.
+    ///
+    /// A fold is **not** an orphan source. The compaction fact's
+    /// `first_kept_fact_id` and file manifest are audit metadata, not owning
+    /// references, but the kept tail still points back through the folded range
+    /// by parent edge, so the range stays reachable (ADR-0246).
     pub fn gc_eligible_facts(&self) -> BTreeSet<FactId> {
         let live = self.live_facts();
         self.graph
@@ -963,13 +1007,13 @@ impl Thread {
         self.graph.max_seq()
     }
 
-    /// The latest compaction fact on a branch's live path, if any.
+    /// The latest compaction fact on a branch's request window, if any.
     pub fn latest_compaction(
         &self,
         branch_id: &BranchId,
     ) -> Result<Option<&ThreadFact>, ThreadError> {
         Ok(self
-            .path(branch_id)?
+            .live_path(branch_id)?
             .into_iter()
             .rev()
             .find(|fact| matches!(fact.payload, FactPayload::Compaction { .. })))

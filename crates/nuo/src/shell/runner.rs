@@ -895,9 +895,12 @@ pub async fn run_attached(
         .await?;
         preserved_tabs = outcome.tabs;
         preserved_tab_history = outcome.tab_history;
-        if let Err(error) = exit_tx.send(protocol::AgentRequest::RecordInputHistory {
-            entries: outcome.history,
-            dedup: base_config.input_history.dedup,
+        if let Err(error) = exit_tx.send(client::ClientOutbound::Request {
+            thread_id: None,
+            request: protocol::AgentRequest::RecordInputHistory {
+                entries: outcome.history,
+                dedup: base_config.input_history.dedup,
+            },
         }) {
             tracing::error!(%error, "server link lost before exit history flush");
         }

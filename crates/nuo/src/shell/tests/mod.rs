@@ -104,6 +104,8 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         session: SessionState {
             queue_exit_session: None,
             session_chrome: std::collections::HashMap::new(),
+            workspaces: std::collections::HashMap::new(),
+            subscribed_threads: std::collections::HashSet::from(["test-session".to_string()]),
             session_tree: protocol::ThreadTree::default(),
             session_detail: None,
             current_provider: "mock".to_string(),
@@ -180,10 +182,12 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             input_scroll_follow_cursor: true,
             input_drag_scroll: None,
             pending_prompts: Vec::new(),
+            draft_autosave_at: std::time::Instant::now(),
+            draft_thread: None,
             backend_completion_signal: None,
             input_history: Vec::new(),
             history_index: None,
-            draft_capsule: view::composer_mode::DraftCapsule::default(),
+            stashed_draft: view::composer_draft::ComposerDraft::default(),
             history_attachments: std::collections::HashMap::new(),
             history_attachments_order: std::collections::VecDeque::new(),
             session_history_backfill: Vec::new(),
@@ -197,7 +201,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             composer_send_mode: crate::shell::app::ComposerSendMode::default(),
             suppress_steer_restore: std::collections::HashSet::new(),
             last_submit_ms: None,
-            injection_stashed_input: String::new(),
         },
         human: HumanState {
             pending_permissions: std::collections::VecDeque::new(),
@@ -221,6 +224,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         surfaces: SurfacesState {
             surface_store: crate::shell::surfaces::SurfaceStore::new(),
             surfaces: crate::shell::surfaces::SurfaceRouter::new(),
+            drafts: crate::shell::draft_store::DraftLedger::in_memory(),
             modal_index: 0,
             connection_detail: None,
             config_scroll: 0,
@@ -346,7 +350,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
     (app, tmp)
 }
 
-fn new_test_channel() -> mpsc::UnboundedSender<AgentRequest> {
+fn new_test_channel() -> mpsc::UnboundedSender<crate::shell::client::ClientOutbound> {
     let (tx, _rx) = mpsc::unbounded_channel();
     tx
 }
@@ -480,6 +484,7 @@ async fn console_dispatch(app: &mut App, line: &str, create_when_bare: bool) {
 mod attach_readiness;
 mod command_log_scene;
 mod completion;
+mod draft_persistence;
 mod elevation_pipeline;
 mod gesture_input;
 mod history_recall;

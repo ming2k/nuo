@@ -7,15 +7,16 @@
 //!   Fixed height: 1 row. Owned by the Client container. Projects open tabs
 //!   with clean semantic titles (e.g. `Refactor DB`, `dashboard`, `settings`)
 //!   or compact untitled fallbacks (`thread#b3c4`), strictly omitting ordinal
-//!   prefixes (`1:`) [INV-TAB-09]. Its right edge carries only the fault notice
-//!   badge (`[!N]`) when unread faults exist; the former standing `F1 help`
-//!   keycap is retired (ADR-0219), so help discovery lives in the empty-state
-//!   tour instead of taxing the row's scarcest budget — tab titles.
-//!   The row also carries its own lifecycle (ADR-0235): a hovered pill reveals
-//!   its close mark inside columns it reserved at rest, an overflowing title
-//!   slides through one bounded one-way reveal while the pointer rests on it,
-//!   and the strip ends with an add affordance whose columns are budgeted before
-//!   any title.
+//!   prefixes (`1:`) [INV-TAB-09]. Its right edge carries the optional `[!N]`
+//!   fault notice badge and a yield-first elastic help portal resolved from
+//!   the live keymap (`{key} help` in idle slack → compact `{key}` under
+//!   pressure → omitted when starved or unbound, ADR-0245 `[INV-TAB-19]`).
+//!   The row also carries its own lifecycle (ADR-0235): overflowing titles fade
+//!   smoothly into the pill background instead of appending `…`, a hovered pill
+//!   replaces its trailing title columns in place with a close mark (no resting
+//!   reserve, no reflow), an overflowing title slides through one bounded
+//!   one-way reveal while the pointer rests on it, and the strip ends with an
+//!   add affordance whose columns are budgeted before any title.
 //!
 //! - **Tier 2 — Polymorphic SceneBar (`draw_scene_bar`).**
 //!   Fixed height: 1 row. Owned by the active scene view [INV-SCENE-02]. Displays
@@ -96,6 +97,11 @@ pub struct TabBarProps<'a> {
     pub active_tab: usize,
     /// Unread fault notices requiring persistent attention (ADR-0131).
     pub unread_faults: usize,
+    /// The resolved chord for `CommandId::OpenHelp`, supplied by the caller
+    /// from the live keymap (ADR-0131 `[INV-AFFORDANCE-08]`, ADR-0245
+    /// `[INV-TAB-19]`). `None` suppresses the help portal cleanly — the bar
+    /// never fabricates a literal chord.
+    pub help_key: Option<crate::shell::keymap::Key>,
     /// What the pointer rests on inside the rail, if anything (ADR-0223, ADR-0235).
     ///
     /// The TabBar is the first chrome row whose *hover* changes what it
@@ -128,6 +134,8 @@ pub enum TabBarHover {
     Close(usize),
     /// The trailing add-tab affordance.
     Add,
+    /// The right-edge elastic help portal (ADR-0245).
+    Help,
 }
 
 impl TabBarHover {
@@ -136,7 +144,7 @@ impl TabBarHover {
     pub fn tab(self) -> Option<usize> {
         match self {
             Self::Tab(index) | Self::Close(index) => Some(index),
-            Self::Rail | Self::Add => None,
+            Self::Rail | Self::Add | Self::Help => None,
         }
     }
 
@@ -197,6 +205,9 @@ pub struct TabBarNavRects {
     pub overview_rect: Option<Rect>,
     /// Bounding rect for unread fault notice badge (`[!N]`), if present (ADR-0131).
     pub notices_rect: Option<Rect>,
+    /// Bounding rect for the elastic help portal (`{key} help` / `{key}`),
+    /// present if and only if painted this frame (ADR-0245 `[INV-TAB-20]`).
+    pub help_rect: Option<Rect>,
     /// Whether a hover title reveal is mid-pass. The event loop folds this into
     /// its `animating` predicate, so an idle strip costs no repaints while a
     /// hovered overflow still finishes its one pass (ADR-0235 `[INV-TAB-15]`).

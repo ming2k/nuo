@@ -1,5 +1,11 @@
 //! Autonomous rolling backup management and disaster recovery (ADR-0090).
 //!
+//! Backups are **not** part of the writer. A snapshot is read-only work over
+//! the whole database, so it runs on its own short-lived read-only connection:
+//! `VACUUM INTO` needs no write lock, and putting it behind the single writer
+//! would stop every session's projection for the duration of a multi-gigabyte
+//! copy.
+//!
 //! Provides point-in-time snapshot creation using SQLite's `VACUUM INTO`,
 //! rolling retention pruning, integrity verification, and non-destructive atomic restores.
 
@@ -7,10 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
-
-use super::PersistenceHandle;
 
 /// Prefix used for auto-generated backup files.
 pub const BACKUP_PREFIX: &str = "nuo_backup_";
@@ -139,10 +143,15 @@ impl BackupManager {
         Ok(version)
     }
 
-    /// Create an atomic online hot-backup via [`PersistenceHandle`], then prune excess snapshots.
+    /// Create an atomic online hot-backup, then prune excess snapshots.
+    ///
+    /// The snapshot is taken over a **dedicated read-only connection**: the
+    /// single writer is never involved, so a multi-gigabyte `VACUUM INTO` does
+    /// not stall any session's projection. `VACUUM INTO` reads a single
+    /// consistent snapshot, so concurrency with live writers is safe.
     pub fn create_rolling_backup(
         &self,
-        handle: &PersistenceHandle,
+        db_path: &Path,
         retention_limit: usize,
     ) -> Result<BackupMetadata, String> {
         fs::create_dir_all(&self.backups_dir)
@@ -156,9 +165,7 @@ impl BackupManager {
         let file_name = format!("{BACKUP_PREFIX}{now_ms}_{short_id}.db");
         let target_path = self.backups_dir.join(file_name);
 
-        handle
-            .create_backup_blocking(target_path.clone())
-            .map_err(|e| format!("online hot backup failed: {e}"))?;
+        vacuum_into(db_path, &target_path).map_err(|e| format!("online hot backup failed: {e}"))?;
 
         let meta = self.inspect_backup(&target_path)?;
 
@@ -240,9 +247,35 @@ impl BackupManager {
     }
 }
 
+/// Copy a live database into `target` with `VACUUM INTO`.
+///
+/// Opens its own read-only connection. `VACUUM INTO` takes one consistent read
+/// snapshot, so the copy is atomic with respect to concurrent writers while the
+/// writer's own connection (and therefore its command queue) is untouched.
+/// `mode=ro` is required because `VACUUM INTO` writes the *destination*, not
+/// the source; SQLite accepts it over a read-only source handle.
+pub fn vacuum_into(db_path: &Path, target: &Path) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("could not create backup dir: {e}"))?;
+    }
+    if target.exists() {
+        fs::remove_file(target).map_err(|e| format!("could not replace backup target: {e}"))?;
+    }
+    let target_str = target
+        .to_str()
+        .ok_or_else(|| format!("backup path is not valid UTF-8: {}", target.display()))?;
+    let source = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("could not open {} read-only: {e}", db_path.display()))?;
+    source
+        .execute("VACUUM INTO ?1", [target_str])
+        .map_err(|e| format!("VACUUM INTO {} failed: {e}", target.display()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::PersistenceHandle;
 
     #[test]
     fn test_verify_nonexistent_or_corrupted_fails() {
@@ -270,13 +303,13 @@ mod tests {
         let manager = BackupManager::new(backups_dir.clone());
 
         // Create 4 rolling backups with retention cap 2
-        let b1 = manager.create_rolling_backup(&handle, 2).unwrap();
+        let b1 = manager.create_rolling_backup(&db_file, 2).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(15));
-        let b2 = manager.create_rolling_backup(&handle, 2).unwrap();
+        let b2 = manager.create_rolling_backup(&db_file, 2).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(15));
-        let b3 = manager.create_rolling_backup(&handle, 2).unwrap();
+        let b3 = manager.create_rolling_backup(&db_file, 2).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(15));
-        let b4 = manager.create_rolling_backup(&handle, 2).unwrap();
+        let b4 = manager.create_rolling_backup(&db_file, 2).unwrap();
 
         assert_eq!(b1.schema_version, crate::db::CURRENT_DB_VERSION);
         assert_eq!(b4.schema_version, crate::db::CURRENT_DB_VERSION);
@@ -302,7 +335,7 @@ mod tests {
             .unwrap();
 
         // Create backup 1
-        let snap1 = manager.create_rolling_backup(&handle, 5).unwrap();
+        let snap1 = manager.create_rolling_backup(&db_file, 5).unwrap();
 
         // Mutate original
         handle

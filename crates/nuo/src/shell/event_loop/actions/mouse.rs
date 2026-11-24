@@ -62,6 +62,19 @@ async fn handle_chrome_press(
             app.transcript.ui.runtime.release_pointer();
             true
         }
+        Some(UiKey::TabBarHelp) => {
+            // [INV-TAB-20] Clicking the elastic TabBar help portal toggles
+            // the client-global Help dialog identically to `F1` / `Alt-h`,
+            // preserving container purity (`[INV-TAB-11]`).
+            if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Help) {
+                app.dismiss_surface();
+            } else {
+                app.open_dialog(crate::shell::surfaces::DialogKind::Help);
+            }
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
+            true
+        }
         Some(UiKey::TabBarPrev) => {
             let total = app.surfaces.surfaces.tabs().len().max(1);
             let prev_idx = if app.surfaces.surfaces.active_tab_index() == 0 {
@@ -158,7 +171,13 @@ pub(super) async fn handle_selection_start(
     // (or keep a reveal clock) after the user has moved on (ADR-0235).
     if !matches!(
         target,
-        Some(UiKey::TabBar | UiKey::TabBarItem(_) | UiKey::TabBarClose(_) | UiKey::TabBarAdd)
+        Some(
+            UiKey::TabBar
+                | UiKey::TabBarItem(_)
+                | UiKey::TabBarClose(_)
+                | UiKey::TabBarAdd
+                | UiKey::TabBarHelp
+        )
     ) {
         app.surfaces.tab_hover = None;
         app.surfaces.tab_hover_since = None;
@@ -793,6 +812,9 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
         }
         Some(crate::shell::ui::UiKey::TabBarAdd) => {
             Some(crate::shell::view_header::TabBarHover::Add)
+        }
+        Some(crate::shell::ui::UiKey::TabBarHelp) => {
+            Some(crate::shell::view_header::TabBarHover::Help)
         }
         Some(crate::shell::ui::UiKey::TabBar) => Some(crate::shell::view_header::TabBarHover::Rail),
         _ => None,

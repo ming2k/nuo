@@ -171,6 +171,43 @@ pub struct MonitorSnapshot {
     /// field or when the writer has never degraded (healthy by omission).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persistence_health: Option<PersistenceHealth>,
+    /// Live storage pressure: WAL size, reader occupancy, and the oldest read
+    /// snapshot's age (ADR-0248 `[INV-STORAGE-04]`).
+    ///
+    /// `persistence_health` answers "is the writer alive"; this answers "is the
+    /// WAL reclaimable". The two are different questions and only one of them
+    /// used to have an answer: a healthy writer behind a long-lived reader pins
+    /// the WAL and grows the database, and the operator could not see it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<StoragePressure>,
+}
+
+/// Snapshot of the storage plane's pressure signals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct StoragePressure {
+    /// Size of the main database file in bytes.
+    pub main_bytes: u64,
+    /// Size of the `-wal` sidecar in bytes. Checkpointing is what reclaims it;
+    /// an unbounded value means some reader is pinning a snapshot.
+    pub wal_bytes: u64,
+    /// Reader leases currently checked out.
+    pub active_readers: usize,
+    /// Reader leases the pool can hand out concurrently.
+    pub reader_capacity: usize,
+    /// Age of the oldest live read snapshot, in milliseconds. A large value is
+    /// the direct cause of an un-reclaimable WAL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_reader_ms: Option<u64>,
+}
+
+impl StoragePressure {
+    /// Whether the WAL is large enough to be worth an operator's attention.
+    ///
+    /// The threshold mirrors the checkpoint's own pressure trigger so that what
+    /// the operator sees and what maintenance acts on cannot disagree.
+    pub fn is_elevated(&self) -> bool {
+        self.wal_bytes >= 32 * 1024 * 1024 || self.oldest_reader_ms.is_some_and(|age| age > 5_000)
+    }
 }
 
 /// One row of the server-level task tree (D6): identity, spec
@@ -426,6 +463,13 @@ mod tests {
             server_started_at: 1_700_000_000,
             tasks: Vec::new(),
             persistence_health: None,
+            storage: Some(StoragePressure {
+                main_bytes: 1_048_576,
+                wal_bytes: 33_554_432,
+                active_readers: 3,
+                reader_capacity: 32,
+                oldest_reader_ms: Some(7_500),
+            }),
             threads: vec![MonitoredThread {
                 id: "s-1".into(),
                 title: None,

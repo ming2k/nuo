@@ -55,6 +55,9 @@ impl PreImageStore for SessionBlobAdapter {
 pub struct SessionJournalPort {
     writer: PersistenceHandle,
     store: SessionBlobAdapter,
+    /// Maps journal-allocated `effect_id` back to its owning `thread_id` so
+    /// `complete()` routes to the right session journal and content shard.
+    effect_threads: std::sync::Mutex<std::collections::HashMap<i64, String>>,
 }
 
 impl SessionJournalPort {
@@ -66,6 +69,7 @@ impl SessionJournalPort {
         Self {
             writer,
             store: SessionBlobAdapter::new(blobs),
+            effect_threads: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -117,15 +121,16 @@ impl WorkspaceJournalPort for SessionJournalPort {
     }
 
     async fn append(&self, row: JournalRow) -> Result<i64, String> {
-        // Write-ahead, unconditionally: the caller has declared that this effect has a
-        // recovery point and that the mutation has not run yet. Nothing about the row's
-        // fields is inspected — a withheld pre-image (`before_hash: None` because
-        // capture was refused) is still pending completion, and inferring otherwise
-        // stamped it complete before the tool ran.
-        self.writer
+        let thread_id = row.thread_id.clone();
+        let id = self
+            .writer
             .append_workspace_effect(to_owned_effect(&row))
             .await
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        if let Ok(mut map) = self.effect_threads.lock() {
+            map.insert(id, thread_id);
+        }
+        Ok(id)
     }
 
     async fn append_receipt(&self, row: JournalRow, completed_at_ms: u64) -> Result<i64, String> {
@@ -141,8 +146,14 @@ impl WorkspaceJournalPort for SessionJournalPort {
         after_hash: Option<String>,
         completed_at_ms: u64,
     ) -> Result<bool, String> {
+        let thread_id = self
+            .effect_threads
+            .lock()
+            .ok()
+            .and_then(|mut map| map.remove(&effect_id))
+            .unwrap_or_default();
         self.writer
-            .complete_workspace_effect(effect_id, after_hash, completed_at_ms)
+            .complete_workspace_effect(&thread_id, effect_id, after_hash, completed_at_ms)
             .await
             .map_err(|error| error.to_string())
     }

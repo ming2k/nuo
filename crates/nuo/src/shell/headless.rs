@@ -6,11 +6,14 @@ use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
 fn send_intent(
-    tx: &tokio::sync::mpsc::UnboundedSender<AgentRequest>,
+    tx: &tokio::sync::mpsc::UnboundedSender<client::ClientOutbound>,
     request: AgentRequest,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tx.send(request)
-        .map_err(|error| format!("server link lost before intent delivery: {error}").into())
+    tx.send(client::ClientOutbound::Request {
+        thread_id: None,
+        request,
+    })
+    .map_err(|error| format!("server link lost before intent delivery: {error}").into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -420,10 +423,10 @@ pub async fn run_headless(
 /// reaper that never applies (a session with real content is never reaped).
 /// Bounded: a server that never answers does not hang the CLI.
 async fn declare_session_end(
-    tx: &tokio::sync::mpsc::UnboundedSender<AgentRequest>,
+    tx: &tokio::sync::mpsc::UnboundedSender<client::ClientOutbound>,
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AgentResponse>,
 ) {
-    if tx.send(AgentRequest::EndThread).is_err() {
+    if tx.send(AgentRequest::EndThread.into()).is_err() {
         return; // Connection already gone; the server sees the socket close.
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
@@ -437,7 +440,7 @@ async fn declare_session_end(
 }
 
 async fn handle_permission_request(
-    tx: &tokio::sync::mpsc::UnboundedSender<AgentRequest>,
+    tx: &tokio::sync::mpsc::UnboundedSender<client::ClientOutbound>,
     req: PermissionRequest,
     unattended: bool,
     is_tty: bool,
@@ -509,7 +512,7 @@ async fn handle_permission_request(
 }
 
 async fn handle_user_question_request(
-    tx: &tokio::sync::mpsc::UnboundedSender<AgentRequest>,
+    tx: &tokio::sync::mpsc::UnboundedSender<client::ClientOutbound>,
     req: UserQuestionRequest,
     is_tty: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {

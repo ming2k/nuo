@@ -14,15 +14,20 @@ use view::model::layout::LayoutMap;
 use super::actions::effective_reasoning_effort;
 use super::transcript::display_status;
 
-/// The TabBar's hover projection for this frame (ADR-0223).
+/// The TabBar's client-global projection for this frame (ADR-0223, ADR-0245).
 ///
 /// Every page renderer that draws Tier 1 fills its own tab list and fault count
-/// but shares this one hover fact, so the strip behaves identically on the
-/// transcript, dashboard, settings, command log, and diff pages. Elapsed time is
-/// measured against the *anchor* the pointer arrived on — the app owns that
-/// instant, not the renderer, so a repaint never restarts the reveal clock.
+/// but shares this one hover + live help-key fact, so the strip behaves
+/// identically on the transcript, dashboard, settings, command log, and diff
+/// pages. Elapsed time is measured against the *anchor* the pointer arrived on
+/// — the app owns that instant, not the renderer, so a repaint never restarts
+/// the reveal clock.
 fn tab_hover_projection(app: &App) -> render::TabBarProps<'static> {
     render::TabBarProps {
+        help_key: app
+            .surfaces
+            .key_overrides
+            .effective_binding(crate::shell::keymap::CommandId::OpenHelp),
         hover: app.surfaces.tab_hover,
         hover_elapsed_ms: app
             .surfaces
@@ -581,6 +586,9 @@ fn draw_transcript_surface(
     if let Some(rect) = transcript_render.tab_notices_rect {
         ui.mount(UiKey::NoticesBadge, rect);
     }
+    if let Some(rect) = transcript_render.tab_help_rect {
+        ui.mount(UiKey::TabBarHelp, rect);
+    }
     if let Some(rect) = transcript_render.scene_bar_rect {
         ui.mount(UiKey::SceneBar, rect);
     }
@@ -861,7 +869,7 @@ fn draw_composer_surface(
                     ),
                     can_retry: !busy && viewed_chrome.can_retry,
                     history_recall: app.history_recall_badge(),
-                    recall_draft_saved: !app.composer.draft_capsule.is_empty(),
+                    recall_draft_saved: !app.composer.stashed_draft.is_empty(),
                     toggle_mode_key: app
                         .surfaces
                         .surface_overrides
@@ -1467,6 +1475,9 @@ fn draw_scene(
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
             }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::TabBarHelp, rect);
+            }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
             if let Some(preview_id) = &app.surfaces.host_preview {
                 let row = app
@@ -1533,6 +1544,9 @@ fn draw_scene(
             }
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
+            }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::TabBarHelp, rect);
             }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
             for (index, cat_rect) in rects.category_rects {
@@ -1608,6 +1622,9 @@ fn draw_scene(
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
             }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::TabBarHelp, rect);
+            }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
             // The dashboard's list-body slot stays unset: this scene's scroll
             // is its own field and its page step is derived from the body
@@ -1647,6 +1664,9 @@ fn draw_scene(
             }
             if let Some(rect) = rects.tab_notices_rect {
                 ui.mount(UiKey::NoticesBadge, rect);
+            }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::TabBarHelp, rect);
             }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
             Some(rects.area)

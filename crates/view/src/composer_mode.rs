@@ -1,11 +1,15 @@
-//! Composer Canonical Quadrant Modality and Draft Capsule (ADR-0051)
+//! Composer Canonical Quadrant Modality (ADR-0051).
 //!
 //! Enforces the four mutually exclusive canonical interaction modes of the
-//! Composer ([`ComposerMode`]: `Edit`, `Recall`, `Search`, `Complete`), isolates
-//! in-place sequential history stepping from overlay search, encapsulates draft
-//! preservation in [`DraftCapsule`], and provides unified mode dispatch.
-
-use tool::ImagePart;
+//! Composer ([`ComposerMode`]: `Edit`, `Recall`, `Search`, `Complete`) and
+//! provides the unified mode dispatch.
+//!
+//! The *draft* half of ADR-0051 no longer lives here. It had grown a second,
+//! lossy encoding in this file (`DraftCapsule`: no view offset, caret re-derived
+//! on restore) while the per-tab context carried a third. Both were retired by
+//! [ADR-0247](../../../docs/adr/0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md):
+//! unsent input is one value type, [`crate::composer_draft::ComposerDraft`],
+//! shared by the transient stash and the parked-draft registry.
 
 /// Canonical completion category for [`ComposerMode::Complete`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -90,66 +94,6 @@ impl ComposerMode {
     }
 }
 
-/// Immutable draft snapshot captured atomically on entering any transient sub-mode ([INV-COMP-03]).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DraftCapsule {
-    /// Input prompt text buffer.
-    pub text: String,
-    /// Cursor character/byte position.
-    pub cursor_position: usize,
-    /// Staged pending image attachments.
-    pub pending_images: Vec<ImagePart>,
-    /// Staged pending text paste blocks.
-    pub pending_text_pastes: Vec<String>,
-}
-
-impl DraftCapsule {
-    /// Capture a snapshot from current prompt state.
-    pub fn capture(
-        text: String,
-        cursor_position: usize,
-        pending_images: Vec<ImagePart>,
-        pending_text_pastes: Vec<String>,
-    ) -> Self {
-        Self {
-            text,
-            cursor_position,
-            pending_images,
-            pending_text_pastes,
-        }
-    }
-
-    /// Whether the capsule contains any non-empty draft data.
-    pub fn is_empty(&self) -> bool {
-        self.text.is_empty()
-            && self.pending_images.is_empty()
-            && self.pending_text_pastes.is_empty()
-    }
-
-    /// Restore the captured snapshot into the live prompt state and clear the capsule.
-    pub fn restore_into(
-        &mut self,
-        input: &mut String,
-        pending_images: &mut Vec<ImagePart>,
-        pending_text_pastes: &mut Vec<String>,
-        cursor_position: &mut usize,
-    ) {
-        *input = std::mem::take(&mut self.text);
-        *pending_images = std::mem::take(&mut self.pending_images);
-        *pending_text_pastes = std::mem::take(&mut self.pending_text_pastes);
-        *cursor_position = input.chars().count();
-        self.cursor_position = 0;
-    }
-
-    /// Clear all data in the capsule.
-    pub fn clear(&mut self) {
-        self.text.clear();
-        self.cursor_position = 0;
-        self.pending_images.clear();
-        self.pending_text_pastes.clear();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,18 +126,5 @@ mod tests {
         };
         assert!(complete.is_complete());
         assert_eq!(complete.label(), "Command");
-    }
-
-    #[test]
-    fn test_draft_capsule_lifecycle() {
-        let mut capsule =
-            DraftCapsule::capture("my draft".into(), 8, vec![], vec!["paste block".into()]);
-        assert!(!capsule.is_empty());
-        assert_eq!(capsule.text, "my draft");
-        assert_eq!(capsule.cursor_position, 8);
-        assert_eq!(capsule.pending_text_pastes.len(), 1);
-
-        capsule.clear();
-        assert!(capsule.is_empty());
     }
 }

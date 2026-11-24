@@ -20,8 +20,11 @@ negative_knowledge: true
   [ADR-0054](0054-universal-key-affordance-engine-width-adaptive-floor-truncation-and-modeless-f1-topology.md)
   (`F1 help` as a TabBar *label* — the `F1 more` overflow trigger is untouched)
 - **Amended by**: [ADR-0235](0235-tabbar-carries-its-own-lifecycle-hover-reveal-visible-close-and-reserved-add.md)
-  — the row still carries no standing keycap; the `+` is an affordance for the
-  row's own verb, not a chord legend.
+  — the row still carries no *standing keycap*; the `+` is an affordance for the
+  row's own verb, not a chord legend; and [ADR-0245](0245-tabbar-elastic-help-portal-and-in-situ-progressive-disclosure.md)
+  — restores a yield-first elastic help portal (`{key} help` in idle slack,
+  compact `{key}` under pressure, omitted when starved or unbound) resolved from
+  the live keymap instead of a fixed 13-column standing reservation.
 
 ## Context and Problem Statement
 

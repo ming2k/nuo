@@ -624,6 +624,24 @@ impl Dirs {
         self.state_dir.join("exec_logs")
     }
 
+    /// Parked composer drafts, one file per thread
+    /// (`$XDG_STATE_HOME/nuo/drafts/<thread-id>.json`, ADR-0247).
+    ///
+    /// Under **state**, not data: a draft is unsent working state, it belongs to
+    /// one installation rather than to the thread's durable history (which lives
+    /// in the session journal and is owned by the server), and a copy restored on
+    /// another machine would be a prompt the user never typed there. Under state
+    /// rather than cache because it is not regenerable — losing it loses the
+    /// user's text.
+    ///
+    /// One file per thread, not one JSON map for all of them: two `nuo`
+    /// instances in different projects then never rewrite each other's entries,
+    /// a deletion is an `unlink` rather than a merge rule, and a truncated file
+    /// can only ever cost the one draft it holds.
+    pub fn drafts_dir(&self) -> PathBuf {
+        self.state_dir.join("drafts")
+    }
+
     // helpers
 
     /// The **server instance directory**: the one directory holding the

@@ -357,7 +357,17 @@ pub(crate) fn load_thread(
     conn: &Connection,
     id: &ThreadId,
 ) -> Result<Option<Thread>, ThreadStoreError> {
-    let row: Option<ThreadRow> = conn
+    load_thread_from_planes(conn, conn, id)
+}
+
+/// Load a canonical thread aggregate by reading lifecycle metadata from
+/// `catalog_conn` and facts + branch cursors from `content_conn` (ADR-0242).
+pub(crate) fn load_thread_from_planes(
+    catalog_conn: &Connection,
+    content_conn: &Connection,
+    id: &ThreadId,
+) -> Result<Option<Thread>, ThreadStoreError> {
+    let row: Option<ThreadRow> = catalog_conn
         .prepare_cached(
             r#"
                 SELECT parent_thread_id, spawned_from_fact_id, status, active_branch_id,
@@ -395,7 +405,7 @@ pub(crate) fn load_thread(
     else {
         return Ok(None);
     };
-    let mut branches = load_branches(conn, id)?;
+    let mut branches = load_branches(content_conn, id)?;
     if branches.is_empty() {
         let main = BranchState {
             id: BranchId(active_branch.clone()),
@@ -417,7 +427,7 @@ pub(crate) fn load_thread(
         // branch becomes the active one.
         branches.get_mut(&first);
     }
-    let policy: ThreadPolicy = conn
+    let policy: ThreadPolicy = catalog_conn
         .prepare_cached("SELECT thread_policy_json FROM thread_policies WHERE thread_id = ?1")
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?
         .query_row(params![id.0], |row| row.get::<_, String>(0))
@@ -427,7 +437,7 @@ pub(crate) fn load_thread(
         .transpose()?
         .unwrap_or_default();
     let mut graph = ThreadGraph::new();
-    for fact in load_facts(conn, id)? {
+    for fact in load_facts(content_conn, id)? {
         // Legacy rows may have lost a parent; keep the fact and detach it
         // rather than failing the whole hydration.
         let mut fact = fact;
@@ -1099,15 +1109,10 @@ fn insert_fts_fact(
     Ok(())
 }
 
-/// Write a thread's facts, branches, blob references, and the derived FTS
-/// index in the current transaction.
-///
-/// `replace` drops the previous graph and FTS rows first (a full transcript
-/// rewrite). A delta write (`replace == false`) inserts only missing facts
-/// without deleting prior turns' FTS entries: only newly inserted facts are
-/// appended to `fts_thread_facts`, and the branch cursors are updated only when
-/// present.
-pub(crate) fn persist_thread_facts(
+/// Write a thread's facts, branches, blob references, and FTS index into a
+/// content shard without touching catalog tables (`threads`, `thread_policies`)
+/// (ADR-0242).
+pub(crate) fn persist_content_facts(
     conn: &Connection,
     thread: &Thread,
     replace: bool,
@@ -1133,10 +1138,6 @@ pub(crate) fn persist_thread_facts(
         return Ok(());
     }
 
-    // A delta save carries only the appended slice, so its first fact has no
-    // in-memory parent. Read the durable branch head *before* upserting the
-    // incoming cursors (which already name the new tail); a full rewrite
-    // deleted the graph and starts from a true root.
     let mut link_parent: Option<String> = if replace {
         None
     } else {
@@ -1185,6 +1186,17 @@ pub(crate) fn persist_thread_facts(
             insert_fts_fact(conn, &thread.id.0, &fact)?;
         }
     }
+    Ok(())
+}
+
+/// Write a thread's facts, branches, blob references, and the derived FTS
+/// index in the current transaction (single-connection helper for direct engine tests).
+pub(crate) fn persist_thread_facts(
+    conn: &Connection,
+    thread: &Thread,
+    replace: bool,
+) -> Result<(), ThreadStoreError> {
+    persist_content_facts(conn, thread, replace)?;
     let head = thread
         .state
         .active_branch()

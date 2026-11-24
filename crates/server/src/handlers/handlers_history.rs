@@ -7,39 +7,61 @@
 //! reader snapshot off the handle, writes are actor commands. This module used
 //! to open its own engine per request, racing the writer for the SQLite write
 //! lock.
+//!
+//! ## Why the durable verbs are `async` and run on the blocking pool
+//!
+//! These handlers execute inside the session driver, which is an async task on
+//! the shared server runtime. A synchronous reader checkout or a `*_blocking`
+//! actor verb parks the calling thread until SQLite answers — and on a
+//! current-thread runtime it parks the only thread that could drive the ack it
+//! is waiting for. Under many concurrent clients that is a latent hang, not
+//! merely a slow handler, so every blocking verb is bridged through
+//! `spawn_blocking`.
 use tokio::sync::mpsc::UnboundedSender;
 
 use persistence::db::get_persistence_handle;
 use protocol::events::AgentResponse;
 
 /// `AgentRequest::QueryInputHistory`: load the persisted prompt history.
-pub fn query_input_history(resp_tx: &UnboundedSender<AgentResponse>) {
-    let rows = get_persistence_handle()
-        .reader()
-        .ok()
-        .and_then(|reader| {
-            reader
-                .load_input_history(protocol::history::HISTORY_CAP)
-                .ok()
-        })
-        .unwrap_or_default();
+pub async fn query_input_history(resp_tx: &UnboundedSender<AgentResponse>) {
+    let rows = tokio::task::spawn_blocking(|| {
+        get_persistence_handle()
+            .with_reader(|reader| reader.load_input_history(protocol::history::HISTORY_CAP))
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default();
     let _ = resp_tx.send(AgentResponse::InputHistory(rows));
 }
 
 /// `AgentRequest::RecordInputHistory`: merge entries into the shared store.
-pub fn record_input_history(entries: Vec<protocol::HistoryEntry>, dedup: bool) {
-    let result = get_persistence_handle().save_input_history_blocking(entries, dedup);
-    if let Err(error) = result {
-        tracing::warn!(%error, "input history record failed");
+///
+/// A failed write is logged, not retried: input history is rebuildable
+/// convenience data, and stalling the turn that produced it would cost more
+/// than one missing recall row.
+pub async fn record_input_history(entries: Vec<protocol::HistoryEntry>, dedup: bool) {
+    let result = tokio::task::spawn_blocking(move || {
+        get_persistence_handle().save_input_history_blocking(entries, dedup)
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!(%error, "input history record failed"),
+        Err(error) => tracing::warn!(%error, "input history task panicked"),
     }
 }
 
 /// `AgentRequest::DeleteInputHistoryEntry`: remove one row by content and
 /// timestamp.
-pub fn delete_input_history_entry(text: &str, created_at_ms: u64) {
-    let result = get_persistence_handle().delete_input_history_entry_blocking(text, created_at_ms);
-    if let Err(error) = result {
-        tracing::warn!(%error, "input history delete failed");
+pub async fn delete_input_history_entry(text: String, created_at_ms: u64) {
+    let result = tokio::task::spawn_blocking(move || {
+        get_persistence_handle().delete_input_history_entry_blocking(&text, created_at_ms)
+    })
+    .await;
+    match result {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => tracing::warn!(%error, "input history delete failed"),
+        Err(error) => tracing::warn!(%error, "input history task panicked"),
     }
 }
 
@@ -79,24 +101,27 @@ pub async fn search_history(
     const MAX_LIMIT: usize = 100;
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let filter = workspace.map(|w| protocol::WorkspaceFilter::Path(w.into()));
-    let hits = get_persistence_handle()
-        .reader()
-        .map_err(|e| format!("could not open sqlite db: {e}"))
-        .and_then(|reader| {
-            let strict = reader
-                .search_history(query, filter.as_ref(), limit)
-                .map_err(|e| format!("history search failed: {e}"))?;
-            if !strict.is_empty() {
-                return Ok(strict);
-            }
-            reader
-                .search_history_relaxed(query, filter.as_ref(), limit)
-                .map_err(|e| format!("history search failed: {e}"))
-        })
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, "history search failed");
-            Vec::new()
-        });
+    let query = query.to_string();
+    // The FTS scan is CPU + page-cache work over the shared store. It runs on
+    // the blocking pool: many clients may search while sessions are mid-round,
+    // and parking an async worker on SQLite would starve the drivers those
+    // clients are attached to.
+    let hits = tokio::task::spawn_blocking(move || {
+        get_persistence_handle()
+            .with_reader(|reader| {
+                let strict = reader.search_history(&query, filter.as_ref(), limit)?;
+                if !strict.is_empty() {
+                    return Ok(strict);
+                }
+                reader.search_history_relaxed(&query, filter.as_ref(), limit)
+            })
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "history search failed");
+                Vec::new()
+            })
+    })
+    .await
+    .unwrap_or_default();
     let hits = hits
         .into_iter()
         .map(|hit| {

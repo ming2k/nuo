@@ -3,10 +3,17 @@ use graticule::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;
-use ui_primitives::design::{MODEL_BAR_GAP_MIN, MODEL_BAR_INNER_PADDING, MODEL_BAR_MODEL_GAP};
+use ui_primitives::design::{
+    JOIN_ENUMERATE_COLS, MODEL_BAR_GAP_MIN, MODEL_BAR_INNER_PADDING, MODEL_BAR_MODEL_GAP,
+};
 
 pub const CONTEXT_USAGE_WARN_THRESHOLD: f64 = 0.70;
 pub const CONTEXT_USAGE_CRIT_THRESHOLD: f64 = 0.90;
+
+/// In-situ context-pressure nudge surfaced beside the context gauge once usage
+/// crosses [`CONTEXT_USAGE_WARN_THRESHOLD`] (ADR-0245). First element shed in
+/// the width ladder so it never crowds telemetry or model identity.
+const CONTEXT_COMPACT_NUDGE: &str = "/compact";
 
 /// Inputs for [`draw_model_bar`]. The split row's halves — context usage
 /// on the left, model identity on the right.
@@ -195,10 +202,13 @@ pub fn draw_model_bar(
         .sum::<usize>();
 
     let mut context_spans: Vec<Span<'static>> = Vec::new();
-    if context_max > 0 {
+    let context_ratio = if context_max > 0 {
         let used = context_tokens.unwrap_or(0);
         context_spans = context_usage_spans(used, context_max, cost_nano_usd, theme, bg);
-    }
+        ((used as f64) / (context_max as f64)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let context_seg_width = context_spans
         .iter()
         .map(|span| span.content.width())
@@ -214,11 +224,13 @@ pub fn draw_model_bar(
         .effective_binding(crate::shell::keymap::CommandId::OpenActiveConnectionDetail);
     let telemetry_keycap_width = telemetry_key.map_or(0, |key| key.display().width() + 1);
     let connection_keycap_width = connection_key.map_or(0, |key| key.display().width() + 1);
+    let compact_nudge_width = JOIN_ENUMERATE_COLS + CONTEXT_COMPACT_NUDGE.width();
 
     let mut show_model = model_width > 0;
     let mut show_reasoning = reasoning_width > 0;
     let mut show_instance = instance_width > 0;
     let mut show_context = context_seg_width > 0;
+    let mut show_compact_nudge = show_context && context_ratio >= CONTEXT_USAGE_WARN_THRESHOLD;
     let mut show_telemetry_keycap = show_context && telemetry_key.is_some();
     let mut show_connection_keycap = (show_model || show_instance) && connection_key.is_some();
 
@@ -233,13 +245,16 @@ pub fn draw_model_bar(
         }
         width
     };
-    let gauges_width_for = |context: bool, show_keycap: bool| {
+    let gauges_width_for = |context: bool, show_keycap: bool, show_nudge: bool| {
         let mut width = 0;
         if context {
             width += context_seg_width;
         }
         if context && show_keycap {
             width += telemetry_keycap_width;
+        }
+        if context && show_nudge {
+            width += compact_nudge_width;
         }
         width
     };
@@ -249,7 +264,8 @@ pub fn draw_model_bar(
         inner + gauges_width + middle + identity_width + inner <= full_w
     };
 
-    let mut gauges_width = gauges_width_for(show_context, show_telemetry_keycap);
+    let mut gauges_width =
+        gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
     let mut identity_width = identity_width_for(
         show_model,
         show_reasoning,
@@ -257,9 +273,16 @@ pub fn draw_model_bar(
         show_connection_keycap,
     );
 
+    // The in-situ `/compact` nudge is strictly first to shed under width
+    // pressure (ADR-0245): it must never displace telemetry, keycaps, or model
+    // identity.
+    if !fits(gauges_width, identity_width) && show_compact_nudge {
+        show_compact_nudge = false;
+        gauges_width = gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
+    }
     if !fits(gauges_width, identity_width) && show_telemetry_keycap {
         show_telemetry_keycap = false;
-        gauges_width = gauges_width_for(show_context, show_telemetry_keycap);
+        gauges_width = gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
     }
     if !fits(gauges_width, identity_width) && show_connection_keycap {
         show_connection_keycap = false;
@@ -290,8 +313,9 @@ pub fn draw_model_bar(
     }
     if !fits(gauges_width, identity_width) && show_context {
         show_context = false;
+        show_compact_nudge = false;
         show_telemetry_keycap = false;
-        gauges_width = gauges_width_for(show_context, show_telemetry_keycap);
+        gauges_width = gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
     }
     if !fits(gauges_width, identity_width) && show_model {
         show_model = false;
@@ -308,6 +332,21 @@ pub fn draw_model_bar(
     {
         left_spans.push(Span::styled(" ", Style::default().bg(bg)));
         left_spans.push(keycap_badge(key.display()));
+    }
+    if show_context && show_compact_nudge {
+        let nudge_fg = if context_ratio >= CONTEXT_USAGE_CRIT_THRESHOLD {
+            theme.warn()
+        } else {
+            theme.dim()
+        };
+        left_spans.push(Span::styled(
+            " ".repeat(JOIN_ENUMERATE_COLS),
+            Style::default().bg(bg),
+        ));
+        left_spans.push(Span::styled(
+            CONTEXT_COMPACT_NUDGE,
+            Style::default().fg(nudge_fg).bg(bg),
+        ));
     }
 
     let mut right_spans: Vec<Span<'static>> = Vec::new();

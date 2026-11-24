@@ -9,6 +9,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod db_migration;
 mod headless_roundtrip;
 mod server_spawn;
 mod smoke;

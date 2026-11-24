@@ -10,10 +10,19 @@ negative_knowledge: true
 
 # 0091. Sovereign Tab Context Isolation and TabBar Boundary Purity
 
+> **The draft half of `[INV-TAB-12]` is superseded.**
+> [ADR-0247](0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md)
+> deletes `TabContextState::input` / `cursor_position` / `input_scroll`: the
+> unsent draft belongs to the thread and is parked in the parked-draft ledger,
+> keyed by thread id, so a switch can neither blank it nor cross-wire two
+> threads. `[INV-TAB-12]`'s focus-mode and scroll half stands unchanged, and the
+> TabBar container-purity rules (`[INV-TAB-11]`) are untouched.
+
 - Status: Accepted
 - Date: 2026-11-26
 - Deciders: Core Engineering, Architecture Working Group
 - Amends: [ADR-0039](0039-client-tab-workspace-scene-unification-and-reactive-surface-sync.md), [ADR-0060](0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md), [ADR-0075](0075-orthogonal-workspace-container-topology-and-intra-tab-scene-discipline.md)
+- Amended by: [ADR-0247](0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md) — `TabContextState` now carries view state only (`focus`, `scroll`); the per-tab draft fields are deleted and the draft is owned by the thread in the parked-draft ledger. `[INV-TAB-12]`'s focus/scroll half stands, and its draft half is superseded by `[INV-DRAFT-01]`.
 
 ---
 

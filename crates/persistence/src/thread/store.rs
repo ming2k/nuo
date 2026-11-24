@@ -329,6 +329,13 @@ impl ThreadSession {
         &self.writer
     }
 
+    /// Test-only: arm the next journal append to fail, exercising every
+    /// accessor's rollback branch.
+    #[cfg(test)]
+    pub(crate) async fn fail_next_journal_append(&self) {
+        self.state.lock().await.journal.fail_next_append();
+    }
+
     /// Test-only: lock the session state (same crate sibling module access).
     #[cfg(test)]
     pub(crate) async fn state_lock_for_test(
@@ -582,20 +589,18 @@ impl ThreadSession {
             .await?;
         let projection = ProjectionState::new();
         projection.submitted(seq);
-        projection.enqueue(
-            self.writer.clone(),
-            Arc::clone(&journal),
-            ProjectionJob {
-                seq,
-                data: metadata,
-                mode: crate::db::SaveMode::MetadataOnly,
-                usage: Vec::new(),
-                guard: crate::db::CommitGuard {
-                    operation_id: Some(operation_id),
-                    expected_revision: None,
-                },
+        projection.enqueue(ProjectionJob {
+            seq,
+            data: metadata,
+            mode: crate::db::SaveMode::MetadataOnly,
+            usage: Vec::new(),
+            guard: crate::db::CommitGuard {
+                operation_id: Some(operation_id),
+                expected_revision: None,
             },
-        );
+            writer: self.writer.clone(),
+            journal: Arc::clone(&journal),
+        });
         projection.wait(seq).await;
         Ok(())
     }
@@ -626,7 +631,7 @@ impl ThreadSession {
             title: real_title,
             parent_id: data.parent_id.clone(),
             origin: data.origin,
-            message_count: data.transcript.entries.len(),
+            message_count: data.transcript.message_count(),
             updated_at: data.updated_at,
             created_at: data.created_at,
             overview,
@@ -674,12 +679,14 @@ impl ThreadSession {
     pub(crate) async fn persist_metadata_off_runtime(
         &self,
         data: ThreadData,
+        undo: SessionUndo,
     ) -> Result<(), String> {
         self.persist_with_mode_guarded(
             data,
             crate::db::SaveMode::MetadataOnly,
             Vec::new(),
             crate::db::CommitGuard::default(),
+            undo,
         )
         .await?;
         // Metadata setters are control paths (title, posture, digest), and
@@ -695,21 +702,22 @@ impl ThreadSession {
     where
         F: FnOnce(&mut ThreadData) -> bool,
     {
-        let data = {
+        let (data, undo) = {
             let mut state = self.state.lock().await;
+            let undo = SessionUndo::appending(&state);
             if !mutate(&mut state.data) {
                 return Ok(());
             }
             state.data.updated_at = unix_timestamp();
             if Self::should_skip_persist(&state) {
-                None
+                (None, undo)
             } else {
                 state.defer_persist = false;
-                Some(state.data.clone_metadata_without_history())
+                (Some(state.data.clone_metadata_without_history()), undo)
             }
         };
         if let Some(data) = data {
-            self.persist_metadata_off_runtime(data).await?;
+            self.persist_metadata_off_runtime(data, undo).await?;
         }
         Ok(())
     }
@@ -720,22 +728,35 @@ impl ThreadSession {
     /// The async loop waits for the journal's per-file `fdatasync` only. The
     /// projection is enqueued and never awaited here, so a slow SQLite writer
     /// or a checkpoint burst cannot delay the next ReAct turn.
+    ///
+    /// `undo` is the pre-commit in-memory shape. If the append fails, the
+    /// caller's mutation is rolled back before the error is returned: a session
+    /// that continued with state the journal does not contain would later
+    /// persist a delta that silently omits those entries.
     pub(crate) async fn persist_with_mode_guarded(
         &self,
         mut data: ThreadData,
         mode: crate::db::SaveMode,
         usage_upserts: Vec<protocol::RequestUsageRecord>,
         mut guard: crate::db::CommitGuard,
+        undo: SessionUndo,
     ) -> Result<u64, String> {
         let started = std::time::Instant::now();
         let session_id = data.id.clone();
         if self.writer.is_lock_contention() {
+            self.roll_back(undo).await;
             return Err(
                 "another process owns the durable store; this session is read-only".to_string(),
             );
         }
         let _persist_gate = self.persist_gate.lock().await;
-        data.checksum = Some(compute_checksum(&data)?);
+        data.checksum = Some(match compute_checksum(&data) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(error);
+            }
+        });
         let operation_id = guard
             .operation_id
             .clone()
@@ -746,30 +767,45 @@ impl ThreadSession {
             let state = self.state.lock().await;
             (state.journal.clone(), state.projection.clone())
         };
-        if let Some(expected) = guard.expected_revision {
-            let actual = journal.durable_seq();
-            if expected != actual {
-                return Err(format!(
-                    "stale session revision: expected {expected}, durable revision is {actual}"
-                ));
+        let append = match guard.expected_revision {
+            Some(expected) => {
+                let actual = journal.durable_seq();
+                if expected != actual {
+                    self.roll_back(undo).await;
+                    return Err(format!(
+                        "stale session revision: expected {expected}, durable revision is {actual}"
+                    ));
+                }
+                journal
+                    .append(&operation_id, mode, &data, &usage_upserts)
+                    .await
             }
-        }
-        let seq = journal
-            .append(&operation_id, mode, &data, &usage_upserts)
-            .await
-            .map_err(|error| format!("session journal append failed: {error}"))?;
+            None => {
+                journal
+                    .append(&operation_id, mode, &data, &usage_upserts)
+                    .await
+            }
+        };
+        let seq = match append {
+            Ok(seq) => seq,
+            Err(error) => {
+                // The mutation already happened in memory; the journal never
+                // saw it. Restore before returning so the session can never
+                // continue with entries that have no durable frame.
+                self.roll_back(undo).await;
+                return Err(format!("session journal append failed: {error}"));
+            }
+        };
         projection.submitted(seq);
-        projection.enqueue(
-            self.writer.clone(),
-            Arc::clone(&journal),
-            ProjectionJob {
-                seq,
-                data,
-                mode,
-                usage: usage_upserts,
-                guard,
-            },
-        );
+        projection.enqueue(ProjectionJob {
+            seq,
+            data,
+            mode,
+            usage: usage_upserts,
+            guard,
+            writer: self.writer.clone(),
+            journal: Arc::clone(&journal),
+        });
 
         let elapsed = started.elapsed();
         if elapsed >= Duration::from_millis(250) {
@@ -780,43 +816,65 @@ impl ThreadSession {
         Ok(seq)
     }
 
+    /// Undo an in-memory mutation whose commit never became durable.
+    async fn roll_back(&self, undo: SessionUndo) {
+        let mut state = self.state.lock().await;
+        undo.restore(&mut state);
+    }
+
     /// Persist a full rewrite (rare: wholesale working-state replacement).
     ///
     /// The journal gets a `Full` frame; the projection receives the same
-    /// snapshot asynchronously.
-    pub(crate) async fn persist_full_rewrite(&self, data: ThreadData) -> Result<(), String> {
+    /// snapshot asynchronously. `undo` restores the in-memory session when the
+    /// frame never became durable.
+    pub(crate) async fn persist_full_rewrite(
+        &self,
+        data: ThreadData,
+        undo: SessionUndo,
+    ) -> Result<(), String> {
         if self.writer.is_lock_contention() {
+            self.roll_back(undo).await;
             return Err(
                 "another process owns the durable store; this session is read-only".to_string(),
             );
         }
         let _persist_gate = self.persist_gate.lock().await;
         let mut data = data;
-        data.checksum = Some(compute_checksum(&data)?);
+        data.checksum = Some(match compute_checksum(&data) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(error);
+            }
+        });
         let operation_id = uuid::Uuid::new_v4().to_string();
         let (journal, projection) = {
             let state = self.state.lock().await;
             (state.journal.clone(), state.projection.clone())
         };
-        let seq = journal
+        let seq = match journal
             .append(&operation_id, crate::db::SaveMode::FullRewrite, &data, &[])
             .await
-            .map_err(|error| format!("session journal append failed: {error}"))?;
+        {
+            Ok(seq) => seq,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(format!("session journal append failed: {error}"));
+            }
+        };
         projection.submitted(seq);
-        projection.enqueue(
-            self.writer.clone(),
-            Arc::clone(&journal),
-            ProjectionJob {
-                seq,
-                data,
-                mode: crate::db::SaveMode::FullRewrite,
-                usage: Vec::new(),
-                guard: crate::db::CommitGuard {
-                    operation_id: Some(operation_id),
-                    expected_revision: None,
-                },
+        projection.enqueue(ProjectionJob {
+            seq,
+            data,
+            mode: crate::db::SaveMode::FullRewrite,
+            usage: Vec::new(),
+            guard: crate::db::CommitGuard {
+                operation_id: Some(operation_id),
+                expected_revision: None,
             },
-        );
+            writer: self.writer.clone(),
+            journal: Arc::clone(&journal),
+        });
         self.maybe_compact_journal(&journal).await;
         // A full rewrite is a cold control-path operation (restore, branch
         // commit, usage reseed). Its callers immediately read the projected

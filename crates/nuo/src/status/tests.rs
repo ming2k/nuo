@@ -34,6 +34,7 @@ fn snapshot(rows: Vec<MonitoredThread>) -> MonitorSnapshot {
         threads: rows,
         tasks: Vec::new(),
         persistence_health: None,
+        storage: None,
     }
 }
 
@@ -312,5 +313,73 @@ fn diagnostics_formatter_renders_runtime_events() {
     assert!(
         text.contains("[client:913200] link_lost: outbox channel broken pipe"),
         "{text}"
+    );
+}
+
+#[test]
+fn table_warns_when_the_wal_is_pinned_even_though_the_writer_is_healthy() {
+    let mut snap = snapshot(Vec::new());
+    snap.storage = Some(protocol::monitor::StoragePressure {
+        main_bytes: 8 * 1024 * 1024,
+        wal_bytes: 64 * 1024 * 1024,
+        active_readers: 31,
+        reader_capacity: 32,
+        oldest_reader_ms: Some(90_000),
+    });
+    let rendered = table(&snap);
+    assert!(
+        rendered.contains("WAL is 65536 KiB"),
+        "an unreclaimable WAL must be visible in `nuo status`: {rendered:?}"
+    );
+    assert!(
+        rendered.contains("31/32 readers"),
+        "the occupancy that explains the pin must be visible: {rendered:?}"
+    );
+    assert!(
+        rendered.contains("oldest snapshot 90000 ms old"),
+        "the reader age is the cause and must be named: {rendered:?}"
+    );
+
+    // A small WAL with a live writer stays silent.
+    snap.storage = Some(protocol::monitor::StoragePressure {
+        main_bytes: 8 * 1024 * 1024,
+        wal_bytes: 1024,
+        active_readers: 1,
+        reader_capacity: 32,
+        oldest_reader_ms: Some(10),
+    });
+    let rendered = table(&snap);
+    assert!(
+        !rendered.contains("WAL is"),
+        "ordinary pressure must not warn: {rendered:?}"
+    );
+}
+
+#[test]
+fn storage_pressure_elevation_tracks_the_checkpoint_trigger() {
+    use protocol::monitor::StoragePressure;
+    let base = StoragePressure {
+        main_bytes: 0,
+        wal_bytes: 0,
+        active_readers: 0,
+        reader_capacity: 32,
+        oldest_reader_ms: None,
+    };
+    assert!(!base.is_elevated());
+    assert!(
+        StoragePressure {
+            wal_bytes: 32 * 1024 * 1024,
+            ..base
+        }
+        .is_elevated(),
+        "the operator threshold must equal the checkpoint's own pressure trigger"
+    );
+    assert!(
+        StoragePressure {
+            oldest_reader_ms: Some(5_001),
+            ..base
+        }
+        .is_elevated(),
+        "an old read snapshot is pressure even with a small WAL"
     );
 }

@@ -153,12 +153,24 @@ async fn compaction_horizon_persists() {
             .compaction_horizon,
         Some(b)
     );
+    // ADR-0246: the horizon bounds the request window, never the
+    // conversation. The folded fact stays on `path` (so hydration, export,
+    // fork targets and GC roots still see it) and leaves `live_path`.
     assert!(
-        !hydrated
+        hydrated
             .path(&BranchId::main())
             .unwrap()
             .iter()
-            .any(|fact| fact.id == a)
+            .any(|fact| fact.id == a),
+        "a fold must not remove the fact from the conversation"
+    );
+    assert!(
+        !hydrated
+            .live_path(&BranchId::main())
+            .unwrap()
+            .iter()
+            .any(|fact| fact.id == a),
+        "a fold must remove the fact from the request window"
     );
 }
 #[tokio::test]
@@ -246,7 +258,7 @@ async fn blob_put_and_gc_keep_referenced_bytes() {
 }
 
 #[tokio::test]
-async fn gc_removes_pre_horizon_facts_and_their_blobs() {
+async fn a_fold_never_makes_a_fact_or_its_blob_collectable() {
     let (store, mut thread) = created_thread().await;
     let blobs = store.blobs();
     let reference = blobs
@@ -283,13 +295,17 @@ async fn gc_removes_pre_horizon_facts_and_their_blobs() {
         .await
         .unwrap();
 
+    // ADR-0246 `[INV-CMP-08]`: compaction is context relief, not retention.
+    // The kept tail still reaches the folded observation by parent edge, so the
+    // fact and its blob remain live. Only a structural orphan (a fact no branch
+    // reaches at all) is collectable.
     let report = store
         .gc(&ThreadId::new("thread-1"), std::time::Duration::ZERO)
         .await
         .unwrap();
-    assert!(report.facts_removed >= 1);
-    assert_eq!(report.blobs_removed, 1);
-    assert!(blobs.get(&reference.hash).await.unwrap().is_none());
+    assert_eq!(report.facts_removed, 0);
+    assert_eq!(report.blobs_removed, 0);
+    assert!(blobs.get(&reference.hash).await.unwrap().is_some());
 }
 
 #[tokio::test]

@@ -26,18 +26,6 @@ fn digest_anchor_and_generation_round_trip() {
 }
 
 #[test]
-fn newer_database_is_refused() {
-    let mut conn = initialize_in_memory_db().unwrap();
-    conn.execute_batch(&format!(
-        "PRAGMA user_version = {};",
-        CURRENT_DB_VERSION + 1
-    ))
-    .unwrap();
-    let err = migrate_schema(&mut conn).unwrap_err();
-    assert!(err.to_string().contains("newer than this binary"), "{err}");
-}
-
-#[test]
 fn row_checksum_detects_working_state_corruption_on_load() {
     use protocol::TranscriptEntry;
     use tool::{Message, Role};

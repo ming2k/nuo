@@ -61,8 +61,6 @@ pub struct CutPointResult {
     pub is_split_turn: bool,
     /// Estimated tokens in the facts before the cut point.
     pub tokens_before: usize,
-    /// Sequence of the last folded fact.
-    pub folded_through_seq: u64,
 }
 
 /// Conservative token estimation for a `ThreadFact` (chars / 4 heuristic).
@@ -156,14 +154,12 @@ pub fn find_cut_point_facts(
     );
 
     let tokens_before: usize = token_counts[..cut_index].iter().sum();
-    let folded_through_seq = facts[cut_index - 1].seq;
 
     Some(CutPointResult {
         first_kept_index: cut_index,
         first_kept_fact_id: first_kept.id.clone(),
         is_split_turn,
         tokens_before,
-        folded_through_seq,
     })
 }
 
@@ -209,14 +205,12 @@ pub fn find_tail_preserving_cut_point(
         FactPayload::Message { message } if message.role == Role::Assistant
     );
     let tokens_before: usize = token_counts[..cut_index].iter().sum();
-    let folded_through_seq = facts[cut_index - 1].seq;
 
     Some(CutPointResult {
         first_kept_index: cut_index,
         first_kept_fact_id: first_kept.id.clone(),
         is_split_turn,
         tokens_before,
-        folded_through_seq,
     })
 }
 
@@ -398,7 +392,6 @@ mod tests {
         let cut = find_tail_preserving_cut_point(&two_rounds, 1).unwrap();
         assert_eq!(cut.first_kept_index, 2);
         assert_eq!(cut.first_kept_fact_id, FactId::from_raw("3"));
-        assert_eq!(cut.folded_through_seq, 2);
     }
 
     #[test]

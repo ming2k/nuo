@@ -34,6 +34,10 @@ pub(crate) enum FrameKind {
     Full,
     /// Terminal tombstone: the session was deleted as of this seq.
     Deleted,
+    /// Append-only command act ledger entry (ADR-0249).
+    CommandAct,
+    /// Durable workspace effect lifecycle event (ADR-0249).
+    WorkspaceEffect,
 }
 
 impl FrameKind {
@@ -51,6 +55,8 @@ impl FrameKind {
             Self::Delta => 2,
             Self::Full => 3,
             Self::Deleted => 4,
+            Self::CommandAct => 5,
+            Self::WorkspaceEffect => 6,
         }
     }
 
@@ -60,6 +66,8 @@ impl FrameKind {
             2 => Some(Self::Delta),
             3 => Some(Self::Full),
             4 => Some(Self::Deleted),
+            5 => Some(Self::CommandAct),
+            6 => Some(Self::WorkspaceEffect),
             _ => None,
         }
     }

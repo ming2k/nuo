@@ -189,6 +189,7 @@ fn end_thread_serializes_as_a_nested_unit_variant() {
     // A unit `AgentRequest` is an externally tagged variant, hence the
     // string body.
     let text = serde_json::to_string(&Wire::Request {
+        thread_id: None,
         request: AgentRequest::EndThread,
     })
     .expect("serialize EndThread");

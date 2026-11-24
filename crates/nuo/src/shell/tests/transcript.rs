@@ -404,11 +404,12 @@ async fn sending_clears_the_remembered_draft() {
     // so the slot may be empty here without losing anything.
 
     // Send: the input is taken out of the composer, historicised (recorded),
-    // and the draft slot cleared — exactly the SendChat handler's sequence.
+    // and the parked draft forgotten — exactly the SendChat handler's sequence.
     let sent = std::mem::take(&mut app.composer.input);
     app.record_input_history(sent, Vec::new(), Vec::new());
-    app.clear_history_draft();
-    assert!(app.composer.draft_capsule.is_empty());
+    app.clear_stashed_draft();
+    app.clear_parked_draft();
+    assert!(app.composer.stashed_draft.is_empty());
     assert!(
         app.composer.input.is_empty(),
         "composer is blank after a send"
@@ -461,7 +462,7 @@ async fn unsent_restore_stashes_the_in_progress_draft_instead_of_dropping_either
     // holds a row; this fixture records none, so the capsule content is what is
     // asserted here.)
     assert_eq!(
-        app.composer.draft_capsule.text.clone(),
+        app.composer.stashed_draft.text.clone(),
         "half-typed next message",
         "the stashed draft returns on ↓"
     );
@@ -541,7 +542,11 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
     );
 
     // Verify interrupt request was sent to agent
-    let req = rx.try_recv().expect("must send interrupt request");
+    let req = rx
+        .try_recv()
+        .expect("must send interrupt request")
+        .into_request()
+        .expect("domain request");
     assert!(matches!(req, protocol::AgentRequest::Interrupt));
 
     // UI state is immediately cleared (not blocked)
@@ -607,6 +612,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
         &mut app,
         &runtime,
         crate::shell::event_loop::AppMutation::Transcript {
+            thread_id: None,
             edit: crate::shell::event_loop::TranscriptEdit::Interrupted { record },
         },
     );

@@ -169,16 +169,19 @@ fn the_trusted_snapshot_still_resolves_the_gate() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::Harness(protocol::HarnessSnapshot {
-            loop_status: protocol::LoopStatus::Idle,
-            round_counter: 0,
-            retry_pending: false,
-            unattended: false,
-            confined: false,
-            role: None,
-            workspace: Some("/tmp/proj".to_string()),
-            workspace_security: trusted,
-        }),
+        crate::shell::event_loop::AppMutation::Harness {
+            thread_id: None,
+            snapshot: protocol::HarnessSnapshot {
+                loop_status: protocol::LoopStatus::Idle,
+                round_counter: 0,
+                retry_pending: false,
+                unattended: false,
+                confined: false,
+                role: None,
+                workspace: Some("/tmp/proj".to_string()),
+                workspace_security: trusted,
+            },
+        },
     );
     assert!(
         app.surfaces.pre_attach.is_none(),
@@ -210,18 +213,20 @@ fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
         ex_workspace: WorkspaceTrustState::Absent,
         user_assets: WorkspaceTrustState::Absent,
     };
-    let snapshot = |security: WorkspaceSecuritySnapshot| {
-        crate::shell::event_loop::AppMutation::Harness(protocol::HarnessSnapshot {
-            loop_status: protocol::LoopStatus::Idle,
-            round_counter: 0,
-            retry_pending: false,
-            unattended: false,
-            confined: false,
-            role: None,
-            workspace: Some("/tmp/proj".to_string()),
-            workspace_security: security,
-        })
-    };
+    let snapshot =
+        |security: WorkspaceSecuritySnapshot| crate::shell::event_loop::AppMutation::Harness {
+            thread_id: None,
+            snapshot: protocol::HarnessSnapshot {
+                loop_status: protocol::LoopStatus::Idle,
+                round_counter: 0,
+                retry_pending: false,
+                unattended: false,
+                confined: false,
+                role: None,
+                workspace: Some("/tmp/proj".to_string()),
+                workspace_security: security,
+            },
+        };
     crate::shell::event_loop::apply::apply(&mut app, &runtime, snapshot(denied.clone()));
     assert!(
         app.surfaces.pre_attach.is_none(),

@@ -33,3 +33,7 @@ test-path-override = ["host/test-path-override"]
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "storage_concurrency"
+harness = false

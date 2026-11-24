@@ -479,6 +479,11 @@ pub(super) async fn handle_host_action(
                         target_title.as_deref(),
                     );
                     if is_empty {
+                        // The thread itself is being discarded, so its parked
+                        // draft goes too (ADR-0247): a draft file under a
+                        // deleted id can only ever be restored into a thread
+                        // that no longer exists.
+                        app.forget_thread_draft(viewed_session_id);
                         app.send_intent(AgentRequest::DeleteThread {
                             id: viewed_session_id.to_string(),
                         });

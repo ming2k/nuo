@@ -9,7 +9,14 @@ use crate::shell::event_loop::AppMutation as M;
 
 fn apply_phase(app: &mut crate::shell::app::App, phase: protocol::ThreadPhase) {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    let _ = crate::shell::event_loop::apply::apply(app, &runtime, M::SessionPhase(phase));
+    let _ = crate::shell::event_loop::apply::apply(
+        app,
+        &runtime,
+        M::SessionPhase {
+            thread_id: None,
+            phase,
+        },
+    );
 }
 
 #[test]
@@ -33,8 +40,8 @@ fn client_queues_until_ready_then_flushes() {
     assert_eq!(app.session.session_phase, protocol::ThreadPhase::Ready);
     assert!(app.composer.pending_prompts.is_empty());
     assert!(matches!(
-        rx.try_recv(),
-        Ok(protocol::AgentRequest::Prompt { text, .. }) if text == "hello"
+        rx.try_recv().ok().and_then(|o| o.into_request()),
+        Some(protocol::AgentRequest::Prompt { text, .. }) if text == "hello"
     ));
 }
 
@@ -91,7 +98,9 @@ fn ready_re_reads_the_authoritative_queue() {
 
     apply_phase(&mut app, protocol::ThreadPhase::Ready);
 
-    let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter_map(|o| o.into_request())
+        .collect();
     assert!(
         sent.iter().any(|request| matches!(
             request,

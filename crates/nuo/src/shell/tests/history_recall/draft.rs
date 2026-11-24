@@ -64,11 +64,11 @@ fn adr0044_atomic_draft_stashing_and_esc_rollback() {
     // Opening history search stashes the draft atomically ([INV-HIST-03], [INV-COMP-03])
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
     assert_eq!(
-        app.composer.draft_capsule.text,
+        app.composer.stashed_draft.text,
         "uncommitted work in progress"
     );
     assert_eq!(
-        app.composer.draft_capsule.pending_text_pastes,
+        app.composer.stashed_draft.pending_text_pastes,
         vec!["staged paste block".to_string()]
     );
     assert_eq!(
@@ -94,7 +94,7 @@ fn adr0044_atomic_draft_stashing_and_esc_rollback() {
         vec!["staged paste block".to_string()]
     );
     assert!(
-        app.composer.draft_capsule.is_empty(),
+        app.composer.stashed_draft.is_empty(),
         "Stash should be cleared on rollback"
     );
 }
@@ -257,10 +257,10 @@ async fn test_history_search_stashes_and_restores_attachments_with_empty_text() 
 
     // 1. Open HistorySearch
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
-    assert!(app.composer.draft_capsule.text.is_empty());
-    assert_eq!(app.composer.draft_capsule.pending_images, vec![img.clone()]);
+    assert!(app.composer.stashed_draft.text.is_empty());
+    assert_eq!(app.composer.stashed_draft.pending_images, vec![img.clone()]);
     assert_eq!(
-        app.composer.draft_capsule.pending_text_pastes,
+        app.composer.stashed_draft.pending_text_pastes,
         vec!["staged paste without text".to_string()]
     );
     assert!(

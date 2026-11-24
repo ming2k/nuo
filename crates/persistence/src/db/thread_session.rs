@@ -150,6 +150,8 @@ pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool
     // the deletion is explicit and ordered before the owning row disappears.
     conn.prepare_cached("DELETE FROM fts_thread_facts WHERE thread_id = ?1")?
         .execute(params![session_id])?;
+    conn.prepare_cached("DELETE FROM command_acts WHERE thread_id = ?1")?
+        .execute(params![session_id])?;
     // The workspace-effect journal is append-only evidence and deliberately has
     // no foreign key to `threads`: deleting the conversation must not rewrite
     // or erase what it did to the filesystem. Expiring the pre-image bytes lets
@@ -166,42 +168,178 @@ pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool
     Ok(affected > 0)
 }
 
-/// Persist a complete or delta/metadata [`crate::thread::ThreadData`] into SQLite
-/// in one transaction.
-pub(crate) fn save_session_inner(
-    conn: &Connection,
-    blob_store: Option<&BlobStore>,
-    data: &crate::thread::ThreadData,
+/// Prepare everything a session commit needs **outside** the writer thread.
+///
+/// This is where the expensive, non-SQL half of a projection happens:
+///
+/// - projecting the transcript into the canonical fact graph;
+/// - offloading oversized observation bodies into the CAS (a file write plus
+///   `fdatasync`), which is why it must never run on the single writer;
+/// - deriving the materialised catalog summary;
+/// - encoding the JSON columns;
+/// - fingerprinting the payload for idempotency replay (D3).
+///
+/// Doing it here has three consequences that the design depends on:
+///
+/// 1. the writer executes only `BEGIN`/`INSERT`/`UPDATE`/`COMMIT`, so a large
+///    tool output cannot stall every other session's projection;
+/// 2. a failure (an unreadable file, a full disk) leaves the database
+///    untouched — there is no half-applied transaction to roll back;
+/// 3. a blob written for a commit whose transaction later fails is simply
+///    unreferenced, and the CAS collector reclaims it on its next pass.
+pub(crate) fn prepare_save(
+    data: crate::thread::ThreadData,
     mode: SaveMode,
     usage_upserts: &[protocol::RequestUsageRecord],
     guard: &CommitGuard,
     journal_seq: Option<u64>,
-) -> std::result::Result<u64, SaveError> {
-    let fork_str = match data.origin {
-        protocol::ThreadOrigin::Trunk => "trunk",
-        protocol::ThreadOrigin::Subagent => "subagent",
-    };
-    let digest_str = data
-        .digest
-        .as_ref()
-        .and_then(|d| serde_json::to_string(d).ok());
+    blob_store: Option<&BlobStore>,
+) -> std::result::Result<PreparedSave, SaveError> {
     let thread = if mode == SaveMode::MetadataOnly {
         None
     } else {
-        let mut built = crate::thread::thread_from_session_data(data);
+        let mut built = crate::thread::thread_from_session_data(&data);
         if let Some(blob_store) = blob_store {
             offload_observation_blobs(&mut built, blob_store)?;
         }
         Some(built)
     };
 
-    // Expensive, pure payload preparation runs before the transaction
-    // (D3); only the receipt comparison runs inside it.
     let payload_hash = if guard.operation_id.is_some() {
-        Some(commit_payload_digest(data, usage_upserts)?)
+        Some(commit_payload_digest(&data, usage_upserts)?)
     } else {
         None
     };
+
+    let active_branch_id = thread
+        .as_ref()
+        .map(|t| t.state.active_branch.0.clone())
+        .unwrap_or_else(|| data.active_branch.0.clone());
+    let active_leaf = thread.as_ref().and_then(|t| {
+        t.state
+            .active_branch()
+            .ok()
+            .and_then(|b| b.head.as_ref())
+            .map(|id| id.0.clone())
+    });
+
+    Ok(PreparedSave {
+        digest_json: encode_json("digest", data.digest.as_ref())?,
+        additional_roots_json: match data.workspace.as_ref() {
+            Some(workspace) => encode_json("additional_roots", Some(&workspace.additional_roots))?
+                .unwrap_or_else(|| "[]".to_string()),
+            // A workspace-free session has no additional roots. `[]`, never
+            // `null`: the column is a JSON array by contract, and readers
+            // deserialize it as one.
+            None => "[]".to_string(),
+        },
+        disabled_tools_json: encode_json(
+            "disabled_tools",
+            Some(&data.disabled_tools.iter().collect::<Vec<_>>()),
+        )?
+        .unwrap_or_else(|| "[]".to_string()),
+        round_interrupts_json: encode_json("round_interrupts", Some(&data.round_interrupts))?
+            .unwrap_or_else(|| "[]".to_string()),
+        role_manifest_json: encode_json("role_manifest", data.role_manifest.as_ref())?,
+        provider_pin_json: encode_json("provider_pin", data.provider_selection.as_ref())?,
+        retry_pending_json: encode_json("retry_pending", data.retry_pending.as_ref())?,
+        todos_json: todos_json_for(&data, mode)?,
+        msg_count: if mode == SaveMode::FullRewrite {
+            data.transcript.message_count() as i64
+        } else {
+            data.msg_count as i64
+        },
+        last_user_prompt: if mode == SaveMode::FullRewrite {
+            crate::thread::last_effective_prompt_from_data(&data)
+        } else {
+            data.last_user_prompt.clone()
+        },
+        fork_str: match data.origin {
+            protocol::ThreadOrigin::Trunk => "trunk",
+            protocol::ThreadOrigin::Subagent => "subagent",
+        },
+        active_branch_id,
+        active_leaf,
+        data: Box::new(data),
+        mode,
+        usage_upserts: usage_upserts.to_vec(),
+        guard: guard.clone(),
+        journal_seq,
+        thread,
+        payload_hash,
+    })
+}
+
+/// Encode one JSON column during preparation.
+///
+/// A serialization failure is a *pre-write* failure: nothing has been
+/// committed, so it surfaces as the same typed error an engine rejection
+/// would, and the caller retries or reports it. It must never be swallowed
+/// into `"[]"`, which would silently erase the column's content.
+fn encode_json<T: Serialize>(
+    column: &str,
+    value: Option<&T>,
+) -> std::result::Result<Option<String>, SaveError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    serde_json::to_string(value).map(Some).map_err(|error| {
+        SaveError::Sql(rusqlite::Error::ToSqlConversionFailure(
+            format!("could not encode {column}: {error}").into(),
+        ))
+    })
+}
+
+/// The todos column a save carries: `None` means "keep the stored value".
+fn todos_json_for(
+    data: &crate::thread::ThreadData,
+    mode: SaveMode,
+) -> std::result::Result<Option<String>, SaveError> {
+    let todos = data.transcript.derive_todos();
+    let value = if mode == SaveMode::FullRewrite {
+        todos.unwrap_or_default()
+    } else {
+        match todos {
+            Some(todos) => todos,
+            None => return Ok(None),
+        }
+    };
+    encode_json("todos", Some(&value))
+}
+
+/// Execute one prepared projection inside a single SQL transaction.
+///
+/// Every column this writes was already encoded by [`prepare_save`]; the only
+/// work here is SQL. That restriction is what keeps the single writer cheap:
+/// no filesystem call, no network, no schema decode, and no large in-memory
+/// projection is performed while the write lock is held.
+pub(crate) fn save_session_inner(
+    conn: &Connection,
+    prepared: &PreparedSave,
+) -> std::result::Result<u64, SaveError> {
+    let PreparedSave {
+        data,
+        mode,
+        usage_upserts,
+        guard,
+        journal_seq,
+        thread,
+        payload_hash,
+        digest_json,
+        additional_roots_json,
+        disabled_tools_json,
+        round_interrupts_json,
+        role_manifest_json,
+        provider_pin_json,
+        retry_pending_json,
+        todos_json,
+        msg_count,
+        last_user_prompt,
+        fork_str,
+        active_branch_id,
+        active_leaf,
+    } = prepared;
+    let mode = *mode;
 
     conn.execute("BEGIN IMMEDIATE", [])?;
     let res: std::result::Result<u64, SaveError> = (|| {
@@ -248,31 +386,12 @@ pub(crate) fn save_session_inner(
             }
         };
 
-        let persona = data.role.clone();
+        let persona = data.role.as_deref();
         let workspace_root = data
             .workspace
             .as_ref()
             .map(|w| w.root.to_string_lossy().into_owned());
-        let additional_roots = match data.workspace.as_ref() {
-            Some(w) => serde_json::to_string(&w.additional_roots),
-            None => Ok("[]".to_string()),
-        }
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        // A delta carries the summary computed from the full in-memory state
-        // before the transcript was stripped; a full rewrite carries the whole
-        // transcript and computes it here (ADR-0244).
-        let (summary_msg_count, summary_last_prompt) = if mode == SaveMode::FullRewrite {
-            (
-                data.transcript
-                    .entries
-                    .iter()
-                    .filter(|entry| matches!(entry.payload, protocol::EntryPayload::Message(_)))
-                    .count() as i64,
-                crate::thread::last_effective_prompt_from_data(data),
-            )
-        } else {
-            (data.msg_count as i64, data.last_user_prompt.clone())
-        };
+        let (summary_msg_count, summary_last_prompt) = (*msg_count, last_user_prompt.clone());
 
         if mode == SaveMode::MetadataOnly {
             // Preserve `transcript_generation`, `active_branch_id`, and `active_leaf`
@@ -303,7 +422,7 @@ pub(crate) fn save_session_inner(
                 data.title.as_deref().unwrap_or(""),
                 data.round_counter as i64,
                 data.generation,
-                digest_str,
+                digest_json,
                 data.digest_anchor.map(|a| a as i64),
                 data.checksum.map(|c| c as i64),
                 data.created_at as i64,
@@ -341,7 +460,7 @@ pub(crate) fn save_session_inner(
                 data.title.as_deref().unwrap_or(""),
                 data.round_counter as i64,
                 data.generation,
-                digest_str,
+                digest_json,
                 data.digest_anchor.map(|a| a as i64),
                 data.checksum.map(|c| c as i64),
                 data.created_at as i64,
@@ -351,28 +470,15 @@ pub(crate) fn save_session_inner(
             ])?;
         }
 
-        let todos_json: Option<String> = if replace {
-            Some(
-                serde_json::to_string(&data.transcript.derive_todos().unwrap_or_default())
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-            )
-        } else {
-            data.transcript
-                .derive_todos()
-                .map(|t| serde_json::to_string(&t))
-                .transpose()
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
-        };
-
         conn.prepare_cached(
             r#"
             INSERT INTO thread_policies (
                 thread_id, workspace_root, system_role, unattended, provider_pin,
-                disabled_tools_json, additional_roots_json, commands_json,
+                disabled_tools_json, additional_roots_json,
                 round_interrupts_json, retry_pending,
                 role_manifest, todos_json, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE(?12, '[]'),
-                      ?13 * 1000)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, '[]'),
+                      ?12 * 1000)
             ON CONFLICT(thread_id) DO UPDATE SET
                 workspace_root = excluded.workspace_root,
                 system_role = excluded.system_role,
@@ -380,46 +486,44 @@ pub(crate) fn save_session_inner(
                 provider_pin = excluded.provider_pin,
                 disabled_tools_json = excluded.disabled_tools_json,
                 additional_roots_json = excluded.additional_roots_json,
-                commands_json = excluded.commands_json,
                 round_interrupts_json = excluded.round_interrupts_json,
                 retry_pending = excluded.retry_pending,
                 role_manifest = COALESCE(excluded.role_manifest, thread_policies.role_manifest),
-                todos_json = COALESCE(?12, thread_policies.todos_json),
+                todos_json = COALESCE(?11, thread_policies.todos_json),
                 updated_at_ms = excluded.updated_at_ms;
             "#,
         )?
         .execute(params![
             data.id,
             workspace_root.as_deref().unwrap_or(""),
-            persona.as_deref().unwrap_or("developer"),
+            persona.unwrap_or("developer"),
             if data.unattended { 1 } else { 0 },
-            data.provider_selection
-                .as_ref()
-                .and_then(|s| serde_json::to_string(s).ok()),
-            serde_json::to_string(&data.disabled_tools.iter().collect::<Vec<_>>())
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-            additional_roots,
-            serde_json::to_string(&data.commands)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-            serde_json::to_string(&data.round_interrupts)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-            data.retry_pending
-                .as_ref()
-                .and_then(|s| serde_json::to_string(s).ok()),
-            data.role_manifest
-                .as_ref()
-                .and_then(|m| serde_json::to_string(m).ok()),
+            provider_pin_json,
+            disabled_tools_json,
+            additional_roots_json,
+            round_interrupts_json,
+            retry_pending_json,
+            role_manifest_json,
             todos_json,
             data.updated_at as i64,
         ])?;
 
-        // The durable conversation is the fact graph. The transcript is a
-        // projection rebuilt on read; nothing transcript-shaped is written.
-        if let Some(thread) = thread.as_ref()
-            && (replace || !thread.graph.is_empty())
-        {
-            crate::db::thread_store::persist_thread_facts(conn, thread, replace)
-                .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
+        // ADR-0242: when `thread` was routed to a content shard (`None` here),
+        // update the catalog's branch cursor columns directly; when present
+        // (direct single-connection engine tests), persist inline.
+        if let Some(thread) = thread.as_ref() {
+            if replace || !thread.graph.is_empty() {
+                crate::db::thread_store::persist_thread_facts(conn, thread, replace)
+                    .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
+            }
+            if mode == SaveMode::FullRewrite {
+                sync_command_acts(conn, &data.id, &data.commands)?;
+            }
+        } else if mode != SaveMode::MetadataOnly {
+            conn.prepare_cached(
+                "UPDATE threads SET active_leaf = COALESCE(?2, active_leaf), active_branch_id = ?3 WHERE id = ?1",
+            )?
+            .execute(params![data.id, active_leaf, active_branch_id])?;
         }
         for record in usage_upserts {
             insert_usage_record_tx(conn, data.id.as_str(), record)?;
@@ -443,7 +547,7 @@ pub(crate) fn save_session_inner(
             )?
             .execute(params![
                 data.id,
-                seq as i64,
+                *seq as i64,
                 data.updated_at.saturating_mul(1000) as i64,
             ])?;
         }
@@ -551,6 +655,83 @@ fn offload_observation_blobs(thread: &mut protocol::Thread, blob_store: &BlobSto
     Ok(())
 }
 
+/// Append one command act row (`O(1)`, ADR-0249).
+pub(crate) fn append_command_act(
+    conn: &Connection,
+    thread_id: &str,
+    seq: u64,
+    payload_json: &str,
+    journal_seq: Option<u64>,
+) -> Result<()> {
+    conn.prepare_cached(
+        "INSERT INTO command_acts (thread_id, seq, payload_json) VALUES (?1, ?2, ?3)
+         ON CONFLICT(thread_id, seq) DO UPDATE SET payload_json = excluded.payload_json",
+    )?
+    .execute(params![thread_id, seq as i64, payload_json])?;
+    if let Some(jseq) = journal_seq {
+        advance_watermark(conn, thread_id, jseq)?;
+    }
+    Ok(())
+}
+
+/// Replace all command acts for a thread during a full rewrite / journal rebuild.
+pub(crate) fn sync_command_acts(
+    conn: &Connection,
+    thread_id: &str,
+    commands: &[protocol::CommandRecord],
+) -> Result<()> {
+    conn.prepare_cached("DELETE FROM command_acts WHERE thread_id = ?1")?
+        .execute(params![thread_id])?;
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO command_acts (thread_id, seq, payload_json) VALUES (?1, ?2, ?3)",
+    )?;
+    for (idx, record) in commands.iter().enumerate() {
+        let payload = serde_json::to_string(record).map_err(|error| {
+            rusqlite::Error::ToSqlConversionFailure(
+                format!("could not encode command act: {error}").into(),
+            )
+        })?;
+        stmt.execute(params![thread_id, idx as i64, payload])?;
+    }
+    Ok(())
+}
+
+/// Load a thread's normalized command act ledger in sequence order (ADR-0249).
+pub(crate) fn load_command_acts(
+    conn: &Connection,
+    thread_id: &str,
+) -> Result<Vec<protocol::CommandRecord>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT payload_json FROM command_acts WHERE thread_id = ?1 ORDER BY seq ASC",
+    )?;
+    let rows = stmt.query_map(params![thread_id], |row| row.get::<_, String>(0))?;
+    let mut commands = Vec::new();
+    for payload in rows {
+        let payload = payload?;
+        match serde_json::from_str(&payload) {
+            Ok(record) => commands.push(record),
+            Err(error) => tracing::warn!(
+                session = %thread_id,
+                error = %error,
+                "command act payload undecodable; skipped"
+            ),
+        }
+    }
+    Ok(commands)
+}
+
+pub(crate) fn advance_watermark(conn: &Connection, thread_id: &str, seq: u64) -> Result<()> {
+    conn.prepare_cached(
+        "INSERT INTO projection_watermarks(thread_id, seq, updated_at_ms)
+         VALUES(?1, ?2, ?3)
+         ON CONFLICT(thread_id) DO UPDATE SET
+           seq = MAX(projection_watermarks.seq, excluded.seq),
+           updated_at_ms = excluded.updated_at_ms",
+    )?
+    .execute(params![thread_id, seq as i64, crate::db::unix_ms() as i64])?;
+    Ok(())
+}
+
 /// Read the durable usage ledger for one session, in deterministic key
 /// order: rows live in their own table, not on the session row.
 fn load_usage_records(
@@ -581,11 +762,23 @@ fn load_usage_records(
 /// Facts are the durable conversation rows; the transcript is projected from
 /// the active branch. A fact the current binary cannot decode fails the load
 /// rather than being silently reinterpreted.
+#[cfg(test)]
 pub(crate) fn load_session_full(
     conn: &Connection,
     session_id: &str,
 ) -> Result<Option<crate::thread::ThreadData>> {
-    let row = conn
+    load_session_full_from_planes(conn, Some(conn), session_id)
+}
+
+/// Load a full [`crate::thread::ThreadData`] by joining lifecycle metadata from
+/// `catalog_conn` with facts, branches, and command acts from `content_conn`
+/// (ADR-0242).
+pub(crate) fn load_session_full_from_planes(
+    catalog_conn: &Connection,
+    content_conn: Option<&Connection>,
+    session_id: &str,
+) -> Result<Option<crate::thread::ThreadData>> {
+    let row = catalog_conn
         .prepare_cached(
             r#"
             SELECT t.id, t.parent_thread_id, t.origin, t.title,
@@ -593,7 +786,7 @@ pub(crate) fn load_session_full(
                    p.workspace_root, p.additional_roots_json, p.system_role,
                    t.digest, t.digest_anchor, t.transcript_generation,
                    p.provider_pin, t.round_counter, p.unattended,
-                   p.disabled_tools_json, p.commands_json, p.round_interrupts_json,
+                   p.disabled_tools_json, p.round_interrupts_json,
                    p.retry_pending, t.checksum,
                    13, p.role_manifest
             FROM threads t
@@ -620,11 +813,10 @@ pub(crate) fn load_session_full(
                 row.get::<_, i64>(14)?,
                 row.get::<_, String>(15)?,
                 row.get::<_, String>(16)?,
-                row.get::<_, String>(17)?,
-                row.get::<_, Option<String>>(18)?,
-                row.get::<_, Option<i64>>(19)?,
-                row.get::<_, i64>(20)?,
-                row.get::<_, Option<String>>(21)?,
+                row.get::<_, Option<String>>(17)?,
+                row.get::<_, Option<i64>>(18)?,
+                row.get::<_, i64>(19)?,
+                row.get::<_, Option<String>>(20)?,
             ))
         })
         .optional()?;
@@ -645,7 +837,6 @@ pub(crate) fn load_session_full(
         round_counter,
         unattended,
         disabled_tools,
-        commands,
         round_interrupts,
         retry_pending,
         checksum,
@@ -663,16 +854,22 @@ pub(crate) fn load_session_full(
     let mut loaded_graph = None;
 
     // Facts are the only durable conversation rows; the transcript is rebuilt
-    // from the active branch.
-    let thread = crate::db::thread_store::load_thread(conn, &protocol::ThreadId::new(session_id))
+    // from the active branch on the content shard (ADR-0242).
+    if let Some(content) = content_conn {
+        let thread = crate::db::thread_store::load_thread_from_planes(
+            catalog_conn,
+            content,
+            &protocol::ThreadId::new(session_id),
+        )
         .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
-    if let Some(thread) = thread {
-        loaded_branch = thread.state.active_branch.clone();
-        loaded_branches = thread.state.branches.clone();
-        loaded_graph = Some(thread.clone());
-        let projected = crate::thread::transcript_from_thread(&thread);
-        entries = projected.entries;
-        directives = projected.directives;
+        if let Some(thread) = thread {
+            loaded_branch = thread.state.active_branch.clone();
+            loaded_branches = thread.state.branches.clone();
+            loaded_graph = Some(thread.clone());
+            let projected = crate::thread::transcript_from_thread(&thread);
+            entries = projected.entries;
+            directives = projected.directives;
+        }
     }
 
     let digest: Option<protocol::ThreadDigest> = match digest.as_deref() {
@@ -749,11 +946,11 @@ pub(crate) fn load_session_full(
             Default::default()
         }),
         round_counter: round_counter.max(0) as u64,
-        request_usage_records: load_usage_records(conn, session_id)?,
-        commands: serde_json::from_str(&commands).unwrap_or_else(|error| {
-            tracing::warn!(session = %session_id, error = %error, "commands column undecodable; treated as empty");
-            Default::default()
-        }),
+        request_usage_records: load_usage_records(catalog_conn, session_id)?,
+        commands: match content_conn {
+            Some(content) => load_command_acts(content, session_id)?,
+            None => Vec::new(),
+        },
         round_interrupts: serde_json::from_str(&round_interrupts).unwrap_or_else(|error| {
             tracing::warn!(session = %session_id, error = %error, "round_interrupts column undecodable; treated as empty");
             Default::default()
@@ -763,7 +960,7 @@ pub(crate) fn load_session_full(
             .and_then(|raw| serde_json::from_str(raw).ok()),
         unattended: unattended != 0,
     };
-    let todos: tool::TodoList = conn
+    let todos: tool::TodoList = catalog_conn
         .prepare_cached("SELECT todos_json FROM thread_policies WHERE thread_id = ?1")?
         .query_row(params![session_id], |row| row.get::<_, String>(0))
         .optional()
@@ -776,12 +973,7 @@ pub(crate) fn load_session_full(
             .push(protocol::TranscriptEntry::from_state(0, Some(todos)));
     }
     crate::thread::verify_checksum(&data, session_id);
-    data.msg_count = data
-        .transcript
-        .entries
-        .iter()
-        .filter(|entry| matches!(entry.payload, protocol::EntryPayload::Message(_)))
-        .count() as u64;
+    data.msg_count = data.transcript.message_count() as u64;
     data.last_user_prompt = crate::thread::last_effective_prompt_from_data(&data);
     Ok(Some(data))
 }
@@ -790,16 +982,20 @@ pub(crate) fn load_session_full(
 /// runtime's Archivist tools): the full persisted
 /// [`crate::thread::ThreadData`] for one session, checksum-verified,
 /// or `None` when the id is unknown.
-pub(crate) fn read_session_transcript(
-    conn: &Connection,
+pub(crate) fn read_session_transcript_from_planes(
+    catalog_conn: &Connection,
+    content_conn: Option<&Connection>,
     session_id: &str,
     tail: usize,
 ) -> Result<Option<ThreadTranscriptView>> {
-    let Some(data) = load_session_full(conn, session_id)? else {
+    let Some(data) = load_session_full_from_planes(catalog_conn, content_conn, session_id)? else {
         return Ok(None);
     };
-    let projected = data.transcript.project();
-    let total = projected.len();
+    // The Archivist reads the **conversation**, not the request window: a fold
+    // is context relief, so an investigation that cannot see the folded rounds
+    // would be reading a truncated thread (ADR-0246 `[INV-CMP-08]`).
+    let conversation = data.transcript.conversation_rows();
+    let total = conversation.len();
     let start = total.saturating_sub(tail);
     Ok(Some(ThreadTranscriptView {
         id: data.id.clone(),
@@ -810,7 +1006,7 @@ pub(crate) fn read_session_transcript(
             .as_ref()
             .map(|w| w.root.to_string_lossy().into_owned()),
         message_count: total,
-        messages: projected[start..]
+        messages: conversation[start..]
             .iter()
             .map(|(seq, m)| ThreadMessageView {
                 seq: *seq,
@@ -968,12 +1164,13 @@ pub(crate) fn latest_session_in_scope(
 }
 
 /// Retrieve full session detail for on-demand inspection.
-pub(crate) fn get_session_detail(
-    conn: &Connection,
+pub(crate) fn get_session_detail_from_planes(
+    catalog_conn: &Connection,
+    content_conn: Option<&Connection>,
     session_id: &str,
     active_id: &str,
 ) -> Result<Option<protocol::ThreadDetail>> {
-    if let Some(data) = load_session_full(conn, session_id)? {
+    if let Some(data) = load_session_full_from_planes(catalog_conn, content_conn, session_id)? {
         let last_prompt = crate::thread::last_effective_prompt_from_data(&data);
         Ok(Some(protocol::ThreadDetail {
             id: data.id.clone(),
@@ -982,7 +1179,7 @@ pub(crate) fn get_session_detail(
             digest: data.digest.clone(),
             created_at: data.created_at,
             updated_at: data.updated_at,
-            message_count: data.transcript.entries.len(),
+            message_count: data.transcript.message_count(),
             active: data.id == active_id,
             last_prompt,
         }))

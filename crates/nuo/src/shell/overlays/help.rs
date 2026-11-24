@@ -1,12 +1,11 @@
 //! The Help & Keybindings modal dialog (ADR-0131 [INV-HELP-01..03]).
 //!
-//! This dialog is the client's **single shortcut discovery surface**. Chrome
-//! therefore carries no keycaps of its own: a chord printed in the SceneBar or
-//! a footer would be a hardcoded copy of a binding the user can remap, and
-//! would compete with the one surface whose job is to answer "what can I press
-//! here?". The dialog's only entrance is `F1` / `Alt-h` (ADR-0219 retired the
-//! TabBar's standing `F1 help` keycap and moved that discovery to the
-//! empty-state tour, which can afford a whole line of prose about it).
+//! This dialog is the client's **single shortcut discovery surface**. Scene
+//! chrome carries no remappable chord literals of its own — only the Tier 1
+//! `TabBar` carries a live-resolved, yield-first elastic help portal
+//! (`{key} help` → `{key}` → omitted, ADR-0245 `[INV-TAB-19]`) so users always
+//! have an escape hatch across every scene without competing with the dialog
+//! whose job is to answer "what can I press here?".
 //!
 //! Every chord below is resolved from the live keymap
 //! ([`GlobalOverrides`] / [`SurfaceOverrides`]) rather than written as a

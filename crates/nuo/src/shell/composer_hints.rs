@@ -148,7 +148,8 @@ pub struct ComposerHints {
     /// `edited` clauses; this field carries only the pointer facts so the
     /// derivation stays testable without a `Theme`.
     pub history_recall: Option<(usize, usize, bool)>,
-    /// Whether the stashed recall draft (`App::draft_capsule`) is non-empty
+    /// Whether the composer currently holds a stashed recall draft
+    /// (`ComposerState::stashed_draft`)
     /// — the `| draft saved` reassurance clause on the badge. Kept separate
     /// from `history_recall` so a future badge variant can consume either
     /// fact independently.

@@ -9,7 +9,7 @@ fn fresh_db_migrates_to_baseline() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(CURRENT_DB_VERSION, 6);
+    assert_eq!(CURRENT_DB_VERSION, 7);
 
     let (name, checksum): (String, String) = conn
         .query_row(
@@ -24,7 +24,7 @@ fn fresh_db_migrates_to_baseline() {
     let ledger_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(ledger_rows, 6);
+    assert_eq!(ledger_rows, 7);
 }
 
 #[test]
@@ -49,6 +49,30 @@ fn baseline_checksum_is_stable() {
         crate::db::migrations::catalog::BASELINE_CHECKSUM,
         "the baseline SQL changed; ship the change as a new numbered migration"
     );
+}
+
+/// Every shipped migration (v1..=CURRENT_DB_VERSION) is immutable. Editing any
+/// already-shipped SQL file breaks existing user databases with a checksum
+/// mismatch on the next open (ADR-0189).
+#[test]
+fn all_shipped_migration_checksums_are_stable() {
+    let expected = crate::db::migrations::catalog::SHIPPED_CHECKSUMS;
+    assert_eq!(
+        MIGRATIONS.len(),
+        expected.len(),
+        "update SHIPPED_CHECKSUMS when appending a new migration"
+    );
+    for (migration, (version, name, checksum)) in MIGRATIONS.iter().zip(expected.iter()) {
+        assert_eq!(migration.version, *version);
+        assert_eq!(migration.name, *name);
+        assert_eq!(
+            migration.checksum(),
+            *checksum,
+            "shipped migration v{} ({}) changed; ship a new numbered migration instead",
+            migration.version,
+            migration.name
+        );
+    }
 }
 
 #[test]
@@ -266,4 +290,209 @@ fn newer_database_is_refused() {
         error.contains("newer than this binary"),
         "a newer database must be refused: {error}"
     );
+}
+
+#[test]
+fn every_historical_version_upgrades_cleanly_to_current() {
+    for from_version in 0..=CURRENT_DB_VERSION {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate_to_for_tests(&mut conn, from_version).unwrap();
+
+        if from_version >= 1 {
+            conn.execute_batch(
+                r#"
+                INSERT INTO threads(id, title, status, origin, created_at_ms, updated_at_ms)
+                    VALUES('t-matrix', 'Matrix Thread', 'idle', 'trunk', 1000, 2000);
+                INSERT INTO thread_policies(thread_id, workspace_root, system_role, updated_at_ms)
+                    VALUES('t-matrix', '/repo/matrix', 'developer', 2000);
+                INSERT INTO thread_branches(thread_id, branch_id, name, created_at_ms, updated_at_ms)
+                    VALUES('t-matrix', 'main', 'main', 1000, 2000);
+                INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
+                    VALUES('f-1', 't-matrix', 1, 'dialogue',
+                           '{"type":"message","message":{"role":"User","content":"first prompt"}}', 1100);
+                INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
+                    VALUES('f-2', 't-matrix', 2, 'observation',
+                           '{"type":"observation","output":"ok"}', 1200);
+                INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
+                    VALUES('f-3', 't-matrix', 3, 'dialogue',
+                           '{"type":"message","message":{"role":"user","content":"latest prompt"}}', 1300);
+                INSERT INTO thread_commands(thread_id, command_id, ack_json, created_at_ms)
+                    VALUES('t-matrix', 'cmd-1', '{"ok":true}', 1300);
+                INSERT INTO input_history(text, session_id, workspace, created_at_ms)
+                    VALUES('latest prompt', 't-matrix', '/repo/matrix', 1300);
+                INSERT INTO kv_store(key, value, updated_at)
+                    VALUES('matrix:key', 'matrix:val', 1300);
+                INSERT INTO usage_records(session_id, actor_id, round, turn, attempt, payload, day, recorded_at_ms, project, revision)
+                    VALUES('t-matrix', 'main', 1, 1, 1, '{"status":"completed"}', '2026-01-01', 1300, 'matrix', 1);
+                INSERT INTO workspace_effects(thread_id, round_id, turn_id, call_id, seq, tool_name, path, op, effect_class, created_at_ms)
+                    VALUES('t-matrix', 'r1', 'turn1', 'c1', 1, 'write_file', '/repo/matrix/a.rs', 'create', 'file_bytes', 1300);
+                "#,
+            )
+            .unwrap();
+        }
+        if (1..=3).contains(&from_version) {
+            conn.execute(
+                "INSERT INTO request_projections(thread_id, round, turn, created_at_ms, payload)
+                 VALUES('t-matrix', 1, 1, 1300, '{\"prompt\":\"legacy\"}')",
+                [],
+            )
+            .unwrap();
+        }
+        if from_version >= 3 {
+            conn.execute(
+                "INSERT INTO permission_rules(role_id, scope_kind, workspace_key, tool, scope, effect, created_at_ms, updated_at_ms)
+                 VALUES('developer', 'workspace', '/repo/matrix', 'execute_command', 'cargo test *', 'allow', 1300, 1300)",
+                [],
+            )
+            .unwrap();
+        }
+        if from_version >= 5 {
+            conn.execute(
+                "INSERT INTO projection_watermarks(thread_id, seq, updated_at_ms)
+                 VALUES('t-matrix', 3, 1300)",
+                [],
+            )
+            .unwrap();
+        }
+
+        migrate_schema(&mut conn).unwrap_or_else(|err| {
+            panic!("upgrade from v{from_version} to v{CURRENT_DB_VERSION} failed: {err}")
+        });
+
+        let version: u32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, CURRENT_DB_VERSION, "from_version={from_version}");
+
+        let ledger_rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            ledger_rows,
+            MIGRATIONS.len() as i64,
+            "from_version={from_version}"
+        );
+
+        assert!(
+            !table_exists(&conn, "request_projections").unwrap(),
+            "request_projections must be retired after upgrade from v{from_version}"
+        );
+        assert!(table_exists(&conn, "permission_rules").unwrap());
+        assert!(table_exists(&conn, "projection_watermarks").unwrap());
+        assert_referential_integrity(&conn).unwrap();
+
+        if from_version >= 1 {
+            let (msg_count, last_prompt): (i64, Option<String>) = conn
+                .query_row(
+                    "SELECT msg_count, last_user_prompt FROM thread_list_view WHERE id = 't-matrix'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            if from_version < 6 {
+                // v6 backfill materializes count & prompt from causal_nodes.
+                assert_eq!(msg_count, 3, "from_version={from_version}");
+                assert_eq!(
+                    last_prompt.as_deref(),
+                    Some("latest prompt"),
+                    "from_version={from_version}"
+                );
+            }
+            let kv: String = conn
+                .query_row(
+                    "SELECT value FROM kv_store WHERE key = 'matrix:key'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(kv, "matrix:val");
+            let effects: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM workspace_effects WHERE thread_id = 't-matrix'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(effects, 1);
+        }
+        if from_version >= 3 {
+            let perms: i64 = conn
+                .query_row("SELECT COUNT(*) FROM permission_rules", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(perms, 1);
+        }
+        if from_version >= 5 {
+            let watermark: i64 = conn
+                .query_row(
+                    "SELECT seq FROM projection_watermarks WHERE thread_id = 't-matrix'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(watermark, 3);
+        }
+    }
+}
+
+#[test]
+fn concurrent_openers_upgrade_an_existing_database_cleanly() {
+    use std::sync::{Arc, Barrier};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nuo.db");
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        migrate_to_for_tests(&mut conn, 1).unwrap();
+        conn.execute_batch(
+            "INSERT INTO threads(id, created_at_ms, updated_at_ms) VALUES('t-conc', 1, 1);
+             INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
+                 VALUES('f-conc', 't-conc', 1, 'dialogue',
+                        '{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"race\"}}', 1);",
+        )
+        .unwrap();
+    }
+
+    let workers = 4;
+    let barrier = Arc::new(Barrier::new(workers));
+    let mut handles = Vec::new();
+    for _ in 0..workers {
+        let path = path.clone();
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            initialize_db(&path).map(|_| ())
+        }));
+    }
+
+    for handle in handles {
+        handle
+            .join()
+            .unwrap()
+            .expect("concurrent upgrade must succeed without backup-path or lock collisions");
+    }
+
+    let conn = initialize_db(&path).unwrap();
+    let version: u32 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, CURRENT_DB_VERSION);
+    let ledger_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(ledger_rows, MIGRATIONS.len() as i64);
+    let (count, prompt): (i64, Option<String>) = conn
+        .query_row(
+            "SELECT msg_count, last_user_prompt FROM thread_list_view WHERE id = 't-conc'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(prompt.as_deref(), Some("race"));
 }

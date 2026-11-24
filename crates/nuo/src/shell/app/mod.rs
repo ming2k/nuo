@@ -345,3 +345,4 @@ pub mod receipts;
 mod subagents;
 mod surfaces;
 mod tasks;
+pub mod workspaces;

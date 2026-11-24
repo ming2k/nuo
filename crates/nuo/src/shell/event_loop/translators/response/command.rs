@@ -9,7 +9,7 @@ impl TranslatorState {
     /// Typed slash-command results (acts settle in place; readings are
     /// notices).
     #[allow(clippy::single_match)]
-    pub(super) async fn handle_command_event(&mut self, event: RoundEvent) {
+    pub(super) async fn handle_command_event(&mut self, session_id: String, event: RoundEvent) {
         match event {
             RoundEvent::CommandResult {
                 name,
@@ -18,7 +18,7 @@ impl TranslatorState {
                 effect,
             } => {
                 self.mutations.send(M::ClearSwitchingSession).await;
-                self.retry_progress = None;
+                self.thread_mut(&session_id).retry_progress = None;
                 let invocation = if args.is_empty() {
                     format!("/{}", name)
                 } else {
@@ -46,10 +46,13 @@ impl TranslatorState {
                         | protocol::CommandResult::UnknownCommand { .. }
                 );
                 if is_failure || effect == tool::CommandEffect::Reading {
-                    self.transcript(E::WithdrawStagedCommand {
-                        invocation: invocation.clone(),
-                        restore_draft: is_failure,
-                    })
+                    self.transcript(
+                        &session_id,
+                        E::WithdrawStagedCommand {
+                            invocation: invocation.clone(),
+                            restore_draft: is_failure,
+                        },
+                    )
                     .await;
                     self.mutations
                         .send(M::NoticeDisclosure(
@@ -68,14 +71,17 @@ impl TranslatorState {
                         Some(result.clone()),
                     )
                     .with_sent_at_ms(now_ms());
-                    self.transcript(E::SettleCommandResult {
-                        invocation,
-                        result,
-                        fallback: Some(fallback),
-                    })
+                    self.transcript(
+                        &session_id,
+                        E::SettleCommandResult {
+                            invocation,
+                            result,
+                            fallback: Some(fallback),
+                        },
+                    )
                     .await;
                 }
-                if self.harness.loop_status.is_idle() {
+                if self.thread_mut(&session_id).harness.loop_status.is_idle() {
                     self.mutations.send(M::SetResponding(false)).await;
                     self.mutations.send(M::SetPhase(None)).await;
                 }

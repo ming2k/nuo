@@ -365,6 +365,8 @@ pub struct TranscriptRender {
     pub tab_overflow_rect: Option<Rect>,
     /// Bounding rect for unread fault notice badge (`[!N]`), if present (ADR-0131).
     pub tab_notices_rect: Option<Rect>,
+    /// Bounding rect for the elastic help portal, if painted (ADR-0245 `[INV-TAB-20]`).
+    pub tab_help_rect: Option<Rect>,
     /// Full bounding rect for the Tier 2 SceneBar row.
     pub scene_bar_rect: Option<Rect>,
     /// Interactive navigation bounding rects on Tier 2 SceneBar (ADR-0092 [INV-INTERACT-01]).
@@ -1037,6 +1039,7 @@ pub fn draw_transcript(
             tab_next_rect: None,
             tab_overflow_rect: None,
             tab_notices_rect: None,
+            tab_help_rect: None,
             scene_bar_rect: None,
             scene_nav_rects: SceneNavRects::default(),
         };
@@ -1310,6 +1313,7 @@ pub fn draw_transcript(
         tab_next_rect: tab.next_rect,
         tab_overflow_rect: tab.overview_rect,
         tab_notices_rect: tab.notices_rect,
+        tab_help_rect: tab.help_rect,
         scene_bar_rect: head_band.scene,
         scene_nav_rects: scene,
     }

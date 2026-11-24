@@ -356,8 +356,19 @@ impl StackEntry {
     }
 }
 
-/// Autonomous per-tab intra-scene interaction context (ADR-0091 [INV-TAB-12]).
-/// Tracks focus, scroll, input drafts, and cursor position across workspace switches.
+/// Autonomous per-tab intra-scene interaction context (ADR-0091 `[INV-TAB-12]`,
+/// revised by [ADR-0247](../../../../docs/adr/0247-a-draft-belongs-to-a-thread-and-outlives-every-view-transition.md)).
+///
+/// Holds **view** state only: which plane owns the keyboard and where the
+/// transcript was scrolled. The unsent draft is deliberately absent — it belongs
+/// to the thread, not to the tab that happens to be showing it, and it lives in
+/// the parked-draft ledger (`App::surfaces.drafts`).
+///
+/// A per-tab draft copy was a second owner of one fact, and every write path had
+/// to remember to keep the two in step. The three that forgot were the three
+/// reported losses: a cross-thread switch (new `App`, tab struct carried, draft
+/// blanked a frame later), a tab replaced in place (arriving `Default` context
+/// overwrote the typed text), and a process restart (nothing durable at all).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TabContextState {
     /// The peer focus plane of the tab's chat scene (ADR-0145). One value, so a
@@ -365,9 +376,6 @@ pub struct TabContextState {
     /// was supposedly live.
     pub focus: crate::shell::focus::Focus,
     pub scroll: usize,
-    pub input: String,
-    pub cursor_position: usize,
-    pub input_scroll: usize,
 }
 
 /// Canonical client tab representation (ADR-0039 [INV-TAB-01], ADR-0040 [INV-HEAD-02], ADR-0091).

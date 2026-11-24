@@ -92,6 +92,7 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
     };
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Request {
+            thread_id: None,
             request: request.clone(),
         })
         .unwrap()
@@ -844,6 +845,7 @@ async fn bounded_request_ingress_sheds_load_with_server_busy() {
     // Flood the channel beyond capacity (SESSION_REQUEST_CAPACITY = 512)
     for _ in 0..600 {
         let req = Wire::Request {
+            thread_id: None,
             request: AgentRequest::Interrupt,
         };
         let _ = ws
