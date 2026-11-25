@@ -1,16 +1,12 @@
-//! `nuo thread …` (ADR-0043, ADR-0048, ADR-0170, ADR-0171): role-scoped
-//! thread history.
+//! `nuo thread …` (ADR-0043, ADR-0048, ADR-0171, ADR-0254): orthogonal thread
+//! history management.
 //!
-//! The scope is `(role, workspace binding)`. `--role` defaults to `developer`,
-//! whose workspace policy binds it to the current project. The role decides
-//! the binding: `inherit` uses the project (or an explicit `--workspace`),
-//! `fixed` uses its configured path, and `unbound` has none. `--all-roles`
-//! expands the role dimension inside one workspace; `--global` is the explicit
-//! every-role × every-binding admin scope.
+//! Thread identity, role, and workspace attachment are independent primitives
+//! (ADR-0254). `--role` and `--workspace` act as composable filters on `ls`,
+//! `stop --all`, and `rm --all`.
 //!
 //! `ls` reads durable history, `stop` ends a resident driver and keeps
-//! history, and `rm` deletes history permanently. A thread's role/workspace
-//! is write-once: neither command can rebind an existing transcript.
+//! history, and `rm` deletes history permanently.
 
 use crate::cli::ThreadAction;
 use nuo::transport as client;
@@ -536,13 +532,9 @@ mod tests {
         assert_eq!(by_project.role.as_deref(), Some("philosophist"));
         assert_eq!(by_project.workspace.as_deref(), Some(project));
 
-        let by_ws = resolve_thread_filter(
-            project,
-            None,
-            Some(std::path::Path::new("/repo/b")),
-            false,
-        )
-        .unwrap();
+        let by_ws =
+            resolve_thread_filter(project, None, Some(std::path::Path::new("/repo/b")), false)
+                .unwrap();
         assert_eq!(by_ws.role, None);
         assert_eq!(
             by_ws.workspace.as_deref(),

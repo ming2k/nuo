@@ -1,12 +1,11 @@
 //! The application plane's kernel host: the product's implementations of the
-//! ports the runtime (`nuo-harness`) needs but must not resolve itself.
+//! ports the runtime (`engine`) needs but must not resolve itself.
 //!
-//! - [`ProductRoles`] resolves a role *declaration* from `roles.toml` plus the
-//!   workspace's `.nuo/roles.toml` override, which is the product's file layout
-//!   and merge policy.
+//! - [`ProductRoles`] resolves a role *declaration* from the global `roles.toml`
+//!   registry (ADR-0254).
 //!
-//! This adapter keeps the kernel's vocabulary free of `roles.toml` and `.nuo`,
-//! without adding behaviour.
+//! This adapter keeps the kernel's vocabulary free of `roles.toml`, without
+//! adding behaviour.
 use std::path::PathBuf;
 use std::sync::Arc;
 

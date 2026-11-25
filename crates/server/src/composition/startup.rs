@@ -200,9 +200,9 @@ macro_rules! define_builtin_commands {
 ///   missing record is unrecoverable while a spurious one is only noisy.
 ///
 /// `/role` is why `effect: { bare, verb }` has no default: the bare invocation
-/// lists roles (a reading), while a role id switches identity, capability, and
-/// workspace (an act) — and user role ids are dynamic, so no verb table can
-/// enumerate them.
+/// lists roles (a reading), while a role id switches identity and capability
+/// in place (an act; pass `--new` to start a fresh thread) — and user role ids
+/// are dynamic, so no verb table can enumerate them (ADR-0254).
 pub fn effect_for(parts: &[&str]) -> tool::CommandEffect {
     match parts.first().and_then(|name| BuiltinCmd::from_slash(name)) {
         Some(cmd) => cmd.effect_for(parts.get(1).copied()),
@@ -347,17 +347,16 @@ define_builtin_commands! {
         ],
     },
     Role = "/role" : {
-        summary: "Switch agent role (identity, capability, and workspace)",
+        summary: "Switch agent role in place (identity and capability)",
         usage: [
             "/role",
-            "/role ops",
-            "/role philosophist",
-            "/role developer <workspace>",
+            "/role <id>",
+            "/role <id> --new",
         ],
         examples: [
-            ("/role developer /path/to/project", "Switch to developer role with workspace"),
-            ("/role ops", "Switch to ops role (workspace-free, systems & remote operations)"),
-            ("/role philosophist", "Switch to philosophist role (workspace-free)"),
+            ("/role developer", "Switch to developer role in place"),
+            ("/role ops", "Switch to ops role (systems & remote operations)"),
+            ("/role philosophist --new", "Start a fresh thread with the philosophist role"),
         ],
         intent_keywords: [
             "role", "preset", "mode", "identity", "developer", "philosophist", "ops",
@@ -366,9 +365,9 @@ define_builtin_commands! {
         effect: { bare: Reading, verb: Mutation },
         category: Agent,
         subcommands: [
-            ("developer", "the default developer role (full native capabilities with workspace)", Mutation),
-            ("ops", "system administration, infrastructure maintenance & remote operations (workspace-free)", Mutation),
-            ("philosophist", "philosophical inquiry & reflection (workspace-free)", Mutation),
+            ("developer", "the default developer role (full native engineering capabilities)", Mutation),
+            ("ops", "system administration, infrastructure maintenance & remote operations", Mutation),
+            ("philosophist", "philosophical inquiry & reflection", Mutation),
         ],
     },
     Search = "/search" : {

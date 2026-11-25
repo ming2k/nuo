@@ -168,7 +168,7 @@ const THREAD_SUBS: &[Spec] = &[
     Spec {
         name: "ls",
         names: &["ls", "list"],
-        about: "list the selected role's thread history",
+        about: "list thread history (filterable by --role and --workspace)",
     },
     Spec {
         name: "stop",
@@ -178,7 +178,7 @@ const THREAD_SUBS: &[Spec] = &[
     Spec {
         name: "rm",
         names: &["rm", "delete"],
-        about: "permanently delete thread history (rm <id>, rm --all, or rm --global)",
+        about: "permanently delete thread history (rm <id> or rm --all)",
     },
 ];
 
@@ -296,7 +296,7 @@ const COMMANDS: &[Spec] = &[
     Spec {
         name: "thread",
         names: &["thread", "threads"],
-        about: "browse, resume, stop, or delete role-scoped thread history",
+        about: "browse, resume, stop, or delete thread history",
     },
     Spec {
         name: "status",
@@ -710,7 +710,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     &Spec {
                         name: "ls",
                         names: &["ls", "list"],
-                        about: "list the selected role's thread history",
+                        about: "list thread history (filterable by --role and --workspace)",
                     },
                     &extra[..],
                 )

@@ -73,7 +73,7 @@ cargo build --release -p nuo
 | `nuo server restart` | 重启或替换会话服务实例 |
 | `nuo server status` | 查看会话服务状态与活跃会话 |
 | `nuo server token` | 打印当前可用的 Bearer Token |
-| `nuo thread ls` | 列出当前 workspace 下指定 role 的线程历史（默认 role：`developer`） |
+| `nuo thread ls [--role <id>] [--workspace <path>]` | 列出线程历史，可按 role 与 workspace 独立过滤 |
 | `nuo thread open [id]` | 打开交互式线程选择器，或按 ID 附加线程 |
 | `nuo thread stop <id>` | 停止托管线程，历史保留在磁盘 |
 | `nuo thread rm <id>` | 永久删除线程及其 transcript |

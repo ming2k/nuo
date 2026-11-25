@@ -74,7 +74,7 @@ name is presentation only, never the wire value.
 
 Per **ADR-0152** (`[INV-ROW-GRID-01]`, `[INV-TEXT-OVERFLOW-01]`,
 `[INV-TUI-MARQUEE-01]`), every multi-column modal row resolves its columns
-through `nuo_ui_primitives::components::columns` **before** a single cell is
+through `ui_primitives::components::columns` **before** a single cell is
 fitted.
 
 ### 4.1 The column spec
@@ -129,7 +129,7 @@ precisely so a verbose model name can never take that answer away.
 
 ### 4.4 Overflow vocabulary
 
-`nuo_ui_primitives::components::overflow::fit` is the one implementation of
+`ui_primitives::components::overflow::fit` is the one implementation of
 "this string does not fit". The strategy is chosen by the field's **semantics**:
 
 | Field | Strategy | Why |

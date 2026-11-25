@@ -51,8 +51,11 @@ fn latest_session_filters_orthogonally_by_role_and_workspace() {
 
     // Workspace-only filter matches all roles in `/repo/x`.
     assert_eq!(
-        thread_session::latest_session(&engine.conn, &protocol::ThreadFilter::for_workspace("/repo/x"))
-            .unwrap(),
+        thread_session::latest_session(
+            &engine.conn,
+            &protocol::ThreadFilter::for_workspace("/repo/x")
+        )
+        .unwrap(),
         Some(bound.id)
     );
 }
@@ -103,8 +106,11 @@ fn orthogonal_switch_candidates_exclude_active() {
     assert_eq!(candidates[0].id, "rev-1");
 
     // Unfiltered returns all threads except active.
-    let candidates =
-        thread_session::list_switch_candidates(&engine.conn, &protocol::ThreadFilter::all(), "rev-1")
-            .unwrap();
+    let candidates = thread_session::list_switch_candidates(
+        &engine.conn,
+        &protocol::ThreadFilter::all(),
+        "rev-1",
+    )
+    .unwrap();
     assert_eq!(candidates.len(), 4);
 }

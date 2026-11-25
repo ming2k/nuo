@@ -10,7 +10,7 @@ negative_knowledge: false
 
 # 0170. Role-Scoped Thread History: The Role Owns the Workspace Policy
 
-- Status: Accepted
+- Status: Superseded by [ADR-0254](0254-orthogonal-thread-role-and-workspace-primitives.md)
 - Date: 2026-11-12
 - Deciders: Nuo Architecture Working Group
 - Related: [ADR-0038](0038-thread-entity-server-ssot-fanout-and-orthogonal-action-lifecycle.md), [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md), [ADR-0048](0048-cli-architecture-modernization-resource-symmetry-and-application-observability-topology.md), [ADR-0120](0120-thread-lineage-graph-persisted-fork-provenance-and-browser-grade-history-topology.md), [ADR-0128](0128-thread-browser-order-newest-creation-first-with-cursor-stability.md), [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md)

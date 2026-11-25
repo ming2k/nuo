@@ -9,13 +9,17 @@ Reference for the built-in slash commands available inside the Nuo terminal inte
 Type these at the composer to open the corresponding surface or perform the action.
 
 The **Recorded** column states whether an invocation is kept in the thread's history
-([ADR-0140](../adr/0140-command-effect-classes-readings-are-receipts-not-records.md)):
+([ADR-0140](../adr/0140-command-effect-classes-readings-are-receipts-not-records.md),
+[ADR-0252](../adr/0252-one-action-manifest-declared-primitives-and-compositions.md)):
 
 - **act** — it changed durable state, so the thread remembers it at the moment it happened.
 - **reading** — it reported the state of the world at the moment you asked. It is answered in
   full, and its answer is kept in the client's receipt log for the session, but it is never
   written into the thread: a token count from last Tuesday presented beside live dialogue reads
   as current, and nothing in the row says otherwise.
+- **session control** — it changes durable thread *topology* (creating, switching, or ending
+  threads) rather than the current thread's content. Like a reading, it files a receipt and
+  never occupies a row in the thread it creates or leaves.
 
 | Command | Summary | Recorded |
 | :--- | :--- | :--- |
@@ -25,11 +29,11 @@ The **Recorded** column states whether an invocation is kept in the thread's his
 | `/mcp` | Manage MCP servers (status, reconnect) | act |
 | `/compact` | Compact older rounds into durable context memory | act |
 | `/language` | Declare the language the agent answers in (`/language zh-CN`, `/language off`); rendered as the `agent.language` block in every request | reading (bare) / act (tag) |
-| `/new` | Start a fresh thread tab (or reset in-place if current thread is empty), preserving history | act |
+| `/new` | Start a fresh thread tab (or reset in-place if current thread is empty), preserving history; `/new <prompt>` forwards the prompt to the fresh thread | session control |
 | `/permissions` | Show or clear always-allowed tool rules | reading |
 | `/auto-approve` | Toggle auto-approve mode (skip interactive permission prompts) | act |
 | `/confinement` | Toggle workspace filesystem confinement (confine file tools to workspace) | act |
-| `/role` | Switch agent role (identity, capability, and workspace) | reading (bare) / act (role id) |
+| `/role` | Switch agent role in place (identity and capability; pass `--new` to start a fresh thread) | reading (bare) / act (role id) |
 | `/search` | Semantic search over session history | reading |
 | `/threads` | Browse or resume past threads — a lineage forest, newest thread first: branches nest under their trunk at any depth, each labelled with the address it forked at (`⑂r2.1`) | reading (bare) / act (`/threads <id>`) |
 | `/fork` | Fork thread into a child thread at head, at round (`/fork 2`), or after a turn (`/fork 2.1`); the address is persisted and shown in `/threads`, the dashboard dock, and `nuo thread ls` (ADR-0058, ADR-0120) | act |

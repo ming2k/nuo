@@ -73,11 +73,8 @@ cargo build --release -p nuo
 | `nuo server restart` | Restart or replace the session server instance |
 | `nuo server status` | Show session server status and active sessions |
 | `nuo server token` | Display current bearer authentication token |
-| `nuo thread ls` | List the selected role's thread history in the current workspace (default role: `developer`) |
+| `nuo thread ls [--role <id>] [--workspace <path>]` | List thread history, optionally filtered by role and/or workspace |
 | `nuo thread open [id]` | Open the interactive thread picker or attach by id |
-| `nuo thread ls --workspace <path>` | List the selected role in another workspace binding |
-| `nuo thread ls --all-roles` | List every role in the current workspace |
-| `nuo thread ls --global [--role <id>]` | List every role × every workspace (explicit admin view) |
 | `nuo thread stop <id>` | Stop a hosted thread; history remains on disk |
 | `nuo thread rm <id>` | Permanently delete a thread and its transcript |
 | `nuo completions <shell>` | Print a shell completion script (bash, zsh, fish) |

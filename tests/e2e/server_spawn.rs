@@ -339,17 +339,19 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     );
 }
 
-/// ADR-0170/0171: `ls` and `rm --all` are role-scoped and `rm` deletes
-/// durable history, not just the resident driver.
+/// ADR-0171/0254: `ls` and `rm --all` support orthogonal `--role` filtering and
+/// `rm` deletes durable history, not just the resident driver.
 #[tokio::test]
 async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     let project = tmp.path().join("project");
-    std::fs::create_dir_all(project.join(".nuo")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    let config_dir = home.join("nuo").join("config");
+    std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(
-        project.join(".nuo").join("roles.toml"),
-        "[roles.coder]\nname = \"Coder\"\nworkspace = \"inherit\"\n",
+        config_dir.join("roles.toml"),
+        "[roles.coder]\nname = \"Coder\"\n",
     )
     .unwrap();
 

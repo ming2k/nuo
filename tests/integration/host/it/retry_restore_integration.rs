@@ -159,15 +159,17 @@ async fn hermetic_manifest_restores_even_when_role_config_is_deleted() {
     let dot_nuo = project.join(".nuo");
     std::fs::create_dir_all(&dot_nuo).unwrap();
 
-    // 1. Author a custom role in .nuo/roles.toml
-    let roles_file = dot_nuo.join("roles.toml");
+    // 1. Author a custom role in the global roles.toml (ADR-0254).
+    let roles_file = host::paths::get().roles_file();
+    if let Some(parent) = roles_file.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
     std::fs::write(
         &roles_file,
         r#"
 [roles.sec-auditor]
 name = "Security Auditor"
 instructions = "Role: sec-auditor. Strictly examine vulnerabilities without mercy."
-workspace = "none"
 admit_mcp = ["security-scan"]
 "#,
     )

@@ -33,7 +33,7 @@ Two boundaries carry most of the architectural weight:
 
 ## Why Lanes Are Orthogonal
 
-Model invocation is not a single "auth mode". Nuo distinguishes strictly exclusive invitation lanes — local-direct (static key), local-direct (OAuth), and subscription proxy — so that credentials never escape their lane and server-enforced entitlement stays server-enforced. This is ratified in [ADR-0014](../adr/0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md); the [Connect a Model Provider](../how-to/connect-a-provider.md) guide walks through using them.
+Model invocation is not a single "auth mode". Nuo distinguishes strictly exclusive invocation lanes — local-direct (static key), local-direct (OAuth), and subscription proxy — so that credentials never escape their lane and server-enforced entitlement stays server-enforced. This is ratified in [ADR-0014](../adr/0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md); the [Connect a Model Provider](../how-to/connect-a-provider.md) guide walks through using them.
 
 ---
 

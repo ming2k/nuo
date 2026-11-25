@@ -292,11 +292,11 @@ impl Agent {
     /// to built-in presets (`developer`, `philosophist`, `ops`).
     pub fn apply_role(&self, target: &str) -> Option<SwitchedRole> {
         let trimmed = target.trim();
-        let user_role = self
-            .host
-            .roles()
-            .declaration(trimmed)
-            .or_else(|| persistence::roles::RolesConfig::load().get(trimmed).cloned());
+        let user_role = self.host.roles().declaration(trimmed).or_else(|| {
+            persistence::roles::RolesConfig::load()
+                .get(trimmed)
+                .cloned()
+        });
         if let Some(user_role) = user_role {
             let identity = user_role.identity();
             let mut profile =

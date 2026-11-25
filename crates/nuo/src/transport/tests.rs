@@ -1050,7 +1050,8 @@ async fn wait_for_spawned_server_terminates_lingering_old_server_and_waits_for_n
     let _ = child.kill().await;
     let _ = child.wait().await;
 
-    let info = result.expect("must terminate lingering old server and return new compatible server");
+    let info =
+        result.expect("must terminate lingering old server and return new compatible server");
     assert_eq!(info.pid, new_pid);
     assert_eq!(*terminated.lock().unwrap(), vec![old_pid]);
 }

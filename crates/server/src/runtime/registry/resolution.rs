@@ -234,12 +234,14 @@ impl ThreadRegistry {
         // Orthogonal Role & Workspace (ADR-0254): role selection resolves a
         // pure capability profile and never mutates or rejects the workspace.
         let role_selected = match init_options.role.clone() {
-            Some(role) => Some(persistence::roles::canonical_role_id(&role).map_err(|error| {
-                AssembleErr::AssembleFailed(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    error,
-                )))
-            })?),
+            Some(role) => Some(
+                persistence::roles::canonical_role_id(&role).map_err(|error| {
+                    AssembleErr::AssembleFailed(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        error,
+                    )))
+                })?,
+            ),
             None => None,
         };
         let role_id = role_selected.clone().or(binding.role);

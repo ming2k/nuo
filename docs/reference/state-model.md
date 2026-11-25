@@ -28,7 +28,7 @@ requested/parked ──► replied | cancelled
 - **reply** — settle exactly once from a wire-originated (human) reply.
 - **cancel** — settle everything still parked (turn aborted, session end, interrupt), recording the kind so metrics can tell a user cancel from a teardown cancel.
 
-A single broker (`nuo_harness::human_broker`) owns all three so the rule is enforced once.
+A single broker (`engine::cognition::interop::human_broker`) owns all three so the rule is enforced once.
 
 ---
 

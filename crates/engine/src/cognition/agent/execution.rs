@@ -1781,7 +1781,10 @@ mod path_boundary_tests {
         std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
 
         let candidate = resolve_cross_workspace_candidate(&root, "link/secret.txt").unwrap();
-        assert_eq!(candidate.exact_dir, std::fs::canonicalize(&outside).unwrap());
+        assert_eq!(
+            candidate.exact_dir,
+            std::fs::canonicalize(&outside).unwrap()
+        );
 
         cleanup(&root);
         cleanup(&outside);

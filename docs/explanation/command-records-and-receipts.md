@@ -32,16 +32,16 @@ give a different answer tomorrow. Stored beside dialogue and replayed by timesta
 something false the moment the world moves — and it carries no way to signal its own staleness, because
 freshness is not a property a stored line can have.
 
-## 2. Two kinds of command, one ledger
+## 2. Command classes, one ledger
 
-The vocabulary therefore splits along that line:
+The vocabulary splits along that line ([ADR-0140](../adr/0140-command-effect-classes-readings-are-receipts-not-records.md), [ADR-0252](../adr/0252-one-action-manifest-declared-primitives-and-compositions.md)):
 
-| | **Act** | **Reading** |
-| :--- | :--- | :--- |
-| Examples | `/auto-approve on`, `/role ops`, `/trust deny`, `/compact`, `/fork`, `/undo`, `/init`, `/jobs kill` | `/usage`, `/stats`, `/jobs`, `/jobs logs`, `/diff`, `/search`, `/skills list`, `/trust status`, `/help`, `/export`, `/tree` |
-| What it changes | durable state the thread must remember | nothing |
-| Answer after a week | still the history | may be entirely different |
-| Remembered | yes — a record | no — a receipt |
+| | **Act** | **Reading** | **Session Control** |
+| :--- | :--- | :--- | :--- |
+| Examples | `/auto-approve on`, `/role ops`, `/trust deny`, `/compact`, `/fork`, `/undo`, `/init`, `/jobs kill` | `/usage`, `/stats`, `/jobs`, `/jobs logs`, `/diff`, `/search`, `/skills list`, `/trust status`, `/help`, `/export`, `/tree` | `/new` |
+| What it changes | durable state the thread must remember | nothing | durable thread *topology* (creating, switching, or ending threads) |
+| Answer after a week | still the history | may be entirely different | belongs to the topology transition, not the thread's dialogue |
+| Remembered | yes — a record | no — a receipt | no — a receipt |
 
 The distinction is declared once, next to each command's summary, in the single table that already generates
 completion, help, the catalog, and dispatch. That matters more than it sounds: a rule about *which* commands

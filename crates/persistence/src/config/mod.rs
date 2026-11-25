@@ -802,30 +802,25 @@ impl Config {
         };
 
         let nuo_dir = project_root.join(".nuo");
-        fs::create_dir_all(&nuo_dir).map_err(|err| {
-            format!(
-                "could not create '{}' directory: {err}",
-                nuo_dir.display()
-            )
-        })?;
+        fs::create_dir_all(&nuo_dir)
+            .map_err(|err| format!("could not create '{}' directory: {err}", nuo_dir.display()))?;
         let config_path = nuo_dir.join("config.toml");
         let _lock = fsutil::FileLock::acquire(&config_path)
             .map_err(|err| format!("could not lock '{}': {err}", config_path.display()))?;
 
         let mut doc: toml::Table = match fs::read_to_string(&config_path) {
-            Ok(content) if !content.trim().is_empty() => toml::from_str(&content).map_err(|err| {
-                format!(
-                    "could not parse existing '{}': {err}",
-                    config_path.display()
-                )
-            })?,
+            Ok(content) if !content.trim().is_empty() => {
+                toml::from_str(&content).map_err(|err| {
+                    format!(
+                        "could not parse existing '{}': {err}",
+                        config_path.display()
+                    )
+                })?
+            }
             Ok(_) => toml::Table::new(),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
             Err(err) => {
-                return Err(format!(
-                    "could not read '{}': {err}",
-                    config_path.display()
-                ));
+                return Err(format!("could not read '{}': {err}", config_path.display()));
             }
         };
 
@@ -876,18 +871,10 @@ impl Config {
         }
 
         roots_arr.push(toml::Value::String(entry.clone()));
-        let serialized = toml::to_string_pretty(&doc).map_err(|err| {
-            format!(
-                "could not serialize '{}': {err}",
-                config_path.display()
-            )
-        })?;
-        fs::write(&config_path, serialized).map_err(|err| {
-            format!(
-                "could not write '{}': {err}",
-                config_path.display()
-            )
-        })?;
+        let serialized = toml::to_string_pretty(&doc)
+            .map_err(|err| format!("could not serialize '{}': {err}", config_path.display()))?;
+        fs::write(&config_path, serialized)
+            .map_err(|err| format!("could not write '{}': {err}", config_path.display()))?;
 
         Ok(entry)
     }

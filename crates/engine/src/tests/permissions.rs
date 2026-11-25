@@ -404,16 +404,16 @@ async fn cross_workspace_prompt_session_admits_without_persisting() {
     assert_eq!(request.label, "Cross-workspace access");
     assert_eq!(
         request.suggested_scope.as_deref(),
-        Some(std::fs::canonicalize(&external).unwrap().to_string_lossy().as_ref())
+        Some(
+            std::fs::canonicalize(&external)
+                .unwrap()
+                .to_string_lossy()
+                .as_ref()
+        )
     );
 
     assert!(agent.reply_permission(&request.id, PermissionDecision::Session));
-    let output = task
-        .await
-        .unwrap()
-        .unwrap()
-        .result
-        .expect("result");
+    let output = task.await.unwrap().unwrap().result.expect("result");
     assert!(output.to_text().starts_with("read:"), "{output:?}");
 
     // Admitted in live SharedAdditionalRoots, but `.nuo/config.toml` was NOT created.
@@ -525,7 +525,11 @@ async fn cross_workspace_prompt_always_persists_to_dot_nuo_and_reject_refuses() 
     assert!(agent.reply_permission(&deny_req.id, PermissionDecision::Reject));
     let deny_out = deny_task.await.unwrap().unwrap().result.unwrap();
     assert!(matches!(deny_out, ToolOutput::Error { .. }));
-    assert!(!shared_roots.snapshot().contains(&std::fs::canonicalize(&denied_dir).unwrap()));
+    assert!(
+        !shared_roots
+            .snapshot()
+            .contains(&std::fs::canonicalize(&denied_dir).unwrap())
+    );
 
     let _ = std::fs::remove_dir_all(&base);
 }
