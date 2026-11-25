@@ -7,13 +7,13 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     let sid = "session-running-123";
     app.session.current_session_id = sid.to_string();
     app.session.running_sessions.insert(sid.to_string());
-    app.transcript
+    app.threads
         .messages
         .push(view::model::document::TranscriptMessage::new(
             tool::Role::User,
             "Hello",
         ));
-    app.transcript.scroll = 42;
+    app.threads.scroll = 42;
 
     app.session.sessions_overview = vec![protocol::ThreadOverview {
         id: sid.to_string(),
@@ -45,9 +45,9 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     // Modal dismissed
     assert_eq!(app.active_dialog(), None);
     // Messages must NOT be wiped!
-    assert_eq!(app.transcript.messages.len(), 1);
+    assert_eq!(app.threads.messages.len(), 1);
     // Scroll reset to 0 (pinned to bottom)
-    assert_eq!(app.transcript.scroll, 0);
+    assert_eq!(app.threads.scroll, 0);
     // Same session does not trigger process quit / switch
     assert_eq!(app.surfaces.switch_to_target, None);
 }
@@ -313,7 +313,7 @@ async fn test_close_tab_from_dashboard_and_settings_updates_scene_and_renders() 
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Thread
     );
-    assert!(app.transcript.focus.is_composer());
+    assert!(app.threads.focus.is_composer());
 }
 
 #[tokio::test]
@@ -397,7 +397,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         Some("Active Thread"),
     ));
     // Add a message to make it non-empty
-    app.transcript
+    app.threads
         .messages
         .push(view::model::document::TranscriptMessage::new(
             tool::Role::User,
@@ -482,7 +482,11 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     )
     .await;
 
-    assert!(!app.surfaces.switch_to_new);
+    assert!(
+        !app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
     let req = rx
         .try_recv()
         .expect("/new sent for empty thread")
@@ -494,7 +498,7 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     }
 
     // 2. In non-empty tab: pressing 'N' should subscribe a new thread in-place (ADR-0251)
-    app.transcript
+    app.threads
         .messages
         .push(view::model::document::TranscriptMessage::new(
             tool::Role::User,
@@ -548,7 +552,11 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     // 1. In empty tab: "/new" should send /new to reset in-place
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
 
-    assert!(!app.surfaces.switch_to_new);
+    assert!(
+        !app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
     let req = rx
         .try_recv()
         .expect("/new sent for empty thread")
@@ -559,34 +567,47 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
         other => panic!("expected /new slash command, got {other:?}"),
     }
 
-    // 2. In non-empty tab: "/new" must NOT send /new over wire, but arm switch_to_new and preserve conversation
-    app.transcript.messages.clear();
-    app.transcript
+    // 2. In a non-empty tab, `/new` must not send the destructive in-place reset; it mounts
+    //    a fresh thread in a new tab — over the live multiplexed connection, exactly like
+    //    the TabBar's `+` and `Alt-t` ([INV-VERB-02], ADR-0251, ADR-0252 step 5).
+    app.threads.messages.clear();
+    app.threads
         .messages
         .push(view::model::document::TranscriptMessage::new(
             tool::Role::User,
             "Crucial conversation",
         ));
     assert!(!app.is_current_thread_empty());
+    // Drain the first trigger's frame so the assertion below sees only this one.
+    let _ = rx.try_recv();
 
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
 
-    assert!(app.surfaces.switch_to_new);
-    assert_eq!(app.surfaces.switch_to_new_prompt, None);
     assert!(
-        app.link
+        !app.link
             .should_quit
-            .load(std::sync::atomic::Ordering::SeqCst)
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "no teardown: the TUI must not re-attach, which would discard every resident workspace"
     );
-    // Verify no destructive in-place reset command was sent
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Ok(crate::shell::client::ClientOutbound::Subscribe {
+                action: protocol::AttachAction::New(_),
+                ..
+            })
+        ),
+        "a non-empty thread gets a resident subscription, not a reset"
+    );
+    // No destructive in-place reset was sent.
     assert!(rx.try_recv().is_err());
-    // Verify existing messages are preserved
-    assert_eq!(app.transcript.messages.len(), 1);
-    assert_eq!(app.transcript.messages[0].raw, "Crucial conversation");
+    // Existing messages are preserved.
+    assert_eq!(app.threads.messages.len(), 1);
+    assert_eq!(app.threads.messages[0].raw, "Crucial conversation");
 }
 
 #[tokio::test]
-async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
+async fn slash_new_with_prompt_queues_opening_prompt_on_resident_subscription_when_non_empty() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     app.link.tx = tx;
@@ -601,7 +622,7 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
         session_id: sid.to_string(),
     };
 
-    app.transcript
+    app.threads
         .messages
         .push(view::model::document::TranscriptMessage::new(
             tool::Role::User,
@@ -617,17 +638,28 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
     )
     .await;
 
-    assert!(app.surfaces.switch_to_new);
-    assert_eq!(
-        app.surfaces.switch_to_new_prompt,
-        Some("optimize memory allocations".to_string())
+    assert!(
+        !app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "the opening prompt rides the subscription, not a teardown"
     );
     assert!(
-        app.link
-            .should_quit
-            .load(std::sync::atomic::Ordering::SeqCst)
+        matches!(
+            rx.try_recv(),
+            Ok(crate::shell::client::ClientOutbound::Subscribe {
+                action: protocol::AttachAction::New(_),
+                ..
+            })
+        ),
+        "a resident subscription carries the new thread"
     );
-    assert!(rx.try_recv().is_err());
+    match app.composer.pending_prompts.as_slice() {
+        [protocol::AgentRequest::Prompt { text, .. }] => {
+            assert_eq!(text, "optimize memory allocations")
+        }
+        other => panic!("expected the opening prompt to be queued, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -646,7 +678,7 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         session_id: sid.to_string(),
     };
 
-    app.transcript
+    app.threads
         .messages
         .push(view::model::document::TranscriptMessage::new(
             tool::Role::User,
@@ -658,18 +690,20 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         .await;
 
     assert!(
-        app.surfaces.switch_to_new,
-        "/session new must arm switch_to_new on non-empty thread"
-    );
-    assert!(
-        app.link
+        !app.link
             .should_quit
             .load(std::sync::atomic::Ordering::SeqCst),
-        "/session new must request runner quit to mount new tab"
+        "/session new must not request a runner quit"
     );
     assert!(
-        rx.try_recv().is_err(),
-        "/session new must not send destructive in-place reset"
+        matches!(
+            rx.try_recv(),
+            Ok(crate::shell::client::ClientOutbound::Subscribe {
+                action: protocol::AttachAction::New(_),
+                ..
+            })
+        ),
+        "/session new mounts a resident thread, identical to /new and to the TabBar's +"
     );
 }
 
@@ -689,17 +723,17 @@ async fn slash_new_with_round_count_greater_than_zero_opens_new_tab() {
         session_id: sid.to_string(),
     };
 
-    app.transcript.messages.clear();
-    app.session.round_count = 1;
+    app.threads.messages.clear();
+    app.threads.round_count = 1;
     assert!(!app.is_current_thread_empty());
 
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
 
-    assert!(app.surfaces.switch_to_new);
     assert!(
-        app.link
+        !app.link
             .should_quit
-            .load(std::sync::atomic::Ordering::SeqCst)
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "mounting a tab must not cost the TUI its resident workspaces"
     );
 }
 

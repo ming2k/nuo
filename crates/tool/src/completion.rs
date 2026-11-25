@@ -13,44 +13,75 @@
 
 use serde::{Deserialize, Serialize};
 
-/// What a slash command does, which is what decides whether it is *remembered*.
+/// What a slash command does, which decides **two** separate things.
 ///
-/// This is the one distinction the durable command ledger exists to make, and it
-/// is a property of the command — declared once, next to its summary, in the
-/// server's single vocabulary table — never a judgement re-made at a handler.
+/// The previous two-member vocabulary conflated them, and the conflation was not
+/// academic: it forced a special case into the completeness net ("a session reset counts
+/// as recorded") because the class could not say what `/new` is.
 ///
-/// - [`CommandEffect::Mutation`] is an **act**: it changes durable state the
-///   thread must remember (posture, role, provider selection, trust grants,
-///   compaction, thread topology, workspace files, background jobs). Its truth
-///   does not decay, so it earns a durable record and a row at its timestamp
-///   seam in the rendered thread.
-/// - [`CommandEffect::Reading`] is a **report** of the state of the world at the
-///   instant it is asked (`/usage`, `/diff`, `/jobs`, `/help`, …). Re-running it
-///   produces a different answer by design, so it is stale the moment it exists.
-///   It earns no durable record and no thread row; its reply is an ephemeral
-///   receipt on the client.
+/// | class | durable state? | a row in *this* thread's story? |
+/// | :--- | :--- | :--- |
+/// | [`CommandEffect::Mutation`] | yes | yes |
+/// | [`CommandEffect::Reading`] | no | no |
+/// | [`CommandEffect::SessionControl`] | yes | **no** |
 ///
-/// Both classes still reply on the wire (`protocol::RoundEvent::CommandResult`
-/// carries the class). Ephemeral is not the same as silent: a reading is answered
-/// in full, it is simply not asserted later as still true. See ADR-0140.
+/// - [`CommandEffect::Mutation`] is an **act**: it changes durable state the thread must
+///   remember (posture, role, provider selection, trust grants, compaction, workspace
+///   files, background jobs). Its truth does not decay, so it earns a durable record and a
+///   row at its timestamp seam in the rendered thread.
+/// - [`CommandEffect::Reading`] is a **report** of the state of the world at the instant
+///   it is asked (`/usage`, `/diff`, `/jobs`, `/help`, …). Re-running it produces a
+///   different answer by design, so it is stale the moment it exists. It earns no durable
+///   record and no thread row; its reply is an ephemeral receipt on the client.
+/// - [`CommandEffect::SessionControl`] changes durable **topology**: it creates, binds,
+///   switches, resumes, or forks threads (`/new`, `/session new|open`, `/resume`,
+///   `/fork`). It is an act for audit purposes, but it can never be a row in the thread it
+///   creates — that thread did not exist when the command ran — and the thread it leaves is
+///   over. Its reply is a receipt, and the topology events
+///   (`ConversationCleared`/`ConversationReplaced`/`ThreadSubscribed`) carry the state
+///   change instead. ADR-0252 §2 owns the classification; ADR-0140 owns the ledger.
+///
+/// Every class still replies on the wire (`protocol::RoundEvent::CommandResult` carries
+/// the class). Ephemeral is not silent: a reading is answered in full, it is simply not
+/// asserted later as still true.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandEffect {
-    /// An act: durable state changed, so the ledger keeps it.
+    /// An act: durable state changed, so the ledger keeps it and the thread shows a row.
     Mutation,
     /// A report: a measurement of the world, true only at the moment of asking.
     ///
-    /// The `Default`, so a vocabulary row or a wire frame that states no effect
-    /// makes no claim to durability. Being wrong in this direction costs a
-    /// missing row; being wrong in the other direction asserts a stale
-    /// measurement as history.
+    /// The `Default`, so a vocabulary row or a wire frame that states no effect makes no
+    /// claim to durability. Being wrong in this direction costs a missing row; being wrong
+    /// in the other direction asserts a stale measurement as history.
     #[default]
     Reading,
+    /// A durable **topology** change: it creates, binds, switches, resumes, or forks
+    /// threads.
+    ///
+    /// Recorded as an act for audit, but never as a row in the thread it mints. See the
+    /// type-level documentation for why the two questions had to be separated.
+    SessionControl,
 }
 
 impl CommandEffect {
-    /// Whether this class earns a durable ledger record.
+    /// Whether the reply earns a durable ledger record.
+    ///
+    /// **Durability, not placement.** Both `Mutation` and `SessionControl` take a record;
+    /// they differ in *which* ledger it lands in — a mutation records into the acting
+    /// thread's ledger, a topology change into the one it creates or opens. Keeping this
+    /// question separate from [`Self::occupies_a_row`] is the whole point of the third
+    /// member: one predicate answers "must this be remembered?", the other answers "does
+    /// it belong in this thread's story?", and `/new` answers them differently.
     pub fn is_durable(self) -> bool {
+        !matches!(self, Self::Reading)
+    }
+
+    /// Whether this class may occupy a row in the thread's transcript.
+    ///
+    /// `SessionControl` deliberately answers no: the row would belong to a thread that did
+    /// not exist when the command ran, and the thread it left is over.
+    pub fn occupies_a_row(self) -> bool {
         matches!(self, Self::Mutation)
     }
 }

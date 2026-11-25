@@ -133,7 +133,7 @@ impl App {
     /// states its own bound at creation (`entry_with_cap`) rather than
     /// inheriting one.
     pub(crate) fn notice_log(&mut self) -> &mut SurfaceLog {
-        self.transcript
+        self.viewport
             .logs
             .entry_with_cap(Self::notice_surface(), CAPACITY)
     }
@@ -141,7 +141,7 @@ impl App {
     /// The retained notices, oldest first.
     pub(crate) fn notice_lines(&self) -> &std::collections::VecDeque<SurfaceLine> {
         static EMPTY: std::collections::VecDeque<SurfaceLine> = std::collections::VecDeque::new();
-        self.transcript
+        self.viewport
             .logs
             .get(Self::notice_surface())
             .map_or(&EMPTY, |log| log.lines())
@@ -149,7 +149,7 @@ impl App {
 
     /// How many notices are retained.
     pub(crate) fn notice_count(&self) -> usize {
-        self.transcript
+        self.viewport
             .logs
             .get(Self::notice_surface())
             .map_or(0, SurfaceLog::len)
@@ -163,7 +163,7 @@ impl App {
 
     /// How many notices arrived since the viewer last acknowledged the log.
     pub(crate) fn unread_notices(&self) -> usize {
-        self.transcript
+        self.viewport
             .logs
             .get(Self::notice_surface())
             .map_or(0, SurfaceLog::unread)
@@ -171,7 +171,7 @@ impl App {
 
     /// Whether an unread notice is a fault — the badge's only trigger.
     pub(crate) fn has_unread_notice_fault(&self) -> bool {
-        self.transcript
+        self.viewport
             .logs
             .get(Self::notice_surface())
             .is_some_and(SurfaceLog::has_unread_fault)
@@ -180,7 +180,7 @@ impl App {
     /// Whether the log holds any fault at all.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn has_notice_fault(&self) -> bool {
-        self.transcript
+        self.viewport
             .logs
             .get(Self::notice_surface())
             .is_some_and(SurfaceLog::has_fault)
@@ -188,15 +188,12 @@ impl App {
 
     /// Acknowledge everything retained: the viewer was opened.
     pub(crate) fn mark_notices_read(&mut self) {
-        self.transcript
-            .logs
-            .entry(Self::notice_surface())
-            .mark_read();
+        self.viewport.logs.entry(Self::notice_surface()).mark_read();
     }
 
     /// Forget every retained notice (the viewer's clear verb).
     pub(crate) fn clear_notices(&mut self) {
-        self.transcript.logs.entry(Self::notice_surface()).clear();
+        self.viewport.logs.entry(Self::notice_surface()).clear();
         *self
             .surfaces
             .surfaces
@@ -206,7 +203,7 @@ impl App {
     /// The retained notices as a paste-ready diagnostic block.
     pub(crate) fn render_notices(&self, thread_id: Option<&str>) -> Option<String> {
         let log_path = crate::shell::copy::client_log_path_for_report();
-        let log = self.transcript.logs.get(Self::notice_surface())?;
+        let log = self.viewport.logs.get(Self::notice_surface())?;
         render(log, thread_id, log_path.as_deref())
     }
 }

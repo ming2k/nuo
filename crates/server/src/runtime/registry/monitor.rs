@@ -757,13 +757,10 @@ impl ThreadRegistry {
 /// live event stream by the [`MonitorTracker`]. `project_root` rides along
 /// from the registry's two-level index so clients can name the workspace
 /// without a second lookup.
-fn workspace_matches(filter: &protocol::WorkspaceFilter, root: &str) -> bool {
+fn workspace_matches(filter: Option<&std::path::Path>, root: &str) -> bool {
     match filter {
-        protocol::WorkspaceFilter::Any => true,
-        protocol::WorkspaceFilter::Path(path) => {
-            !root.is_empty() && std::path::Path::new(root) == path
-        }
-        protocol::WorkspaceFilter::Unbound => root.is_empty() || root == "workspace-free",
+        None => true,
+        Some(path) => !root.is_empty() && std::path::Path::new(root) == path,
     }
 }
 
@@ -773,7 +770,7 @@ fn thread_matches_filter(filter: &ThreadFilter, role: &str, project_root: &str) 
     {
         return false;
     }
-    workspace_matches(&filter.workspace, project_root)
+    workspace_matches(filter.workspace.as_deref(), project_root)
 }
 
 fn thread_record_matches(filter: &ThreadFilter, record: &persistence::db::ThreadRecord) -> bool {

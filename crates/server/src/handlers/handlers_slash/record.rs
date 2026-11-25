@@ -53,10 +53,12 @@ pub(crate) enum Performed {
     Surface,
 }
 
-/// Whether a reply is remembered as a durable record.
+/// Whether a reply is remembered as a durable thread-ledger record
+/// (`[INV-VERB-06]`, ADR-0252 §2: `Mutation`/`Act` only; `Reading` and
+/// `SessionControl` file receipts).
 fn is_durable(performed: Performed, effect: CommandEffect, result: Option<&CommandResult>) -> bool {
     performed == Performed::Here
-        && effect.is_durable()
+        && effect.occupies_a_row()
         && !matches!(result, Some(CommandResult::UnknownCommand { .. }))
 }
 

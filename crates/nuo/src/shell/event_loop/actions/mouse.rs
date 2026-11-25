@@ -32,14 +32,14 @@ async fn handle_chrome_press(
             // (empty background, margins) are inert container gestures. They cancel drags
             // and release pointer capture, but MUST NOT mutate intra-scene context (such as
             // blurring the composer, altering transcript focus, or clearing selection).
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::TabBarItem(index)) => {
             super::activate_tab_at_index(app, index, runtime, viewed_session_id);
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::TabBarClose(index)) => {
@@ -52,14 +52,14 @@ async fn handle_chrome_press(
             // slid into that slot.
             app.surfaces.tab_hover = None;
             app.surfaces.tab_hover_since = None;
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::TabBarAdd) => {
             super::handle_add_tab(app, runtime, viewed_session_id);
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::TabBarHelp) => {
@@ -71,8 +71,8 @@ async fn handle_chrome_press(
             } else {
                 app.open_dialog(crate::shell::surfaces::DialogKind::Help);
             }
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::TabBarPrev) => {
@@ -83,16 +83,16 @@ async fn handle_chrome_press(
                 app.surfaces.surfaces.active_tab_index() - 1
             };
             super::activate_tab_at_index(app, prev_idx, runtime, viewed_session_id);
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::TabBarNext) => {
             let next_idx = (app.surfaces.surfaces.active_tab_index() + 1)
                 % app.surfaces.surfaces.tabs().len().max(1);
             super::activate_tab_at_index(app, next_idx, runtime, viewed_session_id);
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::TabBarOverview) => {
@@ -105,20 +105,20 @@ async fn handle_chrome_press(
                     .dlg_mut::<crate::shell::surfaces::PaletteDialog>()
                     .begin();
             }
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::SceneHistoryBack) => {
             app.tab_history_back();
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::SceneHistoryForward) => {
             app.tab_history_forward();
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         Some(UiKey::SceneBreadcrumb(target_depth)) => {
@@ -140,8 +140,8 @@ async fn handle_chrome_press(
                     }
                 }
             }
-            app.transcript.drag.cancel();
-            app.transcript.ui.runtime.release_pointer();
+            app.viewport.drag.cancel();
+            app.viewport.ui.runtime.release_pointer();
             true
         }
         _ => false,
@@ -158,8 +158,8 @@ pub(super) async fn handle_selection_start(
 ) {
     use crate::shell::ui::UiKey;
     app.composer.input_drag_scroll = None;
-    app.transcript.ui.runtime.release_pointer();
-    let target = app.transcript.ui.target(x, y);
+    app.viewport.ui.runtime.release_pointer();
+    let target = app.viewport.ui.target(x, y);
 
     // Dismiss open dropdown if clicking outside it
     if app.surfaces.config_dropdown.is_some() && target != Some(UiKey::ConfigDropdown) {
@@ -183,18 +183,18 @@ pub(super) async fn handle_selection_start(
         app.surfaces.tab_hover_since = None;
     }
     if let Some(key) = target
-        && let Some(id) = app.transcript.ui.scene().id(&key)
+        && let Some(id) = app.viewport.ui.scene().id(&key)
     {
         // A non-focusable decoration cannot steal focus. Capture belongs to
         // the component that received the press and is released on unmount.
-        let _ = app.transcript.ui.runtime.focus(id);
-        let _ = app.transcript.ui.runtime.capture_pointer(id);
+        let _ = app.viewport.ui.runtime.focus(id);
+        let _ = app.viewport.ui.runtime.capture_pointer(id);
     }
     if handle_chrome_press(app, runtime, viewed_session_id, target).await {
         return;
     }
     match target {
-        Some(UiKey::ProviderDelete) if !app.transcript.ui.contains(UiKey::ProviderDelete, x, y) => {
+        Some(UiKey::ProviderDelete) if !app.viewport.ui.contains(UiKey::ProviderDelete, x, y) => {
             app.surfaces.pending_provider_delete = None;
             app.surfaces.provider_delete_focus = ProviderDeleteChoice::default();
         }
@@ -216,15 +216,15 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::Sheet(crate::shell::sheet::SheetKind::Permission)) => {
             if let Some(cursor) = app
-                .transcript
+                .viewport
                 .ui
                 .document
                 .cursor_at(x, y)
                 .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
             {
-                app.transcript
+                app.viewport
                     .drag
-                    .begin_range(&mut app.transcript.selection, cursor);
+                    .begin_range(&mut app.threads.selection, cursor);
                 return;
             }
         }
@@ -237,7 +237,7 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::ConfigDropdown) => {
             if let Some((dropdown, _anchor)) = app.surfaces.config_dropdown.take() {
-                if let Some(popup_area) = app.transcript.ui.bounds(UiKey::ConfigDropdown) {
+                if let Some(popup_area) = app.viewport.ui.bounds(UiKey::ConfigDropdown) {
                     let has_descriptions = dropdown.items.iter().any(|it| it.description.is_some());
                     let rows_per_item = if has_descriptions { 2 } else { 1 };
                     let items_top = popup_area.y + 2;
@@ -321,21 +321,21 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::Overlay(_overlay)) => {
             if let Some(cursor) = app
-                .transcript
+                .viewport
                 .ui
                 .document
                 .cursor_at(x, y)
                 .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
             {
-                app.transcript
+                app.viewport
                     .drag
-                    .begin_range(&mut app.transcript.selection, cursor);
+                    .begin_range(&mut app.threads.selection, cursor);
                 return;
             }
             if let Some(active_overlay) = app.surfaces.surfaces.active_overlay()
                 && app.surfaces.click_outside_dismiss
                 && !app
-                    .transcript
+                    .viewport
                     .ui
                     .contains(UiKey::Overlay(active_overlay), x, y)
             {
@@ -344,7 +344,7 @@ pub(super) async fn handle_selection_start(
             }
             if let Some(active_overlay) = app.surfaces.surfaces.active_overlay()
                 && app
-                    .transcript
+                    .viewport
                     .ui
                     .contains(UiKey::Overlay(active_overlay), x, y)
                 && let Some(mut ent) = app.surfaces.surfaces.take_active_view()
@@ -366,21 +366,21 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::OauthUrl | UiKey::OauthCode) => {
             if let Some(cursor) = app
-                .transcript
+                .viewport
                 .ui
                 .document
                 .cursor_at(x, y)
                 .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
             {
-                app.transcript
+                app.viewport
                     .drag
-                    .begin_range(&mut app.transcript.selection, cursor);
+                    .begin_range(&mut app.threads.selection, cursor);
                 return;
             }
             if let Some(active_overlay) = app.surfaces.surfaces.active_overlay()
                 && app.surfaces.click_outside_dismiss
                 && !app
-                    .transcript
+                    .viewport
                     .ui
                     .contains(UiKey::Overlay(active_overlay), x, y)
             {
@@ -425,7 +425,7 @@ pub(super) async fn handle_selection_start(
             app.open_notice_viewer();
         }
         Some(UiKey::Sticky) => {
-            if let Some(mi) = app.transcript.sticky_step {
+            if let Some(mi) = app.threads.sticky_step {
                 // Clicking the pinned summary is a pointer acceleration onto the
                 // transcript plane: it highlights the entry it names
                 // (ADR-0145). A sticky summary that maps to no focusable kind
@@ -440,18 +440,18 @@ pub(super) async fn handle_selection_start(
                         None
                     }
                 });
-                app.transcript.focus.enter_transcript(match target {
+                app.threads.focus.enter_transcript(match target {
                     Some(target) => crate::shell::focus::TranscriptFocus::Entry(target),
                     None => crate::shell::focus::TranscriptFocus::Browse,
                 });
-                let mut messages = std::mem::take(&mut app.transcript.messages);
+                let mut messages = std::mem::take(&mut app.threads.messages);
                 app.toggle_step_pinned(&mut messages, mi);
-                app.transcript.messages = messages;
-                app.transcript.layout_height_cache.clear();
-                app.transcript.transcript_changed_pending = true;
+                app.threads.messages = messages;
+                app.threads.layout_height_cache.clear();
+                app.threads.transcript_changed_pending = true;
             }
-            app.transcript.selection = SelectionState::None;
-            app.transcript.drag.cancel();
+            app.threads.selection = SelectionState::None;
+            app.viewport.drag.cancel();
             return;
         }
         Some(UiKey::Transcript | UiKey::Composer) => {
@@ -460,10 +460,10 @@ pub(super) async fn handle_selection_start(
         }
         _ => {}
     }
-    app.transcript.selection = SelectionState::None;
-    app.transcript.focus.enter_composer();
-    app.transcript.drag.cancel();
-    app.transcript.ui.runtime.release_pointer();
+    app.threads.selection = SelectionState::None;
+    app.threads.focus.enter_composer();
+    app.viewport.drag.cancel();
+    app.viewport.ui.runtime.release_pointer();
 }
 
 async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u16) {
@@ -473,7 +473,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
         // chain (input box → step summary → table cell →
         // generic content → gap → dead) so the event loop
         // only needs a single match.
-        match interaction::classify_click(&app.transcript.ui.document, x, y) {
+        match interaction::classify_click(&app.viewport.ui.document, x, y) {
             // The fold block's two verb clauses. `press v view full log` is pure
             // navigation into the step's own log scene. `press y copy hidden`
             // needs the clipboard channel, which the pointer handler does not
@@ -485,7 +485,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
             }
             ClickTarget::FoldCopyRows { message_idx } => {
                 app.surfaces.pending_fold_copy = Some(message_idx);
-                app.transcript
+                app.threads
                     .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
                         InteractiveTarget::tool_step(message_idx),
@@ -495,7 +495,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Click inside the live input box: hand the keyboard to the
                 // composer plane so the next keypress edits rather than acting
                 // on a transcript entry (ADR-0145).
-                app.transcript.focus.enter_composer();
+                app.threads.focus.enter_composer();
                 // Relay hand-off: place the (possibly hidden) caret at the
                 // clicked character so any pending whole-input selection is
                 // broken exactly where the user clicked, and the next
@@ -503,14 +503,14 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // into a selected input and pressing ← would jump from the
                 // stale pre-selection caret instead of the click point.
                 app.adopt_caret_from_input_selection(SelectionEdge::Tail);
-                app.transcript.selection = SelectionState::None;
+                app.threads.selection = SelectionState::None;
                 let byte = floor_grapheme_boundary(&app.composer.input, cursor.byte_offset);
                 app.set_cursor(byte);
                 // Arm a fresh drag from the click point; a plain click (no
                 // drag) collapses to a zero-length range that paints nothing,
                 // exactly like the previous behaviour.
-                app.transcript.drag.begin_range(
-                    &mut app.transcript.selection,
+                app.viewport.drag.begin_range(
+                    &mut app.threads.selection,
                     SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, byte),
                 );
             }
@@ -518,16 +518,16 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Clicked a step summary: navigate into a subagent
                 // task, otherwise toggle that step's disclosure.
                 let mi = message_idx;
-                app.transcript
+                app.threads
                     .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
                         kind.focus_target(mi),
                     ));
-                let mut messages = std::mem::take(&mut app.transcript.messages);
+                let mut messages = std::mem::take(&mut app.threads.messages);
                 match kind {
                     StepKind::ToolStep => {
                         let enter_id =
-                            resolve_focused_mut(&mut messages, &app.transcript.focus_stack, mi)
+                            resolve_focused_mut(&mut messages, &app.threads.focus_stack, mi)
                                 .and_then(|message| {
                                     if message.is_subagent_task() {
                                         message.tool_step_call_id().map(String::from)
@@ -536,13 +536,13 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                                     }
                                 });
                         if let Some(id) = enter_id {
-                            app.transcript.messages = messages;
+                            app.threads.messages = messages;
                             app.enter_subagent(id);
                         } else {
                             app.toggle_step_pinned(&mut messages, mi);
-                            app.transcript.messages = messages;
-                            app.transcript.layout_height_cache.clear();
-                            app.transcript.transcript_changed_pending = true;
+                            app.threads.messages = messages;
+                            app.threads.layout_height_cache.clear();
+                            app.threads.transcript_changed_pending = true;
                         }
                     }
                     StepKind::Reasoning
@@ -550,13 +550,13 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                     | StepKind::CommandResult
                     | StepKind::CompactedCard => {
                         app.toggle_step_pinned(&mut messages, mi);
-                        app.transcript.messages = messages;
-                        app.transcript.layout_height_cache.clear();
-                        app.transcript.transcript_changed_pending = true;
+                        app.threads.messages = messages;
+                        app.threads.layout_height_cache.clear();
+                        app.threads.transcript_changed_pending = true;
                     }
                 }
-                app.transcript.selection = SelectionState::None;
-                app.transcript.drag.cancel();
+                app.threads.selection = SelectionState::None;
+                app.viewport.drag.cancel();
             }
             ClickTarget::TableCell {
                 message_idx,
@@ -571,8 +571,8 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // can never cross a `│` border into an adjacent
                 // cell.  Within the cell the user has free
                 // substring selection — no auto-full-select.
-                app.transcript.drag.begin_cell(
-                    &mut app.transcript.selection,
+                app.viewport.drag.begin_cell(
+                    &mut app.threads.selection,
                     cursor,
                     CellDragInfo {
                         message_idx,
@@ -581,7 +581,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                         segments: cell_segments,
                     },
                 );
-                app.transcript
+                app.threads
                     .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             }
@@ -589,8 +589,8 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Opening a link is not an act on the transcript's content, so
                 // it neither claims nor releases the plane: the plane the user
                 // was in is the one the next keypress lands in.
-                app.transcript.selection = SelectionState::None;
-                app.transcript.drag.cancel();
+                app.threads.selection = SelectionState::None;
+                app.viewport.drag.cancel();
                 let url_for_open = url.clone();
                 let mutations = runtime.mutations.clone();
                 tokio::task::spawn_blocking(move || {
@@ -615,10 +615,10 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // immediate drag extends it normally. Message-text
                 // clicks also park attention on the transcript
                 // (browse focus).
-                app.transcript
+                app.viewport
                     .drag
-                    .begin_range(&mut app.transcript.selection, cursor);
-                app.transcript
+                    .begin_range(&mut app.threads.selection, cursor);
+                app.threads
                     .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             }
@@ -629,28 +629,28 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // click parks attention on the transcript (
                 // browse focus): the composer dims until a composer
                 // click or a keystroke hands focus back.
-                app.transcript.selection = SelectionState::None;
-                app.transcript
+                app.threads.selection = SelectionState::None;
+                app.threads
                     .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
-                app.transcript.drag.cancel();
+                app.viewport.drag.cancel();
             }
             ClickTarget::Dead => {
                 // Click outside all known areas (outer gutters,
                 // below content). Parks attention on browse focus so the composer
                 // becomes inactive.
-                app.transcript.selection = SelectionState::None;
+                app.threads.selection = SelectionState::None;
                 if app.current_scene() == crate::shell::surfaces::SceneKind::Thread
                     && app.surfaces.surfaces.active_overlay().is_none()
                     && app.active_sheet().is_none()
                 {
-                    app.transcript
+                    app.threads
                         .focus
                         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
                 } else {
-                    app.transcript.focus.enter_composer();
+                    app.threads.focus.enter_composer();
                 }
-                app.transcript.drag.cancel();
+                app.viewport.drag.cancel();
             }
         }
     }
@@ -665,21 +665,21 @@ pub(super) async fn handle_right_click(app: &mut App, _runtime: &UiRuntime, x: u
     if let ClickTarget::StepSummary {
         message_idx,
         kind: StepKind::ToolStep,
-    } = interaction::classify_click(&app.transcript.ui.document, x, y)
+    } = interaction::classify_click(&app.viewport.ui.document, x, y)
     {
-        app.transcript
+        app.threads
             .focus
             .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
                 InteractiveTarget::tool_step(message_idx),
             ));
-        let mut messages = std::mem::take(&mut app.transcript.messages);
+        let mut messages = std::mem::take(&mut app.threads.messages);
         app.toggle_step_pinned(&mut messages, message_idx);
-        app.transcript.messages = messages;
-        app.transcript.layout_height_cache.clear();
-        app.transcript.transcript_changed_pending = true;
+        app.threads.messages = messages;
+        app.threads.layout_height_cache.clear();
+        app.threads.transcript_changed_pending = true;
     }
-    app.transcript.selection = SelectionState::None;
-    app.transcript.drag.cancel();
+    app.threads.selection = SelectionState::None;
+    app.viewport.drag.cancel();
 }
 
 /// Loop stage (input dispatch): the `SelectionUpdate` arm of the action match.
@@ -696,9 +696,9 @@ pub(super) fn handle_selection_update(app: &mut App, x: u16, y: u16) {
         return;
     }
     app.composer.input_drag_scroll = None;
-    app.transcript.drag.update_from_point(
-        &mut app.transcript.selection,
-        &app.transcript.ui.document,
+    app.viewport.drag.update_from_point(
+        &mut app.threads.selection,
+        &app.viewport.ui.document,
         x,
         y,
     );
@@ -706,8 +706,8 @@ pub(super) fn handle_selection_update(app: &mut App, x: u16, y: u16) {
 
 /// Loop stage (input dispatch): the `SelectionEnd` arm of the action match.
 pub(super) fn handle_selection_end(app: &mut App) {
-    app.transcript.ui.runtime.release_pointer();
-    app.transcript.drag.finish(&mut app.transcript.selection);
+    app.viewport.ui.runtime.release_pointer();
+    app.viewport.drag.finish(&mut app.threads.selection);
     // An edge-autoscroll armed by this drag stops with it: holding the
     // pointer still after release must not keep scrolling the input.
     app.composer.input_drag_scroll = None;
@@ -718,13 +718,13 @@ pub(super) fn handle_selection_end(app: &mut App) {
     // key after the drag relays from the release point instead of the stale
     // pre-drag caret (the composer's scene-routed selection handler resolves
     // it when the selection is next touched).
-    if let SelectionState::InputRange { head_byte, .. } = app.transcript.selection
+    if let SelectionState::InputRange { head_byte, .. } = app.threads.selection
         && app.caret_owner() == CaretOwner::Composer
     {
         let byte = floor_grapheme_boundary(&app.composer.input, head_byte);
         app.set_cursor(byte);
     }
-    if let SelectionState::Range { head, .. } = app.transcript.selection
+    if let SelectionState::Range { head, .. } = app.threads.selection
         && head.message_idx == crate::shell::render::INPUT_MSG_IDX
         && app.caret_owner() == CaretOwner::Composer
     {
@@ -736,7 +736,7 @@ pub(super) fn handle_selection_end(app: &mut App) {
     if let SelectionState::Block {
         message_idx: crate::shell::render::INPUT_MSG_IDX,
         ..
-    } = app.transcript.selection
+    } = app.threads.selection
     {
         app.set_cursor(app.composer.input.len());
     }
@@ -744,8 +744,8 @@ pub(super) fn handle_selection_end(app: &mut App) {
 
 /// Loop stage (input dispatch): the `SelectBlock` arm of the action match.
 pub(super) fn handle_select_block(app: &mut App, x: u16, y: u16) {
-    if let Some((mi, bi)) = input::resolve_block(&app.transcript.ui.document, x, y) {
-        app.transcript.selection = SelectionState::Block {
+    if let Some((mi, bi)) = input::resolve_block(&app.viewport.ui.document, x, y) {
+        app.threads.selection = SelectionState::Block {
             message_idx: mi,
             block_idx: bi,
         };
@@ -764,7 +764,7 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     // up to the shared palette-derived hover band so the mouse and the keyboard
     // cursor read as one affordance. Recomputed on every motion — moving off a
     // row (or off the pane) clears it.
-    app.surfaces.config_hover_index = match app.transcript.ui.target(x, y) {
+    app.surfaces.config_hover_index = match app.viewport.ui.target(x, y) {
         Some(crate::shell::ui::UiKey::SettingsOption(index))
         | Some(crate::shell::ui::UiKey::SettingsRow(index)) => Some(index),
         _ => None,
@@ -776,24 +776,24 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     // pinned variant — record its message index so the next draw
     // lights it up to the intermediate hover tone; otherwise
     // clear it.
-    if app.transcript.ui.target(x, y) == Some(crate::shell::ui::UiKey::Sticky) {
-        if let Some(mi) = app.transcript.sticky_step {
+    if app.viewport.ui.target(x, y) == Some(crate::shell::ui::UiKey::Sticky) {
+        if let Some(mi) = app.threads.sticky_step {
             let is_step = app
-                .transcript
+                .threads
                 .messages
                 .get(mi)
                 .map(|m| m.is_reasoning() || m.is_tool_step() || m.is_subagent_task())
                 .unwrap_or(false);
-            app.transcript.hovered_step = is_step.then_some(mi);
+            app.viewport.hovered_step = is_step.then_some(mi);
         }
-    } else if app.transcript.ui.target(x, y) == Some(crate::shell::ui::UiKey::Transcript) {
-        app.transcript.hovered_step =
-            match interaction::classify_click(&app.transcript.ui.document, x, y) {
+    } else if app.viewport.ui.target(x, y) == Some(crate::shell::ui::UiKey::Transcript) {
+        app.viewport.hovered_step =
+            match interaction::classify_click(&app.viewport.ui.document, x, y) {
                 ClickTarget::StepSummary { message_idx, .. } => Some(message_idx),
                 _ => None,
             };
     } else {
-        app.transcript.hovered_step = None;
+        app.viewport.hovered_step = None;
     }
 
     // Tier 1 TabBar hover (ADR-0235; ADR-0223 supplies the hover input). The
@@ -803,7 +803,7 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     // anchor, not the variant — stepping from a pill onto its own close mark is
     // the same visit, and restarting the title reveal there would rewind the
     // text under the user's pointer.
-    let tab_hover = match app.transcript.ui.target(x, y) {
+    let tab_hover = match app.viewport.ui.target(x, y) {
         Some(crate::shell::ui::UiKey::TabBarClose(index)) => {
             Some(crate::shell::view_header::TabBarHover::Close(index))
         }
@@ -835,7 +835,7 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     };
 }
 
-async fn execute_help_action(
+pub(crate) async fn execute_help_action(
     app: &mut App,
     runtime: &UiRuntime,
     action: crate::shell::overlays::help::HelpActionKind,
@@ -844,15 +844,7 @@ async fn execute_help_action(
     use crate::shell::overlays::help::HelpActionKind as K;
     match action {
         K::NewTab => {
-            app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
-            if app.is_current_thread_empty() {
-                app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
-            } else {
-                app.surfaces.switch_to_new = true;
-                app.link
-                    .should_quit
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-            }
+            super::tabs::start_fresh_thread_bare(app);
         }
         K::CloseTab => {
             let idx = app.surfaces.surfaces.active_tab_index();

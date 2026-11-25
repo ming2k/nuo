@@ -1,15 +1,16 @@
-//! Role-scoped listings and switch candidates.
+//! Orthogonal thread listings and switch candidates (ADR-0254).
 
 use super::helpers::save_session_full;
 use super::*;
 
 #[test]
-fn latest_session_filters_by_workspace_and_persona() {
-    use protocol::WorkspaceFilter;
+fn latest_session_filters_orthogonally_by_role_and_workspace() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
 
     let mut unbound = crate::thread::ThreadData {
         role: Some("philosopher".into()),
+        created_at: 100,
+        updated_at: 100,
         ..Default::default()
     };
     unbound.workspace = None;
@@ -17,52 +18,47 @@ fn latest_session_filters_by_workspace_and_persona() {
 
     let mut bound = crate::thread::ThreadData {
         role: Some("philosopher".into()),
+        created_at: 200,
+        updated_at: 200,
         ..Default::default()
     };
     bound.workspace = Some(protocol::WorkspaceBinding::new("/repo/x"));
     save_session_full(&engine, &bound).unwrap();
 
-    let unbound_filter = protocol::ThreadFilter {
-        role: Some("philosopher".into()),
-        workspace: WorkspaceFilter::Unbound,
-    };
+    // Role-only filter spans across workspaces (newest wins: `bound`).
+    let role_only = protocol::ThreadFilter::for_role("philosopher");
+    assert_eq!(
+        thread_session::latest_session(&engine.conn, &role_only).unwrap(),
+        Some(bound.id.clone())
+    );
+
+    // Role + workspace intersection matches only `bound`.
     let bound_filter = protocol::ThreadFilter {
         role: Some("philosopher".into()),
-        workspace: WorkspaceFilter::Path("/repo/x".into()),
+        workspace: Some("/repo/x".into()),
     };
-    assert_eq!(
-        thread_session::latest_session(&engine.conn, &unbound_filter).unwrap(),
-        Some(unbound.id.clone())
-    );
     assert_eq!(
         thread_session::latest_session(&engine.conn, &bound_filter).unwrap(),
         Some(bound.id.clone())
     );
+
+    // Unknown role returns None.
     assert_eq!(
-        thread_session::latest_session(
-            &engine.conn,
-            &protocol::ThreadFilter {
-                role: Some("nobody".into()),
-                workspace: WorkspaceFilter::Unbound,
-            }
-        )
-        .unwrap(),
+        thread_session::latest_session(&engine.conn, &protocol::ThreadFilter::for_role("nobody"))
+            .unwrap(),
         None
     );
-    // Unbound + no role constraint still finds only unbound sessions.
+
+    // Workspace-only filter matches all roles in `/repo/x`.
     assert_eq!(
-        thread_session::latest_session(
-            &engine.conn,
-            &protocol::ThreadFilter::workspace_only(WorkspaceFilter::Unbound)
-        )
-        .unwrap(),
-        Some(unbound.id)
+        thread_session::latest_session(&engine.conn, &protocol::ThreadFilter::for_workspace("/repo/x"))
+            .unwrap(),
+        Some(bound.id)
     );
 }
 
 #[test]
-fn role_scoped_switch_candidates_exclude_active() {
-    use protocol::ThreadScope;
+fn orthogonal_switch_candidates_exclude_active() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
 
     let make_session = |id: &str, role: &str, ws: Option<&str>, time: u64| {
@@ -80,50 +76,35 @@ fn role_scoped_switch_candidates_exclude_active() {
         data
     };
 
-    // Two philosophist sessions (workspace-free)
     let p1 = make_session("phil-1", "philosophist", None, 100);
     let p2 = make_session("phil-2", "philosophist", None, 200);
-    // Another role (e.g. translator) with workspace-free
     let t1 = make_session("trans-1", "translator", None, 300);
-    // Developer session bound to /repo/a
     let d1 = make_session("dev-1", "developer", Some("/repo/a"), 400);
+    let r1 = make_session("rev-1", "reviewer", Some("/repo/a"), 450);
 
     save_session_full(&engine, &p1).unwrap();
     save_session_full(&engine, &p2).unwrap();
     save_session_full(&engine, &t1).unwrap();
     save_session_full(&engine, &d1).unwrap();
+    save_session_full(&engine, &r1).unwrap();
 
-    let phil_scope = ThreadScope::new("philosophist", None);
-    // Active is phil-2: candidates must return phil-1 ONLY, excluding phil-2, trans-1, and dev-1
+    // Role filter: philosophist returns phil-1 when phil-2 is active.
+    let phil_filter = protocol::ThreadFilter::for_role("philosophist");
     let candidates =
-        thread_session::list_switch_candidates(&engine.conn, &phil_scope.filter(), "phil-2")
-            .unwrap();
+        thread_session::list_switch_candidates(&engine.conn, &phil_filter, "phil-2").unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].id, "phil-1");
 
-    // Active is phil-1: candidates must return phil-2 ONLY
+    // Workspace filter: /repo/a returns all roles in /repo/a except active.
+    let ws_filter = protocol::ThreadFilter::for_workspace("/repo/a");
     let candidates =
-        thread_session::list_switch_candidates(&engine.conn, &phil_scope.filter(), "phil-1")
-            .unwrap();
+        thread_session::list_switch_candidates(&engine.conn, &ws_filter, "dev-1").unwrap();
     assert_eq!(candidates.len(), 1);
-    assert_eq!(candidates[0].id, "phil-2");
+    assert_eq!(candidates[0].id, "rev-1");
 
-    // Active is unknown: candidates return both phil-2 and phil-1
+    // Unfiltered returns all threads except active.
     let candidates =
-        thread_session::list_switch_candidates(&engine.conn, &phil_scope.filter(), "none").unwrap();
-    assert_eq!(candidates.len(), 2);
-    assert_eq!(candidates[0].id, "phil-2");
-    assert_eq!(candidates[1].id, "phil-1");
-
-    // latest_session_in_scope for philosophist
-    assert_eq!(
-        thread_session::latest_session_in_scope(&engine.conn, &phil_scope).unwrap(),
-        Some("phil-2".into())
-    );
-
-    // Developer + /repo/a scope. The developer session is the only member.
-    let ws_scope = ThreadScope::new("developer", Some("/repo/a".into()));
-    let candidates =
-        thread_session::list_switch_candidates(&engine.conn, &ws_scope.filter(), "dev-1").unwrap();
-    assert!(candidates.is_empty()); // Excluded itself, no other candidates
+        thread_session::list_switch_candidates(&engine.conn, &protocol::ThreadFilter::all(), "rev-1")
+            .unwrap();
+    assert_eq!(candidates.len(), 4);
 }

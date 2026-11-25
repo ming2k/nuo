@@ -6,10 +6,10 @@ mod transcript_scroll_tests {
 
     fn scrollable_app() -> App {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        app.transcript.max_scroll = 100;
-        app.transcript.scroll = 100;
-        app.transcript.view_height = 20;
-        app.transcript.follow_bottom = true;
+        app.threads.max_scroll = 100;
+        app.threads.scroll = 100;
+        app.viewport.view_height = 20;
+        app.threads.follow_bottom = true;
         app
     }
 
@@ -18,12 +18,12 @@ mod transcript_scroll_tests {
         let mut app = scrollable_app();
 
         scroll_tick(&mut app, false);
-        assert_eq!(app.transcript.scroll, 96);
-        assert!(!app.transcript.follow_bottom);
+        assert_eq!(app.threads.scroll, 96);
+        assert!(!app.threads.follow_bottom);
 
         scroll_tick(&mut app, true);
-        assert_eq!(app.transcript.scroll, 100);
-        assert!(app.transcript.follow_bottom);
+        assert_eq!(app.threads.scroll, 100);
+        assert!(app.threads.follow_bottom);
     }
 
     #[test]
@@ -31,12 +31,12 @@ mod transcript_scroll_tests {
         let mut app = scrollable_app();
 
         scroll_transcript_page(&mut app, false);
-        assert_eq!(app.transcript.scroll, 81);
-        assert!(!app.transcript.follow_bottom);
+        assert_eq!(app.threads.scroll, 81);
+        assert!(!app.threads.follow_bottom);
 
         scroll_transcript_page(&mut app, true);
-        assert_eq!(app.transcript.scroll, 100);
-        assert!(app.transcript.follow_bottom);
+        assert_eq!(app.threads.scroll, 100);
+        assert!(app.threads.follow_bottom);
     }
 
     #[test]
@@ -44,23 +44,23 @@ mod transcript_scroll_tests {
         let mut app = scrollable_app();
 
         scroll_transcript_to_edge(&mut app, false);
-        assert_eq!(app.transcript.scroll, 0);
-        assert!(!app.transcript.follow_bottom);
+        assert_eq!(app.threads.scroll, 0);
+        assert!(!app.threads.follow_bottom);
 
         scroll_transcript_to_edge(&mut app, true);
-        assert_eq!(app.transcript.scroll, 100);
-        assert!(app.transcript.follow_bottom);
+        assert_eq!(app.threads.scroll, 100);
+        assert!(app.threads.follow_bottom);
     }
 
     #[test]
     fn wheel_spatial_routing_under_permission_modal() {
         let mut app = scrollable_app();
         app.set_active_sheet_for_test(crate::shell::sheet::SheetKind::Permission);
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport
             .ui
             .mount_permission_sheet(graticule::Rect::new(0, 15, 80, 5));
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
         app.human.permission_show_details = true;
         app.human.permission_max_scroll = 10;
         app.human.permission_scroll = 2;
@@ -70,16 +70,16 @@ mod transcript_scroll_tests {
         // 1. Wheel over permission sheet (y=16) scrolls details down
         handle_wheel(&mut app, false, 10, 16, &runtime, "");
         assert_eq!(app.human.permission_scroll, 3);
-        assert_eq!(app.transcript.scroll, 100, "transcript scroll untouched");
+        assert_eq!(app.threads.scroll, 100, "transcript scroll untouched");
 
         // 2. Wheel over permission sheet (y=16) scrolls details up
         handle_wheel(&mut app, true, 10, 16, &runtime, "");
         assert_eq!(app.human.permission_scroll, 2);
-        assert_eq!(app.transcript.scroll, 100, "transcript scroll untouched");
+        assert_eq!(app.threads.scroll, 100, "transcript scroll untouched");
 
         // 3. Wheel above permission sheet (y=5) scrolls transcript
         handle_wheel(&mut app, true, 10, 5, &runtime, "");
-        assert_eq!(app.transcript.scroll, 96, "transcript scrolled up");
+        assert_eq!(app.threads.scroll, 96, "transcript scrolled up");
         assert_eq!(
             app.human.permission_scroll, 2,
             "permission scroll untouched"
@@ -90,14 +90,14 @@ mod transcript_scroll_tests {
     fn wheel_spatial_routing_under_overlay_modal_isolates_backdrop() {
         let mut app = scrollable_app();
         app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::UsageStats,
             )),
             graticule::Rect::new(10, 5, 60, 10),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
         app.surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
@@ -116,7 +116,7 @@ mod transcript_scroll_tests {
             "modal scroll untouched on backdrop"
         );
         assert_eq!(
-            app.transcript.scroll, 100,
+            app.threads.scroll, 100,
             "transcript scroll untouched on backdrop"
         );
 
@@ -130,21 +130,21 @@ mod transcript_scroll_tests {
             6,
             "modal scrolled inside modal_rect"
         );
-        assert_eq!(app.transcript.scroll, 100, "transcript scroll untouched");
+        assert_eq!(app.threads.scroll, 100, "transcript scroll untouched");
     }
 
     #[test]
     fn wheel_spatial_routing_under_dialog_sub_views_scrolls_info_detail() {
         let mut app = scrollable_app();
         app.open_dialog(crate::shell::surfaces::DialogKind::Threads);
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::Threads,
             )),
             graticule::Rect::new(10, 5, 60, 10),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         let threads = app
             .surfaces
@@ -199,14 +199,14 @@ mod transcript_scroll_tests {
     fn wheel_spatial_routing_under_dialog_keys_scrolls_keys_sublayer() {
         let mut app = scrollable_app();
         app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::UsageStats,
             )),
             graticule::Rect::new(10, 5, 60, 10),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         let stats = app
             .surfaces
@@ -259,12 +259,12 @@ mod transcript_scroll_tests {
         app.surfaces.surfaces.select_tab(0);
         assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
 
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBar,
             graticule::Rect::new(0, 0, 80, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         let runtime = UiRuntime::minimal_for_test();
 
@@ -286,17 +286,17 @@ mod transcript_scroll_tests {
         let mut app = scrollable_app();
         app.composer.input = "/m".to_string();
         app.composer.cursor_position = 2;
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport
             .ui
             .mount_completion(graticule::Rect::new(0, 8, 30, 2));
-        app.transcript
+        app.viewport
             .ui
             .mount_completion_item(0, graticule::Rect::new(0, 8, 30, 1));
-        app.transcript
+        app.viewport
             .ui
             .mount_completion_item(1, graticule::Rect::new(0, 9, 30, 1));
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         let runtime = UiRuntime::minimal_for_test();
 
@@ -332,16 +332,16 @@ mod transcript_scroll_tests {
         assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
 
         // Mount TabBarItem(1) (Dashboard tab) at (14, 0)
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(1),
             graticule::Rect::new(14, 0, 14, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(2),
             graticule::Rect::new(30, 0, 13, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Click on Tab 1
         mouse::handle_selection_start(&mut app, &runtime, "s1", 16, 0).await;
@@ -366,28 +366,28 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         assert!(
-            app.transcript.focus.is_composer(),
+            app.threads.focus.is_composer(),
             "composer active by default"
         );
 
         // Mount TabBar across full width (0..80) and TabBarItem(0) at (0..14)
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBar,
             graticule::Rect::new(0, 0, 80, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(0),
             graticule::Rect::new(0, 0, 14, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Click outside tabs on the TabBar background (col 50)
         mouse::handle_selection_start(&mut app, &runtime, "s1", 50, 0).await;
         // ADR-0091 [INV-TAB-11]: TabBar background clicks are inert container gestures
         // and must NOT leak side-effects into active scene context.
         assert!(
-            app.transcript.focus.is_composer(),
+            app.threads.focus.is_composer(),
             "clicking TabBar background must not blur composer"
         );
     }
@@ -405,20 +405,20 @@ mod transcript_scroll_tests {
             ));
         app.surfaces.surfaces.select_tab(0);
         assert!(
-            app.transcript.focus.is_composer(),
+            app.threads.focus.is_composer(),
             "composer active by default"
         );
 
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBar,
             graticule::Rect::new(0, 0, 80, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(0),
             graticule::Rect::new(0, 0, 14, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Click on already-active Thread tab (col 5)
         mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 0).await;
@@ -426,7 +426,7 @@ mod transcript_scroll_tests {
         // ADR-0091 [INV-TAB-11]: Re-selecting the already active tab is an idempotent
         // container gesture that preserves active context.
         assert!(
-            app.transcript.focus.is_composer(),
+            app.threads.focus.is_composer(),
             "clicking active tab must not blur composer"
         );
     }
@@ -448,16 +448,16 @@ mod transcript_scroll_tests {
         assert!(app.in_subagent_view());
 
         // Mount SceneBar at row 1 and SceneHistoryBack at (50..58, 1)
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::SceneBar,
             graticule::Rect::new(0, 1, 80, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::SceneHistoryBack,
             graticule::Rect::new(50, 1, 8, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Click on the SceneHistoryBack button (col 52, row 1)
         mouse::handle_selection_start(&mut app, &runtime, "conv-1", 52, 1).await;
@@ -485,12 +485,12 @@ mod transcript_scroll_tests {
         assert!(app.in_subagent_view());
 
         // Mount SceneBreadcrumb(0) (thread ancestor) at (60..66, 1)
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::SceneBreadcrumb(0),
             graticule::Rect::new(60, 1, 6, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Click on the thread ancestor crumb (col 62, row 1)
         mouse::handle_selection_start(&mut app, &runtime, "conv-1", 62, 1).await;
@@ -518,10 +518,10 @@ mod transcript_scroll_tests {
         app.surfaces.surfaces.select_tab(0);
 
         // Customize Thread 1 context: browse mode, scrolled up, draft input text
-        app.transcript
+        app.threads
             .focus
             .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
-        app.transcript.scroll = 42;
+        app.threads.scroll = 42;
         app.composer.input = "draft question for thread 1".to_string();
         app.composer.cursor_position = 5;
 
@@ -543,10 +543,10 @@ mod transcript_scroll_tests {
 
         // ADR-0091 [INV-TAB-12]: Restores sovereign tab context exactly as left
         assert!(
-            app.transcript.focus.is_transcript(),
+            app.threads.focus.is_transcript(),
             "browse focus mode must be preserved across tab switch"
         );
-        assert_eq!(app.transcript.scroll, 42, "scroll offset must be preserved");
+        assert_eq!(app.threads.scroll, 42, "scroll offset must be preserved");
         assert_eq!(
             app.composer.input, "draft question for thread 1",
             "draft text must be preserved"
@@ -563,7 +563,7 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         assert!(
-            app.transcript.focus.is_composer(),
+            app.threads.focus.is_composer(),
             "composer active by default"
         );
 
@@ -572,7 +572,7 @@ mod transcript_scroll_tests {
         // ADR-0091 [INV-TAB-11]: Unmounted zones outside the active transcript content rect
         // are inert and must not leak focus mutations into the composer.
         assert!(
-            app.transcript.focus.is_composer(),
+            app.threads.focus.is_composer(),
             "clicking outside composer on unmounted zone must be inert"
         );
     }
@@ -596,14 +596,14 @@ mod transcript_scroll_tests {
         // Modal bounding box: y=5..20 (height=15).
         // Body starts at y = 5 + 3 = 8.
         // Row 0 is at y=8, Row 1 is at y=9, Row 2 is at y=10.
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::Threads,
             )),
             graticule::Rect::new(10, 5, 60, 15),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // 1. Click on Row 1 (y = 9) inside modal: selects row 1
         mouse::handle_selection_start(&mut app, &runtime, "s1", 20, 9).await;
@@ -695,12 +695,12 @@ mod transcript_scroll_tests {
         assert!(app.surfaces.config_dropdown.is_some());
 
         // Mount dropdown popup at (20, 5, 40, 10)
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::ConfigDropdown,
             graticule::Rect::new(20, 5, 40, 10),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Click outside at (5, 2): dismisses dropdown
         mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 2).await;
@@ -715,12 +715,12 @@ mod transcript_scroll_tests {
             app.surfaces.websearch_config.as_ref(),
         );
         app.surfaces.config_dropdown = Some((dropdown, anchor));
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::ConfigDropdown,
             graticule::Rect::new(20, 5, 40, 10),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Items start at y = 5 + 2 = 7. Row 0 (Exa) at y=7, Row 1 (Tavily) at y=8.
         mouse::handle_selection_start(&mut app, &runtime, "s1", 25, 8).await;
@@ -740,16 +740,16 @@ mod transcript_scroll_tests {
         app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Categories;
 
         // Mount Category 1 (Components) at (2, 4, 18, 2) and Detail Row 0 at (24, 4, 40, 2)
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::SettingsCategory(1),
             graticule::Rect::new(2, 4, 18, 2),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::SettingsRow(0),
             graticule::Rect::new(24, 4, 40, 2),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // 1. Click Category 1: switches to Components category
         mouse::handle_selection_start(&mut app, &runtime, "s1", 5, 4).await;
@@ -763,7 +763,7 @@ mod transcript_scroll_tests {
         );
 
         // 2. Click Detail Row 0 (Components row 0 = Reasoning Traces): toggles reasoning expanded!
-        let initial_reasoning = app.transcript.reasoning_default_expanded;
+        let initial_reasoning = app.viewport.reasoning_default_expanded;
         mouse::handle_selection_start(&mut app, &runtime, "s1", 30, 4).await;
         assert_eq!(
             app.surfaces.config_focus,
@@ -771,14 +771,14 @@ mod transcript_scroll_tests {
         );
         assert_eq!(app.surfaces.config_detail_index, 0);
         assert_eq!(
-            app.transcript.reasoning_default_expanded, !initial_reasoning,
+            app.viewport.reasoning_default_expanded, !initial_reasoning,
             "clicking components row toggles setting"
         );
 
         // 3. Click Detail Row 0 again: toggles back
         mouse::handle_selection_start(&mut app, &runtime, "s1", 30, 4).await;
         assert_eq!(
-            app.transcript.reasoning_default_expanded, initial_reasoning,
+            app.viewport.reasoning_default_expanded, initial_reasoning,
             "clicking components row again toggles setting back"
         );
     }
@@ -793,14 +793,14 @@ mod transcript_scroll_tests {
         app.surfaces.click_outside_dismiss = true;
 
         // Modal mounted at (10, 5, 60, 15)
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
                 crate::shell::surfaces::DialogKind::Tools,
             )),
             graticule::Rect::new(10, 5, 60, 15),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Click outside at (2, 2) dismisses the dialog
         mouse::handle_selection_start(&mut app, &runtime, "s1", 2, 2).await;
@@ -821,23 +821,23 @@ mod transcript_scroll_tests {
 
         app.open_preset_chooser();
         app.begin_oauth_add(antigravity, protocol::LoginMethod::Browser);
-        assert!(app.transcript.focus.is_composer());
+        assert!(app.threads.focus.is_composer());
 
         // Mount the OAuth overlay area in UI so pointer target falls within overlay
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Sheet(
                 crate::shell::surfaces::SheetKind::OAuthPending,
             )),
             graticule::Rect::new(10, 5, 60, 14),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         // Mouse click at an arbitrary coordinate inside the overlay where no text cursor exists
         mouse::handle_selection_start(&mut app, &runtime, "s1", 12, 6).await;
 
         assert!(
-            app.transcript.focus.is_composer(),
+            app.threads.focus.is_composer(),
             "Click on overlay modal must NOT set transcript_focused to true"
         );
     }
@@ -957,20 +957,20 @@ mod tab_lifecycle_tests {
         let runtime = UiRuntime::minimal_for_test();
         assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
 
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBar,
             graticule::Rect::new(0, 0, 80, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(1),
             graticule::Rect::new(14, 0, 14, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarClose(1),
             graticule::Rect::new(26, 0, 1, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         mouse::handle_selection_start(&mut app, &runtime, "s1", 26, 0).await;
 
@@ -1003,7 +1003,7 @@ mod tab_lifecycle_tests {
         let mut app = app_with_tabs();
         let runtime = UiRuntime::minimal_for_test();
         // A non-empty thread: a fresh tab means detaching into a new attach.
-        app.transcript
+        app.threads
             .messages
             .push(view::model::document::TranscriptMessage::new(
                 tool::Role::User,
@@ -1011,12 +1011,12 @@ mod tab_lifecycle_tests {
             ));
         assert!(!app.is_current_thread_empty());
 
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarAdd,
             graticule::Rect::new(40, 0, 3, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         app.link.tx = tx;
@@ -1053,16 +1053,20 @@ mod tab_lifecycle_tests {
         ));
         assert!(app.is_current_thread_empty());
 
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarAdd,
             graticule::Rect::new(40, 0, 3, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         mouse::handle_selection_start(&mut app, &runtime, sid, 41, 0).await;
 
-        assert!(!app.surfaces.switch_to_new);
+        assert!(
+            !app.link
+                .should_quit
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
         match rx.try_recv().ok().and_then(|o| o.into_request()) {
             Some(protocol::AgentRequest::SlashCommand(command)) => assert_eq!(command, "/new"),
             other => panic!("expected `/new` for an empty thread, got {other:?}"),
@@ -1077,24 +1081,24 @@ mod tab_lifecycle_tests {
         let mut app = app_with_tabs();
         let runtime = UiRuntime::minimal_for_test();
 
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBar,
             graticule::Rect::new(0, 0, 80, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarItem(0),
             graticule::Rect::new(1, 0, 16, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarClose(0),
             graticule::Rect::new(14, 0, 1, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarAdd,
             graticule::Rect::new(40, 0, 3, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         mouse::handle_hover(&mut app, &runtime, 5, 0).await;
         assert_eq!(app.surfaces.tab_hover, Some(TabBarHover::Tab(0)));
@@ -1130,16 +1134,16 @@ mod tab_lifecycle_tests {
         let mut app = app_with_tabs();
         let runtime = UiRuntime::minimal_for_test();
 
-        app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-        app.transcript.ui.mount(
+        app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBar,
             graticule::Rect::new(0, 0, 80, 1),
         );
-        app.transcript.ui.mount(
+        app.viewport.ui.mount(
             crate::shell::ui::UiKey::TabBarHelp,
             graticule::Rect::new(72, 0, 7, 1),
         );
-        app.transcript.ui.commit();
+        app.viewport.ui.commit();
 
         mouse::handle_hover(&mut app, &runtime, 74, 0).await;
         assert_eq!(app.surfaces.tab_hover, Some(TabBarHover::Help));

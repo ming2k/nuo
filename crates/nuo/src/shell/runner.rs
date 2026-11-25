@@ -843,9 +843,6 @@ pub async fn run_attached(
                 return Err("the server offered no session to pick from".into());
             }
         };
-        // Attachment succeeded; leave relink recovery mode so subsequent normal
-        // tab switches or explicit refusals do not re-enter relink backoff.
-        relinking = false;
         // The opening prompt rides the launch config and is flushed only on the
         // `Ready` transition; a prompt sent here would race the snapshot.
         let launch_prompt = initial_prompt.take();
@@ -903,12 +900,6 @@ pub async fn run_attached(
             },
         }) {
             tracing::error!(%error, "server link lost before exit history flush");
-        }
-        if outcome.switch_to_new {
-            target = None;
-            fresh_pending = true;
-            initial_prompt = outcome.switch_to_new_prompt;
-            continue;
         }
         // The link died with the session still hosted (ADR-0136, ADR-0224).
         // Re-dial and re-attach in place: the transcript and tabs ride

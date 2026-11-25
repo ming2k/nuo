@@ -15,27 +15,19 @@ use persistence::roles::RolesConfig;
 use persistence::thread::ThreadSession;
 use protocol::CustomRole;
 
-/// Role declarations from the product's files.
-///
-/// Resolution follows the product's documented order: the user's `roles.toml`,
-/// then the workspace's `.nuo/roles.toml` (and its `[roles.<id>]` table) as an
-/// override. The merge, the id validation, and the file locations are all
-/// [`RolesConfig`]'s; this type only supplies the workspace the caller is in.
-pub struct ProductRoles {
-    workspace: Option<PathBuf>,
-}
+/// Role declarations from the global `roles.toml` registry (ADR-0254).
+#[derive(Default)]
+pub struct ProductRoles;
 
 impl ProductRoles {
-    pub fn new(workspace: Option<PathBuf>) -> Self {
-        Self { workspace }
+    pub fn new() -> Self {
+        Self
     }
 }
 
 impl RoleCatalog for ProductRoles {
     fn declaration(&self, role: &str) -> Option<CustomRole> {
-        RolesConfig::load_for_workspace(self.workspace.as_deref())
-            .get(role)
-            .cloned()
+        RolesConfig::load().get(role).cloned()
     }
 }
 
@@ -187,8 +179,8 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
 ///
 /// One call site, so an agent cannot be assembled with the null host by
 /// accident: the workspace is the only variable.
-pub fn kernel_host(workspace: Option<PathBuf>) -> KernelHost {
-    KernelHost::new(Arc::new(ProductRoles::new(workspace)))
+pub fn kernel_host(_workspace: Option<PathBuf>) -> KernelHost {
+    KernelHost::new(Arc::new(ProductRoles::new()))
         .with_memory(Arc::new(ProductRoleMemory::default()))
         .with_catalog(Arc::new(ProductCatalogMaintenance))
 }

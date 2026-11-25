@@ -45,7 +45,11 @@ impl TranslatorState {
                     protocol::CommandResult::Error { .. }
                         | protocol::CommandResult::UnknownCommand { .. }
                 );
-                if is_failure || effect == tool::CommandEffect::Reading {
+                // The question is "does this occupy a row?", not "is it a reading?".
+                // A topology change answers no — its row would belong to a thread that did
+                // not exist when the command ran — so it files a receipt and never settles
+                // or materialises a transcript row (ADR-0252 §2, INV-VERB-05/06).
+                if is_failure || !effect.occupies_a_row() {
                     self.transcript(
                         &session_id,
                         E::WithdrawStagedCommand {

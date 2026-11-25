@@ -118,150 +118,73 @@ pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args
     }
 }
 
-pub(crate) async fn switch_or_start_session_with_role(
+/// Hot-swap the active role profile on the current thread in place (ADR-0254).
+pub(crate) async fn switch_role_in_place(
     env: &mut SlashEnv<'_>,
     role_id: &str,
-    target_workspace: Option<protocol::WorkspaceBinding>,
-    force_new: bool,
     name: &str,
     args: &str,
 ) {
-    let scope = protocol::ThreadScope::from_binding(Some(role_id), target_workspace.as_ref());
-    let latest_existing_id = if !force_new {
-        persistence::db::get_persistence_handle()
-            .reader()
-            .ok()
-            .and_then(|r| r.latest_session_in_scope(&scope).ok().flatten())
-    } else {
-        None
+    let (session, agent, resp_tx, shared_confinement) =
+        (env.session, env.agent, env.resp_tx, env.shared_confinement);
+
+    let Some(switched) = agent.apply_role(role_id) else {
+        record_error(
+            session,
+            resp_tx,
+            name,
+            args,
+            format!("Could not apply role `{role_id}`"),
+        )
+        .await;
+        return;
     };
 
-    let active_id = env.session.id().await;
-    if let Some(target_id) = latest_existing_id.filter(|id| id != &active_id) {
-        // Resume existing session for this role
-        let (
-            session,
-            config,
-            agent,
-            lifecycle,
-            resp_tx,
-            provider_for_task,
-            shared_confinement,
-            workspace_security,
-        ) = (
-            env.session,
-            &mut *env.config,
-            env.agent,
-            env.lifecycle,
-            env.resp_tx,
-            env.provider_for_task,
-            env.shared_confinement,
-            env.workspace_security,
-        );
-        let provider_usage = &mut *env.provider_usage;
-        supersede_for_session_switch(lifecycle, agent, resp_tx).await;
-        agent.clear_todos();
+    let current_workspace = session.workspace_root();
+    agent.set_permission_scope(switched.id.as_str(), current_workspace.clone());
 
-        if let Some(switched) = agent.apply_role(role_id) {
-            agent.set_permission_scope(
-                switched.id.as_str(),
-                target_workspace.as_ref().map(|w| w.root.clone()),
-            );
-            if let Some(ws) = &target_workspace {
-                let sec_snapshot = workspace_security.snapshot(&ws.root);
-                agent.set_workspace_security(sec_snapshot);
-            } else {
-                agent.set_workspace_security(protocol::WorkspaceSecuritySnapshot::new(
-                    "workspace-free",
-                ));
-            }
-
-            match session.open(&target_id).await {
-                Ok(()) => {
-                    restore_session_runtime(
-                        session,
-                        agent,
-                        resp_tx,
-                        protocol::HookStartSource::Resume,
-                    )
-                    .await;
-                    let transcript = session.full_transcript().await;
-                    let _ = resp_tx.send(AgentResponse::ConversationReplaced {
-                        // `[INV-TAB-13]`: `active_id` was captured before the open.
-                        previous_id: active_id.clone(),
-                        thread_id: session.id().await,
-                        messages: transcript,
-                        commands: session.commands().await,
-                        round_interrupts: session.round_interrupts().await,
-                    });
-                    crate::handlers::handlers_provider::reapply_session_selection(
-                        config,
-                        agent,
-                        provider_for_task,
-                        session,
-                        resp_tx,
-                        provider_usage,
-                    )
-                    .await;
-                    let default_confined =
-                        if let Some(builtin) = protocol::MainAgentRole::parse(role_id) {
-                            builtin.default_confined()
-                        } else {
-                            true
-                        };
-                    if shared_confinement.is_confined() != default_confined {
-                        shared_confinement.set_confined(default_confined);
-                        let _ = resp_tx.send(round_response(
-                            &session.id().await,
-                            RoundEvent::ConfinementChanged(default_confined),
-                        ));
-                    }
-                    let _ = resp_tx.send(round_response(
-                        &session.id().await,
-                        RoundEvent::HarnessState(protocol::HarnessSnapshot {
-                            loop_status: protocol::LoopStatus::Idle,
-                            round_counter: session.round_counter().await,
-                            unattended: session.unattended().await,
-                            confined: shared_confinement.is_confined(),
-                            workspace_security: agent.workspace_security(),
-                            retry_pending: false,
-                            role: Some(role_id.to_string()),
-                            workspace: target_workspace
-                                .as_ref()
-                                .map(|w| w.root.to_string_lossy().to_string()),
-                        }),
-                    ));
-                    record_command(
-                        session,
-                        resp_tx,
-                        name,
-                        args,
-                        CommandResult::Text(format!(
-                            "Resumed session {} with role `{}` (`{}`). Use `/role {role_id} --new` to start a fresh dialogue.",
-                            crate::transport::thread_view::short_session_id(&target_id),
-                            switched.name,
-                            switched.id,
-                        )),
-                    )
-                    .await;
-                    return;
-                }
-                Err(e) => {
-                    record_error(
-                        session,
-                        resp_tx,
-                        name,
-                        args,
-                        format!("Could not open session {target_id}: {e}"),
-                    )
-                    .await;
-                    return;
-                }
-            }
-        }
+    if let Err(error) = session.set_role(role_id).await {
+        record_error(session, resp_tx, name, args, error).await;
+        return;
     }
 
-    start_fresh_session_with_role(env, role_id, target_workspace, name, args).await;
+    let thread_id = session.id().await;
+    let default_confined = protocol::MainAgentRole::parse(role_id)
+        .map(protocol::MainAgentRole::default_confined)
+        .unwrap_or(true);
+    if shared_confinement.is_confined() != default_confined {
+        shared_confinement.set_confined(default_confined);
+        let _ = resp_tx.send(round_response(
+            &thread_id,
+            RoundEvent::ConfinementChanged(default_confined),
+        ));
+    }
+
+    let _ = resp_tx.send(round_response(
+        &thread_id,
+        RoundEvent::HarnessState(protocol::HarnessSnapshot {
+            loop_status: protocol::LoopStatus::Idle,
+            round_counter: session.round_counter().await,
+            unattended: session.unattended().await,
+            confined: shared_confinement.is_confined(),
+            workspace_security: agent.workspace_security(),
+            retry_pending: false,
+            role: Some(role_id.to_string()),
+            workspace: current_workspace.map(|w| w.to_string_lossy().to_string()),
+        }),
+    ));
+
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        CommandResult::Text(format!(
+            "Switched active role to `{}` (`{}`). Use `/role {role_id} --new` to start a fresh thread.",
+            switched.name, switched.id,
+        )),
+    )
+    .await;
 }
 
 pub(crate) async fn start_fresh_session_with_role(

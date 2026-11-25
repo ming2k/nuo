@@ -86,6 +86,7 @@ pub use instructions::{
     ScopedInstruction, render_blocks,
 };
 
+pub mod action;
 pub mod command;
 pub use command::*;
 pub use observation::{
@@ -185,10 +186,7 @@ pub use security::{
 };
 
 pub mod workspace;
-pub use workspace::{
-    ThreadFilter, ThreadRemovalReport, ThreadRemovalSkip, ThreadScope, WorkspaceBinding,
-    WorkspaceFilter,
-};
+pub use workspace::{ThreadFilter, ThreadRemovalReport, ThreadRemovalSkip, WorkspaceBinding};
 
 pub mod session_title;
 
@@ -348,9 +346,9 @@ pub use policy_schema::*;
 /// 34: Server-scoped draft catalog reconciliation (ADR-0250).
 /// `AgentRequest` gains `CheckThreadsExist`; `AgentResponse` gains
 /// `ThreadsExistence` and `ThreadDeleted`. Floor moves with the ceiling.
-pub const PROTOCOL_VERSION: u32 = 34;
+pub const PROTOCOL_VERSION: u32 = 35;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 34;
+pub const MIN_PROTOCOL_VERSION: u32 = 35;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -660,6 +658,8 @@ pub enum Wire {
     /// [`crate::AgentResponse::ThreadPhase`].
     Welcome {
         thread_id: String,
+        #[serde(default)]
+        generation: u64,
         phase: ThreadPhase,
     },
     /// Server response to ambiguous attach / picker.
@@ -703,10 +703,16 @@ pub enum Wire {
     /// authoritative [`AgentResponse::ThreadSnapshot`] and `ThreadPhase::Ready`.
     Subscribed {
         thread_id: String,
+        #[serde(default)]
+        generation: u64,
         phase: ThreadPhase,
     },
     /// Full-duplex server agent response envelope.
-    Response { response: AgentResponse },
+    Response {
+        response: AgentResponse,
+        #[serde(default, skip_serializing_if = "is_zero_u64")]
+        generation: u64,
+    },
     /// Server observability event envelope.
     Monitor { event: MonitorEvent },
     /// Connection-level error envelope.
@@ -715,6 +721,10 @@ pub enum Wire {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
     },
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
 }
 
 /// Maximum wire frame payload length: 16 MB.
@@ -981,6 +991,7 @@ mod readiness_protocol_tests {
     fn welcome_carries_identity_and_phase_only() {
         let welcome = Wire::Welcome {
             thread_id: "thread-1".to_string(),
+            generation: 1,
             phase: ThreadPhase::Binding,
         };
         let json = serde_json::to_string(&welcome).unwrap();

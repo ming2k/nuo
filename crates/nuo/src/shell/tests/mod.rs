@@ -10,7 +10,7 @@
 use super::*;
 use crate::shell::app::state::{
     ComposerState, HumanState, LinkState, ProviderEditorState, SessionState, SurfacesState,
-    TelemetryState, TranscriptState,
+    TelemetryState, Viewport,
 };
 use protocol::{AgentResponse, LoopStatus, RoundEvent};
 use tool::{Message, Role, ToolCall};
@@ -100,71 +100,45 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         std::fs::write(path, "x").expect("write file");
     }
     let cwd = tmp.path().to_path_buf();
+    let mut initial_thread = crate::shell::app::workspaces::ThreadInstance::new(
+        "test-session",
+        1,
+        protocol::ThreadPhase::Ready,
+    );
+    initial_thread.current_provider = "mock".to_string();
+    initial_thread.current_model = "mock".to_string();
     let app = App {
         session: SessionState {
             queue_exit_session: None,
             session_chrome: std::collections::HashMap::new(),
-            workspaces: std::collections::HashMap::new(),
             subscribed_threads: std::collections::HashSet::from(["test-session".to_string()]),
-            session_tree: protocol::ThreadTree::default(),
             session_detail: None,
-            current_provider: "mock".to_string(),
-            current_model: "mock".to_string(),
             cwd: cwd.clone(),
             current_session_id: "test-session".to_string(),
-            session_phase: protocol::ThreadPhase::Ready,
-            current_workspace: String::new(),
-            current_role: None,
-            session_context: None,
-            loop_status: LoopStatus::Idle,
-            harness_retry_pending: false,
-            phase: None,
-            provider_retry: None,
             persistence_health: None,
             live_session_id: "session-test".to_string(),
             workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
             tui_config: crate::shell::config::TuiConfig::default(),
-            unattended: false,
-            confined: true,
-            round_count: 0,
-            current_turn: 0,
-            round_started_at: None,
             sessions_overview: Vec::new(),
             switching_session: None,
             host_sessions: Vec::new(),
             queue_blocked_sessions: std::collections::HashSet::new(),
             running_sessions: std::collections::HashSet::new(),
         },
-        transcript: TranscriptState {
-            diff_viewer: None,
-            messages: Vec::new(),
-            layout_height_cache: Default::default(),
-            scroll: 0,
-            follow_bottom: true,
-            content_lines: 0,
-            view_height: 0,
-            max_scroll: 0,
-            sticky_step: None,
-            modal_body_height: 0,
-            logs: Default::default(),
-            sticky_summary_line: None,
-            pin_summary_line: None,
-            scroll_settle_pending: false,
-            focus_stack: Vec::new(),
-            search: crate::shell::app::state::TranscriptSearchState::default(),
-            transcript_changed_pending: false,
-            reasoning_default_expanded: false,
-            host_console_log: Vec::new(),
-            command_log: None,
-            selection: SelectionState::None,
-            drag: SelectionDrag::default(),
+        threads: crate::shell::app::workspaces::Threads::new(initial_thread),
+        viewport: Viewport {
             ui: crate::shell::ui::ComponentTree::new(),
+            drag: SelectionDrag::default(),
             hovered_step: None,
-            focus: crate::shell::focus::Focus::composer(),
-            transcript_layout: crate::shell::render::layout::Strategy::default(),
-            expand_auto_scroll: false,
+            view_height: 0,
+            modal_body_height: 0,
             spinner_epoch: std::time::Instant::now(),
             carousel_epoch: std::time::Instant::now(),
+            transcript_layout: crate::shell::render::layout::Strategy::default(),
+            expand_auto_scroll: false,
+            reasoning_default_expanded: false,
+            logs: Default::default(),
+            host_console_log: Vec::new(),
         },
         composer: ComposerState {
             input: String::new(),
@@ -258,8 +232,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             palette_recents: Default::default(),
             pending_fold_copy: None,
             command_log_scroll: 0,
-            switch_to_new: false,
-            switch_to_new_prompt: None,
             switch_to_prompt: None,
             startup_overlay: crate::shell::StartupOverlay::None,
             color_scheme: "zen".to_string(),
@@ -325,10 +297,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         },
         telemetry: TelemetryState {
             token_ledger: None,
-            token_report: None,
             context_tokens: None,
-            context_plan: None,
-            context_plan_loaded: false,
             usage_stats: None,
             usage_loading: false,
             usage_scroll: 0,
@@ -422,7 +391,7 @@ fn app_with_input_selection(input: &str) -> App {
     app.composer.input = input.to_string();
     // The drag-selection shape the composer actually records: middle-click /
     // whole-block select of the live input.
-    app.transcript.selection = SelectionState::Block {
+    app.threads.selection = SelectionState::Block {
         message_idx: crate::shell::render::INPUT_MSG_IDX,
         block_idx: 0,
     };
@@ -500,4 +469,5 @@ mod stream_discard;
 mod transcript;
 mod transport_setback;
 mod turn_header_time;
+mod verb_and_instance_baseline;
 mod view_state;

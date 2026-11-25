@@ -405,13 +405,13 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     let cli = nuo_binary();
     let self_exe = std::env::current_exe().unwrap();
 
-    // Default role is developer: only the developer thread is listed.
+    // Filtering by `--role developer` returns only the developer thread.
     let output = run_cli(
         &cli,
         &self_exe,
         &home,
         &project,
-        &["thread", "ls", "--json"],
+        &["thread", "ls", "--role", "developer", "--json"],
         Stdio::null(),
     )
     .await;
@@ -421,13 +421,13 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     assert_eq!(rows[0].id, dev_id);
     assert_eq!(rows[0].role, "developer");
 
-    // Explicit role expansion shows both role histories in the same workspace.
+    // Unfiltered `thread ls` shows all threads across roles.
     let output = run_cli(
         &cli,
         &self_exe,
         &home,
         &project,
-        &["thread", "ls", "--all-roles", "--json"],
+        &["thread", "ls", "--json"],
         Stdio::null(),
     )
     .await;
@@ -441,7 +441,7 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
         &self_exe,
         &home,
         &project,
-        &["thread", "rm", "--all", "--force"],
+        &["thread", "rm", "--all", "--role", "developer", "--force"],
         Stdio::null(),
     )
     .await;

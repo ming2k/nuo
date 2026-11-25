@@ -287,14 +287,14 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
 
     // Mount Help overlay on UI and test footer dismissal click
     let modal_rect = graticule::layout::Rect::new(10, 5, 60, 20);
-    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-    app.transcript.ui.mount(
+    app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+    app.viewport.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Help,
         )),
         modal_rect,
     );
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
     let footer_y = modal_rect.y + modal_rect.height - 1;
     if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(
@@ -379,14 +379,14 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
     };
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
-    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-    app.transcript.ui.mount(
+    app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+    app.viewport.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Models,
         )),
         graticule::Rect::new(10, 5, 60, 15),
     );
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
 
     let models_dlg = app
         .surfaces
@@ -427,17 +427,17 @@ fn modal_page_step_tracks_body_height_and_floors_at_one() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
     // No body height captured yet → falls back to view_height, floored at 1.
-    app.transcript.view_height = 0;
-    app.transcript.modal_body_height = 0;
+    app.viewport.view_height = 0;
+    app.viewport.modal_body_height = 0;
     assert_eq!(modal_page_step(&app), 1);
 
     // Transcript height known, modal not yet rendered → uses view_height - 1.
-    app.transcript.view_height = 24;
+    app.viewport.view_height = 24;
     assert_eq!(modal_page_step(&app), 23);
 
     // Once the modal body height is captured, it wins over view_height so a
     // page advance matches the actual modal, not the transcript behind it.
-    app.transcript.modal_body_height = 10;
+    app.viewport.modal_body_height = 10;
     assert_eq!(
         modal_page_step(&app),
         9,
@@ -445,7 +445,7 @@ fn modal_page_step_tracks_body_height_and_floors_at_one() {
     );
 
     // A 1-row modal body still yields a step of 1 (never 0).
-    app.transcript.modal_body_height = 1;
+    app.viewport.modal_body_height = 1;
     assert_eq!(modal_page_step(&app), 1);
 }
 
@@ -548,14 +548,14 @@ fn disclosure_toggle_latches_scroll_settle() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     // The settle path only runs when the auto-scroll behavior is enabled
     // (`[tui] expand_auto_scroll`, default off).
-    app.transcript.expand_auto_scroll = true;
+    app.viewport.expand_auto_scroll = true;
     let mut messages = vec![
         TranscriptMessage::new(Role::User, "hi"),
         TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#),
     ];
 
     // No toggle happened yet: nothing to settle.
-    assert!(!app.transcript.scroll_settle_pending);
+    assert!(!app.threads.scroll_settle_pending);
 
     // Expanding (collapsed by default) both flips the pin and latches the
     // settle request — the loop must not paint the expand's scroll target
@@ -563,7 +563,7 @@ fn disclosure_toggle_latches_scroll_settle() {
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(true));
     assert!(
-        app.transcript.scroll_settle_pending,
+        app.threads.scroll_settle_pending,
         "expand must latch the settle request"
     );
 
@@ -571,20 +571,20 @@ fn disclosure_toggle_latches_scroll_settle() {
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(false));
     assert!(
-        app.transcript.scroll_settle_pending,
+        app.threads.scroll_settle_pending,
         "collapse must latch the settle request"
     );
 
     // The settle is one frame deep: once the loop has staged and settled the
     // frame, the latch clears (mirrored here the way the event loop consumes
     // it — a no-op toggle target keeps the latch off).
-    app.transcript.scroll_settle_pending = false;
+    app.threads.scroll_settle_pending = false;
 
     // A toggle that resolves to nothing (index out of range) latches nothing
     // and leaves the messages untouched.
-    let before = app.transcript.scroll_settle_pending;
+    let before = app.threads.scroll_settle_pending;
     assert!(!app.toggle_step_pinned(&mut messages, 9));
-    assert_eq!(app.transcript.scroll_settle_pending, before);
+    assert_eq!(app.threads.scroll_settle_pending, before);
 }
 
 /// The default configuration (`[tui] expand_auto_scroll = false`, the
@@ -599,7 +599,7 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     assert!(
-        !app.transcript.expand_auto_scroll,
+        !app.viewport.expand_auto_scroll,
         "expand_auto_scroll defaults to disabled"
     );
     let mut messages = vec![
@@ -607,8 +607,8 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
         TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#),
     ];
 
-    app.transcript.scroll = 12;
-    let scroll_before = app.transcript.scroll;
+    app.threads.scroll = 12;
+    let scroll_before = app.threads.scroll;
 
     // Expand: the pin flips, the scroll offset does not move. A settle frame
     // is still requested — not to scroll, but to re-validate the untouched
@@ -616,7 +616,7 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(true));
     assert_eq!(
-        app.transcript.scroll, scroll_before,
+        app.threads.scroll, scroll_before,
         "scroll must not move on expand"
     );
 
@@ -625,9 +625,9 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
     // offset where the user had it.
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(false));
-    assert!(!app.transcript.follow_bottom, "toggle pauses bottom-follow");
+    assert!(!app.threads.follow_bottom, "toggle pauses bottom-follow");
     assert_eq!(
-        app.transcript.scroll, scroll_before,
+        app.threads.scroll, scroll_before,
         "scroll must not move on collapse"
     );
 }
@@ -648,40 +648,40 @@ fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
     assert_eq!(messages[1].tool_step_expanded(), Some(true));
 
     // Simulate sticky anchor active for step 1 at line 50
-    app.transcript.sticky_step = Some(1);
-    app.transcript.sticky_summary_line = Some(50);
-    app.transcript.scroll = 100;
-    app.transcript.follow_bottom = true;
+    app.threads.sticky_step = Some(1);
+    app.threads.sticky_summary_line = Some(50);
+    app.threads.scroll = 100;
+    app.threads.follow_bottom = true;
 
     // Collapse sticky bar
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert_eq!(messages[1].tool_step_expanded(), Some(false));
     assert!(
-        !app.transcript.follow_bottom,
+        !app.threads.follow_bottom,
         "collapsing sticky pauses follow_bottom"
     );
     assert_eq!(
-        app.transcript.scroll, 50,
+        app.threads.scroll, 50,
         "scroll re-anchors to summary line 50"
     );
     assert_eq!(
-        app.transcript.pin_summary_line,
+        app.threads.pin_summary_line,
         Some(50),
         "pin_summary_line latches to preserve summary at Row 0"
     );
 
     // Case A: Total content is smaller than viewport (e.g. 10 lines in a 30-line viewport).
     // The entire conversation fits on screen, so scroll must collapse to 0.
-    app.transcript.content_lines = 10;
-    app.transcript.view_height = 30;
-    app.transcript.max_scroll = 0;
-    let limit_fit = if app.transcript.content_lines <= app.transcript.view_height as usize {
+    app.threads.content_lines = 10;
+    app.viewport.view_height = 30;
+    app.threads.max_scroll = 0;
+    let limit_fit = if app.threads.content_lines <= app.viewport.view_height as usize {
         0
     } else {
-        app.transcript
+        app.threads
             .pin_summary_line
-            .map(|line| app.transcript.max_scroll.max(line))
-            .unwrap_or(app.transcript.max_scroll)
+            .map(|line| app.threads.max_scroll.max(line))
+            .unwrap_or(app.threads.max_scroll)
     };
     assert_eq!(
         limit_fit, 0,
@@ -691,16 +691,16 @@ fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
     // Case B: Content overflows viewport (e.g. 60 lines in a 30-line viewport, max_scroll = 30).
     // Summary is at line 50. pin_summary_line allows scrolling up to 50 so summary stays at Row 0,
     // accepting bottom underflow (lines 51..60 at rows 1..10, rows 11..30 blank).
-    app.transcript.content_lines = 60;
-    app.transcript.view_height = 30;
-    app.transcript.max_scroll = 30;
-    let limit_overflow = if app.transcript.content_lines <= app.transcript.view_height as usize {
+    app.threads.content_lines = 60;
+    app.viewport.view_height = 30;
+    app.threads.max_scroll = 30;
+    let limit_overflow = if app.threads.content_lines <= app.viewport.view_height as usize {
         0
     } else {
-        app.transcript
+        app.threads
             .pin_summary_line
-            .map(|line| app.transcript.max_scroll.max(line))
-            .unwrap_or(app.transcript.max_scroll)
+            .map(|line| app.threads.max_scroll.max(line))
+            .unwrap_or(app.threads.max_scroll)
     };
     assert_eq!(
         limit_overflow, 50,
@@ -718,22 +718,22 @@ fn adopt_caret_head_and_tail_break_selection() {
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Head));
     assert_eq!(app.composer.cursor_position, 5, "head edge = buffer end");
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         SelectionState::None,
         "selection must break"
     );
 
     // Re-arm and adopt the tail edge.
-    app.transcript.selection = SelectionState::Block {
+    app.threads.selection = SelectionState::Block {
         message_idx: crate::shell::render::INPUT_MSG_IDX,
         block_idx: 0,
     };
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Tail));
     assert_eq!(app.composer.cursor_position, 0, "tail edge = buffer start");
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 
     // Range selection: head is the release point, tail is the anchor point.
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 1),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 4),
     };
@@ -742,10 +742,10 @@ fn adopt_caret_head_and_tail_break_selection() {
         app.composer.cursor_position, 4,
         "head edge adopts head cursor"
     );
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 
     // Backward drag: anchor is 4, head is 1 (mouse released at 1).
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 4),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 1),
     };
@@ -754,7 +754,7 @@ fn adopt_caret_head_and_tail_break_selection() {
         app.composer.cursor_position, 1,
         "head edge adopts release position"
     );
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 
     // No selection → no-op, reports false.
     assert!(!app.adopt_caret_from_input_selection(SelectionEdge::Head));

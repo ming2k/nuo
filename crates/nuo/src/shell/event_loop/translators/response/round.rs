@@ -19,7 +19,7 @@ impl TranslatorState {
     /// Drop every frame addressed to a session this buffer has switched away
     /// from.
     pub(super) async fn handle_round(&mut self, session_id: String, scope: protocol::RoundScope) {
-        if !self.session_gate.accepts(&session_id) {
+        if self.thread_generations.get(&session_id).copied() == Some(0) {
             return;
         }
         let (event, turn_context) = match scope {

@@ -292,9 +292,12 @@ impl Agent {
     /// to built-in presets (`developer`, `philosophist`, `ops`).
     pub fn apply_role(&self, target: &str) -> Option<SwitchedRole> {
         let trimmed = target.trim();
-        let roles_config =
-            persistence::roles::RolesConfig::load_for_workspace(self.workspace_root().as_deref());
-        if let Some(user_role) = roles_config.get(trimmed) {
+        let user_role = self
+            .host
+            .roles()
+            .declaration(trimmed)
+            .or_else(|| persistence::roles::RolesConfig::load().get(trimmed).cloned());
+        if let Some(user_role) = user_role {
             let identity = user_role.identity();
             let mut profile =
                 protocol::AgentRoleProfile::with_identity(trimmed.to_string(), identity.clone());
@@ -928,28 +931,31 @@ mod tests {
 
     #[tokio::test]
     async fn apply_role_custom_role_preserves_role_id_in_active_role() {
-        let temp = tempfile::tempdir().unwrap();
-        let dot_nuo = temp.path().join(".nuo");
-        std::fs::create_dir_all(&dot_nuo).unwrap();
-        std::fs::write(
-            dot_nuo.join("roles.toml"),
-            r#"
-[roles.sec-auditor]
-name = "Security Auditor"
-description = "Audits security"
-workspace = "inherit"
-tools = ["ask_user"]
-"#,
-        )
-        .unwrap();
+        struct StaticRoles;
+        impl crate::RoleCatalog for StaticRoles {
+            fn declaration(&self, role: &str) -> Option<protocol::CustomRole> {
+                if role == "sec-auditor" {
+                    Some(protocol::CustomRole {
+                        name: "Security Auditor".to_string(),
+                        description: Some("Audits security".to_string()),
+                        instructions: None,
+                        tools: vec!["ask_user".to_string()],
+                        admit_mcp: vec!["*".to_string()],
+                    })
+                } else {
+                    None
+                }
+            }
+        }
 
         let provider = Arc::new(NoProvider);
-        let agent = Agent::new(
+        let agent = Agent::builder(
             provider,
             Vec::new(),
             crate::AgentIdentity::new("test", "test agent"),
-        );
-        agent.set_permission_scope("developer", Some(temp.path().to_path_buf()));
+        )
+        .with_host(crate::KernelHost::new(Arc::new(StaticRoles)))
+        .build();
 
         let switched = agent
             .apply_role("sec-auditor")

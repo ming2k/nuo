@@ -251,7 +251,7 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
 async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "test-session".to_string();
-    app.session.session_context = Some(protocol::ThreadContextSnapshot {
+    app.threads.session_context = Some(protocol::ThreadContextSnapshot {
         model: protocol::ModelInfo::default(),
         tools: vec![
             protocol::ToolInfo {

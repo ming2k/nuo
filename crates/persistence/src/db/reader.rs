@@ -246,14 +246,9 @@ impl DbReader {
         crate::db::thread_session::list_session_summaries(self.conn(), filter, active_id)
     }
 
-    /// The most recently updated session id in `filter` (`--resume`).
+    /// The most recently updated session id matching `filter` (`--resume`).
     pub fn latest_session(&self, filter: &protocol::ThreadFilter) -> Result<Option<String>> {
         crate::db::thread_session::latest_session(self.conn(), filter)
-    }
-
-    /// The most recently updated session id in an exact scope (`--resume`).
-    pub fn latest_session_in_scope(&self, scope: &protocol::ThreadScope) -> Result<Option<String>> {
-        crate::db::thread_session::latest_session_in_scope(self.conn(), scope)
     }
 
     /// A session's inherited workspace binding plus its persona.
@@ -336,22 +331,22 @@ impl DbReader {
     pub fn search_history(
         &self,
         query: &str,
-        filter: Option<&protocol::WorkspaceFilter>,
+        workspace: Option<&Path>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
         self.shards
-            .search_history_fanout(self.conn(), query, filter, limit, false)
+            .search_history_fanout(self.conn(), query, workspace, limit, false)
     }
 
     /// [`Self::search_history`] with the words OR-joined (recall fallback).
     pub fn search_history_relaxed(
         &self,
         query: &str,
-        filter: Option<&protocol::WorkspaceFilter>,
+        workspace: Option<&Path>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
         self.shards
-            .search_history_fanout(self.conn(), query, filter, limit, true)
+            .search_history_fanout(self.conn(), query, workspace, limit, true)
     }
 
     /// The prompt history, oldest first, capped at `limit`.

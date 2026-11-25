@@ -1,6 +1,6 @@
 //! End-to-end gesture input tests: one click / one chord must be enough.
 //!
-//! These drive the **real** dispatch path (`render_frame` → `app.transcript.ui.commit()` →
+//! These drive the **real** dispatch path (`render_frame` → `app.viewport.ui.commit()` →
 //! [`process_one_event`](crate::shell::event_loop::process_one_event)) rather
 //! than a hand-mounted component tree, so the presented scene — the sole
 //! pointer hit-test authority — and the component/keyboard routing are exactly
@@ -23,7 +23,7 @@ fn paint(app: &mut crate::shell::App, terminal: &mut graticule::TestTerminal) {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(app, f, "s1");
     });
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
 }
 
 async fn send(app: &mut crate::shell::App, terminal: &mut graticule::TestTerminal, event: Event) {
@@ -180,7 +180,7 @@ async fn help_dialog_mouse_row_click_executes_action() {
         crate::shell::surfaces::DialogKind::Help,
     ));
     let bounds = app
-        .transcript
+        .viewport
         .ui
         .bounds(modal_key)
         .expect("help modal mounted");
@@ -223,11 +223,7 @@ async fn click_dismisses_an_open_dropdown_through_the_real_dispatch() {
     let mut terminal = graticule::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
     assert!(
-        app.transcript
-            .ui
-            .scene()
-            .id(&UiKey::ConfigDropdown)
-            .is_some(),
+        app.viewport.ui.scene().id(&UiKey::ConfigDropdown).is_some(),
         "the open dropdown is a mounted modal component (inputs: keyboard path [ConfigDropdown])"
     );
 

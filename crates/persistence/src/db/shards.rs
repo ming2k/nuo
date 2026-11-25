@@ -846,7 +846,7 @@ impl ContentShardPool {
         &self,
         catalog_conn: &Connection,
         query: &str,
-        filter: Option<&protocol::WorkspaceFilter>,
+        workspace: Option<&Path>,
         limit: usize,
         match_any: bool,
     ) -> Result<Vec<HistorySearchResult>> {
@@ -858,54 +858,34 @@ impl ContentShardPool {
         // Preload eligible catalog threads (id -> (workspace_root, title)).
         let mut meta: std::collections::HashMap<String, (Option<String>, Option<String>)> =
             std::collections::HashMap::new();
-        match filter {
-            Some(protocol::WorkspaceFilter::Path(path)) => {
-                let mut stmt = catalog_conn.prepare_cached(
-                    "SELECT id, workspace_root, title FROM thread_list_view WHERE workspace_root = ?1",
-                )?;
-                let rows = stmt.query_map(params![path.to_string_lossy()], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                    ))
-                })?;
-                for row in rows {
-                    let (id, ws, title) = row?;
-                    meta.insert(id, (ws, title));
-                }
+        if let Some(path) = workspace {
+            let mut stmt = catalog_conn.prepare_cached(
+                "SELECT id, workspace_root, title FROM thread_list_view WHERE workspace_root = ?1",
+            )?;
+            let rows = stmt.query_map(params![path.to_string_lossy()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, ws, title) = row?;
+                meta.insert(id, (ws, title));
             }
-            Some(protocol::WorkspaceFilter::Unbound) => {
-                let mut stmt = catalog_conn.prepare_cached(
-                    "SELECT id, workspace_root, title FROM thread_list_view \
-                     WHERE workspace_root IS NULL OR workspace_root = ''",
-                )?;
-                let rows = stmt.query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                    ))
-                })?;
-                for row in rows {
-                    let (id, ws, title) = row?;
-                    meta.insert(id, (ws, title));
-                }
-            }
-            _ => {
-                let mut stmt = catalog_conn
-                    .prepare_cached("SELECT id, workspace_root, title FROM thread_list_view")?;
-                let rows = stmt.query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                    ))
-                })?;
-                for row in rows {
-                    let (id, ws, title) = row?;
-                    meta.insert(id, (ws, title));
-                }
+        } else {
+            let mut stmt = catalog_conn
+                .prepare_cached("SELECT id, workspace_root, title FROM thread_list_view")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, ws, title) = row?;
+                meta.insert(id, (ws, title));
             }
         }
         if meta.is_empty() {

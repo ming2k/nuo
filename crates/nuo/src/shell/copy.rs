@@ -104,11 +104,11 @@ impl CopyRequest {
         match self {
             CopyRequest::Selection => {
                 let text = extract_selection_text(
-                    &app.transcript.selection,
+                    &app.threads.selection,
                     app.focused_messages(),
                     &app.composer.input,
-                    &app.transcript.ui.document,
-                    app.transcript.drag.cell_info.as_ref(),
+                    &app.viewport.ui.document,
+                    app.viewport.drag.cell_info.as_ref(),
                 )
                 .ok_or(CopyError::NoSelection)?;
                 if text.is_empty() {
@@ -161,16 +161,16 @@ impl CopyRequest {
     /// lands on the wrong bytes, which is exactly what this pipeline exists to
     /// prevent.
     pub(crate) fn for_current_focus(app: &App) -> Option<Self> {
-        if app.transcript.selection.is_active() {
+        if app.threads.selection.is_active() {
             return Some(CopyRequest::Selection);
         }
-        if let Some(target) = app.transcript.focus.entry() {
+        if let Some(target) = app.threads.focus.entry() {
             return Some(CopyRequest::Entry {
                 message_idx: target.message_idx,
             });
         }
         if matches!(
-            app.transcript.selection,
+            app.threads.selection,
             view::model::selection::SelectionState::Block { .. }
                 | view::model::selection::SelectionState::TableCell { .. }
         ) {
@@ -182,7 +182,7 @@ impl CopyRequest {
 
 /// The diagnostic sibling of [`CopyRequest::for_current_focus`].
 pub(crate) fn diagnostic_for_current_focus(app: &App) -> Option<CopyRequest> {
-    app.transcript
+    app.threads
         .focus
         .entry()
         .map(|target| CopyRequest::Diagnostic {
@@ -274,7 +274,7 @@ mod tests {
 
     fn app_with(messages: Vec<TranscriptMessage>) -> App {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        app.transcript.messages = messages;
+        app.threads.messages = messages;
         app
     }
 
@@ -357,11 +357,11 @@ mod tests {
     fn an_active_selection_wins_over_a_focused_entry() {
         let app = app_with(vec![TranscriptMessage::new(tool::Role::User, "hi")]);
         let mut app = app;
-        app.transcript.selection = SelectionState::Block {
+        app.threads.selection = SelectionState::Block {
             message_idx: 0,
             block_idx: 0,
         };
-        app.transcript
+        app.threads
             .focus
             .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
                 InteractiveTarget::notice(0),

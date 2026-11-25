@@ -56,7 +56,7 @@ fn app_with_command_log(rows: usize, exit: i32) -> App {
         "s1",
         Some("build"),
     ));
-    app.transcript.messages = vec![folded_command_step(rows, exit)];
+    app.threads.messages = vec![folded_command_step(rows, exit)];
     app
 }
 
@@ -94,7 +94,7 @@ fn the_log_scene_holds_every_row_the_fold_hid() {
     let mut app = app_with_command_log(40, 0);
     app.open_command_log_scene(0);
     let log = app
-        .transcript
+        .threads
         .command_log
         .as_ref()
         .expect("the scene derived a log");
@@ -117,7 +117,7 @@ fn leaving_the_scene_drops_the_snapshot_and_returns_to_the_thread() {
         crate::shell::surfaces::SceneKind::Thread
     );
     assert!(
-        app.transcript.command_log.is_none(),
+        app.threads.command_log.is_none(),
         "a kept snapshot would be a reading of a step the transcript may have replaced"
     );
     assert_eq!(app.surfaces.command_log_scroll, 0);
@@ -140,7 +140,7 @@ fn esc_back_from_the_log_scene_returns_to_the_transcript() {
 async fn scoping_to_the_hidden_rows_shows_exactly_the_middle() {
     let mut app = app_with_command_log(40, 0);
     app.open_command_log_scene(0);
-    let hidden = app.transcript.command_log.as_ref().unwrap().hidden_len();
+    let hidden = app.threads.command_log.as_ref().unwrap().hidden_len();
     app.surfaces.command_log_scroll = 5;
 
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
@@ -152,7 +152,7 @@ async fn scoping_to_the_hidden_rows_shows_exactly_the_middle() {
     )
     .await;
 
-    let log = app.transcript.command_log.as_ref().unwrap();
+    let log = app.threads.command_log.as_ref().unwrap();
     assert_eq!(log.scope, LogScope::HiddenOnly);
     assert_eq!(log.len(), hidden);
     assert_eq!(
@@ -166,13 +166,7 @@ async fn scoping_to_the_hidden_rows_shows_exactly_the_middle() {
 async fn the_scope_toggle_refuses_an_unfolded_step() {
     let mut app = app_with_command_log(2, 0);
     app.open_command_log_scene(0);
-    assert!(
-        !app.transcript
-            .command_log
-            .as_ref()
-            .unwrap()
-            .can_scope_toggle()
-    );
+    assert!(!app.threads.command_log.as_ref().unwrap().can_scope_toggle());
 
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -183,7 +177,7 @@ async fn the_scope_toggle_refuses_an_unfolded_step() {
     )
     .await;
     assert_eq!(
-        app.transcript.command_log.as_ref().unwrap().scope,
+        app.threads.command_log.as_ref().unwrap().scope,
         LogScope::Full,
         "no key press is spent revealing an identical page"
     );
@@ -198,7 +192,7 @@ fn a_non_command_step_opens_in_universal_pager_scene() {
         r#"{"path":"Cargo.toml"}"#,
     );
     message.finish_tool_step("call_read", "contents", ToolOutput::text("contents"), 10);
-    app.transcript.messages = vec![message];
+    app.threads.messages = vec![message];
 
     app.open_command_log_scene(0);
     assert_eq!(
@@ -207,7 +201,7 @@ fn a_non_command_step_opens_in_universal_pager_scene() {
         "universal pager opens any transcript message in CommandLog scene"
     );
     let log = app
-        .transcript
+        .threads
         .command_log
         .as_ref()
         .expect("pager snapshot derived");
@@ -221,11 +215,11 @@ fn the_hidden_rows_copy_carries_the_invocation_and_only_the_hidden_rows() {
         .expect("a folded step has hidden rows to copy");
 
     let log = view::tools::shell_output::ShellOutput::derive(
-        match &app.transcript.messages[0].kind {
+        match &app.threads.messages[0].kind {
             MessageKind::ToolStep { output, .. } => output.as_deref().unwrap_or(""),
             _ => unreachable!(),
         },
-        match &app.transcript.messages[0].kind {
+        match &app.threads.messages[0].kind {
             MessageKind::ToolStep { structured, .. } => structured.as_deref(),
             _ => unreachable!(),
         },

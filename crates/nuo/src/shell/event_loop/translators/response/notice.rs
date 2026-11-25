@@ -27,7 +27,7 @@ impl TranslatorState {
                     .await;
             }
             AgentResponse::TuiLayoutUpdated(_value) => {
-                // The apply path already set `app.transcript.transcript_layout`
+                // The apply path already set `app.viewport.transcript_layout`
                 // optimistically; a save failure surfaces as `Error`.
             }
             AgentResponse::TuiColorSchemeUpdated { .. } => {

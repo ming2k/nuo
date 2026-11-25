@@ -81,7 +81,7 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
                 | KeyCode::End
         );
         if is_nav {
-            let anchor_byte = match app.transcript.selection {
+            let anchor_byte = match app.threads.selection {
                 SelectionState::InputRange { anchor_byte, .. } => anchor_byte,
                 SelectionState::Range { anchor, .. }
                     if anchor.message_idx == crate::shell::render::INPUT_MSG_IDX =>
@@ -148,9 +148,9 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             app.set_cursor(new_pos);
             let head_byte = normalized_cursor_byte(&app.composer.input, new_pos);
             if anchor_byte == head_byte {
-                app.transcript.selection = SelectionState::None;
+                app.threads.selection = SelectionState::None;
             } else {
-                app.transcript.selection = SelectionState::InputRange {
+                app.threads.selection = SelectionState::InputRange {
                     anchor_byte,
                     head_byte,
                 };
@@ -204,17 +204,17 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             if let SelectionState::InputRange {
                 anchor_byte,
                 head_byte,
-            } = app.transcript.selection
+            } = app.threads.selection
             {
                 let lo = anchor_byte.min(head_byte).min(app.composer.input.len());
-                app.transcript.selection = SelectionState::None;
-                app.transcript.drag.cancel();
+                app.threads.selection = SelectionState::None;
+                app.viewport.drag.cancel();
                 app.set_cursor(lo);
-            } else if let Some((start, _)) = app.transcript.selection.active_normalized_range() {
+            } else if let Some((start, _)) = app.threads.selection.active_normalized_range() {
                 let byte = floor_grapheme_boundary(&app.composer.input, start.byte_offset)
                     .min(app.composer.input.len());
-                app.transcript.selection = SelectionState::None;
-                app.transcript.drag.cancel();
+                app.threads.selection = SelectionState::None;
+                app.viewport.drag.cancel();
                 app.set_cursor(byte);
             } else {
                 app.adopt_caret_from_input_selection(SelectionEdge::Tail);
@@ -225,17 +225,17 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             if let SelectionState::InputRange {
                 anchor_byte,
                 head_byte,
-            } = app.transcript.selection
+            } = app.threads.selection
             {
                 let hi = anchor_byte.max(head_byte).min(app.composer.input.len());
-                app.transcript.selection = SelectionState::None;
-                app.transcript.drag.cancel();
+                app.threads.selection = SelectionState::None;
+                app.viewport.drag.cancel();
                 app.set_cursor(hi);
-            } else if let Some((_, end)) = app.transcript.selection.active_normalized_range() {
+            } else if let Some((_, end)) = app.threads.selection.active_normalized_range() {
                 let byte = inclusive_grapheme_end(&app.composer.input, end.byte_offset)
                     .min(app.composer.input.len());
-                app.transcript.selection = SelectionState::None;
-                app.transcript.drag.cancel();
+                app.threads.selection = SelectionState::None;
+                app.viewport.drag.cancel();
                 app.set_cursor(byte);
             } else {
                 app.adopt_caret_from_input_selection(SelectionEdge::Head);
@@ -243,8 +243,8 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             Some(input::InputAction::None)
         }
         (KeyCode::Esc, _) => {
-            app.transcript.selection = SelectionState::None;
-            app.transcript.drag.cancel();
+            app.threads.selection = SelectionState::None;
+            app.viewport.drag.cancel();
             Some(input::InputAction::None)
         }
         (KeyCode::Backspace | KeyCode::Delete, _) => {

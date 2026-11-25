@@ -205,7 +205,7 @@ fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() 
 async fn ctrl_c_clears_history_recall_and_resets_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history("prior command".to_string(), Vec::new(), Vec::new());
     let rows = app.current_session_history();
 

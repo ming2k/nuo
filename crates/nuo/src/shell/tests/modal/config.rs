@@ -279,7 +279,7 @@ async fn config_view_components_toggle_and_persistence() {
     assert!(!crate::shell::config::reasoning_default_expanded(
         &app.session.tui_config
     ));
-    assert!(!app.transcript.reasoning_default_expanded);
+    assert!(!app.viewport.reasoning_default_expanded);
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -291,7 +291,7 @@ async fn config_view_components_toggle_and_persistence() {
     assert!(crate::shell::config::reasoning_default_expanded(
         &app.session.tui_config
     ));
-    assert!(app.transcript.reasoning_default_expanded);
+    assert!(app.viewport.reasoning_default_expanded);
 
     // The command component is collapsed by default, so activating expands it — and
     // the choice must land on every shell spelling, not just the canonical one.
@@ -358,7 +358,7 @@ async fn config_view_components_toggle_and_persistence() {
     ));
 
     app.surfaces.config_detail_index = auto_scroll_row;
-    assert!(!app.transcript.expand_auto_scroll);
+    assert!(!app.viewport.expand_auto_scroll);
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
@@ -366,7 +366,7 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(app.transcript.expand_auto_scroll);
+    assert!(app.viewport.expand_auto_scroll);
     assert!(app.session.tui_config.expand_auto_scroll);
 
     // Verify config file on disk has the persisted settings

@@ -1242,7 +1242,7 @@ fn subagent_scene_esc_interrupts_only_the_viewed_child() {
         "spawn_agent",
         r#"{"description":"explore","prompt":"..."}"#,
     );
-    app.transcript.messages.push(task);
+    app.threads.messages.push(task);
     app.session
         .running_sessions
         .insert(app.session.current_session_id.clone());
@@ -1289,7 +1289,7 @@ fn finished_viewed_child_advertises_no_subagent_interrupt() {
     );
     // Drive the step to a terminal state (the child finished).
     task.cancel_tool_step("call_done");
-    app.transcript.messages.push(task);
+    app.threads.messages.push(task);
     // The primary round still runs.
     app.session
         .running_sessions
@@ -1337,21 +1337,21 @@ fn delete_input_selection_clears_buffer_and_selection() {
     assert!(app.delete_input_selection());
     assert_eq!(app.composer.input, "");
     assert_eq!(app.composer.cursor_position, 0);
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
     // Second call is a no-op.
     assert!(!app.delete_input_selection());
 
     // Partial range deletion deletes only the selected slice.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
     assert!(app.delete_input_selection());
     assert_eq!(app.composer.input, "hello ");
     assert_eq!(app.composer.cursor_position, 6);
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 }
 
 #[test]
@@ -1359,7 +1359,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
     // Drag forward from 'w' (6) to 'd' (10/11): mouse released at 11.
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 11),
     };
@@ -1371,7 +1371,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         SelectionState::None,
         "selection must be cancelled"
     );
@@ -1381,7 +1381,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
     );
 
     // Backward drag: drag from 'd' (11) to 'w' (6): mouse released at 6.
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1397,7 +1397,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         SelectionState::None,
         "selection must be cancelled"
     );
@@ -1412,7 +1412,7 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
     // Backward drag: drag from 'd' (11) to 'w' (6): mouse released at 6.
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1428,7 +1428,7 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         SelectionState::None,
         "selection must be cancelled"
     );
@@ -1442,7 +1442,7 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
 fn range_selection_up_and_down_restore_caret_at_release_position() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1457,7 +1457,7 @@ fn range_selection_up_and_down_restore_caret_at_release_position() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
     assert_eq!(
         app.composer.cursor_position, 6,
         "↑ restores caret at release point"
@@ -1468,7 +1468,7 @@ fn range_selection_up_and_down_restore_caret_at_release_position() {
 fn range_selection_home_and_end_jump_to_selection_edges() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.composer.input = "hello world".to_string();
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
@@ -1478,13 +1478,13 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
     assert_eq!(
         app.composer.cursor_position, 6,
         "Home jumps to start of range"
     );
 
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 6),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 10),
     };
@@ -1494,7 +1494,7 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
     assert_eq!(
         app.composer.cursor_position, 11,
         "End jumps to end of range"
@@ -1507,7 +1507,7 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
     app.composer.input = "你好世界".to_string();
     // Drag backwards from '界' (byte 9..12, char 3..4) to '好' (byte 3..6, char 1..2).
     // Mouse released at byte 3 (char 1).
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1522,7 +1522,7 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
     assert_eq!(
         app.composer.cursor_position, 0,
         "← steps left from char 1 to char 0"

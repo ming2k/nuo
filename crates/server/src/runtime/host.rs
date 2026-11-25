@@ -624,6 +624,7 @@ async fn takeover_conflicting_server(
             );
             let _ =
                 host::process::takeover_pid(pid, host::process::TakeoverOptions::default()).await;
+            discovery::remove_if_matching_process(&discovery::global_discovery_path(), pid, None);
         }
 
         if let Some(path) = uds_path

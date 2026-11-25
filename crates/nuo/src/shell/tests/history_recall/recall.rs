@@ -78,7 +78,7 @@ fn recall_queued_restores_staged_images() {
 async fn history_recall_restores_staged_images_and_pastes() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
 
     let image = tool::ImagePart {
         mime: "image/png".to_string(),
@@ -127,7 +127,7 @@ async fn history_recall_restores_staged_images_and_pastes() {
 async fn history_recall_clears_staged_attachments_for_plain_entries() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history("plain prompt".to_string(), Vec::new(), Vec::new());
 
     let image = tool::ImagePart {
@@ -226,7 +226,7 @@ async fn history_attachment_cache_is_capped() {
 async fn record_input_history_dedups_globally_by_text() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
 
     app.record_input_history("build the thing".to_string(), Vec::new(), Vec::new());
     app.record_input_history("different prompt".to_string(), Vec::new(), Vec::new());
@@ -271,7 +271,7 @@ async fn record_input_history_without_dedup_keeps_per_session_entries() {
 async fn resumed_session_backfills_prompt_rows_from_transcript() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     // One prompt this client genuinely recorded (simulating the live tail of
     // the resumed session typed through this TUI), and a stale prompt that
     // belongs to a different session entirely.
@@ -421,7 +421,7 @@ async fn test_app_does_not_touch_disk_history() {
 async fn history_rows_are_readonly_snapshots() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history("older row".to_string(), Vec::new(), Vec::new());
     app.record_input_history("newest row".to_string(), Vec::new(), Vec::new());
 
@@ -463,7 +463,7 @@ async fn history_rows_are_readonly_snapshots() {
 async fn history_recall_badge_tracks_the_pointer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history("older row".to_string(), Vec::new(), Vec::new());
     app.record_input_history("newest row".to_string(), Vec::new(), Vec::new());
     let rows = app.current_session_history();
@@ -500,7 +500,7 @@ async fn history_recall_badge_tracks_the_pointer() {
 async fn esc_cancels_history_recall_and_restores_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history("older row".to_string(), Vec::new(), Vec::new());
     app.record_input_history("newest row".to_string(), Vec::new(), Vec::new());
     let rows = app.current_session_history();

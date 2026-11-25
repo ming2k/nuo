@@ -364,7 +364,7 @@ fn one_retry_episode_feeds_the_clause_and_the_receipt_from_one_state() {
         "a completed round leaves no countdown on the bar"
     );
     assert!(
-        app.transcript.messages.is_empty(),
+        app.threads.messages.is_empty(),
         "a recovered round leaves no retry row in the transcript"
     );
 }

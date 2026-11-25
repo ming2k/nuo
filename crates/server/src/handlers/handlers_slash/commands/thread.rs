@@ -5,7 +5,7 @@ use super::super::record::{
 };
 use super::super::session_ops::{
     fork_current_session, restore_session_runtime, start_fresh_session,
-    supersede_for_session_switch, switch_or_start_session_with_role,
+    start_fresh_session_with_role, supersede_for_session_switch, switch_role_in_place,
 };
 use super::super::session_route::{SessionRoute, session_route};
 use crate::handlers::handlers_slash::SlashEnv;
@@ -17,18 +17,14 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
     let SlashEnv {
         resp_tx, session, ..
     } = env;
-    // /role [id] [workspace] — switch the live agent role.
-    // Resolves the role or preset onto the live agent, applies the
-    // resulting profile (identity preamble, capability scope, instruction
-    // sources, runtime knobs, unattended posture), updates session workspace if applicable,
-    // and records the session metadata.
-    // With no argument, lists the available built-in and user roles.
+    // `/role [id] [--new]` (ADR-0254):
+    // With no argument, list available built-in and global custom roles.
+    // With an id, hot-swap the active role profile on the current thread in
+    // place; pass `--new` / `-n` to start a fresh thread with that role.
     let target = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
     match target {
         None => {
-            let roles_config = persistence::roles::RolesConfig::load_for_workspace(
-                session.workspace_root().as_deref(),
-            );
+            let roles_config = persistence::roles::RolesConfig::load();
             let mut lines = Vec::new();
 
             let current = session
@@ -74,8 +70,7 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
 
             lines.push(String::new());
             lines.push(
-                "Usage: `/role ops`, `/role philosophist`, or `/role developer <workspace>`.\n\
-                 A thread is owned by exactly one role: `/role` resumes or starts that role's thread; it never rebinds the current one."
+                "Usage: `/role <id>` to switch roles in place on this thread, or `/role <id> --new` to start a fresh thread."
                     .to_string(),
             );
 
@@ -89,10 +84,7 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
             .await;
         }
         Some(role_id) => {
-            let role_id_owned = match persistence::roles::canonical_role_id(
-                role_id,
-                session.workspace_root().as_deref(),
-            ) {
+            let role_id_owned = match persistence::roles::canonical_role_id(role_id) {
                 Ok(role) => role,
                 Err(error) => {
                     record_error(session, resp_tx, name, args, error).await;
@@ -100,157 +92,14 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
                 }
             };
             let role_id = role_id_owned.as_str();
-            let roles_config = persistence::roles::RolesConfig::load_for_workspace(
-                session.workspace_root().as_deref(),
-            );
-            let user_role = roles_config.get(role_id);
-            let builtin = protocol::MainAgentRole::parse(role_id);
-
-            if user_role.is_none() && builtin.is_none() {
-                let mut available: Vec<String> = protocol::MainAgentRole::ALL
-                    .iter()
-                    .map(|p| format!("`{}`", p.as_str()))
-                    .collect();
-                for id in roles_config.ids() {
-                    available.push(format!("`{id}`"));
-                }
-                record_error(
-                    session,
-                    resp_tx,
-                    name,
-                    args,
-                    format!(
-                        "Unknown role `{role_id}`. Available roles: {}.",
-                        available.join(", ")
-                    ),
-                )
-                .await;
-                return;
-            }
-
-            let policy = if let Some(user_role) = user_role {
-                user_role.resolved_workspace()
-            } else {
-                builtin
-                    .map(protocol::MainAgentRole::workspace_policy)
-                    .unwrap_or(persistence::roles::RoleWorkspace::Unbound)
-            };
-            let ws_arg = parts
-                .get(2..)
-                .map(|p| p.join(" "))
-                .filter(|s| !s.trim().is_empty());
-            let target_workspace = match policy {
-                persistence::roles::RoleWorkspace::Unbound => {
-                    if ws_arg.is_some() {
-                        record_error(
-                            session,
-                            resp_tx,
-                            name,
-                            args,
-                            format!(
-                                "Role `{role_id}` is workspace-free; it does not accept a workspace path."
-                            ),
-                        )
-                        .await;
-                        return;
-                    }
-                    None
-                }
-                persistence::roles::RoleWorkspace::Fixed(root) => {
-                    if ws_arg.is_some() {
-                        record_error(
-                            session,
-                            resp_tx,
-                            name,
-                            args,
-                            format!(
-                                "Role `{role_id}` is pinned to `{}`; omit the workspace argument.",
-                                root.display()
-                            ),
-                        )
-                        .await;
-                        return;
-                    }
-                    Some(protocol::WorkspaceBinding::new(root))
-                }
-                persistence::roles::RoleWorkspace::Inherit => {
-                    let target_path = match ws_arg {
-                        Some(ws_str) => {
-                            let trimmed = ws_str.trim();
-                            let raw_path = std::path::PathBuf::from(trimmed);
-                            let resolved = if raw_path.starts_with("~") {
-                                if let Some(home) = dirs::home_dir() {
-                                    if let Ok(stripped) = raw_path.strip_prefix("~") {
-                                        home.join(stripped)
-                                    } else {
-                                        raw_path
-                                    }
-                                } else {
-                                    raw_path
-                                }
-                            } else {
-                                raw_path
-                            };
-                            match std::fs::canonicalize(&resolved) {
-                                Ok(canon) if canon.is_dir() => canon,
-                                Ok(_) => {
-                                    record_error(
-                                        session,
-                                        resp_tx,
-                                        name,
-                                        args,
-                                        format!("Workspace path `{trimmed}` is not a directory"),
-                                    )
-                                    .await;
-                                    return;
-                                }
-                                Err(e) => {
-                                    record_error(
-                                        session,
-                                        resp_tx,
-                                        name,
-                                        args,
-                                        format!(
-                                            "Workspace path `{trimmed}` does not exist or is inaccessible: {e}"
-                                        ),
-                                    )
-                                    .await;
-                                    return;
-                                }
-                            }
-                        }
-                        None => {
-                            if let Some(ws_root) = session.workspace_root() {
-                                ws_root
-                            } else {
-                                record_error(
-                                    session,
-                                    resp_tx,
-                                    name,
-                                    args,
-                                    format!(
-                                        "Role `{role_id}` requires a workspace path. Usage: `/role {role_id} <workspace>`"
-                                    ),
-                                )
-                                .await;
-                                return;
-                            }
-                        }
-                    };
-                    Some(protocol::WorkspaceBinding::new(target_path))
-                }
-            };
-
             let force_new = parts.iter().any(|&p| p == "--new" || p == "-n");
-            switch_or_start_session_with_role(
-                &mut env,
-                role_id,
-                target_workspace,
-                force_new,
-                name,
-                args,
-            )
-            .await;
+            if force_new {
+                let current_workspace = session.workspace();
+                start_fresh_session_with_role(&mut env, role_id, current_workspace, name, args)
+                    .await;
+            } else {
+                switch_role_in_place(&mut env, role_id, name, args).await;
+            }
         }
     }
 }

@@ -130,7 +130,7 @@ async fn test_history_search_keeps_composer_active_and_shows_hints() {
 async fn oldest_history_entry_up_arrow_does_not_cycle_cursor() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history(
         "multiline\nentry\nbottom".to_string(),
         Vec::new(),

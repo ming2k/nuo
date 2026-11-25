@@ -45,9 +45,9 @@ fn tab_hover_projection(app: &App) -> render::TabBarProps<'static> {
 /// Invoked through `Terminal::stage` (bottom-follow measurement pass) or
 /// `Terminal::draw`; extracted verbatim from the `render_frame` closure.
 pub(crate) fn render_frame(app: &mut App, f: &mut graticule::Frame<'_>, viewed_session_id: &str) {
-    let mut ui = std::mem::take(&mut app.transcript.ui);
+    let mut ui = std::mem::take(&mut app.viewport.ui);
     compose_frame(app, f, viewed_session_id, &mut ui);
-    app.transcript.ui = ui;
+    app.viewport.ui = ui;
 }
 
 /// Compose one frame. The orchestrator owns only modality pre-registration
@@ -154,7 +154,7 @@ fn draw_startup_surface(
             f.area(),
         );
 
-        let spinner_phase = (app.transcript.spinner_epoch.elapsed().as_millis() / 100) as usize;
+        let spinner_phase = (app.viewport.spinner_epoch.elapsed().as_millis() / 100) as usize;
         let projected_count = crate::shell::overlays::session::project_session_rows(
             &app.session.sessions_overview,
             Some(
@@ -188,12 +188,12 @@ fn draw_startup_surface(
                 running_sessions: Some(&app.session.running_sessions),
             },
             &app.surfaces.theme,
-            &app.transcript.selection,
+            &app.threads.selection,
             layout_map,
         );
 
         ui.stage_document(std::mem::take(layout_map));
-        app.transcript.modal_body_height =
+        app.viewport.modal_body_height =
             drawn_modal_rect
                 .height
                 .saturating_sub(ui_primitives::primitives::modal_chrome_rows(
@@ -227,7 +227,7 @@ fn draw_transcript_surface(
     // `view_messages` borrows `app` immutably below, so the cache cannot
     // also be reached through `app` at the same time. It is restored once
     // `view_messages` is no longer borrowed (see below).
-    let mut height_cache = std::mem::take(&mut app.transcript.layout_height_cache);
+    let mut height_cache = std::mem::take(&mut app.threads.layout_height_cache);
     // View-scoped chrome: render the phase of whichever session the user is
     // viewing, from that session's own chrome entry. This is the per-view
     // activity-bar fix: the displayed bar tracks the *viewed* session, never a
@@ -249,7 +249,7 @@ fn draw_transcript_surface(
         "server link lost".to_string()
     } else {
         let base_status = display_status(
-            app.session.loop_status,
+            app.threads.loop_status,
             gate_phase.as_ref().or(viewed_chrome.phase.as_ref()),
         );
         // Prioritize system lifecycle (e.g. MCP connecting progress) when round is idle.
@@ -297,9 +297,9 @@ fn draw_transcript_surface(
     // show a contextual first-row header; otherwise render the
     // root thread.
     let view_messages = app.focused_messages();
-    let subagent_bar = app.transcript.focus_stack.last().and_then(|current| {
+    let subagent_bar = app.threads.focus_stack.last().and_then(|current| {
         let tasks: Vec<&TranscriptMessage> = app
-            .transcript
+            .threads
             .messages
             .iter()
             .filter(|message| message.is_subagent_task())
@@ -426,9 +426,9 @@ fn draw_transcript_surface(
             layout_map,
             render::TranscriptProps {
                 messages: view_messages,
-                scroll: app.transcript.scroll,
-                selection: &app.transcript.selection,
-                cell_selection: app.transcript.drag.cell_info.as_ref(),
+                scroll: app.threads.scroll,
+                selection: &app.threads.selection,
+                cell_selection: app.viewport.drag.cell_info.as_ref(),
                 activity: &status,
                 backoff,
                 // A pending permission request forces the activity bar on (and
@@ -437,7 +437,7 @@ fn draw_transcript_surface(
                 awaiting_permission: app.human.pending_permission.is_some(),
                 // ~100ms per phase keeps one breathing cycle near 1.2s
                 // (SPINNER_PHASES steps); `breathing_color` wraps modulo.
-                spinner_phase: (app.transcript.spinner_epoch.elapsed().as_millis() / 100) as usize,
+                spinner_phase: (app.viewport.spinner_epoch.elapsed().as_millis() / 100) as usize,
                 input: &masked_input,
                 chrome_hidden,
                 queue_bar: render::QueueBarProps {
@@ -476,22 +476,22 @@ fn draw_transcript_surface(
                 }),
                 thread_id: Some(viewed_session_id),
                 thread_context: Some(render::ThreadContext {
-                    role: app.session.current_role.as_deref(),
-                    workspace: &app.session.current_workspace,
-                    unattended: app.session.unattended,
-                    confined: app.session.confined,
+                    role: app.threads.current_role.as_deref(),
+                    workspace: &app.threads.current_workspace,
+                    unattended: app.threads.unattended,
+                    confined: app.threads.confined,
                 }),
                 // View-scoped: the elapsed-timer origin belongs to the viewed
                 // session's round (a background view times its own round, not
                 // the primary's).
                 round_started_at: viewed_chrome.round_started_at,
                 hovered_step: chrome_interactive
-                    .then_some(app.transcript.hovered_step)
+                    .then_some(app.viewport.hovered_step)
                     .flatten(),
                 focused_entry: chrome_interactive
-                    .then_some(app.transcript.focus.entry())
+                    .then_some(app.threads.focus.entry())
                     .flatten(),
-                focus_plane: if app.transcript.focus.is_transcript() {
+                focus_plane: if app.threads.focus.is_transcript() {
                     render::FocusPlane::Transcript
                 } else {
                     render::FocusPlane::Composer
@@ -499,33 +499,33 @@ fn draw_transcript_surface(
                 logo: app.surfaces.logo.as_deref(),
                 guidance,
                 carousel_index: view::empty_state::carousel_page_for(
-                    app.transcript.carousel_epoch.elapsed().as_millis(),
+                    app.viewport.carousel_epoch.elapsed().as_millis(),
                 ),
                 theme: &app.surfaces.theme,
-                layout: app.transcript.transcript_layout,
+                layout: app.viewport.transcript_layout,
                 height_cache: Some(&mut height_cache),
             },
         )
     });
     // The transcript draw is the only consumer of the height cache; restore
     // it immediately so the rest of the frame sees the refreshed entries.
-    app.transcript.layout_height_cache = height_cache;
-    if app.transcript.search.active && transcript_render.input_rect.y > 0 {
+    app.threads.layout_height_cache = height_cache;
+    if app.threads.search.active && transcript_render.input_rect.y > 0 {
         let bar_rect = graticule::layout::Rect::new(
             transcript_render.input_rect.x,
             transcript_render.input_rect.y.saturating_sub(1),
             transcript_render.input_rect.width,
             1,
         );
-        let match_info = if app.transcript.search.query.trim().is_empty() {
+        let match_info = if app.threads.search.query.trim().is_empty() {
             String::new()
-        } else if app.transcript.search.matches.is_empty() {
+        } else if app.threads.search.matches.is_empty() {
             "  [0 matches]".to_string()
         } else {
             format!(
                 "  [{}/{}]",
-                app.transcript.search.current + 1,
-                app.transcript.search.matches.len()
+                app.threads.search.current + 1,
+                app.threads.search.matches.len()
             )
         };
         let line = graticule::Line::from(vec![
@@ -536,7 +536,7 @@ fn draw_transcript_surface(
                     .add_modifier(graticule::Modifier::BOLD),
             ),
             graticule::Span::styled(
-                format!("{}█", app.transcript.search.query),
+                format!("{}█", app.threads.search.query),
                 graticule::Style::default().fg(app.surfaces.theme.user_fg),
             ),
             graticule::Span::styled(
@@ -670,7 +670,7 @@ fn draw_model_bar_surface(
             .provider_picker
             .rows
             .iter()
-            .find(|row| row.id == app.session.current_provider);
+            .find(|row| row.id == app.threads.current_provider);
         // The `@<instance>` suffix after the model name — the
         // instance's display name, so identical models served by
         // different instances stay attributable.
@@ -687,7 +687,7 @@ fn draw_model_bar_surface(
         let hint_reasoning = effective_reasoning_effort(app);
         let active_info = app.active_model_info();
         let in_models = active_provider_row
-            .is_none_or(|row| row.models.iter().any(|m| m == &app.session.current_model));
+            .is_none_or(|row| row.models.iter().any(|m| m == &app.threads.current_model));
         let model_usable = active_info
             .and_then(|info| info.availability.as_ref())
             .is_none_or(|avail| avail.usable);
@@ -706,7 +706,7 @@ fn draw_model_bar_surface(
                 f,
                 hint_rect,
                 render::ModelBarProps {
-                    current_model: &app.session.current_model,
+                    current_model: &app.threads.current_model,
                     model_label: hint_label,
                     model_available,
                     provider_name: hint_instance,
@@ -783,7 +783,7 @@ fn draw_composer_surface(
                     app.human.pending_permission_depth,
                     permission_rect,
                     &app.surfaces.theme,
-                    &app.transcript.selection,
+                    &app.threads.selection,
                     layout_map,
                 );
                 app.human.permission_max_scroll = max_scroll;
@@ -840,7 +840,7 @@ fn draw_composer_surface(
             // One question, one answer: does the transcript plane own the
             // keyboard? Both its sub-states agree, so there is no separate
             // "step selected" and "browsing" pair to keep in sync here.
-            let transcript_owns_keyboard = app.transcript.focus.is_transcript();
+            let transcript_owns_keyboard = app.threads.focus.is_transcript();
             let show_caret = scene_owns_caret && !transcript_owns_keyboard;
             let composer_focused = !transcript_owns_keyboard
                 && (!has_overlay || scene_owns_caret || active_extension.is_some());
@@ -909,7 +909,7 @@ fn draw_composer_surface(
                         theme: &app.surfaces.theme,
                         layout_map,
                         input_scroll: &mut app.composer.input_scroll,
-                        selection: &app.transcript.selection,
+                        selection: &app.threads.selection,
                     },
                     ComposerText {
                         input: &app.composer.input,
@@ -925,7 +925,7 @@ fn draw_composer_surface(
                         theme: &app.surfaces.theme,
                         layout_map,
                         input_scroll: &mut app.composer.input_scroll,
-                        selection: &app.transcript.selection,
+                        selection: &app.threads.selection,
                     },
                     ComposerText {
                         input: &app.composer.input,
@@ -945,7 +945,7 @@ fn draw_composer_surface(
                         theme: &app.surfaces.theme,
                         layout_map,
                         input_scroll: &mut app.composer.input_scroll,
-                        selection: &app.transcript.selection,
+                        selection: &app.threads.selection,
                     },
                     ComposerText {
                         input: &app.composer.input,
@@ -965,9 +965,9 @@ fn persist_transcript_layout(
     ui: &mut crate::shell::ui::ComponentTree,
     transcript: &render::TranscriptRender,
 ) {
-    app.transcript.content_lines = transcript.content_lines;
-    app.transcript.view_height = transcript.view_height;
-    app.transcript.max_scroll = transcript
+    app.threads.content_lines = transcript.content_lines;
+    app.viewport.view_height = transcript.view_height;
+    app.threads.max_scroll = transcript
         .content_lines
         .saturating_sub(transcript.view_height as usize);
     // The draw reports whether a TabBar hover reveal is mid-pass; the loop folds
@@ -984,13 +984,13 @@ fn persist_transcript_layout(
     // `None` — a collapsed or hidden composer owns no pointer cell.
     match &transcript.sticky {
         Some(info) => {
-            app.transcript.sticky_step = Some(info.message_idx);
+            app.threads.sticky_step = Some(info.message_idx);
             ui.mount(UiKey::Sticky, info.rect);
-            app.transcript.sticky_summary_line = Some(info.summary_line);
+            app.threads.sticky_summary_line = Some(info.summary_line);
         }
         None => {
-            app.transcript.sticky_step = None;
-            app.transcript.sticky_summary_line = None;
+            app.threads.sticky_step = None;
+            app.threads.sticky_summary_line = None;
         }
     }
 }
@@ -1193,7 +1193,7 @@ fn draw_active_overlay(
 ) -> Option<graticule::Rect> {
     let overlay_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Overlay;
-    let spinner_phase = (app.transcript.spinner_epoch.elapsed().as_millis() / 100) as usize;
+    let spinner_phase = (app.viewport.spinner_epoch.elapsed().as_millis() / 100) as usize;
     let input_rect = transcript.input_rect;
     let activity_height =
         render::footer_rect(&transcript.footer, render::FooterRowId::ActivityStrip)
@@ -1208,7 +1208,7 @@ fn draw_active_overlay(
                 app.surfaces.surfaces.dialogs.keys_scroll_mut(d),
                 &app_ctx,
                 &app.surfaces.theme,
-                &app.transcript.selection,
+                &app.threads.selection,
                 layout_map,
             ))
         }
@@ -1223,7 +1223,7 @@ fn draw_active_overlay(
                     let mut ctx = crate::shell::surfaces::DialogRenderCtx {
                         app,
                         layout_map,
-                        selection: &app.transcript.selection,
+                        selection: &app.threads.selection,
                         theme: &app.surfaces.theme,
                         spinner_phase,
                         viewed_session_id,
@@ -1346,7 +1346,7 @@ fn draw_active_overlay(
                     &app.surfaces.theme,
                     &mut app.provider_editor.oauth_scroll,
                     Some(&mut ui),
-                    &app.transcript.selection,
+                    &app.threads.selection,
                     layout_map,
                 ))
             }
@@ -1433,7 +1433,7 @@ fn draw_scene(
                     list_scroll: &mut app.surfaces.host_scroll,
                     list_follow: app.surfaces.host_modal_follow,
                     detail_scroll: &mut app.surfaces.host_detail_scroll,
-                    log: &app.transcript.host_console_log,
+                    log: &app.viewport.host_console_log,
                     prompting: app.surfaces.host_prompting,
                     prompt_create_new: app.surfaces.host_prompt_new,
                     prompt_text: &app.composer.input,
@@ -1510,7 +1510,7 @@ fn draw_scene(
                     color_scheme: &app.surfaces.color_scheme,
                     custom_color_scheme: &app.surfaces.custom_color_scheme,
                     websearch: app.surfaces.websearch_config.as_ref(),
-                    workspace: &app.session.current_workspace,
+                    workspace: &app.threads.current_workspace,
                     category_scroll: &mut app.surfaces.config_scroll,
                     detail_scroll: &mut app.surfaces.config_detail_scroll,
                     breadcrumbs: Some(breadcrumbs_str),
@@ -1590,7 +1590,7 @@ fn draw_scene(
             let rects = render::draw_command_log_scene(
                 f,
                 render::LogSceneProps {
-                    log: app.transcript.command_log.as_ref(),
+                    log: app.threads.command_log.as_ref(),
                     scroll: &mut app.surfaces.command_log_scroll,
                     thread_id: Some(viewed_session_id),
                     tab_bar: Some(render::TabBarProps {
@@ -1635,7 +1635,7 @@ fn draw_scene(
             let rects = render::draw_diff_scene(
                 f,
                 render::DiffSceneProps {
-                    state: app.transcript.diff_viewer.as_mut(),
+                    state: app.threads.diff_viewer.as_mut(),
                     thread_id: Some(viewed_session_id),
                     tab_bar: Some(render::TabBarProps {
                         tabs: Some(app.surfaces.surfaces.tabs()),
@@ -1761,7 +1761,7 @@ fn finish_frame(
     // for modals that return no rect (Permission sheet, which
     // scrolls the transcript behind it via `view_height` instead),
     // so the page step falls back to the transcript height there.
-    app.transcript.modal_body_height = match surface.dashboard_list_body_height {
+    app.viewport.modal_body_height = match surface.dashboard_list_body_height {
         // The dashboard's scroll body is its list pane, whose height
         // was reported directly by the renderer.
         Some(h) => h,
@@ -1793,7 +1793,7 @@ fn finish_frame(
 
 /// [INV-MCP-04]: Extract in-flight MCP connection status during system bootstrapping.
 fn mcp_connecting_status(app: &App) -> Option<String> {
-    let snapshot = app.session.session_context.as_ref()?;
+    let snapshot = app.threads.session_context.as_ref()?;
     if snapshot.mcp.is_empty() {
         return None;
     }

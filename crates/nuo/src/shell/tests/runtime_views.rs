@@ -98,7 +98,7 @@ fn relay_left_arrow_breaks_selection_at_head_then_steps() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         SelectionState::None,
         "← must break selection"
     );
@@ -114,7 +114,7 @@ fn relay_right_arrow_clamps_at_buffer_end() {
     app.composer.cursor_position = 3; // released at the end
     relay_probe(&mut app, graticule::event::KeyCode::Right);
     assert_eq!(app.composer.cursor_position, 3, "→ past the end clamps");
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn relay_up_and_down_restore_hidden_caret() {
         app.composer.cursor_position, 5,
         "↑ must restore the caret at the head edge, not the stale position"
     );
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 
     // ↓ behaves identically: adopt the head edge and consume the press. The
     // press itself does not walk lines or history — that resumes from the
@@ -139,7 +139,7 @@ fn relay_up_and_down_restore_hidden_caret() {
     app.composer.cursor_position = 1;
     relay_probe(&mut app, graticule::event::KeyCode::Down);
     assert_eq!(app.composer.cursor_position, 5);
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn relay_backspace_and_delete_replace_selection() {
             "the whole selection goes in one stroke"
         );
         assert_eq!(app.composer.cursor_position, 0);
-        assert_eq!(app.transcript.selection, SelectionState::None);
+        assert_eq!(app.threads.selection, SelectionState::None);
     }
 }
 
@@ -187,7 +187,7 @@ async fn console_bare_text_prompts_the_selection() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     console_host_rows(&mut app);
     console_dispatch(&mut app, "fix the flaky test", false).await;
-    match &app.transcript.host_console_log[..] {
+    match &app.viewport.host_console_log[..] {
         [
             crate::shell::overlays::ConsoleLine::Dispatch {
                 targets, action, ..
@@ -208,7 +208,7 @@ async fn console_bare_text_from_n_creates_instead() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     console_host_rows(&mut app);
     console_dispatch(&mut app, "refactor the retry loop", true).await;
-    match &app.transcript.host_console_log[..] {
+    match &app.viewport.host_console_log[..] {
         [
             crate::shell::overlays::ConsoleLine::Dispatch {
                 targets, action, ..
@@ -226,7 +226,7 @@ async fn console_unknown_address_is_a_notice_not_a_dispatch() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     console_host_rows(&mut app);
     console_dispatch(&mut app, "@9 do the thing", false).await;
-    match &app.transcript.host_console_log[..] {
+    match &app.viewport.host_console_log[..] {
         [crate::shell::overlays::ConsoleLine::Notice(text)] => {
             assert!(text.contains("#9"), "notice names the address: {text}");
         }
@@ -240,7 +240,7 @@ async fn console_verb_without_selection_is_a_notice() {
     console_host_rows(&mut app);
     app.session.host_sessions.clear();
     console_dispatch(&mut app, "/interrupt", false).await;
-    match &app.transcript.host_console_log[..] {
+    match &app.viewport.host_console_log[..] {
         [crate::shell::overlays::ConsoleLine::Notice(text)] => {
             assert!(text.contains("no session"), "notice explains: {text}");
         }
@@ -254,7 +254,7 @@ async fn console_help_lists_the_grammar() {
     console_host_rows(&mut app);
     console_dispatch(&mut app, "/help", false).await;
     let text: Vec<String> = app
-        .transcript
+        .viewport
         .host_console_log
         .iter()
         .filter_map(|l| match l {
@@ -277,14 +277,14 @@ async fn console_kill_key_arms_then_confirms() {
     // First press: armed, with a notice naming the target.
     assert!(app.surfaces.host_kill_confirm.is_some(), "first k arms");
     assert!(matches!(
-        app.transcript.host_console_log.last(),
+        app.viewport.host_console_log.last(),
         Some(crate::shell::overlays::ConsoleLine::Notice(t)) if t.contains("#1")
     ));
     // Second press: confirmed — the arm clears and a kill dispatch logs.
     crate::shell::event_loop::host_test_shims::kill(&mut app, &runtime);
     assert!(app.surfaces.host_kill_confirm.is_none(), "second k fires");
     assert!(matches!(
-        app.transcript.host_console_log.last(),
+        app.viewport.host_console_log.last(),
         Some(crate::shell::overlays::ConsoleLine::Dispatch { action, .. }) if *action == "kill"
     ));
 }
@@ -303,7 +303,7 @@ async fn console_kill_arm_cancels_on_selection_move() {
     crate::shell::event_loop::host_test_shims::kill(&mut app, &runtime);
     assert!(app.surfaces.host_kill_confirm.is_some(), "re-arm, not fire");
     assert_eq!(
-        app.transcript.host_console_log.len(),
+        app.viewport.host_console_log.len(),
         2,
         "no kill dispatched yet"
     );
@@ -393,7 +393,7 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // Browse focus is live: the user clicked into the transcript a moment ago.
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
@@ -425,10 +425,10 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
         "question sheet mounted"
     );
     assert!(
-        app.transcript.focus.is_composer(),
+        app.threads.focus.is_composer(),
         "browse focus must be parked at sheet mount, alongside the step target"
     );
-    assert!(app.transcript.focus.entry().is_none());
+    assert!(app.threads.focus.entry().is_none());
 
     // The user answers; the Closed effect unmounts the sheet. The composer
     // slot is handed back clean — no stale focus dims it.
@@ -473,11 +473,11 @@ async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
         app.active_sheet(),
         Some(crate::shell::sheet::SheetKind::Permission)
     );
-    assert!(app.transcript.focus.is_composer(), "parked at mount");
+    assert!(app.threads.focus.is_composer(), "parked at mount");
 
     // The user clicks the transcript behind the pass-through sheet — the
     // mouse path legitimately re-arms browse focus (mouse.rs).
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
@@ -485,7 +485,7 @@ async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
     // the sheet is already up).
     crate::shell::event_loop::sync::sync_request_surfaces(&mut app, &runtime);
     assert!(
-        app.transcript.focus.is_transcript(),
+        app.threads.focus.is_transcript(),
         "browse focus re-armed behind the pass-through sheet must survive"
     );
 }
@@ -496,12 +496,12 @@ async fn terminal_resize_action_clears_height_cache_and_marks_scroll_settle() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // Populate a height cache entry
-    app.transcript.layout_height_cache.set(1, 10);
-    assert_eq!(app.transcript.layout_height_cache.get(1), Some(10));
+    app.threads.layout_height_cache.set(1, 10);
+    assert_eq!(app.threads.layout_height_cache.get(1), Some(10));
 
     // When scrolled into history (!follow_bottom)
-    app.transcript.follow_bottom = false;
-    app.transcript.scroll_settle_pending = false;
+    app.threads.follow_bottom = false;
+    app.threads.scroll_settle_pending = false;
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -515,9 +515,9 @@ async fn terminal_resize_action_clears_height_cache_and_marks_scroll_settle() {
     .await;
 
     // Height cache must be cleared for re-layout
-    assert_eq!(app.transcript.layout_height_cache.get(1), None);
+    assert_eq!(app.threads.layout_height_cache.get(1), None);
     // Scroll settle must be pending to re-clamp scroll offset
-    assert!(app.transcript.scroll_settle_pending);
+    assert!(app.threads.scroll_settle_pending);
 }
 
 /// ADR-0129 [INV-USAGE-01]: the usage view is decoupled from threads.

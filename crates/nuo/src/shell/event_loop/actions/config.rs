@@ -79,8 +79,8 @@ pub(crate) fn open_active_connection_detail(
         runtime,
         viewed_session_id,
     );
-    let target_id = if !app.session.current_provider.is_empty() {
-        app.session.current_provider.clone()
+    let target_id = if !app.threads.current_provider.is_empty() {
+        app.threads.current_provider.clone()
     } else {
         app.providers_filtered()
             .first()
@@ -119,10 +119,10 @@ pub(crate) fn handle_config_activate(app: &mut App) {
     if app.current_scene() != SceneKind::Settings {
         return;
     }
-    let ws_path = if app.session.current_workspace.is_empty() {
+    let ws_path = if app.threads.current_workspace.is_empty() {
         None
     } else {
-        Some(std::path::Path::new(&app.session.current_workspace))
+        Some(std::path::Path::new(&app.threads.current_workspace))
     };
     let active_category =
         crate::shell::overlays::ConfigCategory::from_index(app.surfaces.config_category);
@@ -177,7 +177,7 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 .default_expanded
                                 .remove(crate::shell::config::THINKING_KEY);
                         }
-                        app.transcript.reasoning_default_expanded = next;
+                        app.viewport.reasoning_default_expanded = next;
                         app.save_tui_config();
                     }
                     Some(ComponentRowId::Tool(component)) => {
@@ -193,9 +193,8 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                         app.save_tui_config();
                     }
                     Some(ComponentRowId::AutoScroll) => {
-                        app.transcript.expand_auto_scroll = !app.transcript.expand_auto_scroll;
-                        app.session.tui_config.expand_auto_scroll =
-                            app.transcript.expand_auto_scroll;
+                        app.viewport.expand_auto_scroll = !app.viewport.expand_auto_scroll;
+                        app.session.tui_config.expand_auto_scroll = app.viewport.expand_auto_scroll;
                         app.save_tui_config();
                     }
                     None => {}

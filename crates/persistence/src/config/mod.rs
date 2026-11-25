@@ -754,6 +754,144 @@ impl Config {
         }
     }
 
+    /// Persist a cross-workspace root into `<project_root>/.nuo/config.toml`
+    /// under `[workspace].additional_roots`, creating `.nuo/config.toml` if
+    /// needed while preserving all other project tables (`[mcp.*]`, `[[hooks]]`,
+    /// `[roles.*]`, etc.).
+    ///
+    /// Deduplicates by canonical path so distinct spellings of the same
+    /// directory are never added twice. Returns the stored entry string.
+    pub fn add_project_additional_root(
+        project_root: &std::path::Path,
+        target_root: &std::path::Path,
+    ) -> Result<String, String> {
+        let canonical_project =
+            std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
+        let canonical_target = std::fs::canonicalize(target_root).map_err(|err| {
+            format!(
+                "cannot resolve cross-workspace root '{}': {err}",
+                target_root.display()
+            )
+        })?;
+        if !canonical_target.is_dir() {
+            return Err(format!(
+                "cross-workspace root '{}' is not a directory",
+                canonical_target.display()
+            ));
+        }
+        if canonical_target == canonical_project || canonical_target.starts_with(&canonical_project)
+        {
+            return Err(format!(
+                "'{}' is already inside the current workspace",
+                canonical_target.display()
+            ));
+        }
+
+        // Prefer a compact sibling-relative spelling (`../other`) when both
+        // directories share the same parent; otherwise store the canonical
+        // absolute path so the entry is unambiguous.
+        let entry = match (
+            canonical_project.parent(),
+            canonical_target.parent(),
+            canonical_target.file_name().and_then(|n| n.to_str()),
+        ) {
+            (Some(p_parent), Some(t_parent), Some(name)) if p_parent == t_parent => {
+                format!("../{name}")
+            }
+            _ => canonical_target.to_string_lossy().into_owned(),
+        };
+
+        let nuo_dir = project_root.join(".nuo");
+        fs::create_dir_all(&nuo_dir).map_err(|err| {
+            format!(
+                "could not create '{}' directory: {err}",
+                nuo_dir.display()
+            )
+        })?;
+        let config_path = nuo_dir.join("config.toml");
+        let _lock = fsutil::FileLock::acquire(&config_path)
+            .map_err(|err| format!("could not lock '{}': {err}", config_path.display()))?;
+
+        let mut doc: toml::Table = match fs::read_to_string(&config_path) {
+            Ok(content) if !content.trim().is_empty() => toml::from_str(&content).map_err(|err| {
+                format!(
+                    "could not parse existing '{}': {err}",
+                    config_path.display()
+                )
+            })?,
+            Ok(_) => toml::Table::new(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
+            Err(err) => {
+                return Err(format!(
+                    "could not read '{}': {err}",
+                    config_path.display()
+                ));
+            }
+        };
+
+        let ws_val = doc
+            .entry("workspace".to_string())
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+        let ws_table = ws_val.as_table_mut().ok_or_else(|| {
+            format!(
+                "'{}' has non-table [workspace] entry",
+                config_path.display()
+            )
+        })?;
+
+        let roots_val = ws_table
+            .entry("additional_roots".to_string())
+            .or_insert_with(|| toml::Value::Array(Vec::new()));
+        let roots_arr = roots_val.as_array_mut().ok_or_else(|| {
+            format!(
+                "'{}' has non-array [workspace].additional_roots",
+                config_path.display()
+            )
+        })?;
+
+        // Check whether any existing entry already resolves to `canonical_target`.
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        for existing in roots_arr.iter() {
+            let Some(raw) = existing.as_str() else {
+                continue;
+            };
+            let expanded = if raw == "~" {
+                home.clone()
+            } else if let Some(rest) = raw.strip_prefix("~/") {
+                home.as_ref().map(|h| h.join(rest))
+            } else {
+                let p = std::path::Path::new(raw);
+                Some(if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    canonical_project.join(p)
+                })
+            };
+            if let Some(expanded) = expanded
+                && let Ok(canon) = std::fs::canonicalize(expanded)
+                && canon == canonical_target
+            {
+                return Ok(raw.to_string());
+            }
+        }
+
+        roots_arr.push(toml::Value::String(entry.clone()));
+        let serialized = toml::to_string_pretty(&doc).map_err(|err| {
+            format!(
+                "could not serialize '{}': {err}",
+                config_path.display()
+            )
+        })?;
+        fs::write(&config_path, serialized).map_err(|err| {
+            format!(
+                "could not write '{}': {err}",
+                config_path.display()
+            )
+        })?;
+
+        Ok(entry)
+    }
+
     /// Resolve the `[workspace].additional_roots` policy for an active project.
     /// Global and trusted project-local additional roots are resolved and canonicalized
     /// against `project_root`. Missing or invalid paths are skipped gracefully rather

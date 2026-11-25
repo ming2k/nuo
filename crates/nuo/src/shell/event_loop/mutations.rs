@@ -257,7 +257,7 @@ pub(crate) enum AppMutation {
     Transcript {
         /// Target thread id (ADR-0251). `Some(id)` routes to the foreground
         /// transcript when `id` is viewed or directly to the resident
-        /// background `ThreadWorkspace`; `None` targets the active foreground.
+        /// background `ThreadInstance`; `None` targets the active foreground.
         thread_id: Option<String>,
         edit: TranscriptEdit,
     },

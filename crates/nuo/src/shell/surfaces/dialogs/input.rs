@@ -40,7 +40,7 @@ pub(super) fn input_dialog(
         if view.keys_open() {
             return DialogOutcome::Consumed;
         }
-        let modal_bounds = app.transcript.ui.bounds(crate::shell::ui::UiKey::Overlay(
+        let modal_bounds = app.viewport.ui.bounds(crate::shell::ui::UiKey::Overlay(
             crate::shell::surfaces::OverlaySurface::Dialog(view.kind()),
         ));
         if let Some(modal_rect) = modal_bounds {
@@ -104,12 +104,12 @@ pub(super) fn input_dialog(
             }
             let count = match view.kind() {
                 DialogKind::Mcp => app
-                    .session
+                    .threads
                     .session_context
                     .as_ref()
                     .map_or(0, |s| s.mcp.len()),
                 _ => app
-                    .session
+                    .threads
                     .session_context
                     .as_ref()
                     .map_or(0, |s| s.skills.len()),
@@ -136,7 +136,7 @@ pub(super) fn input_dialog(
         }
         DialogKind::Permissions => {
             let count = app
-                .session
+                .threads
                 .session_context
                 .as_ref()
                 .map_or(0, |s| s.permissions.len());
@@ -235,7 +235,7 @@ pub(super) fn input_dialog(
             DialogOutcome::Consumed
         }
         DialogKind::SessionTree => {
-            let count = crate::shell::overlays::tree::flatten_tree(&app.session.session_tree).len();
+            let count = crate::shell::overlays::tree::flatten_tree(&app.threads.session_tree).len();
             if count == 0 {
                 return DialogOutcome::Unhandled;
             }
@@ -270,7 +270,7 @@ pub(super) fn input_dialog(
             // selection target, and a cursor that could land on a heading would
             // let `Enter` expand nothing.
             let count = app
-                .telemetry
+                .threads
                 .context_plan
                 .as_ref()
                 .map(|plan| plan.blocks.len())

@@ -96,10 +96,10 @@ impl App {
         self.provider_editor.oauth_pending_user_code.clear();
         self.provider_editor.oauth_pending_error = None;
         self.provider_editor.oauth_scroll = 0;
-        self.transcript.selection = SelectionState::None;
-        self.transcript.drag.cancel();
-        self.transcript.focus.enter_composer();
-        self.transcript.ui.runtime.release_pointer();
+        self.threads.selection = SelectionState::None;
+        self.viewport.drag.cancel();
+        self.threads.focus.enter_composer();
+        self.viewport.ui.runtime.release_pointer();
         if !self
             .surfaces
             .surfaces
@@ -130,10 +130,10 @@ impl App {
             .dismiss_sheet_kind(crate::shell::surfaces::SheetKind::OAuthPending);
 
         // Reset all mouse selection, drag, and focus states so the user can immediately type!
-        self.transcript.selection = SelectionState::None;
-        self.transcript.drag.cancel();
-        self.transcript.focus.enter_composer();
-        self.transcript.ui.runtime.release_pointer();
+        self.threads.selection = SelectionState::None;
+        self.viewport.drag.cancel();
+        self.threads.focus.enter_composer();
+        self.viewport.ui.runtime.release_pointer();
 
         if !self
             .surfaces
@@ -186,10 +186,10 @@ impl App {
             self.provider_editor.oauth_pending_user_code.clear();
             self.provider_editor.oauth_pending_message.clear();
             self.provider_editor.oauth_pending_error = None;
-            self.transcript.selection = SelectionState::None;
-            self.transcript.drag.cancel();
-            self.transcript.focus.enter_composer();
-            self.transcript.ui.runtime.release_pointer();
+            self.threads.selection = SelectionState::None;
+            self.viewport.drag.cancel();
+            self.threads.focus.enter_composer();
+            self.viewport.ui.runtime.release_pointer();
             self.surfaces
                 .surfaces
                 .dismiss_sheet_kind(crate::shell::surfaces::SheetKind::OAuthPending);
@@ -213,10 +213,10 @@ impl App {
         {
             self.composer.input.clear();
             self.set_cursor(0);
-            self.transcript.selection = SelectionState::None;
-            self.transcript.drag.cancel();
-            self.transcript.focus.enter_composer();
-            self.transcript.ui.runtime.release_pointer();
+            self.threads.selection = SelectionState::None;
+            self.viewport.drag.cancel();
+            self.threads.focus.enter_composer();
+            self.viewport.ui.runtime.release_pointer();
             self.pop_transient_surface();
             self.set_picker_search(false);
             self.reset_picker_nav();
@@ -234,10 +234,10 @@ impl App {
             self.set_cursor(0);
             self.provider_editor.custom_field = 0;
             self.provider_editor.custom_edit_id = None;
-            self.transcript.selection = SelectionState::None;
-            self.transcript.drag.cancel();
-            self.transcript.focus.enter_composer();
-            self.transcript.ui.runtime.release_pointer();
+            self.threads.selection = SelectionState::None;
+            self.viewport.drag.cancel();
+            self.threads.focus.enter_composer();
+            self.viewport.ui.runtime.release_pointer();
             self.pop_transient_surface();
             self.set_picker_search(false);
             self.reset_picker_nav();
@@ -457,8 +457,8 @@ impl App {
     pub fn models_flat_filtered(&self) -> Vec<RankedModel> {
         models_flat_filtered_from_with_quotas(
             &self.surfaces.provider_picker,
-            &self.session.current_provider,
-            &self.session.current_model,
+            &self.threads.current_provider,
+            &self.threads.current_model,
             self.picker_query(),
             self.telemetry.provider_quotas.as_ref(),
         )
@@ -471,11 +471,11 @@ impl App {
             .provider_picker
             .rows
             .iter()
-            .find(|row| row.id == self.session.current_provider)
+            .find(|row| row.id == self.threads.current_provider)
             .and_then(|row| {
                 row.model_info
                     .iter()
-                    .find(|info| info.model == self.session.current_model)
+                    .find(|info| info.model == self.threads.current_model)
             })
     }
 
@@ -490,7 +490,7 @@ impl App {
         if let Some(info) = self.active_model_info() {
             return info.context_window;
         }
-        protocol::model::resolve(&self.session.current_model).context_window
+        protocol::model::resolve(&self.threads.current_model).context_window
     }
 
     /// Whether images would travel to the active route.

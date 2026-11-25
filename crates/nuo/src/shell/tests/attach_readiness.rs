@@ -22,7 +22,7 @@ fn apply_phase(app: &mut crate::shell::app::App, phase: protocol::ThreadPhase) {
 #[test]
 fn client_queues_until_ready_then_flushes() {
     let mut app = new_app_for_relay_tests();
-    app.session.session_phase = protocol::ThreadPhase::Preparing {
+    app.threads.session_phase = protocol::ThreadPhase::Preparing {
         stage: protocol::PrepareStage::Skills,
     };
     app.composer
@@ -37,7 +37,7 @@ fn client_queues_until_ready_then_flushes() {
 
     apply_phase(&mut app, protocol::ThreadPhase::Ready);
 
-    assert_eq!(app.session.session_phase, protocol::ThreadPhase::Ready);
+    assert_eq!(app.threads.session_phase, protocol::ThreadPhase::Ready);
     assert!(app.composer.pending_prompts.is_empty());
     assert!(matches!(
         rx.try_recv().ok().and_then(|o| o.into_request()),
@@ -60,7 +60,7 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
 
     assert!(app.session.switching_session.is_none());
     assert!(matches!(
-        app.session.session_phase,
+        app.threads.session_phase,
         protocol::ThreadPhase::Failed { .. }
     ));
     assert!(
@@ -90,7 +90,7 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
 fn ready_re_reads_the_authoritative_queue() {
     let mut app = new_app_for_relay_tests();
     app.session.current_session_id = "s1".to_string();
-    app.session.session_phase = protocol::ThreadPhase::Preparing {
+    app.threads.session_phase = protocol::ThreadPhase::Preparing {
         stage: protocol::PrepareStage::Skills,
     };
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();

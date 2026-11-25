@@ -10,9 +10,14 @@
 //! durable; it cannot force a handler to produce one. A future handler that
 //! mutates and records nothing would leave the ledger silently blind — the audit
 //! analogue of an orphan contract. So every dispatched **act** is bracketed by a
-//! ledger observation: if the handler neither appended a record nor minted a new
-//! session (a reset/fork records into the new ledger), one invocation-only row is
+//! ledger observation: if the handler appended no record, one invocation-only row is
 //! written. A spurious row is merely noisy; a missing one is unrecoverable.
+//!
+//! A topology change (`CommandEffect::SessionControl`) records into the ledger it
+//! *creates* — `/new` mints a session and then writes this command into that session's
+//! ledger. The mark is therefore taken again on the new identity before comparing, which
+//! is what retired the old "a session reset counts as recorded" exemption: the class now
+//! says so, instead of the net special-casing one handler's shape.
 //!
 //! The four surface-owned commands are outside that bracket by construction: they
 //! call no handler, so no act happened here and nothing may be recorded for them.
@@ -21,7 +26,6 @@ use super::SlashEnv;
 use super::commands;
 use super::record;
 use crate::composition::startup::{BuiltinCmd, effect_for};
-use tool::CommandEffect;
 
 /// What the router reached. Distinguishes "a handler ran here" (bracket it) from
 /// "the client owns this surface" (answer, record nothing).
@@ -48,9 +52,15 @@ pub async fn dispatch(cmd: String, env: SlashEnv<'_>) {
     let session = std::sync::Arc::clone(env.session);
     // The ledger mark is taken before dispatch and compared after: a handler that
     // recorded anything (including into a freshly minted ledger) moves it.
-    let mark = match effect {
-        CommandEffect::Mutation => Some(LedgerMark::of(&session, name, args).await),
-        CommandEffect::Reading => None,
+    // Bracket every command that makes a durable claim. `SessionControl` is included: it
+    // changes topology and owes the audit a row — in the ledger it recorded into, which
+    // for `/new` is the *new* session's. What it must not do is produce a row in a
+    // thread's transcript, which is a placement question the client answers from
+    // `occupies_a_row` and not from this bracket.
+    let mark = if effect.is_durable() {
+        Some(LedgerMark::of(&session, name, args).await)
+    } else {
+        None
     };
 
     let routed = match BuiltinCmd::from_slash(parts[0]) {
@@ -221,8 +231,32 @@ impl<'a> LedgerMark<'a> {
     }
 
     /// Write an invocation-only row when a dispatched act left no trace at all.
+    ///
+    /// The identity check that used to sit here ("a session reset counts as recorded") is
+    /// gone. It existed only because `CommandEffect` could not say what `/new` is: a reset
+    /// minted a fresh ledger, so a length comparison against the *old* ledger could never
+    /// see the row the handler had just written into the new one. With
+    /// [`CommandEffect::SessionControl`] the class states that a topology change records
+    /// into the ledger it creates, so the bracket no longer has to guess — and a control
+    /// handler that records nothing is now caught, where before it was silently exempt.
     async fn assert_recorded(self, session: &std::sync::Arc<persistence::thread::ThreadSession>) {
+        // A reset or fork repoints the store, so the ledger to compare is a *different*
+        // one and a length difference against the old mark is meaningless (`/new` on a
+        // thread with three records would look like it lost two).
         if session.id().await != self.thread_id {
+            if session.commands().await.is_empty() {
+                // A topology change that left its new ledger empty is a defect, but
+                // fabricating a row would be worse than reporting it: the row would be an
+                // invented history for a thread that has none, and the next reader could not
+                // tell it from a real act. So the net discloses and stops; the class
+                // (`SessionControl`) is what makes the omission visible here at all, where
+                // the old exemption hid it.
+                tracing::warn!(
+                    name = self.name,
+                    "a dispatched topology change recorded nothing into the ledger it created \
+                     (ADR-0252 §2); not fabricating a row in a fresh thread"
+                );
+            }
             return;
         }
         if session.commands().await.len() != self.len {

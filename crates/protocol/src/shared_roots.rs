@@ -41,6 +41,21 @@ impl SharedAdditionalRoots {
         *admitted = roots;
     }
 
+    /// Admit one additional root if it is not already present.
+    /// Returns `true` when the root was newly inserted.
+    pub fn add(&self, root: PathBuf) -> bool {
+        let canonical = std::fs::canonicalize(&root).unwrap_or(root);
+        let mut admitted = self
+            .0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if admitted.contains(&canonical) {
+            return false;
+        }
+        admitted.push(canonical);
+        true
+    }
+
     /// True when nothing beyond the primary is admitted right now.
     pub fn is_empty(&self) -> bool {
         self.0

@@ -80,6 +80,118 @@ fn admit_model_path(
     Ok(candidate)
 }
 
+/// Candidate external directory resolved from an out-of-workspace model path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CrossWorkspaceCandidate {
+    /// Nearest existing directory containing the requested path (or the
+    /// directory itself when the target is an existing directory).
+    exact_dir: std::path::PathBuf,
+    /// Optional enclosing project root above `exact_dir` (detected via common
+    /// repository/manifest markers), never `/` or `$HOME` or an ancestor of the
+    /// active workspace.
+    project_root: Option<std::path::PathBuf>,
+    /// Normalized target path requested by the tool.
+    target_path: std::path::PathBuf,
+}
+
+const PROJECT_ROOT_MARKERS: &[&str] = &[
+    ".git",
+    ".nuo",
+    "Cargo.toml",
+    "package.json",
+    "pyproject.toml",
+    "go.mod",
+    "Makefile",
+    "CMakeLists.txt",
+    "pom.xml",
+    "build.gradle",
+    "settings.gradle",
+    "composer.json",
+    "Gemfile",
+];
+
+fn resolve_cross_workspace_candidate(
+    workspace_root: &std::path::Path,
+    raw: &str,
+) -> Option<CrossWorkspaceCandidate> {
+    let supplied = std::path::Path::new(raw);
+    let candidate = if supplied.is_absolute() {
+        supplied.to_path_buf()
+    } else {
+        workspace_root.join(supplied)
+    };
+    let normalized = protocol::execution::lexical_normalize(&candidate);
+    let canonical_workspace =
+        std::fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
+
+    // Canonicalize the longest existing prefix so symlinks resolve to their
+    // real external destination and not-yet-created writes resolve to their
+    // nearest existing parent directory.
+    let mut probe = normalized.as_path();
+    let canonical_existing = loop {
+        if let Ok(path) = std::fs::canonicalize(probe) {
+            break Some(path);
+        }
+        match probe.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => probe = parent,
+            _ => break None,
+        }
+    }?;
+
+    let exact_dir = if canonical_existing.is_dir() {
+        canonical_existing
+    } else {
+        canonical_existing.parent()?.to_path_buf()
+    };
+
+    // Never offer to admit the filesystem root `/` or a path already inside the
+    // active workspace.
+    if exact_dir.parent().is_none()
+        || exact_dir == canonical_workspace
+        || exact_dir.starts_with(&canonical_workspace)
+    {
+        return None;
+    }
+
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .map(|h| std::fs::canonicalize(&h).unwrap_or(h));
+
+    // Walk up from `exact_dir` looking for an enclosing project root marker.
+    let mut project_root = None;
+    let mut cursor = exact_dir.as_path();
+    while let Some(parent) = cursor.parent() {
+        if cursor.parent().is_none() {
+            break;
+        }
+        if home.as_deref() == Some(cursor) {
+            break;
+        }
+        if canonical_workspace.starts_with(cursor) {
+            break;
+        }
+        if PROJECT_ROOT_MARKERS
+            .iter()
+            .any(|marker| cursor.join(marker).exists())
+        {
+            if cursor != exact_dir {
+                project_root = Some(cursor.to_path_buf());
+            }
+            break;
+        }
+        if parent == cursor {
+            break;
+        }
+        cursor = parent;
+    }
+
+    Some(CrossWorkspaceCandidate {
+        exact_dir,
+        project_root,
+        target_path: normalized,
+    })
+}
+
 /// Adapter that turns a tool's context stream/progress sink into session events.
 struct ChannelStreamSink {
     tx: mpsc::UnboundedSender<AgentEvent>,
@@ -688,7 +800,8 @@ impl Agent {
         if tool::is_virtual_path(&raw) {
             return;
         }
-        let Ok(resolved) = admit_model_path(&root, self.additional_workspace_roots(), &raw) else {
+        let additional = self.additional_workspace_roots();
+        let Ok(resolved) = admit_model_path(&root, &additional, &raw) else {
             return;
         };
         let mut directory = if resolved.is_dir() {
@@ -793,10 +906,21 @@ impl Agent {
             )
     }
 
-    /// Return a terminal tool output when a path-bearing call escapes the
-    /// admitted workspace roots. Virtual paths (`skill://`, `offstream://`) are
-    /// resolved by their own resolver and are not host paths.
-    fn check_model_path_boundary(&self, call: &ToolCall) -> Option<ToolOutput> {
+    /// Enforce the workspace path boundary for a path-bearing tool call.
+    ///
+    /// When the target path lies outside the admitted roots:
+    /// - Under autonomous posture or unattended mode, fails closed without
+    ///   widening the boundary.
+    /// - Under an interactive session, prompts the operator to grant
+    ///   cross-workspace access to the external directory either for the
+    ///   current session (non-persistent) or persisted to `.nuo/config.toml`
+    ///   (with `ExWorkspace` trust updated automatically).
+    async fn check_or_prompt_model_path_boundary(
+        &self,
+        call: &ToolCall,
+        tool: &Arc<dyn Tool>,
+        event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) -> Option<ToolOutput> {
         let raw = serde_json::from_str::<serde_json::Value>(&call.arguments)
             .ok()?
             .get("path")
@@ -808,18 +932,184 @@ impl Agent {
             return None;
         }
         let root = self.workspace_root()?;
-        match admit_model_path(&root, self.additional_workspace_roots(), &raw) {
-            Ok(_) => None,
-            Err(detail) => Some(ToolOutput::Error {
+
+        // Fast path: already admitted (no lock).
+        let additional = self.additional_workspace_roots();
+        if admit_model_path(&root, &additional, &raw).is_ok() {
+            return None;
+        }
+
+        // Serialize concurrent cross-workspace prompts in the same batch so
+        // parallel tool calls into the same external directory only ask once.
+        let _gate = self.context.cross_workspace_gate.lock().await;
+        let additional = self.additional_workspace_roots();
+        let detail = match admit_model_path(&root, &additional, &raw) {
+            Ok(_) => return None,
+            Err(detail) => detail,
+        };
+
+        // Fail closed when no human can decide or when running unattended
+        // (`--auto-approve` must not silently imply `--unconfined`).
+        if self.unattended() || self.human_posture() == HumanChannelPosture::Autonomous {
+            if self.human_posture() == HumanChannelPosture::Autonomous {
+                self.control
+                    .human_broker
+                    .metrics_note_refused(HumanRequestKind::Permission);
+            }
+            return Some(ToolOutput::Error {
                 message: format!(
                     "Refused `{}`: the path is outside this session's admitted workspace.",
                     call.name
                 ),
                 detail: Some(format!(
-                    "{detail}. Use a workspace-relative path, or ask the operator to add \
-                     the root under [workspace].additional_roots."
+                    "{detail}. Use a workspace-relative path, add the directory under \
+                     [workspace].additional_roots in .nuo/config.toml, or run with /confinement off."
                 )),
-            }),
+            });
+        }
+
+        let Some(candidate) = resolve_cross_workspace_candidate(&root, &raw) else {
+            return Some(ToolOutput::Error {
+                message: format!(
+                    "Refused `{}`: the path is outside this session's admitted workspace.",
+                    call.name
+                ),
+                detail: Some(format!(
+                    "{detail}. That location cannot be admitted as an external workspace root."
+                )),
+            });
+        };
+
+        let primary_dir = candidate
+            .project_root
+            .as_ref()
+            .unwrap_or(&candidate.exact_dir);
+        let description = format!(
+            "Tool `{}` wants to access `{}` outside the current workspace.\n\
+             Allow cross-workspace access to `{}`?",
+            call.name,
+            candidate.target_path.display(),
+            primary_dir.display(),
+        );
+        let request = tool::PermissionRequest {
+            id: format!("permission_{}", uuid::Uuid::new_v4()),
+            tool: call.name.clone(),
+            label: "Cross-workspace access".to_string(),
+            description,
+            arguments: call.arguments.clone(),
+            scope: candidate.exact_dir.display().to_string(),
+            suggested_scope: candidate
+                .project_root
+                .as_ref()
+                .map(|p| p.display().to_string()),
+            elevation: true,
+            one_off: false,
+            origin: None,
+            hazard: Some(tool::HazardLevel::from(tool.risk_profile())),
+            submission: None,
+            preview: None,
+        };
+
+        let receiver = self
+            .control
+            .human_broker
+            .park(request.id.clone(), HumanRequestKind::Permission);
+        let parked_at = std::time::Instant::now();
+        tracing::info!(
+            tool = %request.tool,
+            scope = %request.scope,
+            suggested = ?request.suggested_scope,
+            "cross-workspace access requested"
+        );
+        let _ = event_tx.send(AgentEvent::PermissionRequest(request.clone()));
+        self.fire_permission_request_hooks(&request).await;
+        let decision = match receiver.await.ok().map(|s| s.reply) {
+            Some(HumanReply::Permission(decision)) => decision,
+            _ => PermissionDecision::Reject,
+        };
+        self.book_pause(parked_at.elapsed().as_millis() as u64);
+
+        match decision {
+            PermissionDecision::Session | PermissionDecision::Once => {
+                let target_dir = primary_dir.clone();
+                tracing::info!(
+                    tool = %call.name,
+                    dir = %target_dir.display(),
+                    "cross-workspace access granted for current session (non-persistent)"
+                );
+                self.admit_additional_workspace_root(target_dir);
+                None
+            }
+            PermissionDecision::Always => {
+                let target_dir = primary_dir.clone();
+                self.admit_additional_workspace_root(target_dir.clone());
+                self.persist_cross_workspace_root(&root, &target_dir);
+                None
+            }
+            PermissionDecision::AlwaysExact => {
+                let target_dir = candidate.exact_dir.clone();
+                self.admit_additional_workspace_root(target_dir.clone());
+                self.persist_cross_workspace_root(&root, &target_dir);
+                None
+            }
+            PermissionDecision::Reject => {
+                tracing::info!(
+                    tool = %call.name,
+                    path = %candidate.target_path.display(),
+                    "cross-workspace access denied by operator"
+                );
+                Some(ToolOutput::Error {
+                    message: format!(
+                        "Refused `{}`: cross-workspace access to `{}` was denied.",
+                        call.name,
+                        primary_dir.display()
+                    ),
+                    detail: Some(format!(
+                        "{detail}. The operator declined to grant cross-workspace access."
+                    )),
+                })
+            }
+        }
+    }
+
+    /// Persist a newly approved cross-workspace root into `<workspace>/.nuo/config.toml`
+    /// and attest `TrustDomain::ExWorkspace` so subsequent sessions admit it automatically.
+    fn persist_cross_workspace_root(
+        &self,
+        workspace_root: &std::path::Path,
+        target_dir: &std::path::Path,
+    ) {
+        match persistence::config::Config::add_project_additional_root(workspace_root, target_dir) {
+            Ok(entry) => {
+                tracing::info!(
+                    workspace = %workspace_root.display(),
+                    entry = %entry,
+                    "persisted cross-workspace root to .nuo/config.toml"
+                );
+                let store = persistence::workspace_security::WorkspaceSecurityStore::load();
+                match store.trust_domain(workspace_root, protocol::TrustDomain::ExWorkspace) {
+                    Ok(_) => {
+                        if let Ok(mut snap) = self.context.workspace_security.lock() {
+                            snap.ex_workspace = protocol::WorkspaceTrustState::Trusted;
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            workspace = %workspace_root.display(),
+                            error = %err,
+                            "persisted cross-workspace root but failed to update ExWorkspace trust"
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    workspace = %workspace_root.display(),
+                    target = %target_dir.display(),
+                    error = %err,
+                    "failed to persist cross-workspace root to .nuo/config.toml; keeping session-only grant"
+                );
+            }
         }
     }
 
@@ -832,7 +1122,7 @@ impl Agent {
         if let Some(root) = self.workspace_root() {
             roots.push(root);
         }
-        roots.extend(self.additional_workspace_roots().iter().cloned());
+        roots.extend(self.additional_workspace_roots());
         if !roots.is_empty() {
             context = context.with_workspace_roots(roots);
         }
@@ -901,13 +1191,16 @@ impl Agent {
             }
         };
 
-        // Workspace boundary. This is a correctness gate, not a permission
-        // prompt: a model-supplied path that lexically or canonically escapes
-        // the admitted roots is refused before the tool can touch the host.
-        // `--unconfined` sessions skip it by design.
+        // Workspace boundary gate. When a confined session's path-bearing tool
+        // targets a path outside the admitted roots, prompt the operator for
+        // session-scoped (non-persistent) or `.nuo/config.toml`-persisted
+        // cross-workspace access (failing closed under autonomous/unattended).
+        // `--unconfined` / `/confinement off` sessions skip this gate by design.
         if self.is_confined()
             && tool.path_bound()
-            && let Some(violation) = self.check_model_path_boundary(call)
+            && let Some(violation) = self
+                .check_or_prompt_model_path_boundary(call, &tool, event_tx)
+                .await
         {
             return violation;
         }
@@ -1374,7 +1667,7 @@ impl tool::InputHandler for AgentInputSupervisor<'_> {
 
 #[cfg(test)]
 mod path_boundary_tests {
-    use super::admit_model_path;
+    use super::{admit_model_path, resolve_cross_workspace_candidate};
     use std::path::{Path, PathBuf};
 
     /// A scratch root outside the platform temp directory. The production
@@ -1437,6 +1730,59 @@ mod path_boundary_tests {
         std::fs::write(outside.join("secret"), "secret").unwrap();
         std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
         assert!(admit_model_path(&root, &[], "escape/secret").is_err());
+        cleanup(&root);
+        cleanup(&outside);
+    }
+
+    #[test]
+    fn cross_workspace_candidate_detects_project_root_and_exact_dir() {
+        let root = scratch("cw-primary");
+        let external_repo = scratch("cw-external-repo");
+        std::fs::create_dir_all(external_repo.join(".git")).unwrap();
+        std::fs::create_dir_all(external_repo.join("src/nested")).unwrap();
+        let file = external_repo.join("src/nested/lib.rs");
+        std::fs::write(&file, "pub fn ok() {}").unwrap();
+
+        let candidate =
+            resolve_cross_workspace_candidate(&root, &file.to_string_lossy()).expect("candidate");
+        assert_eq!(
+            candidate.exact_dir,
+            std::fs::canonicalize(external_repo.join("src/nested")).unwrap()
+        );
+        assert_eq!(
+            candidate.project_root,
+            Some(std::fs::canonicalize(&external_repo).unwrap())
+        );
+
+        // A file directly in the repo root has exact_dir == repo root and project_root == None.
+        let top_file = external_repo.join("README.md");
+        std::fs::write(&top_file, "hi").unwrap();
+        let top_candidate =
+            resolve_cross_workspace_candidate(&root, &top_file.to_string_lossy()).unwrap();
+        assert_eq!(
+            top_candidate.exact_dir,
+            std::fs::canonicalize(&external_repo).unwrap()
+        );
+        assert_eq!(top_candidate.project_root, None);
+
+        // Filesystem root `/` is never offered as a cross-workspace root.
+        assert!(resolve_cross_workspace_candidate(&root, "/").is_none());
+
+        cleanup(&root);
+        cleanup(&external_repo);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cross_workspace_candidate_follows_symlink_escape() {
+        let root = scratch("cw-sym-primary");
+        let outside = scratch("cw-sym-outside");
+        std::fs::write(outside.join("secret.txt"), "top secret").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+
+        let candidate = resolve_cross_workspace_candidate(&root, "link/secret.txt").unwrap();
+        assert_eq!(candidate.exact_dir, std::fs::canonicalize(&outside).unwrap());
+
         cleanup(&root);
         cleanup(&outside);
     }

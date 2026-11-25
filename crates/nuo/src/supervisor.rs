@@ -15,49 +15,46 @@ pub struct ServerStart {
     pub zero_tcp: bool,
 }
 
-/// Start detached: spawn the server in the background and return.
-/// If a conflicting server is already running, directly replace it (ADR-0029).
+/// Start detached: terminate any existing server, spawn the new server in the
+/// background, and wait until the replacement is live and discoverable (ADR-0029).
 pub async fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(info) = client::discover(Path::new(".")).await
         && info.pid != std::process::id()
     {
         eprintln!("nuo: replacing existing server (pid {})...", info.pid);
-        let _ =
-            host::process::takeover_pid_sync(info.pid, host::process::TakeoverOptions::default());
-        client::discovery::remove(&client::discovery::global_discovery_path());
     }
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nuo"));
-    let mut command = std::process::Command::new(&program);
-    command.args(["server", "start", "--fg"]);
+    let mut args = vec![
+        "server".to_string(),
+        "start".to_string(),
+        "--fg".to_string(),
+    ];
     if flags.zero_tcp {
-        command.arg("--zero-tcp");
+        args.push("--zero-tcp".to_string());
     }
     if let Some(port) = flags.port {
-        command.arg("--port").arg(port.to_string());
+        args.push("--port".to_string());
+        args.push(port.to_string());
     }
     if flags.public {
-        command.arg("--public");
+        args.push("--public".to_string());
     }
     if flags.no_local_auth {
-        command.arg("--no-local-auth");
+        args.push("--no-local-auth".to_string());
     }
     if let Some(minutes) = flags.idle_exit_minutes {
-        command.arg("--idle-exit").arg(minutes.to_string());
+        args.push("--idle-exit".to_string());
+        args.push(minutes.to_string());
     }
     if let Some(secs) = flags.shutdown_grace_secs {
-        command.arg("--grace").arg(secs.to_string());
+        args.push("--grace".to_string());
+        args.push(secs.to_string());
     }
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
 
-    client::configure_server_detachment(&mut command);
-    command
-        .spawn()
-        .map_err(|e| format!("could not spawn {}: {e}", program.display()))?;
+    let info = client::replace_and_spawn_server(Path::new("."), &program, &args).await?;
     eprintln!(
-        "nuo: server started in the background (`nuo status` to observe, `nuo server stop` to stop it)"
+        "nuo: server started in the background (pid {}; `nuo status` to observe, `nuo server stop` to stop it)",
+        info.pid
     );
     Ok(())
 }

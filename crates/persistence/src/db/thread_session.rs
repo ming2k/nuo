@@ -77,15 +77,9 @@ fn thread_filter_sql(
         clauses.push(format!("{role_col} = ?"));
         values.push(Value::Text(role.clone()));
     }
-    match &filter.workspace {
-        protocol::WorkspaceFilter::Any => {}
-        protocol::WorkspaceFilter::Path(path) => {
-            clauses.push(format!("{workspace_col} = ?"));
-            values.push(Value::Text(path.to_string_lossy().into_owned()));
-        }
-        protocol::WorkspaceFilter::Unbound => {
-            clauses.push(format!("({workspace_col} IS NULL OR {workspace_col} = '')"));
-        }
+    if let Some(path) = &filter.workspace {
+        clauses.push(format!("{workspace_col} = ?"));
+        values.push(Value::Text(path.to_string_lossy().into_owned()));
     }
     let where_sql = if clauses.is_empty() {
         String::new()
@@ -1153,14 +1147,6 @@ pub(crate) fn latest_session(
     let get = |row: &Row| row.get::<_, String>(0);
     stmt.query_row(rusqlite::params_from_iter(values), get)
         .optional()
-}
-
-/// The most recent non-subagent session in an exact scope. Backs `--resume`.
-pub(crate) fn latest_session_in_scope(
-    conn: &Connection,
-    scope: &protocol::ThreadScope,
-) -> Result<Option<String>> {
-    latest_session(conn, &scope.filter())
 }
 
 /// Retrieve full session detail for on-demand inspection.

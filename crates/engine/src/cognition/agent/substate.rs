@@ -99,10 +99,15 @@ pub(crate) struct ContextState {
     /// `updated_at_round` for the TUI stale detector.
     pub(crate) round_counter: Arc<std::sync::Mutex<u64>>,
     pub(crate) permissions: Arc<guardrails::permission_store::PermissionStore>,
-    /// Canonicalized additional workspace roots, set once by the
-    /// assembling bootstrap. Kept as an owned copy so system-prompt assembly
-    /// never re-reads the project config mid-session.
-    pub(crate) additional_workspace_roots: Vec<std::path::PathBuf>,
+    /// Live-updatable additional workspace roots shared with the execution
+    /// environment so runtime grants (cross-workspace prompts, `/trust`,
+    /// `/settings reload`) immediately propagate to both the agent gate and
+    /// filesystem tools.
+    pub(crate) additional_workspace_roots: protocol::SharedAdditionalRoots,
+    /// Serializes concurrent cross-workspace admission prompts within a batch
+    /// so parallel tool calls targeting the same external directory prompt the
+    /// operator once rather than fanning out duplicate sheets.
+    pub(crate) cross_workspace_gate: tokio::sync::Mutex<()>,
     /// Cached workspace member topology, keyed by the root manifest's mtime.
     /// The topology is prompt-stable; re-reading every member manifest on
     /// every model request is pure hot-path I/O. One `stat` per request is

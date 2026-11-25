@@ -26,7 +26,6 @@ pub mod process;
 pub mod secure_file;
 pub mod shell;
 pub mod supervised;
-pub mod workspace;
 pub mod workspace_sandbox;
 
 pub use environment::{detect_device_fingerprint, detect_runtime_environment, generate_session_id};
@@ -46,7 +45,6 @@ pub use supervised::{
     JobState, Readiness, RestartPolicy,
 };
 pub use web_config::*;
-pub use workspace::{WorkspaceBinding, WorkspaceFilter};
 
 #[cfg(windows)]
 mod windows_security;

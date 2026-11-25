@@ -334,7 +334,7 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
     assert!(app.dialog_available(crate::shell::surfaces::DialogKind::HistorySearch));
 
     // 1. Simulate step focus: composer becomes inactive
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             InteractiveTarget::tool_step(0),
@@ -357,12 +357,12 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
     // the interrupt chord and never moves the keyboard; ADR-0145).
     let back_tab = Event::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, "session-test").await;
-    assert!(app.transcript.focus.entry().is_none());
+    assert!(app.threads.focus.entry().is_none());
     assert!(app.is_composer_focused());
     assert!(app.dialog_available(crate::shell::surfaces::DialogKind::HistorySearch));
 
     // 3. Simulate transcript browse focus: composer becomes inactive
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
     assert!(!app.is_composer_focused());
@@ -380,7 +380,7 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
 
     // 4. Shift-Tab crosses back from browse focus too.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, "session-test").await;
-    assert!(app.transcript.focus.is_composer());
+    assert!(app.threads.focus.is_composer());
     assert!(app.is_composer_focused());
 
     // 5. With composer active, Ctrl-R opens HistorySearch

@@ -56,26 +56,22 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::SetRoundCount { thread_id, round } => {
-            if is_background_thread(app, thread_id.as_deref()) {
-                if let Some(tid) = thread_id {
-                    app.session.workspaces.entry(tid).or_default().round_count = round;
-                }
-                false
-            } else {
-                app.session.round_count = round;
-                true
-            }
+            let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
+                return false;
+            };
+            inst.round_count = round;
+            is_fg
         }
         AppMutation::SetCurrentTurn(turn) => {
-            app.session.current_turn = turn;
+            app.threads.current_turn = turn;
             true
         }
         AppMutation::SetRoundStartedAt(started) => {
-            app.session.round_started_at = started;
+            app.threads.round_started_at = started;
             true
         }
         AppMutation::SetProviderRetry(retry) => {
-            app.session.provider_retry = Some(retry);
+            app.threads.provider_retry = Some(retry);
             true
         }
 
@@ -95,11 +91,11 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::HarnessUnattended(enabled) => {
-            app.session.unattended = enabled;
+            app.threads.unattended = enabled;
             true
         }
         AppMutation::HarnessConfined(confined) => {
-            app.session.confined = confined;
+            app.threads.confined = confined;
             true
         }
         AppMutation::ClearSwitchingSession => {
@@ -134,11 +130,11 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         AppMutation::SessionDetail(detail) => apply_session_detail(app, detail),
         AppMutation::ConnectionDetail(detail) => apply_connection_detail(app, detail),
         AppMutation::SessionTree(tree) => {
-            app.session.session_tree = tree;
+            app.threads.session_tree = tree;
             true
         }
         AppMutation::SessionContext(snapshot) => {
-            app.session.session_context = Some(snapshot);
+            app.threads.session_context = Some(snapshot);
             true
         }
         AppMutation::CompletionSignal(signal) => {
@@ -230,18 +226,12 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             provider,
             model,
         } => {
-            if is_background_thread(app, thread_id.as_deref()) {
-                if let Some(tid) = thread_id {
-                    let ws = app.session.workspaces.entry(tid).or_default();
-                    ws.provider = provider;
-                    ws.model = model;
-                }
-                false
-            } else {
-                app.session.current_provider = provider;
-                app.session.current_model = model;
-                true
-            }
+            let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
+                return false;
+            };
+            inst.current_provider = provider;
+            inst.current_model = model;
+            is_fg
         }
         AppMutation::WebSearchConfig(snapshot) => {
             app.surfaces.websearch_config = snapshot;
@@ -261,12 +251,12 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
 
         // ---- Telemetry / usage --------------------------------------------
         AppMutation::TokenReport(report) => {
-            app.telemetry.token_report = report;
+            app.threads.token_report = report;
             true
         }
         AppMutation::ContextPlan(plan) => {
-            app.telemetry.context_plan = plan;
-            app.telemetry.context_plan_loaded = true;
+            app.threads.context_plan = plan;
+            app.threads.context_plan_loaded = true;
             true
         }
         AppMutation::UsageStats(report) => apply_usage_stats(app, report),
@@ -290,8 +280,8 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             // a session change is the exact failure the reply's `thread_id` guard
             // exists to prevent — the guard rejects the *reply*, so the stale
             // value must go with the session it described (ADR-0220 §3).
-            app.telemetry.context_plan = None;
-            app.telemetry.context_plan_loaded = false;
+            app.threads.context_plan = None;
+            app.threads.context_plan_loaded = false;
             true
         }
 
@@ -309,7 +299,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::HostConsole(line) => {
-            app.transcript.host_console_log.push(line);
+            app.viewport.host_console_log.push(line);
             true
         }
     }
@@ -335,17 +325,6 @@ fn apply_chrome_mutation(app: &mut App, session_id: &str, edit: ChromeEdit) -> b
     true
 }
 
-/// Whether `thread_id` names a subscribed background thread rather than the
-/// currently foreground viewed thread.
-fn is_background_thread(app: &App, thread_id: Option<&str>) -> bool {
-    match thread_id {
-        Some(tid) if !tid.is_empty() && !app.session.current_session_id.is_empty() => {
-            tid != app.session.current_session_id
-        }
-        _ => false,
-    }
-}
-
 /// Fold a harness snapshot into the loop-status and trust-gate projection.
 fn apply_harness_snapshot(
     app: &mut App,
@@ -353,37 +332,25 @@ fn apply_harness_snapshot(
     thread_id: Option<&str>,
     snapshot: protocol::HarnessSnapshot,
 ) -> bool {
-    if is_background_thread(app, thread_id) {
-        if let Some(tid) = thread_id {
-            let ws = app.session.workspaces.entry(tid.to_string()).or_default();
-            ws.loop_status = snapshot.loop_status;
-            ws.unattended = snapshot.unattended;
-            ws.confined = snapshot.confined;
-            ws.harness_retry_pending = snapshot.retry_pending;
-            if let Some(role) = snapshot.role {
-                ws.role = Some(role);
-            }
-            if let Some(w) = snapshot.workspace {
-                ws.workspace = crate::shell::chrome::tilde_home(std::path::Path::new(&w));
-            } else if ws.role.is_some() {
-                ws.workspace.clear();
-            }
-        }
+    let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id) else {
         return false;
-    }
-    app.session.loop_status = snapshot.loop_status;
-    app.session.unattended = snapshot.unattended;
-    app.session.confined = snapshot.confined;
-    app.session.harness_retry_pending = snapshot.retry_pending;
-    app.session.workspace_security = snapshot.workspace_security.clone();
+    };
+    inst.loop_status = snapshot.loop_status;
+    inst.unattended = snapshot.unattended;
+    inst.confined = snapshot.confined;
+    inst.harness_retry_pending = snapshot.retry_pending;
     if let Some(role) = snapshot.role {
-        app.session.current_role = Some(role);
+        inst.current_role = Some(role);
     }
     if let Some(ws) = snapshot.workspace {
-        app.session.current_workspace = crate::shell::chrome::tilde_home(std::path::Path::new(&ws));
-    } else if app.session.current_role.is_some() {
-        app.session.current_workspace.clear();
+        inst.current_workspace = crate::shell::chrome::tilde_home(std::path::Path::new(&ws));
+    } else if inst.current_role.is_some() {
+        inst.current_workspace.clear();
     }
+    if !is_fg {
+        return false;
+    }
+    app.session.workspace_security = snapshot.workspace_security.clone();
     // PreAttach unmount: when the snapshot transitions
     // to having no unresolved quarantined/changed/expired domains (or the
     // workspace is no longer quarantined), clear the interstitial and latch
@@ -416,6 +383,7 @@ fn apply_harness_snapshot(
 /// disclosing a post-Welcome failure as a notice rather than a death.
 fn apply_thread_subscribed(app: &mut App, thread_id: String, phase: protocol::ThreadPhase) -> bool {
     app.session.subscribed_threads.insert(thread_id.clone());
+    app.threads.register(thread_id.clone(), 1, phase.clone());
     let has_tab = app
         .surfaces
         .surfaces
@@ -423,20 +391,10 @@ fn apply_thread_subscribed(app: &mut App, thread_id: String, phase: protocol::Th
         .iter()
         .any(|t| t.thread_id() == Some(thread_id.as_str()));
     if !has_tab {
-        // A newly created thread from `Alt+T` / `+` (`Subscribe(AttachAction::New)`):
-        // mount its tab and activate its workspace in place without reconnecting.
         let tab = crate::shell::surfaces::ClientTab::thread(&thread_id, None::<String>);
         app.open_tab(tab);
         app.activate_thread_workspace(&thread_id);
-        app.session.session_phase = phase;
-    } else if thread_id == app.session.current_session_id {
-        app.session.session_phase = phase;
-    } else {
-        app.session
-            .workspaces
-            .entry(thread_id)
-            .or_default()
-            .session_phase = phase;
+        app.threads.session_phase = phase;
     }
     true
 }
@@ -446,22 +404,19 @@ fn apply_session_phase(
     thread_id: Option<&str>,
     phase: protocol::ThreadPhase,
 ) -> bool {
-    if is_background_thread(app, thread_id) {
-        if let Some(tid) = thread_id {
-            let ready = phase == protocol::ThreadPhase::Ready;
-            app.session
-                .workspaces
-                .entry(tid.to_string())
-                .or_default()
-                .session_phase = phase;
-            if ready {
-                let _ = app.send_intent_to(
-                    tid,
-                    protocol::AgentRequest::QueueSnapshot {
-                        thread_id: tid.to_string(),
-                    },
-                );
-            }
+    let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id) else {
+        return false;
+    };
+    if !is_fg {
+        let ready = phase == protocol::ThreadPhase::Ready;
+        inst.session_phase = phase;
+        if ready && let Some(tid) = thread_id {
+            let _ = app.send_intent_to(
+                tid,
+                protocol::AgentRequest::QueueSnapshot {
+                    thread_id: tid.to_string(),
+                },
+            );
         }
         return false;
     }
@@ -470,7 +425,7 @@ fn apply_session_phase(
         _ => None,
     };
     let ready = phase == protocol::ThreadPhase::Ready;
-    app.session.session_phase = phase;
+    app.threads.session_phase = phase;
     if ready {
         app.session.switching_session = None;
         let queued: Vec<_> = std::mem::take(&mut app.composer.pending_prompts);
@@ -1073,52 +1028,41 @@ fn apply_oauth(app: &mut App, signal: crate::shell::app::OauthAddSignal) {
     }
 }
 
-/// Execute one transcript edit against the target document. Invalidation
-/// discipline mirrors the old `Versioned` write guards, made honest: a
-/// streaming-targeted content edit invalidates exactly the touched message's
-/// cached height; a structural replace clears the cache; metadata-only
-/// edits (delivery badges, round stamps) touch nothing, and newly appended
-/// messages have no cached entry to evict.
-pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
-    // Snapshot the disclosure input the tool arms need before the document borrow.
-    let tui_config = app.session.tui_config.clone();
-    let mut apply = TranscriptApply::new(tui_config);
-    apply_transcript_edit(&mut app.transcript.messages, edit, &mut apply);
-    apply.finish(app)
-}
-
-/// Apply one transcript edit routed by `thread_id` (ADR-0251 `[INV-MUX-03]`).
+/// Execute one transcript edit against the target [`ThreadInstance`] (ADR-0253 §6).
 ///
-/// Foreground edits land directly on `app.transcript`; background edits land
-/// directly on `app.session.workspaces[thread_id]` so background streaming
-/// tabs stay live in memory without disturbing the active viewport.
+/// Foreground and background threads take the exact same code path via
+/// `app.threads.resolve_mut(thread_id)`. An unknown `thread_id` (never explicitly
+/// registered) is dropped rather than implicitly materialised (`[INV-INSTANCE-03]`).
 pub(crate) fn apply_transcript_for(
     app: &mut App,
     thread_id: Option<&str>,
     edit: TranscriptEdit,
 ) -> bool {
-    if !is_background_thread(app, thread_id) {
-        return apply_transcript(app, edit);
-    }
-    let Some(tid) = thread_id else {
-        return apply_transcript(app, edit);
-    };
     let tui_config = app.session.tui_config.clone();
     let mut apply = TranscriptApply::new(tui_config);
-    let ws = app.session.workspaces.entry(tid.to_string()).or_default();
-    apply_transcript_edit(&mut ws.messages, edit, &mut apply);
+    let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id) else {
+        return false;
+    };
+    apply_transcript_edit(&mut inst.messages, edit, &mut apply);
     match apply.post {
         PostEdit::None => {}
         PostEdit::Invalidate(id) => {
-            ws.layout_height_cache
+            inst.layout_height_cache
                 .invalidate_messages(std::iter::once(id));
         }
-        PostEdit::ClearCache => ws.layout_height_cache.clear(),
+        PostEdit::ClearCache => inst.layout_height_cache.clear(),
     }
     if apply.changed {
-        ws.transcript_changed_pending = true;
+        inst.transcript_changed_pending = true;
     }
-    false
+    if is_fg {
+        if let Some(rejected) = apply.rejected_invocation {
+            restore_rejected_command_draft(app, rejected);
+        }
+        apply.changed
+    } else {
+        false
+    }
 }
 
 /// The turn position and send time an edit's payload *would* join, captured
@@ -1172,27 +1116,6 @@ impl TranscriptApply {
 
     fn mark_unchanged(&mut self) {
         self.changed = false;
-    }
-
-    /// Flush deferred cache invalidation, any restored draft, and the
-    /// transcript-changed flag once the document borrow has ended.
-    fn finish(self, app: &mut App) -> bool {
-        match self.post {
-            PostEdit::None => {}
-            PostEdit::Invalidate(id) => {
-                app.transcript
-                    .layout_height_cache
-                    .invalidate_messages(std::iter::once(id));
-            }
-            PostEdit::ClearCache => app.transcript.layout_height_cache.clear(),
-        }
-        if let Some(rejected) = self.rejected_invocation {
-            restore_rejected_command_draft(app, rejected);
-        }
-        if self.changed {
-            app.transcript.transcript_changed_pending = true;
-        }
-        self.changed
     }
 }
 

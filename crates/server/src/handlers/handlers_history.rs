@@ -100,7 +100,7 @@ pub async fn search_history(
     const DEFAULT_LIMIT: usize = 20;
     const MAX_LIMIT: usize = 100;
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let filter = workspace.map(|w| protocol::WorkspaceFilter::Path(w.into()));
+    let workspace_path = workspace.map(std::path::PathBuf::from);
     let query = query.to_string();
     // The FTS scan is CPU + page-cache work over the shared store. It runs on
     // the blocking pool: many clients may search while sessions are mid-round,
@@ -109,11 +109,11 @@ pub async fn search_history(
     let hits = tokio::task::spawn_blocking(move || {
         get_persistence_handle()
             .with_reader(|reader| {
-                let strict = reader.search_history(&query, filter.as_ref(), limit)?;
+                let strict = reader.search_history(&query, workspace_path.as_deref(), limit)?;
                 if !strict.is_empty() {
                     return Ok(strict);
                 }
-                reader.search_history_relaxed(&query, filter.as_ref(), limit)
+                reader.search_history_relaxed(&query, workspace_path.as_deref(), limit)
             })
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, "history search failed");

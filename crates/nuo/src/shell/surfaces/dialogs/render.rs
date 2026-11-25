@@ -24,7 +24,7 @@ fn render_inspection_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_tools_modal(
                 frame,
-                app.session.session_context.as_ref(),
+                app.threads.session_context.as_ref(),
                 d.index,
                 &mut d.scroll,
                 d.follow,
@@ -37,7 +37,7 @@ fn render_inspection_dialog(
             let d = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
             Some(crate::shell::overlays::draw_mcp_modal(
                 frame,
-                app.session.session_context.as_ref(),
+                app.threads.session_context.as_ref(),
                 d.index,
                 &mut d.scroll,
                 d.follow,
@@ -51,7 +51,7 @@ fn render_inspection_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_skills_modal(
                 frame,
-                app.session.session_context.as_ref(),
+                app.threads.session_context.as_ref(),
                 d.index,
                 d.expanded,
                 &mut d.scroll,
@@ -65,7 +65,7 @@ fn render_inspection_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_permissions_manager(
                 frame,
-                app.session.session_context.as_ref(),
+                app.threads.session_context.as_ref(),
                 d.index,
                 &mut d.scroll,
                 ctx.theme,
@@ -171,7 +171,7 @@ fn render_inspection_dialog(
             let loading = app.context_plan_pending();
             Some(crate::shell::overlays::draw_context_plan_modal(
                 frame,
-                app.telemetry.context_plan.as_ref(),
+                app.threads.context_plan.as_ref(),
                 loading,
                 d.index,
                 d.body_open,
@@ -267,7 +267,7 @@ pub(super) fn render_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_tree_modal(
                 frame,
-                &app.session.session_tree,
+                &app.threads.session_tree,
                 d.index,
                 &mut d.scroll,
                 d.follow,

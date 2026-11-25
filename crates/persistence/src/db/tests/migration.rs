@@ -9,7 +9,7 @@ fn fresh_db_migrates_to_baseline() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(CURRENT_DB_VERSION, 7);
+    assert_eq!(CURRENT_DB_VERSION, 8);
 
     let (name, checksum): (String, String) = conn
         .query_row(
@@ -24,7 +24,7 @@ fn fresh_db_migrates_to_baseline() {
     let ledger_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(ledger_rows, 7);
+    assert_eq!(ledger_rows, 8);
 }
 
 #[test]

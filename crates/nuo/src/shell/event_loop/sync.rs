@@ -216,7 +216,7 @@ pub(crate) async fn sync_transcripts_and_session(
     app: &mut App,
     runtime: &UiRuntime,
 ) -> (bool, String) {
-    let transcript_changed = std::mem::take(&mut app.transcript.transcript_changed_pending);
+    let transcript_changed = std::mem::take(&mut app.threads.transcript_changed_pending);
     let displayed_transcript_changed = transcript_changed;
 
     let viewed_session_id = app.session.live_session_id.clone();
@@ -231,10 +231,10 @@ pub(crate) async fn sync_transcripts_and_session(
     app.surfaces.drafts.flush();
 
     let backfill_from = app.composer.session_history_backfill_cursor;
-    let viewed_len = app.transcript.messages.len();
+    let viewed_len = app.threads.messages.len();
     if backfill_from < viewed_len {
         let tail: Vec<(String, bool, u64)> =
-            user_prompt_tail(&app.transcript.messages[backfill_from..]);
+            user_prompt_tail(&app.threads.messages[backfill_from..]);
         app.composer.session_history_backfill_cursor = viewed_len;
         app.backfill_session_history(&tail, now_epoch_ms());
     }
@@ -242,8 +242,8 @@ pub(crate) async fn sync_transcripts_and_session(
     // Publish the routing fact to the translator (loop → translator).
     *runtime.viewed_session_id.lock().await = Some(viewed_session_id.clone());
 
-    if app.session.current_workspace.is_empty() && app.session.current_role.is_none() {
-        app.session.current_workspace = crate::shell::chrome::tilde_home(&app.session.cwd);
+    if app.threads.current_workspace.is_empty() && app.threads.current_role.is_none() {
+        app.threads.current_workspace = crate::shell::chrome::tilde_home(&app.session.cwd);
     }
 
     app.telemetry.context_tokens = app

@@ -544,10 +544,10 @@ async fn running_a_command_entry_closes_the_palette_and_executes_it() {
 #[tokio::test]
 async fn running_a_verb_entry_dispatches_the_action_its_key_produces() {
     let mut app = crate::shell::tests::new_app_for_relay_tests();
-    assert!(!app.transcript.search.active);
+    assert!(!app.threads.search.active);
     run(&mut app, ":search transcript").await;
     assert_eq!(app.active_dialog(), None, "the palette closed");
-    assert!(app.transcript.search.active, "Ctrl-f's action ran");
+    assert!(app.threads.search.active, "Ctrl-f's action ran");
     assert_eq!(
         app.surfaces.palette_recents.position("thread.search"),
         Some(0)

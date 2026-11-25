@@ -24,6 +24,7 @@
 #[cfg(test)]
 extern crate server;
 
+pub mod action_routes;
 pub mod app;
 pub mod browser;
 pub mod chrome;
@@ -54,7 +55,6 @@ pub mod question_model;
 pub mod render;
 pub mod runner;
 pub mod session;
-pub(crate) mod session_gate;
 pub mod sheet;
 pub mod step_interaction;
 pub mod surfaces;
@@ -94,9 +94,9 @@ pub(crate) fn grid_rows(grid: &graticule::CellGrid) -> Vec<String> {
 
 use crate::shell::app::state::{
     ComposerState, HumanState, LinkState, ProviderEditorState, SessionState, SurfacesState,
-    TelemetryState, TranscriptState,
+    TelemetryState, Viewport,
 };
-use protocol::{AgentRequest, AgentResponse, LoopStatus, ProviderPickerSnapshot, RoundEvent};
+use protocol::{AgentRequest, AgentResponse, ProviderPickerSnapshot, RoundEvent};
 
 use tool::{Message, Role};
 
@@ -112,7 +112,7 @@ use transcript::{
 use view::model::document::{DeliveryStatus, MessageKind, TranscriptMessage};
 #[cfg(test)]
 use view::model::document::{NoticeSeverity, UserMessageOrigin};
-use view::model::selection::{SelectionDrag, SelectionState};
+use view::model::selection::SelectionDrag;
 
 /// Where the session this TUI drives lives. All sessions in the unified
 /// server model are remote (server-hosted).
@@ -497,11 +497,19 @@ struct AppBoot<'a> {
 /// constructors) so the initial values and their order stay auditable in one
 /// place; [`run_tui_with_input`] remains startup/teardown orchestration.
 fn build_app(boot: AppBoot<'_>) -> App {
+    let mut initial_thread = crate::shell::app::workspaces::ThreadInstance::new(
+        boot.live_session_init.clone(),
+        1,
+        boot.session_phase_init.clone(),
+    );
+    initial_thread.messages = boot.restored;
+    initial_thread.current_provider = boot.initial_provider;
+    initial_thread.current_model = boot.initial_model;
+
     App {
         session: SessionState {
             queue_exit_session: None,
             session_chrome: std::collections::HashMap::new(),
-            workspaces: std::collections::HashMap::new(),
             subscribed_threads: {
                 let mut set = std::collections::HashSet::new();
                 if !boot.live_session_init.is_empty() {
@@ -509,74 +517,36 @@ fn build_app(boot: AppBoot<'_>) -> App {
                 }
                 set
             },
-            session_tree: protocol::ThreadTree::default(),
             live_session_id: boot.live_session_init.clone(),
             workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
             tui_config: (*boot.tui_config).clone(),
             session_detail: None,
-            current_provider: boot.initial_provider,
-            current_model: boot.initial_model,
             cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-            // The real thread id from the handshake, never a placeholder: a
-            // placeholder made the first per-frame sync believe the viewed
-            // session had changed, so it ran the whole viewed-session-change
-            // protocol (history cursor, stash, backfill) on a session the client
-            // was already on, and — before ADR-0247 keyed drafts by thread —
-            // blanked the composer that the boot path had just restored.
             current_session_id: boot.live_session_init.clone(),
-            session_phase: boot.session_phase_init.clone(),
             switching_session: (boot.session_phase_init != protocol::ThreadPhase::Ready)
                 .then(|| boot.live_session_init.clone()),
-            current_workspace: String::new(),
-            current_role: None,
-            session_context: None,
-            loop_status: LoopStatus::Idle,
-            harness_retry_pending: false,
-            phase: None,
-            provider_retry: None,
             persistence_health: None,
-            unattended: false,
-            confined: true,
-            round_count: 0,
-            current_turn: 0,
-            round_started_at: None,
             sessions_overview: Vec::new(),
             host_sessions: Vec::new(),
             queue_blocked_sessions: std::collections::HashSet::new(),
             running_sessions: std::collections::HashSet::new(),
         },
-        transcript: TranscriptState {
-            command_log: None,
-            diff_viewer: None,
-            logs: view::model::log::SurfaceLogs::new(),
-            messages: boot.restored,
-            layout_height_cache: Default::default(),
-            scroll: 0,
-            follow_bottom: true,
-            content_lines: 0,
+        threads: crate::shell::app::workspaces::Threads::new(initial_thread),
+        viewport: Viewport {
+            ui: crate::shell::ui::ComponentTree::new(),
+            drag: SelectionDrag::default(),
+            hovered_step: None,
             view_height: 0,
-            max_scroll: 0,
-            sticky_step: None,
             modal_body_height: 0,
-            sticky_summary_line: None,
-            pin_summary_line: None,
-            scroll_settle_pending: false,
-            focus_stack: Vec::new(),
-            search: crate::shell::app::state::TranscriptSearchState::default(),
-            transcript_changed_pending: false,
+            spinner_epoch: std::time::Instant::now(),
+            carousel_epoch: std::time::Instant::now(),
+            transcript_layout: crate::shell::render::layout::Strategy::TurnBand,
+            expand_auto_scroll: boot.tui_config.expand_auto_scroll,
             reasoning_default_expanded: crate::shell::config::reasoning_default_expanded(
                 &boot.tui_config,
             ),
+            logs: view::model::log::SurfaceLogs::new(),
             host_console_log: Vec::new(),
-            selection: SelectionState::None,
-            drag: SelectionDrag::default(),
-            ui: crate::shell::ui::ComponentTree::new(),
-            hovered_step: None,
-            focus: Focus::composer(),
-            transcript_layout: crate::shell::render::layout::Strategy::TurnBand,
-            expand_auto_scroll: boot.tui_config.expand_auto_scroll,
-            spinner_epoch: std::time::Instant::now(),
-            carousel_epoch: std::time::Instant::now(),
         },
         composer: ComposerState {
             last_submit_ms: None,
@@ -708,8 +678,6 @@ fn build_app(boot: AppBoot<'_>) -> App {
             switch_to_target: None,
             pending_help_action: None,
             palette_recents: Default::default(),
-            switch_to_new: false,
-            switch_to_new_prompt: None,
             switch_to_prompt: None,
             startup_overlay: boot.startup_overlay,
             color_scheme: Theme::normalize_color_scheme(&boot.tui_config.color_scheme).to_string(),
@@ -779,10 +747,7 @@ fn build_app(boot: AppBoot<'_>) -> App {
         },
         telemetry: TelemetryState {
             token_ledger: boot.token_ledger,
-            token_report: None,
             context_tokens: None,
-            context_plan: None,
-            context_plan_loaded: false,
             usage_stats: None,
             usage_loading: false,
             usage_scroll: 0,
@@ -901,7 +866,7 @@ pub(crate) async fn run_tui_with_input(
             .position(|t| t.thread_id() == Some(live_session_init.as_str()))
         {
             app.surfaces.surfaces.select_tab(pos);
-            app.restore_active_tab_context();
+            app.hand_composer_to_current_thread();
         } else {
             app.surfaces
                 .surfaces
@@ -977,8 +942,6 @@ pub(crate) async fn run_tui_with_input(
     }
 
     let switch = app.surfaces.switch_to_target.take();
-    let switch_to_new = app.surfaces.switch_to_new;
-    let switch_to_new_prompt = app.surfaces.switch_to_new_prompt.take();
     let switch_to_prompt = app.surfaces.switch_to_prompt.take();
     // The exit seam for unsent input (ADR-0247): the next `App` is a new
     // instance, so every draft must already be in the ledger. This runs on
@@ -990,8 +953,6 @@ pub(crate) async fn run_tui_with_input(
     Ok(TuiOutcome {
         history: app.composer.input_history,
         switch_to: switch,
-        switch_to_new,
-        switch_to_new_prompt,
         switch_to_prompt,
         tabs,
         tab_history,
@@ -1005,8 +966,6 @@ pub(crate) async fn run_tui_with_input(
 pub struct TuiOutcome {
     pub history: Vec<protocol::HistoryEntry>,
     pub switch_to: Option<String>,
-    pub switch_to_new: bool,
-    pub switch_to_new_prompt: Option<String>,
     /// Opening prompt to dispatch after re-attaching to [`Self::switch_to`]
     /// (a retired `/btw <prompt>` fork steer). `None` for a plain switch.
     pub switch_to_prompt: Option<String>,

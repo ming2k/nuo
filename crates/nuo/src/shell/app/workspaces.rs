@@ -1,15 +1,12 @@
-//! Resident per-thread workspaces for O(1) tab switching (ADR-0251).
+//! Single-owner resident thread instances (`ThreadInstance` / `Threads`, ADR-0253).
 //!
-//! Each open thread tab owns its own `ThreadWorkspace` containing the live
-//! transcript document, layout/wrap/diff caches, scroll & follow-bottom
-//! posture, focus plane, subagent zoom stack, search state, and per-thread
-//! session projection. The active thread lives in `App`'s live slots
-//! (`app.transcript`, `app.session`, `app.telemetry`); inactive subscribed
-//! threads reside in `app.session.workspaces`.
-//!
-//! Switching between two resident tabs is an O(1) pointer swap (`std::mem::take`
-//! / `std::mem::replace`) with zero cloning, zero Markdown re-parsing, zero
-//! cache eviction, and zero network round-trip.
+//! Every resident thread — foreground and background alike — has one representation
+//! ([`ThreadInstance`]). Switching tabs moves the whole [`ThreadInstance`] atomically
+//! between the active slot and the resident map in O(1) with zero field-by-field copying
+//! and zero manual reconciliation (`[INV-INSTANCE-01]`, `[INV-INSTANCE-02]`).
+
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 
 use protocol::{AttachAction, LoopStatus};
 use view::model::document::TranscriptMessage;
@@ -19,11 +16,40 @@ use crate::shell::app::state::TranscriptSearchState;
 use crate::shell::app::{App, ProviderRetryState, ZoomFrame};
 use crate::shell::focus::Focus;
 
-/// Resident in-memory state of one subscribed thread tab (ADR-0251 `[INV-MUX-02]`).
-pub struct ThreadWorkspace {
-    // ---- Transcript document & layout caches ------------------------------
+/// Monotonic thread identity carrying a server-assigned generation
+/// (ADR-0253 `[INV-INSTANCE-03]`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct ThreadKey {
+    pub id: String,
+    pub generation: u64,
+}
+
+impl ThreadKey {
+    pub fn new(id: impl Into<String>, generation: u64) -> Self {
+        Self {
+            id: id.into(),
+            generation,
+        }
+    }
+}
+
+/// Everything that belongs to one resident thread and survives tab switches
+/// (ADR-0253 `[INV-INSTANCE-01]`).
+///
+/// Foreground and background threads share this single type; there is no separate
+/// foreground copy and no field-by-field reconciliation function.
+pub struct ThreadInstance {
+    // ---- Identity & readiness ---------------------------------------------
+    pub key: ThreadKey,
+    pub session_phase: protocol::ThreadPhase,
+
+    // ---- Content & layout caches ------------------------------------------
     pub messages: Vec<TranscriptMessage>,
     pub layout_height_cache: crate::shell::render::HeightCache,
+    pub command_log: Option<view::model::command_log::CommandLog>,
+    pub diff_viewer: Option<crate::shell::overlays::DiffViewerState>,
+
+    // ---- View pose of this thread (preserved across tab switches) ---------
     pub scroll: usize,
     pub follow_bottom: bool,
     pub content_lines: usize,
@@ -37,14 +63,12 @@ pub struct ThreadWorkspace {
     pub focus: Focus,
     pub focus_stack: Vec<ZoomFrame>,
     pub search: TranscriptSearchState,
-    pub command_log: Option<view::model::command_log::CommandLog>,
-    pub diff_viewer: Option<crate::shell::overlays::DiffViewerState>,
 
-    // ---- Per-thread session & telemetry projection ------------------------
-    pub provider: String,
-    pub model: String,
-    pub workspace: String,
-    pub role: Option<String>,
+    // ---- Per-thread server projections ------------------------------------
+    pub current_provider: String,
+    pub current_model: String,
+    pub current_workspace: String,
+    pub current_role: Option<String>,
     pub loop_status: LoopStatus,
     pub harness_retry_pending: bool,
     pub phase: Option<view::phase::Phase>,
@@ -54,7 +78,6 @@ pub struct ThreadWorkspace {
     pub round_count: u64,
     pub current_turn: u64,
     pub round_started_at: Option<std::time::Instant>,
-    pub session_phase: protocol::ThreadPhase,
     pub session_tree: protocol::ThreadTree,
     pub session_context: Option<protocol::ThreadContextSnapshot>,
     pub token_report: Option<protocol::TokenSourceReport>,
@@ -62,18 +85,17 @@ pub struct ThreadWorkspace {
     pub context_plan_loaded: bool,
 }
 
-impl Default for ThreadWorkspace {
-    fn default() -> Self {
-        Self::new_binding()
-    }
-}
-
-impl ThreadWorkspace {
-    /// A fresh empty workspace awaiting initial `ThreadSnapshot` hydration.
-    pub fn new_binding() -> Self {
+impl ThreadInstance {
+    /// Construct a fresh thread instance explicitly from an authority
+    /// (`Welcome`, `Subscribed`, or startup binding).
+    pub fn new(id: impl Into<String>, generation: u64, phase: protocol::ThreadPhase) -> Self {
         Self {
+            key: ThreadKey::new(id, generation),
+            session_phase: phase,
             messages: Vec::new(),
             layout_height_cache: crate::shell::render::HeightCache::default(),
+            command_log: None,
+            diff_viewer: None,
             scroll: 0,
             follow_bottom: true,
             content_lines: 0,
@@ -84,15 +106,13 @@ impl ThreadWorkspace {
             pin_summary_line: None,
             scroll_settle_pending: false,
             selection: SelectionState::None,
-            focus: Focus::default(),
+            focus: Focus::composer(),
             focus_stack: Vec::new(),
             search: TranscriptSearchState::default(),
-            command_log: None,
-            diff_viewer: None,
-            provider: String::new(),
-            model: String::new(),
-            workspace: String::new(),
-            role: None,
+            current_provider: String::new(),
+            current_model: String::new(),
+            current_workspace: String::new(),
+            current_role: None,
             loop_status: LoopStatus::Idle,
             harness_retry_pending: false,
             phase: None,
@@ -102,7 +122,6 @@ impl ThreadWorkspace {
             round_count: 0,
             current_turn: 0,
             round_started_at: None,
-            session_phase: protocol::ThreadPhase::Binding,
             session_tree: protocol::ThreadTree::default(),
             session_context: None,
             token_report: None,
@@ -110,113 +129,205 @@ impl ThreadWorkspace {
             context_plan_loaded: false,
         }
     }
+
+    /// Whether this thread carries no user-facing dialogue content (ADR-0253 §5).
+    ///
+    /// Command rows and non-dialogue markers do not make a thread non-empty, aligning
+    /// client recycle semantics with durable `ThreadData::is_user_facing_empty`.
+    pub fn is_dialogue_empty(&self) -> bool {
+        self.round_count == 0 && !self.messages.iter().any(|m| !m.is_command_result())
+    }
+}
+
+/// Single-owner container for all resident [`ThreadInstance`]s
+/// (ADR-0253 `[INV-INSTANCE-01]`, `[INV-INSTANCE-02]`, `[INV-INSTANCE-03]`).
+///
+/// The foreground instance is held in an inline slot (zero-panic, O(1) access without
+/// `unwrap`), and inactive resident threads live in `background`. Switching tabs moves
+/// whole [`ThreadInstance`] values atomically — never copying fields one by one.
+pub struct Threads {
+    foreground: ThreadInstance,
+    background: HashMap<String, ThreadInstance>,
+}
+
+impl Threads {
+    /// Construct the container with its initial foreground thread instance.
+    pub fn new(initial: ThreadInstance) -> Self {
+        Self {
+            foreground: initial,
+            background: HashMap::new(),
+        }
+    }
+
+    /// The foreground thread's id.
+    pub fn foreground_id(&self) -> &str {
+        &self.foreground.key.id
+    }
+
+    /// Borrow the foreground [`ThreadInstance`].
+    pub fn fg(&self) -> &ThreadInstance {
+        &self.foreground
+    }
+
+    /// Mutably borrow the foreground [`ThreadInstance`].
+    pub fn fg_mut(&mut self) -> &mut ThreadInstance {
+        &mut self.foreground
+    }
+
+    /// Borrow any resident [`ThreadInstance`] by id (foreground or background).
+    pub fn get(&self, id: &str) -> Option<&ThreadInstance> {
+        if id == self.foreground.key.id {
+            Some(&self.foreground)
+        } else {
+            self.background.get(id)
+        }
+    }
+
+    /// Mutably borrow any resident [`ThreadInstance`] by id (foreground or background).
+    pub fn get_mut(&mut self, id: &str) -> Option<&mut ThreadInstance> {
+        if id == self.foreground.key.id {
+            Some(&mut self.foreground)
+        } else {
+            self.background.get_mut(id)
+        }
+    }
+
+    /// Resolve a mutation's target thread: `None` or matching foreground id targets
+    /// the foreground instance; any other id targets that resident background instance.
+    /// Returns `(Some(&mut ThreadInstance), is_foreground)`.
+    pub fn resolve_mut(&mut self, thread_id: Option<&str>) -> (Option<&mut ThreadInstance>, bool) {
+        match thread_id {
+            None | Some("") => (Some(&mut self.foreground), true),
+            Some(tid) if tid == self.foreground.key.id || self.foreground.key.id.is_empty() => {
+                (Some(&mut self.foreground), true)
+            }
+            Some(tid) => (self.background.get_mut(tid), false),
+        }
+    }
+
+    /// Whether `id` is currently resident (either foreground or background).
+    pub fn contains(&self, id: &str) -> bool {
+        id == self.foreground.key.id || self.background.contains_key(id)
+    }
+
+    /// Explicitly register a thread instance from an authority (`Welcome`, `Subscribed`,
+    /// or explicit tab subscription). If already resident, updates its generation/phase
+    /// when `generation >= existing`.
+    pub fn register(
+        &mut self,
+        id: impl Into<String>,
+        generation: u64,
+        phase: protocol::ThreadPhase,
+    ) -> &mut ThreadInstance {
+        let id = id.into();
+        if id == self.foreground.key.id {
+            if generation >= self.foreground.key.generation {
+                self.foreground.key.generation = generation;
+                self.foreground.session_phase = phase;
+            }
+            return &mut self.foreground;
+        }
+        use std::collections::hash_map::Entry;
+        match self.background.entry(id.clone()) {
+            Entry::Occupied(occupied) => {
+                let inst = occupied.into_mut();
+                if generation >= inst.key.generation {
+                    inst.key.generation = generation;
+                    inst.session_phase = phase;
+                }
+                inst
+            }
+            Entry::Vacant(vacant) => vacant.insert(ThreadInstance::new(id, generation, phase)),
+        }
+    }
+
+    /// Atomically make `target_id` the foreground thread by moving whole
+    /// [`ThreadInstance`] values. If `target_id` is not yet resident, registers a
+    /// cold `Binding` instance for it.
+    pub fn activate(&mut self, target_id: &str) {
+        if target_id == self.foreground.key.id {
+            return;
+        }
+        let next = self
+            .background
+            .remove(target_id)
+            .unwrap_or_else(|| ThreadInstance::new(target_id, 0, protocol::ThreadPhase::Binding));
+        let prev = std::mem::replace(&mut self.foreground, next);
+        if !prev.key.id.is_empty() {
+            self.background.insert(prev.key.id.clone(), prev);
+        }
+    }
+
+    /// Remove a background thread instance (called when closing a tab).
+    pub fn remove_background(&mut self, id: &str) -> Option<ThreadInstance> {
+        self.background.remove(id)
+    }
+
+    /// Re-key an instance when `/new`, `/resume`, or `/fork` replaces a thread's id
+    /// in place, advancing its generation.
+    pub fn rekey(&mut self, previous_id: &str, next_id: impl Into<String>, generation: u64) {
+        let next_id = next_id.into();
+        if previous_id == self.foreground.key.id {
+            self.foreground.key.id = next_id;
+            if generation > self.foreground.key.generation {
+                self.foreground.key.generation = generation;
+            } else {
+                self.foreground.key.generation = self.foreground.key.generation.saturating_add(1);
+            }
+            return;
+        }
+        if previous_id == next_id {
+            if let Some(inst) = self.background.get_mut(previous_id) {
+                inst.key.generation = inst.key.generation.max(generation);
+            }
+            return;
+        }
+        if let Some(mut inst) = self.background.remove(previous_id) {
+            inst.key.id = next_id.clone();
+            inst.key.generation = if generation > inst.key.generation {
+                generation
+            } else {
+                inst.key.generation.saturating_add(1)
+            };
+            self.background.insert(next_id, inst);
+        }
+    }
+
+    /// Sync the foreground key when a caller/test initializes `current_session_id`
+    /// directly without going through `activate`.
+    pub fn sync_foreground_id(&mut self, id: &str) {
+        if self.foreground.key.id != id && !id.is_empty() && !self.background.contains_key(id) {
+            self.foreground.key.id = id.to_string();
+        }
+    }
+}
+
+impl Deref for Threads {
+    type Target = ThreadInstance;
+
+    fn deref(&self) -> &Self::Target {
+        &self.foreground
+    }
+}
+
+impl DerefMut for Threads {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.foreground
+    }
 }
 
 impl App {
-    /// Park the currently foreground thread's live state into
-    /// `self.session.workspaces` in O(1) without cloning.
-    pub(crate) fn park_active_workspace(&mut self) {
-        let current_id = self.session.current_session_id.clone();
-        if current_id.is_empty() {
-            return;
-        }
-        let ws = ThreadWorkspace {
-            messages: std::mem::take(&mut self.transcript.messages),
-            layout_height_cache: std::mem::take(&mut self.transcript.layout_height_cache),
-            scroll: std::mem::take(&mut self.transcript.scroll),
-            follow_bottom: std::mem::replace(&mut self.transcript.follow_bottom, true),
-            content_lines: std::mem::take(&mut self.transcript.content_lines),
-            max_scroll: std::mem::take(&mut self.transcript.max_scroll),
-            sticky_step: self.transcript.sticky_step.take(),
-            transcript_changed_pending: std::mem::take(
-                &mut self.transcript.transcript_changed_pending,
-            ),
-            sticky_summary_line: self.transcript.sticky_summary_line.take(),
-            pin_summary_line: self.transcript.pin_summary_line.take(),
-            scroll_settle_pending: std::mem::take(&mut self.transcript.scroll_settle_pending),
-            selection: std::mem::replace(&mut self.transcript.selection, SelectionState::None),
-            focus: std::mem::take(&mut self.transcript.focus),
-            focus_stack: std::mem::take(&mut self.transcript.focus_stack),
-            search: std::mem::take(&mut self.transcript.search),
-            command_log: self.transcript.command_log.take(),
-            diff_viewer: self.transcript.diff_viewer.take(),
-            provider: std::mem::take(&mut self.session.current_provider),
-            model: std::mem::take(&mut self.session.current_model),
-            workspace: std::mem::take(&mut self.session.current_workspace),
-            role: self.session.current_role.take(),
-            loop_status: std::mem::replace(&mut self.session.loop_status, LoopStatus::Idle),
-            harness_retry_pending: std::mem::take(&mut self.session.harness_retry_pending),
-            phase: self.session.phase.take(),
-            provider_retry: self.session.provider_retry.take(),
-            unattended: std::mem::take(&mut self.session.unattended),
-            confined: std::mem::replace(&mut self.session.confined, true),
-            round_count: std::mem::take(&mut self.session.round_count),
-            current_turn: std::mem::take(&mut self.session.current_turn),
-            round_started_at: self.session.round_started_at.take(),
-            session_phase: std::mem::replace(
-                &mut self.session.session_phase,
-                protocol::ThreadPhase::Binding,
-            ),
-            session_tree: std::mem::take(&mut self.session.session_tree),
-            session_context: self.session.session_context.take(),
-            token_report: self.telemetry.token_report.take(),
-            context_plan: self.telemetry.context_plan.take(),
-            context_plan_loaded: std::mem::take(&mut self.telemetry.context_plan_loaded),
-        };
-        self.session.workspaces.insert(current_id, ws);
-    }
-
-    /// Install a `ThreadWorkspace` into `App`'s live foreground slots in O(1).
-    fn install_workspace(&mut self, ws: ThreadWorkspace) {
-        self.transcript.messages = ws.messages;
-        self.transcript.layout_height_cache = ws.layout_height_cache;
-        self.transcript.scroll = ws.scroll;
-        self.transcript.follow_bottom = ws.follow_bottom;
-        self.transcript.content_lines = ws.content_lines;
-        self.transcript.max_scroll = ws.max_scroll;
-        self.transcript.sticky_step = ws.sticky_step;
-        self.transcript.transcript_changed_pending = ws.transcript_changed_pending;
-        self.transcript.sticky_summary_line = ws.sticky_summary_line;
-        self.transcript.pin_summary_line = ws.pin_summary_line;
-        self.transcript.scroll_settle_pending = ws.scroll_settle_pending;
-        self.transcript.selection = ws.selection;
-        self.transcript.drag = SelectionDrag::default();
-        self.transcript.hovered_step = None;
-        self.transcript.focus = ws.focus;
-        self.transcript.focus_stack = ws.focus_stack;
-        self.transcript.search = ws.search;
-        self.transcript.command_log = ws.command_log;
-        self.transcript.diff_viewer = ws.diff_viewer;
-
-        self.session.current_provider = ws.provider;
-        self.session.current_model = ws.model;
-        self.session.current_workspace = ws.workspace;
-        self.session.current_role = ws.role;
-        self.session.loop_status = ws.loop_status;
-        self.session.harness_retry_pending = ws.harness_retry_pending;
-        self.session.phase = ws.phase;
-        self.session.provider_retry = ws.provider_retry;
-        self.session.unattended = ws.unattended;
-        self.session.confined = ws.confined;
-        self.session.round_count = ws.round_count;
-        self.session.current_turn = ws.current_turn;
-        self.session.round_started_at = ws.round_started_at;
-        self.session.session_phase = ws.session_phase;
-        self.session.session_tree = ws.session_tree;
-        self.session.session_context = ws.session_context;
-        self.telemetry.token_report = ws.token_report;
-        self.telemetry.context_plan = ws.context_plan;
-        self.telemetry.context_plan_loaded = ws.context_plan_loaded;
-    }
-
-    /// Switch the foreground workspace to `target_id` in O(1) without tearing
-    /// down `App` or reconnecting (ADR-0251 `[INV-MUX-02]`).
-    ///
-    /// If `target_id` is already subscribed on this connection, its resident
-    /// workspace (already updated live in the background) is installed with
-    /// zero network traffic. Otherwise, a cold binding workspace is mounted and
-    /// `Wire::Subscribe` is sent on the existing connection.
+    /// Switch the foreground thread to `target_id` in O(1) without tearing down
+    /// `App`, reconnecting, or copying fields (ADR-0251 / ADR-0253).
     pub(crate) fn activate_thread_workspace(&mut self, target_id: &str) {
+        // Ensure foreground key matches `current_session_id` before swapping.
+        if !self.session.current_session_id.is_empty()
+            && self.threads.foreground_id() != self.session.current_session_id
+        {
+            self.threads
+                .sync_foreground_id(&self.session.current_session_id);
+        }
+
         if target_id == self.session.current_session_id {
             if !target_id.is_empty()
                 && self
@@ -229,16 +340,11 @@ impl App {
             return;
         }
 
-        self.park_active_workspace();
         self.park_current_thread_draft();
+        self.viewport.drag = SelectionDrag::default();
+        self.viewport.hovered_step = None;
 
-        let ws = self
-            .session
-            .workspaces
-            .remove(target_id)
-            .unwrap_or_else(ThreadWorkspace::new_binding);
-        self.install_workspace(ws);
-
+        self.threads.activate(target_id);
         self.session.current_session_id = target_id.to_string();
         self.session.live_session_id = target_id.to_string();
         self.hand_composer_to_current_thread();
@@ -253,25 +359,20 @@ impl App {
         }
     }
 
-    /// Release a closed thread tab's resident workspace and unsubscribe it on
-    /// the multiplexed connection (ADR-0251).
+    /// Release a closed thread tab's resident instance and unsubscribe it on
+    /// the multiplexed connection (ADR-0251 / ADR-0253).
     pub(crate) fn close_thread_workspace(&mut self, thread_id: &str) {
-        self.session.workspaces.remove(thread_id);
+        self.threads.remove_background(thread_id);
         if self.session.subscribed_threads.remove(thread_id) {
             self.unsubscribe_thread(thread_id);
         }
     }
 
-    /// Re-key a resident workspace and subscription when `/new` or `/resume`
+    /// Re-key a resident instance and subscription when `/new` or `/resume`
     /// replaces a thread's id in place.
     pub(crate) fn rekey_thread_workspace(&mut self, previous_id: &str, next_id: &str) {
-        if previous_id == next_id {
-            return;
-        }
-        if let Some(ws) = self.session.workspaces.remove(previous_id) {
-            self.session.workspaces.insert(next_id.to_string(), ws);
-        }
-        if self.session.subscribed_threads.remove(previous_id) {
+        self.threads.rekey(previous_id, next_id, 0);
+        if previous_id != next_id && self.session.subscribed_threads.remove(previous_id) {
             self.session.subscribed_threads.insert(next_id.to_string());
         }
     }
@@ -286,10 +387,10 @@ mod tests {
     use tool::Role;
     use view::model::document::TranscriptMessage;
 
-    /// ADR-0251 `[INV-MUX-02]`: switching between two resident thread tabs swaps
-    /// their workspaces in O(1) — preserving messages, scroll, follow_bottom,
-    /// disclosure state, composer drafts, and model attribution with zero
-    /// network traffic or rebuild.
+    /// ADR-0251 / ADR-0253: switching between two resident thread tabs moves whole
+    /// `ThreadInstance`s in O(1) — preserving messages, scroll, follow_bottom,
+    /// disclosure state, composer drafts, and model attribution with zero network
+    /// traffic and zero field-by-field reconciliation.
     #[test]
     fn switching_between_resident_tabs_preserves_state_without_rebuild() {
         let mut app = new_app_for_relay_tests();
@@ -298,6 +399,7 @@ mod tests {
 
         app.session.current_session_id = "thread-a".to_string();
         app.session.live_session_id = "thread-a".to_string();
+        app.threads.sync_foreground_id("thread-a");
         app.session
             .subscribed_threads
             .insert("thread-a".to_string());
@@ -309,21 +411,23 @@ mod tests {
             "thread-b",
             Some("B"),
         ));
-        app.surfaces.surfaces.select_tab(0);
-        app.hand_composer_to_current_thread();
-        app.session.current_model = "deepseek-v4.1-flash".to_string();
-        app.transcript
+        app.open_tab(crate::shell::surfaces::ClientTab::thread(
+            "thread-a",
+            Some("A"),
+        ));
+        app.threads.current_model = "deepseek-v4.1-flash".to_string();
+        app.threads
             .messages
             .push(TranscriptMessage::new(Role::User, "Question in thread A"));
-        app.transcript.scroll = 42;
-        app.transcript.follow_bottom = false;
+        app.threads.scroll = 42;
+        app.threads.follow_bottom = false;
         app.composer.input = "Draft for A".to_string();
 
-        // First switch to cold thread-b: parks A, mounts B, sends one Subscribe.
+        // First switch to cold thread-b: mounts B, sends one Subscribe.
         app.surfaces.surfaces.select_tab(1);
         app.activate_thread_workspace("thread-b");
         assert_eq!(app.session.current_session_id, "thread-b");
-        assert!(app.transcript.messages.is_empty());
+        assert!(app.threads.messages.is_empty());
         assert_eq!(app.composer.input, "");
         assert!(matches!(
             rx.try_recv(),
@@ -334,11 +438,11 @@ mod tests {
         ));
 
         // Populate thread-b.
-        app.session.current_model = "gemini-4-neon".to_string();
-        app.transcript
+        app.threads.current_model = "gemini-4-neon".to_string();
+        app.threads
             .messages
             .push(TranscriptMessage::new(Role::User, "Question in thread B"));
-        app.transcript.scroll = 17;
+        app.threads.scroll = 17;
         app.composer.input = "Draft for B".to_string();
 
         // Switch back to thread-a: ZERO Subscribe frames, exact state restored!
@@ -349,27 +453,26 @@ mod tests {
             "switching to an already-subscribed resident tab must send zero wire frames"
         );
         assert_eq!(app.session.current_session_id, "thread-a");
-        assert_eq!(app.session.current_model, "deepseek-v4.1-flash");
-        assert_eq!(app.transcript.messages.len(), 1);
-        assert_eq!(app.transcript.messages[0].raw, "Question in thread A");
-        assert_eq!(app.transcript.scroll, 42);
-        assert!(!app.transcript.follow_bottom);
+        assert_eq!(app.threads.current_model, "deepseek-v4.1-flash");
+        assert_eq!(app.threads.messages.len(), 1);
+        assert_eq!(app.threads.messages[0].raw, "Question in thread A");
+        assert_eq!(app.threads.scroll, 42);
+        assert!(!app.threads.follow_bottom);
         assert_eq!(app.composer.input, "Draft for A");
 
         // Switch back to thread-b: ZERO Subscribe frames, exact state restored!
         app.surfaces.surfaces.select_tab(1);
         app.activate_thread_workspace("thread-b");
         assert!(rx.try_recv().is_err());
-        assert_eq!(app.session.current_model, "gemini-4-neon");
-        assert_eq!(app.transcript.messages.len(), 1);
-        assert_eq!(app.transcript.messages[0].raw, "Question in thread B");
-        assert_eq!(app.transcript.scroll, 17);
+        assert_eq!(app.threads.current_model, "gemini-4-neon");
+        assert_eq!(app.threads.messages.len(), 1);
+        assert_eq!(app.threads.messages[0].raw, "Question in thread B");
+        assert_eq!(app.threads.scroll, 17);
         assert_eq!(app.composer.input, "Draft for B");
     }
 
-    /// ADR-0251 `[INV-MUX-03]`: background thread streaming mutations land
-    /// directly in the background workspace without disturbing the foreground
-    /// tab, and are immediately visible when switching back.
+    /// ADR-0251 / ADR-0253: background thread streaming mutations land directly in
+    /// the background `ThreadInstance` through the same unified applier path.
     #[test]
     fn background_thread_mutations_update_resident_workspace_live() {
         let mut app = new_app_for_relay_tests();
@@ -377,20 +480,21 @@ mod tests {
 
         app.session.current_session_id = "thread-a".to_string();
         app.session.live_session_id = "thread-a".to_string();
+        app.threads.sync_foreground_id("thread-a");
         app.session
             .subscribed_threads
             .insert("thread-a".to_string());
         app.session
             .subscribed_threads
             .insert("thread-b".to_string());
-        app.transcript
+        app.threads
             .messages
             .push(TranscriptMessage::new(Role::User, "A prompt"));
 
-        // Switch to thread-b while thread-a is parked in background.
+        // Switch to thread-b while thread-a stays resident in background.
         app.activate_thread_workspace("thread-b");
         assert_eq!(app.session.current_session_id, "thread-b");
-        assert!(app.transcript.messages.is_empty());
+        assert!(app.threads.messages.is_empty());
 
         // A live assistant message arrives for background thread-a.
         let bg_changed = apply(
@@ -409,17 +513,17 @@ mod tests {
             "background transcript mutation must not mark foreground dirty"
         );
         assert!(
-            app.transcript.messages.is_empty(),
+            app.threads.messages.is_empty(),
             "foreground thread-b must remain untouched"
         );
 
         // Switching back to thread-a immediately reveals the live reply!
         app.activate_thread_workspace("thread-a");
-        assert_eq!(app.transcript.messages.len(), 2);
-        assert_eq!(app.transcript.messages[1].raw, "Live reply for A");
+        assert_eq!(app.threads.messages.len(), 2);
+        assert_eq!(app.threads.messages[1].raw, "Live reply for A");
     }
 
-    /// Closing a thread tab drops its resident workspace and emits
+    /// Closing a thread tab drops its resident instance and emits
     /// `ClientOutbound::Unsubscribe`.
     #[test]
     fn closing_thread_workspace_unsubscribes_and_frees_memory() {
@@ -429,6 +533,7 @@ mod tests {
 
         app.session.current_session_id = "thread-a".to_string();
         app.session.live_session_id = "thread-a".to_string();
+        app.threads.sync_foreground_id("thread-a");
         app.session
             .subscribed_threads
             .insert("thread-a".to_string());
@@ -437,14 +542,40 @@ mod tests {
             .insert("thread-b".to_string());
         app.activate_thread_workspace("thread-b");
         app.activate_thread_workspace("thread-a");
-        assert!(app.session.workspaces.contains_key("thread-b"));
+        assert!(app.threads.contains("thread-b"));
 
         app.close_thread_workspace("thread-b");
-        assert!(!app.session.workspaces.contains_key("thread-b"));
+        assert!(!app.threads.contains("thread-b"));
         assert!(!app.session.subscribed_threads.contains("thread-b"));
         assert!(matches!(
             rx.try_recv(),
             Ok(ClientOutbound::Unsubscribe { thread_id }) if thread_id == "thread-b"
         ));
+    }
+
+    /// ADR-0253 §5: emptiness predicate agrees with durable authority — command rows
+    /// do not make a thread non-empty, whereas dialogue or a started round does.
+    #[test]
+    fn emptiness_predicate_excludes_command_rows_and_includes_dialogue_and_rounds() {
+        let mut inst = super::ThreadInstance::new("t1", 1, protocol::ThreadPhase::Ready);
+        assert!(inst.is_dialogue_empty(), "fresh thread is empty");
+
+        // Command rows are not dialogue (ADR-0252 §2, ADR-0253 §5).
+        inst.messages
+            .push(TranscriptMessage::pending_command("status", ""));
+        assert!(
+            inst.is_dialogue_empty(),
+            "command-only thread must still be empty"
+        );
+
+        // Started round makes it non-empty even with zero dialogue rows.
+        inst.round_count = 1;
+        assert!(!inst.is_dialogue_empty(), "started round is non-empty");
+        inst.round_count = 0;
+
+        // Dialogue message makes it non-empty.
+        inst.messages
+            .push(TranscriptMessage::new(Role::User, "hello"));
+        assert!(!inst.is_dialogue_empty(), "dialogue row is non-empty");
     }
 }

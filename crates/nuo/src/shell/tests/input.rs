@@ -73,7 +73,7 @@ fn caret_owner_composer_by_default() {
 #[test]
 fn caret_owner_none_when_step_focused() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             InteractiveTarget::tool_step(0),
@@ -281,7 +281,7 @@ fn caret_hidden_while_selection_active_even_for_composer() {
     // so it does not clash with the selection background. Ownership is
     // unaffected; only visibility folds in the selection.
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(0, 0, 0),
         head: view::model::layout::SemanticCursor::new(0, 0, 3),
     };
@@ -298,7 +298,7 @@ fn has_input_selection_detects_both_block_and_range() {
     assert!(app.has_input_selection());
 
     // A transcript selection never binds the composer.
-    app.transcript.selection = SelectionState::Block {
+    app.threads.selection = SelectionState::Block {
         message_idx: 0,
         block_idx: 0,
     };
@@ -308,14 +308,14 @@ fn has_input_selection_detects_both_block_and_range() {
     );
 
     // An active Range on INPUT_MSG_IDX is an input selection.
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 0),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 2),
     };
     assert!(app.has_input_selection());
 
     // A collapsed Range (anchor == head) is not active and does not count.
-    app.transcript.selection = SelectionState::Range {
+    app.threads.selection = SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 0),
         head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 0),
     };
@@ -331,7 +331,7 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
     // A transcript step holding focus means the composer no longer owns the
     // caret: arrows mean step navigation, so the relay must stand down even
     // though a selection is technically active.
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             view::model::layout::InteractiveTarget::tool_step(0),
@@ -351,12 +351,12 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
 fn app_with_input_viewport(rows: usize, visible: usize) -> (App, tempfile::TempDir) {
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
     let height = visible as u16 + ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS;
-    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 60));
-    app.transcript.ui.mount(
+    app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 60));
+    app.viewport.ui.mount(
         crate::shell::ui::UiKey::Composer,
         graticule::Rect::new(0, 40, 60, height),
     );
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
     app.composer.input = (0..rows)
         .map(|i| char::from(b'a' + (i % 26) as u8).to_string())
         .collect::<Vec<_>>()
@@ -393,8 +393,8 @@ fn input_viewport_wheel_steps_clamp_to_hidden_rows() {
     );
 
     // No composer on screen (overlay modal, first frame): not scrollable.
-    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 60));
-    app.transcript.ui.commit();
+    app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 60));
+    app.viewport.ui.commit();
     assert_eq!(app.input_scroll_max(), None);
     assert_eq!(app.step_input_scroll(false, 1), None);
 }
@@ -419,8 +419,8 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     app.composer.input_scroll = 6;
 
     // A selection drag anchored in the composer's second row.
-    app.transcript.drag.begin_range(
-        &mut app.transcript.selection,
+    app.viewport.drag.begin_range(
+        &mut app.threads.selection,
         view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 2),
     );
 
@@ -437,7 +437,7 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
         !app.composer.input_scroll_follow_cursor,
         "edge-autoscroll must survive the next composer render"
     );
-    let SelectionState::Range { head, .. } = &app.transcript.selection else {
+    let SelectionState::Range { head, .. } = &app.threads.selection else {
         panic!("selection survives the edge step");
     };
     let wrapped = crate::shell::composer_grid::TextGrid::new(
@@ -475,7 +475,7 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     );
 
     // Ending the drag disarms the autoscroll; the heartbeat step no-ops.
-    app.transcript.drag.finish(&mut app.transcript.selection);
+    app.viewport.drag.finish(&mut app.threads.selection);
     app.composer.input_drag_scroll = None;
     assert!(!app.step_input_drag_scroll());
 }
@@ -486,8 +486,8 @@ fn input_edge_autoscroll_ignores_transcript_anchored_drags() {
     app.composer.input_scroll = 0;
     // A drag anchored in transcript content never drives the input viewport,
     // however far above the input the pointer climbs.
-    app.transcript.drag.begin_range(
-        &mut app.transcript.selection,
+    app.viewport.drag.begin_range(
+        &mut app.threads.selection,
         view::model::layout::SemanticCursor::new(0, 0, 5),
     );
     assert_eq!(app.input_drag_scroll_edge(0), None);
@@ -537,7 +537,7 @@ fn shift_right_selects_characters_and_extracts() {
     ));
     assert_eq!(app.composer.cursor_position, 1);
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         SelectionState::InputRange {
             anchor_byte: 0,
             head_byte: 1,
@@ -545,10 +545,10 @@ fn shift_right_selects_characters_and_extracts() {
     );
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("h".to_string())
@@ -567,10 +567,10 @@ fn shift_right_selects_characters_and_extracts() {
     assert_eq!(app.composer.cursor_position, 2);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("he".to_string())
@@ -589,10 +589,10 @@ fn shift_right_selects_characters_and_extracts() {
     assert_eq!(app.composer.cursor_position, 1);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("h".to_string())
@@ -609,7 +609,7 @@ fn shift_right_selects_characters_and_extracts() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(app.composer.cursor_position, 0);
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 }
 
 #[test]
@@ -633,7 +633,7 @@ fn shift_left_backwards_selection() {
     ));
     assert_eq!(app.composer.cursor_position, 4);
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         SelectionState::InputRange {
             anchor_byte: 5,
             head_byte: 4,
@@ -641,10 +641,10 @@ fn shift_left_backwards_selection() {
     );
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("o".to_string())
@@ -663,10 +663,10 @@ fn shift_left_backwards_selection() {
     assert_eq!(app.composer.cursor_position, 3);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("lo".to_string())
@@ -685,10 +685,10 @@ fn shift_left_backwards_selection() {
     assert_eq!(app.composer.cursor_position, 4);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("o".to_string())
@@ -705,7 +705,7 @@ fn shift_left_backwards_selection() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(app.composer.cursor_position, 5);
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 
     // Shift+Right again selects forwards: ' ' (space)
     let action = relay_key(
@@ -720,10 +720,10 @@ fn shift_left_backwards_selection() {
     assert_eq!(app.composer.cursor_position, 6);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some(" ".to_string())
@@ -752,10 +752,10 @@ fn shift_ctrl_left_and_right_word_selection() {
     assert_eq!(app.composer.cursor_position, 5);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("hello".to_string())
@@ -774,10 +774,10 @@ fn shift_ctrl_left_and_right_word_selection() {
     assert_eq!(app.composer.cursor_position, 11);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("hello world".to_string())
@@ -803,10 +803,10 @@ fn shift_up_and_down_multiline_selection() {
     assert_eq!(app.composer.cursor_position, 2);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("llo\nwo".to_string())
@@ -823,7 +823,7 @@ fn shift_up_and_down_multiline_selection() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(app.composer.cursor_position, 8);
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 }
 
 #[test]
@@ -854,7 +854,7 @@ fn shift_selection_delete_and_backspace() {
     ));
     assert_eq!(app.composer.input, "hello ");
     assert_eq!(app.composer.cursor_position, 6);
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
 }
 
 #[test]
@@ -875,10 +875,10 @@ fn shift_selection_cjk() {
     assert_eq!(app.composer.cursor_position, "你".len());
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("你".to_string())
@@ -893,10 +893,10 @@ fn shift_selection_cjk() {
     assert_eq!(app.composer.cursor_position, "你好".len());
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("你好".to_string())
@@ -921,10 +921,10 @@ fn shift_home_and_end_selection() {
     assert_eq!(app.composer.cursor_position, 0);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some("hello".to_string())
@@ -939,10 +939,10 @@ fn shift_home_and_end_selection() {
     assert_eq!(app.composer.cursor_position, 11);
     assert_eq!(
         extract_selection_text(
-            &app.transcript.selection,
+            &app.threads.selection,
             &[],
             &app.composer.input,
-            &app.transcript.ui.document,
+            &app.viewport.ui.document,
             None
         ),
         Some(" world".to_string())
@@ -969,7 +969,7 @@ fn esc_cancels_shift_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.threads.selection, SelectionState::None);
     assert_eq!(app.composer.input, "hello world");
 }
 
@@ -996,13 +996,10 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "s1");
     });
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
 
     assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
-    assert!(
-        app.transcript.focus.is_composer(),
-        "composer starts focused"
-    );
+    assert!(app.threads.focus.is_composer(), "composer starts focused");
 
     // 1. Single click on Dashboard tab at col 15, row 0 -> switches immediately on first click
     let click_down = graticule::event::Event::Mouse(graticule::event::MouseEvent {
@@ -1026,7 +1023,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "s1");
     });
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
 
     // 3. Single click on Thread 1 tab at col 5, row 0 -> switches back to Thread
     let click_thread = graticule::event::Event::Mouse(graticule::event::MouseEvent {
@@ -1046,7 +1043,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         crate::shell::surfaces::SceneKind::Thread
     );
     assert!(
-        app.transcript.focus.is_composer(),
+        app.threads.focus.is_composer(),
         "entering thread scene activates composer"
     );
 
@@ -1054,7 +1051,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "s1");
     });
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
 
     // 5. Clicking on TabBar empty background (col 50, row 0) is an inert container gesture (ADR-0091 [INV-TAB-11])
     let click_tabbar_bg = graticule::event::Event::Mouse(graticule::event::MouseEvent {
@@ -1065,7 +1062,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_tabbar_bg, "s1").await;
     assert!(
-        app.transcript.focus.is_composer(),
+        app.threads.focus.is_composer(),
         "clicking tabbar background must not blur composer"
     );
     assert_eq!(
@@ -1083,7 +1080,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_active_tab, "s1").await;
     assert!(
-        app.transcript.focus.is_composer(),
+        app.threads.focus.is_composer(),
         "clicking active tab is idempotent and preserves composer focus"
     );
 
@@ -1096,7 +1093,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_transcript, "s1").await;
     assert!(
-        app.transcript.focus.is_transcript(),
+        app.threads.focus.is_transcript(),
         "clicking transcript content blurs composer"
     );
     assert_eq!(
@@ -1107,7 +1104,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
 
     // 8. Clicking back on Composer input box restores composer focus
     let composer_bounds = app
-        .transcript
+        .viewport
         .ui
         .bounds(crate::shell::ui::UiKey::Composer)
         .expect("composer mounted");
@@ -1119,7 +1116,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_composer, "s1").await;
     assert!(
-        app.transcript.focus.is_composer(),
+        app.threads.focus.is_composer(),
         "clicking composer restores active focus"
     );
     assert_eq!(
@@ -1147,12 +1144,12 @@ async fn shift_tab_crosses_planes_and_the_same_press_returns() {
     ));
 
     // Start: the composer owns the keyboard.
-    assert!(app.transcript.focus.is_composer());
+    assert!(app.threads.focus.is_composer());
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
 
     // Cross into the transcript.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
-    assert!(app.transcript.focus.is_transcript());
+    assert!(app.threads.focus.is_transcript());
     assert_eq!(
         app.caret_owner(),
         CaretOwner::None,
@@ -1161,7 +1158,7 @@ async fn shift_tab_crosses_planes_and_the_same_press_returns() {
 
     // The same press returns — this is the symmetry, not an escape.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
-    assert!(app.transcript.focus.is_composer());
+    assert!(app.threads.focus.is_composer());
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
 }
 
@@ -1176,21 +1173,21 @@ async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
         graticule::event::KeyModifiers::NONE,
     ));
 
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             InteractiveTarget::tool_step(2),
         ));
     assert_eq!(
-        app.transcript.focus.entry(),
+        app.threads.focus.entry(),
         Some(InteractiveTarget::tool_step(2))
     );
 
     // Glance at the composer…
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
-    assert!(app.transcript.focus.is_composer());
+    assert!(app.threads.focus.is_composer());
     assert_eq!(
-        app.transcript.focus.entry(),
+        app.threads.focus.entry(),
         None,
         "the composer plane reports no entry"
     );
@@ -1198,7 +1195,7 @@ async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
     // …and come back to the same step, not to the top of the list.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
     assert_eq!(
-        app.transcript.focus.entry(),
+        app.threads.focus.entry(),
         Some(InteractiveTarget::tool_step(2)),
         "the crossing is lossless: the highlighted entry is restored"
     );
@@ -1215,7 +1212,7 @@ async fn escape_never_moves_the_keyboard_off_the_transcript() {
         graticule::event::KeyModifiers::NONE,
     ));
 
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             InteractiveTarget::tool_step(1),
@@ -1223,11 +1220,11 @@ async fn escape_never_moves_the_keyboard_off_the_transcript() {
     // Idle: Esc is spent, and the plane is untouched.
     crate::shell::event_loop::process_event_for_test(&mut app, &esc, &sid).await;
     assert!(
-        app.transcript.focus.is_transcript(),
+        app.threads.focus.is_transcript(),
         "a spent Esc must not relocate the keyboard to the composer"
     );
     assert_eq!(
-        app.transcript.focus.entry(),
+        app.threads.focus.entry(),
         Some(InteractiveTarget::tool_step(1))
     );
 }
@@ -1241,7 +1238,7 @@ async fn typing_on_the_transcript_plane_never_reaches_the_draft() {
         graticule::event::KeyModifiers::NONE,
     ));
 
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
     app.composer.input.clear();
@@ -1253,7 +1250,7 @@ async fn typing_on_the_transcript_plane_never_reaches_the_draft() {
         "the draft must not absorb the keystroke"
     );
     assert!(
-        app.transcript.focus.is_transcript(),
+        app.threads.focus.is_transcript(),
         "typing on the transcript plane does not hand the keyboard back — \
          only Shift-Tab and the implicit gestures do"
     );

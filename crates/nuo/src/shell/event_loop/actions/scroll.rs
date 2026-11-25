@@ -15,51 +15,51 @@ pub(crate) fn scroll_tick(app: &mut App, down: bool) {
             scroll.saturating_sub(1)
         };
     } else if down {
-        app.transcript.pin_summary_line = None;
-        app.transcript.scroll = app
-            .transcript
+        app.threads.pin_summary_line = None;
+        app.threads.scroll = app
+            .threads
             .scroll
             .saturating_add(4)
-            .min(app.transcript.max_scroll);
-        if app.transcript.scroll >= app.transcript.max_scroll {
-            app.transcript.follow_bottom = true;
+            .min(app.threads.max_scroll);
+        if app.threads.scroll >= app.threads.max_scroll {
+            app.threads.follow_bottom = true;
         }
     } else {
         // While a permission sheet is open the transcript stays scrollable,
         // so the wheel / page keys drive the thread behind it, not the
         // sheet's own body.
-        app.transcript.follow_bottom = false;
-        app.transcript.pin_summary_line = None;
-        app.transcript.scroll = app.transcript.scroll.saturating_sub(4);
+        app.threads.follow_bottom = false;
+        app.threads.pin_summary_line = None;
+        app.threads.scroll = app.threads.scroll.saturating_sub(4);
     }
 }
 
 pub(crate) fn scroll_transcript_page(app: &mut App, down: bool) {
-    let step = app.transcript.view_height.saturating_sub(1).max(1) as usize;
-    app.transcript.pin_summary_line = None;
+    let step = app.viewport.view_height.saturating_sub(1).max(1) as usize;
+    app.threads.pin_summary_line = None;
     if down {
-        app.transcript.scroll = app
-            .transcript
+        app.threads.scroll = app
+            .threads
             .scroll
             .saturating_add(step)
-            .min(app.transcript.max_scroll);
-        if app.transcript.scroll >= app.transcript.max_scroll {
-            app.transcript.follow_bottom = true;
+            .min(app.threads.max_scroll);
+        if app.threads.scroll >= app.threads.max_scroll {
+            app.threads.follow_bottom = true;
         }
     } else {
-        app.transcript.follow_bottom = false;
-        app.transcript.scroll = app.transcript.scroll.saturating_sub(step);
+        app.threads.follow_bottom = false;
+        app.threads.scroll = app.threads.scroll.saturating_sub(step);
     }
 }
 
 pub(crate) fn scroll_transcript_to_edge(app: &mut App, bottom: bool) {
-    app.transcript.pin_summary_line = None;
+    app.threads.pin_summary_line = None;
     if bottom {
-        app.transcript.scroll = app.transcript.max_scroll;
-        app.transcript.follow_bottom = true;
+        app.threads.scroll = app.threads.max_scroll;
+        app.threads.follow_bottom = true;
     } else {
-        app.transcript.scroll = 0;
-        app.transcript.follow_bottom = false;
+        app.threads.scroll = 0;
+        app.threads.follow_bottom = false;
     }
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn handle_wheel(
     viewed_session_id: &str,
 ) {
     use crate::shell::ui::UiKey;
-    match app.transcript.ui.scene().hit_test(x, y).copied() {
+    match app.viewport.ui.scene().hit_test(x, y).copied() {
         Some(
             UiKey::TabBar
             | UiKey::TabBarItem(_)
@@ -93,7 +93,7 @@ pub(crate) fn handle_wheel(
             activate_tab_at_index(app, target_idx, runtime, viewed_session_id);
         }
         Some(UiKey::Overlay(overlay))
-            if app.transcript.ui.contains(UiKey::Overlay(overlay), x, y) =>
+            if app.viewport.ui.contains(UiKey::Overlay(overlay), x, y) =>
         {
             if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
                 let action = if up {

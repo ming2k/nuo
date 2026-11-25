@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-use crate::shell::{STREAM_FRAME_INTERVAL, event_loop, is_coalescible_stream_update, session_gate};
+use crate::shell::{STREAM_FRAME_INTERVAL, event_loop, is_coalescible_stream_update};
 use protocol::{AgentResponse, LoopStatus, ProviderPickerSnapshot};
 
 /// Translator-side alias for the mutation type (formerly a `use` inside the
@@ -79,13 +79,9 @@ struct TranslatorState {
     /// `/new` / `/session open` / `/resume` / `/fork` and scopes
     /// session-addressed replies (the tree snapshot) against it.
     live_session: String,
-    /// ADR-0166 `[INV-TOOL-ID-06]`: sessions this client has switched
-    /// away from. A superseded round can still emit terminal frames after
-    /// the switch (`cancel_current` signals a token; it does not join the
-    /// task), and those frames must not write into the replacement
-    /// buffer. See [`session_gate`] for why this is a superseded set and
-    /// not an equality check against the live id.
-    session_gate: session_gate::SessionGate,
+    /// ADR-0253 `[INV-INSTANCE-03]`: per-thread active generation (`0` = retired
+    /// by an in-place re-key, `>= 1` = active). Replaces `SessionGate`.
+    thread_generations: std::collections::HashMap<String, u64>,
     mutations: event_loop::mutations::MutationSink,
     tui_config: Arc<crate::shell::config::TuiConfig>,
     trust_gate_dismissed: Arc<std::sync::atomic::AtomicBool>,
@@ -148,7 +144,7 @@ pub(crate) fn spawn_response_translator(config: ResponseTranslatorConfig) {
             picker: ProviderPickerSnapshot::default(),
             threads: initial_threads,
             live_session: live_session_for_translator.clone(),
-            session_gate: session_gate::SessionGate::new(),
+            thread_generations: std::collections::HashMap::new(),
             mutations,
             tui_config: tui_config_clone,
             trust_gate_dismissed: trust_gate_dismissed_clone,

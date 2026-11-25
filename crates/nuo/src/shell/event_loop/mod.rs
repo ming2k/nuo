@@ -319,7 +319,7 @@ fn next_poll_interval(
     // CAROUSEL_SLIDE_SECS).
     if empty_state_showing {
         let slide_ms = (view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
-        let elapsed_ms = app.transcript.carousel_epoch.elapsed().as_millis();
+        let elapsed_ms = app.viewport.carousel_epoch.elapsed().as_millis();
         let rem_ms = slide_ms.saturating_sub(elapsed_ms % slide_ms);
         next_timeout = next_timeout.min(std::time::Duration::from_millis((rem_ms as u64).max(50)));
     }
@@ -450,7 +450,7 @@ pub(crate) async fn run_app_loop(
             term_w,
             term_h.saturating_sub(ui_primitives::design::PAGE_HEADER_ROWS),
         );
-        let in_subagent = !app.transcript.focus_stack.is_empty();
+        let in_subagent = !app.threads.focus_stack.is_empty();
         // A full-screen scene replaces the chat pane entirely. The log scene
         // belongs here: it paints its own page over the whole frame, so reserving
         // composer height behind it would leave the layout measuring a pane
@@ -472,17 +472,17 @@ pub(crate) async fn run_app_loop(
             last_composer_height.is_some_and(|prev| prev != current_composer_height);
         if let Some(prev_h) = last_composer_height
             && prev_h != current_composer_height
-            && app.transcript.view_height > 0
+            && app.viewport.view_height > 0
         {
             let delta = current_composer_height as i32 - prev_h as i32;
-            let estimated_view_height = (app.transcript.view_height as i32 - delta).max(1) as u16;
-            app.transcript.view_height = estimated_view_height;
-            app.transcript.max_scroll = app
-                .transcript
+            let estimated_view_height = (app.viewport.view_height as i32 - delta).max(1) as u16;
+            app.viewport.view_height = estimated_view_height;
+            app.threads.max_scroll = app
+                .threads
                 .content_lines
                 .saturating_sub(estimated_view_height as usize);
-            if !app.transcript.follow_bottom {
-                app.transcript.scroll_settle_pending = true;
+            if !app.threads.follow_bottom {
+                app.threads.scroll_settle_pending = true;
             }
             frame_dirty = true;
         }
@@ -490,15 +490,15 @@ pub(crate) async fn run_app_loop(
 
         let viewport_geometry_changed = resized_this_frame || composer_resized;
 
-        if app.transcript.follow_bottom && !resized_this_frame {
-            app.transcript.scroll = app.transcript.max_scroll;
+        if app.threads.follow_bottom && !resized_this_frame {
+            app.threads.scroll = app.threads.max_scroll;
         }
 
         let empty_state_showing =
-            app.focused_messages().is_empty() && app.transcript.focus_stack.is_empty();
+            app.focused_messages().is_empty() && app.threads.focus_stack.is_empty();
         if empty_state_showing {
             let current_carousel_index = view::empty_state::carousel_page_for(
-                app.transcript.carousel_epoch.elapsed().as_millis(),
+                app.viewport.carousel_epoch.elapsed().as_millis(),
             );
             if current_carousel_index != last_carousel_index {
                 last_carousel_index = current_carousel_index;
@@ -558,16 +558,16 @@ pub(crate) async fn run_app_loop(
         }
 
         let stage_bottom_follow = (displayed_transcript_changed || viewport_geometry_changed)
-            && app.transcript.follow_bottom;
-        let stage_settle = app.transcript.scroll_settle_pending && !stage_bottom_follow;
+            && app.threads.follow_bottom;
+        let stage_settle = app.threads.scroll_settle_pending && !stage_bottom_follow;
 
-        let painted_scroll = app.transcript.scroll;
+        let painted_scroll = app.threads.scroll;
         if paint_now {
             if stage_bottom_follow || stage_settle {
                 terminal.stage(|f| render::render_frame(app, f, &viewed_session_id))?;
             } else {
                 terminal.draw(|f| render::render_frame(app, f, &viewed_session_id))?;
-                app.transcript.ui.commit();
+                app.viewport.ui.commit();
             }
             last_paint = Some(std::time::Instant::now());
         }
@@ -583,46 +583,46 @@ pub(crate) async fn run_app_loop(
         // lingering value must not leak into a later, unrelated settle.
         if paint_now {
             if stage_settle {
-                if let Some(resolved) = app.transcript.layout_height_cache.take_resolved() {
-                    app.transcript.scroll = resolved;
+                if let Some(resolved) = app.threads.layout_height_cache.take_resolved() {
+                    app.threads.scroll = resolved;
                 }
             } else {
-                app.transcript.layout_height_cache.take_resolved();
+                app.threads.layout_height_cache.take_resolved();
             }
         }
 
         // The renderer measured `max_scroll` from this frame's content and
         // viewport. Keep a manual position in bounds while preserving the
         // sticky-header exception used by collapsed subagent summaries.
-        if !app.transcript.follow_bottom {
+        if !app.threads.follow_bottom {
             // A collapsed sticky header may leave too little content below it
             // for `max_scroll` to reach the header line; while a pin is
             // active, allow scrolling up to that line so the header stays at
             // the top of the viewport instead of being dragged back down.
             // When total content fits within the viewport, scroll collapses to 0.
-            let limit = if app.transcript.content_lines <= app.transcript.view_height as usize {
+            let limit = if app.threads.content_lines <= app.viewport.view_height as usize {
                 0
             } else {
-                app.transcript
+                app.threads
                     .pin_summary_line
-                    .map(|line| app.transcript.max_scroll.max(line))
-                    .unwrap_or(app.transcript.max_scroll)
+                    .map(|line| app.threads.max_scroll.max(line))
+                    .unwrap_or(app.threads.max_scroll)
             };
-            app.transcript.scroll = app.transcript.scroll.min(limit);
+            app.threads.scroll = app.threads.scroll.min(limit);
         } else {
-            app.transcript.scroll = app.transcript.max_scroll;
+            app.threads.scroll = app.threads.max_scroll;
         }
 
         // The staged pass above measured the new content but emitted no bytes.
         // If the bottom moved, redraw immediately at the final offset. If it
         // did not, commit the already-final staged grid without a second layout.
         if stage_bottom_follow && paint_now {
-            if app.transcript.scroll != painted_scroll {
+            if app.threads.scroll != painted_scroll {
                 input_redraw_pending = true;
                 continue;
             }
             terminal.commit_staged()?;
-            app.transcript.ui.commit();
+            app.viewport.ui.commit();
             // Committed: the staged rect observation is now the published
             // geometry. Nothing to do — the snapshot is simply dropped.
         }
@@ -633,18 +633,18 @@ pub(crate) async fn run_app_loop(
         // staged grid, which is already laid out at the correct offset,
         // without a second layout pass.
         if stage_settle && paint_now {
-            app.transcript.scroll_settle_pending = false;
-            if app.transcript.scroll != painted_scroll {
+            app.threads.scroll_settle_pending = false;
+            if app.threads.scroll != painted_scroll {
                 input_redraw_pending = true;
                 continue;
             }
             terminal.commit_staged()?;
-            app.transcript.ui.commit();
+            app.viewport.ui.commit();
         }
         // A transcript shrink can clamp a manually positioned viewport after
         // a normal draw. Repaint once at the newly valid offset instead of
         // leaving the just-painted frame beyond the new end of the content.
-        if paint_now && app.transcript.scroll != painted_scroll {
+        if paint_now && app.threads.scroll != painted_scroll {
             input_redraw_pending = true;
             continue;
         }
@@ -1003,7 +1003,7 @@ async fn process_one_event<W: io::Write>(
     // owes a repaint (ADR-0223).
     let hover_before = (
         app.surfaces.config_hover_index,
-        app.transcript.hovered_step,
+        app.viewport.hovered_step,
         app.surfaces.tab_hover,
     );
 
@@ -1040,9 +1040,9 @@ async fn process_one_event<W: io::Write>(
         }
     }
 
-    let focus_plane = app.transcript.focus.plane();
-    let event_family = input::event_family(event, &app.transcript.ui, focus_plane);
-    let keyboard_path = app.transcript.ui.keyboard_path_for(event_family);
+    let focus_plane = app.threads.focus.plane();
+    let event_family = input::event_family(event, &app.viewport.ui, focus_plane);
+    let keyboard_path = app.viewport.ui.keyboard_path_for(event_family);
     let active_overlay = match keyboard_path.first().copied() {
         Some(crate::shell::ui::UiKey::Overlay(overlay)) => Some(overlay),
         Some(crate::shell::ui::UiKey::ProviderDelete) => {
@@ -1152,7 +1152,7 @@ async fn process_one_event<W: io::Write>(
                 )
             ),
             notice_viewer_open: app.notice_viewer_open(),
-            transcript_searching: app.transcript.search.active,
+            transcript_searching: app.threads.search.active,
         };
         let modal_keys = crate::shell::modal_keys::ModalKeys {
             model_searching,
@@ -1188,7 +1188,7 @@ async fn process_one_event<W: io::Write>(
             in_history_recall,
             surface_overrides: app.surfaces.surface_overrides.clone(),
             focus: focus_plane,
-            entry_focus: app.transcript.focus.entry(),
+            entry_focus: app.threads.focus.entry(),
             focused_subagent_running,
         };
         match edit_buffer {
@@ -1201,7 +1201,7 @@ async fn process_one_event<W: io::Write>(
                 &modal_keys,
                 &sheet_keys,
                 &scene_keys,
-                &mut app.transcript.drag,
+                &mut app.viewport.drag,
             ),
             // The modal query fields are single-line: they have no visual row
             // to walk, so the arrow keys keep their list/edge meaning and the
@@ -1221,7 +1221,7 @@ async fn process_one_event<W: io::Write>(
                     &modal_keys,
                     &sheet_keys,
                     &scene_keys,
-                    &mut app.transcript.drag,
+                    &mut app.viewport.drag,
                 )
             }
             EditBuffer::Connections => {
@@ -1239,7 +1239,7 @@ async fn process_one_event<W: io::Write>(
                     &modal_keys,
                     &sheet_keys,
                     &scene_keys,
-                    &mut app.transcript.drag,
+                    &mut app.viewport.drag,
                 )
             }
         }
@@ -1310,7 +1310,7 @@ async fn process_one_event<W: io::Write>(
     if is_hover {
         if (
             app.surfaces.config_hover_index,
-            app.transcript.hovered_step,
+            app.viewport.hovered_step,
             app.surfaces.tab_hover,
         ) != hover_before
         {

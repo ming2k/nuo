@@ -991,7 +991,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
 #[tokio::test]
 async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.session.current_provider = "anthropic-prod".to_string();
+    app.threads.current_provider = "anthropic-prod".to_string();
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     app.link.tx = tx;
@@ -1375,7 +1375,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
 
     // Simulate mouse interaction during verification:
     // 1. User sets an active selection range (e.g. dragging over verification URL or code)
-    app.transcript.selection = view::model::selection::SelectionState::Range {
+    app.threads.selection = view::model::selection::SelectionState::Range {
         anchor: view::model::layout::SemanticCursor::new(
             view::model::layout::MODAL_DOC_MSG_IDX,
             0,
@@ -1388,7 +1388,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         ),
     };
     // 2. Transcript focus might have been falsely set by mouse click
-    app.transcript
+    app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
@@ -1408,12 +1408,12 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         "OAuthPending must be pruned from the overlay stack"
     );
     assert_eq!(
-        app.transcript.selection,
+        app.threads.selection,
         view::model::selection::SelectionState::None,
         "Selection must be cleared on transition to name editor"
     );
     assert!(
-        app.transcript.focus.is_composer(),
+        app.threads.focus.is_composer(),
         "Transcript focus must be false when entering name editor"
     );
     assert!(app.caret_visible(), "Caret must be visible in name editor");
@@ -1440,7 +1440,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
             pre_attach: false,
             scene: app.current_scene(),
             key_overrides: Default::default(),
-            focus: app.transcript.focus.plane(),
+            focus: app.threads.focus.plane(),
             scene_blocked: false,
             notice_viewer_open: false,
             transcript_searching: false,
@@ -1451,7 +1451,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         },
         &crate::shell::sheet::SheetKeys::default(),
         &crate::shell::session::SceneKeys::default(),
-        &mut app.transcript.drag,
+        &mut app.viewport.drag,
     );
 
     assert_eq!(action, crate::shell::input::InputAction::InsertChar('!'));

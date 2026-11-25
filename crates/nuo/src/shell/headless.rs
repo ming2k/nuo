@@ -478,7 +478,19 @@ async fn handle_permission_request(
         req.tool, req.scope, req.description
     );
     let can_split_exact = !req.one_off && req.suggested_scope.is_some();
-    if let Some(suggested) = req.suggested_scope.as_deref().filter(|_| !req.one_off) {
+    if req.elevation {
+        if let Some(suggested) = req.suggested_scope.as_deref().filter(|_| !req.one_off) {
+            eprint!(
+                "Allow cross-workspace access? [s]ession ({suggested}), [a]lways save to .nuo ({suggested}), [e]xact save ({}), [n]o: ",
+                req.scope
+            );
+        } else {
+            eprint!(
+                "Allow cross-workspace access? [s]ession ({}), [a]lways save to .nuo ({}), [n]o: ",
+                req.scope, req.scope
+            );
+        }
+    } else if let Some(suggested) = req.suggested_scope.as_deref().filter(|_| !req.one_off) {
         eprint!(
             "Allow execution? [y]es, [a]lways ({suggested}), [e]xact always ({}), [n]o: ",
             req.scope

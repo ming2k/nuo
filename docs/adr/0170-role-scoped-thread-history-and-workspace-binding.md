@@ -1,10 +1,10 @@
 ---
 id: ADR-0170
 title: "Role-Scoped Thread History: The Role Owns the Workspace Policy"
-status: accepted
+status: superseded
 date: 2026-11-12
 scope: host/workspace, protocol/thread-scope, persistence/session-store, cli/thread, server/registry
-superseded_by: null
+superseded_by: ADR-0254
 negative_knowledge: false
 ---
 

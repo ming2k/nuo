@@ -289,6 +289,7 @@ async fn attach_end_session_tears_down_and_notifies() {
     while let Ok(Some(Ok(msg))) = tokio::time::timeout(deadline, ws.next()).await {
         if let Ok(Wire::Response {
             response: AgentResponse::Exit,
+            ..
         }) = serde_json::from_str::<Wire>(msg.to_text().unwrap_or(""))
         {
             saw_exit = true;

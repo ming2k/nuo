@@ -57,7 +57,7 @@ pub(super) async fn handle_session_action(
 
                 if id == viewed_session_id {
                     if app.session.running_sessions.contains(&id) {
-                        app.transcript.scroll = 0;
+                        app.threads.scroll = 0;
                     }
                 } else {
                     let is_empty = app.is_current_thread_empty();
@@ -143,14 +143,7 @@ pub(super) async fn handle_session_action(
             Some(ActionFlow::Handled)
         }
         InputAction::CreateNewSession => {
-            app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
-            app.dismiss_active_dialog();
-            if app.is_current_thread_empty() {
-                app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
-            } else {
-                let cwd = app.session.cwd.clone();
-                app.subscribe_thread(protocol::AttachAction::New(None), Some(cwd));
-            }
+            super::tabs::start_fresh_thread_bare(app);
             Some(ActionFlow::Handled)
         }
         InputAction::OpenSessionInfo => {

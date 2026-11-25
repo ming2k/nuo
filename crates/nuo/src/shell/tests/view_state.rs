@@ -66,8 +66,8 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
     // server.) ADR-0126: one authority per fact, and the server owns this one.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_provider = "mock".to_string();
-    app.session.current_model = "glm-5.2".to_string();
+    app.threads.current_provider = "mock".to_string();
+    app.threads.current_model = "glm-5.2".to_string();
     app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
         default_id: "mock".to_string(),
         rows: vec![protocol::ProviderPickerRow {
@@ -134,8 +134,8 @@ fn composer_image_paste_accepted_when_model_vision_is_undeclared() {
     // no grounds to refuse it, and the provider answers if it cannot take it.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_provider = "mock".to_string();
-    app.session.current_model = "mystery-relay-model".to_string();
+    app.threads.current_provider = "mock".to_string();
+    app.threads.current_model = "mystery-relay-model".to_string();
     app.composer.input = String::new();
     app.composer.cursor_position = 0;
 
@@ -175,8 +175,8 @@ fn composer_image_paste_accepted_when_model_has_vision() {
     // the in-process static registry (gpt-4o baseline: vision: true).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_provider = "mock".to_string();
-    app.session.current_model = "gpt-4o".to_string(); // vision: true
+    app.threads.current_provider = "mock".to_string();
+    app.threads.current_model = "gpt-4o".to_string(); // vision: true
     app.composer.input = String::new();
     app.composer.cursor_position = 0;
 
@@ -209,8 +209,8 @@ fn composer_image_paste_accepted_when_model_has_vision() {
 fn composer_image_paste_accepted_for_commandcode_deepseek_flash() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_provider = "commandcode".to_string();
-    app.session.current_model = "deepseek/deepseek-v4.1-flash".to_string();
+    app.threads.current_provider = "commandcode".to_string();
+    app.threads.current_model = "deepseek/deepseek-v4.1-flash".to_string();
     app.composer.input = String::new();
     app.composer.cursor_position = 0;
 
@@ -240,8 +240,8 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
     // wrongly reject the paste).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_provider = "gogo".to_string();
-    app.session.current_model = "omen-alpha".to_string();
+    app.threads.current_provider = "gogo".to_string();
+    app.threads.current_model = "omen-alpha".to_string();
     app.surfaces
         .provider_picker
         .rows
@@ -305,8 +305,8 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
     // baseline in the TUI client process. The client must not fall back to 0.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_provider = "opencode-go".to_string();
-    app.session.current_model = "glm-5.3".to_string();
+    app.threads.current_provider = "opencode-go".to_string();
+    app.threads.current_model = "glm-5.3".to_string();
     app.surfaces
         .provider_picker
         .rows
@@ -358,8 +358,8 @@ fn composer_image_paste_snapshot_override_forces_off() {
     // though the in-process registry says the model takes images.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_provider = "mock".to_string();
-    app.session.current_model = "gpt-4o".to_string();
+    app.threads.current_provider = "mock".to_string();
+    app.threads.current_model = "gpt-4o".to_string();
     app.surfaces
         .provider_picker
         .rows
@@ -424,7 +424,7 @@ fn composer_text_paste_of_image_file_path_stages_attachment() {
     // `file://` URI forms a terminal's text flavor produces.
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.session.current_model = "gpt-4o".to_string(); // vision: true
+    app.threads.current_model = "gpt-4o".to_string(); // vision: true
     app.composer.input = String::new();
     app.composer.cursor_position = 0;
     let png = tmp.path().join("shot.png");
@@ -507,10 +507,10 @@ fn composer_text_paste_of_non_image_or_prose_stays_verbatim() {
 #[test]
 fn view_reset_clears_pending_scroll_settle() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.transcript.scroll_settle_pending = true;
+    app.threads.scroll_settle_pending = true;
     app.reset_view_state();
     assert!(
-        !app.transcript.scroll_settle_pending,
+        !app.threads.scroll_settle_pending,
         "reset_view_state must clear a pending settle"
     );
 }

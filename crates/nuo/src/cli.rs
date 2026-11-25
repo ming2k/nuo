@@ -41,29 +41,22 @@ pub enum Mode {
     Help(Option<String>),
 }
 
-/// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061, ADR-0170)
+/// `nuo thread …` (ADR-0043, ADR-0048, ADR-0061, ADR-0254)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThreadAction {
     /// `nuo thread` or `nuo thread open [id]` — launch interactive TUI into the
-    /// thread picker or a specific thread, under an optional role scope.
+    /// thread picker or a specific thread, with an optional initial role.
     Open {
         id: Option<String>,
         role: Option<String>,
     },
-    /// `nuo thread ls` — list the current role's thread history in the
-    /// resolved workspace (or the unbound role set).
+    /// `nuo thread ls` — list durable + hosted thread history with orthogonal
+    /// `--role` and `--workspace` filters.
     List {
         json: bool,
         hosted: bool,
         role: Option<String>,
-        /// Explicit binding for an `Inherit` role; omitted means the role's
-        /// resolved binding (the current project, or unbound/fixed).
         workspace: Option<PathBuf>,
-        /// Every role in the resolved (or explicitly selected) workspace.
-        all_roles: bool,
-        /// Every role × every binding. Explicit admin scope; cannot combine
-        /// with `--workspace` or `--all-roles`.
-        global: bool,
     },
     /// `nuo thread stop <id>` / `nuo thread stop --all` — runtime-only
     /// termination; durable history survives.
@@ -73,11 +66,9 @@ pub enum ThreadAction {
         force: bool,
         role: Option<String>,
         workspace: Option<PathBuf>,
-        all_roles: bool,
-        global: bool,
     },
     /// `nuo thread rm <id>` / `nuo thread rm --all` — permanently delete
-    /// durable thread history in the selected scope.
+    /// durable thread history matching the optional filters.
     Delete {
         id: Option<String>,
         all: bool,
@@ -85,8 +76,6 @@ pub enum ThreadAction {
         dry_run: bool,
         role: Option<String>,
         workspace: Option<PathBuf>,
-        all_roles: bool,
-        global: bool,
     },
 }
 
@@ -201,18 +190,10 @@ struct ThreadBulkArgs {
     dry_run: bool,
     role: Option<String>,
     workspace: Option<PathBuf>,
-    all_roles: bool,
-    global: bool,
 }
 
-/// Parse the shared `stop`/`rm` grammar.
-///
-/// Scope is role-first: `--role` defaults to `developer`, and the role's
-/// workspace policy resolves its binding. `--workspace` selects a different
-/// binding for an `--role` whose policy is `inherit`; it is refused for a
-/// workspace-free role and must match a `fixed` one. `--all-roles` expands the
-/// role dimension inside one binding, and `--global` is the explicit
-/// every-role × every-binding admin scope (optionally narrowed by `--role`).
+/// Parse the shared `stop`/`rm` grammar with orthogonal `--role` and
+/// `--workspace` filters (ADR-0254).
 fn parse_thread_bulk_args(action: &str, args: &[String]) -> Result<ThreadBulkArgs, String> {
     let mut parsed = ThreadBulkArgs::default();
     let mut i = 0;
@@ -222,8 +203,6 @@ fn parse_thread_bulk_args(action: &str, args: &[String]) -> Result<ThreadBulkArg
             "--all" | "-a" => parsed.all = true,
             "--force" | "-f" => parsed.force = true,
             "--dry-run" => parsed.dry_run = true,
-            "--global" | "-g" => parsed.global = true,
-            "--all-roles" => parsed.all_roles = true,
             "--role" | "-r" => {
                 i += 1;
                 let Some(value) = args.get(i) else {
@@ -256,59 +235,26 @@ fn parse_thread_bulk_args(action: &str, args: &[String]) -> Result<ThreadBulkArg
         }
         i += 1;
     }
-    if parsed.global {
-        // `--global` is already every thread; `--all` is implied.
-        parsed.all = true;
-    }
     if parsed.id.is_some() && parsed.all {
         return Err(format!(
-            "thread {action}: --all/--global and a thread id are mutually exclusive"
-        ));
-    }
-    if parsed.all_roles && parsed.role.is_some() {
-        return Err(format!(
-            "thread {action}: --role and --all-roles are mutually exclusive"
-        ));
-    }
-    if parsed.global && parsed.all_roles {
-        return Err(format!(
-            "thread {action}: --global already covers every role; drop --all-roles"
-        ));
-    }
-    if parsed.global && parsed.workspace.is_some() {
-        return Err(format!(
-            "thread {action}: --global ignores the workspace dimension; drop --workspace"
-        ));
-    }
-    if parsed.workspace.is_some() && parsed.all_roles {
-        return Err(format!(
-            "thread {action}: --workspace selects a binding for one role; drop --all-roles"
-        ));
-    }
-    if parsed.workspace.is_some() && parsed.role.is_none() {
-        return Err(format!(
-            "thread {action}: --workspace requires an explicit --role (the default role is not enough)"
+            "thread {action}: --all and a thread id are mutually exclusive"
         ));
     }
     if parsed.force && !parsed.all {
-        return Err(format!(
-            "thread {action}: --force is only valid with --all or --global"
-        ));
+        return Err(format!("thread {action}: --force is only valid with --all"));
     }
     if parsed.dry_run && !parsed.all {
         return Err(format!(
-            "thread {action}: --dry-run is only valid with --all or --global"
+            "thread {action}: --dry-run is only valid with --all"
         ));
     }
-    if (parsed.workspace.is_some() || parsed.all_roles) && !parsed.all {
+    if parsed.workspace.is_some() && !parsed.all {
         return Err(format!(
-            "thread {action}: --workspace and --all-roles are only valid with --all"
+            "thread {action}: --workspace is only valid with --all"
         ));
     }
     if parsed.id.is_none() && !parsed.all {
-        return Err(format!(
-            "thread {action} requires a thread id or --all/--global"
-        ));
+        return Err(format!("thread {action} requires a thread id or --all"));
     }
     Ok(parsed)
 }
@@ -815,16 +761,12 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     let mut hosted = false;
                     let mut role = None;
                     let mut workspace = None;
-                    let mut all_roles = false;
-                    let mut global = false;
                     let mut i = 0;
                     while i < sub_extra.len() {
                         let arg = &sub_extra[i];
                         match arg.as_str() {
                             "-j" | "--json" => json_flag = true,
                             "--hosted" => hosted = true,
-                            "--global" | "-g" => global = true,
-                            "--all-roles" => all_roles = true,
                             "--role" | "-r" => {
                                 i += 1;
                                 let Some(value) = sub_extra.get(i) else {
@@ -851,42 +793,11 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                         }
                         i += 1;
                     }
-                    if all_roles && role.is_some() {
-                        return Err(
-                            "thread ls: --role and --all-roles are mutually exclusive".into()
-                        );
-                    }
-                    if global && all_roles {
-                        return Err(
-                            "thread ls: --global already covers every role; drop --all-roles"
-                                .into(),
-                        );
-                    }
-                    if global && workspace.is_some() {
-                        return Err(
-                            "thread ls: --global ignores the workspace dimension; drop --workspace"
-                                .into(),
-                        );
-                    }
-                    if workspace.is_some() && all_roles {
-                        return Err(
-                            "thread ls: --workspace selects a binding for one role; drop --all-roles"
-                                .into(),
-                        );
-                    }
-                    if workspace.is_some() && role.is_none() {
-                        return Err(
-                            "thread ls: --workspace requires an explicit --role (the default role is not enough)"
-                                .into(),
-                        );
-                    }
                     Mode::Thread(ThreadAction::List {
                         json: json_flag,
                         hosted,
                         role,
                         workspace,
-                        all_roles,
-                        global,
                     })
                 }
                 "stop" => {
@@ -900,8 +811,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                         force: jobs.force,
                         role: jobs.role,
                         workspace: jobs.workspace,
-                        all_roles: jobs.all_roles,
-                        global: jobs.global,
                     })
                 }
                 "rm" => {
@@ -913,8 +822,6 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                         dry_run: jobs.dry_run,
                         role: jobs.role,
                         workspace: jobs.workspace,
-                        all_roles: jobs.all_roles,
-                        global: jobs.global,
                     })
                 }
                 _ => unreachable!("thread subcommands are closed"),
@@ -992,21 +899,10 @@ fn command_flags(cmd: &str) -> &'static [(&'static str, &'static str)] {
                 "open [id]",
                 "open interactive thread picker or attach by id",
             ),
-            ("--role <id>", "role scope (default: developer)"),
-            (
-                "--workspace <path>",
-                "ls/stop/rm: with --role, select another binding for an inherit role",
-            ),
-            (
-                "--all-roles",
-                "ls/stop/rm: every role in the current workspace",
-            ),
-            (
-                "--global",
-                "ls/stop/rm: every role × every workspace (explicit admin)",
-            ),
+            ("--role <id>", "filter by role id"),
+            ("--workspace <path>", "filter by attached workspace path"),
             ("--hosted", "ls: only threads with a resident driver"),
-            ("--dry-run", "rm: preview the scope and counts"),
+            ("--dry-run", "rm: preview the filter and counts"),
             ("--force", "stop/rm: skip the destructive confirmation"),
         ],
         _ => &[],
@@ -1386,8 +1282,6 @@ mod surface_tests {
                 dry_run: false,
                 role: None,
                 workspace: None,
-                all_roles: false,
-                global: false,
             }) if id == "thr-0123"
         ));
         assert!(matches!(
@@ -1399,8 +1293,6 @@ mod surface_tests {
                 dry_run: false,
                 role: None,
                 workspace: None,
-                all_roles: false,
-                global: false,
             })
         ));
         assert!(matches!(
@@ -1414,8 +1306,6 @@ mod surface_tests {
                 dry_run: false,
                 role: Some(ref role),
                 workspace: None,
-                all_roles: false,
-                global: false,
             }) if role == "philosophist"
         ));
         assert!(matches!(
@@ -1436,17 +1326,10 @@ mod surface_tests {
                 force: false,
                 role: Some(ref role),
                 workspace: Some(ref path),
-                all_roles: false,
-                global: false,
             }) if role == "developer" && path == std::path::Path::new("/repo/b")
         ));
-        assert!(
-            parse(&["thread", "rm", "--all", "thr-0123"])
-                .unwrap_err()
-                .contains("mutually exclusive")
-        );
         assert!(matches!(
-            parse(&["thread", "rm", "--global", "--role", "developer"])
+            parse(&["thread", "rm", "--all", "--workspace", "/repo/b"])
                 .unwrap()
                 .mode,
             Mode::Thread(ThreadAction::Delete {
@@ -1454,55 +1337,19 @@ mod surface_tests {
                 all: true,
                 force: false,
                 dry_run: false,
-                role: Some(ref role),
-                workspace: None,
-                all_roles: false,
-                global: true,
-            }) if role == "developer"
+                role: None,
+                workspace: Some(ref path),
+            }) if path == std::path::Path::new("/repo/b")
         ));
         assert!(
-            parse(&["thread", "rm", "--global", "--all-roles"])
+            parse(&["thread", "rm", "--all", "thr-0123"])
                 .unwrap_err()
-                .contains("every role")
-        );
-        assert!(
-            parse(&["thread", "rm", "--global", "--workspace", "/repo/b"])
-                .unwrap_err()
-                .contains("workspace dimension")
-        );
-        assert!(
-            parse(&["thread", "rm", "--all", "--workspace", "/repo/b"])
-                .unwrap_err()
-                .contains("requires an explicit --role")
-        );
-        assert!(
-            parse(&[
-                "thread",
-                "rm",
-                "--all",
-                "--all-roles",
-                "--workspace",
-                "/repo/b"
-            ])
-            .unwrap_err()
-            .contains("one role")
+                .contains("mutually exclusive")
         );
         assert!(
             parse(&["thread", "rm", "--force"])
                 .unwrap_err()
                 .contains("only valid with --all")
-        );
-        assert!(
-            parse(&[
-                "thread",
-                "rm",
-                "--all",
-                "--all-roles",
-                "--role",
-                "developer"
-            ])
-            .unwrap_err()
-            .contains("mutually exclusive")
         );
         assert!(matches!(
             parse(&["thread", "ls"]).unwrap().mode,
@@ -1511,8 +1358,6 @@ mod surface_tests {
                 json: false,
                 role: None,
                 workspace: None,
-                all_roles: false,
-                global: false,
             })
         ));
         // Bare `nuo thread` defaults to interactive Thread Picker
@@ -1550,9 +1395,18 @@ mod surface_tests {
                 json: true,
                 role: Some(ref role),
                 workspace: None,
-                all_roles: false,
-                global: false,
             }) if role == "philosophist"
+        ));
+        assert!(matches!(
+            parse(&["thread", "ls", "--workspace=/repo/b"])
+                .unwrap()
+                .mode,
+            Mode::Thread(ThreadAction::List {
+                hosted: false,
+                json: false,
+                role: None,
+                workspace: Some(ref path),
+            }) if path == std::path::Path::new("/repo/b")
         ));
         assert!(matches!(
             parse(&["thread", "ls", "--role=developer", "--workspace=/repo/b"])
@@ -1563,22 +1417,7 @@ mod surface_tests {
                 json: false,
                 role: Some(ref role),
                 workspace: Some(ref path),
-                all_roles: false,
-                global: false,
             }) if role == "developer" && path == std::path::Path::new("/repo/b")
-        ));
-        assert!(matches!(
-            parse(&["thread", "ls", "--global", "--role", "developer"])
-                .unwrap()
-                .mode,
-            Mode::Thread(ThreadAction::List {
-                hosted: false,
-                json: false,
-                role: Some(ref role),
-                workspace: None,
-                all_roles: false,
-                global: true,
-            }) if role == "developer"
         ));
         let session_err = parse(&["session", "rm", "thr-0123"]).unwrap_err();
         assert!(session_err.contains("'session' was removed in favor of 'nuo thread'"));

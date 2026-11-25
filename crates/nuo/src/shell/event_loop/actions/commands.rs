@@ -73,7 +73,7 @@ pub(super) async fn handle_send_chat(
         // `[INV-ATTACH-04]` (ADR-0133): a turn must not be submitted before the
         // server attests `Ready`. Queue it locally (the server also buffers
         // defensively) and flush on the transition.
-        if app.session.session_phase != protocol::ThreadPhase::Ready {
+        if app.threads.session_phase != protocol::ThreadPhase::Ready {
             let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
             let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());
             app.record_input_history(text.clone(), images.clone(), text_pastes);
@@ -97,8 +97,8 @@ pub(super) async fn handle_send_chat(
                     let id = app.new_insert_id();
                     app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
                     app.clear_parked_draft();
-                    app.transcript.follow_bottom = true;
-                    app.transcript.pin_summary_line = None;
+                    app.threads.follow_bottom = true;
+                    app.threads.pin_summary_line = None;
                     let queued_at_ms = now_epoch_ms();
                     // ADR-0137: a busy-Enter steer is staged in the outbox,
                     // never in the transcript. The transcript gains a row only
@@ -151,8 +151,8 @@ pub(super) async fn handle_send_chat(
                         });
                     app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
                     app.clear_parked_draft();
-                    app.transcript.follow_bottom = true;
-                    app.transcript.pin_summary_line = None;
+                    app.threads.follow_bottom = true;
+                    app.threads.pin_summary_line = None;
                     app.send_intent(AgentRequest::FollowUp {
                         thread_id: viewed_session_id.to_string(),
                         message: protocol::QueuedMessage {
@@ -188,35 +188,35 @@ pub(super) async fn handle_send_chat(
                 .running_sessions
                 .insert(viewed_session_id.to_string());
             let sent_at_ms = now_epoch_ms();
-            let target_round = app.session.round_count.saturating_add(1);
+            let target_round = app.threads.round_count.saturating_add(1);
             let sent = TranscriptMessage::new(Role::User, text.clone())
                 .with_sent_at_ms(sent_at_ms)
                 .with_round(target_round)
                 .sending();
-            app.transcript.messages.push(sent);
-            app.transcript.layout_height_cache.clear();
-            app.transcript.transcript_changed_pending = true;
+            app.threads.messages.push(sent);
+            app.threads.layout_height_cache.clear();
+            app.threads.transcript_changed_pending = true;
             app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
             // The draft's content has been sent — it is now a
             // history row, not the unsent slot.
             app.clear_parked_draft();
-            app.transcript.follow_bottom = true;
-            app.transcript.pin_summary_line = None;
+            app.threads.follow_bottom = true;
+            app.threads.pin_summary_line = None;
             app.send_intent(AgentRequest::Prompt {
                 text: expanded,
                 images,
                 sent_at_ms: Some(sent_at_ms),
             });
         }
-    } else if let Some((start, end)) = app.transcript.selection.active_normalized_range() {
+    } else if let Some((start, end)) = app.threads.selection.active_normalized_range() {
         // Enter on a selected step: navigate into a subagent
         // task, otherwise toggle that step's expansion.
         if start.message_idx == end.message_idx {
             let mi = start.message_idx;
-            let mut messages = std::mem::take(&mut app.transcript.messages);
+            let mut messages = std::mem::take(&mut app.threads.messages);
             // An subagent task navigates into its view instead
             // of expanding.
-            let enter_id = resolve_focused_mut(&mut messages, &app.transcript.focus_stack, mi)
+            let enter_id = resolve_focused_mut(&mut messages, &app.threads.focus_stack, mi)
                 .and_then(|message| {
                     if message.is_subagent_task() {
                         message.tool_step_call_id().map(String::from)
@@ -225,15 +225,15 @@ pub(super) async fn handle_send_chat(
                     }
                 });
             if let Some(id) = enter_id {
-                app.transcript.messages = messages;
+                app.threads.messages = messages;
                 app.enter_subagent(id);
             } else {
                 let toggled = app.toggle_step_pinned(&mut messages, mi);
-                app.transcript.messages = messages;
-                app.transcript.layout_height_cache.clear();
-                app.transcript.transcript_changed_pending = true;
+                app.threads.messages = messages;
+                app.threads.layout_height_cache.clear();
+                app.threads.transcript_changed_pending = true;
                 if toggled {
-                    app.transcript.selection = SelectionState::None;
+                    app.threads.selection = SelectionState::None;
                 }
             }
         }
@@ -257,8 +257,8 @@ pub(crate) async fn handle_send_slash(
     // a dispatch that cannot be interrupted. The pending command row pushed
     // below is the in-flight feedback for a command; a running
     // round keeps owning the bar through its own events.
-    app.transcript.follow_bottom = true;
-    app.transcript.pin_summary_line = None;
+    app.threads.follow_bottom = true;
+    app.threads.pin_summary_line = None;
     let sent_at_ms = now_epoch_ms();
     // The command component owns its input AND its output, but only for an
     // **act** (ADR-0140): a mutation stages the optimistic row pushed below —
@@ -290,7 +290,11 @@ pub(crate) async fn handle_send_slash(
         .composer
         .command_catalog
         .effect_for(&format!("/{cmd_name}"), cmd_args.split_whitespace().next());
-    let stages_row = is_known && effect == tool::CommandEffect::Mutation;
+    // Stage only what can settle a row. `occupies_a_row` — not `== Mutation` — is the
+    // question being asked: a topology change (`/new`, `/fork`) is durable but its row
+    // would belong to a thread that does not exist yet (ADR-0252 §2), so pretending to
+    // stage one here is what produced the phantom `/new` entry.
+    let stages_row = is_known && effect.occupies_a_row();
 
     let is_new_session_cmd = cmd_name == "new"
         || (cmd_name == "session" && cmd_args.split_whitespace().next() == Some("new"));
@@ -305,32 +309,30 @@ pub(crate) async fn handle_send_slash(
             ""
         };
 
+        if prompt_args.is_empty() {
+            super::tabs::start_fresh_thread_bare(app);
+            return ActionFlow::Handled;
+        }
         if app.is_current_thread_empty() {
-            if !prompt_args.is_empty() {
-                // If thread is already empty and user provided an initial prompt,
-                // submit the prompt directly in place.
-                handle_send_chat(
-                    app,
-                    runtime,
-                    &app.session.current_session_id.clone(),
-                    prompt_args.to_string(),
-                )
-                .await;
-                return ActionFlow::Handled;
-            }
-            // Bare reset in place without adding a new tab.
-            app.transcript.messages.push(
-                TranscriptMessage::pending_command(cmd_name, cmd_args).with_sent_at_ms(sent_at_ms),
-            );
-            app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
+            // If thread is already empty and user provided an initial prompt,
+            // submit the prompt directly in place.
+            handle_send_chat(
+                app,
+                runtime,
+                &app.session.current_session_id.clone(),
+                prompt_args.to_string(),
+            )
+            .await;
             return ActionFlow::Handled;
         } else {
-            // Current thread has conversations: preserve current tab and create a fresh thread in a new tab.
-            app.surfaces.switch_to_new = true;
-            if !prompt_args.is_empty() {
-                app.surfaces.switch_to_new_prompt = Some(prompt_args.to_string());
-            }
-            app.link.should_quit.store(true, Ordering::SeqCst);
+            // Non-empty thread with opening prompt: mount a fresh resident tab and queue
+            // the opening prompt to flush on `ThreadPhase::Ready`.
+            super::tabs::start_fresh_thread_bare(app);
+            app.composer.pending_prompts.push(AgentRequest::Prompt {
+                text: prompt_args.to_string(),
+                images: Vec::new(),
+                sent_at_ms: None,
+            });
             return ActionFlow::Handled;
         }
     }
@@ -345,13 +347,13 @@ pub(crate) async fn handle_send_slash(
             .unwrap_or(cmd_args.trim());
         let short_id = crate::shell::session::short_session_id(target);
         app.session.switching_session = Some(short_id);
-        app.transcript.messages.clear();
-        app.transcript.layout_height_cache.clear();
-        app.transcript.transcript_changed_pending = true;
-        app.transcript.scroll = 0;
+        app.threads.messages.clear();
+        app.threads.layout_height_cache.clear();
+        app.threads.transcript_changed_pending = true;
+        app.threads.scroll = 0;
     }
     if stages_row {
-        app.transcript.messages.push(
+        app.threads.messages.push(
             TranscriptMessage::pending_command(cmd_name, cmd_args).with_sent_at_ms(sent_at_ms),
         );
     }
@@ -389,11 +391,11 @@ pub(crate) fn handle_ctrl_c(
     copy_pending: &Arc<AtomicUsize>,
 ) -> ActionFlow {
     if let Some(text) = extract_selection_text(
-        &app.transcript.selection,
+        &app.threads.selection,
         app.focused_messages(),
         &app.composer.input,
-        &app.transcript.ui.document,
-        app.transcript.drag.cell_info.as_ref(),
+        &app.viewport.ui.document,
+        app.viewport.drag.cell_info.as_ref(),
     ) {
         clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
     } else if app.active_dialog() == Some(DialogKind::HistorySearch) {
@@ -560,14 +562,15 @@ pub(crate) fn handle_esc_interrupt(app: &mut App, target: InterruptTarget) -> bo
         app.session.running_sessions.remove(sid);
     }
     app.clear_responding();
-    // Immediately mark any in-flight prompt in `app.transcript.messages` as cancelled
+    // Immediately mark any in-flight prompt in `app.threads.messages` as cancelled
     // so the TUI updates its status and styling with zero blocking.
-    if let Some(msg) = app.transcript.messages.iter_mut().rev().find(|m| {
+    let next_round = app.threads.round_count.saturating_add(1);
+    if let Some(msg) = app.threads.messages.iter_mut().rev().find(|m| {
         m.role == Role::User
             && (m.is_sending() || (m.delivery == DeliveryStatus::Delivered && m.round.is_none()))
     }) {
         if msg.round.is_none() {
-            msg.round = Some(app.session.round_count.saturating_add(1));
+            msg.round = Some(next_round);
         }
         msg.cancel_prompt();
     }
@@ -595,13 +598,14 @@ pub(crate) async fn handle_esc_interrupt_with_runtime(
     // The round is being stopped: no request is in flight any more, so the
     // transport-setback clause goes with the phase.
     app.set_phase(None);
-    let msgs = &mut app.transcript.messages;
+    let next_round = app.threads.round_count.saturating_add(1);
+    let msgs = &mut app.threads.messages;
     if let Some(m) = msgs.iter_mut().rev().find(|m| {
         m.role == Role::User
             && (m.is_sending() || (m.delivery == DeliveryStatus::Delivered && m.round.is_none()))
     }) {
         if m.round.is_none() {
-            m.round = Some(app.session.round_count.saturating_add(1));
+            m.round = Some(next_round);
         }
         m.cancel_prompt();
     }

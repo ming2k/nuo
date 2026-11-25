@@ -83,7 +83,7 @@ fn working_state_round_trips_through_the_session_row() {
     )
     .unwrap();
     let sessions =
-        thread_session::list_sessions(&engine.conn, &protocol::ThreadFilter::global(), true)
+        thread_session::list_sessions(&engine.conn, &protocol::ThreadFilter::all(), true)
             .unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].title.as_deref(), Some("T"));

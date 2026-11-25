@@ -757,17 +757,15 @@ mod command_effect_tests {
     /// quiet edit in the table.
     #[test]
     fn effect_table_is_pinned() {
-        // Acts: durable state the thread must remember.
+        // Acts: durable state the thread must remember, as a row in *this* thread.
         for name in [
             "/models",
             "/connections",
             "/tools",
             "/mcp",
             "/compact",
-            "/new",
             "/auto-approve",
             "/confinement",
-            "/fork",
             "/undo",
             "/init",
             "/trust",
@@ -780,6 +778,28 @@ mod command_effect_tests {
                 "{name} must be an act"
             );
         }
+        // Topology changes (ADR-0252 §2): durable topology acts, never a row in the
+        // thread they create or leave.
+        for name in ["/new", "/fork", "/exit"] {
+            let effect = effect_for(&[name]);
+            assert_eq!(
+                effect,
+                CommandEffect::SessionControl,
+                "{name} changes thread topology"
+            );
+            assert!(effect.is_durable(), "{name} changes durable topology state");
+            assert!(
+                !effect.occupies_a_row(),
+                "{name} must never settle a transcript row"
+            );
+        }
+        // `/threads` splits: bare is a listing, an id resumes (a topology change).
+        assert_eq!(effect_for(&["/threads"]), CommandEffect::Reading);
+        assert_eq!(
+            effect_for(&["/threads", "0195"]),
+            CommandEffect::SessionControl,
+            "/threads <id> resumes a thread"
+        );
         // Readings: the state of the world at the moment of asking.
         for name in [
             "/permissions",
@@ -794,7 +814,6 @@ mod command_effect_tests {
             "/skills",
             "/export",
             "/help",
-            "/exit",
         ] {
             assert_eq!(
                 effect_for(&[name]),
@@ -820,8 +839,8 @@ mod command_effect_tests {
         );
         assert_eq!(
             effect_for(&["/threads", "0195"]),
-            CommandEffect::Mutation,
-            "opening a thread switches it"
+            CommandEffect::SessionControl,
+            "opening a thread switches topology, not content (ADR-0252 §2)"
         );
         // A verb mutates inside a reading command, and reads inside an act.
         assert_eq!(
@@ -950,12 +969,10 @@ mod command_effect_tests {
             ("confinement", "off"),
             ("permissions", "clear"),
             ("compact", ""),
-            ("fork", ""),
             ("init", ""),
             ("undo", ""),
             ("retry", ""),
             ("trust", "deny"),
-            ("new", ""),
         ];
         for (name, args) in cases {
             let dir = tempfile::tempdir().unwrap();
@@ -986,6 +1003,47 @@ mod command_effect_tests {
                 ),
                 other => panic!("expected a CommandResult, got {other:?}"),
             }
+        }
+    }
+
+    /// `[INV-VERB-06]` (ADR-0252 §2): a topology change emits `SessionControl`
+    /// (filing a receipt) and never writes a thread-ledger record or transcript row.
+    #[tokio::test]
+    async fn a_topology_change_is_durable_and_never_a_row() {
+        for (name, args) in [("new", ""), ("fork", "")] {
+            let dir = tempfile::tempdir().unwrap();
+            let session = store(&dir);
+            let (tx, mut rx) = mpsc::unbounded_channel();
+
+            record_command(
+                &session,
+                &tx,
+                name,
+                args,
+                CommandResult::Text("done".to_string()),
+            )
+            .await;
+
+            assert!(
+                session.commands().await.is_empty(),
+                "/{name} is SessionControl: it files a receipt and does not write a thread-ledger row"
+            );
+            let effects: Vec<CommandEffect> = drain(&mut rx)
+                .into_iter()
+                .filter_map(|event| match event {
+                    RoundEvent::CommandResult { effect, .. } => Some(effect),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                effects,
+                vec![CommandEffect::SessionControl],
+                "/{name}: the reply must declare the topology class"
+            );
+            assert!(
+                !effects[0].occupies_a_row(),
+                "/{name}: a topology change can never settle a transcript row"
+            );
         }
     }
 

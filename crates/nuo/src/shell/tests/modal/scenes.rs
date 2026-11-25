@@ -303,7 +303,7 @@ fn dashboard_reopen_keeps_selection_and_log() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
-    app.transcript
+    app.viewport
         .host_console_log
         .push(crate::shell::overlays::ConsoleLine::Receipt {
             ok: true,
@@ -320,7 +320,7 @@ fn dashboard_reopen_keeps_selection_and_log() {
     app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
     assert_eq!(app.surfaces.modal_index, 3, "dock selection retained");
     assert_eq!(
-        app.transcript.host_console_log.len(),
+        app.viewport.host_console_log.len(),
         1,
         "cockpit log retained"
     );

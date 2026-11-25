@@ -19,9 +19,9 @@ pub(crate) fn enter_panel(
         return false;
     }
     let first = app.open_dialog(id);
-    app.transcript.selection = SelectionState::None;
-    app.transcript.focus.browse();
-    app.transcript.drag.cancel();
+    app.threads.selection = SelectionState::None;
+    app.threads.focus.browse();
+    app.viewport.drag.cancel();
 
     if first {
         match id {
@@ -30,8 +30,8 @@ pub(crate) fn enter_panel(
                 let index = rows
                     .iter()
                     .position(|row| {
-                        row.provider_id == app.session.current_provider
-                            && row.model == app.session.current_model
+                        row.provider_id == app.threads.current_provider
+                            && row.model == app.threads.current_model
                             && row.usable
                     })
                     .or_else(|| rows.iter().position(|r| r.usable))
@@ -50,7 +50,7 @@ pub(crate) fn enter_panel(
                 let default_id = app.surfaces.provider_picker.default_id.clone();
                 let index = ranked
                     .iter()
-                    .position(|row| row.id == app.session.current_provider)
+                    .position(|row| row.id == app.threads.current_provider)
                     .or_else(|| ranked.iter().position(|row| row.id == default_id))
                     .unwrap_or(0);
                 let c = &mut app
@@ -135,7 +135,7 @@ pub(crate) fn enter_panel(
         DialogKind::ThreadStats | DialogKind::SessionTrace
             if app.telemetry.token_ledger.is_none() =>
         {
-            if app.telemetry.token_report.is_none() {
+            if app.threads.token_report.is_none() {
                 Some(AgentRequest::QueryTokenUsage {
                     thread_id: viewed_session_id.to_string(),
                 })
@@ -149,8 +149,8 @@ pub(crate) fn enter_panel(
         // than cached: a plan measured before the last request would answer a
         // question about a prompt that no longer exists (ADR-0220 §3).
         DialogKind::ContextPlan => {
-            app.telemetry.context_plan = None;
-            app.telemetry.context_plan_loaded = false;
+            app.threads.context_plan = None;
+            app.threads.context_plan_loaded = false;
             Some(AgentRequest::QueryContextPlan)
         }
         _ => None,
@@ -181,7 +181,7 @@ pub(crate) fn enter_scene(
     let previous = app.current_scene();
     if previous != scene {
         if previous == SceneKind::Thread {
-            app.checkpoint_active_tab_context();
+            app.park_current_thread_draft();
         }
         app.leave_scene_for_navigation(previous);
     }
@@ -196,9 +196,16 @@ pub(crate) fn enter_scene(
             app.switch_scene(scene);
         }
     }
-    app.transcript.selection = SelectionState::None;
-    app.transcript.focus.enter_composer();
-    app.transcript.drag.cancel();
+    app.threads.selection = SelectionState::None;
+    // Thread focus plane is owned by `ThreadInstance` (ADR-0253 §3) and must survive
+    // leaving to Dashboard/Settings and returning to Thread without clobbering.
+    if !matches!(
+        scene,
+        SceneKind::Thread | SceneKind::Dashboard | SceneKind::Settings
+    ) {
+        app.threads.focus.enter_composer();
+    }
+    app.viewport.drag.cancel();
     // A scene transition re-homes the composer line: leaving the chat for a
     // workspace parks the thread's draft and releases the buffer, and returning
     // to a thread installs that thread's draft (ADR-0247). Unconditional,
@@ -217,10 +224,10 @@ pub(crate) fn enter_scene(
             if active_category == crate::shell::overlays::ConfigCategory::Appearance {
                 app.surfaces.config_detail_index = crate::shell::config::color_scheme_index(
                     &app.surfaces.color_scheme,
-                    if app.session.current_workspace.is_empty() {
+                    if app.threads.current_workspace.is_empty() {
                         None
                     } else {
-                        Some(std::path::Path::new(&app.session.current_workspace))
+                        Some(std::path::Path::new(&app.threads.current_workspace))
                     },
                 );
             } else {
@@ -234,7 +241,7 @@ pub(crate) fn enter_scene(
         SceneKind::Dashboard => {
             app.surfaces.host_modal_follow = true;
             app.surfaces.host_focus = crate::shell::overlays::DashboardFocus::Detail;
-            app.transcript.host_console_log.clear();
+            app.viewport.host_console_log.clear();
             app.surfaces.host_kill_confirm = None;
             app.surfaces.host_kill_confirm_id = None;
             None

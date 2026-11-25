@@ -635,10 +635,10 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     app.surfaces.config_hover_index = None;
                 }
                 crate::shell::overlays::ConfigFocus::Detail => {
-                    let ws_path = if app.session.current_workspace.is_empty() {
+                    let ws_path = if app.threads.current_workspace.is_empty() {
                         None
                     } else {
-                        Some(std::path::Path::new(&app.session.current_workspace))
+                        Some(std::path::Path::new(&app.threads.current_workspace))
                     };
                     let active_category = crate::shell::overlays::ConfigCategory::from_index(
                         app.surfaces.config_category,
@@ -695,10 +695,10 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     app.surfaces.config_hover_index = None;
                 }
                 crate::shell::overlays::ConfigFocus::Detail => {
-                    let ws_path = if app.session.current_workspace.is_empty() {
+                    let ws_path = if app.threads.current_workspace.is_empty() {
                         None
                     } else {
-                        Some(std::path::Path::new(&app.session.current_workspace))
+                        Some(std::path::Path::new(&app.threads.current_workspace))
                     };
                     let active_category = crate::shell::overlays::ConfigCategory::from_index(
                         app.surfaces.config_category,
@@ -736,11 +736,11 @@ pub(crate) fn effective_reasoning_effort(app: &App) -> Option<&str> {
         .provider_picker
         .rows
         .iter()
-        .find(|row| row.id == app.session.current_provider)
+        .find(|row| row.id == app.threads.current_provider)
         .and_then(|row| {
             row.model_info
                 .iter()
-                .find(|m| m.model == app.session.current_model)
+                .find(|m| m.model == app.threads.current_model)
         })
         .and_then(|m| m.effort.as_deref())
 }
@@ -822,6 +822,7 @@ pub(crate) async fn handle_permission_submit(
             }
         } else {
             match app.surfaces.modal_index {
+                0 if request.elevation => protocol::PermissionDecision::Session,
                 0 => protocol::PermissionDecision::Once,
                 i if i == reject_idx => protocol::PermissionDecision::Reject,
                 _ => protocol::PermissionDecision::Reject,
@@ -863,10 +864,10 @@ pub(crate) async fn handle_permission_submit(
 }
 
 pub(crate) fn modal_page_step(app: &App) -> usize {
-    let h = if app.transcript.modal_body_height > 0 {
-        app.transcript.modal_body_height
+    let h = if app.viewport.modal_body_height > 0 {
+        app.viewport.modal_body_height
     } else {
-        app.transcript.view_height
+        app.viewport.view_height
     };
     h.saturating_sub(1).max(1) as usize
 }

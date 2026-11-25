@@ -294,7 +294,7 @@ impl App {
                 .push(protocol::HistoryEntry::new(
                     text.clone(),
                     Some(self.session.current_session_id.clone()),
-                    Some(self.session.current_workspace.clone()),
+                    Some(self.threads.current_workspace.clone()),
                     if *sent_at_ms == 0 {
                         now_ms
                     } else {
@@ -363,10 +363,10 @@ impl App {
         } else {
             Some(self.session.current_session_id.clone())
         };
-        let workspace = if self.session.current_workspace.is_empty() {
+        let workspace = if self.threads.current_workspace.is_empty() {
             None
         } else {
-            Some(self.session.current_workspace.clone())
+            Some(self.threads.current_workspace.clone())
         };
         // Cache the attachments first (before the dedup early-return) so a
         // repeat send of the same prompt refreshes the payloads a recall

@@ -8,7 +8,7 @@
 use sha2::{Digest, Sha256};
 
 /// Current durable schema version. A new migration bumps this to its version.
-pub const CURRENT_DB_VERSION: u32 = 7;
+pub const CURRENT_DB_VERSION: u32 = 8;
 
 /// One immutable schema step.
 pub struct Migration {
@@ -111,6 +111,14 @@ pub const MIGRATIONS: &[Migration] = &[
         code_revision: 1,
         body: Body::Sql(include_str!("../../../migrations/0007_command_acts.sql")),
     },
+    Migration {
+        version: 8,
+        name: "orthogonal_thread_role_workspace",
+        code_revision: 1,
+        body: Body::Sql(include_str!(
+            "../../../migrations/0008_orthogonal_thread_role_workspace.sql"
+        )),
+    },
 ];
 
 /// Immutability guard for the baseline file. The ledger checksum already
@@ -155,6 +163,11 @@ pub const SHIPPED_CHECKSUMS: &[(u32, &str, &str)] = &[
         7,
         "command_acts",
         "50c387f0b0ae4c0f031d925cffb8e5017c23dd7102718e8df60ace412e9513eb",
+    ),
+    (
+        8,
+        "orthogonal_thread_role_workspace",
+        "17a6c02226412e7834479219599c999ea75234ba142fd88dc232c192d9b6ac1c",
     ),
 ];
 

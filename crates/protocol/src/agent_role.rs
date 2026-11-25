@@ -207,11 +207,6 @@ pub struct ThreadRoleManifest {
     pub tools: Vec<String>,
     #[serde(default)]
     pub admit_mcp: Vec<String>,
-    /// The role's workspace policy captured at birth. `None` on manifests
-    /// written before the policy was persisted; consumers infer the binding
-    /// from the thread's durable workspace in that case.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<crate::policy_schema::RoleWorkspace>,
     #[serde(default)]
     pub created_at_s: u64,
 }
@@ -230,7 +225,6 @@ impl ThreadRoleManifest {
             identity,
             tools: vec!["*".to_string()],
             admit_mcp: vec!["*".to_string()],
-            workspace: Some(crate::policy_schema::RoleWorkspace::Inherit),
             created_at_s: 0,
         }
     }
@@ -276,7 +270,6 @@ impl ThreadRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
-            workspace: Some(MainAgentRole::Developer.workspace_policy()),
             created_at_s: 0,
         }
     }
@@ -287,7 +280,7 @@ impl ThreadRoleManifest {
         Self {
             role_id: "philosophist".to_string(),
             name: "philosophist".to_string(),
-            description: Some("philosophical inquiry & reflection (workspace-free)".to_string()),
+            description: Some("philosophical inquiry & reflection".to_string()),
             instructions: profile.identity.directive.clone(),
             identity: profile.identity,
             tools: MainAgentRole::PHILOSOPHIST_TOOLS
@@ -295,7 +288,6 @@ impl ThreadRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: Vec::new(),
-            workspace: Some(MainAgentRole::Philosophist.workspace_policy()),
             created_at_s: 0,
         }
     }
@@ -307,7 +299,7 @@ impl ThreadRoleManifest {
             role_id: "ops".to_string(),
             name: "ops".to_string(),
             description: Some(
-                "system administration, infrastructure maintenance & remote operations (workspace-free)".to_string(),
+                "system administration, infrastructure maintenance & remote operations".to_string(),
             ),
             instructions: profile.identity.directive.clone(),
             identity: profile.identity,
@@ -316,7 +308,6 @@ impl ThreadRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
-            workspace: Some(MainAgentRole::Ops.workspace_policy()),
             created_at_s: 0,
         }
     }
@@ -396,33 +387,12 @@ impl MainAgentRole {
     /// A short human description of what this role does, for confirmations.
     pub fn description(self) -> &'static str {
         match self {
-            MainAgentRole::Developer => {
-                "the default developer role (full native capabilities with workspace)"
-            }
-            MainAgentRole::Philosophist => "philosophical inquiry & reflection (workspace-free)",
+            MainAgentRole::Developer => "the default developer role (full native capabilities)",
+            MainAgentRole::Philosophist => "philosophical inquiry & reflection",
             MainAgentRole::Ops => {
-                "system administration, infrastructure maintenance & remote operations (workspace-free)"
+                "system administration, infrastructure maintenance & remote operations"
             }
         }
-    }
-
-    /// Whether this role requires a filesystem workspace binding.
-    /// The role's workspace resolution policy.
-    ///
-    /// This is the single source of truth for both the built-in manifests and
-    /// the scope resolver; `requires_workspace` is derived from it so the two
-    /// cannot drift.
-    pub fn workspace_policy(self) -> crate::policy_schema::RoleWorkspace {
-        match self {
-            MainAgentRole::Developer => crate::policy_schema::RoleWorkspace::Inherit,
-            MainAgentRole::Philosophist | MainAgentRole::Ops => {
-                crate::policy_schema::RoleWorkspace::Unbound
-            }
-        }
-    }
-
-    pub fn requires_workspace(self) -> bool {
-        self.workspace_policy().requires_binding()
     }
 
     /// Default confinement posture for this role when starting without an explicit override.
@@ -830,15 +800,12 @@ mod tests {
     }
 
     #[test]
-    fn ops_role_is_workspace_free_and_has_host_and_remote_tools() {
+    fn ops_role_has_host_and_remote_tools_and_unconfined_default() {
         let base = AgentIdentity::from_mission("coding assistant");
         let ops = AgentRoleProfile::from_role(MainAgentRole::Ops, &base);
         assert_eq!(ops.name, "ops");
-        assert!(!MainAgentRole::Ops.requires_workspace());
         assert!(!MainAgentRole::Ops.default_confined());
-        assert!(MainAgentRole::Developer.requires_workspace());
         assert!(MainAgentRole::Developer.default_confined());
-        assert!(!MainAgentRole::Philosophist.requires_workspace());
         assert!(MainAgentRole::Philosophist.default_confined());
 
         let crate::CapabilityScope::Only(names) = &ops.tools.scope else {

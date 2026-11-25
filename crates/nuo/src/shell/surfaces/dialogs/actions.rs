@@ -28,10 +28,10 @@ fn apply_delta(scroll: &mut usize, delta: ScrollDelta) {
 }
 
 pub(super) fn scroll_delta(action: &InputAction, app: &crate::shell::App) -> Option<ScrollDelta> {
-    let page_step = if app.transcript.modal_body_height > 0 {
-        app.transcript.modal_body_height.saturating_sub(1).max(1) as isize
+    let page_step = if app.viewport.modal_body_height > 0 {
+        app.viewport.modal_body_height.saturating_sub(1).max(1) as isize
     } else {
-        app.transcript.view_height.saturating_sub(1).max(1) as isize
+        app.viewport.view_height.saturating_sub(1).max(1) as isize
     };
     match action {
         InputAction::ScrollUp => Some(ScrollDelta::Lines(-1)),
@@ -268,8 +268,8 @@ pub(super) fn handle_dialog_click(
                 &app.session.sessions_overview,
                 Some(&e.expanded),
             );
-            let visible = if app.transcript.modal_body_height > 0 {
-                app.transcript.modal_body_height as usize
+            let visible = if app.viewport.modal_body_height > 0 {
+                app.viewport.modal_body_height as usize
             } else {
                 10
             };
@@ -421,7 +421,7 @@ pub(super) fn handle_dialog_click(
         DialogKind::Mcp => {
             let e = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
             let count = app
-                .session
+                .threads
                 .session_context
                 .as_ref()
                 .map_or(0, |s| s.mcp.len());
@@ -438,7 +438,7 @@ pub(super) fn handle_dialog_click(
                 .downcast_mut::<SkillsDialog>()
                 .expect("kind");
             let count = app
-                .session
+                .threads
                 .session_context
                 .as_ref()
                 .map_or(0, |s| s.skills.len());
@@ -463,7 +463,7 @@ pub(super) fn handle_dialog_click(
                 .downcast_mut::<PermissionsDialog>()
                 .expect("kind");
             let count = app
-                .session
+                .threads
                 .session_context
                 .as_ref()
                 .map_or(0, |s| s.permissions.len());
@@ -491,7 +491,7 @@ pub(super) fn handle_dialog_click(
                 .as_any_mut()
                 .downcast_mut::<SessionTreeDialog>()
                 .expect("kind");
-            let count = crate::shell::overlays::tree::flatten_tree(&app.session.session_tree).len();
+            let count = crate::shell::overlays::tree::flatten_tree(&app.threads.session_tree).len();
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
                 e.index = target_idx;

@@ -15,3 +15,4 @@ pub mod provider_baselines;
 pub mod provider_registry;
 pub mod skills_host;
 pub mod startup;
+pub mod thread_actions;

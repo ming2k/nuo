@@ -13,7 +13,6 @@ use crate::shell::App;
 use crate::shell::clipboard_ops;
 use crate::shell::event_loop::sync::show_local_toast;
 use protocol::AgentRequest;
-use std::sync::atomic::Ordering;
 
 /// Run the palette's highlighted entry.
 ///
@@ -73,14 +72,7 @@ fn handle_tab_command(
         }
         CommandId::CloseTab => handle_close_tab(app, runtime, viewed_session_id),
         CommandId::NewTab => {
-            app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
-            app.dismiss_active_dialog();
-            if app.is_current_thread_empty() {
-                app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
-            } else {
-                app.surfaces.switch_to_new = true;
-                app.link.should_quit.store(true, Ordering::SeqCst);
-            }
+            super::tabs::start_fresh_thread_bare(app);
             ActionFlow::Handled
         }
         _ => unreachable!("handle_tab_command is only called for tab commands"),
@@ -398,7 +390,7 @@ pub(crate) async fn execute_command_by_id(
             );
         }
         CommandId::PermissionsClearAll => {
-            let revocations = match app.session.session_context.as_ref() {
+            let revocations = match app.threads.session_context.as_ref() {
                 Some(ctx) => ctx
                     .permissions
                     .iter()

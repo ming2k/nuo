@@ -513,7 +513,7 @@ async fn alt_o_opens_the_viewer_even_with_a_dialog_up() {
         &crate::shell::modal_keys::ModalKeys::default(),
         &crate::shell::sheet::SheetKeys::default(),
         &crate::shell::session::SceneKeys::default(),
-        &mut app.transcript.drag,
+        &mut app.viewport.drag,
     );
     assert_eq!(action, crate::shell::input::InputAction::OpenNotices);
 }
@@ -556,7 +556,7 @@ async fn the_viewer_owns_its_keys_while_open() {
             &crate::shell::modal_keys::ModalKeys::default(),
             &crate::shell::sheet::SheetKeys::default(),
             &crate::shell::session::SceneKeys::default(),
-            &mut app.transcript.drag,
+            &mut app.viewport.drag,
         )
     };
 
@@ -821,7 +821,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "test-session".to_string();
     for i in 0..20 {
-        app.transcript
+        app.threads
             .messages
             .push(view::model::document::TranscriptMessage::new(
                 tool::Role::Assistant,
@@ -902,7 +902,7 @@ fn the_conversation_stays_visible_when_notice_arrives() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "test-session".to_string();
     for i in 0..20 {
-        app.transcript
+        app.threads
             .messages
             .push(view::model::document::TranscriptMessage::new(
                 tool::Role::Assistant,

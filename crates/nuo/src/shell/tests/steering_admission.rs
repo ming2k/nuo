@@ -54,32 +54,33 @@ fn long_thread() -> Vec<TranscriptMessage> {
 #[test]
 fn admitted_steer_lands_at_the_seam_after_existing_history() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.transcript.messages = long_thread();
-    let before = app.transcript.messages.len();
+    app.threads.messages = long_thread();
+    let before = app.threads.messages.len();
 
     let admitted = TranscriptMessage::new(Role::User, "pivot please")
         .with_origin(view::model::document::UserMessageOrigin::Steer)
         .with_round(3);
-    assert!(crate::shell::event_loop::apply::apply_transcript(
+    assert!(crate::shell::event_loop::apply::apply_transcript_for(
         &mut app,
+        None,
         crate::shell::event_loop::mutations::TranscriptEdit::InsertAdmittedSeam {
             message: admitted,
         },
     ));
 
     assert_eq!(
-        app.transcript.messages.len(),
+        app.threads.messages.len(),
         before + 1,
         "admission appends exactly one fact"
     );
     assert_eq!(
-        app.transcript.messages.last().unwrap().raw,
+        app.threads.messages.last().unwrap().raw,
         "pivot please",
         "the admitted steer must sit at the seam (the buffer tail at admission), \
          not at the head of the thread"
     );
     assert_eq!(
-        app.transcript.messages[0].raw, "prompt 1",
+        app.threads.messages[0].raw, "prompt 1",
         "existing history must keep its order: round 1 stays first"
     );
 }

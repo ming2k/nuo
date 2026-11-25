@@ -194,10 +194,7 @@ impl ThreadSession {
             origin: protocol::ThreadOrigin::Subagent,
             workspace: parent_workspace.clone(),
             role: parent_role.clone(),
-            role_manifest: Some(crate::roles::resolve_role_manifest(
-                parent_workspace.as_ref().map(|w| w.root.as_path()),
-                parent_role.as_deref(),
-            )),
+            role_manifest: Some(crate::roles::resolve_role_manifest(parent_role.as_deref())),
             ..Default::default()
         };
         data.generation = uuid::Uuid::new_v4().to_string();
@@ -235,10 +232,7 @@ impl ThreadSession {
         let id = uuid::Uuid::new_v4().to_string();
         let path = sessions_dir.join(format!("{id}.json"));
         let role = role.or_else(|| Some("developer".to_string()));
-        let role_manifest = Some(crate::roles::resolve_role_manifest(
-            workspace.as_ref().map(|w| w.root.as_path()),
-            role.as_deref(),
-        ));
+        let role_manifest = Some(crate::roles::resolve_role_manifest(role.as_deref()));
         let data = ThreadData {
             id,
             workspace: workspace.clone(),
@@ -275,25 +269,41 @@ impl ThreadSession {
             .clone()
     }
 
-    /// The role-scoped identity this store pins: role id plus resolved
-    /// workspace binding. All listing, resume, lookup, and deletion operations
-    /// on this store are constrained to it.
-    pub fn scope(&self) -> protocol::ThreadScope {
-        protocol::ThreadScope::from_binding(
-            self.role
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_deref(),
-            self.workspace
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref(),
-        )
+    /// Orthogonal query filter for listing/switching threads in this store's
+    /// workspace context (all roles in the attached workspace, or all threads
+    /// when unbound — ADR-0254).
+    pub fn thread_filter(&self) -> protocol::ThreadFilter {
+        protocol::ThreadFilter {
+            role: None,
+            workspace: self.workspace_root(),
+        }
     }
 
-    /// The exact query filter this store pins.
-    pub fn thread_filter(&self) -> protocol::ThreadFilter {
-        self.scope().filter()
+    /// Update the active role on the current thread in place (ADR-0254).
+    pub async fn set_role(&self, role_id: &str) -> Result<(), String> {
+        let canonical = crate::roles::canonical_role_id(role_id)?;
+        let manifest = crate::roles::resolve_role_manifest(Some(&canonical));
+        let mut state = self.state.lock().await;
+        state.data.role = Some(canonical.clone());
+        state.data.role_manifest = Some(manifest);
+        state.data.updated_at = unix_timestamp();
+        *self.role.write().unwrap_or_else(|e| e.into_inner()) = Some(canonical);
+        if !Self::should_skip_persist(&state) {
+            let data = state.data.clone();
+            let guard = crate::db::CommitGuard::default();
+            drop(state);
+            save_retrying(
+                &self.writer,
+                data,
+                crate::db::SaveMode::MetadataOnly,
+                Vec::new(),
+                guard,
+                None,
+            )
+            .await
+            .map_err(|e| format!("failed to persist role switch: {e}"))?;
+        }
+        Ok(())
     }
 
     /// The staffing role recorded on fresh sessions, if any.
@@ -378,10 +388,7 @@ impl ThreadSession {
             .role
             .clone()
             .or_else(|| Some("developer".to_string()));
-        let role_manifest = Some(crate::roles::resolve_role_manifest(
-            workspace.as_ref().map(|w| w.root.as_path()),
-            role.as_deref(),
-        ));
+        let role_manifest = Some(crate::roles::resolve_role_manifest(role.as_deref()));
         let sessions_dir = self.sessions_dir.clone();
         let id = uuid::Uuid::new_v4().to_string();
         let path = sessions_dir.join(format!("{id}.json"));
@@ -413,10 +420,7 @@ impl ThreadSession {
         role: Option<String>,
     ) -> Result<String, String> {
         let role = role.or_else(|| Some("developer".to_string()));
-        let role_manifest = Some(crate::roles::resolve_role_manifest(
-            workspace.as_ref().map(|w| w.root.as_path()),
-            role.as_deref(),
-        ));
+        let role_manifest = Some(crate::roles::resolve_role_manifest(role.as_deref()));
         let mut state = self.state.lock().await;
         let sessions_dir = self.sessions_dir.clone();
         let id = uuid::Uuid::new_v4().to_string();

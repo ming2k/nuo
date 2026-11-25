@@ -1050,3 +1050,41 @@ fn product_docs_do_not_claim_an_mcp_export_server() {
          {violations:?}"
     );
 }
+
+/// `[INV-INSTANCE-02]` / `[INV-INSTANCE-04]` / `[INV-VERB-02]` (ADR-0252, ADR-0253):
+/// The retired duplicate state bags, manual reconciliation functions, `SessionGate`,
+/// and `switch_to_new` teardown path must never return to `crates/nuo/src/shell/`.
+#[test]
+fn inv_instance_02_no_retired_reconciliation_or_teardown_symbols() {
+    let shell_dir = workspace_root().join("crates/nuo/src/shell");
+    let forbidden = [
+        "struct ThreadWorkspace",
+        "struct TabContextState",
+        "struct TranscriptState",
+        "struct SessionGate",
+        "fn park_active_workspace",
+        "fn install_workspace",
+        "fn checkpoint_active_tab_context",
+        "fn restore_active_tab_context",
+        "switch_to_new",
+    ];
+    let mut violations = Vec::new();
+    for path in rust_files(&shell_dir) {
+        let source = fs::read_to_string(&path).unwrap_or_default();
+        let rel = path
+            .strip_prefix(workspace_root())
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        for needle in forbidden {
+            if source.contains(needle) {
+                violations.push(format!("{rel}: contains retired `{needle}`"));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "retired duplicate state / reconciliation / teardown symbols returned \
+         ([INV-INSTANCE-02], [INV-VERB-02]): {violations:#?}"
+    );
+}

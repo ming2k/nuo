@@ -207,7 +207,8 @@ impl Agent {
                 todos,
                 round_counter,
                 permissions: Arc::new(guardrails::permission_store::PermissionStore::new()),
-                additional_workspace_roots: Vec::new(),
+                additional_workspace_roots: protocol::SharedAdditionalRoots::empty(),
+                cross_workspace_gate: tokio::sync::Mutex::new(()),
                 workspace_topology_cache: std::sync::Mutex::new(None),
                 last_measurement: std::sync::Mutex::new(None),
                 workspace_security: Arc::new(std::sync::Mutex::new(
@@ -699,6 +700,7 @@ impl Agent {
             additional_workspace_roots: self
                 .context
                 .additional_workspace_roots
+                .snapshot()
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect(),
@@ -1510,16 +1512,26 @@ impl Agent {
     /// and the base relative file-tool paths resolve against. `None` when no
     /// project was designated (subagents, tests, or a detached session), in which
     /// case file injection is disabled.
-    /// Record the session's additional workspace roots. Called
-    /// once by the assembling bootstrap after they validate; they surface to
-    /// the model through the `WorkspaceRootsGuidance` system-prompt section.
+    /// Record the session's additional workspace roots. Stores into the live
+    /// shared handle so both the agent gate and execution environment stay in sync.
     pub fn set_additional_workspace_roots(&mut self, roots: Vec<std::path::PathBuf>) {
+        self.context.additional_workspace_roots.store(roots);
+    }
+
+    /// Bind the shared additional-roots handle owned by the execution environment
+    /// so live cross-workspace grants and `/trust` reloads stay synchronized.
+    pub fn bind_shared_additional_roots(&mut self, roots: protocol::SharedAdditionalRoots) {
         self.context.additional_workspace_roots = roots;
     }
 
-    /// The session's additional workspace roots, if any.
-    pub fn additional_workspace_roots(&self) -> &[std::path::PathBuf] {
-        &self.context.additional_workspace_roots
+    /// Admit one additional workspace root into the live session handle.
+    pub fn admit_additional_workspace_root(&self, root: std::path::PathBuf) -> bool {
+        self.context.additional_workspace_roots.add(root)
+    }
+
+    /// Snapshot the session's current additional workspace roots.
+    pub fn additional_workspace_roots(&self) -> Vec<std::path::PathBuf> {
+        self.context.additional_workspace_roots.snapshot()
     }
 
     pub fn workspace_root(&self) -> Option<std::path::PathBuf> {

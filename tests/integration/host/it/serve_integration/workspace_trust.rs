@@ -192,7 +192,7 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
             .unwrap()
             .unwrap();
         let frame = serde_json::from_str::<Wire>(raw.to_text().unwrap_or("")).unwrap();
-        let Wire::Response { response } = frame else {
+        let Wire::Response { response, .. } = frame else {
             continue;
         };
         match response {
@@ -269,7 +269,7 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
             .unwrap()
             .unwrap();
         let frame = serde_json::from_str::<Wire>(raw.to_text().unwrap_or("")).unwrap();
-        let Wire::Response { response } = frame else {
+        let Wire::Response { response, .. } = frame else {
             continue;
         };
         match response {
@@ -337,7 +337,7 @@ async fn autonomous_attach_falls_back_to_the_banner() {
             .unwrap()
             .unwrap();
         let frame = serde_json::from_str::<Wire>(raw.to_text().unwrap_or("")).unwrap();
-        let Wire::Response { response } = frame else {
+        let Wire::Response { response, .. } = frame else {
             continue;
         };
         let AgentResponse::Round { scope, .. } = response else {

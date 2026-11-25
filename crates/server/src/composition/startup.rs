@@ -303,7 +303,9 @@ define_builtin_commands! {
         usage: ["/new"],
         examples: [("/new", "Start a fresh session")],
         intent_keywords: ["clear", "reset", "clean", "restart", "fresh", "cls", "wipe", "blank", "new-session"],
-        effect: { bare: Mutation, verb: Mutation },
+        // Mints a thread: a durable topology change that can never be a row in the thread
+        // it creates (ADR-0252 §2).
+        effect: { bare: SessionControl, verb: SessionControl },
         category: Session,
     },
     Permissions = "/permissions" : {
@@ -382,7 +384,9 @@ define_builtin_commands! {
         usage: ["/threads", "/threads <id>"],
         examples: [("/threads", "Open interactive thread picker"), ("/threads 0195", "Resume thread matching prefix")],
         intent_keywords: ["threads", "thread", "sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-thread"],
-        effect: { bare: Reading, verb: Mutation },
+        // Bare `/threads` is a listing; `/threads <id>` resumes — a topology change, so the
+        // verb class is `SessionControl`, not `Mutation` (ADR-0252 §2).
+        effect: { bare: Reading, verb: SessionControl },
         category: Session,
     },
     Fork = "/fork" : {
@@ -394,7 +398,9 @@ define_builtin_commands! {
             ("/fork 2.1", "Branch after Turn 1 of Round 2"),
         ],
         intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread", "aside", "side", "btw"],
-        effect: { bare: Mutation, verb: Mutation },
+        // Inserts a branch cursor and switches the view to it: the same shape as `/new`
+        // (ADR-0252 §2) — an act for audit, never a row in the branch it creates.
+        effect: { bare: SessionControl, verb: SessionControl },
         category: Session,
     },
     Tree = "/tree" : {
@@ -564,7 +570,7 @@ define_builtin_commands! {
         usage: ["/exit"],
         examples: [("/exit", "Exit application")],
         intent_keywords: ["exit", "quit", "q", "leave", "bye", "shutdown"],
-        effect: { bare: Reading, verb: Reading },
+        effect: { bare: SessionControl, verb: SessionControl },
         category: System,
     },
 }

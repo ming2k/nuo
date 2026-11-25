@@ -31,26 +31,23 @@ pub(crate) fn activate_tab_at_index(
     }
 
     if let Some(target_tab) = app.surfaces.surfaces.tabs().get(index).cloned() {
-        // Checkpoint departing tab context (ADR-0091 [INV-TAB-12])
-        app.checkpoint_active_tab_context();
+        app.park_current_thread_draft();
 
         let was_in_thread = app.current_scene() == crate::shell::surfaces::SceneKind::Thread;
         app.surfaces.surfaces.select_tab(index);
         match &target_tab.kind {
             crate::shell::surfaces::TabKind::Thread(id) => {
-                // ADR-0251 `[INV-MUX-02]`: switch resident workspaces in O(1)
-                // over the multiplexed connection without tearing down `App`
-                // or reconnecting. Enter the Thread scene first so its scene
-                // entry hook never clobbers the restored focus plane.
+                // ADR-0251 / ADR-0253: switch resident threads in O(1) over the
+                // multiplexed connection without tearing down `App` or reconnecting.
                 if !was_in_thread {
                     enter_scene(app, crate::shell::surfaces::SceneKind::Thread, runtime);
                 }
                 if id != viewed_session_id {
                     app.activate_thread_workspace(id);
                 } else {
-                    app.restore_active_tab_context();
+                    app.hand_composer_to_current_thread();
                 }
-                app.transcript.selection = SelectionState::None;
+                app.threads.selection = SelectionState::None;
             }
             crate::shell::surfaces::TabKind::Dashboard => {
                 enter_scene(app, crate::shell::surfaces::SceneKind::Dashboard, runtime);
@@ -108,9 +105,9 @@ pub(crate) fn handle_close_tab_at(
                 if id != viewed_session_id {
                     app.activate_thread_workspace(id);
                 } else {
-                    app.restore_active_tab_context();
+                    app.hand_composer_to_current_thread();
                 }
-                app.transcript.selection = SelectionState::None;
+                app.threads.selection = SelectionState::None;
             }
             crate::shell::surfaces::TabKind::Dashboard => {
                 enter_scene(app, crate::shell::surfaces::SceneKind::Dashboard, runtime);
@@ -137,27 +134,34 @@ pub(crate) fn handle_close_tab(
     handle_close_tab_at(app, active_idx, runtime, viewed_session_id)
 }
 
-/// The strip's own creation verb: open a brand-new thread tab (ADR-0235).
+/// Single canonical client entry point for bare `thread.start_fresh`
+/// (`[INV-VERB-02]`, ADR-0252 §5).
 ///
-/// This is the same resolution `Alt-t` / `NewTab` uses — `/new` in place while
-/// the current thread is still empty, otherwise a fresh tab — because two
-/// spellings of "new tab" that disagree about when an empty thread is recycled
-/// would leave the user guessing which one they pressed.
+/// Every zero-argument "create a thread" trigger (`TabBar +`, `Alt-t`, Palette
+/// `NewTab`, Help portal `NewTab`, and bare composer `/new`) funnels here so they
+/// cannot diverge:
+/// - Empty foreground thread (ADR-0253 §5): send `SlashCommand("/new")` in place
+///   with no staged row.
+/// - Non-empty foreground thread: mount a fresh thread in a new tab over the live
+///   multiplexed connection (ADR-0251) without tearing down `App`.
+pub(crate) fn start_fresh_thread_bare(app: &mut App) {
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
+    app.dismiss_active_dialog();
+    if app.is_current_thread_empty() {
+        app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
+    } else {
+        let cwd = app.session.cwd.clone();
+        app.subscribe_thread(protocol::AttachAction::New(None), Some(cwd));
+    }
+}
+
+/// The strip's own creation verb: open a brand-new thread tab (ADR-0235).
 pub(crate) fn handle_add_tab(
     app: &mut App,
     runtime: &UiRuntime,
     viewed_session_id: &str,
 ) -> ActionFlow {
     let _ = (runtime, viewed_session_id);
-    app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
-    app.dismiss_active_dialog();
-    if app.is_current_thread_empty() {
-        app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
-    } else {
-        // ADR-0251: create and subscribe a new thread tab directly over the
-        // live multiplexed connection without tearing down `App`.
-        let cwd = app.session.cwd.clone();
-        app.subscribe_thread(protocol::AttachAction::New(None), Some(cwd));
-    }
+    start_fresh_thread_bare(app);
     ActionFlow::Handled
 }

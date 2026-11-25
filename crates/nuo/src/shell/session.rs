@@ -518,45 +518,11 @@ fn resolve_enter(
         _ => text,
     };
     if text.starts_with('/') {
-        let trimmed = text.trim();
-        let cmd = if let Some((cmd, _)) = trimmed.split_once(' ') {
-            cmd
-        } else {
-            trimmed
-        };
-
-        // Match on the trimmed command name so client workspace routes and slash commands
-        // typed with or without arguments (e.g. `/dashboard`, `/settings`, `/models`, `/models gpt-4o`)
-        // directly dispatch their respective client actions without dead guardrails.
-        let action = match cmd {
-            "/dashboard" => InputAction::NavigateDashboard,
-            "/settings" | "/config" => InputAction::NavigateSettings,
-            "/new" | "/thread" => InputAction::CreateNewSession,
-            "/close" => InputAction::CloseTab,
-            "/threads" | "/sessions" => InputAction::OpenSessions,
-            "/models" => InputAction::OpenModels,
-            "/connections" => InputAction::OpenConnections,
-            "/permissions" => InputAction::OpenPermissions,
-            "/tools" => InputAction::OpenTools,
-            "/usage" => InputAction::OpenUsage,
-            "/quota" | "/quotas" => InputAction::OpenQuotas,
-            "/stats" => InputAction::OpenThreadStats,
-            "/trace" => InputAction::OpenSessionTrace,
-            // Bare `/context` is the inspector. Every variant — `--json`, or any
-            // future subcommand — stays a slash command: the machine form is
-            // rendered by the server, and a client that swallowed the argument
-            // would answer a different question than the one asked
-            // (ADR-0220 §7).
-            "/context" if trimmed == cmd => InputAction::OpenContextPlan,
-            "/mcp" => InputAction::OpenMcp,
-            "/skills" => InputAction::OpenSkills,
-            "/notices" | "/logs" => InputAction::OpenNotices,
-            "/port" | "/ports" | "/share" => InputAction::OpenPortPalette,
-            "/help" => InputAction::OpenHelp,
-            "/exit" => InputAction::Quit,
-            _ => InputAction::SendSlash(text),
-        };
-        Some(action)
+        // The routing table owns the spelling→action mapping (ADR-0252 step 4). It used
+        // to be the `match` that stood here: a second copy of a vocabulary the server
+        // already owns, which ADR-0119 §2b forbids. A spelling the table does not claim
+        // is forwarded verbatim, because admission belongs to the dispatcher.
+        Some(crate::shell::action_routes::resolve(&text))
     } else {
         send_prose(keys, text)
     }

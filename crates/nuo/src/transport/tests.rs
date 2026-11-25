@@ -5,7 +5,8 @@ use super::*;
 use super::attach::{AttachError, Handshake, finish_handshake_with_project};
 use super::control::finish_control;
 use super::lifecycle::{
-    CONTROL_REPLY_TIMEOUT, FALLBACK_GRACE, configure_server_detachment, discover, discover_at, stop,
+    CONTROL_REPLY_TIMEOUT, FALLBACK_GRACE, configure_server_detachment, discover, discover_at,
+    server_program, stop, wait_for_spawned_server_with,
 };
 use super::monitor::finish_monitor;
 
@@ -529,6 +530,7 @@ async fn an_unmodelled_frame_after_welcome_does_not_end_the_attachment() {
 
         let welcome = serde_json::to_vec(&Wire::Welcome {
             thread_id: "thread-drifted".to_string(),
+            generation: 1,
             phase: protocol::ThreadPhase::Binding,
         })
         .unwrap();
@@ -784,6 +786,7 @@ async fn netune_ws_session_wire_roundtrip_and_liveness() {
                     assert!(matches!(wire, Wire::Select { .. }));
                     let welcome = serde_json::to_vec(&Wire::Welcome {
                         thread_id: "ws-live".to_string(),
+                        generation: 1,
                         phase: protocol::ThreadPhase::Ready,
                     })
                     .unwrap();
@@ -799,6 +802,7 @@ async fn netune_ws_session_wire_roundtrip_and_liveness() {
                     if pings >= 2 {
                         let notice = serde_json::to_vec(&Wire::Response {
                             response: AgentResponse::Error("heartbeat-survived".to_string()),
+                            generation: 1,
                         })
                         .unwrap();
                         write_server_ws_frame(&mut socket, 0x1, &notice)
@@ -965,4 +969,152 @@ async fn attach_error_distinguishes_transport_failures_from_uncoded_server_refus
 
     let dial_err = AttachError::transport("connection refused");
     assert!(dial_err.is_transport_failure());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wait_for_spawned_server_terminates_lingering_old_server_and_waits_for_new_one() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut child = tokio::process::Command::new("sleep")
+        .arg("5")
+        .spawn()
+        .expect("spawn dummy new server child");
+    let new_pid = child.id().expect("child pid");
+    let old_pid = new_pid.wrapping_add(100_000);
+
+    let old_record = ServerInfo {
+        pid: old_pid,
+        process_birth_token: None,
+        port: 9800,
+        token: None,
+        project_root: String::new(),
+        started_at: 0,
+        uds_path: None,
+        local_endpoint: None,
+        version: Some("0.0.1".to_string()),
+        grace_secs: None,
+        protocol: Some(0), // Out of protocol window -> incompatible
+        image_digest: None,
+        image_len: None,
+    };
+    let image_identity = host::process::image_digest_len(&server_program());
+    let new_record = ServerInfo {
+        pid: new_pid,
+        process_birth_token: None,
+        port: 9800,
+        token: None,
+        project_root: String::new(),
+        started_at: 1,
+        uds_path: None,
+        local_endpoint: None,
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        grace_secs: None,
+        protocol: Some(PROTOCOL_VERSION),
+        image_digest: image_identity.as_ref().map(|(_, digest)| digest.clone()),
+        image_len: image_identity.as_ref().map(|(len, _)| *len),
+    };
+
+    let probes = Arc::new(AtomicUsize::new(0));
+    let terminated = Arc::new(Mutex::new(Vec::<u32>::new()));
+    let probes_c = Arc::clone(&probes);
+    let terminated_c = Arc::clone(&terminated);
+    let old_c = old_record.clone();
+    let new_c = new_record.clone();
+
+    let result = wait_for_spawned_server_with(
+        &mut child,
+        Duration::from_secs(2),
+        Duration::from_millis(10),
+        move || {
+            let step = probes_c.fetch_add(1, Ordering::SeqCst);
+            let old = old_c.clone();
+            let new = new_c.clone();
+            async move {
+                match step {
+                    0 => Some(old),
+                    1 => None,
+                    _ => Some(new),
+                }
+            }
+        },
+        move |stale| {
+            let terminated = Arc::clone(&terminated_c);
+            async move {
+                terminated.lock().unwrap().push(stale.pid);
+            }
+        },
+    )
+    .await;
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+
+    let info = result.expect("must terminate lingering old server and return new compatible server");
+    assert_eq!(info.pid, new_pid);
+    assert_eq!(*terminated.lock().unwrap(), vec![old_pid]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wait_for_spawned_server_rejects_incompatible_spawned_child_immediately() {
+    let mut child = tokio::process::Command::new("sleep")
+        .arg("5")
+        .spawn()
+        .expect("spawn dummy child");
+    let spawned_pid = child.id().expect("child pid");
+    let incompatible_self = ServerInfo {
+        pid: spawned_pid,
+        process_birth_token: None,
+        port: 9800,
+        token: None,
+        project_root: String::new(),
+        started_at: 0,
+        uds_path: None,
+        local_endpoint: None,
+        version: Some("0.0.1".to_string()),
+        grace_secs: None,
+        protocol: Some(0),
+        image_digest: None,
+        image_len: None,
+    };
+
+    let rec = incompatible_self.clone();
+    let err = wait_for_spawned_server_with(
+        &mut child,
+        Duration::from_secs(2),
+        Duration::from_millis(10),
+        move || {
+            let r = rec.clone();
+            async move { Some(r) }
+        },
+        |_stale| async {},
+    )
+    .await
+    .expect_err("spawned child publishing incompatible protocol must fail immediately");
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+
+    assert!(err.contains("protocol mismatch"), "got: {err}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wait_for_spawned_server_reports_premature_exit() {
+    let mut child = tokio::process::Command::new("false")
+        .spawn()
+        .expect("spawn failing child");
+
+    let err = wait_for_spawned_server_with(
+        &mut child,
+        Duration::from_secs(2),
+        Duration::from_millis(10),
+        || async { None },
+        |_stale| async {},
+    )
+    .await
+    .expect_err("exited child must surface startup error");
+
+    assert!(err.contains("exited prematurely"), "got: {err}");
 }

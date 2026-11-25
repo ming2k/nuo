@@ -13,7 +13,7 @@ use std::sync::atomic::AtomicBool;
 
 use tokio::sync::mpsc;
 
-use protocol::{AgentRequest, ConnectionAuth, LoopStatus, ProviderPickerSnapshot};
+use protocol::{AgentRequest, ConnectionAuth, ProviderPickerSnapshot};
 
 use tool::{ImagePart, PermissionRequest, UserQuestionRequest};
 
@@ -21,7 +21,6 @@ use crate::shell::chrome::tasks_bar::BackgroundTaskItem;
 use crate::shell::completion::CompletionItemKind;
 use crate::shell::composer_grid::{CaretMotion, TextGrid};
 use crate::shell::event_loop::resolve_focused_mut;
-use crate::shell::focus::Focus;
 use crate::shell::render::Theme;
 use ui_primitives::fuzzy;
 use view::composer_attachments;
@@ -325,7 +324,8 @@ pub enum OauthAddSignal {
 
 pub struct App {
     pub session: state::SessionState,
-    pub transcript: state::TranscriptState,
+    pub threads: workspaces::Threads,
+    pub viewport: state::Viewport,
     pub composer: state::ComposerState,
     pub human: state::HumanState,
     pub surfaces: state::SurfacesState,

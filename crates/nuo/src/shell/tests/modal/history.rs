@@ -58,7 +58,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
 async fn inline_history_arrows_walk_old_then_new() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     // Record oldest → newest so the newest row is also the latest stamped.
     for text in ["first (oldest)", "second", "third (newest)"] {
         app.record_input_history(text.to_string(), Vec::new(), Vec::new());
@@ -146,7 +146,7 @@ async fn inline_history_round_trip_keeps_staged_attachments() {
 async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history("older".to_string(), Vec::new(), Vec::new());
 
     // A stale remembered draft from an earlier session of editing.
@@ -209,7 +209,7 @@ async fn slash_dispatch_never_arms_activity_state() {
         "a command must not arm is_responding"
     );
     assert!(
-        app.session.phase.is_none(),
+        app.threads.phase.is_none(),
         "a command must not paint an optimistic activity label"
     );
     assert!(
@@ -217,7 +217,7 @@ async fn slash_dispatch_never_arms_activity_state() {
         "a command must not mark the session as running"
     );
     // The in-flight feedback is the pending command row, not the bar.
-    let messages = app.transcript.messages.clone();
+    let messages = app.threads.messages.clone();
     assert!(
         messages
             .last()

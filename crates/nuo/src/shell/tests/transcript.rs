@@ -386,7 +386,7 @@ fn outbox_count_and_addressing_are_session_scoped() {
 async fn sending_clears_the_remembered_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
     app.record_input_history("older prompt".to_string(), Vec::new(), Vec::new());
 
     // Compose a draft, walk ↑ into history and back ↓ — the draft is stashed
@@ -436,7 +436,7 @@ async fn sending_clears_the_remembered_draft() {
 async fn unsent_restore_stashes_the_in_progress_draft_instead_of_dropping_either() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-a".to_string();
-    app.session.current_workspace = "~/p".to_string();
+    app.threads.current_workspace = "~/p".to_string();
 
     // The user was mid-composition when the interrupt landed.
     app.composer.input = "half-typed next message".to_string();
@@ -491,7 +491,7 @@ fn render_frame_computes_max_scroll_for_overflowing_transcript() {
             format!("Message line {i}: some reasonably long content that takes up vertical space in the transcript area"),
         ));
     }
-    app.transcript.messages = messages;
+    app.threads.messages = messages;
 
     let mut terminal = graticule::TestTerminal::new(80, 24);
     terminal.draw(|f| {
@@ -499,18 +499,18 @@ fn render_frame_computes_max_scroll_for_overflowing_transcript() {
     });
 
     assert!(
-        app.transcript.content_lines > app.transcript.view_height as usize,
+        app.threads.content_lines > app.viewport.view_height as usize,
         "content should exceed view height"
     );
     assert!(
-        app.transcript.max_scroll > 0,
+        app.threads.max_scroll > 0,
         "max_scroll should be non-zero when content overflows viewport"
     );
     assert_eq!(
-        app.transcript.max_scroll,
-        app.transcript
+        app.threads.max_scroll,
+        app.threads
             .content_lines
-            .saturating_sub(app.transcript.view_height as usize),
+            .saturating_sub(app.viewport.view_height as usize),
         "max_scroll must equal content_lines - view_height"
     );
 }
@@ -522,8 +522,8 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
     app.link.tx = tx;
     app.session.current_session_id = "session-a".to_string();
     app.session.running_sessions.insert("session-a".to_string());
-    app.session.phase = Some(view::phase::Phase::Queued);
-    app.session.round_started_at = Some(std::time::Instant::now());
+    app.threads.phase = Some(view::phase::Phase::Queued);
+    app.threads.round_started_at = Some(std::time::Instant::now());
 
     // User prompt is sending in transcript
     let prompt = view::model::document::TranscriptMessage::new(
@@ -531,7 +531,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
         "write a fibonacci function",
     )
     .sending();
-    app.transcript.messages.push(prompt);
+    app.threads.messages.push(prompt);
 
     // Press Esc Esc to interrupt
     app.surfaces.esc_armed_until =
@@ -554,9 +554,9 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
     assert!(!app.viewed_chrome().responding);
 
     // The prompt is NOT popped/retracted — it stays in the transcript!
-    assert_eq!(app.transcript.messages.len(), 1);
+    assert_eq!(app.threads.messages.len(), 1);
     assert_eq!(
-        app.transcript.messages[0].delivery,
+        app.threads.messages[0].delivery,
         view::model::document::DeliveryStatus::Cancelled,
         "prompt status must transition to Cancelled"
     );
@@ -578,7 +578,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
 
     let prompt =
         view::model::document::TranscriptMessage::new(tool::Role::User, "calculate pi").sending();
-    app.transcript.messages.push(prompt);
+    app.threads.messages.push(prompt);
 
     // The producer parks the round in the transport-wait phase and publishes
     // the setback clause — chrome only, no transcript row.
@@ -594,7 +594,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
         crate::shell::event_loop::AppMutation::SetProviderRetry(state),
     );
     assert_eq!(
-        app.transcript.messages.len(),
+        app.threads.messages.len(),
         1,
         "a scheduled retry must not append a transcript row"
     );
@@ -619,16 +619,16 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
 
     // [0] the cancelled prompt, [1] the one interrupt anchor. No retry row.
     assert_eq!(
-        app.transcript.messages.len(),
+        app.threads.messages.len(),
         2,
         "one anchor per stopped round"
     );
     assert_eq!(
-        app.transcript.messages[0].delivery,
+        app.threads.messages[0].delivery,
         view::model::document::DeliveryStatus::Cancelled
     );
 
-    let anchor = &app.transcript.messages[1];
+    let anchor = &app.threads.messages[1];
     assert!(anchor.is_round_interrupt());
     assert_eq!(
         anchor.raw,
@@ -657,7 +657,7 @@ async fn tool_result_does_not_forge_reasoning_phase() {
         ))),
     );
     assert_eq!(
-        app.session.phase,
+        app.threads.phase,
         Some(view::phase::Phase::Tool(view::phase::ToolVerb::Running))
     );
 
@@ -668,13 +668,13 @@ async fn tool_result_does_not_forge_reasoning_phase() {
         crate::shell::event_loop::AppMutation::SetPhase(Some(view::phase::Phase::Preparing)),
     );
     assert_ne!(
-        app.session.phase,
+        app.threads.phase,
         Some(view::phase::Phase::Reasoning),
         "tool completion must not set thinking/reasoning phase"
     );
-    assert_eq!(app.session.phase, Some(view::phase::Phase::Preparing));
+    assert_eq!(app.threads.phase, Some(view::phase::Phase::Preparing));
     assert_eq!(
-        app.session.phase.as_ref().unwrap().label(),
+        app.threads.phase.as_ref().unwrap().label(),
         "preparing context"
     );
 }
@@ -683,7 +683,7 @@ async fn tool_result_does_not_forge_reasoning_phase() {
 fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "test-session".to_string();
-    app.transcript.follow_bottom = true;
+    app.threads.follow_bottom = true;
 
     // Fill initial transcript with an assistant message followed by a queued user message
     let mut messages = Vec::new();
@@ -700,7 +700,7 @@ fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
     let queued = TranscriptMessage::new(Role::User, "Queued follow-up / steer")
         .with_origin(view::model::document::UserMessageOrigin::Steer);
     messages.push(queued);
-    app.transcript.messages = messages;
+    app.threads.messages = messages;
 
     // Frame 1: first layout pass calculates initial max_scroll under follow_bottom
     let mut terminal = graticule::TestTerminal::new(80, 24);
@@ -708,48 +708,48 @@ fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
 
-    let initial_max_scroll = app.transcript.max_scroll;
+    let initial_max_scroll = app.threads.max_scroll;
     assert!(initial_max_scroll > 0);
-    app.transcript.scroll = initial_max_scroll;
+    app.threads.scroll = initial_max_scroll;
 
     // Render at max_scroll (bottom-follow steady state)
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
-    let initial_content_lines = app.transcript.content_lines;
+    let initial_content_lines = app.threads.content_lines;
 
     // Frame 2 simulation: stream text delta arrives for assistant message above the queued message
     let id = crate::shell::append_stream_text_delta(
-        &mut app.transcript.messages,
+        &mut app.threads.messages,
         Some(1),
         Some(1),
         "\n\nLine 2\n\nLine 3\n\nLine 4\n\nLine 5\n\n",
     )
     .expect("must append to streaming assistant message");
-    app.transcript
+    app.threads
         .layout_height_cache
         .invalidate_messages(std::iter::once(id));
 
     // Measure what stage pass produces:
-    let painted_scroll = app.transcript.scroll;
+    let painted_scroll = app.threads.scroll;
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
 
     assert!(
-        app.transcript.content_lines > initial_content_lines,
+        app.threads.content_lines > initial_content_lines,
         "content lines must have grown from streaming delta"
     );
     assert!(
-        app.transcript.max_scroll > initial_max_scroll,
+        app.threads.max_scroll > initial_max_scroll,
         "max_scroll must have grown from streaming delta"
     );
-    // Under bottom-follow, app.transcript.scroll is updated to app.transcript.max_scroll.
-    // The event loop must detect that `app.transcript.scroll != painted_scroll` (bottom moved),
+    // Under bottom-follow, app.threads.scroll is updated to app.threads.max_scroll.
+    // The event loop must detect that `app.threads.scroll != painted_scroll` (bottom moved),
     // and skip committing the staged frame to avoid flickering the queued message.
-    app.transcript.scroll = app.transcript.max_scroll;
+    app.threads.scroll = app.threads.max_scroll;
     assert_ne!(
-        app.transcript.scroll, painted_scroll,
+        app.threads.scroll, painted_scroll,
         "stage_bottom_follow must detect that painted_scroll is stale"
     );
 }
@@ -766,7 +766,7 @@ fn busy_enter_steer_is_staged_out_of_thread() {
         .insert("test-session".to_string());
     app.composer.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
     app.composer.input = "use rg instead".to_string();
-    let before = app.transcript.messages.len();
+    let before = app.threads.messages.len();
 
     futures::executor::block_on(
         crate::shell::event_loop::actions::commands::handle_send_steer(
@@ -779,7 +779,7 @@ fn busy_enter_steer_is_staged_out_of_thread() {
 
     // The transcript is untouched.
     assert_eq!(
-        app.transcript.messages.len(),
+        app.threads.messages.len(),
         before,
         "a pending steer must not enter the transcript (ADR-0137 [INV-STEER-01])"
     );
@@ -803,23 +803,24 @@ fn busy_enter_steer_is_staged_out_of_thread() {
 /// removal. A `Cancelled` row would assert that a call existed and was stopped.
 #[test]
 fn retracting_a_pending_call_removes_the_provisional_row() {
-    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::apply::apply_transcript_for;
     use crate::shell::event_loop::mutations::TranscriptEdit;
     use view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
-    app.transcript.messages.push(
+    app.threads.messages.push(
         TranscriptMessage::tool_step_announced("call_1", "edit_text")
             .with_round(1)
             .with_turn(1),
     );
     assert_eq!(
-        app.transcript.messages[0].tool_step_status(),
+        app.threads.messages[0].tool_step_status(),
         Some(ToolStepStatus::Ingesting)
     );
 
-    let applied = apply_transcript(
+    let applied = apply_transcript_for(
         &mut app,
+        None,
         TranscriptEdit::ToolCallsRetracted {
             ids: vec!["call_1".to_string()],
         },
@@ -827,7 +828,7 @@ fn retracting_a_pending_call_removes_the_provisional_row() {
 
     assert!(applied);
     assert!(
-        app.transcript.messages.is_empty(),
+        app.threads.messages.is_empty(),
         "the provisional row is removed, not terminalized"
     );
 }
@@ -836,30 +837,28 @@ fn retracting_a_pending_call_removes_the_provisional_row() {
 /// it owns — never a sibling call's.
 #[test]
 fn retraction_is_scoped_to_the_named_call() {
-    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::apply::apply_transcript_for;
     use crate::shell::event_loop::mutations::TranscriptEdit;
 
     let mut app = new_app_for_relay_tests();
     for call_id in ["call_1", "call_2"] {
-        app.transcript.messages.push(
+        app.threads.messages.push(
             TranscriptMessage::tool_step_announced(call_id, "edit_text")
                 .with_round(1)
                 .with_turn(1),
         );
     }
 
-    apply_transcript(
+    apply_transcript_for(
         &mut app,
+        None,
         TranscriptEdit::ToolCallsRetracted {
             ids: vec!["call_1".to_string()],
         },
     );
 
-    assert_eq!(app.transcript.messages.len(), 1);
-    assert_eq!(
-        app.transcript.messages[0].tool_step_call_id(),
-        Some("call_2")
-    );
+    assert_eq!(app.threads.messages.len(), 1);
+    assert_eq!(app.threads.messages[0].tool_step_call_id(), Some("call_2"));
 }
 
 /// A dispatch for a call the buffer does not know (a retracted attempt, or a
@@ -867,7 +866,7 @@ fn retraction_is_scoped_to_the_named_call() {
 /// even when the provisional row is not.
 #[test]
 fn a_dispatch_for_an_unknown_call_is_inserted() {
-    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::apply::apply_transcript_for;
     use crate::shell::event_loop::mutations::TranscriptEdit;
 
     let mut app = new_app_for_relay_tests();
@@ -876,16 +875,14 @@ fn a_dispatch_for_an_unknown_call_is_inserted() {
         .with_turn(1)
         .with_sent_at_ms(1_700_000_000_000);
 
-    apply_transcript(
+    apply_transcript_for(
         &mut app,
+        None,
         TranscriptEdit::ToolStepUpsert { message: dispatch },
     );
 
-    assert_eq!(app.transcript.messages.len(), 1);
-    assert_eq!(
-        app.transcript.messages[0].tool_step_call_id(),
-        Some("call_1")
-    );
+    assert_eq!(app.threads.messages.len(), 1);
+    assert_eq!(app.threads.messages[0].tool_step_call_id(), Some("call_1"));
 }
 
 /// ADR-0166 `[INV-TOOL-ID-02]`: the reducer is idempotent. Replaying the same
@@ -893,7 +890,7 @@ fn a_dispatch_for_an_unknown_call_is_inserted() {
 /// `receiving input` wall.
 #[test]
 fn a_duplicate_announcement_does_not_insert_a_second_step() {
-    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::apply::apply_transcript_for;
     use crate::shell::event_loop::mutations::TranscriptEdit;
 
     let mut app = new_app_for_relay_tests();
@@ -901,14 +898,15 @@ fn a_duplicate_announcement_does_not_insert_a_second_step() {
         let announce = TranscriptMessage::tool_step_announced("call_1", "edit_text")
             .with_round(1)
             .with_turn(1);
-        apply_transcript(
+        apply_transcript_for(
             &mut app,
+            None,
             TranscriptEdit::ToolStepUpsert { message: announce },
         );
     }
 
     assert_eq!(
-        app.transcript.messages.len(),
+        app.threads.messages.len(),
         1,
         "one call is one row, however many times it is announced"
     );
@@ -918,7 +916,7 @@ fn a_duplicate_announcement_does_not_insert_a_second_step() {
 /// retraction for the same call id must leave it alone.
 #[test]
 fn retraction_after_dispatch_leaves_the_dispatched_step() {
-    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::apply::apply_transcript_for;
     use crate::shell::event_loop::mutations::TranscriptEdit;
     use view::model::document::ToolStepStatus;
 
@@ -926,32 +924,32 @@ fn retraction_after_dispatch_leaves_the_dispatched_step() {
     let announce = TranscriptMessage::tool_step_announced("call_1", "edit_text")
         .with_round(1)
         .with_turn(1);
-    apply_transcript(
+    apply_transcript_for(
         &mut app,
+        None,
         TranscriptEdit::ToolStepUpsert { message: announce },
     );
     let dispatch = TranscriptMessage::tool_step("call_1", "edit_text", "{}")
         .with_round(1)
         .with_turn(1)
         .with_sent_at_ms(1_700_000_000_000);
-    apply_transcript(
+    apply_transcript_for(
         &mut app,
+        None,
         TranscriptEdit::ToolStepUpsert { message: dispatch },
     );
-    apply_transcript(
+    apply_transcript_for(
         &mut app,
+        None,
         TranscriptEdit::ToolCallsRetracted {
             ids: vec!["call_1".to_string()],
         },
     );
 
-    assert_eq!(app.transcript.messages.len(), 1);
+    assert_eq!(app.threads.messages.len(), 1);
+    assert_eq!(app.threads.messages[0].tool_step_call_id(), Some("call_1"));
     assert_eq!(
-        app.transcript.messages[0].tool_step_call_id(),
-        Some("call_1")
-    );
-    assert_eq!(
-        app.transcript.messages[0].tool_step_status(),
+        app.threads.messages[0].tool_step_status(),
         Some(ToolStepStatus::Executing)
     );
 }
@@ -962,17 +960,17 @@ fn retraction_after_dispatch_leaves_the_dispatched_step() {
 /// has no local announcement state.
 #[test]
 fn a_settled_round_retracts_every_ingesting_step() {
-    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::apply::apply_transcript_for;
     use crate::shell::event_loop::mutations::TranscriptEdit;
     use view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
-    app.transcript.messages.push(
+    app.threads.messages.push(
         TranscriptMessage::tool_step_announced("call_1", "edit_text")
             .with_round(1)
             .with_turn(1),
     );
-    app.transcript.messages.push(
+    app.threads.messages.push(
         TranscriptMessage::tool_step_announced("call_2", "execute_command")
             .with_round(1)
             .with_turn(1),
@@ -980,24 +978,22 @@ fn a_settled_round_retracts_every_ingesting_step() {
     let dispatched = TranscriptMessage::tool_step("call_3", "read", "{}")
         .with_round(1)
         .with_turn(1);
-    app.transcript.messages.push(dispatched);
+    app.threads.messages.push(dispatched);
 
-    assert!(apply_transcript(
+    assert!(apply_transcript_for(
         &mut app,
+        None,
         TranscriptEdit::RetractPendingToolSteps
     ));
 
     assert_eq!(
-        app.transcript.messages.len(),
+        app.threads.messages.len(),
         1,
         "only the dispatched call survives"
     );
+    assert_eq!(app.threads.messages[0].tool_step_call_id(), Some("call_3"));
     assert_eq!(
-        app.transcript.messages[0].tool_step_call_id(),
-        Some("call_3")
-    );
-    assert_eq!(
-        app.transcript.messages[0].tool_step_status(),
+        app.threads.messages[0].tool_step_status(),
         Some(ToolStepStatus::Executing)
     );
 }
@@ -1030,10 +1026,10 @@ mod command_reply_filing {
     #[test]
     fn reading_appends_a_receipt_and_no_thread_row() {
         let mut app = new_app_for_relay_tests();
-        app.transcript
+        app.threads
             .messages
             .push(TranscriptMessage::new(Role::User, "why is it slow?").with_round(1));
-        let before = app.transcript.messages.len();
+        let before = app.threads.messages.len();
         let receipts_before = app.notice_count();
 
         // The filing decision the event arm makes for a reading.
@@ -1041,7 +1037,7 @@ mod command_reply_filing {
         app.record_notice(rendered);
 
         assert_eq!(
-            app.transcript.messages.len(),
+            app.threads.messages.len(),
             before,
             "a reading must never enter the thread — it is not a thing that was said"
         );
@@ -1067,15 +1063,16 @@ mod command_reply_filing {
         let receipts_before = app.notice_count();
 
         // Stage the optimistic row, as `handle_send_slash` does for an act.
-        app.transcript.messages.push(
+        app.threads.messages.push(
             TranscriptMessage::pending_command("unattended", "on")
                 .with_sent_at_ms(1_700_000_000_000),
         );
-        let before = app.transcript.messages.len();
+        let before = app.threads.messages.len();
 
         // The reply settles that row in place.
-        let applied = crate::shell::event_loop::apply::apply_transcript(
+        let applied = crate::shell::event_loop::apply::apply_transcript_for(
             &mut app,
+            None,
             crate::shell::event_loop::mutations::TranscriptEdit::SettleCommandResult {
                 invocation: "/unattended on".to_string(),
                 result: protocol::CommandResult::Ack {
@@ -1088,12 +1085,12 @@ mod command_reply_filing {
 
         assert!(applied);
         assert_eq!(
-            app.transcript.messages.len(),
+            app.threads.messages.len(),
             before,
             "the row is settled, not appended"
         );
         assert_eq!(
-            app.transcript
+            app.threads
                 .messages
                 .last()
                 .and_then(|m| m.command_result_text()),
@@ -1184,20 +1181,21 @@ mod command_reply_filing {
     #[test]
     fn a_reading_withdraws_its_own_staged_row() {
         let mut app = new_app_for_relay_tests();
-        app.transcript
+        app.threads
             .messages
             .push(TranscriptMessage::new(Role::User, "why is it slow?").with_round(1));
-        let dialogue_before = app.transcript.messages.len();
+        let dialogue_before = app.threads.messages.len();
 
         // Staged on a wrong prediction (empty catalog at dispatch time).
-        app.transcript.messages.push(
+        app.threads.messages.push(
             TranscriptMessage::pending_command("usage", "").with_sent_at_ms(1_700_000_000_000),
         );
-        assert_eq!(app.transcript.messages.len(), dialogue_before + 1);
+        assert_eq!(app.threads.messages.len(), dialogue_before + 1);
 
         // The event is authority: withdraw, then file the receipt.
-        let applied = crate::shell::event_loop::apply::apply_transcript(
+        let applied = crate::shell::event_loop::apply::apply_transcript_for(
             &mut app,
+            None,
             crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
                 invocation: "/usage".to_string(),
                 restore_draft: false,
@@ -1206,12 +1204,12 @@ mod command_reply_filing {
 
         assert!(applied);
         assert_eq!(
-            app.transcript.messages.len(),
+            app.threads.messages.len(),
             dialogue_before,
             "the predicted row is gone — the thread holds only what was said"
         );
         assert!(
-            app.transcript
+            app.threads
                 .messages
                 .iter()
                 .all(|m| m.command_result_phase()
@@ -1225,27 +1223,26 @@ mod command_reply_filing {
     #[test]
     fn withdrawal_leaves_other_pending_rows_alone() {
         let mut app = new_app_for_relay_tests();
-        app.transcript.messages.push(
+        app.threads.messages.push(
             TranscriptMessage::pending_command("unattended", "on")
                 .with_sent_at_ms(1_700_000_000_000),
         );
-        app.transcript.messages.push(
+        app.threads.messages.push(
             TranscriptMessage::pending_command("usage", "").with_sent_at_ms(1_700_000_000_001),
         );
 
-        crate::shell::event_loop::apply::apply_transcript(
+        crate::shell::event_loop::apply::apply_transcript_for(
             &mut app,
+            None,
             crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
                 invocation: "/usage".to_string(),
                 restore_draft: false,
             },
         );
 
-        assert_eq!(app.transcript.messages.len(), 1);
+        assert_eq!(app.threads.messages.len(), 1);
         assert_eq!(
-            app.transcript.messages[0]
-                .command_result_summary()
-                .as_deref(),
+            app.threads.messages[0].command_result_summary().as_deref(),
             Some("/unattended on"),
             "the act's optimistic row must survive a reading's withdrawal"
         );
@@ -1260,13 +1257,14 @@ mod command_reply_filing {
         assert!(app.composer.input.is_empty());
 
         // Optimistically staged on unknown command dispatch
-        app.transcript.messages.push(
+        app.threads.messages.push(
             TranscriptMessage::pending_command("modles", "").with_sent_at_ms(1_700_000_000_000),
         );
-        assert_eq!(app.transcript.messages.len(), 1);
+        assert_eq!(app.threads.messages.len(), 1);
 
-        let applied = crate::shell::event_loop::apply::apply_transcript(
+        let applied = crate::shell::event_loop::apply::apply_transcript_for(
             &mut app,
+            None,
             crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
                 invocation: "/modles".to_string(),
                 restore_draft: true,
@@ -1275,7 +1273,7 @@ mod command_reply_filing {
 
         assert!(applied);
         assert_eq!(
-            app.transcript.messages.len(),
+            app.threads.messages.len(),
             0,
             "staged row was withdrawn, keeping L0 transcript completely clean"
         );
@@ -1312,7 +1310,7 @@ mod command_reply_filing {
         .await;
 
         assert!(
-            app.transcript.messages.is_empty(),
+            app.threads.messages.is_empty(),
             "an unknown slash command must NEVER stage an optimistic row in L0 transcript"
         );
 
@@ -1360,15 +1358,15 @@ mod command_reply_filing {
 #[test]
 fn keyboard_selection_spans_whole_messages_and_extends_upward() {
     let mut app = new_app_for_relay_tests();
-    app.transcript.messages = vec![
+    app.threads.messages = vec![
         TranscriptMessage::new(Role::User, "first"),
         TranscriptMessage::new(Role::Assistant, "second"),
         TranscriptMessage::new(Role::User, "third"),
     ];
-    app.transcript.focus = crate::shell::focus::Focus::browsing();
+    app.threads.focus = crate::shell::focus::Focus::browsing();
 
     app.select_transcript_messages(1);
-    match app.transcript.selection {
+    match &app.threads.selection {
         SelectionState::Range { anchor, head } => {
             assert_eq!((anchor.message_idx, head.message_idx), (2, 2));
             assert!(head.byte_offset > 0, "the head covers the message body");
@@ -1377,7 +1375,7 @@ fn keyboard_selection_spans_whole_messages_and_extends_upward() {
     }
 
     app.select_transcript_messages(-1);
-    match app.transcript.selection {
+    match &app.threads.selection {
         SelectionState::Range { anchor, head } => {
             assert_eq!((anchor.message_idx, head.message_idx), (1, 2));
         }
@@ -1388,29 +1386,29 @@ fn keyboard_selection_spans_whole_messages_and_extends_upward() {
 #[test]
 fn transcript_search_finds_and_steps_through_matches() {
     let mut app = new_app_for_relay_tests();
-    app.transcript.messages = vec![
+    app.threads.messages = vec![
         TranscriptMessage::new(Role::User, "alpha request"),
         TranscriptMessage::new(Role::Assistant, "beta response"),
         TranscriptMessage::new(Role::User, "Alpha follow-up"),
     ];
 
     app.open_transcript_search();
-    assert!(app.transcript.search.active);
+    assert!(app.threads.search.active);
     for c in "alpha".chars() {
         app.push_transcript_search_char(c);
     }
-    assert_eq!(app.transcript.search.matches, vec![0, 2]);
-    assert_eq!(app.transcript.search.current, 1);
+    assert_eq!(app.threads.search.matches, vec![0, 2]);
+    assert_eq!(app.threads.search.current, 1);
 
     app.step_transcript_search(false);
-    assert_eq!(app.transcript.search.current, 0);
-    match app.transcript.selection {
+    assert_eq!(app.threads.search.current, 0);
+    match &app.threads.selection {
         SelectionState::Range { anchor, .. } => assert_eq!(anchor.message_idx, 0),
         other => panic!("expected selection on matched message, got {other:?}"),
     }
 
     app.step_transcript_search(true);
-    assert_eq!(app.transcript.search.current, 1);
+    assert_eq!(app.threads.search.current, 1);
     app.close_transcript_search();
-    assert!(!app.transcript.search.active);
+    assert!(!app.threads.search.active);
 }

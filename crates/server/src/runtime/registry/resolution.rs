@@ -45,16 +45,9 @@ impl ThreadRegistry {
             AttachAction::Picker(init_options) => {
                 let opts = init_options.unwrap_or_default();
                 let role_id = opts.role.clone();
-                // `claim` applies the role's workspace policy (Fixed/Inherit/
-                // None); the picker only needs the one special case where the
-                // carrier has no workspace at all.
-                let ws = if role_id.as_deref() == Some("philosophist") {
-                    None
-                } else {
-                    Some(protocol::WorkspaceBinding::new(
-                        caller_project.to_path_buf(),
-                    ))
-                };
+                let ws = Some(protocol::WorkspaceBinding::new(
+                    caller_project.to_path_buf(),
+                ));
                 self.claim(
                     crate::composition::startup::ThreadStart::Picker,
                     SessionBinding {
@@ -237,64 +230,35 @@ impl ThreadRegistry {
         // binding unchanged. `workspace = None` is the unbound set.
         let mut identity = identity;
         let mut preset = preset;
-        let mut workspace = binding.workspace;
-        // A fresh selection canonicalizes built-in aliases (`dev` → `developer`)
-        // before the id becomes a durable scope key. Custom role ids are
-        // preserved. Unknown ids are refused here, not silently downgraded.
+        let workspace = binding.workspace;
+        // Orthogonal Role & Workspace (ADR-0254): role selection resolves a
+        // pure capability profile and never mutates or rejects the workspace.
         let role_selected = match init_options.role.clone() {
-            Some(role) => Some(
-                persistence::roles::canonical_role_id(
-                    &role,
-                    workspace.as_ref().map(|binding| binding.root.as_path()),
-                )
-                .map_err(|error| {
-                    AssembleErr::AssembleFailed(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        error,
-                    )))
-                })?,
-            ),
-            None => None,
-        };
-        let role_id = role_selected.clone().or(binding.role);
-
-        // An explicit role owns the workspace binding before `--resume`
-        // resolves its target. Without this, `--resume --role philosophist`
-        // would look in the caller's workspace instead of the unbound set.
-        // Keep the original binding for agent assembly; the later role
-        // resolution block applies the same policy against that context.
-        let resume_workspace = if role_selected.is_some()
-            && let Some(role) = role_id.as_deref()
-        {
-            let scope = persistence::roles::resolve_thread_scope(
-                Some(role),
-                workspace.as_ref().map(|binding| binding.root.as_path()),
-            )
-            .map_err(|error| {
+            Some(role) => Some(persistence::roles::canonical_role_id(&role).map_err(|error| {
                 AssembleErr::AssembleFailed(Box::new(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     error,
                 )))
-            })?;
-            scope.workspace.map(protocol::WorkspaceBinding::new)
-        } else {
-            workspace.clone()
+            })?),
+            None => None,
         };
+        let role_id = role_selected.clone().or(binding.role);
 
-        // `--resume`: pick the most recent matching session instead
-        // of a fresh one, inside the exact role + workspace scope.
+        // `--resume`: pick the most recent thread matching the requested role
+        // (if any) and workspace context.
         if init_options.resume && matches!(startup, crate::composition::startup::ThreadStart::Fresh)
         {
-            let scope =
-                protocol::ThreadScope::from_binding(role_id.as_deref(), resume_workspace.as_ref());
-            if let Some(id) = lookup_latest_session_in_scope(&scope).await {
+            let filter = protocol::ThreadFilter {
+                role: role_selected.clone(),
+                workspace: workspace.as_ref().map(|b| b.root.clone()),
+            };
+            if let Some(id) = lookup_latest_session(&filter).await {
                 startup = crate::composition::startup::ThreadStart::Resume(id);
             }
         }
 
         // Hermetic session manifest restoration:
-        // If resuming an existing session, restore directly from its immutable birth manifest.
-        // This guarantees 100% byte-identical prompt cache and zero crash if external roles.toml was modified/deleted.
+        // If resuming an existing session, restore directly from its stored manifest.
         let resumed_session_id = match &startup {
             crate::composition::startup::ThreadStart::Resume(id) => Some(id.as_str()),
             _ => None,
@@ -319,18 +283,8 @@ impl ThreadRegistry {
             identity = role_identity;
             preset = role;
         } else if let Some(role_id) = role_id.as_deref() {
-            let ws_root = workspace.as_ref().map(|b| b.root.as_path());
-            let roles_cfg = persistence::roles::RolesConfig::load_for_workspace(ws_root);
+            let roles_cfg = persistence::roles::RolesConfig::load();
             if let Some(role_entry) = roles_cfg.get(role_id) {
-                if role_selected.is_some() {
-                    workspace = match role_entry.resolved_workspace() {
-                        persistence::roles::RoleWorkspace::Unbound => None,
-                        persistence::roles::RoleWorkspace::Inherit => workspace,
-                        persistence::roles::RoleWorkspace::Fixed(root) => {
-                            Some(protocol::WorkspaceBinding::new(root))
-                        }
-                    };
-                }
                 let role_identity = role_entry.identity();
                 let mut role = protocol::AgentRoleProfile::with_identity(
                     role_id.to_string(),
@@ -341,9 +295,6 @@ impl ThreadRegistry {
                 identity = role_identity;
                 preset = role;
             } else if let Some(builtin) = protocol::MainAgentRole::parse(role_id) {
-                if role_selected.is_some() && !builtin.requires_workspace() {
-                    workspace = None;
-                }
                 let role = protocol::AgentRoleProfile::from_role(builtin, &identity);
                 identity = role.identity.clone();
                 preset = role;
@@ -357,11 +308,7 @@ impl ThreadRegistry {
         let workspace_root = workspace.as_ref().map(|binding| binding.root.clone());
         let effective_confined =
             if let Some(builtin) = role_id.as_deref().and_then(protocol::MainAgentRole::parse) {
-                if !builtin.requires_workspace() {
-                    builtin.default_confined() && init_options.confined
-                } else {
-                    init_options.confined
-                }
+                builtin.default_confined() && init_options.confined
             } else {
                 init_options.confined
             };

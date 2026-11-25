@@ -164,7 +164,7 @@ impl Tool for ArchivistInstructSessionTool {
                 return Ok(requested);
             }
             reader
-                .resolve_session_prefix(&requested, &protocol::ThreadFilter::global())
+                .resolve_session_prefix(&requested, &protocol::ThreadFilter::all())
                 .map_err(|e| format!("session resolve failed: {e}"))?
                 .into_iter()
                 .next()
@@ -238,7 +238,7 @@ impl Tool for ArchivistSearchHistoryTool {
         let query = args["query"].as_str().ok_or("Missing 'query' argument")?;
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(20).clamp(1, 100) as usize;
-        let filter = workspace.map(|w| protocol::WorkspaceFilter::Path(w.into()));
+        let workspace_path = workspace.map(std::path::PathBuf::from);
 
         let search_term = query.to_string();
         // Two-stage recall (Layer 3, deterministic leg): strict
@@ -248,13 +248,13 @@ impl Tool for ArchivistSearchHistoryTool {
         // the reader is released before any network call.
         let (relaxed, hits) = read_store(move |reader| {
             let strict = reader
-                .search_history(&search_term, filter.as_ref(), limit)
+                .search_history(&search_term, workspace_path.as_deref(), limit)
                 .map_err(|e| format!("history search failed: {e}"))?;
             if !strict.is_empty() {
                 return Ok((false, strict));
             }
             let relaxed = reader
-                .search_history_relaxed(&search_term, filter.as_ref(), limit)
+                .search_history_relaxed(&search_term, workspace_path.as_deref(), limit)
                 .map_err(|e| format!("history search failed: {e}"))?;
             Ok((true, relaxed))
         })
@@ -325,10 +325,8 @@ impl Tool for ArchivistListSessionsTool {
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(50).clamp(1, 500) as usize;
         let filter = match workspace {
-            Some(path) => {
-                protocol::ThreadFilter::workspace_only(protocol::WorkspaceFilter::Path(path.into()))
-            }
-            None => protocol::ThreadFilter::global(),
+            Some(path) => protocol::ThreadFilter::for_workspace(path),
+            None => protocol::ThreadFilter::all(),
         };
 
         let rows = read_store(move |reader| {
@@ -420,7 +418,7 @@ impl Tool for ArchivistReadSessionTool {
                 requested.clone()
             } else {
                 reader
-                    .resolve_session_prefix(&requested, &protocol::ThreadFilter::global())
+                    .resolve_session_prefix(&requested, &protocol::ThreadFilter::all())
                     .map_err(|e| format!("session resolve failed: {e}"))?
                     .into_iter()
                     .next()

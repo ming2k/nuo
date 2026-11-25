@@ -1022,7 +1022,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
 
     // Subagent sessions never surface in the picker.
     let summaries = reader
-        .list_session_summaries(&protocol::ThreadFilter::global(), &store.id().await)
+        .list_session_summaries(&protocol::ThreadFilter::all(), &store.id().await)
         .unwrap();
     assert!(!summaries.iter().any(|summary| summary.id == subagent_id));
 }

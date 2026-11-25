@@ -48,8 +48,8 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
             auth: Default::default(),
         }],
     };
-    app.session.current_provider = "p1".to_string();
-    app.session.current_model = "m1".to_string();
+    app.threads.current_provider = "p1".to_string();
+    app.threads.current_model = "m1".to_string();
 
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Models));
     assert_eq!(
@@ -173,18 +173,18 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
             auth: Default::default(),
         }],
     };
-    app.session.current_provider = "p1".to_string();
-    app.session.current_model = "m1".to_string();
+    app.threads.current_provider = "p1".to_string();
+    app.threads.current_model = "m1".to_string();
 
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Models));
-    app.transcript.ui.begin(graticule::Rect::new(0, 0, 80, 24));
-    app.transcript.ui.mount(
+    app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 24));
+    app.viewport.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Models,
         )),
         graticule::Rect::new(10, 5, 60, 15),
     );
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
 
     let models_dlg = app
         .surfaces

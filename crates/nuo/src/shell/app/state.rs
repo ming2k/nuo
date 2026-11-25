@@ -4,131 +4,41 @@
 //! ([ADR-0186](../../../../docs/adr/0186-state-is-partitioned-and-giants-are-prohibited.md)).
 use super::*;
 
-/// `session` state.
+/// `session` state (client-wide session coordination; per-thread fields live on
+/// [`crate::shell::app::workspaces::ThreadInstance`], ADR-0253 `[INV-INSTANCE-01]`).
 pub struct SessionState {
     /// Per-session chrome (activity text, responding flag, round/turn
     /// counters) for every session this client has observed, keyed by
     /// `session_id`.
     pub session_chrome: std::collections::HashMap<String, SessionChrome>,
-    /// Resident in-memory workspaces for inactive subscribed thread tabs
-    /// (ADR-0251 `[INV-MUX-02]`). The active thread lives directly in
-    /// `App::transcript` / `App::session` and swaps in O(1) on tab switch.
-    pub workspaces:
-        std::collections::HashMap<String, crate::shell::app::workspaces::ThreadWorkspace>,
     /// Thread IDs currently subscribed on this multiplexed connection
     /// (ADR-0251 `[INV-MUX-01]`).
     pub subscribed_threads: std::collections::HashSet<String>,
-    /// The **live primary session id** (M1): the harness repoints
-    /// its shared store on `/new`, `/session open`, `/resume`, and `/fork`;
-    /// the translator reports each repoint here and session-scoped client
-    /// state (the ↑/↓ prompt history's origin above all) follows.
+    /// The **live primary session id** (M1).
     pub live_session_id: String,
-    pub current_provider: String,
-    pub current_model: String,
-    /// Raw current working directory captured at startup. Used to resolve
-    /// `@path` mention completions against the real filesystem.
+    /// Raw current working directory captured at startup.
     pub cwd: std::path::PathBuf,
-    /// The id of the session the TUI is currently viewing (`primary_session_id`
-    /// outside a side view, the side id inside one). Learned each frame from
-    /// the session source and stamped onto every recorded input-history entry
-    /// so the inline ↑/↓ recall can walk this session's prompts only, while
-    /// Ctrl+R searches the whole cross-session history.
+    /// The id of the session the TUI is currently viewing.
     pub current_session_id: String,
-    /// The workspace label for the current session — the project root's
-    /// display path (already tilde-shortened), or empty when no workspace is bound.
-    pub current_workspace: String,
-    /// The active staffing role for the current session (e.g. "developer", "philosophist").
-    pub current_role: Option<String>,
-    /// Latest session-context snapshot for the Tools / Mcp / Skills /
-    /// Permissions managers, or `None` before the first `QuerySessionContext`
-    /// round-trip completes. Refreshed each frame from the response listener.
-    pub session_context: Option<protocol::ThreadContextSnapshot>,
-    pub loop_status: LoopStatus,
-    /// Whether the primary session has a stopped round parked for `/retry`
-    /// Mirrored from the session-scoped harness snapshot — the
-    /// durable resume point — and consumed by `Self::viewed_chrome` to
-    /// build the primary's retry affordance. A background session reads its
-    /// own `SessionChrome::can_retry`.
-    pub harness_retry_pending: bool,
-    /// Typed activity-bar phase for the primary session (`None` = idle /
-    /// bar hidden). Never holds transport setbacks — see `view::phase`.
-    pub phase: Option<view::phase::Phase>,
-    /// The primary session's transport setback (retry countdown), rendered as a
-    /// clause beside `App::phase`. The primary's slot, mirroring
-    /// [`SessionChrome::transport_setback`] for the primary view exactly as
-    /// `phase` mirrors [`SessionChrome::phase`]; a background session keeps its
-    /// own in its chrome entry. Write it only through `App::set_phase`, which
-    /// owns the clause's lifetime.
-    pub provider_retry: Option<ProviderRetryState>,
-    /// Durability-health banner state (D4): the server's
-    /// persistence-writer degradation, folded from the monitor stream.
-    /// `None` / `Healthy` renders no banner.
+    /// Durability-health banner state (D4).
     pub persistence_health: Option<protocol::monitor::PersistenceHealth>,
-    /// Whether all tool permissions are auto-approved this session
-    /// (`--unattended` / `/unattended on`). Mirrored from the harness snapshot.
-    pub unattended: bool,
-    /// Whether workspace filesystem confinement is enforced this session
-    /// (`/confinement on|off`). Mirrored from the harness snapshot.
-    pub confined: bool,
-    /// Harness round counter, mirrored each frame.
-    pub round_count: u64,
-    /// Current turn within the active round (1-indexed for display:
-    /// `0` means the round has started but no model request has fired yet —
-    /// e.g. the "queued" / "preparing context" phase).
-    pub current_turn: u64,
-    /// Wall-clock instant the current round started, or `None` between rounds.
-    /// Drives the muted `<elapsed>` segment in the activity bar.
-    pub round_started_at: Option<std::time::Instant>,
-    /// Server-attested readiness of the attached thread (ADR-0133
-    /// `[INV-ATTACH-04]`). Input is gated on `Ready`; `Failed` is a recoverable
-    /// disclosure, never a reason to exit.
-    pub session_phase: protocol::ThreadPhase,
     /// When switching threads, holds the short id of the target thread being loaded.
     pub switching_session: Option<String>,
-    /// Sessions whose last interactive round reached its natural completion
-    /// event and whose harness has subsequently reported idle. Both facts are
-    /// tracked separately so errors/interrupts never auto-run follow-ups.
+    /// Sessions whose last interactive round is currently running.
     pub running_sessions: std::collections::HashSet<String>,
-    /// Sessions whose outbox pause is on. While paused the **driver** ships
-    /// nothing for that session, even after natural completion + idle. The
-    /// queue modal pauses a session on open (so items can be managed safely)
-    /// and resumes on close; `Ctrl+P` and `/queue block` toggle it.
-    ///
-    /// This is the optimistic projection of the server's authoritative flag:
-    /// every writer here is paired with a `QueuePaused` intent, and a
-    /// `QueueUpdated` snapshot overwrites it. It is not a local gate — there is
-    /// no client-side drain to gate.
+    /// Sessions whose outbox pause is on.
     pub queue_blocked_sessions: std::collections::HashSet<String>,
     /// The latest harness workspace-security snapshot (trust-gate state).
     pub workspace_security: protocol::WorkspaceSecuritySnapshot,
     /// Rows shown in the threads picker (`/threads` or `nuo attach`).
     pub sessions_overview: Vec<protocol::ThreadOverview>,
-    /// Live monitor snapshot for the thread fleet orchestrator dashboard
-    /// mirrored from `UiRuntime::host_sessions` each frame.
+    /// Live monitor snapshot for the thread fleet orchestrator dashboard.
     pub host_sessions: Vec<protocol::MonitoredThread>,
-    /// The session whose outbox the Queue view auto-paused on entry, **and
-    /// whether that auto-pause is still the state we owe a release for**.
-    ///
-    /// `dismiss_active_dialog` is an `&mut App` method that cannot see the
-    /// loop's `viewed_session_id`, so the pause site records the target here and
-    /// the exit hook consumes it.
-    ///
-    /// The `bool` is what keeps the hook symmetric rather than overreaching: it
-    /// is `true` only while the pause currently in effect is the one this open
-    /// set. If the user resumed it with `Ctrl+P` / `/queue block`, the close has
-    /// nothing to release (and must not silently undo a pause the user re-armed
-    /// either) — an unconditional resume on close turns the modal into a
-    /// forced-resume button (`[INV-OUTBOX-04]`).
+    /// The session whose outbox the Queue view auto-paused on entry.
     pub(crate) queue_exit_session: Option<(String, QueuePauseOrigin)>,
-    /// Thread DAG tree representation for `/tree` visualization.
-    pub session_tree: protocol::ThreadTree,
-    /// Full detail for the thread under the info sub-view cursor. Populated by
-    /// an on-demand `QueryThreadDetail` round-trip when the sub-view opens
-    /// (`i`) and refreshed whenever the selection moves while in the sub-view.
-    /// `None` while the round-trip is in flight.
+    /// Full detail for the thread under the info sub-view cursor.
     pub session_detail: Option<protocol::ThreadDetail>,
-    /// The effective TUI config (the applier's disclosure defaults read it;
-    /// the translator no longer carries config clones).
+    /// The effective TUI config.
     pub tui_config: crate::shell::config::TuiConfig,
 }
 
@@ -136,152 +46,42 @@ pub struct SessionState {
 pub struct TranscriptSearchState {
     pub active: bool,
     pub query: String,
-    /// Indices into `TranscriptState::messages` that match `query`.
+    /// Indices into `ThreadInstance::messages` that match `query`.
     pub matches: Vec<usize>,
     /// Index into `matches` for the currently focused match.
     pub current: usize,
 }
 
-/// `transcript` state.
-pub struct TranscriptState {
-    /// Structured transcript messages (semantic document model).
-    pub messages: Vec<TranscriptMessage>,
-    /// Version of the shared runtime buffer that `messages` was last synced
-    /// from. The loop re-clones the buffer only when the runtime version moves
-    /// past this, so an unchanged transcript costs no per-frame deep clone.
-    /// Starts at 0 (the `Versioned` sentinel) so the first frame always syncs.
-    /// O(1) streaming-delta target for `messages` (id, index); reset on
-    /// wholesale replacement.
-    /// Per-message laid-out height cache (Stage 2). Lets the transcript renderer
-    /// skip re-wrapping off-screen messages, making per-frame layout O(visible)
-    /// instead of O(transcript). Cleared whenever the transcript changes
-    /// so a cached height is only ever read while the message's content is unchanged.
-    pub layout_height_cache: crate::shell::render::HeightCache,
-    pub scroll: usize,
-    /// Whether the view follows the newest content (auto-scroll to bottom).
-    pub follow_bottom: bool,
-    /// Last measured stream height in lines and viewport height, used to pin
-    /// the view to the bottom while following.
-    pub content_lines: usize,
-    pub view_height: u16,
-    pub max_scroll: usize,
-    /// Expanded step pinned under the HUD bar (its message index + screen rect),
-    /// when its body is scrolled into view. Clicks inside the rect collapse it.
-    pub sticky_step: Option<usize>,
-    /// Set by the applier when a transcript document changed; the loop
-    /// consumes it for bottom-follow scroll staging.
-    pub transcript_changed_pending: bool,
-    /// Effective default-expand state for a reasoning trace
-    /// (`[tui.default_expanded] thinking`, M1: applier-owned).
-    pub reasoning_default_expanded: bool,
-    /// Content-line index of the sticky step's real summary. Used to re-anchor
-    /// the scroll offset when the user collapses the pinned step so the summary
-    /// lands at the top of the viewport instead of jumping to unrelated content.
-    pub sticky_summary_line: Option<usize>,
-    /// Content-line the user asked to keep pinned at the top of the viewport by
-    /// collapsing a sticky summary. While set, the per-frame scroll clamp is
-    /// allowed to scroll past the natural `max_scroll` so a short tail of
-    /// content below the collapsed step does not yank the header back down.
-    /// Cleared on any manual scroll, view reset, or when auto-follow resumes.
-    pub pin_summary_line: Option<usize>,
-    /// Latched when a disclosure toggle (expand/collapse of a tool step,
-    /// command result, thinking, provider-retry, or notice card) changed the
-    /// transcript's height, so the event loop's next frame must be *staged*
-    /// — laid out to measure the new `content_lines` — before the toggle's
-    /// target scroll offset is applied. The staged pass emits no terminal
-    /// bytes, so the terminal only ever sees the final viewport, never an
-    /// intermediate one that gets re-clamped a frame later (the source of the
-    /// expand/collapse flicker).
-    ///
-    /// Cleared by the loop once the settled offset has been painted, by any
-    /// manual scroll, and by view resets — the same lifecycle as
-    /// `Self::pin_summary_line`.
-    pub scroll_settle_pending: bool,
-    /// Semantic selection state.
-    pub selection: SelectionState,
-    /// Drag gesture state.
-    pub drag: SelectionDrag,
+/// Terminal-scoped viewport state (ADR-0253 `[INV-INSTANCE-01]`).
+///
+/// Everything that belongs to this terminal process, independent of which thread tab is
+/// active. Lives as a sibling field on `App` alongside thread state so render and input
+/// paths can split-borrow `&mut app.viewport` and the active thread simultaneously.
+pub struct Viewport {
     /// Mounted UI instances and committed semantic geometry.
     pub ui: crate::shell::ui::ComponentTree,
-    /// Message index of the step (tool step or reasoning trace) whose header
-    /// currently rests under the mouse pointer (inline or sticky pinned), so
-    /// the next draw lights it up to the intermediate hover tone as a click
-    /// affordance. `None` whenever the pointer is elsewhere or an overlay
-    /// modal is open.
+    /// Drag gesture state.
+    pub drag: SelectionDrag,
+    /// Message index of the step currently resting under the mouse pointer.
     pub hovered_step: Option<usize>,
-    /// Which **peer surface** of the chat scene owns the keyboard
-    /// ([ADR-0145](../../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
-    ///
-    /// The Thread scene hosts two coequal surfaces: the composer (drafting) and
-    /// the transcript (inspecting). Neither is the other's mode, and exactly one
-    /// owns the keyboard at any instant. `Shift-Tab` crosses between them and is the
-    /// only chord that does — a second, one-way "escape" chord would reintroduce
-    /// the asymmetry this model removes (`[INV-FOCUS-01]`).
-    ///
-    /// The value carries the transcript plane's own sub-state
-    /// ([`crate::shell::TranscriptFocus`]) across a crossing, which is what makes
-    /// the toggle lossless: leaving for the composer and returning lands on the
-    /// same highlighted entry.
-    pub focus: Focus,
-    /// Stack of nested zoom frames (subagent tasks). Empty means the root
-    /// thread is shown; the top frame is the currently focused view.
-    /// Each frame carries the parent's scroll snapshot, restored on exit.
-    pub focus_stack: Vec<ZoomFrame>,
-    /// In-transcript `Ctrl+F` search state.
-    pub search: TranscriptSearchState,
-    /// Which layout strategy arranges the transcript message stream. Selected
-    /// via `[tui] transcript_layout`; defaults to the turn-banded layout (each
-    /// tool-bearing ReAct turn grouped under a labelled header). See
-    /// `crate::shell::render::layout::Strategy`.
-    pub transcript_layout: crate::shell::render::layout::Strategy,
-    /// Whether a disclosure toggle (expand/collapse) auto-scrolls to keep the
-    /// toggled card well-placed. From `[tui] expand_auto_scroll` (default
-    /// `false`): when false, the toggle changes only the card's height and the
-    /// scroll offset is left exactly where the user put it; when true, the
-    /// expand path shifts the summary toward the viewport top and the collapse
-    /// path keeps a scrolled-past summary visible. Enabled toggles settle
-    /// through the staged measure-then-paint path (`scroll_settle_pending`),
-    /// so the auto-scroll itself never flickers.
-    pub expand_auto_scroll: bool,
-    /// Epoch the breathing indicator is timed against. The spinner phase is
-    /// derived from wall-clock elapsed time since this instant rather than a
-    /// per-frame counter, so the breathing cadence stays constant regardless of
-    /// how often the loop redraws (mouse movement, streaming, paste, etc. all
-    /// wake the loop at irregular intervals and would otherwise jitter it).
-    pub spinner_epoch: std::time::Instant,
-    /// Epoch the empty-state help carousel is timed against. The
-    /// slide index is derived from wall-clock elapsed time since this instant
-    /// (same pattern as `Self::spinner_epoch`) so the rotation cadence stays
-    /// constant regardless of draw frequency.
-    pub carousel_epoch: std::time::Instant,
-    /// The command log the `log` scene is showing, if any.
-    ///
-    /// Held on `App` rather than on the router because it is *content*: the log
-    /// is derived from one transcript step, and re-deriving it when the step's
-    /// payload changes is the transcript's business, not a navigation entity's.
-    /// `None` means the scene has nothing to show — every read path states that
-    /// rather than painting an empty page that looks like a failure.
-    pub command_log: Option<view::model::command_log::CommandLog>,
-    /// Fullscreen diff viewer state for `SceneKind::Diff`.
-    pub diff_viewer: Option<crate::shell::overlays::DiffViewerState>,
-    /// Per-surface receipt logs (ADR-0116): the layer that replaced "append it
-    /// to the transcript" for operations, diagnostics and dialog receipts.
-    /// Addressable, capped, ephemeral, and unreachable from persistence.
-    pub logs: view::model::log::SurfaceLogs,
-    /// The dashboard console's receipt transcript: one entry
-    /// per dispatched directive plus the server's answer. Lives for the
-    /// dashboard's open lifetime (cleared on open) — it is a cockpit log,
-    /// not history.
-    pub host_console_log: Vec<crate::shell::overlays::ConsoleLine>,
-    /// The body (scrollable content) height of the currently-open overlay
-    /// modal, captured each render from the rect the modal renderer paints
-    /// its body into. This is the per-modal equivalent of `view_height` (which
-    /// measures the transcript viewport) and is what `ScrollPageUp` /
-    /// `ScrollPageDown` use as the page step so a page advance always matches
-    /// the actual modal body rather than the transcript behind it. `0` when
-    /// no modal is open (or before the first render after one opens), in
-    /// which case page handlers fall back to `view_height`.
+    /// Last measured transcript viewport height in rows.
+    pub view_height: u16,
+    /// Body height of the currently-open overlay modal.
     pub modal_body_height: u16,
+    /// Epoch the breathing indicator is timed against.
+    pub spinner_epoch: std::time::Instant,
+    /// Epoch the empty-state help carousel is timed against.
+    pub carousel_epoch: std::time::Instant,
+    /// Which layout strategy arranges the transcript message stream.
+    pub transcript_layout: crate::shell::render::layout::Strategy,
+    /// Whether a disclosure toggle auto-scrolls to keep the toggled card well-placed.
+    pub expand_auto_scroll: bool,
+    /// Effective default-expand state for a reasoning trace.
+    pub reasoning_default_expanded: bool,
+    /// Per-surface receipt logs (ADR-0116 / ADR-0121).
+    pub logs: view::model::log::SurfaceLogs,
+    /// The dashboard console's receipt transcript.
+    pub host_console_log: Vec<crate::shell::overlays::ConsoleLine>,
 }
 
 /// `composer` state.
@@ -616,10 +416,6 @@ pub struct SurfacesState {
     /// serves it — the same resolution the keyboard path uses, which is what keeps
     /// one verb from having two different copy implementations.
     pub pending_fold_copy: Option<usize>,
-    /// Request the runner to create and attach to a brand-new thread.
-    pub switch_to_new: bool,
-    /// Optional opening prompt to submit immediately upon attaching to the new thread.
-    pub switch_to_new_prompt: Option<String>,
     /// Optional opening prompt to submit after re-attaching to a forked child
     /// (`switch_to_target`). Set when a retired `/btw <prompt>` steer forks,
     /// so the aside's question lands in the new branch (`[INV-DEPR-01]`).
@@ -864,29 +660,10 @@ pub struct ProviderEditorState {
 /// `telemetry` state.
 pub struct TelemetryState {
     /// Shared token-source ledger (reported vs. estimated token accounting),
-    /// read by the Telemetry modal. `Some` in the standalone path (the
-    /// in-process harness shares this ledger); `None` in attach mode, where
-    /// the accounting lives server-side and the modal renders the on-demand
-    /// `Self::token_report` snapshot instead.
+    /// read by the Telemetry modal.
     pub token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
-    /// Token-source report fetched on demand from the harness for the viewed
-    /// session. Populated by a `QueryTokenUsage` round-trip when the
-    /// Telemetry modal opens in attach mode (`token_ledger` is `None`);
-    /// `None` while the round-trip is in flight (the modal renders a loading
-    /// placeholder). Cleared when the viewed session switches.
-    pub token_report: Option<protocol::TokenSourceReport>,
-    /// Latest session-scoped AI context snapshot from the harness. This is a
-    /// provider usage/projection value, never a persisted transcript estimate.
+    /// Latest session-scoped AI context snapshot from the harness.
     pub context_tokens: Option<protocol::ContextTokenSnapshot>,
-    /// The most recent measured context plan for the viewed session
-    /// (`QueryContextPlan`, ADR-0220). `None` before the first reply or after a
-    /// session switch; the dialog renders a loading placeholder until then.
-    pub context_plan: Option<protocol::ContextPlanView>,
-    /// Whether the plan reply for the viewed session has landed. Distinguishes
-    /// "no request assembled yet" (a real answer, `plan == None` after a
-    /// completed round-trip) from "the query is in flight", which the dialog
-    /// must not render as an empty plan.
-    pub context_plan_loaded: bool,
     /// Per-session context snapshots (M1): the applier keys them by
     /// session; the render loop projects the *viewed* session's value into
     /// `context_tokens` each frame.

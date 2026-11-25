@@ -592,6 +592,7 @@ async fn send_delta(wire_sink: &mut BoxWireSink, delta: PendingDelta) -> Result<
     wire_sink
         .send(Wire::Response {
             response: delta.into_response(),
+            generation: 1,
         })
         .await
         .map_err(|e| format!("wire send: {e}"))
@@ -728,11 +729,14 @@ async fn handle_wire_stream(
     .await
 }
 
-/// One thread subscribed on a multiplexed client connection (ADR-0251).
+/// One thread subscribed on a multiplexed client connection (ADR-0251, ADR-0253).
 struct SubscribedThread {
     handle: crate::runtime::registry::AttachHandle,
     last_snapshot: Option<protocol::ThreadSnapshot>,
     forwarder: tokio::task::JoinHandle<()>,
+    /// Monotonic epoch for this subscription: starts at `1`, incremented on
+    /// in-place re-key (`/new`, `/resume`, `/fork`) and re-subscription (ADR-0253 §2).
+    generation: u64,
 }
 
 /// Multiplexed event delivered from any subscribed thread's broadcast stream
@@ -819,11 +823,13 @@ async fn hydrate_subscribed_thread(
     let ack = if is_initial {
         Wire::Welcome {
             thread_id: session_id.clone(),
+            generation: 1,
             phase: phase.clone(),
         }
     } else {
         Wire::Subscribed {
             thread_id: session_id.clone(),
+            generation: 1,
             phase: phase.clone(),
         }
     };
@@ -850,6 +856,7 @@ async fn hydrate_subscribed_thread(
         wire_sink
             .send(Wire::Response {
                 response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
+                generation: 1,
             })
             .await
             .map_err(|e| format!("send thread snapshot: {e}"))?;
@@ -861,7 +868,10 @@ async fn hydrate_subscribed_thread(
         {
             let response = workspace_trust_notice(&session_id, &harness.workspace_security);
             wire_sink
-                .send(Wire::Response { response })
+                .send(Wire::Response {
+                    response,
+                    generation: 1,
+                })
                 .await
                 .map_err(|e| format!("send trust notice: {e}"))?;
         }
@@ -874,6 +884,7 @@ async fn hydrate_subscribed_thread(
                     thread_id: session_id.clone(),
                     phase: protocol::ThreadPhase::Ready,
                 }),
+                generation: 1,
             })
             .await
             .map_err(|e| format!("send ready phase: {e}"))?;
@@ -885,6 +896,7 @@ async fn hydrate_subscribed_thread(
                     thread_id: session_id.clone(),
                     phase,
                 }),
+                generation: 1,
             })
             .await
             .map_err(|e| format!("send thread phase: {e}"))?;
@@ -952,7 +964,8 @@ impl SubscriptionTable {
         if previous_id == next_id {
             return;
         }
-        if let Some(sub) = self.entries.remove(previous_id) {
+        if let Some(mut sub) = self.entries.remove(previous_id) {
+            sub.generation = sub.generation.saturating_add(1);
             self.entries.insert(next_id.clone(), sub);
             for target in self.aliases.values_mut() {
                 if target == previous_id {
@@ -1052,7 +1065,17 @@ async fn handle_mux_event(
                         return MuxControl::Stop(Err(e));
                     }
                     *flush_deadline = None;
-                    if let Err(e) = wire_sink.send(Wire::Response { response }).await {
+                    let generation = subs
+                        .resolve_key(&sub_key)
+                        .and_then(|k| subs.get(&k))
+                        .map_or(1, |s| s.generation);
+                    if let Err(e) = wire_sink
+                        .send(Wire::Response {
+                            response,
+                            generation,
+                        })
+                        .await
+                    {
                         return MuxControl::Stop(Err(format!("wire send: {e}")));
                     }
                 }
@@ -1073,11 +1096,13 @@ async fn handle_mux_event(
                 "nuo server: client lagged; re-anchoring from snapshot"
             );
             if let Some(sub) = subs.get_mut(&key) {
+                let generation = sub.generation;
                 if let Some(snapshot) = sub.handle.snapshot().await {
                     sub.last_snapshot = Some(snapshot.clone());
                     let _ = wire_sink
                         .send(Wire::Response {
                             response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
+                            generation,
                         })
                         .await;
                     let _ = wire_sink
@@ -1086,12 +1111,14 @@ async fn handle_mux_event(
                                 thread_id: key,
                                 phase: protocol::ThreadPhase::Ready,
                             }),
+                            generation,
                         })
                         .await;
                 } else if let Some(snapshot) = &sub.last_snapshot {
                     let _ = wire_sink
                         .send(Wire::Response {
                             response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
+                            generation,
                         })
                         .await;
                 }
@@ -1153,12 +1180,15 @@ async fn handle_subscribe_frame(
         crate::runtime::registry::ResolveOutcome::Welcome(new_handle) => {
             let tid = new_handle.session_id().await;
             if let Some(existing) = subs.get_mut(&tid) {
-                // Idempotent re-subscribe: re-send acknowledgement + snapshot
-                // without double-attaching the human channel.
+                // Idempotent re-subscribe: advance generation and re-send
+                // acknowledgement + snapshot without double-attaching the human channel.
+                existing.generation = existing.generation.saturating_add(1);
+                let generation = existing.generation;
                 let phase = existing.handle.phase();
                 if let Err(e) = wire_sink
                     .send(Wire::Subscribed {
                         thread_id: tid.clone(),
+                        generation,
                         phase,
                     })
                     .await
@@ -1170,6 +1200,7 @@ async fn handle_subscribe_frame(
                     let _ = wire_sink
                         .send(Wire::Response {
                             response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
+                            generation,
                         })
                         .await;
                     let _ = wire_sink
@@ -1178,6 +1209,7 @@ async fn handle_subscribe_frame(
                                 thread_id: tid,
                                 phase: protocol::ThreadPhase::Ready,
                             }),
+                            generation,
                         })
                         .await;
                 }
@@ -1194,6 +1226,7 @@ async fn handle_subscribe_frame(
                                 handle: new_handle,
                                 last_snapshot: new_snapshot,
                                 forwarder,
+                                generation: 1,
                             },
                         );
                     }
@@ -1270,6 +1303,7 @@ async fn handle_end_thread(
                     if wire_sink
                         .send(Wire::Response {
                             response: *response,
+                            generation: 1,
                         })
                         .await
                         .is_err()
@@ -1347,6 +1381,7 @@ async fn run_attach_multiplexed(
             handle: initial_handle,
             last_snapshot: initial_snapshot,
             forwarder: initial_forwarder,
+            generation: 1,
         },
     );
 

@@ -60,9 +60,11 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
             Wire::Welcome { .. } => {}
             Wire::Response {
                 response: AgentResponse::ThreadSnapshot(snapshot),
+                ..
             } => snapshot_catalog = snapshot.command_catalog.clone(),
             Wire::Response {
                 response: AgentResponse::ThreadPhase(_),
+                ..
             } => {}
             other => panic!("expected hydration, got {other:?}"),
         }
@@ -78,6 +80,7 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
             .unwrap();
         if let Wire::Response {
             response: AgentResponse::ThreadPhase(update),
+            ..
         } = serde_json::from_str::<Wire>(frame.to_text().unwrap_or("")).unwrap()
             && update.phase == protocol::ThreadPhase::Ready
         {
@@ -143,7 +146,9 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
                     text,
                     cursor,
                     items,
+                    ..
                 },
+            ..
         } => {
             assert_eq!(request_id, 41);
             assert_eq!(text, "/mod");
@@ -202,6 +207,7 @@ async fn test_select_then_attach_round_trip() {
     match serde_json::from_str::<Wire>(sync_msg.to_text().unwrap_or("")).unwrap() {
         Wire::Response {
             response: AgentResponse::ThreadSnapshot(snapshot),
+            ..
         } => {
             assert!(snapshot.todos.is_empty());
             assert!(snapshot.harness_state.is_some());
@@ -243,9 +249,11 @@ async fn test_select_then_attach_round_trip() {
         match resp {
             Wire::Response {
                 response: AgentResponse::ThreadPhase(_),
+                ..
             } => continue,
             Wire::Response {
                 response: AgentResponse::Round { scope, .. },
+                ..
             } => match scope.into_event() {
                 RoundEvent::Text(t) => {
                     assert_eq!(t, "back");
@@ -302,6 +310,7 @@ async fn welcome_then_snapshot_then_ready_is_the_order() {
         Wire::Welcome {
             thread_id: id,
             phase,
+            ..
         } => {
             assert_eq!(id, session_id);
             assert!(matches!(phase, protocol::ThreadPhase::Ready));
@@ -311,12 +320,14 @@ async fn welcome_then_snapshot_then_ready_is_the_order() {
     match next_frame!() {
         Wire::Response {
             response: AgentResponse::ThreadSnapshot(snapshot),
+            ..
         } => assert_eq!(snapshot.thread_id, session_id),
         other => panic!("expected ThreadSnapshot second, got {other:?}"),
     }
     match next_frame!() {
         Wire::Response {
             response: AgentResponse::ThreadPhase(update),
+            ..
         } => assert_eq!(update.phase, protocol::ThreadPhase::Ready),
         other => panic!("expected ThreadPhase(Ready) third, got {other:?}"),
     }
@@ -387,6 +398,7 @@ async fn attach_receives_restored_todos_after_welcome() {
     match serde_json::from_str::<Wire>(todos_msg.to_text().unwrap_or("")).unwrap() {
         Wire::Response {
             response: AgentResponse::ThreadSnapshot(snapshot),
+            ..
         } => {
             assert_eq!(snapshot.thread_id, session_id);
             assert_eq!(snapshot.todos, todos.items);
@@ -458,6 +470,7 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
         };
         if let Ok(Wire::Response {
             response: AgentResponse::ThreadSnapshot(snapshot),
+            ..
         }) = serde_json::from_str::<Wire>(msg.to_text().unwrap_or(""))
         {
             saw_provider = Some((snapshot.provider, snapshot.model));
@@ -754,6 +767,7 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
         let frame: Wire = serde_json::from_str(raw.to_text().unwrap_or("")).unwrap();
         if let Wire::Response {
             response: AgentResponse::ThreadSnapshot(snapshot),
+            ..
         } = frame
             && snapshot
                 .provider_keys
@@ -794,6 +808,7 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
         let frame: Wire = serde_json::from_str(raw.to_text().unwrap_or("")).unwrap();
         if let Wire::Response {
             response: AgentResponse::ThreadSnapshot(snapshot),
+            ..
         } = frame
             && snapshot
                 .provider_keys

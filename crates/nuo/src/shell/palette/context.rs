@@ -80,17 +80,17 @@ impl PaletteContext {
                 active_dialog: beneath.and_then(OverlaySurface::dialog),
                 is_responding: responding,
                 has_selection: !matches!(
-                    app.transcript.selection,
+                    app.threads.selection,
                     view::model::selection::SelectionState::None
                 ),
-                has_focused_entry: app.transcript.focus.entry().is_some(),
+                has_focused_entry: app.threads.focus.entry().is_some(),
                 has_notices: app.has_notices(),
                 has_running_task: responding,
                 queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
             },
-            focus: app.transcript.focus.plane(),
+            focus: app.threads.focus.plane(),
             settings_detail: app.surfaces.config_focus
                 == crate::shell::overlays::ConfigFocus::Detail,
             tabs,

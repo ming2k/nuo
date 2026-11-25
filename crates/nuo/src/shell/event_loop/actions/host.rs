@@ -43,7 +43,7 @@ fn seq_to_id(app: &App, n: usize) -> Option<String> {
 
 /// Push a local notice into the console log.
 fn notice(app: &mut App, text: impl Into<String>) {
-    app.transcript
+    app.viewport
         .host_console_log
         .push(ConsoleLine::Notice(text.into()));
 }
@@ -51,7 +51,7 @@ fn notice(app: &mut App, text: impl Into<String>) {
 /// Record a dispatch line — the "what I asked the fleet to do" half of the
 /// cockpit log, written synchronously so it precedes any receipt.
 fn log_dispatch(app: &mut App, raw: &str, targets: Vec<usize>, action: &'static str) {
-    app.transcript.host_console_log.push(ConsoleLine::Dispatch {
+    app.viewport.host_console_log.push(ConsoleLine::Dispatch {
         raw: raw.to_string(),
         targets,
         action,

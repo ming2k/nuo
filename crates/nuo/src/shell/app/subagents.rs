@@ -86,23 +86,23 @@ impl App {
         messages: &mut [TranscriptMessage],
         mi: usize,
     ) -> bool {
-        let pinned_to_top = self.transcript.sticky_step == Some(mi);
-        let sticky_summary_line = self.transcript.sticky_summary_line;
+        let pinned_to_top = self.threads.sticky_step == Some(mi);
+        let sticky_summary_line = self.threads.sticky_summary_line;
 
         let transcript_top_y = self
-            .transcript
+            .viewport
             .ui
             .document
             .transcript_content_rect()
             .map(|r| r.y)
             .unwrap_or(0);
-        let prev_region = self.transcript.ui.document.first_region_for_message(mi);
+        let prev_region = self.viewport.ui.document.first_region_for_message(mi);
         let summary_screen_y = prev_region.map(|r| r.rect.y);
         let msg_line_index = summary_screen_y
-            .map(|y| self.transcript.scroll + (y.saturating_sub(transcript_top_y) as usize));
+            .map(|y| self.threads.scroll + (y.saturating_sub(transcript_top_y) as usize));
 
         let toggled =
-            resolve_focused_mut(messages, &self.transcript.focus_stack, mi).and_then(|message| {
+            resolve_focused_mut(messages, &self.threads.focus_stack, mi).and_then(|message| {
                 use view::model::interactive::InteractiveEntry;
                 if message.toggle_expanded() {
                     message.is_expanded()
@@ -115,7 +115,7 @@ impl App {
             return false;
         };
 
-        self.transcript.follow_bottom = false;
+        self.threads.follow_bottom = false;
 
         // `[tui] expand_auto_scroll` (default off): a toggle is a read
         // interaction, so by default the scroll offset is the user's and
@@ -125,16 +125,16 @@ impl App {
         // latches either way: the toggle changed the stream's height, so the
         // clamp must validate the (untouched) offset against the *new*
         // measurement — a hard collapse can shrink the tail below it.
-        if !self.transcript.expand_auto_scroll {
+        if !self.viewport.expand_auto_scroll {
             if !newly_expanded && pinned_to_top {
                 if let Some(summary_line) = sticky_summary_line {
-                    self.transcript.scroll = summary_line;
-                    self.transcript.pin_summary_line = Some(summary_line);
+                    self.threads.scroll = summary_line;
+                    self.threads.pin_summary_line = Some(summary_line);
                 }
             } else {
-                self.transcript.pin_summary_line = None;
+                self.threads.pin_summary_line = None;
             }
-            self.transcript.scroll_settle_pending = true;
+            self.threads.scroll_settle_pending = true;
             return true;
         }
 
@@ -147,25 +147,25 @@ impl App {
             {
                 let rel_y = y.saturating_sub(transcript_top_y);
                 if rel_y > 1 {
-                    self.transcript.scroll = line_idx.saturating_sub(1);
+                    self.threads.scroll = line_idx.saturating_sub(1);
                 }
             }
-            self.transcript.pin_summary_line = None;
+            self.threads.pin_summary_line = None;
         } else if pinned_to_top {
             if let Some(summary_line) = sticky_summary_line {
-                self.transcript.scroll = summary_line;
-                self.transcript.pin_summary_line = Some(summary_line);
+                self.threads.scroll = summary_line;
+                self.threads.pin_summary_line = Some(summary_line);
             }
         } else if let Some(line_idx) = msg_line_index {
             // If collapsing a step that was scrolled above the viewport, keep the collapsed summary visible
-            if line_idx < self.transcript.scroll {
-                self.transcript.scroll = line_idx;
-                self.transcript.pin_summary_line = Some(line_idx);
+            if line_idx < self.threads.scroll {
+                self.threads.scroll = line_idx;
+                self.threads.pin_summary_line = Some(line_idx);
             } else {
-                self.transcript.pin_summary_line = None;
+                self.threads.pin_summary_line = None;
             }
         } else {
-            self.transcript.pin_summary_line = None;
+            self.threads.pin_summary_line = None;
         }
 
         // The toggle changed the transcript's height, so the scroll target
@@ -174,7 +174,7 @@ impl App {
         // the event loop stages that frame (measure first, paint the final
         // offset second) instead of painting an intermediate viewport that
         // the post-draw clamp then has to correct.
-        self.transcript.scroll_settle_pending = true;
+        self.threads.scroll_settle_pending = true;
 
         true
     }
@@ -185,22 +185,20 @@ impl App {
         key: crate::shell::keymap::Key,
     ) -> view::model::interactive::EntryKeyOutcome {
         use view::model::interactive::EntryKeyOutcome;
-        let Some(target) = self.transcript.focus.entry() else {
+        let Some(target) = self.threads.focus.entry() else {
             return EntryKeyOutcome::Unhandled;
         };
 
-        let mut messages = std::mem::take(&mut self.transcript.messages);
-        let outcome = if let Some(message) = resolve_focused_mut(
-            &mut messages,
-            &self.transcript.focus_stack,
-            target.message_idx,
-        ) {
+        let mut messages = std::mem::take(&mut self.threads.messages);
+        let outcome = if let Some(message) =
+            resolve_focused_mut(&mut messages, &self.threads.focus_stack, target.message_idx)
+        {
             crate::shell::input::interactive_key::handle_focused_entry_key(message, key)
         } else {
             EntryKeyOutcome::Unhandled
         };
 
-        self.transcript.messages = messages;
+        self.threads.messages = messages;
 
         match &outcome {
             EntryKeyOutcome::EnterSubagent(id) => {
@@ -209,11 +207,11 @@ impl App {
             }
             EntryKeyOutcome::Handled { changed } => {
                 if *changed {
-                    self.transcript.follow_bottom = false;
-                    self.transcript.scroll_settle_pending = true;
-                    self.transcript.layout_height_cache.clear();
-                    self.transcript.transcript_changed_pending = true;
-                    self.transcript.selection = SelectionState::None;
+                    self.threads.follow_bottom = false;
+                    self.threads.scroll_settle_pending = true;
+                    self.threads.layout_height_cache.clear();
+                    self.threads.transcript_changed_pending = true;
+                    self.threads.selection = SelectionState::None;
                 }
             }
             EntryKeyOutcome::Unhandled => {}
@@ -225,8 +223,8 @@ impl App {
     pub(crate) fn visible_interactive_targets(&self) -> Vec<InteractiveTarget> {
         use view::model::interactive::InteractiveEntry;
         use view::model::layout::InteractiveTargetKind;
-        let mut targets = self.transcript.ui.document.interactive_targets();
-        if let Some(message_idx) = self.transcript.sticky_step
+        let mut targets = self.viewport.ui.document.interactive_targets();
+        if let Some(message_idx) = self.threads.sticky_step
             && let Some(message) = self.focused_messages().get(message_idx)
             && message.is_focusable()
             && let Some(kind) = message.target_kind()
@@ -257,11 +255,11 @@ impl App {
     /// ([`crate::shell::Focus::retain_entry`]).
     pub(crate) fn retain_visible_focused_target(&mut self) {
         if self.surfaces.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
-            self.transcript.focus.browse();
+            self.threads.focus.browse();
             return;
         }
         let visible = self.visible_interactive_targets();
-        self.transcript
+        self.threads
             .focus
             .retain_entry(|target| visible.contains(&target));
     }
@@ -279,23 +277,23 @@ impl App {
         if targets.is_empty() {
             // Nothing to highlight: browse the transcript rather than
             // pretending the entry plane is live.
-            self.transcript
+            self.threads
                 .focus
                 .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             return;
         }
 
         let current = self
-            .transcript
+            .threads
             .focus
             .entry()
             .and_then(|target| targets.iter().position(|candidate| *candidate == target));
         let next = match (current, direction < 0) {
             (Some(0), true) => {
-                if self.transcript.scroll > 0 {
-                    self.transcript.scroll = self.transcript.scroll.saturating_sub(4);
-                    self.transcript.follow_bottom = false;
-                    self.transcript.pin_summary_line = None;
+                if self.threads.scroll > 0 {
+                    self.threads.scroll = self.threads.scroll.saturating_sub(4);
+                    self.threads.follow_bottom = false;
+                    self.threads.pin_summary_line = None;
                     return;
                 } else {
                     targets.len() - 1
@@ -304,16 +302,16 @@ impl App {
             (Some(idx), true) => idx - 1,
             (Some(idx), false) => {
                 if idx == targets.len() - 1 {
-                    if self.transcript.scroll < self.transcript.max_scroll {
-                        self.transcript.scroll = self
-                            .transcript
+                    if self.threads.scroll < self.threads.max_scroll {
+                        self.threads.scroll = self
+                            .threads
                             .scroll
                             .saturating_add(4)
-                            .min(self.transcript.max_scroll);
-                        if self.transcript.scroll >= self.transcript.max_scroll {
-                            self.transcript.follow_bottom = true;
+                            .min(self.threads.max_scroll);
+                        if self.threads.scroll >= self.threads.max_scroll {
+                            self.threads.follow_bottom = true;
                         }
-                        self.transcript.pin_summary_line = None;
+                        self.threads.pin_summary_line = None;
                         return;
                     } else {
                         // The transcript is exhausted in this direction:
@@ -321,9 +319,9 @@ impl App {
                         // second, *implicit* crossing gesture of ADR-0145 —
                         // it needs no chord because it is what walking off the
                         // end of a list already means.
-                        self.transcript.focus.enter_composer();
-                        self.transcript.selection = SelectionState::None;
-                        self.transcript.drag.cancel();
+                        self.threads.focus.enter_composer();
+                        self.threads.selection = SelectionState::None;
+                        self.viewport.drag.cancel();
                         return;
                     }
                 } else {
@@ -334,11 +332,11 @@ impl App {
             (None, false) => 0,
         };
 
-        self.transcript
+        self.threads
             .focus
             .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(targets[next]));
-        self.transcript.selection = SelectionState::None;
-        self.transcript.drag.cancel();
+        self.threads.selection = SelectionState::None;
+        self.viewport.drag.cancel();
     }
 
     /// What kind of entry currently holds keyboard focus, for the composer's
@@ -352,7 +350,7 @@ impl App {
     pub(crate) fn focused_entry_kind(
         &self,
     ) -> Option<crate::shell::composer_hints::FocusedEntryKind> {
-        let target = self.transcript.focus.entry()?;
+        let target = self.threads.focus.entry()?;
         let message = self.focused_messages().get(target.message_idx)?;
         Some(if message.is_subagent_task() {
             crate::shell::composer_hints::FocusedEntryKind::Subagent
@@ -373,7 +371,7 @@ impl App {
     /// of the focus stack, which is also the addressable identity the
     /// `SubagentRegistry` keys the live child by. `None` when not zoomed.
     pub fn focused_subagent_call_id(&self) -> Option<&str> {
-        self.transcript
+        self.threads
             .focus_stack
             .last()
             .map(|frame| frame.call_id.as_str())
@@ -390,7 +388,7 @@ impl App {
         let Some(call_id) = self.focused_subagent_call_id() else {
             return false;
         };
-        self.transcript.messages.iter().any(|message| {
+        self.threads.messages.iter().any(|message| {
             message.is_subagent_task()
                 && message.tool_step_call_id() == Some(call_id)
                 && message.tool_step_status().is_some_and(|s| s.is_running())
@@ -400,10 +398,10 @@ impl App {
     /// The message slice currently in view: the focused subagent task's child
     /// messages when zoomed, or the root thread otherwise.
     pub fn focused_messages(&self) -> &[TranscriptMessage] {
-        let Some(frame) = self.transcript.focus_stack.last() else {
-            return &self.transcript.messages;
+        let Some(frame) = self.threads.focus_stack.last() else {
+            return &self.threads.messages;
         };
-        self.transcript
+        self.threads
             .messages
             .iter()
             .find_map(|message| {
@@ -429,13 +427,13 @@ impl App {
         if count == 0 {
             return;
         }
-        let (anchor_msg, head_msg) = match self.transcript.selection {
+        let (anchor_msg, head_msg) = match self.threads.selection {
             SelectionState::Range { anchor, head } => (anchor.message_idx, head.message_idx),
             SelectionState::Block { message_idx, .. }
             | SelectionState::TableCell { message_idx, .. } => (message_idx, message_idx),
             _ => {
                 let base = self
-                    .transcript
+                    .threads
                     .focus
                     .entry()
                     .map(|target| target.message_idx)
@@ -453,54 +451,54 @@ impl App {
             .get(last_block)
             .map(|block| block.raw_text().len())
             .unwrap_or(0);
-        self.transcript.selection = SelectionState::Range {
+        self.threads.selection = SelectionState::Range {
             anchor: view::model::layout::SemanticCursor::new(start, 0, 0),
             head: view::model::layout::SemanticCursor::new(end, last_block, end_len),
         };
-        self.transcript.drag.cancel();
+        self.viewport.drag.cancel();
     }
 
     pub fn open_transcript_search(&mut self) {
-        self.transcript.search.active = true;
+        self.threads.search.active = true;
         self.recompute_transcript_search();
     }
 
     pub fn close_transcript_search(&mut self) {
-        self.transcript.search.active = false;
+        self.threads.search.active = false;
     }
 
     pub fn push_transcript_search_char(&mut self, c: char) {
-        self.transcript.search.query.push(c);
+        self.threads.search.query.push(c);
         self.recompute_transcript_search();
         self.jump_to_transcript_match();
     }
 
     pub fn pop_transcript_search_char(&mut self) {
-        self.transcript.search.query.pop();
+        self.threads.search.query.pop();
         self.recompute_transcript_search();
         self.jump_to_transcript_match();
     }
 
     pub fn step_transcript_search(&mut self, forward: bool) {
-        let len = self.transcript.search.matches.len();
+        let len = self.threads.search.matches.len();
         if len == 0 {
             return;
         }
-        self.transcript.search.current = if forward {
-            (self.transcript.search.current + 1) % len
-        } else if self.transcript.search.current == 0 {
+        self.threads.search.current = if forward {
+            (self.threads.search.current + 1) % len
+        } else if self.threads.search.current == 0 {
             len - 1
         } else {
-            self.transcript.search.current - 1
+            self.threads.search.current - 1
         };
         self.jump_to_transcript_match();
     }
 
     fn recompute_transcript_search(&mut self) {
-        let q = self.transcript.search.query.trim().to_ascii_lowercase();
+        let q = self.threads.search.query.trim().to_ascii_lowercase();
         if q.is_empty() {
-            self.transcript.search.matches.clear();
-            self.transcript.search.current = 0;
+            self.threads.search.matches.clear();
+            self.threads.search.current = 0;
             return;
         }
         let matches: Vec<usize> = self
@@ -517,21 +515,16 @@ impl App {
                 (raw_hit || block_hit).then_some(idx)
             })
             .collect();
-        self.transcript.search.matches = matches;
-        if self.transcript.search.matches.is_empty() {
-            self.transcript.search.current = 0;
+        self.threads.search.matches = matches;
+        if self.threads.search.matches.is_empty() {
+            self.threads.search.current = 0;
         } else {
-            self.transcript.search.current = self.transcript.search.matches.len() - 1;
+            self.threads.search.current = self.threads.search.matches.len() - 1;
         }
     }
 
     fn jump_to_transcript_match(&mut self) {
-        let Some(&msg_idx) = self
-            .transcript
-            .search
-            .matches
-            .get(self.transcript.search.current)
-        else {
+        let Some(&msg_idx) = self.threads.search.matches.get(self.threads.search.current) else {
             return;
         };
         let messages = self.focused_messages();
@@ -549,14 +542,14 @@ impl App {
             let lines = m.raw.lines().count().max(2);
             approx_offset = approx_offset.saturating_add(lines + 2);
         }
-        self.transcript.selection = SelectionState::Range {
+        self.threads.selection = SelectionState::Range {
             anchor: view::model::layout::SemanticCursor::new(msg_idx, 0, 0),
             head: view::model::layout::SemanticCursor::new(msg_idx, last_block, end_len),
         };
-        self.transcript.drag.cancel();
-        self.transcript.scroll = approx_offset.min(self.transcript.max_scroll);
-        self.transcript.follow_bottom = false;
-        self.transcript.pin_summary_line = None;
+        self.viewport.drag.cancel();
+        self.threads.scroll = approx_offset.min(self.threads.max_scroll);
+        self.threads.follow_bottom = false;
+        self.threads.pin_summary_line = None;
     }
 
     /// Zoom into a subagent task's child messages. The zoom frame (call id +
@@ -564,10 +557,10 @@ impl App {
     /// `SceneKind::TaskInspection`.
     pub fn enter_subagent(&mut self, call_id: String) {
         let saved_scroll = ScrollSnapshot {
-            offset: self.transcript.scroll,
-            follow_bottom: self.transcript.follow_bottom,
+            offset: self.threads.scroll,
+            follow_bottom: self.threads.follow_bottom,
         };
-        self.transcript.focus_stack.push(ZoomFrame {
+        self.threads.focus_stack.push(ZoomFrame {
             call_id,
             saved_scroll,
         });
@@ -585,11 +578,11 @@ impl App {
     /// (which also drains a destination scene opened over the zoom, e.g. the
     /// dashboard).
     pub fn exit_subagent(&mut self) -> bool {
-        if let Some(frame) = self.transcript.focus_stack.pop() {
+        if let Some(frame) = self.threads.focus_stack.pop() {
             self.reset_view_state();
-            self.transcript.scroll = frame.saved_scroll.offset;
-            self.transcript.follow_bottom = frame.saved_scroll.follow_bottom;
-            if self.transcript.focus_stack.is_empty() && self.in_subagent_view() {
+            self.threads.scroll = frame.saved_scroll.offset;
+            self.threads.follow_bottom = frame.saved_scroll.follow_bottom;
+            if self.threads.focus_stack.is_empty() && self.in_subagent_view() {
                 self.surfaces.surfaces.back_scene();
             }
             true

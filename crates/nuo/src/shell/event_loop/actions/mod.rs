@@ -466,9 +466,9 @@ fn handle_terminal_tab_action<W: std::io::Write>(
     match action {
         input::InputAction::TerminalResized { cols, rows } => {
             terminal.resize_to(cols, rows);
-            app.transcript.layout_height_cache.clear();
-            if !app.transcript.follow_bottom {
-                app.transcript.scroll_settle_pending = true;
+            app.threads.layout_height_cache.clear();
+            if !app.threads.follow_bottom {
+                app.threads.scroll_settle_pending = true;
             }
             if app.surfaces.profile.supports_mouse {
                 graticule::rearm_active_mouse();
@@ -820,7 +820,7 @@ fn handle_provider_config_action(
             // The "enabled intent" is the inverse of its disabled flag;
             // the harness replies with a fresh snapshot.
             if let Some(server) = app
-                .session
+                .threads
                 .session_context
                 .as_ref()
                 .and_then(|s| s.mcp.get(app.active_index()))
@@ -835,7 +835,7 @@ fn handle_provider_config_action(
             // Reconnect the selected server on demand. The harness
             // replies with a fresh snapshot reflecting the new status.
             if let Some(server) = app
-                .session
+                .threads
                 .session_context
                 .as_ref()
                 .and_then(|s| s.mcp.get(app.active_index()))
@@ -848,7 +848,7 @@ fn handle_provider_config_action(
         input::InputAction::PermissionsActivate => {
             // Revoke the selected "always allow" rule. The harness
             // replies with a fresh snapshot so the list re-renders.
-            if let Some(snapshot) = app.session.session_context.as_ref()
+            if let Some(snapshot) = app.threads.session_context.as_ref()
                 && let Some(rule) = snapshot.permissions.get(app.active_index())
             {
                 app.send_intent(AgentRequest::RevokePermission {
@@ -1086,7 +1086,7 @@ fn handle_navigation_focus_action(
             // moves the cursor and never re-queries the server: the bytes are
             // already in the reply (ADR-0220 §6).
             let has_plan = app
-                .telemetry
+                .threads
                 .context_plan
                 .as_ref()
                 .is_some_and(|plan| !plan.blocks.is_empty());
@@ -1118,7 +1118,7 @@ fn handle_navigation_focus_action(
             app.scene_back();
         }
         input::InputAction::ViewFocusedTargetOutput => {
-            if let Some(target) = app.transcript.focus.entry() {
+            if let Some(target) = app.threads.focus.entry() {
                 app.open_command_log_scene(target.message_idx);
             }
         }
@@ -1132,13 +1132,13 @@ fn handle_navigation_focus_action(
             // `Shift-Tab`: cross to the other peer plane, remembering (and
             // restoring) the transcript's entry highlight so the crossing is
             // lossless (ADR-0145 `[INV-FOCUS-01]`).
-            app.transcript.focus.toggle();
+            app.threads.focus.toggle();
             // A crossing is a deliberate act on the surface, so any text
             // selection or in-flight drag on the plane being left is dropped —
             // a highlight that survives a plane change reads as "both planes
             // are live", which is precisely what the model forbids.
-            app.transcript.selection = SelectionState::None;
-            app.transcript.drag.cancel();
+            app.threads.selection = SelectionState::None;
+            app.viewport.drag.cancel();
         }
         input::InputAction::SelectMessages { delta } => {
             app.select_transcript_messages(delta);
@@ -1567,7 +1567,7 @@ fn handle_clipboard_export_action(
             // user is pointing at a row that says "N lines hidden", so the answer
             // is those N rows. Every other focused entry keeps the verbatim-entry
             // meaning, because there is nothing hidden for the label to promise.
-            if let Some(target) = app.transcript.focus.entry() {
+            if let Some(target) = app.threads.focus.entry() {
                 if let Some((text, feedback)) =
                     crate::shell::copy::fold_hidden_rows_copy(app, target.message_idx)
                 {
@@ -1592,7 +1592,7 @@ fn handle_clipboard_export_action(
         input::InputAction::CommandLogCopy => {
             // The receipt is derived from the same value the bytes came from, so
             // the toast cannot describe a different slice than the clipboard got.
-            let Some(log) = app.transcript.command_log.as_ref() else {
+            let Some(log) = app.threads.command_log.as_ref() else {
                 return ActionFlow::Handled;
             };
             let text = log.copy_text();
@@ -1613,7 +1613,7 @@ fn handle_clipboard_export_action(
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
         }
         input::InputAction::CommandLogToggleScope => {
-            if let Some(log) = app.transcript.command_log.as_mut()
+            if let Some(log) = app.threads.command_log.as_mut()
                 && log.can_scope_toggle()
             {
                 log.scope = log.scope.toggled();
@@ -1628,17 +1628,17 @@ fn handle_clipboard_export_action(
             app.open_diff_scene();
         }
         input::InputAction::DiffNextFile => {
-            if let Some(diff) = app.transcript.diff_viewer.as_mut() {
+            if let Some(diff) = app.threads.diff_viewer.as_mut() {
                 diff.select_next_file();
             }
         }
         input::InputAction::DiffPrevFile => {
-            if let Some(diff) = app.transcript.diff_viewer.as_mut() {
+            if let Some(diff) = app.threads.diff_viewer.as_mut() {
                 diff.select_prev_file();
             }
         }
         input::InputAction::DiffToggleReviewed => {
-            if let Some(diff) = app.transcript.diff_viewer.as_mut() {
+            if let Some(diff) = app.threads.diff_viewer.as_mut() {
                 diff.toggle_reviewed();
             }
         }

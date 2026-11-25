@@ -204,7 +204,6 @@ pub async fn assemble_with_store(
 struct StoreWiring {
     workspace_security: Arc<WorkspaceSecurityStore>,
     security_snapshot: protocol::WorkspaceSecuritySnapshot,
-    additional_roots: Vec<PathBuf>,
     resolved_additional: persistence::config::ResolvedAdditionalRoots,
     websearch_shared: protocol::SharedWebConfig,
     shared_additional_roots: protocol::SharedAdditionalRoots,
@@ -646,7 +645,6 @@ impl Assembler {
         StoreWiring {
             workspace_security,
             security_snapshot,
-            additional_roots,
             resolved_additional,
             websearch_shared,
             shared_additional_roots,
@@ -667,7 +665,6 @@ impl Assembler {
         let StoreWiring {
             workspace_security,
             security_snapshot,
-            additional_roots,
             resolved_additional,
             websearch_shared,
             shared_additional_roots,
@@ -759,10 +756,10 @@ impl Assembler {
         .with_host(agent_kernel_host)
         .with_skills((**skills_registry).clone())
         .build();
-        // Surface the admitted additional roots to the model: the
-        // system prompt tells it cross-project paths are legal instead of letting
-        // it discover the widened boundary through trial and error.
-        agent.set_additional_workspace_roots(additional_roots.clone());
+        // Share the live additional-roots handle with the agent so both the
+        // model path gate and execution environment stay synchronized across
+        // cross-workspace prompts, `/trust`, and `/settings reload`.
+        agent.bind_shared_additional_roots(shared_additional_roots.clone());
         agent.bind_shared_confinement(shared_confinement.clone());
         let agent = Arc::new(agent);
         // Deferred-tool discovery is a harness meta-tool, not a role capability:

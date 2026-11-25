@@ -170,9 +170,9 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
     let normal_composer_rect = app
-        .transcript
+        .viewport
         .ui
         .bounds(crate::shell::ui::UiKey::Composer)
         .expect("composer rect");
@@ -192,9 +192,9 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
     terminal_hist.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
     let hist_composer_rect = app
-        .transcript
+        .viewport
         .ui
         .bounds(crate::shell::ui::UiKey::Composer)
         .expect("composer rect in history search");
@@ -221,9 +221,9 @@ async fn test_history_search_composer_pinned_to_bottom_with_multiline_candidate(
     terminal_hist_short.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "session-a");
     });
-    app.transcript.ui.commit();
+    app.viewport.ui.commit();
     let hist_short_composer_rect = app
-        .transcript
+        .viewport
         .ui
         .bounds(crate::shell::ui::UiKey::Composer)
         .expect("composer rect");

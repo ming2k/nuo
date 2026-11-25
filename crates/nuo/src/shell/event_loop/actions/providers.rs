@@ -141,11 +141,11 @@ pub(super) fn handle_provider_action(
         }
         InputAction::CopyOauthContent { target } => {
             if let Some(text) = extract_selection_text(
-                &app.transcript.selection,
+                &app.threads.selection,
                 app.focused_messages(),
                 &app.composer.input,
-                &app.transcript.ui.document,
-                app.transcript.drag.cell_info.as_ref(),
+                &app.viewport.ui.document,
+                app.viewport.drag.cell_info.as_ref(),
             ) {
                 clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
                 app.surfaces.copy_toast_message = "Selection copied to clipboard".to_string();

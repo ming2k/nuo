@@ -340,6 +340,182 @@ pub fn startup_log_path() -> PathBuf {
     dirs.state_dir.join("log").join("server-startup.log")
 }
 
+/// Terminate an already-discovered server (graceful stop with takeover
+/// escalation) and clean up its stale discovery record once gone.
+async fn terminate_existing_server(info: &ServerInfo) {
+    if info.pid == std::process::id() {
+        return;
+    }
+    let stop_result = stop(info).await;
+    let still_alive = match host::process::process_identity(info.pid) {
+        Ok(identity) => info
+            .process_birth_token
+            .is_none_or(|expected| expected == identity.birth_token),
+        Err(_) => false,
+    };
+    if (stop_result.is_err() || still_alive) && still_alive {
+        tracing::warn!(
+            pid = info.pid,
+            error = ?stop_result.err(),
+            "ensure_server: graceful stop did not terminate old server; escalating to takeover"
+        );
+        let _ =
+            host::process::takeover_pid(info.pid, host::process::TakeoverOptions::default()).await;
+    }
+    let gone = match host::process::process_identity(info.pid) {
+        Ok(identity) => info
+            .process_birth_token
+            .is_some_and(|expected| expected != identity.birth_token),
+        Err(_) => true,
+    };
+    if gone {
+        discovery::remove_if_matching_process(
+            &discovery::global_discovery_path(),
+            info.pid,
+            info.process_birth_token,
+        );
+    }
+}
+
+/// Terminate any live process still holding the server instance lock or
+/// database owner lock, and clear any matching stale discovery record.
+async fn terminate_lock_holders() {
+    let current_pid = std::process::id();
+    let lock_path = discovery::global_lock_path();
+    let db_lock_path = host::paths::get().db_file().with_extension("db.owner.lock");
+    let mut candidate_pids = std::collections::HashSet::new();
+    if host::lock::ProcessLock::is_locked(&lock_path)
+        && let Some(holder_pid) = host::lock::ProcessLock::probe_holder(&lock_path)
+        && holder_pid != current_pid
+        && is_process_alive(holder_pid)
+    {
+        candidate_pids.insert(holder_pid);
+    }
+    if host::lock::ProcessLock::is_locked(&db_lock_path)
+        && let Some(holder_pid) = host::lock::ProcessLock::probe_holder(&db_lock_path)
+        && holder_pid != current_pid
+        && is_process_alive(holder_pid)
+    {
+        candidate_pids.insert(holder_pid);
+    }
+    for holder_pid in candidate_pids {
+        tracing::info!(
+            holder_pid,
+            "ensure_server: replacing conflicting server holding instance or database lock"
+        );
+        let _ = host::process::takeover_pid(holder_pid, host::process::TakeoverOptions::default())
+            .await;
+        if !is_process_alive(holder_pid) {
+            discovery::remove_if_matching_process(
+                &discovery::global_discovery_path(),
+                holder_pid,
+                None,
+            );
+        }
+    }
+}
+
+/// Wait for a freshly spawned server child to publish a compatible discovery
+/// record. If a lingering stale/old server record is observed while `child` is
+/// still booting, terminate that stale PID and keep waiting instead of aborting
+/// startup prematurely.
+async fn wait_for_spawned_server(
+    project_root: &Path,
+    child: &mut tokio::process::Child,
+) -> Result<ServerInfo, String> {
+    wait_for_spawned_server_with(
+        child,
+        SERVER_START_TIMEOUT,
+        SERVER_START_POLL,
+        || discover(project_root),
+        |stale| async move {
+            terminate_existing_server(&stale).await;
+        },
+    )
+    .await
+}
+
+pub(super) async fn wait_for_spawned_server_with<DFn, DFut, TFn, TFut>(
+    child: &mut tokio::process::Child,
+    timeout: Duration,
+    poll_interval: Duration,
+    mut probe_server: DFn,
+    mut terminate_stale: TFn,
+) -> Result<ServerInfo, String>
+where
+    DFn: FnMut() -> DFut,
+    DFut: std::future::Future<Output = Option<ServerInfo>>,
+    TFn: FnMut(ServerInfo) -> TFut,
+    TFut: std::future::Future<Output = ()>,
+{
+    let spawned_pid = child.id();
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        tokio::time::sleep(poll_interval).await;
+        if let Some(info) = probe_server().await {
+            if versions_compatible(&info) && !is_dev_drift(&info) {
+                return Ok(info);
+            }
+            if spawned_pid.is_some_and(|pid| info.pid == pid) {
+                return Err(incompatibility_error(&info));
+            }
+            // A lingering old server answered before the newly spawned server
+            // finished taking over; terminate the old one and keep waiting.
+            tracing::warn!(
+                stale_pid = info.pid,
+                spawned_pid = ?spawned_pid,
+                "wait_for_spawned_server: observed lingering incompatible server; terminating and waiting for new server"
+            );
+            terminate_stale(info).await;
+            continue;
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            if let Some(info) = probe_server().await
+                && versions_compatible(&info)
+                && !is_dev_drift(&info)
+            {
+                return Ok(info);
+            }
+            let log_text = std::fs::read_to_string(startup_log_path()).unwrap_or_default();
+            let log_trimmed = log_text.trim();
+            if !log_trimmed.is_empty() {
+                return Err(format!(
+                    "nuo server exited prematurely ({status}): {log_trimmed}"
+                ));
+            } else {
+                return Err(format!("nuo server exited prematurely with {status}"));
+            }
+        }
+        if std::time::Instant::now() > deadline {
+            let log_text = std::fs::read_to_string(startup_log_path()).unwrap_or_default();
+            let log_trimmed = log_text.trim();
+            if !log_trimmed.is_empty() {
+                return Err(format!(
+                    "timed out waiting for nuo server to start: {log_trimmed}"
+                ));
+            }
+            return Err("timed out waiting for nuo server to start".to_string());
+        }
+    }
+}
+
+async fn acquire_spawn_lock_async(
+    spawn_lock_path: &Path,
+    timeout: Duration,
+) -> Option<host::lock::ProcessLock> {
+    if let Ok(guard) = host::lock::ProcessLock::acquire(spawn_lock_path) {
+        return Some(guard);
+    }
+    let deadline = tokio::time::Instant::now() + timeout;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(SERVER_START_POLL).await;
+        if let Ok(guard) = host::lock::ProcessLock::acquire(spawn_lock_path) {
+            return Some(guard);
+        }
+    }
+    None
+}
+
 pub async fn ensure_server(project_root: &Path) -> Result<ServerInfo, String> {
     ensure_server_explicit(project_root, None).await
 }
@@ -348,15 +524,11 @@ pub async fn ensure_server_explicit(
     project_root: &Path,
     explicit_port: Option<u16>,
 ) -> Result<ServerInfo, String> {
-    if let Some(info) = discover(project_root).await {
-        if versions_compatible(&info) && !is_dev_drift(&info) {
-            return Ok(info);
-        }
-        tracing::info!(
-            pid = info.pid,
-            "ensure_server: replacing existing server on version drift or rebuild"
-        );
-        let _ = stop(&info).await;
+    if let Some(info) = discover(project_root).await
+        && versions_compatible(&info)
+        && !is_dev_drift(&info)
+    {
+        return Ok(info);
     }
 
     let spawn_lock_path = discovery::global_spawn_lock_path();
@@ -390,68 +562,64 @@ pub async fn ensure_server_explicit(
         if versions_compatible(&info) && !is_dev_drift(&info) {
             return Ok(info);
         }
-        let _ = stop(&info).await;
+        tracing::info!(
+            pid = info.pid,
+            "ensure_server: replacing existing server on version drift or rebuild"
+        );
+        terminate_existing_server(&info).await;
     }
 
-    let lock_path = discovery::global_lock_path();
-    let db_lock_path = host::paths::get().db_file().with_extension("db.owner.lock");
-    let mut candidate_pids = std::collections::HashSet::new();
-    if host::lock::ProcessLock::is_locked(&lock_path)
-        && let Some(holder_pid) = host::lock::ProcessLock::probe_holder(&lock_path)
-        && is_process_alive(holder_pid)
-    {
-        candidate_pids.insert(holder_pid);
-    }
-    if host::lock::ProcessLock::is_locked(&db_lock_path)
-        && let Some(holder_pid) = host::lock::ProcessLock::probe_holder(&db_lock_path)
-        && is_process_alive(holder_pid)
-    {
-        candidate_pids.insert(holder_pid);
-    }
-    for holder_pid in candidate_pids {
-        tracing::info!(
-            holder_pid,
-            "ensure_server: replacing conflicting server holding instance or database lock"
-        );
-        let _ = host::process::takeover_pid(holder_pid, host::process::TakeoverOptions::default())
-            .await;
-    }
+    terminate_lock_holders().await;
 
     let mut child = spawn_server(explicit_port)?;
-    let deadline = std::time::Instant::now() + SERVER_START_TIMEOUT;
-    loop {
-        tokio::time::sleep(SERVER_START_POLL).await;
-        if let Some(info) = discover(project_root).await {
-            if versions_compatible(&info) {
-                return Ok(info);
-            } else {
-                return Err(incompatibility_error(&info));
-            }
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            let log_text = std::fs::read_to_string(startup_log_path()).unwrap_or_default();
-            let log_trimmed = log_text.trim();
-            if !log_trimmed.is_empty() {
-                return Err(format!(
-                    "nuo server exited prematurely ({status}): {log_trimmed}"
-                ));
-            } else {
-                return Err(format!("nuo server exited prematurely with {status}"));
-            }
-        }
-        if std::time::Instant::now() > deadline {
-            return Err("timed out waiting for nuo server to start".to_string());
-        }
+    wait_for_spawned_server(project_root, &mut child).await
+}
+
+/// Unconditionally terminate any existing local server (old or current), spawn
+/// a fresh detached server using `program` and `args`, and wait until the new
+/// server is confirmed live and compatible.
+pub async fn replace_and_spawn_server(
+    project_root: &Path,
+    program: &Path,
+    args: &[String],
+) -> Result<ServerInfo, String> {
+    let spawn_lock_path = discovery::global_spawn_lock_path();
+    let _spawn_guard = acquire_spawn_lock_async(&spawn_lock_path, Duration::from_secs(6)).await;
+
+    if let Some(info) = discover(project_root).await {
+        tracing::info!(
+            pid = info.pid,
+            "replace_and_spawn_server: terminating existing server before starting replacement"
+        );
+        terminate_existing_server(&info).await;
     }
+
+    terminate_lock_holders().await;
+
+    let mut child = spawn_server_with_args(program, args)?;
+    wait_for_spawned_server(project_root, &mut child).await
 }
 
 fn spawn_server(explicit_port: Option<u16>) -> Result<tokio::process::Child, String> {
     let program = server_program();
-    let mut command = tokio::process::Command::new(&program);
-    command.arg("server").arg("start").arg("--fg");
+    let mut args = vec![
+        "server".to_string(),
+        "start".to_string(),
+        "--fg".to_string(),
+    ];
     if let Some(port) = explicit_port {
-        command.arg("--port").arg(port.to_string());
+        args.push("--port".to_string());
+        args.push(port.to_string());
     }
+    spawn_server_with_args(&program, &args)
+}
+
+fn spawn_server_with_args(
+    program: &Path,
+    args: &[String],
+) -> Result<tokio::process::Child, String> {
+    let mut command = tokio::process::Command::new(program);
+    command.args(args);
 
     host::process::configure_server(&mut command);
 
@@ -472,13 +640,14 @@ fn spawn_server(explicit_port: Option<u16>) -> Result<tokio::process::Child, Str
 
     command.spawn().map_err(|e| {
         format!(
-            "failed to spawn {} server start --fg: {e}",
-            program.display()
+            "failed to spawn {} {}: {e}",
+            program.display(),
+            args.join(" ")
         )
     })
 }
 
-fn server_program() -> PathBuf {
+pub(super) fn server_program() -> PathBuf {
     if let Some(program) = std::env::var_os("NUO_BIN").filter(|value| !value.is_empty()) {
         return PathBuf::from(program);
     }
@@ -486,6 +655,13 @@ fn server_program() -> PathBuf {
         let sibling_nuo = current.with_file_name(format!("nuo{}", std::env::consts::EXE_SUFFIX));
         if sibling_nuo.is_file() {
             return sibling_nuo;
+        }
+        let in_cargo_deps = current
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .is_some_and(|name| name == "deps");
+        if !in_cargo_deps && current.is_file() {
+            return current;
         }
     }
     PathBuf::from(format!("nuo{}", std::env::consts::EXE_SUFFIX))

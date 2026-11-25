@@ -31,7 +31,7 @@ impl App {
     /// is a separate fact: a dialog that rendered "loading" forever because the
     /// plan legitimately does not exist would be lying about the request.
     pub(crate) fn context_plan_pending(&self) -> bool {
-        !self.telemetry.context_plan_loaded
+        !self.threads.context_plan_loaded
     }
 
     /// Which interaction sheet currently occupies the composer slot, if any.
@@ -55,7 +55,7 @@ impl App {
     /// (ADR-0145): the transcript plane's remembered sub-state survives, which
     /// is why parking is a plane crossing and not a destructive clear.
     pub(crate) fn park_focus_for_sheet(&mut self) {
-        self.transcript.focus.enter_composer();
+        self.threads.focus.enter_composer();
     }
 
     /// Exact identity of the focused dialog, if the top overlay is a dialog.
@@ -106,7 +106,7 @@ impl App {
 
     /// Number of selectable rows in the Tools modal.
     pub fn session_tools_len(&self) -> usize {
-        self.session
+        self.threads
             .session_context
             .as_ref()
             .map(|s| s.tools.len())
@@ -118,7 +118,7 @@ impl App {
     /// is out of range.
     pub fn session_activate_request(&self) -> Option<protocol::AgentRequest> {
         let tool = self
-            .session
+            .threads
             .session_context
             .as_ref()?
             .tools
@@ -359,13 +359,28 @@ impl App {
 
     /// Open or focus a client tab, running each dropped sheet's teardown (ADR-0041 [INV-TAB-07]).
     pub(crate) fn open_tab(&mut self, tab: crate::shell::surfaces::ClientTab) -> usize {
-        self.checkpoint_active_tab_context();
+        self.park_current_thread_draft();
+        let departing_thread_id = self
+            .surfaces
+            .surfaces
+            .active_tab()
+            .and_then(|t| t.thread_id())
+            .map(str::to_string);
+        if let Some(ref prev_id) = departing_thread_id {
+            self.threads.sync_foreground_id(prev_id);
+        }
+        let target_thread_id = tab.thread_id().map(str::to_string);
         let sheets = self.surfaces.surfaces.take_sheets();
         let idx = self.surfaces.surfaces.open_tab(tab);
         for s in sheets {
             self.on_sheet_dismissed(s);
         }
-        self.restore_active_tab_context();
+        if let Some(ref tid) = target_thread_id
+            && departing_thread_id.as_deref() != Some(tid.as_str())
+        {
+            self.threads.activate(tid);
+        }
+        self.hand_composer_to_current_thread();
         idx
     }
 
@@ -378,9 +393,8 @@ impl App {
         let is_active = index == self.surfaces.surfaces.active_tab_index();
         if is_active {
             // The departing thread keeps its draft even though its *view* is
-            // being replaced (ADR-0247): park it before the tab struct — and
-            // with it the view context — disappears.
-            self.checkpoint_active_tab_context();
+            // being replaced (ADR-0247).
+            self.park_current_thread_draft();
         }
         let sheets = self.surfaces.surfaces.take_sheets();
         let ok = self.surfaces.surfaces.replace_tab(index, tab);
@@ -388,7 +402,7 @@ impl App {
             self.on_sheet_dismissed(s);
         }
         if is_active && ok {
-            self.restore_active_tab_context();
+            self.hand_composer_to_current_thread();
         }
         ok
     }
@@ -417,48 +431,11 @@ impl App {
             .is_some_and(|id| self.surfaces.drafts.has_stored(id));
         is_thread_tab
             && !parked_draft
-            && self.transcript.messages.is_empty()
-            && self.session.round_count == 0
+            && self.threads.is_dialogue_empty()
             && self.composer.input.is_empty()
             && self.composer.pending_images.is_empty()
             && self.composer.pending_text_pastes.is_empty()
             && self.composer.stashed_draft.is_empty()
-    }
-
-    /// Record the departing tab's view context and park its thread's draft
-    /// (ADR-0091 `[INV-TAB-12]`, ADR-0247).
-    ///
-    /// Two facts leave with the departing tab, owned by two different things: the
-    /// **view** state (plane, scroll) goes into the tab struct, while the
-    /// **draft** goes into the parked-draft ledger under the thread that tab
-    /// represents. The draft half is delegated to the shared owner so the
-    /// recall/search borrow rule is applied once, not re-derived here.
-    pub(crate) fn checkpoint_active_tab_context(&mut self) {
-        if let Some(active_tab) = self.surfaces.surfaces.active_tab_mut()
-            && matches!(active_tab.kind, crate::shell::surfaces::TabKind::Thread(_))
-        {
-            active_tab.context.focus = self.transcript.focus;
-            active_tab.context.scroll = self.transcript.scroll;
-        }
-        self.park_current_thread_draft();
-    }
-
-    /// Restore the active tab's intra-scene **view** context and hand the
-    /// composer to that tab's thread (ADR-0091 `[INV-TAB-12]`, ADR-0247).
-    ///
-    /// View state and draft state are restored by two different owners, and that
-    /// separation is the point: the tab holds where the user was *looking*, the
-    /// parked-draft ledger holds what the user was *writing*, keyed by thread id.
-    /// A transition therefore cannot blank a draft, cross-wire two threads'
-    /// drafts, or overwrite one with a default.
-    pub(crate) fn restore_active_tab_context(&mut self) {
-        if let Some(tab) = self.surfaces.surfaces.active_tab()
-            && matches!(tab.kind, crate::shell::surfaces::TabKind::Thread(_))
-        {
-            self.transcript.focus = tab.context.focus;
-            self.transcript.scroll = tab.context.scroll;
-        }
-        self.hand_composer_to_current_thread();
     }
 
     /// Dynamically update the authentic title of a thread tab (ADR-0050 [INV-TAB-08]).
@@ -514,7 +491,7 @@ impl App {
                 self.on_sheet_dismissed(s);
             }
             if leaving == SceneKind::Subagent {
-                self.transcript.focus_stack.clear();
+                self.threads.focus_stack.clear();
                 self.reset_view_state();
             }
             self.deactivate_scene(leaving);
@@ -585,7 +562,7 @@ impl App {
                 // see and leave the visible page frozen.
                 SceneKind::CommandLog => Some((&mut self.surfaces.command_log_scroll, None)),
                 SceneKind::Diff => self
-                    .transcript
+                    .threads
                     .diff_viewer
                     .as_mut()
                     .map(|diff| (&mut diff.scroll, None)),
@@ -623,7 +600,7 @@ impl App {
     /// the cross-thread tab-switch loss: a thread→thread tab switch re-attaches,
     /// so a *new* `App` boots with the preserved tabs and the first
     /// per-frame sync runs this hook — overwriting the very draft
-    /// `restore_active_tab_context` had just installed. Draft state is keyed by
+    /// `hand_composer_to_current_thread` had just installed. Draft state is keyed by
     /// thread id now, so the correct action at this boundary is not "clear" but
     /// "load the draft of the thread we arrived in".
     pub fn on_viewed_session_changed(&mut self) {
@@ -659,7 +636,7 @@ impl App {
         self.surfaces
             .surfaces
             .retain_available(self.current_scene(), self.has_session());
-        self.session.session_context = None;
+        self.threads.session_context = None;
         self.surfaces.esc_armed_until = None;
         self.composer.input_drag_scroll = None;
         self.composer.suggestion_index = None;
@@ -721,7 +698,7 @@ impl App {
         self.surfaces.surfaces.unwind_session();
         let incoming = self.session.current_session_id.clone();
         self.surfaces.surfaces.dialogs.switch_session(&incoming);
-        self.transcript.focus_stack.clear();
+        self.threads.focus_stack.clear();
         self.session.session_detail = None;
         self.surfaces
             .surfaces
@@ -859,12 +836,12 @@ impl App {
             }
         };
 
-        self.transcript.command_log = Some(derived);
+        self.threads.command_log = Some(derived);
         self.surfaces.command_log_scroll = 0;
         self.switch_scene(crate::shell::surfaces::SceneKind::CommandLog);
-        self.transcript.focus.enter_composer();
-        self.transcript.selection = SelectionState::None;
-        self.transcript.drag.cancel();
+        self.threads.focus.enter_composer();
+        self.threads.selection = SelectionState::None;
+        self.viewport.drag.cancel();
     }
 
     /// Leave the command log scene, dropping the derived snapshot.
@@ -876,7 +853,7 @@ impl App {
         if self.current_scene() != crate::shell::surfaces::SceneKind::CommandLog {
             return false;
         }
-        self.transcript.command_log = None;
+        self.threads.command_log = None;
         self.surfaces.command_log_scroll = 0;
         self.leave_scene();
         true
@@ -916,15 +893,15 @@ impl App {
             }
         }
 
-        self.transcript.diff_viewer = Some(DiffViewerState {
+        self.threads.diff_viewer = Some(DiffViewerState {
             files,
             selected_file: 0,
             scroll: 0,
         });
         self.switch_scene(crate::shell::surfaces::SceneKind::Diff);
-        self.transcript.focus.enter_composer();
-        self.transcript.selection = SelectionState::None;
-        self.transcript.drag.cancel();
+        self.threads.focus.enter_composer();
+        self.threads.selection = SelectionState::None;
+        self.viewport.drag.cancel();
     }
 
     /// Persist current TUI presentation preferences into `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
@@ -933,7 +910,7 @@ impl App {
         cfg.color_scheme = self.surfaces.color_scheme.clone();
         cfg.custom_color_scheme = self.surfaces.custom_color_scheme.clone();
         cfg.click_outside_dismiss = self.surfaces.click_outside_dismiss;
-        cfg.expand_auto_scroll = self.transcript.expand_auto_scroll;
+        cfg.expand_auto_scroll = self.viewport.expand_auto_scroll;
         cfg.default_expanded = self.session.tui_config.default_expanded.clone();
         let _ = cfg.save();
     }
@@ -1095,7 +1072,7 @@ impl App {
             self.on_sheet_dismissed(s);
         }
         if leaving == SceneKind::Subagent {
-            self.transcript.focus_stack.clear();
+            self.threads.focus_stack.clear();
             self.reset_view_state();
         }
         self.deactivate_scene(leaving);
@@ -1158,10 +1135,10 @@ impl App {
                 if crate::shell::overlays::ConfigCategory::from_index(self.surfaces.config_category)
                     == crate::shell::overlays::ConfigCategory::Appearance
                 {
-                    let ws_path = if self.session.current_workspace.is_empty() {
+                    let ws_path = if self.threads.current_workspace.is_empty() {
                         None
                     } else {
-                        Some(std::path::Path::new(&self.session.current_workspace))
+                        Some(std::path::Path::new(&self.threads.current_workspace))
                     };
                     self.surfaces.theme = crate::shell::config::resolve_theme_with_profile(
                         &self.surfaces.color_scheme,
@@ -1384,25 +1361,25 @@ impl App {
     }
 
     pub(crate) fn reset_view_state(&mut self) {
-        self.transcript.scroll = 0;
-        self.transcript.follow_bottom = true;
-        self.transcript.selection = SelectionState::None;
-        self.transcript.drag.cancel();
-        self.transcript.sticky_step = None;
-        self.transcript.sticky_summary_line = None;
-        self.transcript.pin_summary_line = None;
-        self.transcript.scroll_settle_pending = false;
-        self.transcript.focus.enter_composer();
+        self.threads.scroll = 0;
+        self.threads.follow_bottom = true;
+        self.threads.selection = SelectionState::None;
+        self.viewport.drag.cancel();
+        self.threads.sticky_step = None;
+        self.threads.sticky_summary_line = None;
+        self.threads.pin_summary_line = None;
+        self.threads.scroll_settle_pending = false;
+        self.threads.focus.enter_composer();
     }
 
     pub fn viewed_chrome(&self) -> SessionChrome {
         SessionChrome {
-            phase: self.session.phase.clone(),
-            responding: self.session.round_started_at.is_some() || self.session.phase.is_some(),
-            round_count: self.session.round_count,
-            current_turn: self.session.current_turn,
-            round_started_at: self.session.round_started_at,
-            can_retry: self.session.loop_status.is_idle() && self.session.harness_retry_pending,
+            phase: self.threads.phase.clone(),
+            responding: self.threads.round_started_at.is_some() || self.threads.phase.is_some(),
+            round_count: self.threads.round_count,
+            current_turn: self.threads.current_turn,
+            round_started_at: self.threads.round_started_at,
+            can_retry: self.threads.loop_status.is_idle() && self.threads.harness_retry_pending,
             last_turn_performance: self
                 .session
                 .session_chrome
@@ -1413,7 +1390,7 @@ impl App {
                 .session_chrome
                 .get(&self.session.current_session_id)
                 .map_or(0, |chrome| chrome.session_cost_nano_usd),
-            transport_setback: self.session.provider_retry.clone(),
+            transport_setback: self.threads.provider_retry.clone(),
         }
     }
 
@@ -1422,14 +1399,14 @@ impl App {
     /// [`SessionChrome::set_phase`].
     pub fn set_phase(&mut self, phase: Option<view::phase::Phase>) {
         if view::phase::ends_transport_setback(phase.as_ref()) {
-            self.session.provider_retry = None;
+            self.threads.provider_retry = None;
         }
-        self.session.phase = phase;
+        self.threads.phase = phase;
     }
 
     /// Whether any session currently carries a live transport setback.
     pub fn has_live_transport_setback(&self) -> bool {
-        self.session.provider_retry.is_some()
+        self.threads.provider_retry.is_some()
             || self
                 .session
                 .session_chrome
@@ -1437,18 +1414,10 @@ impl App {
                 .any(|chrome| chrome.transport_setback.is_some())
     }
 
-    /// Copy a viewed session's chrome into the App-level mirrors.
-    pub(super) fn apply_chrome(&mut self, chrome: &SessionChrome) {
-        self.session.phase = chrome.phase.clone();
-        self.session.round_started_at = chrome.round_started_at;
-        self.session.round_count = chrome.round_count;
-        self.session.current_turn = chrome.current_turn;
-    }
-
     pub fn clear_responding(&mut self) {
         self.set_phase(None);
-        self.session.round_started_at = None;
-        self.session.loop_status = protocol::LoopStatus::Idle;
+        self.threads.round_started_at = None;
+        self.threads.loop_status = protocol::LoopStatus::Idle;
         if let Some(chrome) = self
             .session
             .session_chrome
@@ -1474,10 +1443,10 @@ mod tests {
         app.surfaces.surfaces.select_tab(0);
 
         // Mutate Tab 0 context
-        app.transcript
+        app.threads
             .focus
             .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
-        app.transcript.scroll = 15;
+        app.threads.scroll = 15;
         app.composer.input = "draft for thread 1".to_string();
         app.composer.cursor_position = 4;
         app.composer.input_scroll = 2;
@@ -1488,8 +1457,8 @@ mod tests {
         assert_eq!(app.surfaces.surfaces.active_tab_index(), 1);
 
         // Tab 1 starts with default context
-        assert!(app.transcript.focus.is_composer());
-        assert_eq!(app.transcript.scroll, 0);
+        assert!(app.threads.focus.is_composer());
+        assert_eq!(app.threads.scroll, 0);
         assert_eq!(app.composer.input, "");
         assert_eq!(app.composer.cursor_position, 0);
 
@@ -1503,8 +1472,8 @@ mod tests {
         assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
 
         // Tab 0 context is completely restored
-        assert!(app.transcript.focus.is_transcript());
-        assert_eq!(app.transcript.scroll, 15);
+        assert!(app.threads.focus.is_transcript());
+        assert_eq!(app.threads.scroll, 15);
         assert_eq!(app.composer.input, "draft for thread 1");
         assert_eq!(app.composer.cursor_position, 4);
         assert_eq!(app.composer.input_scroll, 2);

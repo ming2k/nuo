@@ -15,7 +15,7 @@ pub(super) fn handle_composer_action(app: &mut App, action: InputAction) {
             // gates insertion on `edits_input_field`), so reaching here already
             // implies composer ownership; state it so the invariant holds by
             // construction rather than by trusting the router's gate.
-            app.transcript.focus.enter_composer();
+            app.threads.focus.enter_composer();
             // Reconcile attachments: if the user typed inside a chip
             // (breaking its syntax) the backing staged entry must be
             // dropped, and surviving chips relabeled.
@@ -26,7 +26,7 @@ pub(super) fn handle_composer_action(app: &mut App, action: InputAction) {
             app.composer.completion_dismissed = false;
             // Same as InsertChar: an edit is a composer-plane act, so the
             // plane is stated explicitly rather than inferred.
-            app.transcript.focus.enter_composer();
+            app.threads.focus.enter_composer();
             // Reconcile attachments: a chip-aware backspace has
             // already spliced the chip out of `app.composer.input`; this
             // drops the orphaned entry from `pending_images` /
@@ -43,7 +43,7 @@ pub(super) fn handle_composer_action(app: &mut App, action: InputAction) {
             app.composer.completion_dismissed = false;
             // Editing the input box is a composer-plane act, mirroring
             // Backspace.
-            app.transcript.focus.enter_composer();
+            app.threads.focus.enter_composer();
             app.reconcile_attachments();
         }
         InputAction::SuggestNext => {

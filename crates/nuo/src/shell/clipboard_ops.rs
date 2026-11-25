@@ -182,7 +182,7 @@ fn apply_composer_paste(app: &mut App, read: ClipboardRead) {
             if active_route_vision_declaration(app) == Some(false) {
                 app.surfaces.copy_toast_message = format!(
                     "{} does not support images — paste ignored ({VISION_OVERRIDE_HINT})",
-                    app.session.current_model,
+                    app.threads.current_model,
                 );
                 app.surfaces.copy_toast_failed = true;
                 app.surfaces.copy_toast_until =
@@ -328,7 +328,7 @@ fn apply_composer_files_paste(app: &mut App, paths: Vec<std::path::PathBuf>) {
         }
         (_, _, true) => format!(
             "{} does not support images — paste ignored ({VISION_OVERRIDE_HINT})",
-            app.session.current_model,
+            app.threads.current_model,
         ),
     };
     app.surfaces.copy_toast_failed = !matches!((attached, vision_blocked), (Some(_), false));

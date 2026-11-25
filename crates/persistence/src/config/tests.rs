@@ -882,6 +882,52 @@ fn merge_project_additional_roots_deduplicates_and_appends() {
     );
 }
 
+#[test]
+fn add_project_additional_root_creates_preserves_and_deduplicates() {
+    let base = tempfile::tempdir().unwrap();
+    let project = base.path().join("project-a");
+    let sibling = base.path().join("project-b");
+    let nested = base.path().join("other-parent/project-c");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::create_dir_all(&nested).unwrap();
+
+    // Seed an unrelated table in `.nuo/config.toml` to verify preservation.
+    std::fs::create_dir_all(project.join(".nuo")).unwrap();
+    std::fs::write(
+        project.join(".nuo/config.toml"),
+        "[mcp.demo]\ncommand = [\"echo\", \"ok\"]\n",
+    )
+    .unwrap();
+
+    // Direct sibling uses compact relative form `../project-b`.
+    let entry = Config::add_project_additional_root(&project, &sibling).unwrap();
+    assert_eq!(entry, "../project-b");
+
+    // Re-adding the same directory via canonical path deduplicates.
+    let dup = Config::add_project_additional_root(&project, &sibling).unwrap();
+    assert_eq!(dup, "../project-b");
+
+    // Non-sibling stores canonical absolute path.
+    let nested_entry = Config::add_project_additional_root(&project, &nested).unwrap();
+    let canonical_nested = std::fs::canonicalize(&nested).unwrap();
+    assert_eq!(nested_entry, canonical_nested.to_string_lossy());
+
+    let loaded = Config::load_project_additional_roots(&project);
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded[0], "../project-b");
+    assert_eq!(loaded[1], canonical_nested.to_string_lossy());
+
+    // Unrelated `[mcp.demo]` table is preserved.
+    let content = std::fs::read_to_string(project.join(".nuo/config.toml")).unwrap();
+    assert!(content.contains("[mcp.demo]"));
+
+    // Rejecting a path inside the current workspace.
+    let inside = project.join("src");
+    std::fs::create_dir_all(&inside).unwrap();
+    assert!(Config::add_project_additional_root(&project, &inside).is_err());
+}
+
 fn catalog_cache_with(connection: &str) -> RemoteCatalogCache {
     let mut cache = RemoteCatalogCache::default();
     cache

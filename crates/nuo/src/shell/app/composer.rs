@@ -37,7 +37,7 @@ impl App {
         if let Some(ledger) = &self.telemetry.token_ledger {
             Some(ledger.snapshot_for_session(session_id))
         } else {
-            self.telemetry.token_report.clone()
+            self.threads.token_report.clone()
         }
     }
 
@@ -153,7 +153,7 @@ impl App {
     /// the grid then falls back to [`TextGrid::unwrapped`], one row per
     /// logical line, instead of guessing a width.
     pub fn composer_grid_width(&self) -> usize {
-        self.transcript
+        self.viewport
             .ui
             .bounds(crate::shell::ui::UiKey::Composer)
             .map_or(0, |rect| {
@@ -175,10 +175,7 @@ impl App {
     /// size: wrapped rows minus visible rows. `None` when no composer rect
     /// is known (nothing drawn yet, or an overlay owns the surface).
     pub fn input_scroll_max(&self) -> Option<usize> {
-        let rect = self
-            .transcript
-            .ui
-            .bounds(crate::shell::ui::UiKey::Composer)?;
+        let rect = self.viewport.ui.bounds(crate::shell::ui::UiKey::Composer)?;
         let text_width = crate::shell::composer::composer_text_width(rect.width as usize);
         let rows = TextGrid::new(&self.composer.input, text_width).row_count();
         let visible = (rect.height as usize)
@@ -221,18 +218,15 @@ impl App {
     /// drag should follow it normally.
     pub fn input_drag_scroll_edge(&self, y: u16) -> Option<bool> {
         let anchored_in_input = self
-            .transcript
+            .viewport
             .drag
             .anchor
             .as_ref()
             .is_some_and(|a| a.message_idx == crate::shell::render::INPUT_MSG_IDX);
-        if !(self.transcript.drag.active && anchored_in_input) {
+        if !(self.viewport.drag.active && anchored_in_input) {
             return None;
         }
-        let rect = self
-            .transcript
-            .ui
-            .bounds(crate::shell::ui::UiKey::Composer)?;
+        let rect = self.viewport.ui.bounds(crate::shell::ui::UiKey::Composer)?;
         let max = self.input_scroll_max()?;
         if max == 0 {
             return None; // every wrapped row is visible; nothing to scroll to
@@ -261,7 +255,7 @@ impl App {
         let Some(up) = self.composer.input_drag_scroll else {
             return false;
         };
-        if !self.transcript.drag.active {
+        if !self.viewport.drag.active {
             self.composer.input_drag_scroll = None;
             return false;
         }
@@ -283,7 +277,7 @@ impl App {
         // renderer uses, and pin the selection head to its byte — hidden rows
         // are not in the layout map, so the head cannot be resolved from the
         // pointer; the edge *is* the pointer as far as the selection cares.
-        let Some(rect) = self.transcript.ui.bounds(crate::shell::ui::UiKey::Composer) else {
+        let Some(rect) = self.viewport.ui.bounds(crate::shell::ui::UiKey::Composer) else {
             return false;
         };
         let text_width = crate::shell::composer::composer_text_width(rect.width as usize);
@@ -305,8 +299,8 @@ impl App {
         } else {
             wrapped[edge_row].end_byte.min(self.composer.input.len())
         };
-        self.transcript.drag.update_to_cursor(
-            &mut self.transcript.selection,
+        self.viewport.drag.update_to_cursor(
+            &mut self.threads.selection,
             view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, byte),
         );
         if target == 0 || target == max {
@@ -339,10 +333,10 @@ impl App {
     /// Supports whole-input selections (`Block` on `INPUT_MSG_IDX`) and
     /// drag-selected ranges (`Range` on `INPUT_MSG_IDX`).
     pub fn has_input_selection(&self) -> bool {
-        if !self.transcript.selection.is_active() {
+        if !self.threads.selection.is_active() {
             return false;
         }
-        match &self.transcript.selection {
+        match &self.threads.selection {
             SelectionState::Block { message_idx, .. } => {
                 *message_idx == crate::shell::render::INPUT_MSG_IDX
             }
@@ -371,7 +365,7 @@ impl App {
         if !self.has_input_selection() {
             return false;
         }
-        let pos = match &self.transcript.selection {
+        let pos = match &self.threads.selection {
             SelectionState::Block { .. } => match edge {
                 SelectionEdge::Tail => 0,
                 SelectionEdge::Head => self.composer.input.len(),
@@ -403,8 +397,8 @@ impl App {
                 SelectionEdge::Head => self.composer.cursor_position,
             },
         };
-        self.transcript.selection = SelectionState::None;
-        self.transcript.drag.cancel();
+        self.threads.selection = SelectionState::None;
+        self.viewport.drag.cancel();
         self.set_cursor(pos.min(self.composer.input.len()));
         true
     }
@@ -427,13 +421,13 @@ impl App {
         if !self.has_input_selection() {
             return false;
         }
-        match &self.transcript.selection {
+        match &self.threads.selection {
             SelectionState::Block { message_idx, .. }
                 if *message_idx == crate::shell::render::INPUT_MSG_IDX =>
             {
                 self.composer.input.clear();
-                self.transcript.selection = SelectionState::None;
-                self.transcript.drag.cancel();
+                self.threads.selection = SelectionState::None;
+                self.viewport.drag.cancel();
                 self.set_cursor(0);
                 true
             }
@@ -451,13 +445,13 @@ impl App {
                     self.composer.input.replace_range(start..end, "");
                 }
                 let new_cursor = start;
-                self.transcript.selection = SelectionState::None;
-                self.transcript.drag.cancel();
+                self.threads.selection = SelectionState::None;
+                self.viewport.drag.cancel();
                 self.set_cursor(new_cursor);
                 true
             }
             SelectionState::Range { .. } => {
-                if let Some((start, end)) = self.transcript.selection.active_normalized_range() {
+                if let Some((start, end)) = self.threads.selection.active_normalized_range() {
                     let start_byte = view::model::selection::floor_grapheme_boundary(
                         &self.composer.input,
                         start.byte_offset,
@@ -472,19 +466,19 @@ impl App {
                         self.composer.input.replace_range(start_byte..end_byte, "");
                     }
                     let new_cursor = start_byte;
-                    self.transcript.selection = SelectionState::None;
-                    self.transcript.drag.cancel();
+                    self.threads.selection = SelectionState::None;
+                    self.viewport.drag.cancel();
                     self.set_cursor(new_cursor);
                     true
                 } else {
-                    self.transcript.selection = SelectionState::None;
-                    self.transcript.drag.cancel();
+                    self.threads.selection = SelectionState::None;
+                    self.viewport.drag.cancel();
                     false
                 }
             }
             _ => {
-                self.transcript.selection = SelectionState::None;
-                self.transcript.drag.cancel();
+                self.threads.selection = SelectionState::None;
+                self.viewport.drag.cancel();
                 false
             }
         }
@@ -591,7 +585,7 @@ impl App {
             return CaretOwner::Scene;
         }
         if self.current_scene() != crate::shell::surfaces::SceneKind::Thread
-            || self.transcript.focus.is_transcript()
+            || self.threads.focus.is_transcript()
             || self.in_subagent_view()
         {
             CaretOwner::None
@@ -606,7 +600,7 @@ impl App {
     /// selection background). This is what every cursor site consults; no
     /// call site should re-derive visibility from raw fields.
     pub fn caret_visible(&self) -> bool {
-        !self.transcript.selection.is_active() && self.caret_owner() != CaretOwner::None
+        !self.threads.selection.is_active() && self.caret_owner() != CaretOwner::None
     }
 
     /// Whether the composer currently has input focus (owns the caret).
@@ -650,7 +644,7 @@ impl App {
         self.composer.completion_dismissed = true;
         self.composer.pending_images.clear();
         self.composer.pending_text_pastes.clear();
-        self.transcript.selection = SelectionState::None;
+        self.threads.selection = SelectionState::None;
         self.arm_ctrl_c(None);
         // An explicit clear is the user *deleting* the draft, not parking it
         // (ADR-0247): the ledger must forget it, or the next view transition

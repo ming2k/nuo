@@ -18,7 +18,11 @@ impl TranslatorState {
     pub(super) async fn handle_thread_hydration(&mut self, resp: AgentResponse) {
         match resp {
             AgentResponse::ThreadSubscribed { thread_id, phase } => {
-                self.session_gate.hydrate(&thread_id);
+                let gen_entry = self
+                    .thread_generations
+                    .entry(thread_id.clone())
+                    .or_insert(0);
+                *gen_entry = gen_entry.saturating_add(1).max(1);
                 let _ = self.thread_mut(&thread_id);
                 self.mutations
                     .send(M::ThreadSubscribed { thread_id, phase })
@@ -28,10 +32,17 @@ impl TranslatorState {
                 previous_id,
                 thread_id: session_id,
             } => {
-                // ADR-0166: the buffer is being replaced, so the session
-                // it just left can no longer write into it; the session
-                // it is entering is current again.
-                self.session_gate.supersede(&previous_id, &session_id);
+                // ADR-0253 `[INV-INSTANCE-03]`: retire `previous_id` (generation 0)
+                // and advance `session_id`'s generation so trailing frames from the
+                // left session are dropped.
+                if previous_id != session_id {
+                    self.thread_generations.insert(previous_id.clone(), 0);
+                }
+                let next_gen = self
+                    .thread_generations
+                    .entry(session_id.clone())
+                    .or_insert(0);
+                *next_gen = next_gen.saturating_add(1).max(1);
                 self.threads.remove(&previous_id);
                 {
                     let ts = self.thread_mut(&session_id);
@@ -80,7 +91,14 @@ impl TranslatorState {
                 // ADR-0166: see `ConversationCleared` — the replaced
                 // buffer must never receive the superseded session's
                 // trailing frames, nor inherit its per-round state.
-                self.session_gate.supersede(&previous_id, &session_id);
+                if previous_id != session_id {
+                    self.thread_generations.insert(previous_id.clone(), 0);
+                }
+                let next_gen = self
+                    .thread_generations
+                    .entry(session_id.clone())
+                    .or_insert(0);
+                *next_gen = next_gen.saturating_add(1).max(1);
                 self.threads.remove(&previous_id);
                 {
                     let ts = self.thread_mut(&session_id);
@@ -127,7 +145,8 @@ impl TranslatorState {
                 // ADR-0166: a hydration frame names the session the
                 // buffer now holds. It cannot be a superseded one, and it
                 // repoints the live id that gates thread-scoped replies.
-                self.session_gate.hydrate(&sid);
+                let next_gen = self.thread_generations.entry(sid.clone()).or_insert(0);
+                *next_gen = (*next_gen).max(1);
                 {
                     let ts = self.thread_mut(&sid);
                     ts.provider = snapshot.provider.clone();

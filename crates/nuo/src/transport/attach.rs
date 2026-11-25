@@ -86,6 +86,7 @@ impl From<AttachError> for String {
 
 struct Welcome {
     session_id: String,
+    generation: u64,
     phase: protocol::ThreadPhase,
 }
 
@@ -225,8 +226,13 @@ pub(super) async fn finish_handshake_with_project(
     let reply = tokio::time::timeout(ATTACH_ACK_TIMEOUT, async {
         match wire_source.next().await {
             Some(Ok(WireFrame::Wire(wire))) => match wire {
-                Wire::Welcome { thread_id, phase } => Ok(Reply::Welcome(Welcome {
+                Wire::Welcome {
+                    thread_id,
+                    generation,
+                    phase,
+                } => Ok(Reply::Welcome(Welcome {
                     session_id: thread_id,
+                    generation,
                     phase,
                 })),
                 Wire::Pick { threads } => Ok(Reply::Pick(threads)),
@@ -326,10 +332,41 @@ pub(super) async fn finish_handshake_with_project(
         let _ = wire_sink.close().await;
     });
 
+    let initial_session_id = welcome.session_id.clone();
+    let initial_generation = welcome.generation;
     tokio::spawn(async move {
+        let mut active_generations: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
+        if !initial_session_id.is_empty() && initial_generation > 0 {
+            active_generations.insert(initial_session_id, initial_generation);
+        }
         while let Some(frame) = wire_source.next().await {
             match frame {
-                Ok(WireFrame::Wire(Wire::Response { response })) => {
+                Ok(WireFrame::Wire(Wire::Response {
+                    response,
+                    generation,
+                })) => {
+                    // ADR-0253 `[INV-INSTANCE-03]`: drop thread-scoped frames
+                    // carrying an older generation than the current subscription.
+                    if generation > 0
+                        && let Some(tid) = response_thread_id(&response)
+                    {
+                        if active_generations
+                            .get(tid)
+                            .is_some_and(|&current| generation < current)
+                        {
+                            tracing::debug!(
+                                thread_id = tid,
+                                frame_generation = generation,
+                                "attach: dropping stale-generation wire frame"
+                            );
+                            continue;
+                        }
+                        let entry = active_generations.entry(tid.to_string()).or_insert(0);
+                        if generation > *entry {
+                            *entry = generation;
+                        }
+                    }
                     // A server instruction to stop is recorded as such, so the
                     // close that follows is not mistaken for a fault.
                     if matches!(response, AgentResponse::Exit) {
@@ -339,7 +376,17 @@ pub(super) async fn finish_handshake_with_project(
                         return;
                     }
                 }
-                Ok(WireFrame::Wire(Wire::Subscribed { thread_id, phase })) => {
+                Ok(WireFrame::Wire(Wire::Subscribed {
+                    thread_id,
+                    generation,
+                    phase,
+                })) => {
+                    if generation > 0 {
+                        let entry = active_generations.entry(thread_id.clone()).or_insert(0);
+                        if generation > *entry {
+                            *entry = generation;
+                        }
+                    }
                     if resp_in_tx
                         .send(AgentResponse::ThreadSubscribed { thread_id, phase })
                         .is_err()
@@ -406,4 +453,18 @@ pub(super) async fn finish_handshake_with_project(
         session_id: welcome.session_id,
         phase: welcome.phase,
     })
+}
+
+/// Extract the owning thread id from a thread-scoped [`AgentResponse`] for
+/// generation gating (`[INV-INSTANCE-03]`, ADR-0253 §2).
+fn response_thread_id(response: &AgentResponse) -> Option<&str> {
+    match response {
+        AgentResponse::Round { thread_id, .. }
+        | AgentResponse::ThreadSubscribed { thread_id, .. }
+        | AgentResponse::ConversationCleared { thread_id, .. }
+        | AgentResponse::ConversationReplaced { thread_id, .. } => Some(thread_id.as_str()),
+        AgentResponse::ThreadSnapshot(snapshot) => Some(snapshot.thread_id.as_str()),
+        AgentResponse::ThreadPhase(update) => Some(update.thread_id.as_str()),
+        _ => None,
+    }
 }

@@ -826,10 +826,7 @@ fn seed_fresh_session(
         write_journal_alias(&journal_root(writer.db_path()), path, &id);
         let _ = writer.set_kv_blocking(format!("path:{}", path.display()), id.clone());
     }
-    let role_manifest = Some(crate::roles::resolve_role_manifest(
-        workspace.map(|w| w.root.as_path()),
-        persona,
-    ));
+    let role_manifest = Some(crate::roles::resolve_role_manifest(persona));
     ThreadData {
         id,
         workspace: workspace.cloned(),
@@ -977,10 +974,7 @@ fn load_or_seed(
         write_journal_alias(&journal_root(writer.db_path()), path, &id);
         let _ = writer.set_kv_blocking(format!("path:{}", path.display()), id.clone());
     }
-    let role_manifest = Some(crate::roles::resolve_role_manifest(
-        workspace.map(|w| w.root.as_path()),
-        persona,
-    ));
+    let role_manifest = Some(crate::roles::resolve_role_manifest(persona));
     ThreadData {
         id,
         workspace: workspace.cloned(),
@@ -1062,10 +1056,8 @@ pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), St
     let mut examined = 0usize;
     let mut corrupt = 0usize;
     let filter = match project_root {
-        Some(path) => protocol::ThreadFilter::workspace_only(protocol::WorkspaceFilter::Path(
-            path.to_path_buf(),
-        )),
-        None => protocol::ThreadFilter::global(),
+        Some(path) => protocol::ThreadFilter::for_workspace(path.to_path_buf()),
+        None => protocol::ThreadFilter::all(),
     };
     for session in reader
         .list_sessions(&filter, true)

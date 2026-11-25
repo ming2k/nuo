@@ -770,19 +770,30 @@ fn build_permission_body_lines(
         ));
     }
     if confirm_always {
-        header.push(Span::styled(
-            " — always allow?",
-            Style::default().fg(theme.fg()),
-        ));
+        let prompt = if request.elevation {
+            " — save to .nuo/config.toml?"
+        } else {
+            " — always allow?"
+        };
+        header.push(Span::styled(prompt, Style::default().fg(theme.fg())));
     } else if request.one_off {
         header.push(Span::styled(
             " — one-off (not remembered)",
             Style::default().fg(theme.warn()),
         ));
     } else if scope_meaningful {
+        let display_scope = if request.elevation {
+            request
+                .suggested_scope
+                .as_deref()
+                .unwrap_or(&request.scope)
+                .to_string()
+        } else {
+            request.scope.clone()
+        };
         header.push(Span::styled("  ", Style::default()));
         header.push(Span::styled(
-            request.scope.clone(),
+            display_scope,
             Style::default().fg(theme.info()),
         ));
     }
@@ -800,6 +811,32 @@ fn build_permission_body_lines(
     body_lines.push(Line::from(header));
 
     if confirm_always {
+        if request.elevation {
+            if let Some(suggested) = request.suggested_scope.as_deref() {
+                body_lines.push(Line::from(Span::styled(
+                    format!(
+                        "Project: Persists `{suggested}` to .nuo/config.toml [workspace].additional_roots."
+                    ),
+                    Style::default().fg(theme.muted()),
+                )));
+                body_lines.push(Line::from(Span::styled(
+                    format!(
+                        "Exact:   Persists `{}` to .nuo/config.toml [workspace].additional_roots.",
+                        request.scope
+                    ),
+                    Style::default().fg(theme.muted()),
+                )));
+            } else {
+                body_lines.push(Line::from(Span::styled(
+                    format!(
+                        "Persists `{}` to .nuo/config.toml [workspace].additional_roots.",
+                        request.scope
+                    ),
+                    Style::default().fg(theme.muted()),
+                )));
+            }
+            return body_lines;
+        }
         if let Some(suggested) = request.suggested_scope.as_deref() {
             body_lines.push(Line::from(Span::styled(
                 format!("Prefix: Grants `{suggested}` permanently for this role & workspace."),
@@ -829,12 +866,14 @@ fn build_permission_body_lines(
         return body_lines;
     }
 
-    if show_details {
+    if show_details || request.elevation {
         body_lines.push(Line::from(""));
-        body_lines.push(Line::from(Span::styled(
-            request.description.clone(),
-            Style::default().fg(theme.fg()),
-        )));
+        for line in request.description.lines() {
+            body_lines.push(Line::from(Span::styled(
+                line.to_string(),
+                Style::default().fg(theme.fg()),
+            )));
+        }
     }
 
     let preview_rows: Vec<String> = match &request.preview {
@@ -1029,13 +1068,21 @@ pub fn draw_permission_sheet(
     let has_suggested = !request.one_off && request.suggested_scope.is_some();
     let cancel_idx = if has_suggested { 2 } else { 1 };
     let labels: Vec<&str> = if confirm_always && !request.one_off {
-        if has_suggested {
+        if request.elevation {
+            if has_suggested {
+                vec!["Save project", "Save exact", "Cancel"]
+            } else {
+                vec!["Confirm save", "Cancel"]
+            }
+        } else if has_suggested {
             vec!["Always (prefix)", "Always (exact)", "Cancel"]
         } else {
             vec!["Confirm always", "Cancel"]
         }
     } else if request.one_off {
         vec!["Allow once", "Reject", details_label]
+    } else if request.elevation {
+        vec!["Allow session", "Save to .nuo", "Reject", details_label]
     } else {
         vec!["Allow once", "Always allow", "Reject", details_label]
     };

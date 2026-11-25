@@ -369,16 +369,10 @@ impl StackEntry {
 /// reported losses: a cross-thread switch (new `App`, tab struct carried, draft
 /// blanked a frame later), a tab replaced in place (arriving `Default` context
 /// overwrote the typed text), and a process restart (nothing durable at all).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct TabContextState {
-    /// The peer focus plane of the tab's chat scene (ADR-0145). One value, so a
-    /// tab can never be restored with an entry highlighted while the composer
-    /// was supposedly live.
-    pub focus: crate::shell::focus::Focus,
-    pub scroll: usize,
-}
-
-/// Canonical client tab representation (ADR-0039 [INV-TAB-01], ADR-0040 [INV-HEAD-02], ADR-0091).
+/// Canonical client tab representation (ADR-0039 [INV-TAB-01], ADR-0040 [INV-HEAD-02], ADR-0253 [INV-INSTANCE-04]).
+///
+/// A tab points at a thread; it does not hold the thread's scroll/focus pose — that lives
+/// solely on `ThreadInstance` (ADR-0253 §3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientTab {
     pub kind: TabKind,
@@ -388,8 +382,6 @@ pub struct ClientTab {
     pub history: Vec<SceneKind>,
     /// Pointer within `history` for Back/Forward navigation.
     pub cursor: usize,
-    /// Sovereign intra-tab interaction context (ADR-0091 [INV-TAB-12]).
-    pub context: TabContextState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -410,7 +402,6 @@ impl ClientTab {
                 .filter(|t| !t.is_empty()),
             history: vec![SceneKind::Thread],
             cursor: 0,
-            context: TabContextState::default(),
         }
     }
 
@@ -420,7 +411,6 @@ impl ClientTab {
             title: Some("Dashboard".to_string()),
             history: vec![SceneKind::Dashboard],
             cursor: 0,
-            context: TabContextState::default(),
         }
     }
 
@@ -430,7 +420,6 @@ impl ClientTab {
             title: Some("Settings".to_string()),
             history: vec![SceneKind::Settings],
             cursor: 0,
-            context: TabContextState::default(),
         }
     }
 

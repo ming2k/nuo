@@ -307,3 +307,225 @@ async fn schema_violating_call_never_reaches_the_tool() {
     assert_eq!(output.to_text(), "ran");
     assert_eq!(calls.lock().unwrap_or_else(|e| e.into_inner()).len(), 1);
 }
+
+struct PathBoundReadTool;
+
+#[async_trait]
+impl Tool for PathBoundReadTool {
+    fn name(&self) -> &str {
+        "path_bound_read"
+    }
+
+    fn description(&self) -> &str {
+        "read-only path-bound test tool"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" }
+            },
+            "required": ["path"]
+        })
+    }
+
+    fn risk_profile(&self) -> tool::RiskProfile {
+        tool::RiskProfile::ReadOnly
+    }
+
+    fn path_bound(&self) -> bool {
+        true
+    }
+
+    async fn execute(
+        &self,
+        _ctx: &tool::ToolContext,
+        args: serde_json::Value,
+    ) -> Result<ToolOutput, tool::ToolError> {
+        let path = args["path"].as_str().unwrap_or_default();
+        Ok(ToolOutput::Text(format!("read:{path}")))
+    }
+}
+
+fn cross_workspace_scratch(tag: &str) -> std::path::PathBuf {
+    let base = std::env::current_dir()
+        .unwrap()
+        .join("target/test-scratch/cross-workspace-prompt")
+        .join(format!("{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    base
+}
+
+#[tokio::test]
+async fn cross_workspace_prompt_session_admits_without_persisting() {
+    let base = cross_workspace_scratch("session");
+    let primary = base.join("primary");
+    let external = base.join("external");
+    std::fs::create_dir_all(&primary).unwrap();
+    std::fs::create_dir_all(external.join(".git")).unwrap();
+    std::fs::create_dir_all(external.join("src")).unwrap();
+    let target = external.join("src/lib.rs");
+    std::fs::write(&target, "pub fn hi() {}").unwrap();
+
+    let shared_roots = protocol::SharedAdditionalRoots::empty();
+    let mut agent = Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(PathBoundReadTool)],
+        crate::AgentIdentity::default(),
+    );
+    agent.set_permission_scope("developer", Some(primary.clone()));
+    agent.bind_shared_additional_roots(shared_roots.clone());
+    let agent = Arc::new(agent);
+
+    let call = ToolCall {
+        id: "cw-session".to_string(),
+        name: "path_bound_read".to_string(),
+        arguments: serde_json::json!({ "path": target.to_string_lossy() }).to_string(),
+    };
+
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let task_agent = agent.clone();
+    let task_call = call.clone();
+    let task = tokio::spawn(async move {
+        task_agent
+            .execute_tool_evented(&task_call, &CancellationToken::new(), &mut |event| {
+                let _ = event_tx.send(event);
+            })
+            .await
+    });
+
+    let request = match event_rx.recv().await.unwrap() {
+        AgentEvent::PermissionRequest(req) => req,
+        other => panic!("expected PermissionRequest, got {other:?}"),
+    };
+    assert!(request.elevation);
+    assert_eq!(request.label, "Cross-workspace access");
+    assert_eq!(
+        request.suggested_scope.as_deref(),
+        Some(std::fs::canonicalize(&external).unwrap().to_string_lossy().as_ref())
+    );
+
+    assert!(agent.reply_permission(&request.id, PermissionDecision::Session));
+    let output = task
+        .await
+        .unwrap()
+        .unwrap()
+        .result
+        .expect("result");
+    assert!(output.to_text().starts_with("read:"), "{output:?}");
+
+    // Admitted in live SharedAdditionalRoots, but `.nuo/config.toml` was NOT created.
+    assert_eq!(
+        shared_roots.snapshot(),
+        vec![std::fs::canonicalize(&external).unwrap()]
+    );
+    assert!(!primary.join(".nuo/config.toml").exists());
+
+    // Second call into the same external project does not prompt again.
+    let mut prompted_again = false;
+    let second = agent
+        .execute_tool_evented(&call, &CancellationToken::new(), &mut |event| {
+            if matches!(event, AgentEvent::PermissionRequest(_)) {
+                prompted_again = true;
+            }
+        })
+        .await
+        .unwrap()
+        .result
+        .unwrap();
+    assert!(second.to_text().starts_with("read:"));
+    assert!(!prompted_again);
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[tokio::test]
+async fn cross_workspace_prompt_always_persists_to_dot_nuo_and_reject_refuses() {
+    let tmp_dirs = tempfile::tempdir().unwrap();
+    let _dirs = host::paths::TestDirsGuard::install(host::paths::Dirs {
+        config_dir: tmp_dirs.path().join("config"),
+        data_dir: tmp_dirs.path().join("data"),
+        state_dir: tmp_dirs.path().join("state"),
+        cache_dir: tmp_dirs.path().join("cache"),
+        runtime_dir: None,
+    });
+    let base = cross_workspace_scratch("persist");
+    let primary = base.join("primary");
+    let external = base.join("external");
+    let denied_dir = base.join("denied");
+    std::fs::create_dir_all(&primary).unwrap();
+    std::fs::create_dir_all(&external).unwrap();
+    std::fs::create_dir_all(&denied_dir).unwrap();
+    let allowed_file = external.join("README.md");
+    let denied_file = denied_dir.join("secret.md");
+    std::fs::write(&allowed_file, "ok").unwrap();
+    std::fs::write(&denied_file, "no").unwrap();
+
+    let shared_roots = protocol::SharedAdditionalRoots::empty();
+    let mut agent = Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(PathBoundReadTool)],
+        crate::AgentIdentity::default(),
+    );
+    agent.set_permission_scope("developer", Some(primary.clone()));
+    agent.bind_shared_additional_roots(shared_roots.clone());
+    let agent = Arc::new(agent);
+
+    // 1. Always -> persists to `<primary>/.nuo/config.toml` and trusts `ExWorkspace`.
+    let call = ToolCall {
+        id: "cw-persist".to_string(),
+        name: "path_bound_read".to_string(),
+        arguments: serde_json::json!({ "path": allowed_file.to_string_lossy() }).to_string(),
+    };
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let task_agent = agent.clone();
+    let task = tokio::spawn(async move {
+        task_agent
+            .execute_tool_evented(&call, &CancellationToken::new(), &mut |event| {
+                let _ = event_tx.send(event);
+            })
+            .await
+    });
+    let request = match event_rx.recv().await.unwrap() {
+        AgentEvent::PermissionRequest(req) => req,
+        other => panic!("expected PermissionRequest, got {other:?}"),
+    };
+    assert!(agent.reply_permission(&request.id, PermissionDecision::Always));
+    let output = task.await.unwrap().unwrap().result.unwrap();
+    assert!(output.to_text().starts_with("read:"));
+
+    let persisted = persistence::config::Config::load_project_additional_roots(&primary);
+    assert_eq!(persisted, vec!["../external"]);
+    assert_eq!(
+        agent.workspace_security().ex_workspace,
+        protocol::WorkspaceTrustState::Trusted
+    );
+
+    // 2. Reject -> returns error and does not admit `denied_dir`.
+    let deny_call = ToolCall {
+        id: "cw-deny".to_string(),
+        name: "path_bound_read".to_string(),
+        arguments: serde_json::json!({ "path": denied_file.to_string_lossy() }).to_string(),
+    };
+    let (deny_tx, mut deny_rx) = tokio::sync::mpsc::unbounded_channel();
+    let task_agent = agent.clone();
+    let deny_task = tokio::spawn(async move {
+        task_agent
+            .execute_tool_evented(&deny_call, &CancellationToken::new(), &mut |event| {
+                let _ = deny_tx.send(event);
+            })
+            .await
+    });
+    let deny_req = match deny_rx.recv().await.unwrap() {
+        AgentEvent::PermissionRequest(req) => req,
+        other => panic!("expected PermissionRequest, got {other:?}"),
+    };
+    assert!(agent.reply_permission(&deny_req.id, PermissionDecision::Reject));
+    let deny_out = deny_task.await.unwrap().unwrap().result.unwrap();
+    assert!(matches!(deny_out, ToolOutput::Error { .. }));
+    assert!(!shared_roots.snapshot().contains(&std::fs::canonicalize(&denied_dir).unwrap()));
+
+    let _ = std::fs::remove_dir_all(&base);
+}
