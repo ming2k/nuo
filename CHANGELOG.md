@@ -6,6 +6,49 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.100] - 2026-11-26
+
+### Added
+
+- **One Action Manifest: declared primitives, compositions, and checked trigger routing.**
+  Introduced `protocol::action`, `server::composition::thread_actions`, and
+  `nuo::shell::action_routes::ROUTES` as the single source of truth for action
+  authority, class, and presentation, plus the third `CommandEffect::SessionControl`
+  variant so topology transitions such as `/new` file receipts rather than
+  staging residue rows. All five "create a thread" triggers (`TabBar +`,
+  `Alt-t`, Palette `NewTab`, Help portal, and Composer `/new`) now funnel
+  through one resident `start_fresh_thread` path, and `/new <prompt>` preserves
+  its argument
+  ([ADR-0252](docs/adr/0252-one-action-manifest-declared-primitives-and-compositions.md),
+  `[INV-VERB-01..06]`).
+- **One owner per field: `ThreadInstance` and `Viewport` (Wire Protocol v35).**
+  Collapsed duplicate per-thread state bags (`ThreadWorkspace`,
+  `TabContextState`, manual `park`/`install` reconciliation, and `SessionGate`)
+  into a single `ThreadInstance` map keyed by `ThreadKey { id, generation }` and
+  a sibling terminal-global `Viewport`, unifying foreground and background
+  mutations and aligning client emptiness with durable `ThreadData::is_user_facing_empty`
+  ([ADR-0253](docs/adr/0253-one-owner-per-field-thread-instance-and-viewport.md),
+  `[INV-INSTANCE-01..05]`). **Breaking wire change**: `PROTOCOL_VERSION` and
+  `MIN_PROTOCOL_VERSION` advance to `35`.
+- **Orthogonal Thread, Role, and Workspace primitives (DB migration 0008).**
+  Separated `thread_id`, stateless capability roles, and optional workspace
+  attachments: deleted `ThreadScope`, `WorkspaceFilter`, `RoleWorkspace`,
+  workspace-local `.nuo/roles.toml`, and `trg_thread_policy_scope_immutable`
+  (dropped by `0008_orthogonal_thread_role_workspace.sql`). `/role <id>` now
+  hot-swaps the active role profile in place (`/role <id> --new` starts a fresh
+  thread), and `nuo thread ls / stop / rm` accept independent `--role` and
+  `--workspace` filters (removing `--all-roles` and `--global`)
+  ([ADR-0254](docs/adr/0254-orthogonal-thread-role-and-workspace-primitives.md),
+  supersedes [ADR-0170](docs/adr/0170-role-scoped-thread-history-and-workspace-binding.md),
+  `[INV-ORTHO-01..04]`).
+
+### Changed
+
+- **ADR registry consolidation and documentation alignment.** Audited and
+  normalized ADR frontmatter and governance gates across `docs/adr/`, and
+  updated user docs, CLI help strings, built-in `/role` specs, and integration /
+  E2E tests to match ADR-0252/0253/0254.
+
 ## [0.0.99] - 2026-11-25
 
 ### Added

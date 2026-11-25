@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acp"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "chrono",
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "engine"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "base64",
@@ -1130,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "guardrails"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "host"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "arboard",
  "async-trait",
@@ -1498,7 +1498,7 @@ dependencies = [
 
 [[package]]
 name = "inference-wire"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "serde",
  "serde_json",
@@ -1883,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "model-routing"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "chrono",
  "futures",
@@ -2141,7 +2141,7 @@ dependencies = [
 
 [[package]]
 name = "nuo"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2179,7 +2179,7 @@ dependencies = [
 
 [[package]]
 name = "nuo-tests"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "acp",
  "async-trait",
@@ -2379,7 +2379,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "persistence"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "base64",
@@ -2492,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "base64",
@@ -2518,7 +2518,7 @@ dependencies = [
 
 [[package]]
 name = "provider"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "base64",
@@ -2544,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "provider-anthropic"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "futures",
@@ -2562,7 +2562,7 @@ dependencies = [
 
 [[package]]
 name = "provider-catalog"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "http",
  "inference-wire",
@@ -2574,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "provider-chatgpt-plan"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "base64",
@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "provider-codebuddy"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "futures",
@@ -2609,7 +2609,7 @@ dependencies = [
 
 [[package]]
 name = "provider-commandcode-goat"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2621,7 +2621,7 @@ dependencies = [
 
 [[package]]
 name = "provider-copilot"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -2633,7 +2633,7 @@ dependencies = [
 
 [[package]]
 name = "provider-deepseek"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2645,7 +2645,7 @@ dependencies = [
 
 [[package]]
 name = "provider-glm-cn"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2655,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "provider-google-antigravity"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2676,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "provider-kimi"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2688,7 +2688,7 @@ dependencies = [
 
 [[package]]
 name = "provider-openai"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "futures",
@@ -2707,7 +2707,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opencode-go"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "chrono",
  "inference-wire",
@@ -2721,7 +2721,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opencode-zen"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2731,7 +2731,7 @@ dependencies = [
 
 [[package]]
 name = "provider-opendesign-go"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2741,7 +2741,7 @@ dependencies = [
 
 [[package]]
 name = "provider-openrouter"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2753,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "provider-qianwen"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "inference-wire",
  "inventory",
@@ -2763,7 +2763,7 @@ dependencies = [
 
 [[package]]
 name = "provider-qoder"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "aes",
  "async-trait",
@@ -2792,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "provider-xai"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "inference-wire",
@@ -3263,7 +3263,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "acp",
  "async-trait",
@@ -3565,7 +3565,7 @@ dependencies = [
 
 [[package]]
 name = "test-support"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "libc",
  "serde",
@@ -3777,7 +3777,7 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tool"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "hex",
@@ -3795,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "tool-ast"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "ignore",
@@ -3819,7 +3819,7 @@ dependencies = [
 
 [[package]]
 name = "tool-derive"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3829,7 +3829,7 @@ dependencies = [
 
 [[package]]
 name = "tool-exec"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "libc",
@@ -3842,7 +3842,7 @@ dependencies = [
 
 [[package]]
 name = "tool-fs"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "base64",
@@ -3858,7 +3858,7 @@ dependencies = [
 
 [[package]]
 name = "tool-web"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4071,7 +4071,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui-primitives"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "chrono",
  "graticule-canvas",
@@ -4204,7 +4204,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "view"
-version = "0.0.99"
+version = "0.0.100"
 dependencies = [
  "chrono",
  "graticule-canvas",
