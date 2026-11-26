@@ -126,10 +126,7 @@ pub(crate) async fn execute_command_by_id(
             match app.render_notices(Some(viewed_session_id)) {
                 Some(text) => {
                     clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                    app.surfaces.copy_toast_message = "notices copied".to_string();
-                    app.surfaces.copy_toast_failed = false;
-                    app.surfaces.copy_toast_until =
-                        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                    clipboard_ops::show_copy_receipt(app, "notices copied");
                 }
                 None => clipboard_ops::show_copy_failure(app, "no notices retained yet"),
             }

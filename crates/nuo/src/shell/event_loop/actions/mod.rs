@@ -1584,10 +1584,7 @@ fn handle_clipboard_export_action(
                     crate::shell::copy::fold_hidden_rows_copy(app, target.message_idx)
                 {
                     clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                    app.surfaces.copy_toast_message = feedback;
-                    app.surfaces.copy_toast_failed = false;
-                    app.surfaces.copy_toast_until =
-                        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                    clipboard_ops::show_copy_receipt(app, feedback);
                 } else {
                     clipboard_ops::copy(
                         app,
@@ -1609,20 +1606,12 @@ fn handle_clipboard_export_action(
             };
             let text = log.copy_text();
             if text.is_empty() {
-                show_local_toast(
-                    app,
-                    "this log has no rows to copy",
-                    true,
-                    std::time::Duration::from_millis(1600),
-                );
+                clipboard_ops::show_copy_failure(app, "this log has no rows to copy");
                 return ActionFlow::Handled;
             }
             let feedback = log.copy_feedback();
             clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-            app.surfaces.copy_toast_message = feedback;
-            app.surfaces.copy_toast_failed = false;
-            app.surfaces.copy_toast_until =
-                Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+            clipboard_ops::show_copy_receipt(app, feedback);
         }
         input::InputAction::CommandLogToggleScope => {
             if let Some(log) = app.threads.command_log.as_mut()
@@ -1730,19 +1719,9 @@ fn handle_notice_action(
         input::InputAction::NoticesCopy => match app.render_notices(Some(viewed_session_id)) {
             Some(text) => {
                 clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                show_local_toast(
-                    app,
-                    "notices copied",
-                    false,
-                    std::time::Duration::from_millis(1500),
-                );
+                clipboard_ops::show_copy_receipt(app, "notices copied");
             }
-            None => show_local_toast(
-                app,
-                "no notices retained yet",
-                true,
-                std::time::Duration::from_millis(1500),
-            ),
+            None => clipboard_ops::show_copy_failure(app, "no notices retained yet"),
         },
         _ => {}
     }

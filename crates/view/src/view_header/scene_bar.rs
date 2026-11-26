@@ -158,13 +158,19 @@ pub fn draw_scene_bar(
         left_width += lbl.width();
     }
 
+    let right_reserve = if right_width > 0 {
+        right_width + JOIN_ENUMERATE_COLS
+    } else {
+        0
+    };
+
     if let Some(role) = hints.role.map(str::trim).filter(|r| !r.is_empty()) {
         let sep_w = if left_width > 0 {
             JOIN_ENUMERATE_COLS
         } else {
             0
         };
-        let budget = text_width.saturating_sub(left_width + sep_w + right_width);
+        let budget = text_width.saturating_sub(left_width + sep_w + right_reserve);
         let token = truncate_role_token(
             role,
             budget,
@@ -187,7 +193,7 @@ pub fn draw_scene_bar(
         } else {
             0
         };
-        let budget = text_width.saturating_sub(left_width + sep_w + right_width);
+        let budget = text_width.saturating_sub(left_width + sep_w + right_reserve);
         let truncated = truncate_with(ctx, budget, theme.glyphs.ellipsis);
         if !truncated.is_empty() {
             if left_width > 0 {

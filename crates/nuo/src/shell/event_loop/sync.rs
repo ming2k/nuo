@@ -129,20 +129,6 @@ pub(crate) fn tick_toast_timers(app: &mut App) -> bool {
         changed = true;
     }
 
-    if !app.composer.pending_images.is_empty() && !app.ctrl_c_armed() {
-        let n = app.composer.pending_images.len();
-        show_local_toast(
-            app,
-            format!(
-                "{n} image{} attached — enter to send",
-                if n == 1 { "" } else { "s" }
-            ),
-            false,
-            std::time::Duration::from_millis(600),
-        );
-        changed = true;
-    }
-
     let before_esc = app.esc_armed();
     app.tick_esc_arm();
     if before_esc != app.esc_armed() {
@@ -157,8 +143,9 @@ pub(crate) fn tick_toast_timers(app: &mut App) -> bool {
 /// A **failed** local toast is diagnostic content: it goes through the notice
 /// funnel first (`App::record_local_fault`), which retains it in the log and
 /// paints the fault bubble. A successful one is an acknowledgement of an action
-/// the user can repeat, so it is only a bubble — but it is still recorded in the
-/// log at `Info`, because "what did that say?" is asked a minute later.
+/// the user can repeat, so it is retained silently in the log at `Info` (because
+/// "what did that say?" is asked a minute later) and painted solely through the
+/// caller's short-lived copy-toast bubble.
 pub(crate) fn show_local_toast(
     app: &mut App,
     message: impl Into<String>,
@@ -173,12 +160,18 @@ pub(crate) fn show_local_toast(
         );
         return;
     }
-    // Retained as an acknowledgement (no bubble from the funnel — the caller is
-    // painting one), then the caller's own duration wins.
-    app.record_client_notice(crate::shell::app::notice_catalog::ClientNotice::LocalAck {
-        topic: crate::shell::app::notice_catalog::ClientTopic::Client,
-        message: message.clone(),
-    });
+    // Retain in the notice log without raising a second 4 s notice bubble
+    // behind the copy toast, so the caller's own duration governs the bubble.
+    // Supersede any stale non-fault notice bubble so an older ack cannot
+    // resurface once this copy toast expires, while preserving any live fault
+    // bubble so its WCAG dwell budget stays intact.
+    app.retain_local_ack(
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        message.clone(),
+    );
+    if !app.surfaces.notice_toast_severity.is_fault() {
+        app.surfaces.notice_toast_until = None;
+    }
     app.surfaces.copy_toast_message = message;
     app.surfaces.copy_toast_failed = false;
     app.surfaces.copy_toast_until = Some(std::time::Instant::now() + duration);

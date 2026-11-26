@@ -454,12 +454,7 @@ pub(crate) fn handle_ctrl_c(
         };
         if !text.is_empty() {
             clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-            show_local_toast(
-                app,
-                "Link copied to clipboard",
-                false,
-                std::time::Duration::from_millis(2000),
-            );
+            clipboard_ops::show_copy_receipt(app, "Link copied to clipboard");
         }
     } else if app.current_scene() == SceneKind::Dashboard {
         // The session dashboard owns Ctrl+C: it is a first-class

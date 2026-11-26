@@ -314,8 +314,8 @@ impl TranscriptMessage {
 
     /// The subagent's role (`explore` / `plan` / `verify` / …), identified by
     /// the `Started` event. `None` for non-task steps and before the role is
-    /// known. The Subagent page header renders this as the `[ROLE]` tag between
-    /// the `SUBAGENT` identity and the task title.
+    /// known. The Subagent `SceneBar` renders this via `ViewHints::role`
+    /// (`ROLE` on chromatic surfaces, `[ROLE]` on framed fallback — ADR-0268).
     pub fn subagent_role(&self) -> Option<String> {
         match &self.kind {
             MessageKind::ToolStep { profile, .. } => profile.clone(),

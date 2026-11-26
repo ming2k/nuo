@@ -208,7 +208,7 @@ pub struct TranscriptProps<'a> {
     pub interrupt_key: Option<crate::shell::keymap::Key>,
     /// When set, the view is zoomed into a subagent task: `messages` is the
     /// focused task's child stream. The head band's scene row names the scene
-    /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0024).
+    /// `subagent` and carries the task's typed `role` + `label (i/n)` context (ADR-0268).
     pub subagent_bar: Option<SubagentBarInfo>,
     /// The head band's **scene row** (ADR-0024): the scene the user stands in,
     /// its context, and the session's run-mode flags + the `C-x menu` namespace
@@ -290,7 +290,8 @@ pub use view::text_layout::{BlockWrapCache, PreparedCode};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubagentBarInfo {
     /// The subagent's role (`explore` / `plan` / …), when the `Started` event
-    /// has identified it. Rendered as the `[ROLE]` tag between the `SUBAGENT`
+    /// has identified it. Rendered in Tier 2 `SceneBar` as bare `ROLE` on
+    /// chromatic surfaces (`[ROLE]` on framed fallback — ADR-0268 `[INV-HEAD-11]`).
     /// identity and the title; omitted before the role is known.
     pub role: Option<String>,
     /// Title of the focused subagent (its task description).

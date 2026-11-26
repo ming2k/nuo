@@ -148,10 +148,7 @@ pub(super) fn handle_provider_action(
                 app.viewport.drag.cell_info.as_ref(),
             ) {
                 clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                app.surfaces.copy_toast_message = "Selection copied to clipboard".to_string();
-                app.surfaces.copy_toast_failed = false;
-                app.surfaces.copy_toast_until =
-                    Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                clipboard_ops::show_copy_receipt(app, "Selection copied to clipboard");
                 return Some(ActionFlow::Handled);
             }
             let actual_target = match target {
@@ -171,10 +168,7 @@ pub(super) fn handle_provider_action(
             };
             if !text.is_empty() {
                 clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                app.surfaces.copy_toast_message = label.to_string();
-                app.surfaces.copy_toast_failed = false;
-                app.surfaces.copy_toast_until =
-                    Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                clipboard_ops::show_copy_receipt(app, label);
             }
             Some(ActionFlow::Handled)
         }

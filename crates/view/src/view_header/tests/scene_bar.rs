@@ -289,3 +289,26 @@ fn row2_non_thread_context_degrades_ellipsis_under_ascii_glyphs() {
         "ASCII profile must emit ASCII ellipsis: {row:?}"
     );
 }
+
+#[test]
+fn row2_subagent_keeps_gap_before_breadcrumbs_under_width_pressure() {
+    let crumbs = [SceneKind::Thread, SceneKind::Subagent];
+    let row = render_row2(
+        48,
+        ViewHints {
+            kind: SceneKind::Subagent,
+            role: Some("explore"),
+            context: Some("a very long subagent task description that must truncate"),
+            context_warn: false,
+            breadcrumbs: Some(&crumbs),
+            can_back: true,
+            can_forward: false,
+        },
+    );
+    let crumb_start = row.find('‹').expect("breadcrumb chevron present");
+    let before = &row[..crumb_start];
+    assert!(
+        before.ends_with("  "),
+        "left cluster must keep a 2-column gap before breadcrumbs: {row:?}"
+    );
+}

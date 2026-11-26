@@ -257,8 +257,6 @@ fn drain_background_channels(
 
     while let Ok(result) = copy_rx.try_recv() {
         clipboard_ops::set_copy_feedback(app, result);
-        app.surfaces.copy_toast_until =
-            Some(std::time::Instant::now() + std::time::Duration::from_millis(1800));
         frame_dirty = true;
     }
 
@@ -654,7 +652,6 @@ pub(crate) async fn run_app_loop(
         let tab_live = app.surfaces.tab_reveal_active || app.surfaces.tab_shimmer_active;
         let animating = viewed_animating
             || app.has_live_transport_setback()
-            || !app.composer.pending_images.is_empty()
             || app.composer.input_drag_scroll.is_some()
             || models_live
             || tab_live
@@ -835,8 +832,6 @@ pub(crate) async fn run_app_loop(
             }
             Some(copy_result) = copy_rx.recv() => {
                 clipboard_ops::set_copy_feedback(app, copy_result);
-                app.surfaces.copy_toast_until =
-                    Some(std::time::Instant::now() + std::time::Duration::from_millis(1800));
                 input_redraw_pending = true;
             }
             Some(read) = paste_rx.recv() => {
@@ -1430,10 +1425,7 @@ async fn process_one_event<W: io::Write>(
     if let Some(mi) = app.surfaces.pending_fold_copy.take() {
         if let Some((text, feedback)) = crate::shell::copy::fold_hidden_rows_copy(app, mi) {
             clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-            app.surfaces.copy_toast_message = feedback;
-            app.surfaces.copy_toast_failed = false;
-            app.surfaces.copy_toast_until =
-                Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+            clipboard_ops::show_copy_receipt(app, feedback);
         } else {
             clipboard_ops::show_copy_failure(app, "this step has nothing hidden to copy");
         }

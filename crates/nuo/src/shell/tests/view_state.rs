@@ -109,22 +109,28 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
         "non-vision model must not stage image attachments"
     );
     assert!(
-        app.surfaces.copy_toast_failed,
-        "non-vision model should toast a failure on image paste"
+        app.surfaces.notice_toast_severity.is_fault(),
+        "non-vision model should raise a retained fault notice on image paste"
     );
     assert!(
         app.surfaces
-            .copy_toast_message
+            .notice_toast_message
             .contains("does not support images"),
-        "toast should say the model doesn't support images, got: {}",
-        app.surfaces.copy_toast_message,
+        "notice should say the model doesn't support images, got: {}",
+        app.surfaces.notice_toast_message,
     );
     assert!(
-        app.surfaces.copy_toast_message.contains("model editor"),
+        app.surfaces.notice_toast_message.contains("model editor"),
         "the rejection must name the escape hatch (layer-1 override), got: {}",
-        app.surfaces.copy_toast_message,
+        app.surfaces.notice_toast_message,
     );
-    assert!(app.surfaces.copy_toast_until.is_some());
+    assert!(app.surfaces.notice_toast_until.is_some());
+    assert_eq!(app.notice_count(), 1);
+    assert_eq!(
+        app.notice_lines().back().and_then(|l| l.label.as_deref()),
+        Some("images")
+    );
+    assert!(app.has_unread_notice_fault());
 }
 
 #[test]
@@ -412,7 +418,9 @@ fn composer_image_paste_snapshot_override_forces_off() {
         "snapshot vision=false (user override) must veto the paste even \
          though the static baseline says vision=true"
     );
-    assert!(app.surfaces.copy_toast_failed);
+    assert!(app.surfaces.notice_toast_severity.is_fault());
+    assert!(app.surfaces.notice_toast_until.is_some());
+    assert!(app.has_unread_notice_fault());
 }
 
 #[test]

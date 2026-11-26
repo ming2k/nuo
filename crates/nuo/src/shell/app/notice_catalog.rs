@@ -135,6 +135,13 @@ pub enum ClientNotice {
     },
     /// A link could not be opened in the browser.
     LinkOpenFailed { url: String, error: String },
+    /// A clipboard write failed (native clipboard backend or OSC52 timeout/error).
+    ClipboardWriteFailed { error: String },
+    /// An image paste was refused because the active route explicitly declared
+    /// `vision: false`.
+    ImagePasteRejected { model: String },
+    /// A file-list paste contained one or more non-image files that were skipped.
+    NonImageFilesSkipped { attached: usize, skipped: usize },
     /// A steer cancellation lost the race: the steer was admitted after all, so
     /// the requested deletion did not happen.
     SteerCancelRaced,
@@ -313,6 +320,51 @@ impl ClientNotice {
                 title: format!("Failed to open link {url}: {error}"),
                 detail: None,
             },
+            Self::ClipboardWriteFailed { error } => {
+                let trimmed = error.trim();
+                let (title, detail) = match trimmed.split_once('\n') {
+                    Some((first, rest)) if !rest.trim().is_empty() => (
+                        format!("copy failed: {}", first.trim()),
+                        Some(trimmed.to_string()),
+                    ),
+                    _ if trimmed.is_empty() => ("copy failed".to_string(), None),
+                    _ => (format!("copy failed: {trimmed}"), None),
+                };
+                RenderedNotice {
+                    severity: NoticeSeverity::Error,
+                    topic: ClientTopic::Copy.label(),
+                    title,
+                    detail,
+                }
+            }
+            Self::ImagePasteRejected { model } => RenderedNotice {
+                severity: NoticeSeverity::Warning,
+                topic: ClientTopic::Images.label(),
+                title: format!(
+                    "{model} does not support images — paste ignored (set Vision in the model editor to override)"
+                ),
+                detail: None,
+            },
+            Self::NonImageFilesSkipped { attached, skipped } => {
+                let title = if *attached > 0 {
+                    format!(
+                        "{} attached — skipped {skipped} non-image file{}",
+                        if *attached == 1 { "1 image" } else { "images" },
+                        if *skipped == 1 { "" } else { "s" },
+                    )
+                } else {
+                    format!(
+                        "skipped {skipped} file{} — only images can be attached",
+                        if *skipped == 1 { "" } else { "s" },
+                    )
+                };
+                RenderedNotice {
+                    severity: NoticeSeverity::Warning,
+                    topic: ClientTopic::Images.label(),
+                    title,
+                    detail: None,
+                }
+            }
             Self::SteerCancelRaced => RenderedNotice {
                 severity: NoticeSeverity::Warning,
                 topic: ClientTopic::Command.label(),
@@ -495,6 +547,20 @@ mod tests {
                 url: "https://example.test".to_string(),
                 error: "no browser".to_string(),
             },
+            ClientNotice::ClipboardWriteFailed {
+                error: "wl-copy failed\ndetails".to_string(),
+            },
+            ClientNotice::ImagePasteRejected {
+                model: "deepseek-chat".to_string(),
+            },
+            ClientNotice::NonImageFilesSkipped {
+                attached: 1,
+                skipped: 2,
+            },
+            ClientNotice::NonImageFilesSkipped {
+                attached: 0,
+                skipped: 1,
+            },
             ClientNotice::SteerCancelRaced,
             ClientNotice::SteerMissedRoundRestored,
             ClientNotice::SteerContentLost,
@@ -549,6 +615,12 @@ mod tests {
             ClientNotice::LinkOpenFailed {
                 url: "u".into(),
                 error: "e".into(),
+            },
+            ClientNotice::ClipboardWriteFailed { error: "e".into() },
+            ClientNotice::ImagePasteRejected { model: "m".into() },
+            ClientNotice::NonImageFilesSkipped {
+                attached: 0,
+                skipped: 1,
             },
             ClientNotice::SteerCancelRaced,
             ClientNotice::SteerContentLost,

@@ -108,21 +108,25 @@ impl App {
     /// the closed vocabulary, or fake a timestamp. Time is stamped here, once,
     /// from the single client clock.
     pub(crate) fn record_notice(&mut self, rendered: RenderedNotice) -> bool {
+        let Some(line) = self.retain_notice_line(rendered) else {
+            return false;
+        };
+        self.raise_notice_bubble(&line);
+        true
+    }
+
+    fn retain_notice_line(&mut self, rendered: RenderedNotice) -> Option<SurfaceLine> {
         let at_ms = crate::shell::event_loop::now_epoch_ms();
         let log = self.notice_log();
-        let Some(line) = crate::shell::app::receipts::record(
+        crate::shell::app::receipts::record(
             log,
             rendered.severity(),
             rendered.topic(),
             rendered.title().to_string(),
             rendered.detail().map(str::to_string),
             at_ms,
-        ) else {
-            return false;
-        };
-        let line = line.clone();
-        self.raise_notice_bubble(&line);
-        true
+        )
+        .cloned()
     }
 
     /// Record a catalog kind — the ergonomic producer entry point.
@@ -132,6 +136,24 @@ impl App {
     /// the wire projection) calls into.
     pub(crate) fn record_client_notice(&mut self, kind: ClientNotice) -> bool {
         self.record_notice(kind.render())
+    }
+
+    /// Retain a local acknowledgement in the notice log without touching the
+    /// notice bubble slot.
+    ///
+    /// Narrowed to [`ClientNotice::LocalAck`] (`Info`) on purpose: a fault must
+    /// always raise its pointer bubble, while `show_local_toast` paints its own
+    /// short-lived copy-toast bubble on success and must neither arm a second
+    /// 4 s notice bubble behind it nor clobber an active fault bubble.
+    pub(crate) fn retain_local_ack(&mut self, topic: ClientTopic, text: impl Into<String>) -> bool {
+        self.retain_notice_line(
+            ClientNotice::LocalAck {
+                topic,
+                message: text.into(),
+            }
+            .render(),
+        )
+        .is_some()
     }
 
     /// Record a local fault with client-authored wording under a closed topic.

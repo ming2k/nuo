@@ -1106,3 +1106,221 @@ fn a_retry_receipt_records_the_retry_and_the_budget_but_never_a_countdown() {
         progress.label(now)
     );
 }
+
+#[test]
+fn tick_toast_timers_does_not_flood_notices_or_clobber_paste_toast_with_pending_images() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.reset_to_thread();
+    app.threads.current_provider = "mock".to_string();
+    app.threads.current_model = "mystery-relay-model".to_string();
+
+    crate::shell::clipboard_ops::apply_clipboard_paste(
+        &mut app,
+        crate::shell::clipboard::ClipboardRead::Image {
+            data: vec![0x89, 0x50, 0x4e, 0x47],
+            mime: "image/png".to_string(),
+        },
+    );
+    assert_eq!(app.composer.pending_images.len(), 1);
+    let paste_toast = app.surfaces.copy_toast_message.clone();
+    assert!(
+        paste_toast.contains("unverified"),
+        "precondition: paste toast reports unverified vision, got: {paste_toast}"
+    );
+    let notices_after_paste = app.notice_count();
+
+    for _ in 0..20 {
+        let changed = crate::shell::event_loop::sync::tick_toast_timers(&mut app);
+        assert!(
+            !changed,
+            "ticking timers with a staged image must not force a dirty frame"
+        );
+    }
+
+    assert_eq!(
+        app.notice_count(),
+        notices_after_paste,
+        "timer ticks must never append notices while an image is staged"
+    );
+    assert_eq!(
+        app.surfaces.copy_toast_message, paste_toast,
+        "timer ticks must not overwrite the paste toast"
+    );
+}
+
+#[test]
+fn show_local_toast_success_retains_ack_without_raising_a_second_notice_bubble() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+
+    // A newer local-ack toast supersedes a stale non-fault notice bubble so
+    // the older ack does not reappear once the copy toast expires.
+    disclose(
+        &mut app,
+        NoticeSeverity::Info,
+        crate::shell::app::notice_catalog::ClientTopic::Command,
+        "delegated mode on",
+    );
+    assert!(app.surfaces.notice_toast_until.is_some());
+    crate::shell::event_loop::sync::show_local_toast(
+        &mut app,
+        "Queue paused",
+        false,
+        std::time::Duration::from_millis(1200),
+    );
+    assert_eq!(
+        app.notice_count(),
+        2,
+        "both acks are retained in the notice log"
+    );
+    assert_eq!(
+        app.notice_lines().back().map(|l| l.text.as_str()),
+        Some("Queue paused")
+    );
+    assert!(app.surfaces.copy_toast_until.is_some());
+    assert_eq!(app.surfaces.copy_toast_message, "Queue paused");
+    assert!(
+        app.surfaces.notice_toast_until.is_none(),
+        "copy-toast ack must clear a stale non-fault notice bubble and not arm a duplicate 4s bubble behind it"
+    );
+
+    // An active fault bubble must survive an unrelated local-ack toast.
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Link,
+        "link down",
+    );
+    assert!(app.surfaces.notice_toast_until.is_some());
+
+    crate::shell::event_loop::sync::show_local_toast(
+        &mut app,
+        "input cleared",
+        false,
+        std::time::Duration::from_millis(1200),
+    );
+    assert_eq!(app.notice_count(), 4, "fault and all acks are retained");
+    assert_eq!(app.surfaces.copy_toast_message, "input cleared");
+    assert!(app.surfaces.copy_toast_until.is_some());
+    assert_eq!(
+        app.surfaces.notice_toast_message, "link down",
+        "local ack must not overwrite an in-flight fault bubble"
+    );
+    assert_eq!(app.surfaces.notice_toast_severity, NoticeSeverity::Error);
+    assert!(app.surfaces.notice_toast_until.is_some());
+}
+
+#[test]
+fn clipboard_write_failure_records_untruncated_fault_under_copy_topic() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+
+    // A successful clipboard write is an ephemeral receipt — not a notice row.
+    crate::shell::clipboard_ops::set_copy_feedback(
+        &mut app,
+        Ok(crate::shell::clipboard::CopyOutcome::Native),
+    );
+    assert_eq!(app.notice_count(), 0);
+    assert_eq!(app.surfaces.copy_toast_message, "copied to clipboard");
+    assert!(app.surfaces.copy_toast_until.is_some());
+
+    // A failed clipboard write goes through the notice funnel under `copy`
+    // without truncating the diagnostic detail, and yields the copy-toast slot.
+    let err = "wl-copy exited with status 1\nFailed to connect to a Wayland display: WAYLAND_DISPLAY is not set";
+    crate::shell::clipboard_ops::set_copy_feedback(&mut app, Err(err.to_string()));
+
+    assert!(
+        app.surfaces.copy_toast_until.is_none(),
+        "fault bubble supersedes the ephemeral copy toast"
+    );
+    assert!(app.surfaces.notice_toast_until.is_some());
+    assert_eq!(app.surfaces.notice_toast_severity, NoticeSeverity::Error);
+    assert_eq!(app.notice_count(), 1);
+    let line = app.notice_lines().back().expect("fault is retained");
+    assert_eq!(line.status, LineStatus::Failed);
+    assert_eq!(line.label.as_deref(), Some("copy"));
+    assert_eq!(line.text, "copy failed: wl-copy exited with status 1");
+    assert_eq!(
+        line.detail.as_deref(),
+        Some(err),
+        "full multi-line clipboard error must be preserved in detail"
+    );
+}
+
+#[test]
+fn non_image_files_skipped_on_paste_records_warning_under_images_topic() {
+    let (mut app, tmp) = app_in_tempdir(&[], &[]);
+    app.reset_to_thread();
+    app.threads.current_model = "gpt-4o".to_string();
+    let txt = tmp.path().join("notes.txt");
+    let png = tmp.path().join("pic.png");
+    std::fs::write(&txt, b"hello").unwrap();
+    std::fs::write(&png, [0x89, 0x50, 0x4e, 0x47]).unwrap();
+
+    // Only non-image files -> warning retained under `images`.
+    crate::shell::clipboard_ops::apply_clipboard_paste(
+        &mut app,
+        crate::shell::clipboard::ClipboardRead::Files(vec![txt.clone()]),
+    );
+    assert!(app.composer.pending_images.is_empty());
+    assert_eq!(app.notice_count(), 1);
+    let first = app.notice_lines().back().unwrap();
+    assert_eq!(first.status, LineStatus::Warn);
+    assert_eq!(first.label.as_deref(), Some("images"));
+    assert!(first.text.contains("skipped 1 file"), "got: {}", first.text);
+
+    // Mixed image + non-image files -> image staged, skip warning retained.
+    crate::shell::clipboard_ops::apply_clipboard_paste(
+        &mut app,
+        crate::shell::clipboard::ClipboardRead::Files(vec![png, txt]),
+    );
+    assert_eq!(app.composer.pending_images.len(), 1);
+    assert_eq!(app.notice_count(), 2);
+    let second = app.notice_lines().back().unwrap();
+    assert_eq!(second.status, LineStatus::Warn);
+    assert_eq!(second.label.as_deref(), Some("images"));
+    assert!(
+        second
+            .text
+            .contains("1 image attached — skipped 1 non-image file"),
+        "got: {}",
+        second.text
+    );
+}
+
+#[tokio::test]
+async fn copying_notices_from_viewer_never_mutates_notice_log() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = runtime();
+
+    // Empty viewer: copying reports an ephemeral failure toast without
+    // inserting a brand-new fault into the empty notice center.
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::NoticesCopy,
+        "test-session",
+    )
+    .await;
+    assert_eq!(app.notice_count(), 0);
+    assert!(app.surfaces.copy_toast_failed);
+    assert_eq!(app.surfaces.copy_toast_message, "no notices retained yet");
+
+    // Non-empty viewer: copying emits an ephemeral receipt without appending
+    // "notices copied" to the notice log itself.
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Link,
+        "link down",
+    );
+    assert_eq!(app.notice_count(), 1);
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::NoticesCopy,
+        "test-session",
+    )
+    .await;
+    assert_eq!(app.notice_count(), 1);
+    assert!(!app.surfaces.copy_toast_failed);
+    assert_eq!(app.surfaces.copy_toast_message, "notices copied");
+}

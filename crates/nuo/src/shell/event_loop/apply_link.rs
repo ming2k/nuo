@@ -196,9 +196,11 @@ pub(super) fn apply_subscribe_refused(
     error: crate::shell::client::AttachError,
 ) -> bool {
     if error.is_server_not_ready() {
-        // Retryable refusal: allow `reconcile_subscriptions` to re-send once
+        // Retryable refusal (server still `Initializing`): clear optimistic
+        // in-flight/subscribed state so `reconcile_subscriptions` re-sends once
         // the server transitions to `Ready`.
         app.session.initial_subscribe_in_flight = false;
+        app.session.subscribed_threads.clear();
         return true;
     }
     app.session.pending_initial_subscribe = None;
