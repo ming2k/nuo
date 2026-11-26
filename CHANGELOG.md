@@ -6,6 +6,60 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.102] - 2026-11-26
+
+### Added
+
+- **Versioned content shards, pure catalog plane, and owner-only storage privacy (ADR-0255, ADR-0256).**
+  Split derived content projections into versioned `shards/content-XX.db` files,
+  purified `nuo.db` into a catalog-only plane with genuinely nullable
+  `thread_policies.workspace_root` (Migration v9), enforced `0o700`/`0o600`
+  owner-only filesystem permissions on durable storage (`persistence::fs_privacy`),
+  and retired the unreferenced parallel `ThreadStore` / `SqliteThreadStore` stack.
+- **Server lifecycle contract and session-free handshake (ADR-0260; wire protocol v36).**
+  Added typed `ServerPhase`, `ServerInitStage`, `ThreadTarget`, and lifecycle
+  error codes (`ERR_SERVER_NOT_READY`, `ERR_SERVER_DRAINING`, `ERR_SERVER_FAILED`)
+  with unified readiness projection across server, view, and TUI.
+- **Unified two-tier header, single-row thread SceneBar, and visual discipline (ADR-0258, ADR-0259, ADR-0261).**
+  Consolidated chrome, disclosure renderers, settings views, and view headers
+  under `crates/view`, introduced palette-native in-flight hue/chroma envelopes,
+  and added the production-path `scene_gallery` example.
+- **Orthogonal `/trace` navigation and deterministic L1 Round Inspector (ADR-0263).**
+  Replaced overloaded `Enter` drill-down with closed `TraceView` (`Enter` enters
+  child container, `i` inspects highlighted item, `Esc` unwinds one layer),
+  added multi-actor `TraceAttemptKey`, and durably persisted `RoundSummary`
+  records inside atomic turn commits.
+- **Durable append-only projection directives for pruning and partial media offload (ADR-0264).**
+  `ThreadSession::commit_context_projection` now appends `DirectivePayload::Prune`
+  deltas (`PrunedToolOutput` and lossless `PrunedMediaOutput` with
+  `retained_image_indices`) so `model_window()` converges across rounds and
+  restarts while keeping `full_transcript()` strictly immutable.
+- **Supply-chain hardening and time-stack modernization (ADR-0265).**
+  Pinned Rust `1.100.0` (`rust-toolchain.toml`), enabled `cargo deny check` in CI
+  (`deny.toml`), denied `unsafe_code` workspace-wide by default, and migrated the
+  entire workspace off unmaintained `chrono` (`RUSTSEC-2026-0543`) to `jiff 1.0`
+  (removing datetime dependencies from `model-routing` altogether).
+
+### Changed
+
+- **Read boundary hardening and modular dispatch in `tool-fs` (ADR-0257).**
+  Modularized `read` into dedicated text, image, document, and line-index modules
+  with tightened virtual-path confinement and versioned conflict tokens.
+- **Driver-owned session title orchestration (ADR-0262).**
+  Moved session title generation ownership cleanly into `server::runtime::thread_driver::titler`
+  and retired dead engine-side title ports.
+- **Wire protocol bumped to v36 (`PROTOCOL_VERSION = 36`).**
+  Clients and servers must match v36 during handshake.
+
+### Migration Notes
+
+- **SQLite Migration v9 (`0009_pure_catalog_and_nullable_workspace.sql`) is irreversible in place.**
+  It drops retired content-plane and `SqliteThreadStore` tables (`fts_thread_facts`,
+  `causal_nodes`, `thread_branches`, `thread_commands`, `thread_leases`,
+  `thread_blobs`, etc.) that now project from per-session journals into
+  `shards/content-XX.db`. Back up `$XDG_DATA_HOME/nuo` before upgrading if you
+  anticipate rolling back to `v0.0.101`.
+
 ## [0.0.101] - 2026-11-26
 
 ### Added
