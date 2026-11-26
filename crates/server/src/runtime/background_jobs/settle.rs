@@ -236,7 +236,11 @@ impl BackgroundJobManager {
         }
 
         #[cfg(unix)]
+        #[allow(unsafe_code)]
         if let Some(pid) = entry.pid {
+            // SAFETY: The background job was spawned as a process-group leader
+            // (`PGID == PID`) and has not yet been reaped (terminal entries are
+            // skipped above), so signaling `-pid` and `pid` cannot hit a reused pid.
             unsafe {
                 libc::kill(-(pid as i32), libc::SIGKILL);
                 libc::kill(pid as i32, libc::SIGKILL);
@@ -263,7 +267,9 @@ impl BackgroundJobManager {
                 let _ = tx.send(());
             }
             #[cfg(unix)]
+            #[allow(unsafe_code)]
             if let Some(pid) = entry.pid {
+                // SAFETY: Same live-process-group invariant as `kill_job`.
                 unsafe {
                     libc::kill(-(pid as i32), libc::SIGKILL);
                     libc::kill(pid as i32, libc::SIGKILL);

@@ -3,13 +3,13 @@
 pub(super) use crate::UiBridge;
 pub(super) use crate::composition::bootstrap::BootstrapParams;
 pub(super) use crate::runtime::monitor::MonitorTracker;
-pub(super) use crate::transport::serve::{AttachAction, AttachSyncBuffer, is_attach_sync_event};
+pub(super) use crate::transport::serve::{AttachSyncBuffer, is_attach_sync_event};
 pub(super) use engine::{Agent, AgentIdentity, AgentRoleProfile};
 pub(super) use persistence::thread::ThreadSession;
 pub(super) use protocol::{
     AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredThread,
     PermissionDecision, ThreadActivity, ThreadFilter, ThreadHosting, ThreadOverview,
-    ThreadRemovalReport, ThreadRemovalSkip,
+    ThreadRemovalReport, ThreadRemovalSkip, ThreadTarget,
 };
 pub(super) use std::collections::HashMap;
 pub(super) use std::path::PathBuf;

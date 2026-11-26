@@ -160,8 +160,12 @@ async fn thread_stats_modal_lifecycle_and_gestalt_layout() {
 
 #[tokio::test]
 async fn session_trace_slash_and_drill_down_lifecycle() {
-    // `[INV-TRACE-01]` / ADR-0037:
-    // SessionTrace has hierarchical drill-down without tabs or lateral page hops.
+    // `[INV-TRACE-01]` / `[INV-TRACE-02]` (ADR-0037, ADR-0263):
+    // SessionTrace has orthogonal navigation: `Enter` enters child containers
+    // (`Rounds` -> `Turns`), `i` inspects the highlighted item (`RoundInfo` /
+    // `AttemptInfo`), and `Esc` unwinds one layer at a time.
+    use crate::shell::surfaces::{SessionTraceDialog, TraceAttemptKey, TraceView};
+
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "test-session".to_string();
 
@@ -180,71 +184,202 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
         "OpenSessionTrace opens SessionTrace dialog"
     );
 
-    // Initial state: L1 rounds list, no detail, no turn
-    assert!(
-        !app.surfaces
-            .surfaces
-            .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-            .detail
-    );
-    assert!(
-        app.surfaces
-            .surfaces
-            .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-            .turn
-            .is_none()
+    // Initial state: L1 rounds list
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::Rounds
     );
 
-    // Enter in L1 drills into L2 (turns list) when rounds exist or directly via action
-    app.surfaces
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-        .detail = true;
-    app.surfaces
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-        .turn = Some((1, 1));
-    assert!(
-        app.surfaces
-            .surfaces
-            .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-            .turn
-            .is_some()
-    );
-
-    // Esc from L3 steps back to L2
+    // L1 RoundInfo (`i` on L1) unwinds directly back to L1 Rounds
+    app.surfaces.surfaces.dlg_mut::<SessionTraceDialog>().view = TraceView::RoundInfo;
     assert!(app.pop_sublayer());
-    assert!(
-        app.surfaces
-            .surfaces
-            .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-            .turn
-            .is_none()
-    );
-    assert!(
-        app.surfaces
-            .surfaces
-            .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-            .detail
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::Rounds
     );
 
-    // Esc from L2 steps back to L1
+    // L2 Turns (`Enter` on L1) -> L2 AttemptInfo (`i` on L2)
+    app.surfaces.surfaces.dlg_mut::<SessionTraceDialog>().view =
+        TraceView::AttemptInfo(TraceAttemptKey {
+            round: 1,
+            actor_id: "root".to_string(),
+            turn: 1,
+            attempt: 1,
+        });
+
+    // Esc from AttemptInfo steps back to Turns
     assert!(app.pop_sublayer());
-    assert!(
-        !app.surfaces
-            .surfaces
-            .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-            .detail
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::Turns
+    );
+
+    // Esc from Turns steps back to Rounds
+    assert!(app.pop_sublayer());
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::Rounds
     );
     assert_eq!(
         app.active_dialog(),
         Some(crate::shell::surfaces::DialogKind::SessionTrace)
     );
 
-    // In L1, no sub-layer remains
+    // In L1 Rounds, no sub-layer remains
     assert!(!app.pop_sublayer(), "no sub-layer left in L1");
     assert!(app.dismiss_surface());
     assert_eq!(app.active_dialog(), None);
+}
+
+#[tokio::test]
+async fn session_trace_enter_and_inspect_actions_follow_orthogonal_contract() {
+    use crate::shell::surfaces::{SessionTraceDialog, TraceAttemptKey, TraceView};
+    use protocol::{
+        RequestUsageKey, RequestUsageRecord, RequestUsageSource, RequestUsageStatus,
+        TokenSourceReport, TokenSourceRow,
+    };
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.session.current_session_id = "test-session".to_string();
+    app.threads.key.id = "test-session".to_string();
+    app.threads.token_report = Some(TokenSourceReport {
+        rows: vec![TokenSourceRow {
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4".to_string(),
+            totals: Default::default(),
+            turns: Vec::new(),
+            requests: vec![
+                RequestUsageRecord {
+                    key: RequestUsageKey {
+                        session_id: "test-session".to_string(),
+                        actor_id: "root".to_string(),
+                        round: 1,
+                        turn: 1,
+                        attempt: 1,
+                    },
+                    provider: "anthropic".to_string(),
+                    model: "claude-sonnet-4".to_string(),
+                    status: RequestUsageStatus::Completed,
+                    source: RequestUsageSource::Reported,
+                    prompt_tokens: 1000,
+                    completion_tokens: 100,
+                    generation_ms: 500,
+                    ..Default::default()
+                },
+                RequestUsageRecord {
+                    key: RequestUsageKey {
+                        session_id: "test-session".to_string(),
+                        actor_id: "root".to_string(),
+                        round: 1,
+                        turn: 2,
+                        attempt: 1,
+                    },
+                    provider: "anthropic".to_string(),
+                    model: "claude-sonnet-4".to_string(),
+                    status: RequestUsageStatus::Completed,
+                    source: RequestUsageSource::Reported,
+                    prompt_tokens: 1500,
+                    completion_tokens: 200,
+                    generation_ms: 800,
+                    ..Default::default()
+                },
+            ],
+        }],
+        grand_total: Default::default(),
+        round_summaries: Vec::new(),
+    });
+
+    let runtime = crate::shell::event_loop::runtime::UiRuntime::minimal_for_test();
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::OpenSessionTrace,
+        "test-session",
+    )
+    .await;
+
+    // 1. `i` on L1 Rounds opens RoundInfo
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::TraceInspect,
+        "test-session",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::RoundInfo
+    );
+
+    // `Enter` inside RoundInfo is a no-op
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::TraceEnter,
+        "test-session",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::RoundInfo
+    );
+
+    // Esc returns to L1 Rounds
+    assert!(app.pop_sublayer());
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::Rounds
+    );
+
+    // 2. `Enter` on L1 Rounds enters L2 Turns
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::TraceEnter,
+        "test-session",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::Turns
+    );
+
+    // `Enter` on L2 Turns is a no-op (attempts are leaves)
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::TraceEnter,
+        "test-session",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::Turns
+    );
+
+    // Move turn_cursor to index 1 (Turn #1, since turns sort descending: #2 then #1)
+    app.surfaces
+        .surfaces
+        .dlg_mut::<SessionTraceDialog>()
+        .turn_cursor = 1;
+
+    // `i` on L2 Turns opens AttemptInfo for Turn #1 attempt #1 (not colliding with Turn #2)
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::TraceInspect,
+        "test-session",
+    )
+    .await;
+    assert_eq!(
+        app.surfaces.surfaces.dlg::<SessionTraceDialog>().view,
+        TraceView::AttemptInfo(TraceAttemptKey {
+            round: 1,
+            actor_id: "root".to_string(),
+            turn: 1,
+            attempt: 1,
+        })
+    );
 }
 
 #[tokio::test]

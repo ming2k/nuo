@@ -26,6 +26,11 @@ pub struct ColorSchemeConfig {
     pub success: String,
     pub warning: String,
     pub error: String,
+    /// Optional explicit in-flight (`running`) hue override (`#RRGGBB`, ADR-0258).
+    /// When omitted, `Theme` derives a palette-native, chroma-bounded, WCAG-AA
+    /// legible tone from the palette's own chromatic range and polarity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<String>,
 }
 
 impl Default for ColorSchemeConfig {
@@ -39,6 +44,7 @@ impl Default for ColorSchemeConfig {
             success: "#759475".to_string(),
             warning: "#b5955d".to_string(),
             error: "#be6f68".to_string(),
+            running: None,
         }
     }
 }

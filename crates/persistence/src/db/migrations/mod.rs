@@ -7,6 +7,7 @@
 
 mod apply;
 pub mod catalog;
+pub mod content_shard;
 mod history;
 pub mod role_memory;
 pub mod runner;

@@ -334,6 +334,17 @@ pub enum EmptyStateGuidance {
     /// nowhere. This is a real setup blocker, not onboarding — it clears the
     /// moment a keyed provider exists.
     NeedsProvider,
+    /// Transient sub-120ms startup/prepare window (ADR-0260 `[INV-SRVPHASE-05]`):
+    /// renders only the calm logo with no status subtitle so fast warm connects
+    /// and thread switches never flash intermediate labels or stale prompts.
+    QuietWait,
+    /// Client transport layer is discovering, spawning, connecting, or
+    /// reconnecting to the Nuo server (ADR-0260 `[INV-SRVPHASE-05]`).
+    Connecting { label: String },
+    /// The Nuo server itself is not yet `Ready` (initializing, draining, or
+    /// failed) — rendered from the server-attested [`protocol::ServerPhase`]
+    /// (ADR-0260 `[INV-SRVPHASE-01]`, `[INV-SRVPHASE-05]`).
+    ServerPhase(protocol::ServerPhase),
     /// The user explicitly initiated switching to or resuming an existing
     /// thread (holds its short ID) alongside the server-attested phase so real
     /// assembly stages stay visible instead of being masked.
@@ -342,7 +353,7 @@ pub enum EmptyStateGuidance {
         phase: protocol::ThreadPhase,
     },
     /// The foreground thread is not yet `Ready` — render the exact
-    /// server-attested lifecycle phase or assembly failure (ADR-0133).
+    /// server-attested lifecycle phase or assembly failure (ADR-0133, ADR-0260).
     ThreadPhase(protocol::ThreadPhase),
 }
 
@@ -355,15 +366,38 @@ fn prepare_stage_label(stage: protocol::PrepareStage) -> &'static str {
     }
 }
 
+fn server_init_stage_label(stage: protocol::ServerInitStage) -> &'static str {
+    match stage {
+        protocol::ServerInitStage::Storage => "storage",
+        protocol::ServerInitStage::Runtime => "runtime",
+    }
+}
+
+/// Concise, lowercase status-bar label for a non-`Ready` [`protocol::ServerPhase`]
+/// (ADR-0260 `[INV-SRVPHASE-05]`).
+///
+/// Returns `None` once the server is [`protocol::ServerPhase::Ready`].
+pub fn server_phase_status(phase: &protocol::ServerPhase) -> Option<&'static str> {
+    match phase {
+        protocol::ServerPhase::Initializing { stage } => Some(match stage {
+            protocol::ServerInitStage::Storage => "initializing server · storage…",
+            protocol::ServerInitStage::Runtime => "initializing server · runtime…",
+        }),
+        protocol::ServerPhase::Ready => None,
+        protocol::ServerPhase::Reloading => Some("reloading server…"),
+        protocol::ServerPhase::Draining { .. } => Some("server shutting down…"),
+        protocol::ServerPhase::Failed { .. } => Some("server startup failed"),
+    }
+}
+
 /// Concise, lowercase status-bar label for a non-`Ready` [`protocol::ThreadPhase`].
 ///
 /// Returns `None` once the thread is [`protocol::ThreadPhase::Ready`].
 /// Every non-ready state reports the exact local assembly step the server is
-/// performing (ADR-0133) — never a generic "loading session" placeholder.
+/// performing (ADR-0133, ADR-0260) — never a generic placeholder or internal
+/// claim token.
 pub fn thread_phase_status(phase: &protocol::ThreadPhase) -> Option<&'static str> {
     match phase {
-        protocol::ThreadPhase::Binding => Some("binding thread…"),
-        protocol::ThreadPhase::Loading => Some("opening thread store…"),
         protocol::ThreadPhase::Preparing { stage } => Some(match stage {
             protocol::PrepareStage::Thread => "preparing · thread store…",
             protocol::PrepareStage::Provider => "preparing · provider…",
@@ -380,9 +414,6 @@ pub fn thread_phase_status(phase: &protocol::ThreadPhase) -> Option<&'static str
 /// so real preparation stages remain visible.
 pub fn resuming_thread_status(short_id: &str, phase: &protocol::ThreadPhase) -> String {
     match phase {
-        protocol::ThreadPhase::Loading => {
-            format!("resuming {short_id} · opening thread store…")
-        }
         protocol::ThreadPhase::Preparing { stage } => {
             format!(
                 "resuming {short_id} · preparing {}…",
@@ -390,9 +421,7 @@ pub fn resuming_thread_status(short_id: &str, phase: &protocol::ThreadPhase) -> 
             )
         }
         protocol::ThreadPhase::Failed { .. } => "thread setup failed".to_string(),
-        protocol::ThreadPhase::Binding | protocol::ThreadPhase::Ready => {
-            format!("resuming thread {short_id}…")
-        }
+        protocol::ThreadPhase::Ready => format!("resuming thread {short_id}…"),
     }
 }
 
@@ -416,6 +445,12 @@ fn guidance_line_count(guidance: &EmptyStateGuidance) -> usize {
         // already teaches "send a message or /")
         EmptyStateGuidance::Tour => CAROUSEL_LINES,
         EmptyStateGuidance::NeedsProvider => 2, // blocker + action
+        EmptyStateGuidance::QuietWait => 0,
+        EmptyStateGuidance::Connecting { .. } => 1,
+        EmptyStateGuidance::ServerPhase(protocol::ServerPhase::Failed { message, .. }) => {
+            if message.trim().is_empty() { 1 } else { 2 }
+        }
+        EmptyStateGuidance::ServerPhase(_) => 1,
         EmptyStateGuidance::ResumingThread {
             phase: protocol::ThreadPhase::Failed { message, .. },
             ..
@@ -534,15 +569,51 @@ fn guidance_section(
                 Span::styled(" to set one up.", muted),
             ]),
         ],
+        EmptyStateGuidance::QuietWait => Vec::new(),
+        EmptyStateGuidance::Connecting { ref label } => vec![Line::from(vec![Span::styled(
+            truncate_display_width(label, max_width),
+            muted,
+        )])],
+        EmptyStateGuidance::ServerPhase(ref phase) => match phase {
+            protocol::ServerPhase::Initializing { stage } => vec![Line::from(vec![
+                Span::styled("Initializing Nuo server · ", muted),
+                Span::styled(server_init_stage_label(*stage), info),
+                Span::styled("…", muted),
+            ])],
+            protocol::ServerPhase::Reloading => vec![Line::from(vec![Span::styled(
+                "Reloading Nuo server…",
+                muted,
+            )])],
+            protocol::ServerPhase::Draining { reason } => {
+                let text = match reason.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
+                    Some(r) => format!("Nuo server is shutting down ({r})…"),
+                    None => "Nuo server is shutting down…".to_string(),
+                };
+                vec![Line::from(vec![Span::styled(
+                    truncate_display_width(&text, max_width),
+                    warn,
+                )])]
+            }
+            protocol::ServerPhase::Failed { message, .. } => {
+                let mut lines = vec![Line::from(vec![Span::styled(
+                    "Nuo server startup failed.",
+                    err,
+                )])];
+                let detail = message.lines().next().unwrap_or("").trim();
+                if !detail.is_empty() {
+                    lines.push(Line::from(vec![Span::styled(
+                        truncate_display_width(detail, max_width),
+                        muted,
+                    )]));
+                }
+                lines
+            }
+            protocol::ServerPhase::Ready => carousel_lines(carousel_index, theme),
+        },
         EmptyStateGuidance::ResumingThread {
             ref short_id,
             ref phase,
         } => match phase {
-            protocol::ThreadPhase::Loading => vec![Line::from(vec![
-                Span::styled("Resuming ", muted),
-                Span::styled(short_id.clone(), info),
-                Span::styled(" · opening thread store…", muted),
-            ])],
             protocol::ThreadPhase::Preparing { stage } => vec![Line::from(vec![
                 Span::styled("Resuming ", muted),
                 Span::styled(short_id.clone(), info),
@@ -553,7 +624,7 @@ fn guidance_section(
             protocol::ThreadPhase::Failed { message, .. } => {
                 failed_phase_lines(message, max_width, err, muted)
             }
-            protocol::ThreadPhase::Binding | protocol::ThreadPhase::Ready => {
+            protocol::ThreadPhase::Ready => {
                 vec![Line::from(vec![
                     Span::styled("Resuming thread ", muted),
                     Span::styled(short_id.clone(), info),
@@ -562,15 +633,6 @@ fn guidance_section(
             }
         },
         EmptyStateGuidance::ThreadPhase(ref phase) => match phase {
-            protocol::ThreadPhase::Binding => {
-                vec![Line::from(vec![Span::styled("Binding thread…", muted)])]
-            }
-            protocol::ThreadPhase::Loading => {
-                vec![Line::from(vec![Span::styled(
-                    "Opening thread store…",
-                    muted,
-                )])]
-            }
             protocol::ThreadPhase::Preparing { stage } => vec![Line::from(vec![
                 Span::styled("Preparing ", muted),
                 Span::styled(prepare_stage_label(*stage), info),

@@ -121,13 +121,51 @@ dialog_entity!(QuotasDialog, Quotas, {
 
 dialog_entity!(ThreadStatsDialog, ThreadStats, {});
 
+/// Stable identity of one provider attempt inside a round (ADR-0263).
+///
+/// Includes both `actor_id` and `turn` so multi-turn rounds and subagent calls
+/// (`subagent:<call_id>`) never collide when opening the Attempt Inspector.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraceAttemptKey {
+    pub round: u64,
+    pub actor_id: String,
+    pub turn: u32,
+    pub attempt: u32,
+}
+
+/// Active view inside [`SessionTraceDialog`] (ADR-0263 `[INV-TRACE-02]`).
+///
+/// Navigation is orthogonal:
+/// - `Enter` enters child containers (`Rounds` -> `Turns`), inert on leaves and inspectors;
+/// - `i` inspects the highlighted item (`Rounds` -> `RoundInfo`, `Turns` -> `AttemptInfo`);
+/// - `Esc` steps back one layer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum TraceView {
+    /// L1: list of rounds in this session.
+    #[default]
+    Rounds,
+    /// L1 info sub-view (`i`): deterministic timing breakdown, activity, and token totals.
+    RoundInfo,
+    /// L2: list of turns/attempts inside the entered round (`Enter` from L1).
+    Turns,
+    /// L2 info sub-view (`i`): latency waterfall and context space for one attempt.
+    AttemptInfo(TraceAttemptKey),
+}
+
+impl TraceView {
+    /// Whether the dialog is currently showing a read-only inspector sub-view.
+    pub fn is_inspector(&self) -> bool {
+        matches!(self, Self::RoundInfo | Self::AttemptInfo(_))
+    }
+}
+
 dialog_entity!(SessionTraceDialog, SessionTrace, {
-    /// `true` when drilled into one round's turns (L2).
-    detail: bool = false,
-    /// `Some((round, attempt))` when drilled into an attempt inspector (L3).
-    turn: Option<(u32, u32)> = None,
-    /// Selected turn index in the L2 turns table.
+    /// Active view/depth inside the session trace dialog.
+    view: TraceView = TraceView::Rounds,
+    /// Selected turn/attempt index in the L2 turns table.
     turn_cursor: usize = 0,
+    /// Scroll offset for read-only inspector sub-views (`RoundInfo` / `AttemptInfo`).
+    info_scroll: usize = 0,
 });
 
 dialog_entity!(ContextPlanDialog, ContextPlan, {

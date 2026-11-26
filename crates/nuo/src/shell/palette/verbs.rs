@@ -34,6 +34,10 @@ pub(crate) enum Requires {
     FocusedEntry,
     /// The Settings detail pane owns focus.
     SettingsDetail,
+    /// `SessionTrace` is on L1 (`Rounds`), where `Enter` enters a round's turns.
+    TraceRounds,
+    /// `SessionTrace` is on a list level (`Rounds` or `Turns`), where `i` inspects.
+    TraceList,
 }
 
 impl Requires {
@@ -45,6 +49,8 @@ impl Requires {
             Requires::TranscriptPlane => ctx.focus == FocusPlane::Transcript,
             Requires::FocusedEntry => ctx.state.has_focused_entry,
             Requires::SettingsDetail => ctx.settings_detail,
+            Requires::TraceRounds => ctx.trace_view == crate::shell::surfaces::TraceView::Rounds,
+            Requires::TraceList => !ctx.trace_view.is_inspector(),
         };
         if met {
             Availability::Available
@@ -62,6 +68,8 @@ impl Requires {
             Requires::TranscriptPlane => "focus the transcript first (Shift-Tab)",
             Requires::FocusedEntry => "highlight an entry first (Ctrl-p)",
             Requires::SettingsDetail => "focus the detail pane first",
+            Requires::TraceRounds => "return to the rounds list first (Esc)",
+            Requires::TraceList => "exit the inspector first (Esc)",
         }
     }
 }
@@ -739,13 +747,24 @@ const THREAD_STATS: &[Verb] = &[verb(
     InputAction::ThreadStatsOpenTrace,
 )];
 
-const SESSION_TRACE: &[Verb] = &[verb(
-    "trace.inspect",
-    "Inspect round",
-    "Show the highlighted round's attempts in detail",
-    Key::ENTER,
-    InputAction::TraceInspectDetail,
-)];
+const SESSION_TRACE: &[Verb] = &[
+    verb(
+        "trace.enter",
+        "Open round turns",
+        "Enter the highlighted round's turns and attempts list",
+        Key::ENTER,
+        InputAction::TraceEnter,
+    )
+    .requires(Requires::TraceRounds),
+    verb(
+        "trace.inspect",
+        "Inspect highlighted item",
+        "Show the highlighted round's recap or turn's latency timeline",
+        Key::plain('i'),
+        InputAction::TraceInspect,
+    )
+    .requires(Requires::TraceList),
+];
 
 /// The context-plan inspector has exactly one verb of its own: the block body
 /// disclosure. Everything else it shows is a measurement, not an action.

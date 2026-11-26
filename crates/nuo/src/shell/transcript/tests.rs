@@ -25,9 +25,9 @@ fn rebases_a_compacted_relative_tail_to_the_session_round_counter() {
 /// say it), and the nested transcript rebuilds the drill-in view.
 #[test]
 fn restores_interrupted_subagent_with_children_and_status() {
-    use crate::shell::config::TuiConfig;
     use tool::SubagentMeta;
     use tool::{Message, ToolCall};
+    use view::tui_config::TuiConfig;
 
     let call = ToolCall {
         id: "call_9".to_string(),

@@ -7,8 +7,8 @@ use view::model::interactive::InteractiveEntry;
 use view::model::layout::LayoutMap;
 use view::model::selection::SelectionState;
 
-use crate::shell::disclosure::draw_tool_step;
 use crate::shell::render::Theme;
+use view::disclosure::draw_tool_step;
 
 /// Build a finished tool-step message with optional output and expand state.
 ///
@@ -145,7 +145,7 @@ pub(crate) fn render_grid_with_map(
         let mut content_lines = 0usize;
         let mut sticky = Vec::new();
         let mut wrap_cache = crate::shell::render::BlockWrapCache::default();
-        let mut ctx = crate::shell::disclosure::renderers::RenderCtx::from_cursor(
+        let mut ctx = view::disclosure::renderers::RenderCtx::from_cursor(
             f,
             area,
             area.width as usize,

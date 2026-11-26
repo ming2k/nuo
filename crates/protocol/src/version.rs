@@ -16,6 +16,15 @@ pub const ERR_SESSION_GONE: &str = "session_gone";
 /// manifest, or provider failure). The session is *not* gone — retrying may
 /// work, and the client should surface the failure without discarding the tab.
 pub const ERR_SESSION_UNRESUMABLE: &str = "session_unresumable";
+/// The server is still completing local initialization (`ServerPhase::Initializing`)
+/// and is not yet admitting thread subscriptions (ADR-0260 `[INV-SRVPHASE-03]`).
+pub const ERR_SERVER_NOT_READY: &str = "server_not_ready";
+/// The server is gracefully draining (`ServerPhase::Draining`) and refuses new
+/// thread subscriptions (ADR-0260 `[INV-SRVPHASE-03]`).
+pub const ERR_SERVER_DRAINING: &str = "server_draining";
+/// The server entered a fatal failure state (`ServerPhase::Failed`) and cannot
+/// serve requests (ADR-0260 `[INV-SRVPHASE-03]`).
+pub const ERR_SERVER_FAILED: &str = "server_failed";
 
 /// Check whether the peer's declared wire protocol number matches [`PROTOCOL_VERSION`].
 pub const fn protocol_accepts(client: u32) -> bool {

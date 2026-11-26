@@ -19,8 +19,11 @@
 //! so they are safe to run concurrently under nextest.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+// Dev-only test harness; Unix process-group cleanup uses `libc::kill`.
+#![allow(unsafe_code)]
 
 pub mod cli;
+pub mod dev;
 pub mod mock;
 pub mod sandbox;
 

@@ -33,6 +33,7 @@ pub mod connection_usage;
 pub mod connections;
 pub mod db;
 pub(crate) mod forensics;
+pub(crate) mod fs_privacy;
 pub(crate) mod journal;
 // Application filesystem infrastructure now lives in `host`; these
 // re-exports keep the server-side crates' stable import paths.
@@ -54,6 +55,5 @@ pub mod workspace_security;
 pub use asset_attestation::AssetAttestationLedger;
 pub use db::StorageMaintenanceReport;
 pub use db::backup::{BackupManager, BackupMetadata, DEFAULT_BACKUP_RETENTION_LIMIT};
-pub use db::thread_store::SqliteThreadStore;
 pub use role_memory::{RecalledMemory, RoleMemoryEntry, RoleMemoryStore, get_role_memory_store};
 pub use thread::{CommitTurn, ForkTarget, ThreadSession};

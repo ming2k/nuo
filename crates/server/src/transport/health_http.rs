@@ -17,6 +17,8 @@ const HEAD_CAP: usize = 16 * 1024;
 pub async fn serve<S>(
     stream: S,
     server_version: &str,
+    server_id: &str,
+    phase: &protocol::ServerPhase,
     expected_token: Option<&str>,
 ) -> std::io::Result<()>
 where
@@ -65,9 +67,36 @@ where
             ],
         ),
         ("GET" | "HEAD", "/healthz") => {
-            let body = format!("{{\"version\":\"{server_version}\",\"auth\":{auth_required}}}");
+            let body = serde_json::json!({
+                "version": server_version,
+                "auth": auth_required,
+                "server_id": server_id,
+                "phase": phase,
+            })
+            .to_string();
             build_response(
                 "200 OK",
+                "application/json",
+                body.as_bytes(),
+                method == "HEAD",
+                &[("Access-Control-Allow-Origin", "*")],
+            )
+        }
+        ("GET" | "HEAD", "/readyz") => {
+            let ready = phase.admits_work();
+            let status = if ready {
+                "200 OK"
+            } else {
+                "503 Service Unavailable"
+            };
+            let body = serde_json::json!({
+                "ready": ready,
+                "server_id": server_id,
+                "phase": phase,
+            })
+            .to_string();
+            build_response(
+                status,
                 "application/json",
                 body.as_bytes(),
                 method == "HEAD",
@@ -120,11 +149,23 @@ mod tests {
     use super::*;
     use tokio::io::AsyncReadExt;
 
-    async fn roundtrip_with_token(request: &str, token: Option<&str>) -> String {
+    async fn roundtrip_with_state(
+        request: &str,
+        token: Option<&str>,
+        phase: protocol::ServerPhase,
+    ) -> String {
         let (client, server) = tokio::io::duplex(64 * 1024);
         let token_owned = token.map(|s| s.to_string());
-        let task =
-            tokio::spawn(async move { serve(server, "0.0.0-test", token_owned.as_deref()).await });
+        let task = tokio::spawn(async move {
+            serve(
+                server,
+                "0.0.0-test",
+                "srv-test-1",
+                &phase,
+                token_owned.as_deref(),
+            )
+            .await
+        });
         let (mut client_reader, mut client_writer) = tokio::io::split(client);
         client_writer.write_all(request.as_bytes()).await.unwrap();
         client_writer.shutdown().await.unwrap();
@@ -134,8 +175,47 @@ mod tests {
         String::from_utf8(buf).unwrap()
     }
 
+    async fn roundtrip_with_token(request: &str, token: Option<&str>) -> String {
+        roundtrip_with_state(request, token, protocol::ServerPhase::Ready).await
+    }
+
     async fn roundtrip(request: &str) -> String {
         roundtrip_with_token(request, Some("secret123")).await
+    }
+
+    #[tokio::test]
+    async fn readyz_returns_200_when_ready_and_503_when_initializing_or_draining() {
+        let ready = roundtrip_with_state(
+            "GET /readyz HTTP/1.1\r\n\r\n",
+            None,
+            protocol::ServerPhase::Ready,
+        )
+        .await;
+        assert!(ready.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(ready.contains("\"ready\":true"));
+
+        let init = roundtrip_with_state(
+            "GET /readyz HTTP/1.1\r\n\r\n",
+            None,
+            protocol::ServerPhase::Initializing {
+                stage: protocol::ServerInitStage::Storage,
+            },
+        )
+        .await;
+        assert!(init.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+        assert!(init.contains("\"ready\":false"));
+        assert!(init.contains("\"stage\":\"storage\""));
+
+        let draining = roundtrip_with_state(
+            "GET /readyz HTTP/1.1\r\n\r\n",
+            None,
+            protocol::ServerPhase::Draining {
+                reason: Some("SIGTERM".into()),
+            },
+        )
+        .await;
+        assert!(draining.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+        assert!(draining.contains("\"ready\":false"));
     }
 
     #[tokio::test]

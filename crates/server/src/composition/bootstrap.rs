@@ -1189,7 +1189,10 @@ impl Assembler {
                 // Persist the hook-injected setup context through the single write
                 // path so the session stays the source of truth (ADR-0048).
                 if messages.len() > before_len
-                    && let Err(err) = self.session.append_turn(&messages).await
+                    && let Err(err) = self
+                        .session
+                        .commit_turn(persistence::CommitTurn::new(&messages[before_len..]))
+                        .await
                 {
                     tracing::warn!(error = %err, "failed to persist ThreadStart hook context");
                 }

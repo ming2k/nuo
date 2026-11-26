@@ -27,9 +27,26 @@ pub async fn execute_round(
     context: RoundContext,
     input: RoundInput,
 ) -> Result<RoundCompletion, HarnessError> {
+    execute_round_with_admission(context, input, None).await
+}
+
+/// Run a round and notify `admitted_tx` with `true` once `UserPromptSubmit`
+/// hooks pass and the opening prompt has been durably committed, or `false` if
+/// admission was denied (`RoundCompletion::NotStarted`).
+pub(crate) async fn execute_round_with_admission(
+    context: RoundContext,
+    input: RoundInput,
+    admitted_tx: Option<tokio::sync::oneshot::Sender<bool>>,
+) -> Result<RoundCompletion, HarnessError> {
     let Some(mut round) = AdmittedRound::admit(context, input).await? else {
+        if let Some(tx) = admitted_tx {
+            let _ = tx.send(false);
+        }
         return Ok(RoundCompletion::NotStarted);
     };
+    if let Some(tx) = admitted_tx {
+        let _ = tx.send(true);
+    }
     round.prepare_request_context().await?;
     let provider_round = round.drive_provider_round().await?;
     round.finalize_round(provider_round).await
@@ -147,16 +164,11 @@ impl AdmittedRound {
         } else {
             None
         };
-        let prompt_for_titler = if !input.hidden && resumed_point.is_none() {
-            prompt_for_memory.clone()
-        } else {
-            None
-        };
         // Build `round_history` — the round's working scratch — from the session's
         // authoritative `model_window` plus the new user message (ADR-0048). A
         // `/retry` resume instead re-seeds from the stopped round's checkpoint
         // watermark (see the branch below) and never pushes a user message.
-        let round_history = if let Some(point) = resumed_point.as_ref() {
+        let (round_history, admitted_delta_start) = if let Some(point) = resumed_point.as_ref() {
             // `/retry`: re-seed the round's history from the durable
             // checkpoint the stopped round left behind. The window may have moved
             // since (a compaction sharing the store), so
@@ -165,9 +177,12 @@ impl AdmittedRound {
             // discarded with `StreamDiscard` before the point was armed).
             let window = session.model_window().await;
             let watermark = point.history_watermark.min(window.len());
-            window[..watermark].to_vec()
+            let resumed = window[..watermark].to_vec();
+            let len = resumed.len();
+            (resumed, len)
         } else {
             let mut th = session.model_window().await;
+            let before_len = th.len();
             // No automatic turn-intake environment scan. Code structure
             // and workspace change information enter through scoped, on-demand tool
             // retrieval (`code_query`) and optional request-local reminders, never
@@ -190,32 +205,22 @@ impl AdmittedRound {
                     message.with_images(input.images)
                 }
             });
-            th
+            (th, before_len)
         };
         // Persist admission immediately. Mid-round crash recovery must not restore
         // the transcript from round N while leaving the session counter at N-1.
         session
             .commit_turn(CommitTurn {
-                messages: &round_history,
-                basis: CommitBasis::Appended,
+                appended: &round_history[admitted_delta_start..],
                 round_counter: Some(admitted_round),
                 usage_records: &[],
                 retry_point: None,
                 round_interrupt: None,
+                round_summary: None,
                 operation_id: None,
                 expected_revision: None,
             })
             .await?;
-
-        // Session Title (ADR-0022 on-demand refinement): asynchronously generate a concise
-        // session title concurrently upon admission of the first user prompt. Runs in
-        // the background without blocking TTFT or waiting for round convergence.
-        if let Some(prompt) = prompt_for_titler {
-            let (_, has_title) = session.title().await;
-            if !has_title {
-                agent.spawn_session_titler(Arc::clone(session), prompt);
-            }
-        }
 
         install_round_persistence(
             &context.agent,
@@ -284,8 +289,10 @@ impl AdmittedRound {
             ));
             let extra = agent.fire_pre_compact().await;
             let compaction_settings = projection.for_request(request_estimate);
+            let committed_len = self.round_history.len();
             if let Some(report) = compact_round_history(
                 &mut self.round_history,
+                committed_len,
                 session,
                 &compaction_settings,
                 Some(agent.provider.clone()),
@@ -372,9 +379,10 @@ impl AdmittedRound {
         // still restarts at 0 for the resume itself — the provider retry budget
         // is per user-visible attempt to complete the round, and the user asking
         // to retry is exactly a new budget.
+        let initial_committed_len = self.round_history.len();
         let mut streaming_round = match self.resumed_point.as_ref() {
-            Some(point) => agent.resume_streaming_round(point),
-            None => agent.begin_streaming_round(),
+            Some(point) => agent.resume_streaming_round(point, initial_committed_len),
+            None => agent.begin_streaming_round(initial_committed_len),
         };
         // Relay-side producer state: the agent knows which turn it is running, and
         // every turn-scoped wire event carries this context. The client never
@@ -426,6 +434,7 @@ impl AdmittedRound {
                 && recover_context_overflow(
                     &io,
                     &mut self.round_history,
+                    &mut streaming_round,
                     relay_turn,
                     &streamed_text,
                     &mut compacted_after_overflow,
@@ -738,18 +747,25 @@ impl AdmittedRound {
         // The committed revision is the durable boundary this completion follows
         // (D5); it travels on the completion notification so a client can
         // order the completion against later state.
+        let committed_prefix = streaming_round
+            .committed_len()
+            .min(self.round_history.len());
+        let completed_summary = outcome.as_ref().ok().map(|o| protocol::RoundSummary {
+            round: agent.round_count(),
+            output_tokens: o.token_usage.completion_tokens.max(0) as u64,
+            duration_ms: o.duration_ms,
+            paused_ms: o.paused_ms,
+            generation_ms: o.generation_ms,
+            session_revision: 0,
+        });
         let committed_revision = session
             .commit_turn(CommitTurn {
-                messages: &self.round_history,
-                basis: if agent.take_history_reprojected() {
-                    CommitBasis::Reprojected
-                } else {
-                    CommitBasis::Appended
-                },
+                appended: &self.round_history[committed_prefix..],
                 round_counter: None,
                 usage_records: usage_slice,
                 retry_point,
                 round_interrupt: None,
+                round_summary: completed_summary,
                 operation_id: None,
                 expected_revision: None,
             })
@@ -800,6 +816,18 @@ impl AdmittedRound {
             let _ = store.record_dialogue(&role, Some(&session_id), &prompt, &visible);
         }
 
+        let round_summary = protocol::RoundSummary {
+            round: agent.round_count(),
+            output_tokens: outcome.token_usage.completion_tokens.max(0) as u64,
+            duration_ms: outcome.duration_ms,
+            paused_ms: outcome.paused_ms,
+            generation_ms: outcome.generation_ms,
+            session_revision: committed_revision,
+        };
+        if let Some(ledger) = agent.token_ledger() {
+            ledger.record_round_summary(&session_id, round_summary);
+        }
+
         // D5 / invariant #5: publish the authoritative completion as soon
         // as the commit is acknowledged, *before* any optional projection (the
         // context estimate below, the state mirrors further down). None of those
@@ -807,14 +835,7 @@ impl AdmittedRound {
         if self.context.emit_round_completed {
             let _ = tx.send(round_response(
                 &session_id,
-                RoundEvent::RoundCompleted(protocol::RoundSummary {
-                    round: agent.round_count(),
-                    output_tokens: outcome.token_usage.completion_tokens.max(0) as u64,
-                    duration_ms: outcome.duration_ms,
-                    paused_ms: outcome.paused_ms,
-                    generation_ms: outcome.generation_ms,
-                    session_revision: committed_revision,
-                }),
+                RoundEvent::RoundCompleted(round_summary),
             ));
             // Tenet II: Proactive push of token ledger updates on turn
             // boundary. The token source report is an authoritative in-memory
@@ -905,46 +926,38 @@ fn install_round_persistence(
     // the resume-after-crash gap: without it, a round that ran side-effecting
     // tools and then crashed rewinds the transcript to the previous round,
     // leaving it out of sync with the filesystem. The closure clones the
-    // session `Arc` and the message slice (the `BoxFuture` is `'static`), then
-    // delegates to `ThreadSession::append_turn`, which writes only the delta.
+    // session `Arc` and the uncommitted delta slice (the `BoxFuture` is
+    // `'static`), then delegates to `ThreadSession::commit_turn`, which is
+    // strictly append-only.
     {
         let session_for_round = Arc::clone(session);
         let agent_for_round = Arc::clone(agent);
         let accounting_ledger = agent.token_ledger();
         let accounting_session_id = session_id.to_string();
         let tx_for_turn = tx.clone();
-        agent.set_turn_persist(Arc::new(move |messages: &[Message]| {
+        agent.set_turn_persist(Arc::new(move |delta: &[Message]| {
             let session = Arc::clone(&session_for_round);
             let agent = Arc::clone(&agent_for_round);
-            let snapshot = messages.to_vec();
+            let delta = delta.to_vec();
             let ledger = accounting_ledger.clone();
             let session_id = accounting_session_id.clone();
             let tx = tx_for_turn.clone();
             Box::pin(async move {
-                // One lock acquisition, one event batch, at most one snapshot
-                // write per turn — the three mutations a turn produces (new
-                // message tail, round counter, settled usage attempts) are a
-                // single persistence transaction, not three full-snapshot
-                // setters.
+                // One lock acquisition, one event batch, at most one journal
+                // write per turn — strictly append-only delta persistence
+                // (`[INV-THREADSSOT-02]`, `[INV-CMP-08]`).
                 let usage_records = ledger
                     .as_ref()
                     .map(|ledger| ledger.pending_records_for_session(&session_id));
                 let usage_slice = usage_records.as_deref().unwrap_or(&[]);
-                // A mid-turn context projection may have rewritten committed
-                // messages; only then does the store need to compare history.
-                let basis = if agent.take_history_reprojected() {
-                    CommitBasis::Reprojected
-                } else {
-                    CommitBasis::Appended
-                };
                 let outcome = session
                     .commit_turn(CommitTurn {
-                        messages: &snapshot,
-                        basis,
+                        appended: &delta,
                         round_counter: Some(agent.round_count()),
                         usage_records: usage_slice,
                         retry_point: None,
                         round_interrupt: None,
+                        round_summary: None,
                         operation_id: None,
                         expected_revision: None,
                     })
@@ -1049,6 +1062,7 @@ async fn run_provider_attempt(
 async fn recover_context_overflow(
     io: &RoundIo<'_>,
     round_history: &mut Vec<Message>,
+    streaming_round: &mut crate::cognition::agent::StreamingRoundState,
     relay_turn: TurnContext,
     streamed_text: &Arc<std::sync::atomic::AtomicBool>,
     compacted_after_overflow: &mut bool,
@@ -1059,8 +1073,10 @@ async fn recover_context_overflow(
         ..io.projection.clone()
     }
     .for_request(io.agent.estimate_next_request_tokens(round_history));
+    let committed_len = streaming_round.committed_len().min(round_history.len());
     if let Some(report) = compact_round_history(
         round_history,
+        committed_len,
         io.session,
         &overflow_settings,
         Some(io.agent.provider.clone()),
@@ -1068,6 +1084,18 @@ async fn recover_context_overflow(
     )
     .await?
     {
+        streaming_round.set_committed_len(report.committed_len.min(round_history.len()));
+        // Reproject the armed pending request from the newly compacted window so
+        // the overflow retry sends the compacted history instead of replaying
+        // the oversized request that just failed.
+        if streaming_round.pending_request().is_some() {
+            let mut reprojected = io.agent.model_request(round_history);
+            if streaming_round.withholds_images() {
+                crate::cognition::agent::strip_images(&mut reprojected.messages);
+                reprojected.recompute_revisions();
+            }
+            streaming_round.reproject_pending_request(reprojected);
+        }
         *compacted_after_overflow = true;
         if streamed_text.swap(false, Ordering::SeqCst) {
             let _ = io.tx.send(turn_response(

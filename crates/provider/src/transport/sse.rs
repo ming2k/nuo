@@ -175,4 +175,42 @@ mod tests {
         let error = results[1].as_ref().unwrap_err();
         assert!(error.is_retryable());
     }
+
+    #[test]
+    fn fuzz_sse_framer_handles_arbitrary_splits_and_corrupt_utf8_without_panicking() {
+        // Every 1-byte split of a realistic multi-event UTF-8 SSE stream must
+        // yield the exact same payloads as feeding it in one chunk.
+        let stream =
+            b": ping\r\nevent: delta\r\ndata: {\"t\":\"\xe4\xbd\xa0\xe5\xa5\xbd\"}\r\n\r\ndata: [DONE]\n";
+        let whole = collect_payloads(&[stream]);
+        let byte_by_byte: Vec<&[u8]> = stream.chunks(1).collect();
+        let split = collect_payloads(&byte_by_byte);
+        assert_eq!(whole.len(), 1);
+        assert_eq!(split.len(), 1);
+        assert_eq!(whole[0].as_ref().unwrap(), split[0].as_ref().unwrap());
+
+        // Seeded random byte streams (including invalid UTF-8) must never panic.
+        let mut state: u64 = 0xf00d_baad_1234_5678;
+        let mut next_u8 = || -> u8 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (state >> 33) as u8
+        };
+        for case in 0..256 {
+            let chunk_count = (case % 6) + 1;
+            let mut owned: Vec<Vec<u8>> = Vec::with_capacity(chunk_count);
+            for _ in 0..chunk_count {
+                let len = (next_u8() as usize % 32) + 1;
+                let mut bytes: Vec<u8> = (0..len).map(|_| next_u8()).collect();
+                if case % 3 == 0 && bytes.len() >= 6 {
+                    bytes[0..6].copy_from_slice(b"data: ");
+                }
+                if case % 2 == 0 {
+                    bytes.push(b'\n');
+                }
+                owned.push(bytes);
+            }
+            let refs: Vec<&[u8]> = owned.iter().map(Vec::as_slice).collect();
+            let _ = collect_payloads(&refs);
+        }
+    }
 }

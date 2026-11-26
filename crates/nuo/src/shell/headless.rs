@@ -1,4 +1,4 @@
-use crate::shell::client::{self, AttachAction, Handshake};
+use crate::shell::client::{self, Handshake, ThreadTarget};
 use protocol::{AgentRequest, AgentResponse, PermissionDecision, RoundEvent};
 use tool::{PermissionRequest, UserQuestionRequest};
 
@@ -72,12 +72,10 @@ pub async fn run_headless(
     let init_options = client::ThreadInitOptions::new(unattended, confined)
         .with_role(role)
         .with_resume(resume);
-    let action = AttachAction::New(if init_options.is_default() {
-        None
-    } else {
-        Some(init_options)
-    });
-    let handshake = target.connect(action.clone()).await?;
+    let target_thread = ThreadTarget::New {
+        options: (!init_options.is_default()).then_some(init_options),
+    };
+    let handshake = target.connect(target_thread).await?;
     let (tx, mut rx, link_lost, session_id, _phase) = match handshake {
         Handshake::Attached {
             req_tx,
@@ -85,6 +83,7 @@ pub async fn run_headless(
             link_lost,
             session_id,
             phase,
+            ..
         } => (req_tx, resp_rx, link_lost, session_id, phase),
         Handshake::Pick(_) => {
             return Err("unexpected session pick list when creating fresh headless session".into());

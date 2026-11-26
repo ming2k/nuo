@@ -267,6 +267,7 @@ pub struct ThreadRegistry {
     /// session is never mistaken for an idle server.
     pub(super) building: Arc<Mutex<HashMap<String, Arc<PendingSession>>>>,
     pub(super) monitor: MonitorBus,
+    pub(super) lifecycle: Arc<crate::runtime::shutdown::ServerLifecycle>,
     pub(super) meta: Arc<Mutex<MonitorMeta>>,
     /// Server-level task fabric (D6): rehosted services and other
     /// owner-less tasks live here, published onto the monitor bus as
@@ -357,12 +358,39 @@ pub(super) const IDLE_HOSTED_SESSION_TTL: std::time::Duration =
 
 impl ThreadRegistry {
     pub fn new(params: HostParams) -> Self {
-        Self::with_meta(Some(params))
+        Self::with_meta(
+            Some(params),
+            crate::runtime::shutdown::ServerLifecycle::new_ready(),
+            true,
+        )
     }
+
+    /// Construct a server registry in `ServerPhase::Initializing { stage: Storage }`
+    /// without blocking disk or SQLite I/O so listeners can bind immediately
+    /// (ADR-0260 `[INV-SRVPHASE-01]`, `[INV-SRVPHASE-02]`).
+    pub fn new_initializing(params: HostParams) -> Self {
+        Self::with_meta(
+            Some(params),
+            crate::runtime::shutdown::ServerLifecycle::new_initializing(
+                protocol::ServerInitStage::Storage,
+            ),
+            false,
+        )
+    }
+
     pub fn prehost_only() -> Self {
-        Self::with_meta(None)
+        Self::with_meta(
+            None,
+            crate::runtime::shutdown::ServerLifecycle::new_ready(),
+            true,
+        )
     }
-    fn with_meta(params: Option<HostParams>) -> Self {
+
+    fn with_meta(
+        params: Option<HostParams>,
+        lifecycle: crate::runtime::shutdown::ServerLifecycle,
+        eager_load: bool,
+    ) -> Self {
         let (monitor, _) = broadcast::channel::<MonitorEvent>(256);
         // Construction-order scaffold: the Archivist service joins the mesh
         // tracker at build time (its mailbox + delegation tool both bind to
@@ -371,26 +399,94 @@ impl ThreadRegistry {
         let archivist = Arc::new(
             crate::runtime::archivist_service::ArchivistService::with_fabric(fabric.clone()),
         );
+        let (initial_config, initial_usage) = if eager_load {
+            (
+                persistence::config::Config::load(),
+                persistence::connection_usage::ConnectionUsage::load(),
+            )
+        } else {
+            (
+                persistence::config::Config::default(),
+                persistence::connection_usage::ConnectionUsage::default(),
+            )
+        };
         Self {
             params,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             building: Arc::new(Mutex::new(HashMap::new())),
             monitor,
+            lifecycle: Arc::new(lifecycle),
             meta: Arc::new(Mutex::new(MonitorMeta::default())),
             server_tasks: Arc::new(crate::runtime::background_jobs::BackgroundJobManager::new()),
             server_task_rows: Arc::new(std::sync::Mutex::new(HashMap::new())),
             persistence_health: Arc::new(std::sync::Mutex::new(None)),
             latest_picker: Arc::new(Mutex::new(None)),
-            shared_config: Arc::new(tokio::sync::RwLock::new(persistence::config::Config::load())),
-            shared_provider_usage: Arc::new(tokio::sync::RwLock::new(
-                persistence::connection_usage::ConnectionUsage::load(),
-            )),
+            shared_config: Arc::new(tokio::sync::RwLock::new(initial_config)),
+            shared_provider_usage: Arc::new(tokio::sync::RwLock::new(initial_usage)),
             fabric,
             archivist,
             session_mailboxes: Arc::new(Mutex::new(HashMap::new())),
             hypervisor: Arc::new(Mutex::new(None)),
             purge_gate: Arc::new(tokio::sync::RwLock::new(())),
         }
+    }
+
+    /// Unique server boot identifier from [`crate::runtime::shutdown::ServerLifecycle`].
+    pub fn server_id(&self) -> &str {
+        self.lifecycle.server_id()
+    }
+
+    /// Current global [`protocol::ServerPhase`] from [`crate::runtime::shutdown::ServerLifecycle`].
+    pub fn server_phase(&self) -> protocol::ServerPhase {
+        self.lifecycle.phase()
+    }
+
+    /// Watch receiver for reliable, lag-free [`protocol::ServerPhase`] transitions.
+    pub fn subscribe_server_phase(&self) -> tokio::sync::watch::Receiver<protocol::ServerPhase> {
+        self.lifecycle.subscribe()
+    }
+
+    /// Transition the server's global phase and notify monitor subscribers.
+    pub fn set_server_phase(&self, phase: protocol::ServerPhase) {
+        if self.lifecycle.set_phase(phase.clone()) {
+            self.publish_host_event(MonitorEvent::ServerPhaseChanged(phase));
+        }
+    }
+
+    /// Latest cached durability-health state (if degraded or observed).
+    #[allow(clippy::unwrap_used)]
+    pub fn persistence_health_snapshot(&self) -> Option<protocol::PersistenceHealth> {
+        self.persistence_health.lock().unwrap().clone()
+    }
+
+    /// Server startup timestamp (Unix seconds).
+    pub async fn server_started_at(&self) -> u64 {
+        self.meta.lock().await.started_at
+    }
+
+    /// Execute the bounded `Storage` startup stage off the async worker pool:
+    /// open persistence supervision and load durable connection usage.
+    pub async fn initialize_storage(self: &Arc<Self>) -> Result<(), String> {
+        let usage = tokio::task::spawn_blocking(|| {
+            let _ = persistence::db::get_persistence_handle();
+            persistence::connection_usage::ConnectionUsage::load()
+        })
+        .await
+        .map_err(|error| format!("storage initialization task failed: {error}"))?;
+        *self.shared_provider_usage.write().await = usage;
+        self.start_persistence_health_monitor();
+        Ok(())
+    }
+
+    /// Execute the bounded `Runtime` startup stage off the async worker pool:
+    /// load shared runtime configuration and start server-level monitors.
+    pub async fn initialize_runtime(self: &Arc<Self>) -> Result<(), String> {
+        let config = tokio::task::spawn_blocking(persistence::config::Config::load)
+            .await
+            .map_err(|error| format!("runtime config initialization task failed: {error}"))?;
+        *self.shared_config.write().await = config;
+        self.start_server_task_monitor();
+        Ok(())
     }
 }
 

@@ -186,7 +186,11 @@ pub(super) fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta
                 .as_any_mut()
                 .downcast_mut::<SessionTraceDialog>()
                 .expect("kind");
-            apply_delta(&mut e.scroll, delta);
+            if e.view.is_inspector() {
+                apply_delta(&mut e.info_scroll, delta);
+            } else {
+                apply_delta(&mut e.scroll, delta);
+            }
             DialogOutcome::Consumed
         }
         DialogKind::ContextPlan => {
@@ -330,10 +334,14 @@ pub(super) fn handle_dialog_click(
                         } else {
                             app.open_tab(tab);
                         }
-                        app.surfaces.switch_to_target = Some(target_id);
-                        app.link
-                            .should_quit
-                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                        if app.link.supervised {
+                            app.activate_thread_workspace(&target_id);
+                        } else {
+                            app.surfaces.switch_to_target = Some(target_id);
+                            app.link
+                                .should_quit
+                                .store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
                     } else {
                         return DialogOutcome::Dismiss;
                     }
@@ -573,6 +581,53 @@ pub(super) fn handle_dialog_click(
                     e.body_open = !e.body_open;
                     e.scroll = 0;
                 }
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::SessionTrace => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<SessionTraceDialog>()
+                .expect("kind");
+            if e.view.is_inspector() {
+                return DialogOutcome::Consumed;
+            }
+            // Row 0 of the modal body is the sticky table header.
+            let Some(data_row) = visual_row.checked_sub(1) else {
+                return DialogOutcome::Consumed;
+            };
+            let target_idx = e.scroll + data_row;
+            match e.view {
+                TraceView::Rounds => {
+                    let count = app
+                        .token_source_report(viewed_session_id)
+                        .map(|r| crate::shell::overlays::telemetry_round_count(&r))
+                        .unwrap_or(0);
+                    if target_idx < count {
+                        e.index = target_idx;
+                        e.follow = true;
+                    }
+                }
+                TraceView::Turns => {
+                    let report = app.token_source_report(viewed_session_id);
+                    let round_index = e.index.min(
+                        report
+                            .as_ref()
+                            .map(|r| {
+                                crate::shell::overlays::telemetry_round_count(r).saturating_sub(1)
+                            })
+                            .unwrap_or(0),
+                    );
+                    let count = report
+                        .as_ref()
+                        .map(|r| crate::shell::overlays::telemetry_attempt_count(r, round_index))
+                        .unwrap_or(0);
+                    if target_idx < count {
+                        e.turn_cursor = target_idx;
+                        e.follow = true;
+                    }
+                }
+                TraceView::RoundInfo | TraceView::AttemptInfo(_) => {}
             }
             DialogOutcome::Consumed
         }

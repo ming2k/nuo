@@ -333,7 +333,7 @@ mod followup_queue_tests {
         ));
 
         ship_queued_follow_ups(
-            &agent, &store, &lifecycle, &tx, &config, &mut queue, &wake_tx,
+            &agent, &store, &lifecycle, &tx, &config, &mut queue, &wake_tx, None,
         )
         .await;
 

@@ -164,6 +164,7 @@ struct DriverCtx {
     followup_queue: FollowUpQueue,
     active_oauth_task: Option<tokio::task::JoinHandle<OAuthResult>>,
     active_catalog_sync_task: Option<tokio::task::JoinHandle<CatalogSyncTaskResult>>,
+    titler: SessionTitler,
     bg_job_rx:
         tokio::sync::broadcast::Receiver<crate::runtime::background_jobs::BackgroundJobEvent>,
 }
@@ -244,6 +245,7 @@ impl DriverCtx {
             followup_queue: FollowUpQueue::new(),
             active_oauth_task: None,
             active_catalog_sync_task: None,
+            titler: SessionTitler::new(),
             bg_job_rx,
         }
     }
@@ -262,6 +264,7 @@ impl DriverCtx {
         agent.install_token_ledger(token_ledger.clone());
         let initial_session_id = session.id().await;
         token_ledger.restore_session(&initial_session_id, session.request_usage_records().await);
+        token_ledger.restore_round_summaries(&initial_session_id, session.round_summaries().await);
         token_ledger.set_active_session(initial_session_id.clone());
         // Crash-residue recovery. The round path arms the durable
         // `/retry` resume point only on stops it can observe — a terminal
@@ -349,25 +352,6 @@ impl DriverCtx {
             let mut config = shared_config.write().await;
             let mut provider_usage = shared_provider_usage.write().await;
             let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(&config)));
-            // Session title (ADR-0022): when the background titler durably
-            // persists a session's first title, push a fresh sessions overview.
-            // The registry's broadcast-tap folds the snapshot into the monitor
-            // tracker and republishes `MonitorEvent::SessionUpdated`, so every
-            // attached client (TUI picker, web panel) sees the new title without
-            // reopening the dialog — the same refresh path a manual
-            // `RenameSession` takes. Absent on subagent/side sessions, where
-            // titling stays a silent background write.
-            {
-                let session_for_titler = Arc::clone(&session);
-                let resp_tx_for_titler = resp_tx.clone();
-                agent.set_title_established(std::sync::Arc::new(move |_title| {
-                    let session = Arc::clone(&session_for_titler);
-                    let resp_tx = resp_tx_for_titler.clone();
-                    Box::pin(async move {
-                        crate::handlers::handlers_thread::overview(&session, &resp_tx).await;
-                    }) as futures::future::BoxFuture<'static, ()>
-                }));
-            }
             // Record that the default provider + model were activated on startup, so
             // the picker's recency ordering reflects "last used = now" for both
             // stages, and the provider is pinned to the exact model it booted under.
@@ -594,6 +578,7 @@ impl DriverCtx {
             &self.shared_config,
             &mut self.followup_queue,
             &self.followup_wake_tx,
+            Some(&mut self.titler),
         )
         .await;
     }
@@ -665,6 +650,7 @@ impl DriverCtx {
                 &self.shared_config,
                 &mut self.followup_queue,
                 &self.followup_wake_tx,
+                Some(&mut self.titler),
             )
             .await;
         }
@@ -695,6 +681,7 @@ impl DriverCtx {
                 &self.shared_config,
                 &mut self.followup_queue,
                 &self.followup_wake_tx,
+                Some(&mut self.titler),
             )
             .await;
         }
@@ -755,8 +742,11 @@ impl DriverCtx {
         let session_changed = post_session_id != pre_session_id;
 
         if session_changed {
+            self.titler.abort();
             self.token_ledger
                 .restore_session(&post_session_id, self.session.request_usage_records().await);
+            self.token_ledger
+                .restore_round_summaries(&post_session_id, self.session.round_summaries().await);
             self.token_ledger
                 .set_active_session(post_session_id.clone());
             self.agent.set_thread_id(post_session_id.clone());
@@ -898,6 +888,7 @@ impl DriverCtx {
                         tx: &resp_tx,
                         config,
                     },
+                    &mut self.titler,
                     text,
                     images,
                     sent_at_ms,
@@ -930,6 +921,7 @@ impl DriverCtx {
                     },
                     &mut self.followup_queue,
                     &self.followup_wake_tx,
+                    Some(&mut self.titler),
                     thread_id,
                     message,
                 )
@@ -1525,6 +1517,7 @@ impl DriverCtx {
                 });
             }
             AgentRequest::RenameThread { id, title } => {
+                self.titler.abort_if_session(&id);
                 let session = session.clone();
                 let resp_tx = resp_tx.clone();
                 tokio::spawn(async move {
@@ -1854,6 +1847,7 @@ impl DriverCtx {
 
     /// Abort any background tasks still owned by the loop.
     fn shutdown(&mut self) {
+        self.titler.abort();
         if let Some(task) = self.active_oauth_task.take() {
             task.abort();
         }

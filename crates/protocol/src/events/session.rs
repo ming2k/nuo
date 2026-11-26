@@ -4,11 +4,11 @@ use super::*;
 
 /// Complete state snapshot of a live or persisted thread for client hydration (ADR-0049).
 ///
-/// Since ADR-0133 this is the *only* hydration payload: `Wire::Welcome` carries
-/// identity and phase, and this snapshot follows it on the same connection
-/// before `ThreadPhase::Ready`. The fields below therefore duplicate nothing
-/// from the handshake — a late attacher can rebuild the entire visible thread
-/// from this frame alone.
+/// Since ADR-0133 / ADR-0260 this is the *only* hydration payload:
+/// `Wire::Subscribed` carries identity and phase, and this snapshot follows it
+/// on the same connection before `ThreadPhase::Ready`. The fields below
+/// therefore duplicate nothing from the subscription acknowledgement — a late
+/// attacher can rebuild the entire visible thread from this frame alone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadSnapshot {
     pub thread_id: String,
@@ -254,4 +254,8 @@ pub enum AgentEvent {
     BackgroundJobCompleted(crate::job::BackgroundJobOutcome),
     /// Remote catalog was updated; attached frontends should refresh provider picker.
     CatalogInvalidated,
+    /// Mid-turn compaction folded older history in the model window so the
+    /// live client can render the compaction card at the exact turn seam
+    /// (`[INV-CMP-10]`).
+    Compacted(crate::ContextProjectionCheckpoint),
 }

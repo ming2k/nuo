@@ -10,6 +10,7 @@
 
 pub use ui_primitives::Theme;
 
+pub mod chrome;
 pub mod components;
 pub mod composer_attachments;
 pub mod composer_draft;
@@ -30,6 +31,9 @@ pub mod retry;
 pub mod text_layout;
 pub mod tools;
 pub mod trust_gate;
+pub mod tui_config;
+pub mod view_header;
+pub mod views;
 
 #[cfg(test)]
 mod message_body_interjection_tests;

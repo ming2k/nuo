@@ -61,6 +61,10 @@ pub struct ModalKeys {
     /// While the models modal is drilled into its detail sub-view (`i`),
     /// the arrow keys scroll/adjust and Enter activates/saves.
     pub model_info_detail: bool,
+    /// Active view inside `DialogKind::SessionTrace` (ADR-0263 `[INV-TRACE-02]`):
+    /// `Enter` enters child containers (`Rounds` -> `Turns`), `i` inspects the
+    /// highlighted item (`Rounds` -> `RoundInfo`, `Turns` -> `AttemptInfo`).
+    pub trace_view: crate::shell::surfaces::TraceView,
     /// Whether the `/host` dashboard's inline prompt is open (`p` prompt or
     /// `n` new session). While true, printable keys edit the prompt text and
     /// Enter submits it. Mirrors `App::host_prompting`.
@@ -152,7 +156,12 @@ fn resolve_enter_action(
             OverlaySurface::Dialog(DialogKind::Skills) => InputAction::SkillsToggleDetail,
             OverlaySurface::Dialog(DialogKind::ContextPlan) => InputAction::ContextPlanToggleBody,
             OverlaySurface::Dialog(DialogKind::Queue) => InputAction::RecallQueuedSelected,
-            OverlaySurface::Dialog(DialogKind::SessionTrace) => InputAction::TraceInspectDetail,
+            OverlaySurface::Dialog(DialogKind::SessionTrace)
+                if keys.trace_view == crate::shell::surfaces::TraceView::Rounds =>
+            {
+                InputAction::TraceEnter
+            }
+            OverlaySurface::Dialog(DialogKind::SessionTrace) => return None,
             _ => return None,
         })
     } else {
@@ -481,6 +490,12 @@ pub(crate) fn resolve_modal_key(
                 't' | 'T' => Some(InputAction::ThreadStatsOpenTrace),
                 _ => None,
             },
+            OverlaySurface::Dialog(DialogKind::SessionTrace) if !keys.trace_view.is_inspector() => {
+                match c {
+                    'i' => Some(InputAction::TraceInspect),
+                    _ => None,
+                }
+            }
             OverlaySurface::Dialog(DialogKind::Models) if keys.model_info_detail => match c {
                 'e' => Some(InputAction::OpenModelEditor),
                 'r' | 'R' => Some(InputAction::RefreshProviderModels),

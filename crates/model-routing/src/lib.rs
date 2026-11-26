@@ -6,7 +6,7 @@
 //! The model routing pipeline (ADR-0081, ADR-0082, ADR-0102: source → mapping → overwrite)
 //! is consumed by two peers that sit on *both sides* of a one-way dependency edge — the
 //! execution harness and the headless server — while `server` depends on
-//! `nuo-harness`. Neither crate's module tree can host a definition the other
+//! `engine`. Neither crate's module tree can host a definition the other
 //! links. It is a Layer-2 domain (ADR-0102 `[INV-ROUTING-01]`), not a module of either
 //! consumer: dependents import it directly and no crate re-exports it as a path shim.
 //!
@@ -21,7 +21,10 @@
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
 // test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
 // so the shipped graph stays under the workspace `deny` for these lints.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+#![cfg_attr(
+    test,
+    allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, unsafe_code)
+)]
 
 mod derive;
 mod picker;

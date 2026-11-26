@@ -10,6 +10,8 @@ pub use crate::composition::startup;
 pub use crate::runtime::host;
 pub use crate::runtime::input_completion;
 pub use crate::runtime::registry::{HostedThread, ThreadRegistry};
+pub use crate::runtime::shutdown;
 pub use crate::runtime::thread_driver::ThreadDriver;
+pub use crate::transport::serve;
 pub use crate::transport::serve_discovery;
 pub use crate::transport::ui_bridge::{CopyOutcome, UiBridge};

@@ -19,5 +19,5 @@ pub(super) fn load_session_full(
     engine: &DatabaseEngine,
     id: &str,
 ) -> rusqlite::Result<Option<crate::thread::ThreadData>> {
-    crate::db::thread_session::load_session_full(&engine.conn, id)
+    crate::db::thread_session::load_session_full_from_planes(&engine.conn, None, id, None)
 }

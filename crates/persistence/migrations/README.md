@@ -28,10 +28,10 @@ database (ADR-0190).
 
 ## Adding a schema-only migration
 
-The catalog currently ends at v6 (`catalog_summary`). The next change is v7.
+The catalog currently ends at v9 (`pure_catalog_and_nullable_workspace`). The next change is v10.
 Example: add an index for thread title search.
 
-1. Create `migrations/0007_thread_title_index.sql`:
+1. Create `migrations/0010_thread_title_index.sql`:
 
 ```sql
 CREATE INDEX idx_threads_title ON threads(title);
@@ -41,16 +41,16 @@ CREATE INDEX idx_threads_title ON threads(title);
 
 ```rust
 pub const MIGRATIONS: &[Migration] = &[
-    // ... existing v1 and v2 entries ...
+    // ... existing v1..=v9 entries ...
     Migration {
-        version: 7,
+        version: 10,
         name: "thread_title_index",
         code_revision: 1,
-        body: Body::Sql(include_str!("../../../migrations/0007_thread_title_index.sql")),
+        body: Body::Sql(include_str!("../../../migrations/0010_thread_title_index.sql")),
     },
 ];
 
-pub const CURRENT_DB_VERSION: u32 = 7;
+pub const CURRENT_DB_VERSION: u32 = 10;
 ```
 
 3. Add an upgrade test (see below).
@@ -147,12 +147,12 @@ cargo test -p nuo-tests --test integration
 
 ## Secondary durable databases
 
-The runner is schema-agnostic. `role_memory.db` has its own baseline
-(`migrations/role_memory/0001_baseline.sql`) and catalog
-(`src/db/migrations/role_memory.rs`), and goes through the same ledger,
-checksum, backup, and structural verification (ADR-0192). Do not add
-`CREATE TABLE IF NOT EXISTS` to a durable store; add a numbered migration to
-that schema's catalog.
+The runner is schema-agnostic. `role_memory.db` (`migrations/role_memory/0001_baseline.sql`,
+`src/db/migrations/role_memory.rs`) and fixed-`K` content shards (`migrations/content_shard/0001_baseline.sql`,
+`src/db/migrations/content_shard.rs`) each own their own immutable baseline and catalog,
+and go through the same ledger, checksum, and structural verification (ADR-0192, ADR-0255).
+Do not add `CREATE TABLE IF NOT EXISTS` to any SQLite database or content shard; add a
+numbered migration to that schema's catalog.
 
 ## Do not
 

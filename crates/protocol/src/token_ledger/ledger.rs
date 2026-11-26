@@ -17,6 +17,11 @@ pub struct TokenSourceLedger {
     /// terminal event updates exactly one attempt and duplicate events are
     /// idempotent.
     requests: Mutex<BTreeMap<RequestUsageKey, RequestUsageRecord>>,
+    /// Per-session durable round completion summaries (`(session_id, round)` ->
+    /// `RoundSummary`), projected into [`TokenSourceReport::round_summaries`]
+    /// so both live and resumed `/trace` views share exact wall-clock / paused
+    /// timing (ADR-0263 `[INV-TRACE-03]`).
+    round_summaries: Mutex<BTreeMap<(String, u64), crate::RoundSummary>>,
     /// Session selected by the harness. `snapshot()` filters lifecycle records
     /// to this id, preventing usage from another opened session leaking into
     /// the current report.
@@ -396,6 +401,33 @@ impl TokenSourceLedger {
         }
     }
 
+    /// Record a completed round's authoritative wall-clock summary in the live
+    /// ledger for `session_id` (ADR-0263 `[INV-TRACE-03]`).
+    pub fn record_round_summary(&self, session_id: &str, summary: crate::RoundSummary) {
+        if summary.round == 0 {
+            return;
+        }
+        self.round_summaries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert((session_id.to_string(), summary.round), summary);
+    }
+
+    /// Replace all cached round summaries for `session_id` from durable store
+    /// on session open / switch (ADR-0263 `[INV-TRACE-03]`).
+    pub fn restore_round_summaries(&self, session_id: &str, summaries: Vec<crate::RoundSummary>) {
+        let mut map = self
+            .round_summaries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        map.retain(|(sid, _), _| sid != session_id);
+        for summary in summaries {
+            if summary.round > 0 {
+                map.insert((session_id.to_string(), summary.round), summary);
+            }
+        }
+    }
+
     /// Book one turn as a line item — the single entry point all the public
     /// recorders funnel through. It appends the turn and folds it into the
     /// running totals. Non-positive totals are ignored; negative io/cache
@@ -545,6 +577,18 @@ impl TokenSourceLedger {
                     acc.add(t);
                     acc
                 });
-        TokenSourceReport { rows, grand_total }
+        let round_summaries: Vec<crate::RoundSummary> = self
+            .round_summaries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|((sid, _), _)| session_id.is_none_or(|target| sid == target))
+            .map(|(_, summary)| *summary)
+            .collect();
+        TokenSourceReport {
+            rows,
+            grand_total,
+            round_summaries,
+        }
     }
 }

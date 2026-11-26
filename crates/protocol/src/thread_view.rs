@@ -9,7 +9,6 @@ use crate::thread::{
     BlobRef, BranchId, FactId, FactPayload, Thread, ThreadError, ThreadFact, ThreadRevision,
 };
 use tool::Message;
-use tool::Role;
 
 /// Bounded branch-scoped fact window.
 #[derive(Debug, Clone, PartialEq)]
@@ -108,12 +107,7 @@ impl RequestView {
             });
         let mut messages = Vec::new();
         if let Some(summary) = summary {
-            let mut message = Message::new(
-                Role::System,
-                format!("[Context Compaction Summary]\n{summary}"),
-            );
-            message.hidden = true;
-            messages.push(message);
+            messages.push(crate::checkpoint_message(&summary));
         }
         for fact in &window.facts {
             match &fact.payload {
@@ -220,6 +214,7 @@ impl FactSummary {
 mod tests {
     use super::*;
     use crate::thread::{BranchPolicy, FactContext, ThreadId};
+    use tool::Role;
 
     fn message(text: &str) -> FactPayload {
         FactPayload::Message {
@@ -287,6 +282,11 @@ mod tests {
         let window = ThreadWindow::from_thread(&thread, &BranchId::main(), 32).unwrap();
         let view = RequestView::from_window(&window);
         assert!(view.messages[0].hidden);
+        assert_eq!(
+            view.messages[0].origin.as_ref().map(|o| o.kind),
+            Some(tool::InjectionKind::CompactionCheckpoint),
+            "RequestView must emit the single canonical checkpoint_message"
+        );
         assert!(view.messages[0].content.contains("earlier conversation"));
         assert_eq!(
             view.messages

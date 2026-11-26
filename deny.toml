@@ -1,0 +1,57 @@
+# Supply-chain policy enforced by `cargo deny check`.
+#
+# Local offline verification:
+#   cargo deny check licenses bans sources --offline
+# Full CI check (including advisory DB):
+#   cargo deny check
+
+[graph]
+all-features = false
+no-default-features = false
+
+[advisories]
+version = 2
+ignore = [
+    # Transitive unmaintained notice only (no known vulnerability):
+    # `host -> pdf-extract 0.12.1 -> lopdf 0.42.0 -> ttf-parser 0.25.1`.
+    # Isolated behind the `host::document::DocumentExtractor` seam (ADR-0193,
+    # ADR-0265 `[INV-SUPPLY-01]`); drop once `pdf-extract` upgrades `lopdf`.
+    { id = "RUSTSEC-2026-0192", reason = "transitive via pdf-extract -> lopdf; pure-Rust font metric parser with no CVE, isolated behind DocumentExtractor (ADR-0265)" },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "0BSD",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "Unlicense",
+    "MPL-2.0",
+]
+
+[bans]
+multiple-versions = "allow"
+# Git dependencies pinned by tag (`netune` / `netune-trace`) carry no registry
+# version req, which cargo-deny classifies under `wildcards`. Source provenance
+# is strictly enforced under `[sources]` (`unknown-git = "deny"`).
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/ming2k/netune.git"]

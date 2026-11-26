@@ -1,7 +1,9 @@
 //! Telemetry data extraction, aggregation models, and rate calculations.
 
+use crate::shell::surfaces::TraceAttemptKey;
 use protocol::{RequestPerformance, RequestUsageStatus, TokenSourceReport};
 use std::collections::BTreeMap;
+use view::model::document::{MessageKind, ToolStepStatus, TranscriptMessage};
 
 /// View properties for contextual tokens when displaying context limits.
 #[derive(Debug, Clone, Copy, Default)]
@@ -19,6 +21,7 @@ pub struct TelemetryAttempt {
     pub round: u64,
     pub turn: u32,
     pub attempt: u32,
+    pub actor_id: String,
     pub model: String,
     pub provider: String,
     pub status: RequestUsageStatus,
@@ -26,12 +29,15 @@ pub struct TelemetryAttempt {
     pub completion_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub generation_ms: u64,
     pub performance: Option<RequestPerformance>,
     pub e2e_duration_ms: u64,
     /// Epoch milliseconds when the attempt was dispatched. Lets the timeline
     /// show what happened *before* dispatch (the TUI knows when Enter was
     /// pressed; the ledger knows when the provider was called).
     pub started_at_ms: u64,
+    pub cost_nano_usd: Option<u64>,
 }
 
 impl TelemetryAttempt {
@@ -71,9 +77,16 @@ pub struct TelemetryRound {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
     pub total_tokens: u64,
     pub turns_count: usize,
+    pub subagent_attempts_count: usize,
     pub e2e_duration_ms: u64,
+    pub generation_ms: u64,
+    pub cost_nano_usd: Option<u64>,
+    pub first_started_at_ms: Option<u64>,
+    pub last_finished_at_ms: Option<u64>,
     pub attempts: Vec<TelemetryAttempt>,
 }
 
@@ -84,6 +97,48 @@ impl TelemetryRound {
         } else {
             (self.cache_read_tokens as f64 / self.prompt_tokens as f64) * 100.0
         }
+    }
+
+    /// Observed wall-clock span from the earliest attempt dispatch to the
+    /// latest attempt completion, when epoch dispatch timestamps were recorded.
+    pub fn wall_span_ms(&self) -> Option<u64> {
+        match (self.first_started_at_ms, self.last_finished_at_ms) {
+            (Some(start), Some(end)) if end >= start => Some(end - start),
+            _ => None,
+        }
+    }
+
+    /// Average measured TTFT across attempts in this round, in microseconds.
+    pub fn avg_ttft_us(&self) -> Option<u64> {
+        let mut sum = 0u64;
+        let mut count = 0u64;
+        for att in &self.attempts {
+            if let Some(ttft) = att.performance.and_then(|p| p.ttft_us) {
+                sum = sum.saturating_add(ttft);
+                count += 1;
+            }
+        }
+        (count > 0).then(|| sum / count)
+    }
+
+    /// Count of non-completed terminal attempts (failed, interrupted, abandoned).
+    pub fn non_completed_attempts(&self) -> usize {
+        self.attempts
+            .iter()
+            .filter(|a| a.status != RequestUsageStatus::Completed)
+            .count()
+    }
+
+    /// Ordered, deduplicated `(model, provider)` pairs observed in this round.
+    pub fn models(&self) -> Vec<(String, String)> {
+        let mut seen = Vec::new();
+        for att in self.attempts.iter().rev() {
+            let pair = (att.model.clone(), att.provider.clone());
+            if !seen.contains(&pair) {
+                seen.push(pair);
+            }
+        }
+        seen
     }
 
     /// The round's streaming rate: total tokens over total streamed seconds.
@@ -112,6 +167,112 @@ impl TelemetryRound {
     }
 }
 
+/// Per-tool invocation tally inside one round.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolTally {
+    pub name: String,
+    pub total: usize,
+    pub failed: usize,
+}
+
+/// Deterministic, transcript-derived activity facts for one round
+/// (ADR-0263 `[INV-TRACE-03]`). Works identically for live and restored threads.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RoundTranscriptRecap {
+    pub prompt_preview: Option<String>,
+    pub tool_calls: usize,
+    pub tool_ok: usize,
+    pub tool_failed: usize,
+    pub tool_denied: usize,
+    pub tool_cancelled: usize,
+    pub tool_interrupted: usize,
+    pub tool_duration_ms: u64,
+    pub tool_counts: Vec<ToolTally>,
+    pub reasoning_count: usize,
+    pub reasoning_duration_ms: u64,
+}
+
+/// Derive objective activity facts for `round_number` from the thread transcript.
+pub fn extract_round_transcript_recap(
+    messages: &[TranscriptMessage],
+    round_number: u64,
+) -> RoundTranscriptRecap {
+    let mut recap = RoundTranscriptRecap::default();
+    let mut counts: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+
+    for msg in messages {
+        if msg.round != Some(round_number) {
+            continue;
+        }
+        match &msg.kind {
+            MessageKind::Text if msg.role == tool::Role::User && recap.prompt_preview.is_none() => {
+                let collapsed: String = msg.raw.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !collapsed.is_empty() {
+                    recap.prompt_preview = Some(collapsed);
+                }
+            }
+            MessageKind::ToolStep {
+                name,
+                status,
+                duration_ms,
+                ..
+            } => {
+                recap.tool_calls += 1;
+                if let Some(ms) = duration_ms {
+                    recap.tool_duration_ms = recap.tool_duration_ms.saturating_add(*ms);
+                }
+                let is_problem = match status {
+                    ToolStepStatus::Ok => {
+                        recap.tool_ok += 1;
+                        false
+                    }
+                    ToolStepStatus::Failed => {
+                        recap.tool_failed += 1;
+                        true
+                    }
+                    ToolStepStatus::Denied => {
+                        recap.tool_denied += 1;
+                        true
+                    }
+                    ToolStepStatus::Cancelled => {
+                        recap.tool_cancelled += 1;
+                        true
+                    }
+                    ToolStepStatus::Interrupted => {
+                        recap.tool_interrupted += 1;
+                        true
+                    }
+                    ToolStepStatus::Ingesting | ToolStepStatus::Executing => false,
+                };
+                let entry = counts.entry(name.clone()).or_insert((0, 0));
+                entry.0 += 1;
+                if is_problem {
+                    entry.1 += 1;
+                }
+            }
+            MessageKind::Reasoning { duration_ms, .. } => {
+                recap.reasoning_count += 1;
+                if let Some(ms) = duration_ms {
+                    recap.reasoning_duration_ms = recap.reasoning_duration_ms.saturating_add(*ms);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut tallies: Vec<ToolTally> = counts
+        .into_iter()
+        .map(|(name, (total, failed))| ToolTally {
+            name,
+            total,
+            failed,
+        })
+        .collect();
+    tallies.sort_by(|a, b| b.total.cmp(&a.total).then_with(|| a.name.cmp(&b.name)));
+    recap.tool_counts = tallies;
+    recap
+}
+
 /// Filter and extract only terminal attempts, grouped by round descending.
 pub fn extract_telemetry_rounds(report: &TokenSourceReport) -> Vec<TelemetryRound> {
     let mut round_map = BTreeMap::<u64, Vec<TelemetryAttempt>>::new();
@@ -126,6 +287,7 @@ pub fn extract_telemetry_rounds(report: &TokenSourceReport) -> Vec<TelemetryRoun
             let completion = req.completion_tokens.max(0) as u64;
             let cache_read = req.cache_read_tokens.max(0) as u64;
             let cache_write = req.cache_write_tokens.max(0) as u64;
+            let reasoning = req.reasoning_tokens.max(0) as u64;
 
             let e2e_duration_ms = req
                 .performance
@@ -136,6 +298,7 @@ pub fn extract_telemetry_rounds(report: &TokenSourceReport) -> Vec<TelemetryRoun
                 round: req.key.round,
                 turn: req.key.turn,
                 attempt: req.key.attempt,
+                actor_id: req.key.actor_id.clone(),
                 model: req.model.clone(),
                 provider: req.provider.clone(),
                 status: req.status,
@@ -143,9 +306,12 @@ pub fn extract_telemetry_rounds(report: &TokenSourceReport) -> Vec<TelemetryRoun
                 completion_tokens: completion,
                 cache_read_tokens: cache_read,
                 cache_write_tokens: cache_write,
+                reasoning_tokens: reasoning,
+                generation_ms: req.generation_ms,
                 performance: req.performance,
                 e2e_duration_ms,
                 started_at_ms: req.started_at_ms,
+                cost_nano_usd: req.cost_nano_usd,
             };
 
             round_map.entry(req.key.round).or_default().push(attempt);
@@ -154,34 +320,87 @@ pub fn extract_telemetry_rounds(report: &TokenSourceReport) -> Vec<TelemetryRoun
 
     let mut result = Vec::new();
     for (round_num, mut attempts) in round_map.into_iter().rev() {
-        attempts.sort_by_key(|attempt| std::cmp::Reverse((attempt.turn, attempt.attempt)));
+        attempts.sort_by(|a, b| {
+            std::cmp::Reverse((
+                a.turn,
+                protocol::token_ledger::is_root_actor(&a.actor_id),
+                a.attempt,
+            ))
+            .cmp(&std::cmp::Reverse((
+                b.turn,
+                protocol::token_ledger::is_root_actor(&b.actor_id),
+                b.attempt,
+            )))
+            .then_with(|| a.actor_id.cmp(&b.actor_id))
+        });
 
         let mut prompt_tokens = 0u64;
         let mut completion_tokens = 0u64;
         let mut cache_read_tokens = 0u64;
+        let mut cache_write_tokens = 0u64;
+        let mut reasoning_tokens = 0u64;
         let mut e2e_duration_ms = 0u64;
+        let mut generation_ms = 0u64;
+        let mut cost_sum = 0u64;
+        let mut has_cost = false;
+        let mut first_started_at_ms: Option<u64> = None;
+        let mut last_finished_at_ms: Option<u64> = None;
+        let mut subagent_attempts_count = 0usize;
 
-        let mut distinct_turns = std::collections::BTreeSet::new();
+        let mut distinct_root_turns = std::collections::BTreeSet::new();
+        let mut distinct_all_turns = std::collections::BTreeSet::new();
 
         for att in &attempts {
             prompt_tokens += att.prompt_tokens;
             completion_tokens += att.completion_tokens;
             cache_read_tokens += att.cache_read_tokens;
-            distinct_turns.insert(att.turn);
-            e2e_duration_ms += att.e2e_duration_ms;
+            cache_write_tokens += att.cache_write_tokens;
+            reasoning_tokens += att.reasoning_tokens;
+            distinct_all_turns.insert(att.turn);
+            if protocol::token_ledger::is_root_actor(&att.actor_id) {
+                distinct_root_turns.insert(att.turn);
+            } else {
+                subagent_attempts_count += 1;
+            }
+            e2e_duration_ms = e2e_duration_ms.saturating_add(att.e2e_duration_ms);
+            generation_ms = generation_ms.saturating_add(att.generation_ms);
+            if let Some(c) = att.cost_nano_usd {
+                cost_sum = cost_sum.saturating_add(c);
+                has_cost = true;
+            }
+            if att.started_at_ms > 0 {
+                first_started_at_ms = Some(
+                    first_started_at_ms
+                        .map_or(att.started_at_ms, |prev| prev.min(att.started_at_ms)),
+                );
+                let finished = att.started_at_ms.saturating_add(att.e2e_duration_ms);
+                last_finished_at_ms =
+                    Some(last_finished_at_ms.map_or(finished, |prev| prev.max(finished)));
+            }
         }
 
         let total_tokens = prompt_tokens + completion_tokens;
-        let turns_count = distinct_turns.len();
+        let turns_count = if !distinct_root_turns.is_empty() {
+            distinct_root_turns.len()
+        } else {
+            distinct_all_turns.len()
+        };
 
         result.push(TelemetryRound {
             round_number: round_num,
             prompt_tokens,
             completion_tokens,
             cache_read_tokens,
+            cache_write_tokens,
+            reasoning_tokens,
             total_tokens,
             turns_count,
+            subagent_attempts_count,
             e2e_duration_ms,
+            generation_ms,
+            cost_nano_usd: has_cost.then_some(cost_sum),
+            first_started_at_ms,
+            last_finished_at_ms,
             attempts,
         });
     }
@@ -202,11 +421,27 @@ pub fn telemetry_attempt_key(
     report: &TokenSourceReport,
     round_index: usize,
     attempt_index: usize,
-) -> Option<(u32, u32)> {
+) -> Option<TraceAttemptKey> {
     let rounds = extract_telemetry_rounds(report);
     let round = rounds.get(round_index)?;
     let attempt = round.attempts.get(attempt_index)?;
-    Some((attempt.round as u32, attempt.attempt))
+    Some(TraceAttemptKey {
+        round: attempt.round,
+        actor_id: attempt.actor_id.clone(),
+        turn: attempt.turn,
+        attempt: attempt.attempt,
+    })
+}
+
+pub(crate) fn fmt_cost_nano_usd(nano: u64) -> String {
+    let usd = nano as f64 / 1_000_000_000.0;
+    if usd >= 1.0 {
+        format!("${usd:.2}")
+    } else if usd >= 0.01 {
+        format!("${usd:.3}")
+    } else {
+        format!("${usd:.4}")
+    }
 }
 
 pub(crate) fn fmt_num<T: std::fmt::Display>(num: T) -> String {
@@ -288,7 +523,7 @@ pub(crate) fn status_style(
         RequestUsageStatus::Failed | RequestUsageStatus::Abandoned => {
             graticule::Style::default().fg(theme.error_fg)
         }
-        RequestUsageStatus::InFlight => graticule::Style::default().fg(theme.brand()),
+        RequestUsageStatus::InFlight => graticule::Style::default().fg(theme.running()),
     }
 }
 

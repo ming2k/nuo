@@ -14,7 +14,7 @@
 //!
 //! The admission rule requires that an item is exchanged by *multiple
 //! independent workspace layers* or *breaks a dependency cycle*. The grammar is
-//! consumed by `nuo-harness`, `server`, and the terminal app, and it cannot
+//! consumed by `engine`, `server`, and the terminal app, and it cannot
 //! live in any one of them: the runtime layer must not depend on the terminal
 //! (that would invert the dependency direction, ADR-0059), and
 //! both runtime and the terminal need the same guard. This module is therefore

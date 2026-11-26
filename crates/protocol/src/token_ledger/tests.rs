@@ -863,3 +863,54 @@ fn latest_turn_performance_picks_newest_completed_master_attempt() {
     let empty = TokenSourceLedger::new();
     assert!(empty.snapshot().latest_turn_performance().is_none());
 }
+
+#[test]
+fn round_summaries_record_restore_and_snapshot_per_session() {
+    let ledger = TokenSourceLedger::new();
+    let s1_r1 = crate::RoundSummary {
+        round: 1,
+        output_tokens: 100,
+        duration_ms: 3_200,
+        paused_ms: 800,
+        generation_ms: 2_000,
+        session_revision: 4,
+    };
+    let s2_r1 = crate::RoundSummary {
+        round: 1,
+        output_tokens: 50,
+        duration_ms: 1_100,
+        paused_ms: 0,
+        generation_ms: 900,
+        session_revision: 2,
+    };
+    ledger.record_round_summary("s1", s1_r1);
+    ledger.record_round_summary("s2", s2_r1);
+
+    assert_eq!(
+        ledger.snapshot_for_session("s1").round_summaries,
+        vec![s1_r1]
+    );
+    assert_eq!(
+        ledger.snapshot_for_session("s2").round_summaries,
+        vec![s2_r1]
+    );
+
+    // Restore replaces s1's summaries without disturbing s2.
+    let s1_r2 = crate::RoundSummary {
+        round: 2,
+        output_tokens: 200,
+        duration_ms: 6_000,
+        paused_ms: 1_500,
+        generation_ms: 3_500,
+        session_revision: 9,
+    };
+    ledger.restore_round_summaries("s1", vec![s1_r2]);
+    assert_eq!(
+        ledger.snapshot_for_session("s1").round_summaries,
+        vec![s1_r2]
+    );
+    assert_eq!(
+        ledger.snapshot_for_session("s2").round_summaries,
+        vec![s2_r1]
+    );
+}

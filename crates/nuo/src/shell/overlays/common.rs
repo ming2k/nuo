@@ -181,7 +181,7 @@ impl McpRow {
                 theme.ok(),
                 conn_dot,
             ),
-            Self::Connecting => ("connecting…".to_string(), theme.muted(), conn_glyph),
+            Self::Connecting => ("connecting…".to_string(), theme.running(), conn_glyph),
             Self::Disabled => (
                 "disabled".to_string(),
                 theme.muted(),

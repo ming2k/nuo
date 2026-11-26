@@ -130,9 +130,16 @@ impl TranslatorState {
                 )
                 .await;
             }
-            RoundEvent::RoundCompleted(_summary) => {
-                // The retry episode is over; retire any transient state.
+            RoundEvent::RoundCompleted(summary) => {
+                // The retry episode is over; retire any transient state,
+                // retain the authoritative round summary for `/trace`, and
+                // publish the terminal success outcome for background tabs.
                 self.thread_mut(&session_id).retry_progress = None;
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::RoundCompleted(summary),
+                )
+                .await;
                 self.transcript(&session_id, E::RetractPendingToolSteps)
                     .await;
             }
@@ -150,11 +157,17 @@ impl TranslatorState {
                     (detail, _) => protocol::RoundInterrupt { detail, ..record },
                 };
                 self.thread_mut(&session_id).retry_progress = None;
-                self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundEnded)
-                    .await;
-
-                self.mutations.send(M::SetPhase(None)).await;
-                self.mutations.send(M::SetResponding(false)).await;
+                let chrome_edit = match record.reason {
+                    protocol::RoundInterruptReason::Error
+                    | protocol::RoundInterruptReason::Terminated => {
+                        event_loop::mutations::ChromeEdit::RoundFailed
+                    }
+                    protocol::RoundInterruptReason::User
+                    | protocol::RoundInterruptReason::Superseded => {
+                        event_loop::mutations::ChromeEdit::RoundEnded
+                    }
+                };
+                self.chrome(&session_id, chrome_edit).await;
 
                 self.transcript(&session_id, E::RetractPendingToolSteps)
                     .await;
@@ -181,32 +194,26 @@ impl TranslatorState {
                     },
                 )
                 .await;
+
+                let phase = if self.thread_mut(&session_id).harness.loop_status.is_idle() {
+                    None
+                } else {
+                    Some(Phase::Answering)
+                };
                 self.chrome(
                     &session_id,
-                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Answering)),
+                    event_loop::mutations::ChromeEdit::PhaseOnly(phase),
                 )
                 .await;
-
-                if self.thread_mut(&session_id).harness.loop_status.is_idle() {
-                    self.mutations.send(M::SetResponding(false)).await;
-                    self.mutations.send(M::SetPhase(None)).await;
-                } else {
-                    self.mutations
-                        .send(M::SetPhase(Some(Phase::Answering)))
-                        .await;
-                }
             }
             RoundEvent::Activity(status) => {
                 if !self.thread_mut(&session_id).harness.loop_status.is_idle() {
                     let folded = Phase::classify(&status);
                     self.chrome(
                         &session_id,
-                        event_loop::mutations::ChromeEdit::ActivityFolded(folded.clone()),
+                        event_loop::mutations::ChromeEdit::ActivityFolded(folded),
                     )
                     .await;
-
-                    self.mutations.send(M::SetPhase(Some(folded))).await;
-                    self.mutations.send(M::SetResponding(true)).await;
                 }
             }
             RoundEvent::TurnStarted => {
@@ -218,23 +225,11 @@ impl TranslatorState {
                 self.transcript(&session_id, E::StampTurnPrompt { round })
                     .await;
 
-                self.mutations
-                    .send(M::SetRoundCount {
-                        thread_id: Some(session_id.clone()),
-                        round,
-                    })
-                    .await;
-                self.mutations.send(M::SetCurrentTurn(turn)).await;
-
                 self.chrome(
                     &session_id,
                     event_loop::mutations::ChromeEdit::TurnStarted { round, turn },
                 )
                 .await;
-
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::AwaitingModel)))
-                    .await;
             }
             RoundEvent::StreamStart => {
                 self.transcript(&session_id, E::BeginStream).await;
@@ -243,19 +238,9 @@ impl TranslatorState {
                     event_loop::mutations::ChromeEdit::StreamStarted,
                 )
                 .await;
-
-                self.mutations.send(M::SetResponding(true)).await;
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::Answering)))
-                    .await;
             }
             RoundEvent::StreamDelta(delta) => {
                 // Visible-text deltas outrank the reasoning phase.
-
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::Answering)))
-                    .await;
-
                 self.chrome(
                     &session_id,
                     event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Answering)),
@@ -291,10 +276,11 @@ impl TranslatorState {
                 .await;
             }
             RoundEvent::StreamEnd(final_content) => {
-                self.mutations.send(M::SetResponding(true)).await;
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::Finalizing)))
-                    .await;
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Finalizing)),
+                )
+                .await;
 
                 self.thread_mut(&session_id).retry_progress = None;
                 let Some(context) = ctx.turn_context else {
@@ -345,15 +331,10 @@ impl TranslatorState {
             RoundEvent::UnsentInput { .. } => {
                 self.thread_mut(&session_id).retry_progress = None;
                 self.transcript(&session_id, E::CancelLastUserPrompt).await;
-
-                self.mutations.send(M::SetResponding(false)).await;
-                self.mutations.send(M::SetPhase(None)).await;
+                self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundEnded)
+                    .await;
             }
             RoundEvent::StreamReasoningDelta(delta) => {
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::Reasoning)))
-                    .await;
-
                 self.chrome(
                     &session_id,
                     event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Reasoning)),

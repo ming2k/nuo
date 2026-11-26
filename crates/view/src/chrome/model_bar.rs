@@ -1,0 +1,433 @@
+//! The persistent single-line model bar pinned below composer input.
+use graticule_canvas::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
+use unicode_width::UnicodeWidthStr;
+
+use ui_primitives::Theme;
+use ui_primitives::chord::Key;
+use ui_primitives::design::{
+    JOIN_ENUMERATE_COLS, MODEL_BAR_GAP_MIN, MODEL_BAR_INNER_PADDING, MODEL_BAR_MODEL_GAP,
+};
+
+pub const CONTEXT_USAGE_WARN_THRESHOLD: f64 = 0.70;
+pub const CONTEXT_USAGE_CRIT_THRESHOLD: f64 = 0.90;
+
+/// In-situ context-pressure nudge surfaced beside the context gauge once usage
+/// crosses [`CONTEXT_USAGE_WARN_THRESHOLD`] (ADR-0245). First element shed in
+/// the width ladder so it never crowds telemetry or model identity.
+const CONTEXT_COMPACT_NUDGE: &str = "/compact";
+
+/// Inputs for [`draw_model_bar`]. The split row's halves — context usage
+/// on the left, model identity on the right.
+pub struct ModelBarProps<'a> {
+    /// The route's wire model id. Identity, keying and the baseline
+    /// context-window fallback all read this value — never the label.
+    pub current_model: &'a str,
+    /// The route's resolved display label (ADR-0081), when the catalog
+    /// resolved one. Presentation only: the bar draws this and falls back to
+    /// the wire id, so no surface ever re-derives typography on its own.
+    pub model_label: Option<&'a str>,
+    pub model_available: bool,
+    pub provider_name: Option<&'a str>,
+    pub reasoning_effort: Option<&'a str>,
+    pub context_tokens: Option<usize>,
+    pub context_window: usize,
+    /// Session-attributed spend in nano-USD. `None`/zero renders nothing.
+    pub cost_nano_usd: Option<u64>,
+}
+
+impl<'a> Default for ModelBarProps<'a> {
+    fn default() -> Self {
+        Self {
+            current_model: "",
+            model_label: None,
+            model_available: true,
+            provider_name: None,
+            reasoning_effort: None,
+            context_tokens: None,
+            context_window: 0,
+            cost_nano_usd: None,
+        }
+    }
+}
+
+/// Fine-grained click targets painted inside the model bar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelBarRects {
+    pub context: Option<Rect>,
+    pub connection: Option<Rect>,
+}
+
+/// Format token count into SI abbreviation (e.g. `120k`, `1.2M`, `3.2B`).
+pub fn format_token_count(n: usize) -> String {
+    if n >= 1_000_000_000 {
+        format!("{:.1}B", n as f64 / 1_000_000_000.0)
+    } else if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        format!("{}", n)
+    }
+}
+
+/// Context-window usage indicator: `89.2k (8%)`.
+pub(crate) fn context_usage_spans(
+    used: usize,
+    max: usize,
+    cost_nano_usd: Option<u64>,
+    theme: &Theme,
+    bg: Color,
+) -> Vec<Span<'static>> {
+    let ratio = if max == 0 {
+        0.0
+    } else {
+        ((used as f64) / (max as f64)).clamp(0.0, 1.0)
+    };
+    let color = if ratio < CONTEXT_USAGE_WARN_THRESHOLD {
+        theme.muted()
+    } else if ratio < CONTEXT_USAGE_CRIT_THRESHOLD {
+        theme.warn()
+    } else {
+        theme.err()
+    };
+    let pct = (ratio * 100.0).round() as u32;
+
+    let mut spans = Vec::with_capacity(2);
+    spans.push(Span::styled(
+        format_token_count(used),
+        Style::default().fg(theme.muted()).bg(bg),
+    ));
+    spans.push(Span::styled(
+        format!(" ({}%)", pct),
+        Style::default().fg(color).bg(bg),
+    ));
+    if let Some(cost) = cost_nano_usd.filter(|cost| *cost > 0) {
+        spans.push(Span::styled(
+            " · ",
+            Style::default().fg(theme.muted()).bg(bg),
+        ));
+        spans.push(Span::styled(
+            protocol::pricing::NanoUsd(cost).format_usd(),
+            Style::default().fg(theme.muted()).bg(bg),
+        ));
+    }
+    spans
+}
+
+/// Draw the single-line model bar pinned below the input box.
+/// Resolved keycap bindings displayed on the model bar's clickable segments.
+///
+/// The shell resolves these from its keymap registry so the pure view layer
+/// stays decoupled from keymap override tables (`[INV-ARCH-VIEW-ZERO-IO]`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModelBarKeys {
+    pub telemetry: Option<Key>,
+    pub connection: Option<Key>,
+}
+
+pub fn draw_model_bar(
+    frame: &mut Frame,
+    rect: Rect,
+    props: ModelBarProps<'_>,
+    theme: &Theme,
+    keys: ModelBarKeys,
+) -> ModelBarRects {
+    let ModelBarProps {
+        current_model,
+        model_label,
+        model_available,
+        provider_name,
+        reasoning_effort,
+        context_tokens,
+        context_window,
+        cost_nano_usd,
+    } = props;
+
+    let bg = theme.surface();
+    let full_w = rect.width as usize;
+    let inner = MODEL_BAR_INNER_PADDING;
+
+    let context_max = if context_window > 0 {
+        context_window
+    } else {
+        protocol::model::resolve(current_model).context_window
+    };
+
+    // Name-first, id-fallback (ADR-0081): the catalog resolved this route's
+    // label once, inside the derivation boundary, so the bar draws that rather
+    // than re-deriving typography. A route with no resolved label (a curated
+    // platform that published none) draws its wire id — which for those
+    // surfaces *is* the human-readable name.
+    let identity_label = model_label.filter(|label| !label.is_empty());
+    let (model_label, model_style) = if current_model.is_empty() {
+        (
+            "(no model)".to_string(),
+            Style::default().fg(theme.muted()).bg(bg),
+        )
+    } else if !model_available {
+        let name = identity_label.unwrap_or(current_model);
+        (
+            format!("{name} [unavailable]"),
+            Style::default()
+                .fg(theme.err())
+                .add_modifier(Modifier::BOLD)
+                .bg(bg),
+        )
+    } else {
+        (
+            identity_label.unwrap_or(current_model).to_string(),
+            Style::default()
+                .fg(theme.brand())
+                .add_modifier(Modifier::BOLD)
+                .bg(bg),
+        )
+    };
+    let model_width = model_label.width();
+    let model_spans = vec![Span::styled(model_label, model_style)];
+
+    let instance_label = provider_name
+        .filter(|name| !name.is_empty())
+        .map(|name| format!("@{name}"));
+    let mut instance_spans: Vec<Span<'static>> = Vec::new();
+    if let Some(label) = &instance_label {
+        instance_spans.push(Span::styled(
+            label.clone(),
+            Style::default().fg(theme.muted()).bg(bg),
+        ));
+    }
+    let instance_width = instance_spans
+        .iter()
+        .map(|span| span.content.width())
+        .sum::<usize>();
+
+    let mut reasoning_spans: Vec<Span<'static>> = Vec::new();
+    if let Some(effort) = reasoning_effort {
+        reasoning_spans.push(Span::styled(
+            effort.to_string(),
+            Style::default().fg(theme.muted()).bg(bg),
+        ));
+    }
+    let reasoning_width = reasoning_spans
+        .iter()
+        .map(|span| span.content.width())
+        .sum::<usize>();
+
+    let mut context_spans: Vec<Span<'static>> = Vec::new();
+    let context_ratio = if context_max > 0 {
+        let used = context_tokens.unwrap_or(0);
+        context_spans = context_usage_spans(used, context_max, cost_nano_usd, theme, bg);
+        ((used as f64) / (context_max as f64)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let context_seg_width = context_spans
+        .iter()
+        .map(|span| span.content.width())
+        .sum::<usize>();
+
+    let keycap_badge =
+        |text: &str| Span::styled(text.to_string(), Style::default().fg(theme.dim()).bg(bg));
+    // Both keycaps render the chord the registry actually resolves:
+    // a retired/remapped/unbound chord must never be advertised.
+    let telemetry_key = keys.telemetry;
+    let connection_key = keys.connection;
+    let telemetry_keycap_width = telemetry_key.map_or(0, |key| key.display().width() + 1);
+    let connection_keycap_width = connection_key.map_or(0, |key| key.display().width() + 1);
+    let compact_nudge_width = JOIN_ENUMERATE_COLS + CONTEXT_COMPACT_NUDGE.width();
+
+    let mut show_model = model_width > 0;
+    let mut show_reasoning = reasoning_width > 0;
+    let mut show_instance = instance_width > 0;
+    let mut show_context = context_seg_width > 0;
+    let mut show_compact_nudge = show_context && context_ratio >= CONTEXT_USAGE_WARN_THRESHOLD;
+    let mut show_telemetry_keycap = show_context && telemetry_key.is_some();
+    let mut show_connection_keycap = (show_model || show_instance) && connection_key.is_some();
+
+    let identity_width_for = |model: bool, reasoning: bool, instance: bool, show_keycap: bool| {
+        let identity_count = usize::from(model) + usize::from(reasoning) + usize::from(instance);
+        let mut width = usize::from(model) * model_width
+            + usize::from(reasoning) * reasoning_width
+            + usize::from(instance) * instance_width
+            + identity_count.saturating_sub(1) * MODEL_BAR_MODEL_GAP;
+        if (model || instance) && show_keycap {
+            width += connection_keycap_width;
+        }
+        width
+    };
+    let gauges_width_for = |context: bool, show_keycap: bool, show_nudge: bool| {
+        let mut width = 0;
+        if context {
+            width += context_seg_width;
+        }
+        if context && show_keycap {
+            width += telemetry_keycap_width;
+        }
+        if context && show_nudge {
+            width += compact_nudge_width;
+        }
+        width
+    };
+
+    let fits = |gauges_width: usize, identity_width: usize| {
+        let middle = usize::from(gauges_width > 0 && identity_width > 0) * MODEL_BAR_GAP_MIN;
+        inner + gauges_width + middle + identity_width + inner <= full_w
+    };
+
+    let mut gauges_width =
+        gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
+    let mut identity_width = identity_width_for(
+        show_model,
+        show_reasoning,
+        show_instance,
+        show_connection_keycap,
+    );
+
+    // The in-situ `/compact` nudge is strictly first to shed under width
+    // pressure (ADR-0245): it must never displace telemetry, keycaps, or model
+    // identity.
+    if !fits(gauges_width, identity_width) && show_compact_nudge {
+        show_compact_nudge = false;
+        gauges_width = gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
+    }
+    if !fits(gauges_width, identity_width) && show_telemetry_keycap {
+        show_telemetry_keycap = false;
+        gauges_width = gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
+    }
+    if !fits(gauges_width, identity_width) && show_connection_keycap {
+        show_connection_keycap = false;
+        identity_width = identity_width_for(
+            show_model,
+            show_reasoning,
+            show_instance,
+            show_connection_keycap,
+        );
+    }
+    if !fits(gauges_width, identity_width) && show_instance {
+        show_instance = false;
+        identity_width = identity_width_for(
+            show_model,
+            show_reasoning,
+            show_instance,
+            show_connection_keycap,
+        );
+    }
+    if !fits(gauges_width, identity_width) && show_reasoning {
+        show_reasoning = false;
+        identity_width = identity_width_for(
+            show_model,
+            show_reasoning,
+            show_instance,
+            show_connection_keycap,
+        );
+    }
+    if !fits(gauges_width, identity_width) && show_context {
+        show_context = false;
+        show_compact_nudge = false;
+        show_telemetry_keycap = false;
+        gauges_width = gauges_width_for(show_context, show_telemetry_keycap, show_compact_nudge);
+    }
+    if !fits(gauges_width, identity_width) && show_model {
+        show_model = false;
+        show_connection_keycap = false;
+    }
+
+    let mut left_spans: Vec<Span<'static>> = Vec::new();
+    if show_context {
+        left_spans.extend(context_spans);
+    }
+    if show_context
+        && show_telemetry_keycap
+        && let Some(key) = telemetry_key
+    {
+        left_spans.push(Span::styled(" ", Style::default().bg(bg)));
+        left_spans.push(keycap_badge(key.display()));
+    }
+    if show_context && show_compact_nudge {
+        let nudge_fg = if context_ratio >= CONTEXT_USAGE_CRIT_THRESHOLD {
+            theme.warn()
+        } else {
+            theme.dim()
+        };
+        left_spans.push(Span::styled(
+            " ".repeat(JOIN_ENUMERATE_COLS),
+            Style::default().bg(bg),
+        ));
+        left_spans.push(Span::styled(
+            CONTEXT_COMPACT_NUDGE,
+            Style::default().fg(nudge_fg).bg(bg),
+        ));
+    }
+
+    let mut right_spans: Vec<Span<'static>> = Vec::new();
+    let identity_separator =
+        || Span::styled(" ".repeat(MODEL_BAR_MODEL_GAP), Style::default().bg(bg));
+    let mut identity_started = false;
+    for segment in [
+        show_model.then_some(model_spans),
+        show_reasoning.then_some(reasoning_spans),
+        show_instance.then_some(instance_spans),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if identity_started {
+            right_spans.push(identity_separator());
+        }
+        identity_started = true;
+        right_spans.extend(segment);
+    }
+    if (show_model || show_instance)
+        && show_connection_keycap
+        && let Some(key) = connection_key
+    {
+        right_spans.push(Span::styled(" ", Style::default().bg(bg)));
+        right_spans.push(keycap_badge(key.display()));
+    }
+
+    let left_rendered_width: usize = left_spans.iter().map(|s| s.content.width()).sum();
+    let right_rendered_width: usize = right_spans.iter().map(|s| s.content.width()).sum();
+    let min_gap =
+        usize::from(left_rendered_width > 0 && right_rendered_width > 0) * MODEL_BAR_GAP_MIN;
+    let gap = full_w
+        .saturating_sub(inner + left_rendered_width + right_rendered_width + inner)
+        .max(min_gap);
+
+    let mut spans: Vec<Span<'static>> =
+        Vec::with_capacity(8 + left_spans.len() + right_spans.len());
+    spans.push(Span::styled(" ".repeat(inner), Style::default().bg(bg)));
+    spans.extend(left_spans);
+    spans.push(Span::styled(" ".repeat(gap), Style::default().bg(bg)));
+    spans.extend(right_spans);
+    let used: usize = inner + left_rendered_width + gap + right_rendered_width;
+    spans.push(Span::styled(
+        " ".repeat(full_w.saturating_sub(used)),
+        Style::default().bg(bg),
+    ));
+
+    frame.render_widget(&mut Paragraph::new(Line::from(spans)), rect);
+
+    let mut context_rect: Option<Rect> = None;
+    let mut connection_rect: Option<Rect> = None;
+    if show_context {
+        let keycap_extra = if show_telemetry_keycap {
+            telemetry_keycap_width
+        } else {
+            0
+        };
+        let width = (context_seg_width + keycap_extra) as u16;
+        context_rect = Some(Rect::new(rect.x + inner as u16, rect.y, width, rect.height));
+    }
+    if right_rendered_width > 0 {
+        let right_x = (inner + left_rendered_width + gap) as u16;
+        connection_rect = Some(Rect::new(
+            rect.x + right_x,
+            rect.y,
+            right_rendered_width as u16,
+            rect.height,
+        ));
+    }
+    ModelBarRects {
+        context: context_rect,
+        connection: connection_rect,
+    }
+}

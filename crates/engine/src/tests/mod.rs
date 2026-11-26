@@ -485,6 +485,9 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
             AgentEvent::Notice(notice) => {
                 Some(format!("notice {:?} {:?}", notice.kind, notice.title))
             }
+            AgentEvent::Compacted(cp) => {
+                Some(format!("compacted archived={}", cp.archived_messages))
+            }
             AgentEvent::ModelRequestStarted { turn, .. } => {
                 Some(format!("model-request turn={turn}"))
             }

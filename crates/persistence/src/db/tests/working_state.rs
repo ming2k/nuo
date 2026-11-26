@@ -77,7 +77,6 @@ fn working_state_round_trips_through_the_session_row() {
             msg_count: 0,
             last_user_prompt: None,
             digest: None,
-            status: "idle".into(),
             round_counter: 0,
         },
     )
@@ -105,12 +104,77 @@ fn blank_title_reads_back_as_absent() {
         msg_count: 1,
         last_user_prompt: None,
         digest: None,
-        status: "idle".into(),
         round_counter: 0,
     };
     thread_session::upsert_session(&engine.conn, &record).unwrap();
-    let loaded = thread_session::load_session_full(&engine.conn, "untitled")
-        .unwrap()
-        .expect("row");
+    let loaded =
+        thread_session::load_session_full_from_planes(&engine.conn, None, "untitled", None)
+            .unwrap()
+            .expect("row");
     assert_eq!(loaded.title, None);
+}
+
+/// Unbound threads (`workspace: None`) persist as SQL `NULL` and round-trip
+/// back as `None` (never `Some(WorkspaceBinding { root: "" })`), while SQLite
+/// refuses an empty string `''` at the schema level (ADR-0255 `[INV-SHARD-02]`).
+#[test]
+fn unbound_workspace_round_trips_as_none_and_empty_string_is_refused() {
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut unbound = crate::thread::ThreadData {
+        role: Some("philosophist".into()),
+        ..Default::default()
+    };
+    unbound.workspace = None;
+    save_session_full(&engine, &unbound).unwrap();
+
+    let reloaded = load_session_full(&engine, &unbound.id).unwrap().unwrap();
+    assert_eq!(reloaded.workspace, None);
+
+    let (looked_up_ws, looked_up_role) =
+        thread_session::lookup_session_workspace(&engine.conn, &unbound.id)
+            .unwrap()
+            .expect("policy row");
+    assert_eq!(looked_up_ws, None);
+    assert_eq!(looked_up_role.as_deref(), Some("philosophist"));
+
+    // Empty-string sentinel must be refused by the SQL CHECK constraint.
+    assert!(
+        engine
+            .conn
+            .execute(
+                "UPDATE thread_policies SET workspace_root = '' WHERE thread_id = ?1",
+                params![unbound.id],
+            )
+            .is_err(),
+        "empty workspace_root string must be rejected by CHECK constraint"
+    );
+}
+
+/// Hydrating from catalog + content shard preserves normalized `command_acts`
+/// and stamps `CURRENT_SCHEMA_VERSION` so fallback import never clears them
+/// (ADR-0255 `[INV-SHARD-05]`).
+#[test]
+fn load_session_full_from_planes_preserves_command_acts_and_current_schema_version() {
+    let catalog = DatabaseEngine::open_in_memory().unwrap();
+    let content = crate::db::migrations::open_content_shard_in_memory_for_tests().unwrap();
+
+    let data = crate::thread::ThreadData {
+        id: "t-cmds".into(),
+        commands: vec![protocol::CommandRecord::new("unattended", "on")],
+        ..Default::default()
+    };
+    save_session_full(&catalog, &data).unwrap();
+    thread_session::sync_command_acts(&content, &data.id, &data.commands).unwrap();
+
+    let loaded = thread_session::load_session_full_from_planes(
+        &catalog.conn,
+        Some(&content),
+        &data.id,
+        None,
+    )
+    .unwrap()
+    .expect("session");
+    assert_eq!(loaded.schema_version, crate::thread::CURRENT_SCHEMA_VERSION);
+    assert_eq!(loaded.commands.len(), 1);
+    assert_eq!(loaded.commands[0].name, "unattended");
 }

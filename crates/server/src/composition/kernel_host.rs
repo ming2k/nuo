@@ -9,9 +9,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use engine::{CatalogMaintenance, KernelHost, RecalledMemory, RoleCatalog, RoleMemory, TitleSink};
+use engine::{CatalogMaintenance, KernelHost, RecalledMemory, RoleCatalog, RoleMemory};
 use persistence::roles::RolesConfig;
-use persistence::thread::ThreadSession;
 use protocol::CustomRole;
 
 /// Role declarations from the global `roles.toml` registry (ADR-0254).
@@ -88,47 +87,6 @@ impl RoleMemory for ProductRoleMemory {
                     .collect()
             })
             .map_err(|error| format!("failed to recall memory: {error}"))
-    }
-}
-
-/// The session store as the kernel's title sink.
-///
-/// The adapter exists here, in the application plane, precisely because it is
-/// the one place both types are visible: the kernel names a title
-/// port, the store owns the session record, and this impl bridges them without
-/// either side learning about the other.
-pub struct SessionTitles {
-    session: Arc<ThreadSession>,
-}
-
-impl SessionTitles {
-    pub fn new(session: Arc<ThreadSession>) -> Self {
-        Self { session }
-    }
-
-    /// As a port handle, for a round context.
-    pub fn handle(session: &Arc<ThreadSession>) -> Arc<dyn TitleSink> {
-        Arc::new(Self::new(Arc::clone(session)))
-    }
-}
-
-impl TitleSink for SessionTitles {
-    fn title(&self) -> futures::future::BoxFuture<'static, (Option<String>, bool)> {
-        let session = Arc::clone(&self.session);
-        Box::pin(async move { session.title().await })
-    }
-
-    fn set_generated_title(
-        &self,
-        title: String,
-    ) -> futures::future::BoxFuture<'static, Result<(), String>> {
-        let session = Arc::clone(&self.session);
-        Box::pin(async move {
-            // `false` = not a manual title. A non-`NULL` title is terminal
-            // so the titler's re-read is what protects a human's
-            // choice rather than this flag.
-            session.set_title(Some(title), false).await
-        })
     }
 }
 

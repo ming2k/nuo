@@ -31,7 +31,7 @@ impl ColorSchemePreset {
 
 /// Built-in palettes. Order is the UI order.
 pub const COLOR_SCHEMES: [ColorSchemePreset; 7] = [
-    ColorSchemePreset::static_preset("zen", "Zen", "Quiet charcoal with sage accents", false),
+    ColorSchemePreset::static_preset("zen", "Zen", "Low-chroma charcoal with muted sage", false),
     ColorSchemePreset::static_preset(
         "midnight",
         "Midnight",
@@ -85,6 +85,9 @@ pub struct SemanticPalette {
     pub success: Color,
     pub warning: Color,
     pub error: Color,
+    /// Curated or user-declared in-flight tone (ADR-0258 `[INV-TUI-COLOR-03]`).
+    /// `None` delegates to `derive_running_color` for palette-native derivation.
+    pub running: Option<Color>,
 }
 
 /// The `ls(1)`-style class of a filesystem entry, used to colour a directory
@@ -108,23 +111,3 @@ pub enum ListingClass {
 pub(crate) const LISTING_DIR_HUE: Color = Color::Rgb(86, 132, 214);
 pub(crate) const LISTING_EXEC_HUE: Color = Color::Rgb(86, 176, 106);
 pub(crate) const LISTING_LINK_HUE: Color = Color::Rgb(74, 172, 194);
-
-/// The **in-flight** hue: the one saturated tone that means "work is happening
-/// on this row right now" (ADR-0110 `[INV-TUI-RUNNING-01]`).
-///
-/// A vivid cyan, and a constant for the same reason the listing hues are: it is a
-/// *role*, not a palette member.
-///
-/// The hue is a check, not a taste call. Structure in this product is a **muted,
-/// desaturated cool** (`info` / `brand`: turn headers, `round N`, links, the info
-/// band), outcomes own green / amber / red, and the neutral axis belongs to
-/// `muted` / `dim`. Liveness is the same cool family pushed all the way to
-/// saturation — which is exactly what makes it read as *live* rather than as
-/// *structural*, and why the two cannot be confused even though they share a
-/// neighborhood of the wheel: a running row is the only vivid thing on the page.
-/// Reusing `info` itself, as the earlier code did, made the running row and the
-/// `› turn N` header above it literally the same color.
-///
-/// Tinted toward each scheme's own text pole by [`Theme::running`]'s derivation
-/// so it stays legible on light palettes.
-pub(crate) const RUNNING_HUE: Color = Color::Rgb(56, 222, 235);

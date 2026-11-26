@@ -305,8 +305,10 @@ pub enum InputAction {
     HostToggleUsage,
     /// Dashboard `/`: toggle the inline thread-fleet filter input.
     HostFilterOpen,
-    /// Drill into the selected round or turn in the Session Trace modal. Bound to `Enter`.
-    TraceInspectDetail,
+    /// Enter the highlighted round's child turns list in the Session Trace modal. Bound to `Enter` on L1 (`Rounds`).
+    TraceEnter,
+    /// Inspect the highlighted round (L1) or turn/attempt (L2) in the Session Trace modal. Bound to `i`.
+    TraceInspect,
     /// Open the Session Trace modal from Thread Stats. Bound to `t`.
     ThreadStatsOpenTrace,
     /// Delete the currently-selected session in the sessions picker.

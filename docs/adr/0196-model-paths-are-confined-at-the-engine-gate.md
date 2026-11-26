@@ -14,6 +14,8 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-11-15
 - Amends: [ADR-0125](0125-workspace-effect-journal-reversibility-as-a-declared-property.md)
+- Amended: [ADR-0257](0257-read-boundary-hardening-virtual-path-confinement-and-modular-dispatch.md)
+  (hardens `is_virtual_path` against `..` traversal and confines spool fallback)
 
 ## Context and Problem Statement
 

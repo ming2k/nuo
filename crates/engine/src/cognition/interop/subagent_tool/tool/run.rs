@@ -67,15 +67,28 @@ impl SubagentTool {
             let description = request.description.clone();
             let task = Box::pin(async move {
                 let mut noop = |_evt: ::tool::SubagentEvent| {};
-                let (result, token_usage) = Self::drive_child_stream(
+                let initial_committed = if child_session.is_some() {
+                    messages.len()
+                } else {
+                    0
+                };
+                let (result, token_usage, committed_len) = Self::drive_child_stream(
                     &subagent,
                     &mut messages,
+                    initial_committed,
                     &child_cancel,
                     &retry,
                     &mut noop,
                 )
                 .await;
-                Ok(Self::settle_child_result(messages, result, token_usage))
+                let final_messages =
+                    Self::finalize_child_messages(child_session.as_ref(), messages, committed_len)
+                        .await;
+                Ok(Self::settle_child_result(
+                    final_messages,
+                    result,
+                    token_usage,
+                ))
             });
             let job_id = dispatcher
                 .spawn_background(description.clone(), role.clone(), task)
@@ -131,12 +144,25 @@ impl SubagentTool {
         let retry = self.plan_child_retries(call_id, request.profile);
         self.install_child_relief(&subagent, child_session.as_ref());
 
-        let (result, token_usage) =
-            Self::drive_child_stream(&subagent, &mut messages, &child_cancel, &retry, on_event)
-                .await;
+        let initial_committed = if child_session.is_some() {
+            messages.len()
+        } else {
+            0
+        };
+        let (result, token_usage, committed_len) = Self::drive_child_stream(
+            &subagent,
+            &mut messages,
+            initial_committed,
+            &child_cancel,
+            &retry,
+            on_event,
+        )
+        .await;
 
+        let final_messages =
+            Self::finalize_child_messages(child_session.as_ref(), messages, committed_len).await;
         self.release_child_call(call_id);
-        Self::settle_child_result(messages, result, token_usage)
+        Self::settle_child_result(final_messages, result, token_usage)
     }
 
     /// Phase 1: parse and validate the call, and resolve the role to the
@@ -530,12 +556,12 @@ impl SubagentTool {
             )];
             if let Err(error) = session
                 .commit_turn(persistence::thread::CommitTurn {
-                    messages: &seed,
-                    basis: persistence::thread::CommitBasis::Appended,
+                    appended: &seed,
                     round_counter: Some(1),
                     usage_records: &[],
                     retry_point: None,
                     round_interrupt: None,
+                    round_summary: None,
                     operation_id: None,
                     expected_revision: None,
                 })
@@ -605,34 +631,25 @@ impl SubagentTool {
         // seen (which it must refuse — a projection is an append-only fact, not
         // a rewritten history).
         let persist_session = std::sync::Arc::clone(session);
-        let persist_agent = std::sync::Arc::clone(subagent);
-        subagent.set_turn_persist(std::sync::Arc::new(
-            move |messages: &[::tool::Message]| {
-                let session = std::sync::Arc::clone(&persist_session);
-                let agent = std::sync::Arc::clone(&persist_agent);
-                let snapshot = messages.to_vec();
-                Box::pin(async move {
-                    let basis = if agent.take_history_reprojected() {
-                        persistence::thread::CommitBasis::Reprojected
-                    } else {
-                        persistence::thread::CommitBasis::Appended
-                    };
-                    session
-                        .commit_turn(persistence::thread::CommitTurn {
-                            messages: &snapshot,
-                            basis,
-                            round_counter: None,
-                            usage_records: &[],
-                            retry_point: None,
-                            round_interrupt: None,
-                            operation_id: None,
-                            expected_revision: None,
-                        })
-                        .await
-                        .map(|_| ())
-                })
-            },
-        ));
+        subagent.set_turn_persist(std::sync::Arc::new(move |delta: &[::tool::Message]| {
+            let session = std::sync::Arc::clone(&persist_session);
+            let delta = delta.to_vec();
+            Box::pin(async move {
+                session
+                    .commit_turn(persistence::thread::CommitTurn {
+                        appended: &delta,
+                        round_counter: None,
+                        usage_records: &[],
+                        retry_point: None,
+                        round_interrupt: None,
+                        round_summary: None,
+                        operation_id: None,
+                        expected_revision: None,
+                    })
+                    .await
+                    .map(|_| ())
+            })
+        }));
     }
 
     /// Phase 6: drive the child's ReAct round to completion, retrying transient
@@ -644,12 +661,14 @@ impl SubagentTool {
     async fn drive_child_stream(
         subagent: &Arc<Agent>,
         messages: &mut Vec<::tool::Message>,
+        initial_committed_len: usize,
         child_cancel: &CancellationToken,
         retry: &ChildRetryPlan,
         on_event: &mut EventSink<'_>,
     ) -> (
         Result<crate::cognition::agent::RoundOutcome, protocol::HarnessError>,
         ::tool::TokenUsage,
+        usize,
     ) {
         // Track the subagent's own ReAct position as `ModelRequestStarted`
         // events arrive so the streamed `StreamStart` / `ToolCall` events can
@@ -665,7 +684,7 @@ impl SubagentTool {
         // reuse the same round state across attempts so completed turns are
         // not replayed, back off exponentially, and never retry an
         // interruption, a hard terminal error, or a non-retryable one.
-        let mut round = subagent.begin_streaming_round();
+        let mut round = subagent.begin_streaming_round(initial_committed_len);
         let mut attempt: usize = 0;
         let mut consecutive_unreachable: usize = 0;
         loop {
@@ -679,7 +698,7 @@ impl SubagentTool {
                 })
                 .await;
             match run {
-                Ok(outcome) => return (Ok(outcome), round.token_usage()),
+                Ok(outcome) => return (Ok(outcome), round.token_usage(), round.committed_len()),
                 Err(protocol::HarnessError::Provider(provider_err))
                     if matches!(
                         provider_err.retry_disposition(),
@@ -706,6 +725,7 @@ impl SubagentTool {
                         return (
                             Err(protocol::HarnessError::Provider(provider_err)),
                             round.token_usage(),
+                            round.committed_len(),
                         );
                     }
                     if crate::runtime::retry::should_flush_pools(error_kind) {
@@ -744,14 +764,43 @@ impl SubagentTool {
                     });
                     tokio::select! {
                         _ = child_cancel.cancelled() => {
-                            return (Err(protocol::HarnessError::Interrupted), round.token_usage());
+                            return (
+                                Err(protocol::HarnessError::Interrupted),
+                                round.token_usage(),
+                                round.committed_len(),
+                            );
                         }
                         _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {}
                     }
                 }
-                Err(error) => return (Err(error), round.token_usage()),
+                Err(error) => return (Err(error), round.token_usage(), round.committed_len()),
             }
         }
+    }
+
+    /// Commit any trailing uncommitted messages (e.g. the terminal assistant
+    /// answer) to the child's durable session and return the complete
+    /// conversation so a child that compacted mid-run preserves every nested
+    /// turn in the parent's drill-in view (`[INV-CMP-08]`).
+    async fn finalize_child_messages(
+        child_session: Option<&Arc<persistence::thread::ThreadSession>>,
+        messages: Vec<::tool::Message>,
+        committed_len: usize,
+    ) -> Vec<::tool::Message> {
+        let Some(session) = child_session else {
+            return messages;
+        };
+        let start = committed_len.min(messages.len());
+        if start < messages.len()
+            && let Err(error) = session
+                .commit_turn(persistence::thread::CommitTurn::new(&messages[start..]))
+                .await
+        {
+            tracing::warn!(%error, "could not commit subagent terminal delta");
+            return messages;
+        }
+        let full = session.full_transcript().await;
+        if full.is_empty() { messages } else { full }
     }
 
     /// Phase 7a: remove the finished child's registry and cancellation entries.

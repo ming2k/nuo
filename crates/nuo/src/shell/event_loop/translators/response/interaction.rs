@@ -33,10 +33,6 @@ impl TranslatorState {
                             ),
                         )
                         .await;
-                        self.mutations
-                            .send(M::SetPhase(Some(Phase::AwaitingUser)))
-                            .await;
-                        self.mutations.send(M::SetResponding(true)).await;
                     }
                     tool::SubagentEvent::UserQuestionRequest(req) => {
                         self.mutations
@@ -53,10 +49,6 @@ impl TranslatorState {
                             ),
                         )
                         .await;
-                        self.mutations
-                            .send(M::SetPhase(Some(Phase::AwaitingUser)))
-                            .await;
-                        self.mutations.send(M::SetResponding(true)).await;
                     }
                     _ => {}
                 }
@@ -86,10 +78,6 @@ impl TranslatorState {
                     ),
                 )
                 .await;
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::AwaitingUser)))
-                    .await;
-                self.mutations.send(M::SetResponding(true)).await;
             }
             RoundEvent::UserQuestionRequest(request) => {
                 self.mutations
@@ -106,10 +94,6 @@ impl TranslatorState {
                     ),
                 )
                 .await;
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::AwaitingUser)))
-                    .await;
-                self.mutations.send(M::SetResponding(true)).await;
             }
             RoundEvent::StdinRequest(request) => {
                 self.mutations.send(M::QueueInput(request)).await;
@@ -121,10 +105,6 @@ impl TranslatorState {
                     ),
                 )
                 .await;
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::AwaitingUser)))
-                    .await;
-                self.mutations.send(M::SetResponding(true)).await;
             }
             _ => {}
         }

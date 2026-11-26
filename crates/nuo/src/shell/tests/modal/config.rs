@@ -263,7 +263,7 @@ async fn config_view_components_toggle_and_persistence() {
 
     // Rows are addressed through the panel's own ordering so this test cannot
     // silently drift when a component is added (ADR-0020).
-    use crate::shell::views::settings::components::{ComponentRowId, item_count, row_for_index};
+    use view::views::settings::components::{ComponentRowId, item_count, row_for_index};
     let index_of = |pred: &dyn Fn(ComponentRowId) -> bool| {
         (0..item_count())
             .find(|i| row_for_index(*i).is_some_and(pred))
@@ -276,7 +276,7 @@ async fn config_view_components_toggle_and_persistence() {
     let auto_scroll_row = index_of(&|row| row == ComponentRowId::AutoScroll);
 
     app.surfaces.config_detail_index = reasoning_row;
-    assert!(!crate::shell::config::reasoning_default_expanded(
+    assert!(!view::tui_config::reasoning_default_expanded(
         &app.session.tui_config
     ));
     assert!(!app.viewport.reasoning_default_expanded);
@@ -288,7 +288,7 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(crate::shell::config::reasoning_default_expanded(
+    assert!(view::tui_config::reasoning_default_expanded(
         &app.session.tui_config
     ));
     assert!(app.viewport.reasoning_default_expanded);
@@ -296,7 +296,7 @@ async fn config_view_components_toggle_and_persistence() {
     // The command component is collapsed by default, so activating expands it — and
     // the choice must land on every shell spelling, not just the canonical one.
     app.surfaces.config_detail_index = command_row;
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(!view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "execute_command"
     ));
@@ -307,14 +307,14 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(crate::shell::config::tool_default_expanded(
+    assert!(view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "execute_command"
     ));
 
     // The Diffs row covers edit_text and write_file together.
     app.surfaces.config_detail_index = diff_row;
-    assert!(crate::shell::config::tool_default_expanded(
+    assert!(view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "edit_text"
     ));
@@ -325,18 +325,18 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(!view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "edit_text"
     ));
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(!view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "write_file"
     ));
 
     // An untouched row keeps its declared default — toggling one component
     // must never move another.
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(!view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "search_text"
     ));
@@ -348,11 +348,11 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(crate::shell::config::tool_default_expanded(
+    assert!(view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "search_text"
     ));
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(!view::tui_config::tool_default_expanded(
         &app.session.tui_config,
         "edit_text"
     ));
@@ -370,20 +370,18 @@ async fn config_view_components_toggle_and_persistence() {
     assert!(app.session.tui_config.expand_auto_scroll);
 
     // Verify config file on disk has the persisted settings
-    let loaded = crate::shell::config::TuiConfig::load();
-    assert!(crate::shell::config::reasoning_default_expanded(&loaded));
-    assert!(crate::shell::config::tool_default_expanded(
+    let loaded = crate::shell::config::load_tui_config();
+    assert!(view::tui_config::reasoning_default_expanded(&loaded));
+    assert!(view::tui_config::tool_default_expanded(
         &loaded,
         "execute_command"
     ));
-    assert!(!crate::shell::config::tool_default_expanded(
-        &loaded, "bash"
-    ));
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(!view::tui_config::tool_default_expanded(&loaded, "bash"));
+    assert!(!view::tui_config::tool_default_expanded(
         &loaded,
         "edit_text"
     ));
-    assert!(crate::shell::config::tool_default_expanded(
+    assert!(view::tui_config::tool_default_expanded(
         &loaded,
         "search_text"
     ));

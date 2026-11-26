@@ -591,7 +591,10 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetProviderRetry(state),
+        crate::shell::event_loop::AppMutation::ChromeEdit {
+            thread_id: None,
+            edit: crate::shell::event_loop::mutations::ChromeEdit::TransportSetback(state),
+        },
     );
     assert_eq!(
         app.threads.messages.len(),
@@ -652,9 +655,12 @@ async fn tool_result_does_not_forge_reasoning_phase() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(Some(view::phase::Phase::Tool(
-            view::phase::ToolVerb::Running,
-        ))),
+        crate::shell::event_loop::AppMutation::ChromeEdit {
+            thread_id: None,
+            edit: crate::shell::event_loop::mutations::ChromeEdit::PhaseOnly(Some(
+                view::phase::Phase::Tool(view::phase::ToolVerb::Running),
+            )),
+        },
     );
     assert_eq!(
         app.threads.phase,
@@ -665,7 +671,12 @@ async fn tool_result_does_not_forge_reasoning_phase() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(Some(view::phase::Phase::Preparing)),
+        crate::shell::event_loop::AppMutation::ChromeEdit {
+            thread_id: None,
+            edit: crate::shell::event_loop::mutations::ChromeEdit::PhaseOnly(Some(
+                view::phase::Phase::Preparing,
+            )),
+        },
     );
     assert_ne!(
         app.threads.phase,

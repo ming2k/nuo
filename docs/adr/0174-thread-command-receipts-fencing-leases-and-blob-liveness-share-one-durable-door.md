@@ -1,17 +1,17 @@
 ---
 id: ADR-0174
 title: "Thread Command Receipts, Fencing Leases, and Blob Liveness Share One Durable Door"
-status: accepted
+status: superseded
 date: 2026-11-13
 scope: protocol/thread, protocol/thread-store, persistence/thread-store, engine/runtime, protocol/monitor
-superseded_by: null
+superseded_by: ADR-0256
 supersedes: []
 negative_knowledge: true
 ---
 
 # 0174. Thread Command Receipts, Fencing Leases, and Blob Liveness Share One Durable Door
 
-- Status: Accepted
+- Status: Superseded by [ADR-0256](0256-retire-parallel-thread-store-and-unify-on-journal-session.md)
 - Date: 2026-11-13
 - Related: [RFC-0003](../rfc/0003-thread-branch-fact-and-request-assembly.md), [ADR-0173](0173-thread-is-the-durable-ssot-branch-is-a-cursor.md)
 

@@ -78,7 +78,7 @@ impl WebSearchTool {
     }
 
     fn description_text() -> String {
-        let year = chrono::Utc::now().format("%Y");
+        let year = jiff::Timestamp::now().strftime("%Y");
         format!("Search the web for current information or documentation (current year: {year}).")
     }
 }

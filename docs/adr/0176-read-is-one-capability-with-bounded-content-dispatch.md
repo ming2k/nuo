@@ -16,6 +16,8 @@ negative_knowledge: true
   (the PDF gap becomes bounded host text extraction)
 - Amended: [ADR-0213](0213-read-is-file-only-and-find-files-owns-directory-discovery.md)
   (the directory-listing branch moves to `find_files`)
+- Amended: [ADR-0257](0257-read-boundary-hardening-virtual-path-confinement-and-modular-dispatch.md)
+  (virtual-path confinement, reverse-seek tails without hidden caps, strict `pages`/`offset` validation, binary diagnostics, and modular dispatch)
 - Deciders: Nuo Architecture Working Group
 - Consulted: Tool Runtime, Filesystem Tools, Context Lifecycle, Presentation, Security
 - Supersedes: the split `read_text` / `read_image` model-facing read surface, and the

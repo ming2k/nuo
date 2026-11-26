@@ -10,6 +10,7 @@ use graticule::{Line, Modifier, Span, Style};
 use super::model::*;
 use super::overview::section_header;
 use crate::shell::render::Theme;
+use crate::shell::surfaces::TraceAttemptKey;
 
 /// Column geometry of the ladder. The connector lives at a fixed column so
 /// the vertical line threads through every node glyph.
@@ -26,8 +27,7 @@ fn us_to_s(us: u64) -> f64 {
 
 pub(crate) fn build_attempt_inspector_body(
     rounds: &[TelemetryRound],
-    target_round: u32,
-    target_attempt: u32,
+    target: &TraceAttemptKey,
     context: ContextUsageProps,
     _width: usize,
     submitted_at_ms: Option<u64>,
@@ -35,8 +35,14 @@ pub(crate) fn build_attempt_inspector_body(
 ) -> Vec<Line<'static>> {
     let attempt = rounds
         .iter()
-        .find(|r| r.round_number == target_round as u64)
-        .and_then(|r| r.attempts.iter().find(|a| a.attempt == target_attempt));
+        .find(|r| r.round_number == target.round)
+        .and_then(|r| {
+            r.attempts.iter().find(|a| {
+                a.actor_id == target.actor_id
+                    && a.turn == target.turn
+                    && a.attempt == target.attempt
+            })
+        });
 
     let mut lines = Vec::new();
 
@@ -77,6 +83,12 @@ pub(crate) fn build_attempt_inspector_body(
             Style::default().fg(theme.text),
         ),
     ]));
+    if !protocol::token_ledger::is_root_actor(&att.actor_id) {
+        lines.push(Line::from(vec![
+            Span::styled(" Actor:   ", Style::default().fg(theme.text_muted)),
+            Span::styled(att.actor_id.clone(), Style::default().fg(theme.text_muted)),
+        ]));
+    }
     lines.push(Line::from(""));
 
     // ── Context Space ───────────────────────────────────────────────────────

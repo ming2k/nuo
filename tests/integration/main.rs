@@ -3,7 +3,7 @@
 //! Every integration suite in the workspace is one module under this entry, so
 //! the whole tier links once instead of producing one test binary per crate and
 //! per file. Shared helpers live in [`common`].
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, unsafe_code)]
 
 #[path = "../common/mod.rs"]
 mod common;

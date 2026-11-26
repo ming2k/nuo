@@ -544,7 +544,7 @@ fn completed_diff_cache_survives_height_invalidation_and_resize() {
 fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     let theme = Theme::default();
     let messages = vec![TranscriptMessage::new(tool::Role::User, "hello")];
-    let queue_items = [crate::shell::chrome::QueueItemProps {
+    let queue_items = [view::chrome::QueueItemProps {
         queued_at_ms: Some(1_700_000_000_000),
         text: "next".into(),
         is_steer: false,
@@ -567,7 +567,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 spinner_phase: 0,
                 input: "",
                 chrome_hidden: false,
-                queue_bar: crate::shell::chrome::QueueBarProps {
+                queue_bar: view::chrome::QueueBarProps {
                     items: &queue_items,
                     blocked: false,
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),

@@ -26,7 +26,7 @@ pub struct ResponseTranslatorConfig {
     pub rx: mpsc::UnboundedReceiver<AgentResponse>,
     pub runtime: event_loop::UiRuntime,
     pub link_lost: crate::shell::client::LinkLostMarker,
-    pub tui_config: Arc<crate::shell::config::TuiConfig>,
+    pub tui_config: Arc<view::tui_config::TuiConfig>,
     pub initial_provider: String,
     pub initial_model: String,
     pub initial_round_count: u64,
@@ -83,7 +83,7 @@ struct TranslatorState {
     /// by an in-place re-key, `>= 1` = active). Replaces `SessionGate`.
     thread_generations: std::collections::HashMap<String, u64>,
     mutations: event_loop::mutations::MutationSink,
-    tui_config: Arc<crate::shell::config::TuiConfig>,
+    tui_config: Arc<view::tui_config::TuiConfig>,
     trust_gate_dismissed: Arc<std::sync::atomic::AtomicBool>,
     awaiting_oauth_add: Arc<std::sync::atomic::AtomicBool>,
     viewed_session_id: Arc<tokio::sync::Mutex<Option<String>>>,
@@ -248,10 +248,10 @@ impl TranslatorState {
             .await;
     }
 
-    async fn chrome(&self, session_id: &str, edit: event_loop::mutations::ChromeEdit) {
+    async fn chrome(&self, thread_id: &str, edit: event_loop::mutations::ChromeEdit) {
         self.mutations
             .send(M::ChromeEdit {
-                session_id: session_id.to_string(),
+                thread_id: Some(thread_id.to_string()),
                 edit,
             })
             .await;

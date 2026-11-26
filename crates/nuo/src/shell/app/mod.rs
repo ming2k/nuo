@@ -17,7 +17,6 @@ use protocol::{AgentRequest, ConnectionAuth, ProviderPickerSnapshot};
 
 use tool::{ImagePart, PermissionRequest, UserQuestionRequest};
 
-use crate::shell::chrome::tasks_bar::BackgroundTaskItem;
 use crate::shell::completion::CompletionItemKind;
 use crate::shell::composer_grid::{CaretMotion, TextGrid};
 use crate::shell::event_loop::resolve_focused_mut;
@@ -216,73 +215,40 @@ pub enum ProviderDeleteChoice {
 /// how the bar ended up counting `5/29` beside a transcript row counting `6/30`.
 pub use view::retry::RetryProgress as ProviderRetryState;
 
-/// The view-scoped chrome of one session: the typed activity phase, the
-/// responding flag, and the structural round/turn counters. Each hosted
-/// session owns an entry in `App::session_chrome`, and a view renders
-/// exclusively from the entry of the session it displays
-/// (`App::viewed_chrome`). This is what keeps one view from inheriting
-/// another's activity bar: before this type existed these were single global
-/// fields, so whichever view was focused showed the *primary's* state no
-/// matter which session was actually streaming.
+/// Read-only view-scoped chrome projection of one [`workspaces::ThreadInstance`]:
+/// the typed activity phase, the responding flag, structural round/turn counters,
+/// turn performance, accumulated cost, and transport setback.
+///
+/// Produced on demand from the single authoritative owner
+/// (`ThreadInstance::chrome_snapshot`, ADR-0253 `[INV-INSTANCE-01]`): there is
+/// no separate `session_chrome` map to drift out of sync.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionChrome {
-    /// Typed activity phase (None when idle). Per session: a background
-    /// session's live phase lives in its own entry, invisible to the main view.
+    /// Typed activity phase (None when idle).
     pub phase: Option<view::phase::Phase>,
-    /// Whether this session currently has a live round (drives the
+    /// Whether this thread currently has a live round (drives the
     /// breathing/spinner animation and Esc-to-interrupt arming).
     pub responding: bool,
-    /// Round counter for this session (Activity modal's `round N`).
+    /// Round counter for this thread (Activity modal's `round N`).
     pub round_count: u64,
-    /// Current turn within this session's round (1-indexed for display).
+    /// Current turn within this thread's round (1-indexed for display).
     pub current_turn: u64,
-    /// When this session's current round started (elapsed-timer segment).
+    /// When this thread's current round started (elapsed-timer segment).
     pub round_started_at: Option<std::time::Instant>,
-    /// Whether this session has a stopped round parked for `/retry`
-    /// Mirrored from the session-scoped harness snapshot — the
-    /// authoritative durable resume point, not a transcript scan — so the
-    /// hint bar only offers `/retry` for a round that actually stopped
-    /// before completing.
+    /// Whether this thread has a stopped round parked for `/retry`.
     pub can_retry: bool,
-    /// Latest completed principal ReAct turn's performance sample. Kept
-    /// session-scoped so two views never borrow each other's hint-bar
-    /// measurement.
+    /// Latest completed principal ReAct turn's performance sample.
     pub last_turn_performance: Option<protocol::TurnPerformanceSnapshot>,
-    /// Accumulated cost of settled attempts in this session, in nano-USD.
-    /// Derived from the ledger's per-attempt price, never re-priced from the
-    /// model label; a route with no published price contributes zero.
+    /// Accumulated cost of settled attempts in this thread, in nano-USD.
     pub session_cost_nano_usd: u64,
-    /// The transport setback this session's in-flight model request reported
+    /// The transport setback this thread's in-flight model request reported
     /// (`RetryScheduled`): a retry countdown rendered as a clause beside the
     /// activity label, never as the label itself (see `view::phase` rule 2).
     ///
-    /// Session-scoped for the same reason as `phase`: a background session
-    /// backing off against a rate-limited upstream must not paint a retry
-    /// countdown onto the primary view's bar (`App::provider_retry` is the
-    /// primary's own slot).
-    ///
-    /// **Lifetime:** no producer ever clears this. It is retired — together
-    /// with the phase it annotates — by the first phase write that is not
-    /// [`view::phase::Phase::AwaitingModel`], which
-    /// [`SessionChrome::set_phase`] enforces as the single writer of both
+    /// **Lifetime:** retired — together with the phase it annotates — by the
+    /// first phase write that is not [`view::phase::Phase::AwaitingModel`],
+    /// enforced by [`workspaces::ThreadInstance::set_phase`].
     pub transport_setback: Option<ProviderRetryState>,
-}
-
-impl SessionChrome {
-    /// Write this session's activity phase, retiring its transport-setback
-    /// clause under [`view::phase::ends_transport_setback`].
-    ///
-    /// This is the **only** way anything in the process ends a setback clause,
-    /// and the rule it applies is derived from the phase rather than from the
-    /// event that produced it: the response translator publishes a setback and
-    /// then forgets about it, so a wire event it does not know about cannot
-    /// leave a dead countdown on the bar.
-    pub fn set_phase(&mut self, phase: Option<view::phase::Phase>) {
-        if view::phase::ends_transport_setback(phase.as_ref()) {
-            self.transport_setback = None;
-        }
-        self.phase = phase;
-    }
 }
 
 /// Whether `App::adopt_as_draft` may clobber a composer that currently

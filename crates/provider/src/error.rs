@@ -5,7 +5,9 @@
 //! netune's rich diagnostic into its pure mirror so the contract crate does
 //! not link the transport stack.
 
-pub use protocol::error::*;
+pub use protocol::error::{
+    ProviderError, ProviderErrorKind, RetryDisposition, RetryVerdict, TransportDiagnostic,
+};
 
 use crate::transport::TransportDiagnostic as NetuneDiagnostic;
 

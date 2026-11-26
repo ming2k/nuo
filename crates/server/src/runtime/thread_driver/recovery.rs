@@ -56,6 +56,7 @@ pub(super) fn round_owned_request(req: &AgentRequest) -> bool {
 /// boundary watcher drops its send when the channel is full). Making shipment
 /// depend on receiving a hint left the queue parked forever after a lost
 /// notification — and the user's only symptom was a message that never ran.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn ship_queued_follow_ups(
     agent: &Arc<Agent>,
     session: &Arc<persistence::thread::ThreadSession>,
@@ -64,6 +65,7 @@ pub(super) async fn ship_queued_follow_ups(
     shared_config: &crate::SharedConfig,
     followup_queue: &mut crate::runtime::thread_driver::FollowUpQueue,
     wake_tx: &mpsc::Sender<String>,
+    mut titler: Option<&mut crate::runtime::thread_driver::SessionTitler>,
 ) {
     // Order-preserving distinct scan of the queue's targets.
     let mut targets: Vec<String> = Vec::new();
@@ -103,6 +105,7 @@ pub(super) async fn ship_queued_follow_ups(
                 target_id.clone(),
                 message,
                 followup_queue,
+                titler.as_deref_mut(),
             )
             .await;
             // Watch this round's boundary so the *next* queued item ships when

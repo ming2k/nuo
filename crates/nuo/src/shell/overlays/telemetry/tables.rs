@@ -9,6 +9,7 @@ use crate::shell::render::Theme;
 
 pub(crate) fn build_rounds_table(
     rounds: &[TelemetryRound],
+    round_summaries: &std::collections::HashMap<u64, protocol::RoundSummary>,
     selected_idx: usize,
     width: usize,
     theme: &Theme,
@@ -148,7 +149,13 @@ pub(crate) fn build_rounds_table(
             Style::default().fg(theme.fg()),
         ));
 
-        let dur_label = fmt_duration_ms(r.e2e_duration_ms);
+        let round_duration_ms = round_summaries
+            .get(&r.round_number)
+            .map(|s| s.duration_ms)
+            .filter(|&ms| ms > 0)
+            .or_else(|| r.wall_span_ms().filter(|&ms| ms > 0))
+            .unwrap_or(r.e2e_duration_ms);
+        let dur_label = fmt_duration_ms(round_duration_ms);
         row_spans.push(Span::styled(
             format!("{:<w$}", dur_label, w = col_dur),
             Style::default().fg(theme.muted()),
@@ -267,7 +274,13 @@ pub(crate) fn build_turns_table(
             Style::default()
         };
 
-        let turn_label = if att.attempt > 1 {
+        let turn_label = if !protocol::token_ledger::is_root_actor(&att.actor_id) {
+            if att.attempt > 1 {
+                format!("sub #{}.{}", att.turn, att.attempt)
+            } else {
+                format!("sub #{}", att.turn)
+            }
+        } else if att.attempt > 1 {
             format!("#{}.{}", att.turn, att.attempt)
         } else {
             format!("#{}", att.turn)

@@ -22,6 +22,8 @@ negative_knowledge: true
   [ADR-0202](0202-filesystem-tools-search-off-thread-and-write-atomically.md),
   [ADR-0209](0209-read-pages-run-off-thread.md)
 - **Supersedes**: `read` listing one directory level; `find_files` as recursive-only
+- **Amended**: [ADR-0257](0257-read-boundary-hardening-virtual-path-confinement-and-modular-dispatch.md)
+  (strictly rejects `pages` on non-PDF targets and cleans stale wording)
 - **Deciders**: Nuo Architecture Working Group
 
 ---

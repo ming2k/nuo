@@ -156,6 +156,46 @@ pub async fn run_with_outcome(identity: HostIdentity, opts: HostOptions) -> RunO
     .await
 }
 
+/// Run bounded local server initialization stages (`Storage` → `Runtime` →
+/// `Ready`) after listeners and discovery are live (ADR-0260 `[INV-SRVPHASE-01]`).
+async fn run_server_init_stages(
+    registry: &Arc<ThreadRegistry>,
+    cancel: &tokio_util::sync::CancellationToken,
+    needs_init: bool,
+) -> Result<(), String> {
+    if !needs_init {
+        registry.start_server_task_monitor();
+        registry.start_persistence_health_monitor();
+        registry.spawn_idle_reaper(cancel.clone());
+        return Ok(());
+    }
+    registry.set_server_phase(protocol::ServerPhase::Initializing {
+        stage: protocol::ServerInitStage::Storage,
+    });
+    if let Err(error) = registry.initialize_storage().await {
+        registry.set_server_phase(protocol::ServerPhase::Failed {
+            code: Some("storage_init_failed".to_string()),
+            message: error.clone(),
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        return Err(error);
+    }
+    registry.set_server_phase(protocol::ServerPhase::Initializing {
+        stage: protocol::ServerInitStage::Runtime,
+    });
+    if let Err(error) = registry.initialize_runtime().await {
+        registry.set_server_phase(protocol::ServerPhase::Failed {
+            code: Some("runtime_init_failed".to_string()),
+            message: error.clone(),
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        return Err(error);
+    }
+    registry.spawn_idle_reaper(cancel.clone());
+    registry.set_server_phase(protocol::ServerPhase::Ready);
+    Ok(())
+}
+
 /// The testable core: `gate` is the shutdown trigger source (the production
 /// caller installs OS signals into it; tests request reasons directly) and
 /// `lifecycle` carries the budgets. See [`run_with_outcome`].
@@ -250,24 +290,28 @@ async fn run_inner(
         }
     };
 
-    let registry = registry.unwrap_or_else(|| {
-        Arc::new(ThreadRegistry::new(HostParams {
-            identity,
-            preset,
-            ui,
-        }))
-    });
+    let (registry, needs_init) = match registry {
+        Some(existing) => {
+            let needs_init = matches!(
+                existing.server_phase(),
+                protocol::ServerPhase::Initializing { .. }
+            );
+            (existing, needs_init)
+        }
+        None => (
+            Arc::new(ThreadRegistry::new_initializing(HostParams {
+                identity,
+                preset,
+                ui,
+            })),
+            true,
+        ),
+    };
     let started_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     registry.set_monitor_meta(String::new(), started_at).await;
-    // The server-task monitor tap folds server-fabric events
-    // into monitor snapshots/diffs so rehosted services are operator-visible.
-    registry.start_server_task_monitor();
-    // The durability-health tap publishes persistence-writer
-    // transitions so degradation is user-visible, not log-only.
-    registry.start_persistence_health_monitor();
 
     let mut handle = start_server(
         ServeOptions {
@@ -284,7 +328,6 @@ async fn run_inner(
     // The server's gate is the serve gate (the Shutdown control verb funnels
     // into the same trigger as signals).
     let gate: Arc<ShutdownGate> = handle_gate(handle.gate.clone(), &gate);
-    registry.spawn_idle_reaper(handle.cancel.clone());
     // Destructure the startup receivers into locals: awaiting through the
     // struct would partially move `handle`, which the drain phases still
     // need (conns / tasks / cancel).
@@ -328,9 +371,10 @@ async fn run_inner(
         }
     };
 
-    // Discovery record (0100): written only after both configured
-    // transports are confirmed bound, carrying the server's version for skew
-    // detection.
+    // Discovery record (0100, ADR-0260): written immediately after both
+    // configured transports bind — before storage/runtime initialization — so
+    // connecting clients immediately observe `ServerPhase::Initializing` and
+    // transition cleanly to `ServerPhase::Ready`.
     // The lease removes it on *every* exit path (Drop), including panics.
     //
     // ADR-0021: capture the server's own executable image identity once, here
@@ -376,6 +420,14 @@ async fn run_inner(
         record.pid,
         record.process_birth_token,
     );
+
+    // Bounded local initialization stages (ADR-0260 `[INV-SRVPHASE-01]`):
+    // Listeners and discovery are already live, so clients connected during
+    // startup observe `Storage -> Runtime -> Ready` rather than blind polling.
+    if let Err(error) = run_server_init_stages(&registry, &handle.cancel, needs_init).await {
+        handle.cancel.cancel();
+        return RunOutcome::StartupFailed(error);
+    }
 
     // Foreground banner: where the server listens and how to reach it, on
     // stderr so piping stays clean.
@@ -486,7 +538,9 @@ async fn run_inner(
 
     // Phase 2 — stop accepting, close live connections, confirm the loops.
     handle.cancel.cancel();
-    registry.publish_host_event(protocol::MonitorEvent::ServerDraining);
+    registry.set_server_phase(protocol::ServerPhase::Draining {
+        reason: Some(reason.to_string()),
+    });
     registry
         .broadcast_all_sessions(protocol::AgentResponse::Exit)
         .await;

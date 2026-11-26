@@ -25,7 +25,6 @@ use crate::shell::completion::CompletionKind;
 use crate::shell::completion::{
     completion_anchor, completion_anchor_x, mention_range_at, resolved_slash_command_len,
 };
-use crate::shell::config;
 use crate::shell::event_loop::{display_status, focused_messages_mut};
 use crate::shell::render::Theme;
 use crate::shell::transcript::{
@@ -110,20 +109,26 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
     let app = App {
         session: SessionState {
             queue_exit_session: None,
-            session_chrome: std::collections::HashMap::new(),
             subscribed_threads: std::collections::HashSet::from(["test-session".to_string()]),
             session_detail: None,
             cwd: cwd.clone(),
             current_session_id: "test-session".to_string(),
             persistence_health: None,
+            server_phase: protocol::ServerPhase::Ready,
+            server_phase_since: std::time::Instant::now(),
+            thread_phase_since: std::time::Instant::now(),
+            pending_initial_subscribe: None,
+            initial_init_options: protocol::ThreadInitOptions::default(),
+            project_scope: None,
             live_session_id: "session-test".to_string(),
             workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
-            tui_config: crate::shell::config::TuiConfig::default(),
+            tui_config: view::tui_config::TuiConfig::default(),
             sessions_overview: Vec::new(),
             switching_session: None,
             host_sessions: Vec::new(),
             queue_blocked_sessions: std::collections::HashSet::new(),
             running_sessions: std::collections::HashSet::new(),
+            unseen_outcomes: std::collections::HashMap::new(),
         },
         threads: crate::shell::app::workspaces::Threads::new(initial_thread),
         viewport: Viewport {
@@ -207,9 +212,11 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             config_detail_index: 0,
             config_hover_index: None,
             config_detail_scroll: 0,
+            theme_files: Vec::new(),
             tab_hover: None,
             tab_hover_since: None,
             tab_reveal_active: false,
+            tab_shimmer_active: false,
             websearch_config: None,
             config_dropdown: None,
             config_selected_rect: None,
@@ -311,9 +318,16 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             last_key_press: std::time::Instant::now(),
             link_down: false,
             relink_requested: false,
+            phase: crate::shell::app::state::ClientLinkPhase::Connected {
+                server_id: "srv-test".to_string(),
+            },
+            phase_since: std::time::Instant::now(),
+            known_server_id: Some("srv-test".to_string()),
+            supervised: false,
+            supervisor_cancel: None,
+            supervisor_reconnect_notify: None,
             open_sessions_signal: false,
             open_tree_signal: false,
-            background_tasks: Vec::new(),
         },
     };
     (app, tmp)

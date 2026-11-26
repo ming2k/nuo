@@ -64,10 +64,21 @@ pub trait VirtualFileResolver: Send + Sync {
 }
 
 /// Checks if a path matches any recognized virtual file system or execution spool prefix.
+///
+/// Paths containing parent-traversal segments (`..`) or NUL bytes are always rejected so
+/// a model-supplied path can never abuse a virtual prefix to bypass workspace confinement
+/// (`[INV-READ-VFS-01]`, ADR-0257).
 pub fn is_virtual_path(path: &str) -> bool {
-    let normalized = path.trim().replace('\\', "/");
-    let spool_dir = spool_root_dir().display().to_string().replace('\\', "/");
-    normalized.starts_with(&spool_dir)
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return false;
+    }
+    let normalized = trimmed.replace('\\', "/");
+    if normalized.split('/').any(|segment| segment == "..") {
+        return false;
+    }
+    let spool_prefix = trailing_slash(&spool_root_dir().display().to_string().replace('\\', "/"));
+    normalized.starts_with(&spool_prefix)
         || normalized.starts_with("/tmp/nuo/spool/")
         || normalized.starts_with("/dev/shm/nuo/spool/")
         || normalized.starts_with("/tmp/nuo/vfs/")
@@ -76,6 +87,52 @@ pub fn is_virtual_path(path: &str) -> bool {
         || normalized.starts_with(".nuo/virtual/")
         || normalized.starts_with("virtual://")
         || normalized.starts_with(".virtual/")
+}
+
+/// Resolves a physical spool file when the in-memory [`VirtualFileResolver`] misses.
+///
+/// Only paths that remain canonically inside an owned spool root are admitted: logical
+/// prefixes such as `.nuo/virtual/...` or `virtual://...` never fall back to the process
+/// working directory, and symlinks escaping the spool root are rejected
+/// (`[INV-READ-VFS-01]`, ADR-0257).
+pub fn resolve_physical_spool_path(path: &str) -> Option<std::path::PathBuf> {
+    if !is_virtual_path(path) {
+        return None;
+    }
+    let candidate = std::path::Path::new(path.trim());
+    if !candidate.is_absolute() {
+        return None;
+    }
+    let canonical_target = std::fs::canonicalize(candidate).ok()?;
+    if !canonical_target.is_file() {
+        return None;
+    }
+    let mut allowed_roots = vec![spool_root_dir()];
+    #[cfg(unix)]
+    {
+        for extra in ["/dev/shm/nuo/spool", "/tmp/nuo/spool"] {
+            let root = std::path::PathBuf::from(extra);
+            if !allowed_roots.contains(&root) {
+                allowed_roots.push(root);
+            }
+        }
+    }
+    for root in allowed_roots {
+        if let Ok(canonical_root) = std::fs::canonicalize(&root)
+            && canonical_target.starts_with(&canonical_root)
+        {
+            return Some(canonical_target);
+        }
+    }
+    None
+}
+
+fn trailing_slash(prefix: &str) -> String {
+    if prefix.ends_with('/') {
+        prefix.to_string()
+    } else {
+        format!("{prefix}/")
+    }
 }
 
 /// Strips virtual prefix and optional extension to yield the canonical hash / handle.
@@ -160,6 +217,51 @@ mod tests {
         assert!(is_virtual_path("virtual://obs:call_789"));
         assert!(!is_virtual_path("src/main.rs"));
         assert!(!is_virtual_path("/usr/bin/cargo"));
+        // Traversal segments and sibling prefix collisions must never be treated as virtual.
+        assert!(!is_virtual_path("/tmp/nuo/spool/../../etc/passwd"));
+        assert!(!is_virtual_path("/dev/shm/nuo/spool/../../../etc/passwd"));
+        assert!(!is_virtual_path(".nuo/virtual/../../secret.env"));
+        assert!(!is_virtual_path(".virtual/../Cargo.toml"));
+        assert!(!is_virtual_path("/tmp/nuo/spool_evil/file.txt"));
+        assert!(!is_virtual_path("/tmp/nuo/spool/foo\0bar"));
+    }
+
+    #[test]
+    fn test_resolve_physical_spool_path_confines_to_spool_root() {
+        assert!(resolve_physical_spool_path(".nuo/virtual/does_not_escape.txt").is_none());
+        assert!(resolve_physical_spool_path("virtual://obs:call_1").is_none());
+        assert!(resolve_physical_spool_path("/tmp/nuo/spool/../../etc/passwd").is_none());
+        assert!(resolve_physical_spool_path("/etc/passwd").is_none());
+
+        let spool_dir = spool_root_dir();
+        let _ = std::fs::create_dir_all(&spool_dir);
+        let unique = format!(
+            "nuo_vfs_test_{}_{}.log",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let spool_file = spool_dir.join(&unique);
+        std::fs::write(&spool_file, "spool body").unwrap();
+        let resolved = resolve_physical_spool_path(&spool_file.to_string_lossy());
+        assert!(resolved.is_some());
+        let _ = std::fs::remove_file(&spool_file);
+
+        #[cfg(unix)]
+        {
+            let link_name = format!("link_{unique}");
+            let link_path = spool_dir.join(&link_name);
+            let _ = std::fs::remove_file(&link_path);
+            if std::os::unix::fs::symlink("/etc/hosts", &link_path).is_ok() {
+                assert!(
+                    resolve_physical_spool_path(&link_path.to_string_lossy()).is_none(),
+                    "symlink escaping spool root must be rejected"
+                );
+                let _ = std::fs::remove_file(&link_path);
+            }
+        }
     }
 
     #[test]

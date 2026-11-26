@@ -38,16 +38,3 @@ pub(crate) fn live_blob_hashes(conn: &Connection) -> Result<HashSet<String>> {
         .collect();
     Ok(live)
 }
-
-/// Reclaim transcript entries that no session membership references.
-///
-/// Entries are global facts shared by identity across forks, so only zero-reference
-/// rows are removable; the foreign key from `entry_memberships` makes the two tables'
-/// agreement structural, and entry insert + membership insert share one transaction,
-/// so a GC pass can never observe the half of a pair. Returns the rows reclaimed.
-pub(crate) fn collect_entry_garbage(_conn: &Connection) -> Result<usize> {
-    // Transcript entries are retired; facts own their blobs via
-    // `thread_blob_refs`. Kept as a zero-work maintenance verb so the storage
-    // maintenance report stays stable.
-    Ok(0)
-}

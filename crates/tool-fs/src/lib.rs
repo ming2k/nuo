@@ -20,6 +20,7 @@ use tool::{
 mod edit;
 mod find;
 mod read;
+mod version;
 pub mod walker;
 
 pub use edit::{EditTextArgs, EditTextTool};
@@ -72,6 +73,8 @@ pub struct SystemToolContext {
     pub document_extractor: Option<Arc<dyn tool::DocumentExtractor>>,
     /// Sparse line checkpoints shared by every `read` call in this workspace.
     pub(crate) line_index: Arc<read::LineIndexCache>,
+    /// Bounded LRU cache of extracted PDF text keyed by `(path, version, page_range)`.
+    pub(crate) document_cache: Arc<read::DocumentTextCache>,
 }
 
 /// Semantic alias for filesystem tool context ([INV-TOOL-15]).
@@ -85,6 +88,7 @@ impl std::fmt::Debug for SystemToolContext {
             .field("image_normalizer", &self.image_normalizer.is_some())
             .field("document_extractor", &self.document_extractor.is_some())
             .field("line_index", &"sparse")
+            .field("document_cache", &"lru")
             .finish()
     }
 }
@@ -97,6 +101,7 @@ impl SystemToolContext {
             image_normalizer: None,
             document_extractor: None,
             line_index: Arc::new(read::LineIndexCache::default()),
+            document_cache: Arc::new(read::DocumentTextCache::default()),
         }
     }
 
@@ -143,7 +148,7 @@ pub(crate) fn verify_expected_version(
             ),
         )
     })?;
-    let actual = read::file_version(path, &meta);
+    let actual = version::file_version(path, &meta);
     if actual == expected {
         Ok(())
     } else {

@@ -174,7 +174,7 @@ impl SessionJournal {
     fn open(dir: PathBuf, key: String) -> Self {
         let runtime = JournalRuntime::global();
         let mut init_error = None;
-        if let Err(error) = fs::create_dir_all(&dir) {
+        if let Err(error) = crate::fs_privacy::ensure_private_dir(&dir) {
             init_error = Some(format!(
                 "could not create journal directory {}: {error}",
                 dir.display()
@@ -661,6 +661,7 @@ impl SessionJournal {
         {
             let mut file = File::create(&temp)
                 .map_err(|error| format!("could not create imported session: {error}"))?;
+            crate::fs_privacy::restrict_private_file(&temp);
             file.write_all(&bytes)
                 .map_err(|error| format!("could not write imported session: {error}"))?;
             file.sync_all()
@@ -702,6 +703,7 @@ impl SessionJournal {
         {
             let mut file = File::create(&temp)
                 .map_err(|error| format!("could not create journal snapshot: {error}"))?;
+            crate::fs_privacy::restrict_private_file(&temp);
             file.write_all(&bytes)
                 .map_err(|error| format!("could not write journal snapshot: {error}"))?;
             file.sync_all()
@@ -709,7 +711,23 @@ impl SessionJournal {
         }
         fs::rename(&temp, &target)
             .map_err(|error| format!("could not publish journal snapshot: {error}"))?;
+        // Persist the directory entry before pruning superseded snapshots so
+        // a power loss cannot lose the new snapshot after older ones are gone
+        // (ADR-0255 `[INV-SHARD-04]`).
+        if let Ok(dir) = File::open(&self.dir) {
+            let _ = dir.sync_all();
+        }
         self.compacted_upto.store(seq, Ordering::Release);
+
+        // Prune strictly older snapshots so disk footprint stays O(session)
+        // instead of growing O(N^2) across long sessions.
+        if let Ok(snapshots) = self.snapshot_files() {
+            for (old_seq, old_path) in snapshots {
+                if old_seq < seq {
+                    let _ = fs::remove_file(&old_path);
+                }
+            }
+        }
 
         let current = self
             .segment
@@ -1432,5 +1450,33 @@ mod tests {
             .unwrap()
             .expect("state");
         assert_eq!(loaded.transcript.entries.len(), 4);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn compact_at_prunes_superseded_snapshots_to_bound_disk_footprint() {
+        let (journal, _dir) = journal();
+        let mut all = ThreadData {
+            id: "session-1".to_string(),
+            ..ThreadData::default()
+        };
+        for index in 1..=3u64 {
+            let delta = turn(&format!("turn-{index}"));
+            journal
+                .append(&format!("op-{index}"), SaveMode::Delta, &delta, &[])
+                .await
+                .unwrap();
+            all.apply_journal_commit(delta, SaveMode::Delta);
+            journal.compact_at(index, &all).unwrap();
+        }
+
+        let snapshots = journal.snapshot_files().unwrap();
+        assert_eq!(
+            snapshots.len(),
+            1,
+            "only the newest snapshot must remain after compaction: {snapshots:?}"
+        );
+        assert_eq!(snapshots[0].0, 3);
+        let loaded = journal.load().unwrap().expect("state");
+        assert_eq!(loaded.transcript.entries.len(), 3);
     }
 }

@@ -18,6 +18,8 @@ negative_knowledge: true
 - Amends: [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0060](0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md)
 
 > **Amendment note (2026-10-23)**: §2a and `[INV-HEAD-07]` were added in place. Tier 3's posture vocabulary (`auto` / `open`, drawn only on deviation) and the workspace path's right anchoring are revised here; the tier's domain, height, and elevation decisions above are unchanged. `[INV-HINT-03]` of [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md) (run-mode flags on the right edge) is superseded for the *form* of those flags by `[INV-HEAD-07]`, while its governing intent — one predictable location that never migrates with the scene — survives unchanged.
+>
+> **Superseded in part (2026-11-28)**: [ADR-0261](0261-unified-two-tier-header-and-single-row-thread-scenebar.md) (`[INV-HEAD-09]`, `[INV-HEAD-10]`) retires Tier 3 `ThreadContextBar` and `contextbar_bg`, unifying all scenes on a 2-row head band (`TabBar` + `SceneBar`) and folding `[ROLE]`, silent-by-default posture tokens (`auto`, `open`), the anchor-stable identity/title slot, and the right-anchored workspace path into the single-row `Thread` `SceneBar`. `StickyAnchor` (`[INV-DISCLOSE-01]`) and `ActivityStrip` (`[INV-FOOTER-02]`) remain unchanged.
 
 ---
 

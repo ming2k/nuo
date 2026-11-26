@@ -141,6 +141,12 @@ fn resolve(verb: &Verb, scene: SceneKind, overlay: Option<OverlaySurface>) -> In
         Requires::SettingsDetail => {
             modal_keys.config_focus = crate::shell::overlays::ConfigFocus::Detail;
         }
+        Requires::TraceRounds => {
+            modal_keys.trace_view = crate::shell::surfaces::TraceView::Rounds;
+        }
+        Requires::TraceList => {
+            modal_keys.trace_view = crate::shell::surfaces::TraceView::Turns;
+        }
     }
     let mut input = String::new();
     let mut cursor = 0;
@@ -563,4 +569,57 @@ async fn running_a_blocked_entry_explains_and_keeps_the_palette_open() {
         app.surfaces.palette_recents.position("thread.interrupt"),
         None
     );
+}
+
+#[test]
+fn session_trace_palette_availability_tracks_trace_view() {
+    use crate::shell::keymap::Availability;
+    use crate::shell::surfaces::{TraceAttemptKey, TraceView};
+
+    let verbs = dialog_verbs(DialogKind::SessionTrace);
+    let enter_verb = verbs
+        .iter()
+        .find(|v| v.key == "trace.enter")
+        .expect("trace.enter");
+    let inspect_verb = verbs
+        .iter()
+        .find(|v| v.key == "trace.inspect")
+        .expect("trace.inspect");
+
+    // L1 Rounds: both Enter and `i` are available.
+    let mut ctx = PaletteContext {
+        trace_view: TraceView::Rounds,
+        ..Default::default()
+    };
+    assert_eq!(enter_verb.requires.check(&ctx), Availability::Available);
+    assert_eq!(inspect_verb.requires.check(&ctx), Availability::Available);
+
+    // L2 Turns: `Enter` is unavailable (attempts are leaves); `i` remains available.
+    ctx.trace_view = TraceView::Turns;
+    assert!(matches!(
+        enter_verb.requires.check(&ctx),
+        Availability::Unavailable(_)
+    ));
+    assert_eq!(inspect_verb.requires.check(&ctx), Availability::Available);
+
+    // L1 RoundInfo & L2 AttemptInfo: both are unavailable in read-only inspectors.
+    for inspector in [
+        TraceView::RoundInfo,
+        TraceView::AttemptInfo(TraceAttemptKey {
+            round: 1,
+            actor_id: "root".to_string(),
+            turn: 1,
+            attempt: 1,
+        }),
+    ] {
+        ctx.trace_view = inspector;
+        assert!(matches!(
+            enter_verb.requires.check(&ctx),
+            Availability::Unavailable(_)
+        ));
+        assert!(matches!(
+            inspect_verb.requires.check(&ctx),
+            Availability::Unavailable(_)
+        ));
+    }
 }

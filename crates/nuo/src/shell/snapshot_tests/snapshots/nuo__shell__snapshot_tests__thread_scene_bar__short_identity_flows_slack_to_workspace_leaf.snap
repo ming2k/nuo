@@ -1,0 +1,5 @@
+---
+source: crates/nuo/src/shell/snapshot_tests/thread_scene_bar.rs
+expression: "render_bar(50, Some(\"sess-01a2b3c4\"), None, &h)"
+---
+  [DEVELOPER]  auto  open  thread b3c4   nuo-tui

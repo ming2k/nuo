@@ -234,7 +234,7 @@ impl App {
     /// Current completions translated into renderer-native byte edits.
     ///
     /// Completion is **one implementation, owned by the server**
-    /// (`server::runtime::input_completion`). This adapter only translates: the
+    /// (`server::api::input_completion`). This adapter only translates: the
     /// backend speaks Unicode-scalar offsets over the control plane, the TUI
     /// edits bytes.
     ///
@@ -250,7 +250,7 @@ impl App {
     pub fn completions(&self) -> Vec<Completion> {
         // Tier 1: synchronous `/` command matching, straight from the owner.
         if self.composer.input.starts_with('/') {
-            let items = server::runtime::input_completion::complete_slash_items(
+            let items = server::api::input_completion::complete_slash_items(
                 &self.composer.command_catalog,
                 &self.composer.input,
                 self.byte_cursor(),
@@ -279,7 +279,7 @@ impl App {
                 // engine through its frontend-test adapter, so the engine under
                 // test is the one production uses (the cursor is the wire's
                 // scalar index, as over the control plane).
-                server::runtime::input_completion::complete_for_frontend_test(
+                server::api::input_completion::complete_for_frontend_test(
                     self.composer.command_catalog.clone(),
                     self.session.cwd.clone(),
                     &self.composer.input,

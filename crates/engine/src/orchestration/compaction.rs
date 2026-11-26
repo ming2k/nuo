@@ -6,6 +6,7 @@ use super::*;
 
 pub async fn compact_round_history(
     history: &mut Vec<Message>,
+    committed_len: usize,
     session: &ThreadSession,
     settings: &ContextProjectionSettings,
     provider: Option<Arc<dyn Provider>>,
@@ -22,6 +23,7 @@ pub async fn compact_round_history(
     let (target_tokens, _) = compaction_budgets(settings);
     compact_round_history_with_mode(
         history,
+        committed_len,
         session,
         settings,
         provider,
@@ -33,6 +35,7 @@ pub async fn compact_round_history(
 
 pub async fn compact_round_history_with_mode(
     history: &mut Vec<Message>,
+    committed_len: usize,
     session: &ThreadSession,
     settings: &ContextProjectionSettings,
     provider: Option<Arc<dyn Provider>>,
@@ -52,7 +55,10 @@ pub async fn compact_round_history_with_mode(
     let window_tokens_before = protocol::pressure::estimate_tokens(history);
     let mut thread = session.thread().await;
     let branch = thread.state.active_branch.clone();
-    let uncommitted = uncommitted_tail(history, &thread, &branch);
+    // Exact uncommitted tail from the caller's committed prefix cursor: O(1),
+    // immune to in-place tool-body pruning on committed messages.
+    let split = committed_len.min(history.len());
+    let uncommitted = history[split..].to_vec();
     let todos = {
         let list = session.todos().await;
         (!list.is_empty()).then(|| list.render())
@@ -71,6 +77,7 @@ pub async fn compact_round_history_with_mode(
         let window = protocol::ThreadWindow::from_thread(&thread, &branch, usize::MAX)
             .map_err(|error| error.to_string())?;
         let mut active_msgs = protocol::RequestView::from_window(&window).messages;
+        let new_committed_len = active_msgs.len();
         active_msgs.extend(uncommitted);
         let tokens_after = protocol::pressure::estimate_tokens(&active_msgs);
         let checkpoint = ContextProjectionCheckpoint {
@@ -99,36 +106,11 @@ pub async fn compact_round_history_with_mode(
         Ok(Some(CompactionReport {
             checkpoint,
             satisfied,
+            committed_len: new_committed_len,
         }))
     } else {
         Ok(None)
     }
-}
-
-/// The messages a caller holds that the committed IR does not.
-///
-/// Matched on wire identity from the end of the caller's history, so a session
-/// whose IR was persisted mid-round keeps exactly the tail it has not committed.
-/// An empty result means the caller's view is fully durable.
-fn uncommitted_tail(
-    history: &[Message],
-    thread: &protocol::Thread,
-    branch: &protocol::BranchId,
-) -> Vec<Message> {
-    let Ok(window) = protocol::ThreadWindow::from_thread(thread, branch, usize::MAX) else {
-        return Vec::new();
-    };
-    let committed = protocol::RequestView::from_window(&window).messages;
-    if committed.is_empty() {
-        return history.to_vec();
-    }
-    let anchor = committed.last();
-    let split = history
-        .iter()
-        .rposition(|message| Some(message) == anchor)
-        .map(|index| index + 1)
-        .unwrap_or(history.len());
-    history[split..].to_vec()
 }
 
 /// Prune old tool results in place and durably commit the change. Pruning is an

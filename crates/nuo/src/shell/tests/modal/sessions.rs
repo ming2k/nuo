@@ -450,7 +450,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         matches!(
             outbound,
             crate::shell::client::ClientOutbound::Subscribe {
-                action: protocol::AttachAction::Attach(Some(ref tid)),
+                target: protocol::ThreadTarget::Attach { id: Some(ref tid) },
                 ..
             } if tid == target_sid
         ),
@@ -524,7 +524,7 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
         matches!(
             outbound,
             crate::shell::client::ClientOutbound::Subscribe {
-                action: protocol::AttachAction::New(_),
+                target: protocol::ThreadTarget::New { .. },
                 ..
             }
         ),
@@ -593,7 +593,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
         matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                action: protocol::AttachAction::New(_),
+                target: protocol::ThreadTarget::New { .. },
                 ..
             })
         ),
@@ -648,7 +648,7 @@ async fn slash_new_with_prompt_queues_opening_prompt_on_resident_subscription_wh
         matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                action: protocol::AttachAction::New(_),
+                target: protocol::ThreadTarget::New { .. },
                 ..
             })
         ),
@@ -699,7 +699,7 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                action: protocol::AttachAction::New(_),
+                target: protocol::ThreadTarget::New { .. },
                 ..
             })
         ),

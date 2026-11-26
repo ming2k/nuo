@@ -17,13 +17,13 @@ impl Agent {
     #[allow(clippy::too_many_arguments)] // mirrors the two call sites' evidence set; bundling would obscure the channel symmetry
     pub(super) fn dispatch_stream_loop_candidate(
         &self,
-        detector: &mut guardrails::stream_loop_detector::StreamLoopDetector,
+        detector: &mut inference_wire::loop_detector::StreamLoopDetector,
         messages: &[Message],
         assistant_text: &str,
         reasoning_text: &str,
         tool_input: &str,
         channel: protocol::StreamLoopChannel,
-        pattern: guardrails::stream_loop_detector::DegeneratePattern,
+        pattern: inference_wire::loop_detector::DegeneratePattern,
         cleared_candidates: &std::collections::HashSet<String>,
         pending: &mut Option<PendingStreamLoopReview>,
     ) {
@@ -63,7 +63,7 @@ impl Agent {
         reasoning_text: &str,
         tool_input: &str,
         channel: protocol::StreamLoopChannel,
-        pattern: guardrails::stream_loop_detector::DegeneratePattern,
+        pattern: inference_wire::loop_detector::DegeneratePattern,
     ) -> PendingStreamLoopReview {
         let input = protocol::StreamLoopReviewInput {
             heuristic_candidate: pattern.description(),
@@ -97,7 +97,7 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
-        let mut round = self.begin_streaming_round();
+        let mut round = self.begin_streaming_round(0);
         self.resume_streaming_with_events(messages, cancel, &mut round, on_event)
             .await
     }

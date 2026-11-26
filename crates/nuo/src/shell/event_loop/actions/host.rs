@@ -78,14 +78,23 @@ fn verb_receipt(verb: ConsoleVerb) -> &'static str {
     }
 }
 
-/// Send one control verb and push its receipt when the server answers.
+/// Send one control verb over the active unified server connection and push
+/// its receipt when the server answers (ADR-0260 `[INV-SRVPHASE-04]`).
 /// `target` is the `#N` the receipt names (the server gets the id).
-fn spawn_control_verb(runtime: &UiRuntime, verb: ConsoleVerb, target: Option<usize>, id: String) {
+fn spawn_control_verb(
+    tx: tokio::sync::mpsc::UnboundedSender<crate::shell::client::ClientOutbound>,
+    runtime: &UiRuntime,
+    verb: ConsoleVerb,
+    target: Option<usize>,
+    id: String,
+) {
     let request = verb_request(verb, id);
     let mutations = runtime.mutations.clone();
     let dirty = (runtime.dirty.clone(), runtime.dirty_notify.clone());
     tokio::spawn(async move {
-        let outcome = discover_and_control(request).await;
+        let outcome = crate::shell::client::send_control_over_link(&tx, request)
+            .await
+            .map(|_| ());
         let line = match outcome {
             Ok(()) => ConsoleLine::Receipt {
                 ok: true,
@@ -103,19 +112,6 @@ fn spawn_control_verb(runtime: &UiRuntime, verb: ConsoleVerb, target: Option<usi
             .await;
         wake(&dirty);
     });
-}
-
-/// Discover the server and issue one control verb. `Err` carries either the
-/// discovery failure or the server's rejection, both receipt-ready.
-async fn discover_and_control(request: crate::shell::client::ControlRequest) -> Result<(), String> {
-    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    match crate::shell::client::discover(&project_root).await {
-        Some(info) => crate::shell::client::control(&info, request).await,
-        None => {
-            tracing::warn!("dashboard control: no server discovered");
-            Err("no server is running".to_string())
-        }
-    }
 }
 
 /// Nudge the event loop awake so the fresh receipt paints immediately.
@@ -143,7 +139,8 @@ pub(super) fn kill_selected(app: &mut App, runtime: &UiRuntime) {
         app.surfaces.host_kill_confirm = None;
         app.surfaces.host_kill_confirm_id = None;
         log_dispatch(app, &format!("/kill @{seq}"), vec![seq], "kill");
-        spawn_control_verb(runtime, ConsoleVerb::Kill, Some(seq), id);
+        let tx = app.link.tx.clone();
+        spawn_control_verb(tx, runtime, ConsoleVerb::Kill, Some(seq), id);
     } else {
         app.surfaces.host_kill_confirm = Some("armed".to_string());
         app.surfaces.host_kill_confirm_id = Some(id);
@@ -169,7 +166,8 @@ pub(super) fn suspend_selected(app: &mut App, runtime: &UiRuntime) {
         return;
     };
     log_dispatch(app, &format!("/suspend @{seq}"), vec![seq], "suspend");
-    spawn_control_verb(runtime, ConsoleVerb::Suspend, Some(seq), id);
+    let tx = app.link.tx.clone();
+    spawn_control_verb(tx, runtime, ConsoleVerb::Suspend, Some(seq), id);
 }
 
 /// Ask the Archivist one question: a synchronous control round
@@ -178,22 +176,17 @@ pub(super) fn suspend_selected(app: &mut App, runtime: &UiRuntime) {
 /// and no dock selection are involved.
 async fn dispatch_archivist(app: &mut App, runtime: &UiRuntime, raw: &str, text: &str) {
     log_dispatch(app, raw, Vec::new(), "ask archivist");
+    let tx = app.link.tx.clone();
     let mutations = runtime.mutations.clone();
     let dirty = (runtime.dirty.clone(), runtime.dirty_notify.clone());
     let text = text.to_string();
     tokio::spawn(async move {
-        let project_root =
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let outcome = match crate::shell::client::discover(&project_root).await {
-            Some(info) => {
-                crate::shell::client::control_with_reply(
-                    &info,
-                    crate::shell::client::ControlRequest::AskArchivist { text: text.clone() },
-                )
-                .await
-            }
-            None => Err("no server is running".to_string()),
-        };
+        let outcome = crate::shell::client::send_control_over_link(
+            &tx,
+            crate::shell::client::ControlRequest::AskArchivist { text: text.clone() },
+        )
+        .await
+        .map(|o| o.payload.unwrap_or_default());
         let line = match outcome {
             Ok(answer) => ConsoleLine::Receipt {
                 ok: true,
@@ -222,17 +215,22 @@ async fn dispatch_archivist(app: &mut App, runtime: &UiRuntime, raw: &str, text:
 /// submit. `raw` is the line the dispatch receipt echoes.
 async fn dispatch_create(app: &mut App, runtime: &UiRuntime, raw: &str, text: Option<String>) {
     log_dispatch(app, raw, Vec::new(), "new session");
+    let tx = app.link.tx.clone();
     let mutations = runtime.mutations.clone();
     let dirty = (runtime.dirty.clone(), runtime.dirty_notify.clone());
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let project = project_root.display().to_string();
     tokio::spawn(async move {
-        let outcome = discover_and_control(crate::shell::client::ControlRequest::CreateThread {
-            project,
-            prompt: text,
-            init_options: None,
-        })
-        .await;
+        let outcome = crate::shell::client::send_control_over_link(
+            &tx,
+            crate::shell::client::ControlRequest::CreateThread {
+                project,
+                prompt: text,
+                init_options: None,
+            },
+        )
+        .await
+        .map(|_| ());
         let line = match outcome {
             Ok(()) => ConsoleLine::Receipt {
                 ok: true,
@@ -312,7 +310,8 @@ pub(super) async fn dispatch_console_command(
                 },
             };
             log_dispatch(app, raw, vec![seq], verb.as_str());
-            spawn_control_verb(runtime, verb, Some(seq), id);
+            let tx = app.link.tx.clone();
+            spawn_control_verb(tx, runtime, verb, Some(seq), id);
         }
         ConsoleCommand::Prompt { targets, text } => {
             // An address with no payload is a usage notice, not a send.
@@ -372,28 +371,24 @@ pub(super) async fn dispatch_console_command(
                     )
                 })
                 .collect();
+            let tx = app.link.tx.clone();
             let mutations = runtime.mutations.clone();
             let dirty = (runtime.dirty.clone(), runtime.dirty_notify.clone());
             tokio::spawn(async move {
-                let project_root =
-                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                let Some(info) = crate::shell::client::discover(&project_root).await else {
-                    tracing::warn!("dashboard control: no server discovered");
-                    return;
-                };
                 for (n, request) in sends {
-                    let line = match crate::shell::client::control(&info, request).await {
-                        Ok(()) => ConsoleLine::Receipt {
-                            ok: true,
-                            target: Some(n),
-                            text: "queued".to_string(),
-                        },
-                        Err(e) => ConsoleLine::Receipt {
-                            ok: false,
-                            target: Some(n),
-                            text: e,
-                        },
-                    };
+                    let line =
+                        match crate::shell::client::send_control_over_link(&tx, request).await {
+                            Ok(_) => ConsoleLine::Receipt {
+                                ok: true,
+                                target: Some(n),
+                                text: "queued".to_string(),
+                            },
+                            Err(e) => ConsoleLine::Receipt {
+                                ok: false,
+                                target: Some(n),
+                                text: e,
+                            },
+                        };
                     mutations
                         .send(crate::shell::event_loop::AppMutation::HostConsole(line))
                         .await;
@@ -407,29 +402,29 @@ pub(super) async fn dispatch_console_command(
 /// How many recent terminal requests the usage view's event tail carries.
 pub(crate) const USAGE_EVENT_CAP: usize = 200;
 
-/// ADR-0129 [INV-USAGE-01]: fetch the cross-session model usage report over the
-/// session-free control plane.
-///
-/// Usage accounting is a property of the installation, not of a thread: the
-/// store it folds (`data/usage/`) outlives every session that wrote to it and
-/// exists before the first one is created. Fetching it through an attached
-/// session's duplex made a global statistic unusable without a thread, which is
-/// why this path takes no `session_id` at all.
-///
-/// Fire-and-forget: the result lands as [`AppMutation::UsageStats`] and the
-/// event loop repaints. A failure keeps whatever report is already on screen
-/// (re-opening never flashes the loading state) and clears only the flag.
+/// ADR-0129 [INV-USAGE-01], ADR-0260 `[INV-SRVPHASE-04]`: fetch the
+/// cross-session model usage report over the single unified server connection
+/// (works identically for local and `--remote` clients).
 pub(crate) fn refresh_usage(app: &mut App, runtime: &UiRuntime) {
     app.telemetry.usage_loading = true;
+    let tx = app.link.tx.clone();
     let mutations = runtime.mutations.clone();
     let dirty = (runtime.dirty.clone(), runtime.dirty_notify.clone());
     tokio::spawn(async move {
-        let project_root =
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let outcome = match crate::shell::client::discover(&project_root).await {
-            Some(info) => crate::shell::client::get_usage_stats(&info, USAGE_EVENT_CAP).await,
-            None => Err("no server is running".to_string()),
-        };
+        let outcome = crate::shell::client::send_control_over_link(
+            &tx,
+            crate::shell::client::ControlRequest::GetUsageStats {
+                event_cap: USAGE_EVENT_CAP,
+            },
+        )
+        .await
+        .and_then(|res| {
+            let payload = res
+                .payload
+                .ok_or_else(|| "usage stats reply carried no payload".to_string())?;
+            serde_json::from_str::<protocol::usage_stats::UsageStatsReport>(&payload)
+                .map_err(|e| format!("decode usage stats: {e}"))
+        });
         let mutation = match outcome {
             Ok(report) => crate::shell::event_loop::AppMutation::UsageStats(report),
             Err(error) => {
@@ -473,16 +468,12 @@ pub(super) async fn handle_host_action(
             if let Some((target_id, target_title)) = target_info {
                 let switchable = target_id != viewed_session_id;
                 if switchable {
-                    let is_empty = app.is_current_thread_empty();
+                    let is_empty = !viewed_session_id.is_empty() && app.is_current_thread_empty();
                     let tab = crate::shell::surfaces::ClientTab::thread(
                         &target_id,
                         target_title.as_deref(),
                     );
                     if is_empty {
-                        // The thread itself is being discarded, so its parked
-                        // draft goes too (ADR-0247): a draft file under a
-                        // deleted id can only ever be restored into a thread
-                        // that no longer exists.
                         app.forget_thread_draft(viewed_session_id);
                         app.send_intent(AgentRequest::DeleteThread {
                             id: viewed_session_id.to_string(),
@@ -513,8 +504,12 @@ pub(super) async fn handle_host_action(
                     } else {
                         app.open_tab(tab);
                     }
-                    app.surfaces.switch_to_target = Some(target_id);
-                    app.link.should_quit.store(true, Ordering::SeqCst);
+                    if app.link.supervised {
+                        app.activate_thread_workspace(&target_id);
+                    } else {
+                        app.surfaces.switch_to_target = Some(target_id);
+                        app.link.should_quit.store(true, Ordering::SeqCst);
+                    }
                 }
                 app.dismiss_active_dialog();
                 app.set_active_index(0);

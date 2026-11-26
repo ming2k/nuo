@@ -88,6 +88,16 @@ pub struct SubagentRef {
     pub toolset_count: Option<u32>,
 }
 
+/// Reference to an offloaded base64 image payload stored in the CAS blob store
+/// (ADR-0255 `[INV-SHARD-04]`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageBlobRef {
+    /// Index into `MessagePayload::images`.
+    pub index: usize,
+    /// SHA-256 hex digest in the CAS blob store.
+    pub hash: String,
+}
+
 /// Kind-specific payload of a message entry. Everything that is not an
 /// envelope column (see).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,9 +137,13 @@ pub struct MessagePayload {
     /// nested transcripts).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent: Option<SubagentRef>,
-    /// Content-addressed blob holding the full body (large tool output).
+    /// Content-addressed blob holding the full body (large tool output / text).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_blob: Option<String>,
+    /// Content-addressed blobs holding offloaded base64 image payloads
+    /// (ADR-0255 `[INV-SHARD-04]`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_blobs: Vec<ImageBlobRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -254,6 +268,7 @@ impl TranscriptEntry {
                 provider_meta: message.provider_meta.clone(),
                 subagent: None,
                 content_blob: message.content_blob.clone(),
+                image_blobs: Vec::new(),
                 display_content: message.display_content.clone(),
                 reasoning_content: message.reasoning_content.clone(),
                 injection,
@@ -371,13 +386,19 @@ pub struct PrunedToolOutput {
     pub placeholder: String,
 }
 
-/// One pruned visual media artifact (e.g. user-uploaded image): the entry membership seq
-/// and the informative placeholder invoice that replaces its body in views.
+/// One pruned visual media artifact (e.g. user-uploaded image): the entry membership seq,
+/// the informative placeholder invoice that replaces its body in views, and optional
+/// indices of original attachments kept inline (ADR-0264 `[INV-PROJ-01]`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrunedMediaOutput {
     pub seq: u64,
     /// Placeholder invoice text presented in views.
     pub placeholder: String,
+    /// Indices into the immutable entry's `images` vector that remain attached
+    /// inline (e.g. newest attachments spared by partial payload offload). Empty
+    /// clears all attachments on this entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained_image_indices: Vec<usize>,
 }
 
 /// A durable projection decision. Appending a directive is the
@@ -479,7 +500,7 @@ impl Transcript {
         let mut checkpoint_seq: Option<u64> = None;
         let mut elided: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
-        let mut pruned_media: std::collections::HashMap<u64, String> =
+        let mut pruned_media: std::collections::HashMap<u64, &PrunedMediaOutput> =
             std::collections::HashMap::new();
         for directive in &self.directives {
             match &directive.payload {
@@ -491,7 +512,7 @@ impl Transcript {
                         elided.insert(item.tool_call_id.clone(), item.placeholder.clone());
                     }
                     for item in media_removed {
-                        pruned_media.insert(item.seq, item.placeholder.clone());
+                        pruned_media.insert(item.seq, item);
                     }
                 }
                 DirectivePayload::Compact { checkpoint_seq: cp } => {
@@ -550,10 +571,19 @@ impl Transcript {
             } else {
                 last_pruned_tool = None;
             }
-            // Entry-level media pruning (e.g. user-uploaded images)
-            if let Some(placeholder) = pruned_media.get(&entry.seq) {
-                message.content = placeholder.clone();
-                message.images = None;
+            // Entry-level media pruning (e.g. user-uploaded images; ADR-0264).
+            if let Some(media) = pruned_media.get(&entry.seq) {
+                message.content = media.placeholder.clone();
+                if media.retained_image_indices.is_empty() {
+                    message.images = None;
+                } else if let Some(images) = message.images.take() {
+                    let kept: Vec<_> = media
+                        .retained_image_indices
+                        .iter()
+                        .filter_map(|&idx| images.get(idx).cloned())
+                        .collect();
+                    message.images = (!kept.is_empty()).then_some(kept);
+                }
             }
             view.push((entry.seq, message));
         }

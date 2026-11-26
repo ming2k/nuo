@@ -229,7 +229,6 @@ impl Agent {
                 payload_ceiling: Arc::new(std::sync::RwLock::new(None)),
                 last_measured_prompt: std::sync::Mutex::new(None),
                 context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
-                history_reprojected: std::sync::atomic::AtomicBool::new(false),
                 images_suppressed: Arc::new(std::sync::RwLock::new(None)),
                 hard_stop_turns: Arc::new(std::sync::Mutex::new(0)),
                 trajectory_guard_config: Arc::new(std::sync::RwLock::new(
@@ -256,7 +255,6 @@ impl Agent {
                 turn_persist: std::sync::Mutex::new(None),
                 workspace_journal: std::sync::RwLock::new(None),
                 request_projection_persist: std::sync::Mutex::new(None),
-                title_established: std::sync::Mutex::new(None),
                 reasoning_effort: std::sync::Mutex::new(None),
             },
             queues: substate::QueueState {
@@ -1368,12 +1366,11 @@ impl Agent {
     }
 
     /// Install the mid-round save point fired at every ReAct-turn boundary
-    /// (ADR-0048). The closure receives the current full round history and
-    /// should durably append only the new tail (see
-    /// `ThreadSession::append_turn`). Called once by orchestration after the
-    /// agent is built and the session is open; subagents and the review
-    /// diagnostic never call this, so the default `None` keeps their turn
-    /// boundaries no-ops.
+    /// (ADR-0048). The closure receives strictly the newly produced uncommitted
+    /// delta slice since the previous durable commit and appends it via
+    /// `ThreadSession::commit_turn`. Called once by orchestration after the
+    /// agent is built and the session is open; review diagnostics never call
+    /// this, so the default `None` keeps their turn boundaries no-ops.
     pub fn set_turn_persist(&self, f: TurnPersistFn) {
         *self
             .control
@@ -1426,25 +1423,17 @@ impl Agent {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Install the title-established observer fired by the background session
-    /// titler (ADR-0022). The closure receives the freshly persisted title
-    /// and should push a sessions-overview snapshot so attached clients see
-    /// the new picker title without reopening the dialog. Called once by the
-    /// session driver; subagents, the review diagnostic, and tests never call
-    /// this, so titling stays a silent background write there.
-    pub fn set_title_established(&self, f: TitleEstablishedFn) {
-        *self
-            .control
-            .title_established
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(f);
-    }
-
-    /// Fire the mid-round save point if installed. Returns `Ok(())` when no
-    /// closure is set (the subagent / review / test path) so the call site
-    /// stays unconditional. Invoked at the turn boundary — after a turn's
-    /// tool results are in `messages` and before the next model request.
-    pub(super) async fn fire_turn_persist(&self, messages: &[Message]) -> Result<(), HarnessError> {
+    /// Fire the mid-round save point if installed, handing it strictly the
+    /// uncommitted delta `&messages[round.committed_len..]`. Advances
+    /// `round.committed_len` only after persistence succeeds. Returns `Ok(())`
+    /// when no closure is set (the review / test path) so the call site stays
+    /// unconditional. Invoked at the turn boundary — after a turn's tool
+    /// results are in `messages` and before the next model request.
+    pub(super) async fn fire_turn_persist(
+        &self,
+        messages: &[Message],
+        round: &mut StreamingRoundState,
+    ) -> Result<(), HarnessError> {
         let f = self
             .control
             .turn_persist
@@ -1452,9 +1441,14 @@ impl Agent {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         match f {
-            Some(f) => f(messages).await.map_err(|error| {
-                HarnessError::Other(format!("could not persist mid-round turn: {error}"))
-            }),
+            Some(f) => {
+                let start = round.committed_len().min(messages.len());
+                f(&messages[start..]).await.map_err(|error| {
+                    HarnessError::Other(format!("could not persist mid-round turn: {error}"))
+                })?;
+                round.set_committed_len(messages.len());
+                Ok(())
+            }
             None => {
                 if let Some(ledger) = self.token_ledger() {
                     ledger
@@ -1656,12 +1650,20 @@ impl Agent {
         if replacement.is_empty() {
             return Ok(None);
         }
+        if replacement.len() != messages.len() {
+            tracing::warn!(
+                before = messages.len(),
+                after = replacement.len(),
+                "payload projection changed message count; refusing to desynchronize committed cursor"
+            );
+            return Ok(None);
+        }
         let attachments_after = count_attachments(&replacement);
         let media_after = protocol::pressure::media_bytes(&replacement);
+        // Payload offload appends a durable `Prune` directive over immutable
+        // transcript entries via `ContextProjectionGate` without rewriting
+        // durable facts (ADR-0264 `[INV-PROJ-01]`, `[INV-THREADSSOT-02]`).
         *messages = replacement;
-        self.context
-            .history_reprojected
-            .store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(Some(PayloadRelief {
             offloaded_images: attachments_before.saturating_sub(attachments_after),
             reclaimed_bytes: size.media_bytes.saturating_sub(media_after),
@@ -1669,19 +1671,22 @@ impl Agent {
     }
 
     /// Between ReAct turns, if context pressure exceeds the configured budget,
-    /// hand the live message list to the [`ContextProjectionGate`] so it can
-    /// produce and persist the next model-visible window.
-    /// Gate the assembled request on context pressure. Takes the
-    /// already-assembled request so the turn's estimate reuses it instead of
-    /// rebuilding the full request a second time (hot path).
-    /// Returns `true` when the projection replaced `messages` (the caller
-    /// must re-assemble before calling the provider).
+    /// hand the live message list and its committed prefix length to the
+    /// [`ContextProjectionGate`] so it can produce the next model-visible
+    /// window without touching prior durable history.
+    ///
+    /// Takes the already-assembled request so the turn's estimate reuses it
+    /// instead of rebuilding the full request a second time (hot path).
+    /// Returns `Some(compacted)` when the projection replaced `messages` (the
+    /// caller must re-assemble before calling the provider, and emit
+    /// `AgentEvent::Compacted` if `compacted` is `Some`).
     pub(super) async fn project_context_if_needed(
         &self,
         messages: &mut Vec<Message>,
         request: &protocol::ModelRequest,
+        round: &mut StreamingRoundState,
         cancel: &CancellationToken,
-    ) -> Result<bool, HarnessError> {
+    ) -> Result<Option<Option<protocol::ContextProjectionCheckpoint>>, HarnessError> {
         let budget = *self
             .context
             .context_prune_threshold_tokens
@@ -1705,7 +1710,7 @@ impl Agent {
             None => local_estimate,
         };
         if budget == 0 || effective_tokens <= budget {
-            return Ok(false);
+            return Ok(None);
         }
         let gate = self
             .context
@@ -1714,39 +1719,27 @@ impl Agent {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         let Some(gate) = gate else {
-            return Ok(false);
+            return Ok(None);
         };
-        let replacement = tokio::select! {
+        let committed_len = round.committed_len().min(messages.len());
+        let projected = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(HarnessError::Interrupted),
-            replacement = gate.project_context(messages.clone()) => replacement,
+            projected = gate.project_context(messages.clone(), committed_len) => projected,
         };
-        if let Some(replacement) = replacement
-            && !replacement.is_empty()
+        if let Some(projected) = projected
+            && !projected.messages.is_empty()
         {
-            *messages = replacement;
+            *messages = projected.messages;
+            round.set_committed_len(projected.committed_len.min(messages.len()));
             *self
                 .context
                 .last_measured_prompt
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = None;
-            self.context
-                .history_reprojected
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-            return Ok(true);
+            return Ok(Some(projected.compacted));
         }
-        Ok(false)
-    }
-
-    /// Consume the "a projection replaced the live window" marker.
-    ///
-    /// The next durable commit must not take the append-only fast path: the
-    /// caller's committed prefix may have been rewritten. Consuming (rather
-    /// than reading) resets the round's state at the same boundary.
-    pub(crate) fn take_history_reprojected(&self) -> bool {
-        self.context
-            .history_reprojected
-            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        Ok(None)
     }
 
     pub fn set_thread_id(&self, thread_id: impl Into<String>) {
@@ -1817,6 +1810,13 @@ impl Agent {
     /// Access the harness cognitive pipeline for out-of-band typed execution.
     pub fn cognitive(&self) -> crate::cognition::pipeline::CognitivePipeline {
         crate::cognition::pipeline::CognitivePipeline::new(self.provider.clone())
+    }
+
+    /// Distill a raw opening prompt into a concise thread title, or `None` on
+    /// blank input or provider failure. Pure cognition: persistence, scheduling,
+    /// and client broadcast belong to the hosting server driver (ADR-0262).
+    pub async fn generate_session_title(&self, prompt: &str) -> Option<String> {
+        self.cognitive().generate_title_from_prompt(prompt).await
     }
 }
 

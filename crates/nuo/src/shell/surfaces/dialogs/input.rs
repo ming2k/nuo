@@ -417,33 +417,37 @@ fn session_trace_step(
         .as_any_mut()
         .downcast_mut::<SessionTraceDialog>()
         .expect("kind");
-    if e.turn.is_some() {
-        if forward {
-            e.scroll = e.scroll.saturating_add(1);
-        } else {
-            e.scroll = e.scroll.saturating_sub(1);
+    match e.view {
+        TraceView::RoundInfo | TraceView::AttemptInfo(_) => {
+            if forward {
+                e.info_scroll = e.info_scroll.saturating_add(1);
+            } else {
+                e.info_scroll = e.info_scroll.saturating_sub(1);
+            }
         }
-    } else if e.detail {
-        let report = app.token_source_report(viewed_session_id);
-        let round_index = e.index.min(
-            report
+        TraceView::Turns => {
+            let report = app.token_source_report(viewed_session_id);
+            let round_index = e.index.min(
+                report
+                    .as_ref()
+                    .map(|r| crate::shell::overlays::telemetry_round_count(r).saturating_sub(1))
+                    .unwrap_or(0),
+            );
+            let count = report
                 .as_ref()
-                .map(|r| crate::shell::overlays::telemetry_round_count(r).saturating_sub(1))
-                .unwrap_or(0),
-        );
-        let count = report
-            .as_ref()
-            .map(|r| crate::shell::overlays::telemetry_attempt_count(r, round_index))
-            .unwrap_or(0)
-            .max(1);
-        e.turn_cursor = rotate(e.turn_cursor, count, forward);
-    } else {
-        let count = app
-            .token_source_report(viewed_session_id)
-            .map(|r| crate::shell::overlays::telemetry_round_count(&r))
-            .unwrap_or(0)
-            .max(1);
-        e.index = rotate(e.index, count, forward);
+                .map(|r| crate::shell::overlays::telemetry_attempt_count(r, round_index))
+                .unwrap_or(0)
+                .max(1);
+            e.turn_cursor = rotate(e.turn_cursor, count, forward);
+        }
+        TraceView::Rounds => {
+            let count = app
+                .token_source_report(viewed_session_id)
+                .map(|r| crate::shell::overlays::telemetry_round_count(&r))
+                .unwrap_or(0)
+                .max(1);
+            e.index = rotate(e.index, count, forward);
+        }
     }
     DialogOutcome::Consumed
 }

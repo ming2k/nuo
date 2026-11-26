@@ -18,6 +18,7 @@ use tracing::{info, warn};
 
 use super::apply::execute_body;
 use super::catalog::NUO_SCHEMA;
+use super::content_shard::CONTENT_SHARD_SCHEMA;
 use super::history;
 use super::schema::Schema;
 use super::verify;
@@ -25,15 +26,88 @@ use super::verify;
 /// Open a database file and bring it to the current schema.
 pub(crate) fn initialize_db(db_path: &Path) -> Result<Connection> {
     if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        let _ = crate::fs_privacy::ensure_private_dir(parent);
     }
 
     let mut conn = Connection::open(db_path)?;
+    crate::fs_privacy::restrict_private_file(db_path);
     configure_connection(&mut conn)?;
     migrate_schema_with(&mut conn, &NUO_SCHEMA, Some(db_path))
         .map_err(|error| with_database_path(error, db_path))?;
 
     Ok(conn)
+}
+
+/// Open a disposable content shard (`shards/content-XX.db`) and bring it to
+/// `CONTENT_SHARD_SCHEMA` (ADR-0255 `[INV-SHARD-01]`).
+///
+/// Content shards are 100% rebuildable from the session journals: if an
+/// existing shard fails ledger/structural verification (e.g. a legacy
+/// pre-ADR-0255 unledgered shard or on-disk corruption), the shard and its WAL
+/// sidecars are removed and replaced cleanly so startup catch-up rebuilds it.
+pub(crate) fn initialize_content_shard_db(shard_path: &Path) -> Result<Connection> {
+    if let Some(parent) = shard_path.parent() {
+        let _ = crate::fs_privacy::ensure_private_dir(parent);
+    }
+
+    let open_and_verify = || -> Result<Connection> {
+        let mut conn = Connection::open(shard_path)?;
+        crate::fs_privacy::restrict_private_file(shard_path);
+        configure_content_shard_connection(&mut conn)?;
+        // Pass `None` for `db_path`: content shards are disposable derived
+        // views and never create `.pre-vN.bak` files inside `shards/`.
+        migrate_schema_with(&mut conn, &CONTENT_SHARD_SCHEMA, None)?;
+        Ok(conn)
+    };
+
+    match open_and_verify() {
+        Ok(conn) => Ok(conn),
+        Err(error) if shard_path.exists() => {
+            warn!(
+                path = %shard_path.display(),
+                %error,
+                "content shard failed schema verification; recreating disposable shard for journal catch-up"
+            );
+            remove_sqlite_with_sidecars(shard_path);
+            open_and_verify().map_err(|err| with_database_path(err, shard_path))
+        }
+        Err(error) => Err(with_database_path(error, shard_path)),
+    }
+}
+
+fn remove_sqlite_with_sidecars(path: &Path) {
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+    let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+}
+
+/// True iff a read-only content shard connection matches the current
+/// ledger-backed `CONTENT_SHARD_SCHEMA` (ADR-0255 `[INV-SHARD-01]`).
+///
+/// Legacy unledgered shards (pre-ADR-0255) and mismatched versions return
+/// `Ok(false)` so readers skip them until the writer recreates the disposable
+/// shard and journal catch-up replays it.
+pub(crate) fn is_current_content_shard(conn: &Connection) -> Result<bool> {
+    let version = user_version(conn)?;
+    if version != CONTENT_SHARD_SCHEMA.current_version {
+        return Ok(false);
+    }
+    if !history::ledger_exists(conn)? {
+        return Ok(false);
+    }
+    Ok(history::validate(conn, version, &CONTENT_SHARD_SCHEMA).is_ok())
+}
+
+fn configure_content_shard_connection(conn: &mut Connection) -> Result<()> {
+    conn.pragma_update(None, "busy_timeout", 5000)?;
+    if let Err(error) = conn.pragma_update(None, "journal_mode", "WAL") {
+        warn!(%error, "could not set WAL journal mode on content shard; continuing");
+    }
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
+    conn.set_prepared_statement_cache_capacity(64);
+    Ok(())
 }
 
 /// Initialize an in-memory SQLite database for tests and ephemeral workflows.
@@ -77,6 +151,16 @@ pub(crate) fn initialize_schema(
 pub fn open_in_memory_for_tests() -> Result<Connection> {
     let mut conn = Connection::open_in_memory()?;
     initialize_connection_schema(&mut conn, None)?;
+    Ok(conn)
+}
+
+/// Open a fully-migrated in-memory content shard (`CONTENT_SHARD_SCHEMA`) for
+/// content-plane unit tests (ADR-0255 `[INV-SHARD-01]`).
+#[cfg(test)]
+pub(crate) fn open_content_shard_in_memory_for_tests() -> Result<Connection> {
+    let mut conn = Connection::open_in_memory()?;
+    configure_content_shard_connection(&mut conn)?;
+    migrate_schema_with(&mut conn, &CONTENT_SHARD_SCHEMA, None)?;
     Ok(conn)
 }
 

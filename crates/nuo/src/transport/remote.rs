@@ -1,6 +1,9 @@
 //! Remote server identity and client target selection.
 
-use super::attach::{AttachError, AttachResult, connect, finish_handshake_with_project};
+use super::attach::{
+    AttachError, AttachResult, ServerLinkResult, connect, connect_server_local,
+    finish_handshake_with_options, finish_handshake_with_project, finish_server_hello,
+};
 use super::*;
 
 static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
@@ -35,10 +38,51 @@ pub enum ClientTarget {
 }
 
 impl ClientTarget {
-    pub async fn connect(&self, action: AttachAction) -> AttachResult {
+    /// Open a session-free [`ServerLink`] (`Wire::Hello` → `Wire::ServerHello`)
+    /// carrying server lifecycle and optional monitor events (ADR-0260).
+    pub async fn connect_server(&self, monitor: Option<MonitorAction>) -> ServerLinkResult {
         match self {
-            Self::Local(info) => connect(info, action).await,
-            Self::Remote(remote) => remote.connect(action).await,
+            Self::Local(info) => connect_server_local(info, monitor).await,
+            Self::Remote(remote) => remote.connect_server(monitor).await,
+        }
+    }
+
+    pub async fn connect(&self, target: ThreadTarget) -> AttachResult {
+        match self {
+            Self::Local(info) => connect(info, target).await,
+            Self::Remote(remote) => remote.connect(target).await,
+        }
+    }
+
+    /// Connect with a full-duplex monitor subscription on the same connection
+    /// (used by interactive TUI sessions, ADR-0260 `[INV-SRVPHASE-04]`).
+    pub async fn connect_with_monitor(
+        &self,
+        target: ThreadTarget,
+        monitor: MonitorAction,
+    ) -> AttachResult {
+        match self {
+            Self::Local(info) => {
+                let parts = super::attach::dial_local_wire(info).await?;
+                finish_handshake_with_options(
+                    parts,
+                    target,
+                    std::env::current_dir().ok(),
+                    Some(monitor),
+                )
+                .await
+            }
+            Self::Remote(remote) => {
+                let url = remote.url();
+                let (sink, source) = connect_ws_wire(
+                    &url,
+                    Some(&remote.token),
+                    netune::WsSessionConfig::default(),
+                )
+                .await
+                .map_err(AttachError::transport)?;
+                finish_handshake_with_options((sink, source), target, None, Some(monitor)).await
+            }
         }
     }
 
@@ -139,13 +183,22 @@ impl RemoteServer {
         })
     }
 
-    pub async fn connect(&self, action: AttachAction) -> AttachResult {
-        self.connect_with_project(action, None).await
+    pub async fn connect_server(&self, monitor: Option<MonitorAction>) -> ServerLinkResult {
+        let url = self.url();
+        let (sink, source) =
+            connect_ws_wire(&url, Some(&self.token), netune::WsSessionConfig::default())
+                .await
+                .map_err(AttachError::transport)?;
+        finish_server_hello((sink, source), monitor).await
+    }
+
+    pub async fn connect(&self, target: ThreadTarget) -> AttachResult {
+        self.connect_with_project(target, None).await
     }
 
     pub async fn connect_with_project(
         &self,
-        action: AttachAction,
+        target: ThreadTarget,
         project: Option<std::path::PathBuf>,
     ) -> AttachResult {
         let url = self.url();
@@ -153,7 +206,7 @@ impl RemoteServer {
             connect_ws_wire(&url, Some(&self.token), netune::WsSessionConfig::default())
                 .await
                 .map_err(AttachError::transport)?;
-        finish_handshake_with_project((sink, source), action, project).await
+        finish_handshake_with_project((sink, source), target, project).await
     }
 }
 

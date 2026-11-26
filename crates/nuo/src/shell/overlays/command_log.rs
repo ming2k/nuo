@@ -36,14 +36,14 @@ use graticule::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::shell::disclosure::renderers::base::truncate_to_width;
 use crate::shell::render::{Theme, draw_scene_bar, draw_tab_bar};
-use crate::shell::view_header::{TabBarNavRects, TabBarProps, ViewHints};
 use ui_primitives::design::{COPY_LOG_KEY, JOIN_CAUSE, LOG_SCOPE_KEY};
 use ui_primitives::primitives::viewport_rect;
+use view::disclosure::renderers::base::truncate_to_width;
 use view::model::command_log::CommandLog;
 use view::model::layout::{BlockRegion, LayoutMap};
 use view::text_layout::padded_tail;
+use view::view_header::{TabBarNavRects, TabBarProps, ViewHints};
 
 /// The scene's fixed vertical chrome outside the body: the two head rows, the
 /// rule under them, and the footer band. Stated once so the body height — and
@@ -64,6 +64,7 @@ pub struct LogSceneRects {
     pub tab_close_rects: Vec<(usize, Rect)>,
     pub tab_add_rect: Option<Rect>,
     pub tab_reveal_active: bool,
+    pub tab_shimmer_active: bool,
     pub tab_prev_rect: Option<Rect>,
     pub tab_next_rect: Option<Rect>,
     pub tab_overflow_rect: Option<Rect>,
@@ -161,6 +162,7 @@ pub fn draw_command_log_scene(
             can_back: false,
             can_forward: false,
         },
+        None,
         theme,
     );
 
@@ -242,6 +244,7 @@ pub fn draw_command_log_scene(
         tab_close_rects: tab_rects.close_rects,
         tab_add_rect: tab_rects.add_rect,
         tab_reveal_active: tab_rects.reveal_active,
+        tab_shimmer_active: tab_rects.shimmer_active,
         tab_prev_rect: tab_rects.prev_rect,
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,

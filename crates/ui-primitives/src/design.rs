@@ -3,19 +3,18 @@
 /// Uniform horizontal inset applied to transcript-area components so bands,
 /// bars, and text do not touch the terminal frame.
 ///
-/// Scope: the transcript band, the footer stack, and head tiers 2/3
-/// (`draw_scene_bar`, `draw_thread_context_bar`). Tier 1 does **not** read this
-/// token — see [`TABBAR_H_INSET`].
+/// Scope: head Tier 1 (`draw_tab_bar`), head Tier 2 (`draw_scene_bar`), the
+/// transcript band, and the footer stack.
 pub const TRANSCRIPT_H_INSET: u16 = 2;
 
 /// Horizontal inset of the Client Global TabBar (Tier 1), the shell's top
-/// border. Set to `1`: leaving 1 column of padding on each end creates
-/// breathing room between tab pills / keycaps and the terminal edges, while the
-/// row's `tabbar_bg` background fill continues to bleed across the full terminal
-/// width edge-to-edge. Inside the row, adjacent unselected tabs butt seamlessly
-/// against one another without intervening separator gaps, disambiguated by
-/// alternating background tones.
-pub const TABBAR_H_INSET: u16 = 1;
+/// border. Matches [`TRANSCRIPT_H_INSET`] (`2`): leaving 2 columns of padding
+/// on each end aligns Tier 1 content cleanly with Tier 2 (`SceneBar`), the
+/// transcript stream, and the footer stack, while `tabbar_bg` continues to
+/// bleed across the full terminal width edge-to-edge. Inside the row, adjacent
+/// unselected tabs butt seamlessly against one another without intervening
+/// separator gaps, disambiguated by alternating background tones.
+pub const TABBAR_H_INSET: u16 = TRANSCRIPT_H_INSET;
 
 /// Extra leading whitespace applied to prose after the transcript-area gutter.
 /// Now that the horizontal gutter is applied once at the stream entry point,
@@ -70,6 +69,20 @@ pub const USER_MESSAGE_GUTTER_GLYPH: &str = INPUT_PROMPT_GLYPH;
 /// [`INPUT_PROMPT_GLYPH`], retiring the former ASCII `>` (and its "Unix stdout
 /// redirection" rationale) so no lead drifts to a bare ASCII arrow again.
 pub const AI_OUTPUT_LEAD_GLYPH: &str = INPUT_PROMPT_GLYPH;
+
+/// Lead glyph for transcript notice entry headers (`! trust`, `! provider`,
+/// `! notification`). Kept distinct from [`INPUT_PROMPT_GLYPH`] (`›`) because a
+/// notice is a distinct entry kind from conversation rounds/turns, while
+/// following the same `<1-col glyph> <space> <label>` 2-column header grammar
+/// so the topic aligns with [`TRANSCRIPT_BODY_LEADING_INDENT`]. Uniform across
+/// all severities — color (and the monochrome text marker) still carries
+/// severity alone (ADR-0139). Pure ASCII, so it needs no fallback glyph.
+pub const NOTICE_LEAD_GLYPH: &str = "!";
+
+/// The transcript notice entry header prefix: [`NOTICE_LEAD_GLYPH`] plus one
+/// gap column, matching [`TRANSCRIPT_BODY_LEADING_INDENT`] so the topic label
+/// aligns flush with the notice body below.
+pub const NOTICE_LEAD_PREFIX: &str = "! ";
 
 /// Blockquote gutter glyph for transcript prose (`Block::Quote`): a light
 /// vertical rule that marks the quoted run. Painted on every wrapped row so
@@ -233,12 +246,20 @@ pub const TAB_ADD_WIDTH: usize = 3;
 /// reflows and resting pills spend every column on the title.
 pub const TAB_CLOSE_WIDTH: usize = 2;
 
-/// Columns a live tab pill borrows at the leading end of its title slot for
-/// its transient status mark (`Running` or `Attention`): one glyph column plus
-/// one separating space. Idle pills and non-thread tabs (`Dashboard`,
-/// `Settings`) pay zero columns, and pill width never changes when a tab's
-/// status changes so the strip never reflows.
-pub const TAB_STATUS_WIDTH: usize = 2;
+/// Duration (ms) of one complete left-to-right text shimmer sweep across a
+/// `Running` TabBar pill. Calm (~1.8s) so active background tabs remain quiet
+/// in peripheral vision while unambiguously signalling live execution without
+/// claiming any extra horizontal columns.
+pub const TAB_SHIMMER_CYCLE_MS: u64 = 1800;
+
+/// Half-width (in display columns) of the raised-cosine highlight bell for the
+/// `Running` TabBar text shimmer.
+pub const TAB_SHIMMER_BAND_COLS: f32 = 4.0;
+
+/// Minimum virtual sweep span (in display columns) for the `Running` TabBar
+/// text shimmer so very short titles sweep at the same calm visual speed as
+/// normal titles with a gentle rest between passes.
+pub const TAB_SHIMMER_MIN_SPAN_COLS: f32 = 12.0;
 
 /// Columns over which an overflowing TabBar title fades toward the pill's
 /// background color instead of terminating in an ellipsis (`…`).
@@ -300,17 +321,22 @@ pub const JOIN_CAUSE: &str = " — ";
 #[allow(dead_code)]
 pub const QUEUE_BAR_ROWS: u16 = 1;
 
-/// Minimum display columns the workspace path may claim before the bar stays
-/// silent about it.
+/// Minimum display columns the workspace path may claim on the single-row
+/// Thread SceneBar before the bar stays silent about it (ADR-0261).
 ///
 /// The floor is measured, not guessed: the `PathView` ladder's last stop is the
 /// bare leaf (`adaptive_shorten("~/projects/nuo", 4) == "nuo"`), so four columns
 /// still name the project honestly. Below that the ladder has nothing faithful
 /// left to say, and a path fragment would assert a location it cannot show.
-/// Keeping the floor this low matters — an earlier value of 8 discarded widths
-/// 4..=7, which the ladder serves correctly, wasting usable columns on a row
-/// where the path is otherwise the only optional element.
-pub const CONTEXT_BAR_WORKSPACE_MIN_COLS: usize = 4;
+pub const SCENE_BAR_WORKSPACE_MIN_COLS: usize = 4;
+
+/// Minimum display columns the identity/title slot may claim when sharing the
+/// single-row Thread SceneBar with a workspace path (ADR-0261 `[INV-HEAD-10]`).
+///
+/// Below six columns a truncated title (`Fix…`) carries less value than letting
+/// the workspace leaf claim the remaining space, because Tier 1 `TabBar` already
+/// names the active thread tab.
+pub const SCENE_BAR_IDENTITY_MIN_COLS: usize = 6;
 
 /// Blank rows inserted at the start of the transcript message stream
 /// (scroll padding top). When scrolled to the very top (`scroll = 0`),
@@ -326,13 +352,12 @@ pub const STREAM_BOTTOM_GAP_ROWS: usize = 1;
 /// Set to 0 because the content stream now owns its own scroll padding
 /// via [`STREAM_TOP_GAP_ROWS`] and [`STREAM_BOTTOM_GAP_ROWS`].
 pub const FOOTER_TOP_GAP_ROWS: u16 = 0;
-/// Maximum height of the head band shown at the top of every transcript
-/// page — Main (thread), Subagent, Dashboard, and Settings all share this
-/// single chrome slot. Under ADR-0062 it is structured across a polymorphic hierarchy:
+/// Maximum height of the head band shown at the top of every page — Thread,
+/// Subagent, Dashboard, Settings, CommandLog, and Diff all share this uniform
+/// two-tier chrome slot (ADR-0261 `[INV-HEAD-09]`):
 /// - Tier 1: Client Global TabBar (`draw_tab_bar`)
 /// - Tier 2: Polymorphic SceneBar (`draw_scene_bar`)
-/// - Tier 3: Sovereign ThreadContextBar (`draw_thread_context_bar`, 0 rows on non-thread scenes)
-pub const PAGE_HEADER_ROWS: u16 = 3;
+pub const PAGE_HEADER_ROWS: u16 = 2;
 
 /// Horizontal inset applied to the footer area containing status/composer/hints.
 pub const FOOTER_H_INSET: u16 = TRANSCRIPT_H_INSET;
@@ -629,6 +654,17 @@ mod tests {
         // guillemet as the input surfaces, so no ASCII `<`/`>` can reappear.
         assert_eq!(USER_MESSAGE_GUTTER_GLYPH, INPUT_PROMPT_GLYPH);
         assert_eq!(AI_OUTPUT_LEAD_GLYPH, INPUT_PROMPT_GLYPH);
+        // Notice entries are a distinct entry kind from conversation rounds/turns
+        // and carry the uniform 1-column `!` lead glyph, paired with one space so
+        // the topic aligns with `TRANSCRIPT_BODY_LEADING_INDENT`.
+        assert_eq!(NOTICE_LEAD_GLYPH, "!");
+        assert_eq!(NOTICE_LEAD_GLYPH.chars().count(), 1);
+        assert!(NOTICE_LEAD_PREFIX.starts_with(NOTICE_LEAD_GLYPH));
+        assert_eq!(
+            unicode_width::UnicodeWidthStr::width(NOTICE_LEAD_PREFIX),
+            TRANSCRIPT_BODY_LEADING_INDENT as usize,
+            "notice lead prefix width must match the body indent so the topic aligns with the body",
+        );
     }
 
     /// Folding is a *compaction*: it must never render a body taller than the

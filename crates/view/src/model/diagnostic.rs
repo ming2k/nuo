@@ -266,8 +266,10 @@ fn quote(value: &str) -> String {
 }
 
 fn utc_timestamp(epoch_ms: u64) -> String {
-    chrono::DateTime::from_timestamp_millis(epoch_ms as i64)
-        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    i64::try_from(epoch_ms)
+        .ok()
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+        .map(|ts| ts.strftime("%Y-%m-%dT%H:%M:%SZ").to_string())
         .unwrap_or_else(|| format!("epoch-ms:{epoch_ms}"))
 }
 

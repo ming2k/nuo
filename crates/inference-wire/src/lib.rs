@@ -29,7 +29,7 @@
 //! self-referential dead layer.
 //!
 //! `WireClient` is *not* in that list: ADR-0088 deleted it a year earlier when it
-//! converged every provider onto `nuo-egress`. This crate did not remove it and
+//! converged every provider onto the former `nuo-egress`. This crate did not remove it and
 //! does not claim to.
 //!
 //! A caller who wanted a wire codec would have found a second, unmaintained
@@ -41,7 +41,7 @@
 pub mod generative;
 
 // The *module* names are part of the live API surface: `provider` reaches
-// `inference_wire::token_classification::TokenBreakdown`, `nuo-harness`
+// `inference_wire::token_classification::TokenBreakdown`, `engine`
 // reaches `inference_wire::loop_detector::{..}`, and
 // `provider-google-antigravity` reaches
 // `inference_wire::protocol::google_interactions::{..}`. Flattening them to

@@ -126,10 +126,7 @@ impl ThreadEntry {
     pub fn to_context_message(&self) -> Option<Message> {
         match &self.kind {
             ThreadEntryKind::Message { message } => Some(message.clone()),
-            ThreadEntryKind::Compaction { summary, .. } => Some(Message::new(
-                Role::System,
-                format!("[Context Compaction Summary]\n{}", summary),
-            )),
+            ThreadEntryKind::Compaction { summary, .. } => Some(crate::checkpoint_message(summary)),
             ThreadEntryKind::BranchSummary { summary, .. } => Some(Message::new(
                 Role::System,
                 format!("[Branch Exploration Summary]\n{}", summary),
@@ -374,5 +371,28 @@ mod tests {
         assert_eq!(abandoned.len(), 2);
         assert_eq!(abandoned[0].id, a1);
         assert_eq!(abandoned[1].id, a2);
+    }
+
+    #[test]
+    fn compaction_entry_uses_canonical_checkpoint_message() {
+        let entry = ThreadEntry::new_compaction(
+            "cp-1",
+            None,
+            100,
+            CompactionPayload {
+                summary: "earlier rounds".to_string(),
+                first_kept_entry_id: "kept-1".to_string(),
+                tokens_before: 1_000,
+                read_files: Vec::new(),
+                modified_files: Vec::new(),
+            },
+        );
+        let msg = entry.to_context_message().expect("compaction message");
+        assert!(msg.hidden);
+        assert_eq!(
+            msg.origin.as_ref().map(|o| o.kind),
+            Some(tool::InjectionKind::CompactionCheckpoint)
+        );
+        assert!(msg.content.contains("earlier rounds"));
     }
 }

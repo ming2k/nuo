@@ -80,17 +80,23 @@ impl ThreadSession {
         let state = self.state.lock().await;
         let transcript = &state.data.transcript;
         let directive = transcript.directives.last()?;
-        let (operation, archived_messages) = match directive.kind {
-            protocol::DirectiveKind::Compact => (
+        let (operation, archived_messages) = match &directive.payload {
+            protocol::DirectivePayload::Compact { .. } => (
                 ContextProjectionKind::Compact,
                 transcript.projected_out().len(),
             ),
-            _ => (
+            protocol::DirectivePayload::Prune {
+                elided,
+                pruned_media,
+            } if elided.is_empty() && !pruned_media.is_empty() => {
+                (ContextProjectionKind::Payload, pruned_media.len())
+            }
+            protocol::DirectivePayload::Prune {
+                elided,
+                pruned_media,
+            } => (
                 ContextProjectionKind::Prune,
-                transcript
-                    .entries
-                    .len()
-                    .saturating_sub(transcript.project().len()),
+                elided.len() + pruned_media.len(),
             ),
         };
         let window = transcript.project();
@@ -263,6 +269,12 @@ impl ThreadSession {
 
     pub async fn request_usage_records(&self) -> Vec<protocol::RequestUsageRecord> {
         self.state.lock().await.data.request_usage_records.clone()
+    }
+
+    /// Durable per-round completion summaries persisted in this session's
+    /// journal (ADR-0263 `[INV-TRACE-03]`).
+    pub async fn round_summaries(&self) -> Vec<protocol::RoundSummary> {
+        self.state.lock().await.data.round_summaries.clone()
     }
 
     /// Wholesale usage-record replacement. Rare (crash repair / ledger

@@ -163,13 +163,14 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
     app.surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-        .detail = true;
+        .view = crate::shell::surfaces::TraceView::Turns;
     assert!(app.pop_sublayer());
-    assert!(
-        !app.surfaces
+    assert_eq!(
+        app.surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-            .detail,
+            .view,
+        crate::shell::surfaces::TraceView::Rounds,
         "drill-in closed"
     );
     assert_eq!(
@@ -220,73 +221,36 @@ fn pop_sublayer_steps_back_one_level_at_a_time() {
 
 #[test]
 fn pop_sublayer_pops_trace_turn_page_before_round_detail() {
-    // Session Trace has three levels (round list -> round detail -> attempt inspector):
-    // Esc walks back one level at a time, attempt inspector first.
+    // Session Trace has orthogonal layers (`Rounds` -> `Turns` -> `AttemptInfo`):
+    // Esc walks back one layer at a time, attempt inspector first.
+    use crate::shell::surfaces::{SessionTraceDialog, TraceAttemptKey, TraceView};
+
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::SessionTrace);
-    app.surfaces
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-        .detail = true;
-    app.surfaces
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-        .turn = Some((2, 1));
-    app.surfaces
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-        .turn_cursor = 1;
-    app.surfaces
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-        .scroll = 4;
+    {
+        let dlg = app.surfaces.surfaces.dlg_mut::<SessionTraceDialog>();
+        dlg.view = TraceView::AttemptInfo(TraceAttemptKey {
+            round: 2,
+            actor_id: "root".to_string(),
+            turn: 1,
+            attempt: 1,
+        });
+        dlg.turn_cursor = 1;
+        dlg.info_scroll = 4;
+    }
     assert!(app.pop_sublayer());
-    assert!(
-        app.surfaces
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-            .turn
-            .is_none(),
-        "attempt inspector closed first"
-    );
-    assert!(
-        app.surfaces
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-            .detail,
-        "round detail stays open"
-    );
-    assert_eq!(
-        app.surfaces
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-            .scroll,
-        0
-    );
-    assert_eq!(
-        app.surfaces
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-            .turn_cursor,
-        1,
-        "cursor retained"
-    );
+    {
+        let dlg = app.surfaces.surfaces.dlg::<SessionTraceDialog>();
+        assert_eq!(dlg.view, TraceView::Turns, "attempt inspector closed first");
+        assert_eq!(dlg.info_scroll, 0);
+        assert_eq!(dlg.turn_cursor, 1, "cursor retained");
+    }
     assert!(app.pop_sublayer());
-    assert!(
-        !app.surfaces
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-            .detail,
-        "round detail closed next"
-    );
-    assert_eq!(
-        app.surfaces
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-            .turn_cursor,
-        0,
-        "cursor reset"
-    );
+    {
+        let dlg = app.surfaces.surfaces.dlg::<SessionTraceDialog>();
+        assert_eq!(dlg.view, TraceView::Rounds, "turns list closed next");
+        assert_eq!(dlg.turn_cursor, 0, "cursor reset");
+    }
     assert_eq!(
         app.active_dialog(),
         Some(crate::shell::surfaces::DialogKind::SessionTrace),

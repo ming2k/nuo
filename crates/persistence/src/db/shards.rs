@@ -30,176 +30,6 @@ use crate::workspace_effects::{NewOwnedEffect, WorkspaceEffect};
 /// threads to `O(1)`.
 pub const DEFAULT_SHARD_COUNT: usize = 16;
 
-const CONTENT_SHARD_SCHEMA_VERSION: u32 = 1;
-
-const CONTENT_SHARD_SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS thread_branches (
-    thread_id                  TEXT NOT NULL,
-    branch_id                  TEXT NOT NULL,
-    name                       TEXT NOT NULL,
-    head_fact_id               TEXT,
-    forked_from_fact_id        TEXT,
-    compaction_horizon_fact_id TEXT,
-    policy_json                TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(policy_json)),
-    created_at_ms              INTEGER NOT NULL CHECK (created_at_ms >= 0),
-    updated_at_ms              INTEGER NOT NULL CHECK (updated_at_ms >= 0),
-    PRIMARY KEY (thread_id, branch_id)
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_thread_branches_thread ON thread_branches(thread_id);
-
-CREATE TABLE IF NOT EXISTS causal_nodes (
-    id           TEXT NOT NULL,
-    thread_id    TEXT NOT NULL,
-    parent_id    TEXT,
-    seq          INTEGER NOT NULL CHECK (seq > 0),
-    kind         TEXT NOT NULL CHECK (kind IN ('dialogue','compaction','termination','system_notice','observation')),
-    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
-    timestamp_ms INTEGER NOT NULL CHECK (timestamp_ms >= 0),
-    context_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(context_json)),
-    PRIMARY KEY (thread_id, id),
-    UNIQUE (thread_id, seq)
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_causal_nodes_thread_seq ON causal_nodes(thread_id, seq ASC);
-CREATE INDEX IF NOT EXISTS idx_causal_nodes_parent ON causal_nodes(thread_id, parent_id);
-
-CREATE TRIGGER IF NOT EXISTS trg_causal_nodes_immutable
-BEFORE UPDATE ON causal_nodes
-WHEN NEW.id <> OLD.id
-  OR NEW.thread_id <> OLD.thread_id
-  OR NEW.parent_id IS NOT OLD.parent_id
-  OR NEW.seq <> OLD.seq
-  OR NEW.kind <> OLD.kind
-  OR NEW.payload_json <> OLD.payload_json
-  OR NEW.timestamp_ms <> OLD.timestamp_ms
-  OR NEW.context_json <> OLD.context_json
-BEGIN
-    SELECT RAISE(ABORT, 'thread facts are immutable');
-END;
-
-CREATE TABLE IF NOT EXISTS thread_blob_refs (
-    thread_id TEXT NOT NULL,
-    fact_id   TEXT NOT NULL,
-    hash      TEXT NOT NULL,
-    size      INTEGER NOT NULL CHECK (size >= 0),
-    mime      TEXT NOT NULL,
-    preview   TEXT,
-    trust     TEXT NOT NULL DEFAULT 'trusted'
-              CHECK (trust IN ('trusted','untrusted')),
-    PRIMARY KEY (thread_id, fact_id)
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_thread_blob_refs_hash ON thread_blob_refs(hash);
-
-CREATE TABLE IF NOT EXISTS command_acts (
-    thread_id    TEXT NOT NULL,
-    seq          INTEGER NOT NULL CHECK (seq >= 0),
-    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
-    PRIMARY KEY (thread_id, seq)
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_command_acts_thread ON command_acts(thread_id, seq ASC);
-
-CREATE TABLE IF NOT EXISTS workspace_effects (
-    id                  INTEGER PRIMARY KEY,
-    thread_id           TEXT NOT NULL,
-    round_id            TEXT NOT NULL,
-    turn_id             TEXT NOT NULL,
-    call_id             TEXT NOT NULL,
-    seq                 INTEGER NOT NULL,
-    tool_name           TEXT NOT NULL,
-    path                TEXT,
-    op                  TEXT NOT NULL CHECK (op IN ('create','edit','delete')),
-    effect_class        TEXT NOT NULL
-                        CHECK (effect_class IN ('none','file_bytes','external_effect','process_effect','opaque')),
-    before_hash         TEXT,
-    after_hash          TEXT,
-    irreversible_reason TEXT,
-    completed_at_ms     INTEGER,
-    reversed_at_ms      INTEGER,
-    reversal_note       TEXT,
-    expired_at_ms       INTEGER,
-    created_at_ms       INTEGER NOT NULL
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_workspace_effects_thread_seq ON workspace_effects(thread_id, seq);
-CREATE INDEX IF NOT EXISTS idx_workspace_effects_path ON workspace_effects(thread_id, path);
-CREATE INDEX IF NOT EXISTS idx_workspace_effects_undoable
-    ON workspace_effects(thread_id, id DESC)
-    WHERE effect_class = 'file_bytes' AND reversed_at_ms IS NULL;
-
-CREATE TRIGGER IF NOT EXISTS trg_workspace_effects_no_delete
-BEFORE DELETE ON workspace_effects
-BEGIN
-    SELECT RAISE(ABORT, 'workspace journal rows are append-only; prune by retention policy, not delete (INV-EFFECT-01)');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_workspace_effects_immutable
-BEFORE UPDATE ON workspace_effects
-WHEN NEW.id <> OLD.id
-  OR NEW.thread_id <> OLD.thread_id
-  OR NEW.round_id <> OLD.round_id
-  OR NEW.turn_id <> OLD.turn_id
-  OR NEW.call_id <> OLD.call_id
-  OR NEW.seq <> OLD.seq
-  OR NEW.tool_name <> OLD.tool_name
-  OR NEW.path IS NOT OLD.path
-  OR NEW.op <> OLD.op
-  OR NEW.effect_class <> OLD.effect_class
-  OR NEW.before_hash IS NOT OLD.before_hash
-  OR NEW.irreversible_reason IS NOT OLD.irreversible_reason
-  OR NEW.created_at_ms <> OLD.created_at_ms
-BEGIN
-    SELECT RAISE(ABORT, 'workspace journal observations are write-once (INV-EFFECT-01)');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_workspace_effects_after_hash_monotonic
-BEFORE UPDATE OF after_hash ON workspace_effects
-WHEN OLD.after_hash IS NOT NULL
-  AND NEW.after_hash IS NOT OLD.after_hash
-BEGIN
-    SELECT RAISE(ABORT, 'workspace journal post-image is write-once (INV-EFFECT-03)');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_workspace_effects_completion_monotonic
-BEFORE UPDATE OF completed_at_ms ON workspace_effects
-WHEN OLD.completed_at_ms IS NOT NULL
-  AND NEW.completed_at_ms IS NOT OLD.completed_at_ms
-BEGIN
-    SELECT RAISE(ABORT, 'workspace journal completion is write-once (INV-EFFECT-03)');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_workspace_effects_reversal_monotonic
-BEFORE UPDATE OF reversed_at_ms ON workspace_effects
-WHEN OLD.reversed_at_ms IS NOT NULL
-  AND NEW.reversed_at_ms IS NOT OLD.reversed_at_ms
-BEGIN
-    SELECT RAISE(ABORT, 'workspace journal reversal is write-once (INV-EFFECT-02)');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_workspace_effects_expiry_monotonic
-BEFORE UPDATE OF expired_at_ms ON workspace_effects
-WHEN OLD.expired_at_ms IS NOT NULL
-  AND NEW.expired_at_ms IS NOT OLD.expired_at_ms
-BEGIN
-    SELECT RAISE(ABORT, 'workspace journal expiry is write-once (INV-EFFECT-05)');
-END;
-
-CREATE VIRTUAL TABLE IF NOT EXISTS fts_thread_facts USING fts5(
-    fact_id UNINDEXED,
-    thread_id UNINDEXED,
-    role UNINDEXED,
-    content
-);
-
-CREATE TABLE IF NOT EXISTS projection_watermarks (
-    thread_id     TEXT PRIMARY KEY,
-    seq           INTEGER NOT NULL CHECK (seq >= 0),
-    updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
-) STRICT;
-"#;
-
 /// Deterministic fixed-K shard assignment (`crc32c(thread_id) % K`).
 pub(crate) fn shard_index(thread_id: &str, shard_count: usize) -> usize {
     (crc32c::crc32c(thread_id.as_bytes()) as usize) % shard_count.max(1)
@@ -219,17 +49,7 @@ pub(crate) fn shard_path(shards_dir: &Path, index: usize) -> PathBuf {
 }
 
 fn open_shard_writer_conn(path: &Path) -> Result<Connection> {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let conn = Connection::open(path)?;
-    conn.busy_timeout(Duration::from_secs(5))?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "NORMAL")?;
-    conn.pragma_update(None, "temp_store", "MEMORY")?;
-    conn.execute_batch(CONTENT_SHARD_SCHEMA)?;
-    conn.pragma_update(None, "user_version", CONTENT_SHARD_SCHEMA_VERSION)?;
-    Ok(conn)
+    crate::db::migrations::initialize_content_shard_db(path)
 }
 
 fn open_shard_reader_conn(path: &Path) -> Result<Option<Connection>> {
@@ -239,6 +59,9 @@ fn open_shard_reader_conn(path: &Path) -> Result<Option<Connection>> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = Connection::open_with_flags(path, flags)?;
     conn.busy_timeout(Duration::from_secs(5))?;
+    if !crate::db::migrations::is_current_content_shard(&conn)? {
+        return Ok(None);
+    }
     Ok(Some(conn))
 }
 
@@ -246,6 +69,7 @@ enum ShardCommand {
     SaveContent {
         thread_id: String,
         thread: Option<Box<protocol::Thread>>,
+        extra_blob_refs: Vec<crate::db::content_projection::ExtraBlobRef>,
         replace: bool,
         commands: Option<Vec<protocol::CommandRecord>>,
         journal_seq: Option<u64>,
@@ -276,12 +100,14 @@ enum ShardCommand {
         ack: oneshot::Sender<Result<i64, PersistenceError>>,
     },
     CompleteWorkspaceEffect {
+        thread_id: String,
         effect_id: i64,
         after_hash: Option<String>,
         completed_at_ms: u64,
         ack: oneshot::Sender<Result<bool, PersistenceError>>,
     },
     MarkWorkspaceEffectReversed {
+        thread_id: String,
         effect_id: i64,
         reversed_at_ms: u64,
         note: Option<String>,
@@ -306,12 +132,20 @@ struct ShardWriter {
 
 impl ShardWriter {
     fn spawn(index: usize, path: PathBuf) -> Result<Self, PersistenceError> {
-        let conn = open_shard_writer_conn(&path)?;
+        let mut conn = open_shard_writer_conn(&path)?;
         let (tx, mut rx) = mpsc::channel::<ShardCommand>(256);
         std::thread::Builder::new()
             .name(format!("nuo-content-shard-{index:02}"))
             .spawn(move || {
                 while let Some(cmd) = rx.blocking_recv() {
+                    // If the disposable shard file was removed on disk while the
+                    // writer thread held an unlinked FD (Unix), reopen a fresh
+                    // verified shard before applying the next command (ADR-0255).
+                    if !path.exists()
+                        && let Ok(reopened) = open_shard_writer_conn(&path)
+                    {
+                        conn = reopened;
+                    }
                     execute_shard_command(&conn, cmd);
                 }
             })
@@ -325,6 +159,7 @@ fn execute_shard_command(conn: &Connection, cmd: ShardCommand) {
         ShardCommand::SaveContent {
             thread_id,
             thread,
+            extra_blob_refs,
             replace,
             commands,
             journal_seq,
@@ -336,10 +171,16 @@ fn execute_shard_command(conn: &Connection, cmd: ShardCommand) {
                     if let Some(thread) = thread.as_ref()
                         && (replace
                             || !thread.graph.is_empty()
-                            || !thread.state.branches.is_empty())
+                            || !thread.state.branches.is_empty()
+                            || !extra_blob_refs.is_empty())
                     {
-                        crate::db::thread_store::persist_content_facts(conn, thread, replace)
-                            .map_err(|e| PersistenceError::Encode(e.to_string()))?;
+                        crate::db::content_projection::persist_content_facts(
+                            conn,
+                            thread,
+                            replace,
+                            &extra_blob_refs,
+                        )
+                        .map_err(PersistenceError::Encode)?;
                     }
                     if let Some(commands) = commands.as_ref() {
                         crate::db::thread_session::sync_command_acts(conn, &thread_id, commands)?;
@@ -456,13 +297,15 @@ fn execute_shard_command(conn: &Connection, cmd: ShardCommand) {
             let _ = ack.send(res);
         }
         ShardCommand::CompleteWorkspaceEffect {
+            thread_id,
             effect_id,
             after_hash,
             completed_at_ms,
             ack,
         } => {
-            let res = crate::workspace_effects::complete_effect(
+            let res = crate::workspace_effects::complete_effect_for_thread(
                 conn,
+                &thread_id,
                 effect_id,
                 after_hash.as_deref(),
                 completed_at_ms,
@@ -470,13 +313,15 @@ fn execute_shard_command(conn: &Connection, cmd: ShardCommand) {
             let _ = ack.send(res);
         }
         ShardCommand::MarkWorkspaceEffectReversed {
+            thread_id,
             effect_id,
             reversed_at_ms,
             note,
             ack,
         } => {
-            let res = crate::workspace_effects::mark_reversed(
+            let res = crate::workspace_effects::mark_reversed_for_thread(
                 conn,
+                &thread_id,
                 effect_id,
                 reversed_at_ms,
                 note.as_deref(),
@@ -600,6 +445,7 @@ impl ContentShardPool {
         &self,
         thread_id: String,
         thread: Option<protocol::Thread>,
+        extra_blob_refs: Vec<crate::db::content_projection::ExtraBlobRef>,
         replace: bool,
         commands: Option<Vec<protocol::CommandRecord>>,
         journal_seq: Option<u64>,
@@ -609,6 +455,7 @@ impl ContentShardPool {
         tx.send(ShardCommand::SaveContent {
             thread_id,
             thread: thread.map(Box::new),
+            extra_blob_refs,
             replace,
             commands,
             journal_seq,
@@ -623,6 +470,7 @@ impl ContentShardPool {
         &self,
         thread_id: String,
         thread: Option<protocol::Thread>,
+        extra_blob_refs: Vec<crate::db::content_projection::ExtraBlobRef>,
         replace: bool,
         commands: Option<Vec<protocol::CommandRecord>>,
         journal_seq: Option<u64>,
@@ -630,6 +478,7 @@ impl ContentShardPool {
         futures::executor::block_on(self.save_content(
             thread_id,
             thread,
+            extra_blob_refs,
             replace,
             commands,
             journal_seq,
@@ -723,6 +572,7 @@ impl ContentShardPool {
         let tx = self.writer_for(thread_id)?;
         let (ack_tx, ack_rx) = oneshot::channel();
         tx.send(ShardCommand::CompleteWorkspaceEffect {
+            thread_id: thread_id.to_string(),
             effect_id,
             after_hash,
             completed_at_ms,
@@ -743,6 +593,7 @@ impl ContentShardPool {
         let tx = self.writer_for(thread_id)?;
         let (ack_tx, ack_rx) = oneshot::channel();
         tx.send(ShardCommand::MarkWorkspaceEffectReversed {
+            thread_id: thread_id.to_string(),
             effect_id,
             reversed_at_ms,
             note,
@@ -827,21 +678,39 @@ impl ContentShardPool {
         futures::executor::block_on(self.expire_preimages(older_than_ms, now_ms))
     }
 
+    /// True if at least one content shard file currently exists on disk.
+    pub(crate) fn has_any_shard(&self) -> bool {
+        (0..self.shard_count).any(|idx| shard_path(&self.shards_dir, idx).exists())
+    }
+
     /// Union of live blob hashes across every existing content shard.
+    ///
+    /// **Fail-closed (ADR-0255)**: if a shard file exists on disk but fails
+    /// ledger/schema verification, returns `Err` rather than silently omitting
+    /// its blob references (an incomplete live set would let CAS GC delete
+    /// authoritative blobs still referenced by journals).
     pub(crate) fn live_blob_hashes(&self) -> Result<HashSet<String>> {
         let mut live = HashSet::new();
         for idx in 0..self.shard_count {
-            let Some(conn) = open_shard_reader_conn(&shard_path(&self.shards_dir, idx))? else {
+            let path = shard_path(&self.shards_dir, idx);
+            if !path.exists() {
                 continue;
+            }
+            let Some(conn) = open_shard_reader_conn(&path)? else {
+                return Err(rusqlite::Error::InvalidParameterName(format!(
+                    "content shard {} failed schema verification; refusing incomplete blob live set",
+                    path.display()
+                )));
             };
             live.extend(crate::db::garbage_collection::live_blob_hashes(&conn)?);
         }
         Ok(live)
     }
 
-    /// Global FTS5 fan-out across all existing content shards, joined with
-    /// catalog metadata (`workspace_root`, `title`) and merged by BM25 score
-    /// (ADR-0242 `[INV-INDEX-04]`).
+    /// Global FTS5 fan-out across all existing content shards, joining catalog
+    /// metadata (`workspace_root`, `title`) **only for matched thread ids**
+    /// (O(hits), never loading the entire catalog table into memory) and
+    /// merging by BM25 score (ADR-0242 `[INV-INDEX-04]`, ADR-0255).
     pub(crate) fn search_history_fanout(
         &self,
         catalog_conn: &Connection,
@@ -855,45 +724,10 @@ impl ContentShardPool {
             return Ok(Vec::new());
         }
 
-        // Preload eligible catalog threads (id -> (workspace_root, title)).
-        let mut meta: std::collections::HashMap<String, (Option<String>, Option<String>)> =
-            std::collections::HashMap::new();
-        if let Some(path) = workspace {
-            let mut stmt = catalog_conn.prepare_cached(
-                "SELECT id, workspace_root, title FROM thread_list_view WHERE workspace_root = ?1",
-            )?;
-            let rows = stmt.query_map(params![path.to_string_lossy()], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })?;
-            for row in rows {
-                let (id, ws, title) = row?;
-                meta.insert(id, (ws, title));
-            }
-        } else {
-            let mut stmt = catalog_conn
-                .prepare_cached("SELECT id, workspace_root, title FROM thread_list_view")?;
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })?;
-            for row in rows {
-                let (id, ws, title) = row?;
-                meta.insert(id, (ws, title));
-            }
-        }
-        if meta.is_empty() {
-            return Ok(Vec::new());
-        }
-
         let per_shard_limit = (limit.saturating_mul(4)).max(32) as i64;
-        let mut results = Vec::new();
+        let mut raw_hits: Vec<(String, String, String, String, f64)> = Vec::new();
+        let mut matched_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
         for idx in 0..self.shard_count {
             let Some(conn) = open_shard_reader_conn(&shard_path(&self.shards_dir, idx))? else {
                 continue;
@@ -916,18 +750,50 @@ impl ContentShardPool {
                 ))
             })?;
             for row in rows {
-                let (entry_id, session_id, role, snippet, score) = row?;
-                if let Some((workspace_root, session_title)) = meta.get(&session_id) {
-                    results.push(HistorySearchResult {
-                        entry_id,
-                        session_id,
-                        workspace_root: workspace_root.clone(),
-                        session_title: session_title.clone(),
-                        role,
-                        snippet,
-                        score,
-                    });
-                }
+                let hit = row?;
+                matched_ids.insert(hit.1.clone());
+                raw_hits.push(hit);
+            }
+        }
+
+        if raw_hits.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Targeted O(matched_ids) catalog lookup rather than scanning the
+        // entire `thread_list_view` table on every search query.
+        let mut meta: std::collections::HashMap<String, (Option<String>, Option<String>)> =
+            std::collections::HashMap::with_capacity(matched_ids.len());
+        let workspace_filter = workspace.map(|p| p.to_string_lossy().into_owned());
+        let mut stmt = catalog_conn
+            .prepare_cached("SELECT workspace_root, title FROM thread_list_view WHERE id = ?1")?;
+        for id in matched_ids {
+            let row: Option<(Option<String>, Option<String>)> = stmt
+                .query_row(params![id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .optional()?;
+            let Some((ws, title)) = row else {
+                continue;
+            };
+            if let Some(expected_ws) = workspace_filter.as_deref()
+                && ws.as_deref() != Some(expected_ws)
+            {
+                continue;
+            }
+            meta.insert(id, (ws, title));
+        }
+
+        let mut results = Vec::new();
+        for (entry_id, session_id, role, snippet, score) in raw_hits {
+            if let Some((workspace_root, session_title)) = meta.get(&session_id) {
+                results.push(HistorySearchResult {
+                    entry_id,
+                    session_id,
+                    workspace_root: workspace_root.clone(),
+                    session_title: session_title.clone(),
+                    role,
+                    snippet,
+                    score,
+                });
             }
         }
 
@@ -942,3 +808,6 @@ impl ContentShardPool {
         Ok(results)
     }
 }
+
+#[cfg(test)]
+mod tests;

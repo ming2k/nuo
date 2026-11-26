@@ -3,18 +3,17 @@
 //! information. This is the entry point the app drives each frame
 //! ([`draw_transcript`] / [`TranscriptProps`]); it also re-exports the drawing
 //! surface (chrome, composer, overlays, theme, …) the shell consumes.
-pub use crate::shell::chrome::{ActivityStripProps, draw_activity_strip};
-pub use crate::shell::chrome::{
-    ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps, draw_completion_menu,
-    draw_model_bar,
-};
+pub use crate::shell::chrome::draw_completion_menu;
 pub use crate::shell::composer::{
     ComposerDrawOptions, INPUT_MSG_IDX, draw_composer, draw_composer_highlighted,
     draw_composer_with_options,
 };
+pub use view::chrome::{
+    ActivityStripProps, ModelBarKeys, ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps,
+    draw_activity_strip, draw_model_bar,
+};
 // Design tokens are re-exported crate-visibility so the drawing leaves that
 // used to reach them via the old `paint` parent's namespace still resolve.
-use crate::shell::disclosure::draw_sticky_anchor_if_needed;
 pub(crate) use crate::shell::overlays::draw_dialog_keys;
 pub use crate::shell::overlays::{
     ContextUsageProps, CustomEditorProps, DiffSceneProps, LogSceneProps, QueueModalProps,
@@ -25,35 +24,27 @@ pub use crate::shell::overlays::{
     draw_question_modal, draw_session_preview, draw_sessions_modal, draw_web_value_editor,
     telemetry_attempt_key, telemetry_round_count,
 };
-use crate::shell::view_header;
-#[cfg(test)]
-pub(crate) use crate::shell::view_header::ViewKind;
-pub(crate) use crate::shell::view_header::{
-    SceneNavRects, TabBarNavRects, TabBarProps, TabStatus, ThreadContext, ViewHints,
-    draw_scene_bar, draw_tab_bar, draw_thread_context_bar,
-};
-pub use crate::shell::views::settings::{
-    ConfigCategory, ConfigFocus, SettingsProps, draw_settings_view,
-};
 #[cfg(test)]
 use graticule::{prohibited_line_end, prohibited_line_start};
 pub(crate) use ui_primitives::design::{
     ACTIVITY_STRIP_ROWS, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
     FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS,
-    PAGE_HEADER_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS,
-    STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS,
-    TOOL_STEP_CHILDREN_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
+    PAGE_HEADER_ROWS, TRANSCRIPT_H_INSET,
 };
 pub use ui_primitives::primitives::recess_backdrop;
 use ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
 pub use ui_primitives::theme::Theme;
+pub use view::disclosure::StickyInfo;
+use view::disclosure::draw_sticky_anchor_if_needed;
 /// Parse a raw logo file into clamped display lines for the empty-state hero.
 /// Re-exported so the startup loader and the renderer share one clamp rule.
 pub use view::empty_state::parse_logo;
 /// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057 → ADR-0104).
 /// Re-exported so the app shell selects the variant and the renderer paints it.
-pub use view::empty_state::{EmptyStateGuidance, resuming_thread_status, thread_phase_status};
+pub use view::empty_state::{
+    EmptyStateGuidance, resuming_thread_status, server_phase_status, thread_phase_status,
+};
 /// Which peer plane owns the keyboard (ADR-0145). Re-exported so the shell
 /// projects its own `Focus` onto the renderer's paint-time enum at the props
 /// boundary instead of the presentation crate depending on the shell's
@@ -67,7 +58,14 @@ pub(crate) use view::layout;
 use view::text_layout::WrappedLine;
 #[cfg(test)]
 use view::text_layout::{block_selection_range, line_selection};
-use view::tools::DiffCache;
+use view::view_header;
+#[cfg(test)]
+pub(crate) use view::view_header::ViewKind;
+pub(crate) use view::view_header::{
+    SceneNavRects, TabBarItem, TabBarNavRects, TabBarProps, TabStatus, ThreadContext, ViewHints,
+    draw_scene_bar, draw_tab_bar,
+};
+pub use view::views::settings::{ConfigCategory, ConfigFocus, SettingsProps, draw_settings_view};
 // Modules referenced by their bare name within this file.
 use crate::shell::composer_grid::TextGrid;
 use view::empty_state;
@@ -221,8 +219,10 @@ pub struct TranscriptProps<'a> {
     pub tab_bar: Option<TabBarProps<'a>>,
     /// Authentic thread persistent id for disambiguation on Tier 2 SceneBar.
     pub thread_id: Option<&'a str>,
-    /// Sovereign thread execution governance context (ADR-0062 [INV-HEAD-05]).
-    /// Tier 3 of the head band, strictly rendered on thread-backed viewports.
+    /// Thread execution governance context (ADR-0261 `[INV-HEAD-09]`).
+    /// Projected onto Tier 2 `SceneBar` on thread viewports (role, safety
+    /// posture, and right-anchored workspace) and used by the transcript stream
+    /// to resolve workspace-relative paths.
     pub thread_context: Option<ThreadContext<'a>>,
     /// Wall-clock instant the current round started, or `None` between rounds.
     /// Drives the muted `<elapsed>` segment in the activity bar.
@@ -363,6 +363,8 @@ pub struct TranscriptRender {
     pub tab_add_rect: Option<Rect>,
     /// Whether a TabBar hover title reveal is mid-pass (ADR-0152).
     pub tab_reveal_active: bool,
+    /// Whether any visible TabBar pill painted a live `Running` text shimmer.
+    pub tab_shimmer_active: bool,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
     /// Bounding rect for left overflow indicator (`‹N`), if present.
@@ -381,122 +383,14 @@ pub struct TranscriptRender {
     pub scene_nav_rects: SceneNavRects,
 }
 
-/// A sticky pinned step summary (returned to the app for click handling).
-pub struct StickyInfo {
-    pub message_idx: usize,
-    pub rect: Rect,
-    /// The content-line index of the real summary inside the stream. The app
-    /// uses this to re-anchor the scroll offset when the user collapses the
-    /// pinned step, so the real summary takes the sticky's place at the top of
-    /// the viewport instead of jumping to unrelated content.
-    pub summary_line: usize,
-}
-
-// The argument list mirrors the `StepDrawFn` contract the layout `Stream` calls
-// it through; the fields are the substrate's step-render context, not a design
-// smell to fold.
-#[allow(clippy::too_many_arguments)]
-fn draw_step_dispatch(
-    frame: &mut Frame<'_>,
-    band: Rect,
-    msg: &TranscriptMessage,
-    mi: usize,
-    layout_map: &mut LayoutMap,
-    skip_rows: &mut usize,
-    current_y: &mut u16,
-    content_lines: &mut usize,
-    wrap: &mut BlockWrapCache,
-    theme: &Theme,
-    selection: &SelectionState,
-    cell_selection: Option<&CellDragInfo>,
-    sticky_anchors: &mut Vec<layout::StickyAnchor>,
-    hovered: bool,
-    focused_entry: Option<InteractiveTarget>,
-    workspace_root: Option<&std::path::Path>,
-    diff_cache: &mut DiffCache,
-) {
-    let mut ctx = crate::shell::disclosure::renderers::RenderCtx::from_cursor(
-        frame,
-        band,
-        band.width as usize,
-        theme,
-        layout_map,
-        skip_rows,
-        current_y,
-        content_lines,
-        wrap,
-    )
-    .with_workspace_root(workspace_root);
-
-    let focused_tool = focused_entry == Some(InteractiveTarget::tool_step(mi));
-    let focused_reasoning = focused_entry == Some(InteractiveTarget::reasoning(mi));
-    let focused_command = focused_entry == Some(InteractiveTarget::command_result(mi));
-    let focused_compacted = focused_entry == Some(InteractiveTarget::compacted_card(mi));
-
-    if msg.is_subagent_task() {
-        crate::shell::disclosure::draw_subagent_inline_step(
-            &mut ctx,
-            msg,
-            mi,
-            hovered,
-            focused_tool,
-        );
-    } else if msg.is_tool_step() {
-        crate::shell::disclosure::draw_tool_step(
-            &mut ctx,
-            msg,
-            mi,
-            selection,
-            cell_selection,
-            diff_cache,
-            sticky_anchors,
-            hovered,
-            focused_tool,
-        );
-    } else if msg.is_reasoning() {
-        crate::shell::disclosure::draw_reasoning_trace(
-            &mut ctx,
-            msg,
-            mi,
-            selection,
-            cell_selection,
-            sticky_anchors,
-            hovered,
-            focused_reasoning,
-        );
-    } else if msg.is_command_result() {
-        crate::shell::disclosure::draw_command_result(
-            &mut ctx,
-            msg,
-            mi,
-            selection,
-            cell_selection,
-            hovered,
-            focused_command,
-        );
-    } else if msg.is_compacted_card() {
-        crate::shell::disclosure::draw_compacted_card(
-            &mut ctx,
-            msg,
-            mi,
-            selection,
-            cell_selection,
-            hovered,
-            focused_compacted,
-        );
-    }
-}
-
-/// The vertical slice occupied by the three-tier head band (ADR-0062) and the
-/// transcript viewport left beneath it.
+/// The vertical slice occupied by the uniform two-tier head band (ADR-0261)
+/// and the transcript viewport left beneath it.
 #[derive(Clone, Copy)]
 struct HeadBandRects {
     /// Tier 1: client-global tab bar.
     tab: Option<Rect>,
-    /// Tier 2: polymorphic scene bar.
+    /// Tier 2: polymorphic scene bar (includes thread governance + workspace on Thread).
     scene: Option<Rect>,
-    /// Tier 3: sovereign thread-context bar.
-    context: Option<Rect>,
     /// Remaining viewport after the head band.
     viewport: Rect,
 }
@@ -574,11 +468,10 @@ struct ActivityStripRow<'a, 'p> {
     round_started_at: Option<std::time::Instant>,
 }
 
-/// Carve the top rows of the terminal into the polymorphic three-tier head
-/// band (ADR-0062):
+/// Carve the top rows of the terminal into the uniform two-tier head band
+/// (ADR-0261 `[INV-HEAD-09]`):
 /// - row 1 is the Client Global TabBar (`draw_tab_bar`)
 /// - row 2 is the Polymorphic SceneBar (`draw_scene_bar`)
-/// - row 3 is the sovereign ThreadContextBar (`draw_thread_context_bar`, thread-only)
 ///
 /// The band is a sibling of the transcript, not content inside it, so it
 /// replaces the viewport's top margin rather than nesting under it.
@@ -586,17 +479,12 @@ fn compute_head_band(
     frame: &Frame<'_>,
     tab_bar: Option<&TabBarProps<'_>>,
     page_hints: Option<&ViewHints<'_>>,
-    thread_context: Option<&ThreadContext<'_>>,
 ) -> HeadBandRects {
     let tab_rows = u16::from(tab_bar.is_some());
     let scene_rows = u16::from(page_hints.is_some());
-    let context_rows = u16::from(
-        thread_context.is_some()
-            && page_hints.is_some_and(|h| h.kind == crate::shell::surfaces::SceneKind::Thread),
-    );
-    if tab_rows + scene_rows + context_rows > 0 {
+    if tab_rows + scene_rows > 0 {
         debug_assert!(
-            tab_rows + scene_rows + context_rows <= PAGE_HEADER_ROWS,
+            tab_rows + scene_rows <= PAGE_HEADER_ROWS,
             "the head band is at most {PAGE_HEADER_ROWS} rows"
         );
         let full = frame.area();
@@ -605,34 +493,31 @@ fn compute_head_band(
             .constraints([
                 Constraint::Length(tab_rows),
                 Constraint::Length(scene_rows),
-                Constraint::Length(context_rows),
                 Constraint::Min(0),
             ])
             .split(full);
         HeadBandRects {
             tab: (tab_rows > 0).then_some(sub[0]),
             scene: (scene_rows > 0).then_some(sub[1]),
-            context: (context_rows > 0).then_some(sub[2]),
             // The remaining area keeps the bottom viewport margin (0) but
             // drops the top one (the head owns those rows now).
             viewport: Rect::new(
-                sub[3].x,
-                sub[3].y,
-                sub[3].width,
-                sub[3].height.saturating_sub(VIEWPORT_BOTTOM_MARGIN),
+                sub[2].x,
+                sub[2].y,
+                sub[2].width,
+                sub[2].height.saturating_sub(VIEWPORT_BOTTOM_MARGIN),
             ),
         }
     } else {
         HeadBandRects {
             tab: None,
             scene: None,
-            context: None,
             viewport: viewport_rect(frame),
         }
     }
 }
 
-/// Paint the head band's three tiers and return their interactive rects.
+/// Paint the head band's two tiers and return their interactive rects.
 fn draw_head_band(
     frame: &mut Frame<'_>,
     rects: &HeadBandRects,
@@ -648,13 +533,10 @@ fn draw_head_band(
         TabBarNavRects::default()
     };
     let scene = if let (Some(hints), Some(rect)) = (page_hints, rects.scene) {
-        draw_scene_bar(frame, rect, thread_id, hints, theme)
+        draw_scene_bar(frame, rect, thread_id, hints, thread_context, theme)
     } else {
         SceneNavRects::default()
     };
-    if let (Some(ctx), Some(rect)) = (thread_context, rects.context) {
-        draw_thread_context_bar(frame, rect, ctx, theme);
-    }
     HeadBandNavRects { tab, scene }
 }
 
@@ -847,7 +729,6 @@ fn draw_transcript_stream(draw: TranscriptStreamDraw<'_, '_>) -> TranscriptStrea
         skip_rows: window.skip_rows,
         content_lines: window.content_lines,
         sticky_anchors: Vec::new(),
-        step_draw: Some(draw_step_dispatch),
     };
     strategy.build().run(&mut stream);
     // Recover the loop state the post-processing below needs.
@@ -1042,6 +923,7 @@ pub fn draw_transcript(
             tab_close_rects: Vec::new(),
             tab_add_rect: None,
             tab_reveal_active: false,
+            tab_shimmer_active: false,
             tab_bar_rect: None,
             tab_prev_rect: None,
             tab_next_rect: None,
@@ -1053,12 +935,7 @@ pub fn draw_transcript(
         };
     }
 
-    let head_band = compute_head_band(
-        frame,
-        tab_bar.as_ref(),
-        page_hints.as_ref(),
-        thread_context.as_ref(),
-    );
+    let head_band = compute_head_band(frame, tab_bar.as_ref(), page_hints.as_ref());
     let size = head_band.viewport;
 
     // When zoomed into a subagent task, the footer (status bar, plan panel,
@@ -1084,8 +961,8 @@ pub fn draw_transcript(
         .split(size);
 
     // 1. Head band — drawn at the very top of the terminal, before the
-    // transcript (ADR-0062).
-    // Row 1 carries the Client TabBar; row 2 the SceneBar; row 3 the sovereign ThreadContextBar.
+    // transcript (ADR-0261).
+    // Row 1 carries the Client TabBar; row 2 the polymorphic SceneBar.
     let head_nav = draw_head_band(
         frame,
         &head_band,
@@ -1316,6 +1193,7 @@ pub fn draw_transcript(
         tab_close_rects: tab.close_rects,
         tab_add_rect: tab.add_rect,
         tab_reveal_active: tab.reveal_active,
+        tab_shimmer_active: tab.shimmer_active,
         tab_bar_rect: head_band.tab,
         tab_prev_rect: tab.prev_rect,
         tab_next_rect: tab.next_rect,

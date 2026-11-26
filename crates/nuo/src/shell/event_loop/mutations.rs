@@ -227,6 +227,8 @@ pub(crate) enum TranscriptEdit {
 }
 
 /// View-scoped chrome edit (per-session bookkeeping; /0103).
+/// View-scoped chrome edit applied directly to one [`ThreadInstance`]
+/// (ADR-0253 `[INV-INSTANCE-01]` / `[INV-INSTANCE-02]`).
 #[derive(Debug, Clone)]
 pub(crate) enum ChromeEdit {
     /// The authoritative running/idle transition (`HarnessState`).
@@ -237,15 +239,27 @@ pub(crate) enum ChromeEdit {
     },
     /// A wire activity label folded into a phase (implies responding).
     ActivityFolded(Phase),
-    /// A bare phase fact, no responding implication (stream deltas).
+    /// A bare phase fact (stream deltas, tool steps, idle clear).
     PhaseOnly(Option<Phase>),
-    /// First stream byte: responding + timer origin + phase upgrade.
+    /// First stream byte: timer origin + phase upgrade.
     StreamStarted,
     /// A new ReAct turn: structural counters + `AwaitingModel`.
     TurnStarted { round: u64, turn: u64 },
-    /// The round ended (interrupt / error): retire the live surface.
+    /// Transport setback (provider retry countdown): publishes the countdown
+    /// clause beside `Phase::AwaitingModel`; retired automatically by the next
+    /// non-`AwaitingModel` phase write on the same [`ThreadInstance`].
+    TransportSetback(ProviderRetryState),
+    /// The round completed cleanly (records an unseen `Succeeded` outcome when
+    /// the thread is not the currently viewed tab, and retains the authoritative
+    /// round summary for `/trace`'s Round Inspector, ADR-0263).
+    RoundCompleted(protocol::RoundSummary),
+    /// The round terminated with an error or crash (retires the live surface
+    /// and records an unseen `Failed` outcome when the thread is not viewed).
+    RoundFailed,
+    /// The round ended without a terminal success/failure outcome (user
+    /// interrupt, supersede, or unsent input): retire the live surface.
     RoundEnded,
-    /// The turn finished; performance snapshot for the Activity modal.
+    /// The turn finished; performance snapshot for the Activity modal & ModelBar cost.
     TurnPerformance(Box<protocol::TurnPerformanceSnapshot>),
 }
 
@@ -262,7 +276,9 @@ pub(crate) enum AppMutation {
         edit: TranscriptEdit,
     },
     ChromeEdit {
-        session_id: String,
+        /// Target thread id (ADR-0253). `Some(id)` routes to the foreground or
+        /// resident background `ThreadInstance`; `None` targets the foreground.
+        thread_id: Option<String>,
         edit: ChromeEdit,
     },
 
@@ -285,8 +301,14 @@ pub(crate) enum AppMutation {
     /// Replace the server-owned slash-command vocabulary from an authoritative
     /// hydration snapshot.
     CommandCatalog(tool::CommandCatalog),
-    HarnessUnattended(bool),
-    HarnessConfined(bool),
+    HarnessUnattended {
+        thread_id: Option<String>,
+        enabled: bool,
+    },
+    HarnessConfined {
+        thread_id: Option<String>,
+        confined: bool,
+    },
     ClearSwitchingSession,
     /// The live session moved (ADR-0123 `[INV-TAB-13]`).
     ///
@@ -303,23 +325,11 @@ pub(crate) enum AppMutation {
         previous_id: String,
         next_id: String,
     },
-    // Activity / phase / counters.
-    SetPhase(Option<Phase>),
-    SetResponding(bool),
+    /// Update a thread's persisted round counter (hydration / clear / turn).
     SetRoundCount {
         thread_id: Option<String>,
         round: u64,
     },
-    SetCurrentTurn(u64),
-    SetRoundStartedAt(Option<std::time::Instant>),
-    /// Publish the primary session's transport setback (provider retry
-    /// countdown) beside its phase.
-    ///
-    /// Not an `Option`: the clause cannot be "set to nothing" because clearing
-    /// it here is precisely how the bar went stale. It is retired by
-    /// the next [`AppMutation::SetPhase`] that is not `AwaitingModel` — the one
-    /// writer that sees every phase move.
-    SetProviderRetry(ProviderRetryState),
 
     // Human-in-the-loop queues.
     QueuePermission {
@@ -333,13 +343,15 @@ pub(crate) enum AppMutation {
     QueueInput(InputRequest),
     ClearPermissions,
 
-    // Background task mutations (TaskBar authority).
+    // Background task mutations (thread-scoped TaskBar authority).
     BackgroundTaskStarted {
+        thread_id: Option<String>,
         id: String,
         label: String,
         started_at_ms: u64,
     },
     BackgroundTaskCompleted {
+        thread_id: Option<String>,
         id: String,
         success: bool,
         exit_code: Option<i32>,
@@ -456,7 +468,9 @@ pub(crate) enum AppMutation {
         session_id: String,
         snapshot: protocol::ContextTokenSnapshot,
     },
-    ClearContextTokens,
+    ClearContextTokens {
+        thread_id: Option<String>,
+    },
     /// The server asked this client to stop: `/exit`, a killed thread, or the
     /// server's own drain. Only the *server* can end a session, so this is the
     /// one mutation that quits without a user gesture.
@@ -478,6 +492,23 @@ pub(crate) enum AppMutation {
     },
     HostSessions(Vec<protocol::MonitoredThread>),
     PersistenceHealth(Option<protocol::monitor::PersistenceHealth>),
+    /// Server-attested global lifecycle phase transition (ADR-0260 `[INV-SRVPHASE-01]`).
+    ServerPhase(protocol::ServerPhase),
+    /// Client transport connection phase update from `ConnectionSupervisor` (ADR-0260).
+    LinkPhase(crate::shell::app::state::ClientLinkPhase),
+    /// A fresh unified `ServerLink` was established in-place by `ConnectionSupervisor`
+    /// without destroying `App` (ADR-0260 `[INV-SRVPHASE-02]`, `[INV-SRVPHASE-04]`).
+    LinkEstablished {
+        server_id: String,
+        server_phase: protocol::ServerPhase,
+        persistence_health: Option<protocol::monitor::PersistenceHealth>,
+        req_tx: tokio::sync::mpsc::UnboundedSender<crate::shell::client::ClientOutbound>,
+    },
+    /// Server explicitly refused a `Wire::Subscribe` with structured error taxonomy
+    /// (`[INV-ATTACH-01]`, `[INV-ATTACH-02]`).
+    SubscribeRefused(crate::shell::client::AttachError),
+    /// Server answered an ambiguous auto-attach `Wire::Subscribe` with candidate threads.
+    PickRequired(Vec<protocol::ThreadOverview>),
     /// A dashboard console receipt: appended to
     /// `App::host_console_log` by the applier.
     HostConsole(crate::shell::overlays::ConsoleLine),

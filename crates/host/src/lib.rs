@@ -9,6 +9,9 @@
 // test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+// `host` is the workspace's OS-boundary crate (Win32 APIs, POSIX libc/flock/
+// process-group/IPC FFI). Every other shipped crate inherits `unsafe_code = "deny"`.
+#![allow(unsafe_code)]
 
 pub mod clipboard;
 pub mod diagnostics;

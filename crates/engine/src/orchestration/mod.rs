@@ -14,7 +14,6 @@
 //! All items are `pub` because they are assembled by the binary, which knows
 //! the concrete provider/tool instances and the frontend's request channel.
 pub mod round_lifecycle;
-pub mod session_title;
 
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -35,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{Agent, RequestTokenEstimate, RoundBegin, RoundLifecycle};
 use persistence::{
     CommitTurn,
-    thread::{CommitBasis, ContextProjectionCheckpoint, ContextProjectionResult, ThreadSession},
+    thread::{ContextProjectionCheckpoint, ContextProjectionResult, ThreadSession},
 };
 use protocol::{
     AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, LoopStatus, ModelRequest, Provider,
@@ -65,6 +64,7 @@ mod tests;
 pub use self::compaction::{
     compact_round_history, compact_round_history_with_mode, prune_and_commit, send_compaction,
 };
+pub(crate) use self::execute::execute_round_with_admission;
 pub use self::execute::{RoundCompletion, execute_round};
 pub use self::harness_state::{send_harness_state_for_session, send_harness_state_running};
 pub use self::interactive::{InteractiveRoundContext, start_interactive_round};

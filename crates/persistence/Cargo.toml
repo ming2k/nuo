@@ -8,7 +8,6 @@ license.workspace = true
 publish = false
 [dependencies]
 tool = { workspace = true }
-async-trait = { workspace = true }
 protocol = { workspace = true }
 host = { workspace = true }
 tokio = { workspace = true, features = ["fs", "macros", "rt", "rt-multi-thread", "sync", "time"] }

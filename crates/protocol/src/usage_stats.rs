@@ -20,17 +20,18 @@ use std::collections::BTreeMap;
 use crate::token_ledger::{RequestUsageRecord, RequestUsageSource, RequestUsageStatus};
 /// Local-timezone `YYYY-MM-DD` bucket key for a wall-clock instant.
 ///
-/// Day boundaries follow the user's local timezone (`chrono::Local`) because
-/// "daily usage" is a human concept — a day is when the user says it ended,
-/// not 00:00 UTC.
+/// Day boundaries follow the user's local timezone (`jiff::tz::TimeZone::system`)
+/// because "daily usage" is a human concept — a day is when the user says it
+/// ended, not 00:00 UTC.
 pub fn day_key_from_epoch_ms(epoch_ms: u64) -> String {
-    use chrono::TimeZone;
-    let secs = (epoch_ms / 1_000) as i64;
-    let nanos = ((epoch_ms % 1_000) * 1_000_000) as u32;
-    chrono::Local
-        .timestamp_opt(secs, nanos)
-        .single()
-        .map(|dt| dt.format("%Y-%m-%d").to_string())
+    i64::try_from(epoch_ms)
+        .ok()
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+        .map(|ts| {
+            ts.to_zoned_datetime(jiff::tz::TimeZone::system())
+                .strftime("%Y-%m-%d")
+                .to_string()
+        })
         .unwrap_or_else(|| "1970-01-01".to_string())
 }
 

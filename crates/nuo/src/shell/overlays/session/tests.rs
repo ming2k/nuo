@@ -495,4 +495,23 @@ fn sessions_modal_renders_running_indicator_for_active_threads() {
         output.contains("RUNNING"),
         "must render RUNNING indicator for active running threads: {output}"
     );
+    // `[INV-TUI-COLOR-04]` (ADR-0258): running badge uses `theme.running()`, never `theme.warning`.
+    let buf = term.buffer();
+    let mut found_running_hue = false;
+    for y in 0..buf.area().height {
+        let mut row = String::new();
+        for x in 0..buf.area().width {
+            row.push_str(buf.get_or_empty(x, y).symbol.as_str());
+        }
+        if let Some(col) = row.find("RUNNING") {
+            let cell = buf.get_or_empty(col as u16, y);
+            assert_eq!(
+                cell.style.fg,
+                theme.running(),
+                "RUNNING badge must paint in theme.running(), not warning"
+            );
+            found_running_hue = true;
+        }
+    }
+    assert!(found_running_hue, "expected RUNNING cells on rendered grid");
 }

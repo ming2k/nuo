@@ -9,7 +9,10 @@
 //! `/proc`..
 // Background-job contracts are protocol-owned zero-I/O data; the host
 // supplies the process supervision that implements them.
-pub use protocol::job::*;
+pub use protocol::job::{
+    BackgroundJobInfo, BackgroundJobOutcome, BackgroundJobService, JobId, JobKind, JobSpec,
+    JobState, Readiness, RestartPolicy,
+};
 
 use std::io;
 

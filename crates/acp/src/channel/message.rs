@@ -1,6 +1,6 @@
 use crate::address::AgentAddress;
 use crate::channel::id::ChannelId;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// A single message recorded on a channel.
@@ -18,7 +18,7 @@ pub struct ChannelMessage {
     /// Message text.
     pub body: String,
     /// Publication time.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// Optional mention targets, used by `Mention`-mode subscriptions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<AgentAddress>,
@@ -218,7 +218,7 @@ pub struct Subscription {
     /// never skips one.
     pub cursor: u64,
     /// When the subscription was created.
-    pub joined_at: DateTime<Utc>,
+    pub joined_at: Timestamp,
 }
 
 impl Subscription {
@@ -227,7 +227,7 @@ impl Subscription {
             agent,
             mode,
             cursor: 0,
-            joined_at: Utc::now(),
+            joined_at: Timestamp::now(),
         }
     }
 

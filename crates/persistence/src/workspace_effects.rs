@@ -314,17 +314,30 @@ impl WorkspaceEffectReversal {
 /// to protect against a mid-call crash: the journal records it as a receipt, not
 /// as a recovery point. [`append_completed_effect`] is the entry point for that
 /// shape.
+fn next_local_effect_id(conn: &Connection) -> Result<i64, PersistenceError> {
+    let max_id: Option<i64> = conn
+        .prepare_cached("SELECT MAX(id) FROM workspace_effects")?
+        .query_row([], |row| row.get(0))?;
+    Ok(max_id.unwrap_or(0).saturating_add(1))
+}
+
+/// Append a write-ahead observation before mutating the workspace.
+///
+/// Allocates a monotonic `id` for direct SQL helpers; the production journal
+/// path assigns deterministic ids via [`append_effect_with_id`].
 pub fn append_effect(
     conn: &Connection,
     effect: &NewWorkspaceEffect<'_>,
 ) -> Result<i64, PersistenceError> {
+    let id = next_local_effect_id(conn)?;
     conn.prepare_cached(
         "INSERT INTO workspace_effects (
-            thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
+            id, thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
             effect_class, before_hash, irreversible_reason, created_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     )?
     .execute(params![
+        id,
         effect.thread_id,
         effect.round_id,
         effect.turn_id,
@@ -338,7 +351,7 @@ pub fn append_effect(
         effect.irreversible_reason,
         effect.created_at_ms as i64,
     ])?;
-    Ok(conn.last_insert_rowid())
+    Ok(id)
 }
 
 /// Append an effect that needs no recovery point, already completed.
@@ -352,14 +365,16 @@ pub fn append_completed_effect(
     effect: &NewWorkspaceEffect<'_>,
     completed_at_ms: u64,
 ) -> Result<i64, PersistenceError> {
+    let id = next_local_effect_id(conn)?;
     conn.prepare_cached(
         "INSERT INTO workspace_effects (
-            thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
+            id, thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
             effect_class, before_hash, after_hash, irreversible_reason,
             completed_at_ms, created_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )?
     .execute(params![
+        id,
         effect.thread_id,
         effect.round_id,
         effect.turn_id,
@@ -375,7 +390,7 @@ pub fn append_completed_effect(
         completed_at_ms as i64,
         effect.created_at_ms as i64,
     ])?;
-    Ok(conn.last_insert_rowid())
+    Ok(id)
 }
 
 /// Append one write-ahead effect with an explicit journal-assigned `id` (ADR-0249).
@@ -478,16 +493,18 @@ pub fn replay_effects(
             effect.created_at_ms as i64,
         ])?;
         if let Some(completed_at_ms) = effect.completed_at_ms {
-            let _ = complete_effect(
+            let _ = complete_effect_for_thread(
                 conn,
+                &effect.thread_id,
                 effect.id,
                 effect.after_hash.as_deref(),
                 completed_at_ms,
             )?;
         }
         if let Some(reversed_at_ms) = effect.reversed_at_ms {
-            let _ = mark_reversed(
+            let _ = mark_reversed_for_thread(
                 conn,
+                &effect.thread_id,
                 effect.id,
                 reversed_at_ms,
                 effect.reversal_note.as_deref(),
@@ -496,9 +513,9 @@ pub fn replay_effects(
         if let Some(expired_at_ms) = effect.expired_at_ms {
             conn.prepare_cached(
                 "UPDATE workspace_effects SET expired_at_ms = ?1 \
-                 WHERE id = ?2 AND expired_at_ms IS NULL",
+                 WHERE thread_id = ?2 AND id = ?3 AND expired_at_ms IS NULL",
             )?
-            .execute(params![expired_at_ms as i64, effect.id])?;
+            .execute(params![expired_at_ms as i64, effect.thread_id, effect.id])?;
         }
     }
     Ok(())
@@ -523,6 +540,28 @@ pub fn complete_effect(
              WHERE id = ?3 AND completed_at_ms IS NULL",
         )?
         .execute(params![after_hash, completed_at_ms as i64, effect_id])?;
+    Ok(changed == 1)
+}
+
+/// Thread-scoped completion matching the content shard's `(thread_id, id)` primary key.
+pub fn complete_effect_for_thread(
+    conn: &Connection,
+    thread_id: &str,
+    effect_id: i64,
+    after_hash: Option<&str>,
+    completed_at_ms: u64,
+) -> Result<bool, PersistenceError> {
+    let changed = conn
+        .prepare_cached(
+            "UPDATE workspace_effects SET after_hash = ?1, completed_at_ms = ?2 \
+             WHERE thread_id = ?3 AND id = ?4 AND completed_at_ms IS NULL",
+        )?
+        .execute(params![
+            after_hash,
+            completed_at_ms as i64,
+            thread_id,
+            effect_id
+        ])?;
     Ok(changed == 1)
 }
 
@@ -673,6 +712,23 @@ pub fn mark_reversed(
              WHERE id = ?3 AND reversed_at_ms IS NULL",
         )?
         .execute(params![reversed_at_ms as i64, note, effect_id])?;
+    Ok(changed == 1)
+}
+
+/// Thread-scoped reversal stamp matching the content shard's `(thread_id, id)` primary key.
+pub fn mark_reversed_for_thread(
+    conn: &Connection,
+    thread_id: &str,
+    effect_id: i64,
+    reversed_at_ms: u64,
+    note: Option<&str>,
+) -> Result<bool, PersistenceError> {
+    let changed = conn
+        .prepare_cached(
+            "UPDATE workspace_effects SET reversed_at_ms = ?1, reversal_note = ?2 \
+             WHERE thread_id = ?3 AND id = ?4 AND reversed_at_ms IS NULL",
+        )?
+        .execute(params![reversed_at_ms as i64, note, thread_id, effect_id])?;
     Ok(changed == 1)
 }
 

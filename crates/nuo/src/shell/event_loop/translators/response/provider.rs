@@ -26,7 +26,6 @@ impl TranslatorState {
             }
             AgentResponse::PermissionsCleared => {
                 self.mutations.send(M::ClearPermissions).await;
-                self.mutations.send(M::SetPhase(None)).await;
             }
             AgentResponse::ProviderKeys(status) => {
                 self.mutations

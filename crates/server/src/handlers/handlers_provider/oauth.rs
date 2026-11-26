@@ -230,7 +230,7 @@ pub(crate) async fn run_oauth(
             return None;
         }
     };
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = jiff::Timestamp::now().as_millisecond();
     let token_set = provider::auth::build_token_set_from_login(&oauth, label, tokens, now_ms).await;
     Some(token_set)
 }

@@ -7,10 +7,6 @@ use super::*;
 /// `session` state (client-wide session coordination; per-thread fields live on
 /// [`crate::shell::app::workspaces::ThreadInstance`], ADR-0253 `[INV-INSTANCE-01]`).
 pub struct SessionState {
-    /// Per-session chrome (activity text, responding flag, round/turn
-    /// counters) for every session this client has observed, keyed by
-    /// `session_id`.
-    pub session_chrome: std::collections::HashMap<String, SessionChrome>,
     /// Thread IDs currently subscribed on this multiplexed connection
     /// (ADR-0251 `[INV-MUX-01]`).
     pub subscribed_threads: std::collections::HashSet<String>,
@@ -22,10 +18,30 @@ pub struct SessionState {
     pub current_session_id: String,
     /// Durability-health banner state (D4).
     pub persistence_health: Option<protocol::monitor::PersistenceHealth>,
+    /// Server-attested global lifecycle phase (ADR-0260 `[INV-SRVPHASE-01]`).
+    pub server_phase: protocol::ServerPhase,
+    /// Instant when `server_phase` last transitioned (used for 120ms anti-flicker hysteresis).
+    pub server_phase_since: std::time::Instant,
+    /// Instant when foreground `session_phase` last transitioned (120ms hysteresis).
+    pub thread_phase_since: std::time::Instant,
+    /// Deferred initial thread subscription queued while connecting or while the
+    /// server is still in `ServerPhase::Initializing` (ADR-0260 `[INV-SRVPHASE-02]`).
+    pub pending_initial_subscribe: Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
+    /// Launch options preserved for picker fallback (`PickRequired` / `ERR_SESSION_GONE`).
+    pub initial_init_options: protocol::ThreadInitOptions,
+    /// Caller project scope remembered across reconnects and picker fallbacks.
+    pub project_scope: Option<std::path::PathBuf>,
     /// When switching threads, holds the short id of the target thread being loaded.
     pub switching_session: Option<String>,
     /// Sessions whose last interactive round is currently running.
     pub running_sessions: std::collections::HashSet<String>,
+    /// Unseen terminal outcomes (`Succeeded` / `Failed`) recorded when a thread
+    /// finishes or fails while it is not the actively viewed tab. Single source
+    /// of truth covering both subscribed resident threads and cold/unsubscribed
+    /// tabs observed via `host_sessions`; cleared automatically when the user
+    /// views the thread or starts a new round on it.
+    pub unseen_outcomes:
+        std::collections::HashMap<String, crate::shell::app::workspaces::UnseenOutcome>,
     /// Sessions whose outbox pause is on.
     pub queue_blocked_sessions: std::collections::HashSet<String>,
     /// The latest harness workspace-security snapshot (trust-gate state).
@@ -39,7 +55,7 @@ pub struct SessionState {
     /// Full detail for the thread under the info sub-view cursor.
     pub session_detail: Option<protocol::ThreadDetail>,
     /// The effective TUI config.
-    pub tui_config: crate::shell::config::TuiConfig,
+    pub tui_config: view::tui_config::TuiConfig,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -329,13 +345,17 @@ pub struct SurfacesState {
     pub config_hover_index: Option<usize>,
     /// Scroll offset for the `/config` detail pane body.
     pub config_detail_scroll: usize,
+    /// Cached workspace + user theme files loaded on startup and refreshed
+    /// when opening `/settings`. Keeps Settings rendering and Up/Down
+    /// navigation 100% free of filesystem I/O (`[INV-ARCH-VIEW-ZERO-IO]`).
+    pub theme_files: Vec<ui_primitives::ThemeFile>,
     /// What the pointer currently rests on inside the Tier 1 TabBar (ADR-0223, ADR-0152).
     ///
     /// Kept on the app rather than derived from the pointer position at draw
     /// time because the *committed* scene is the authority for what is under the
     /// pointer: the pill that painted the close mark is the pill that answers
     /// the click on it.
-    pub tab_hover: Option<crate::shell::view_header::TabBarHover>,
+    pub tab_hover: Option<view::view_header::TabBarHover>,
     /// When the pointer arrived on [`Self::tab_hover`]'s **anchor** (a pill, the
     /// add affordance, or the rail).
     ///
@@ -350,6 +370,10 @@ pub struct SurfacesState {
     /// (ADR-0152), so an idle strip costs no repaints while a hovered overflow
     /// still finishes its single pass.
     pub tab_reveal_active: bool,
+    /// Whether the last drawn frame painted a live `Running` text shimmer on
+    /// any *visible* TabBar pill. Driven strictly by the renderer so off-screen
+    /// or hover-paused running tabs never burn 30Hz wakeups.
+    pub tab_shimmer_active: bool,
     /// Latest authoritative `[web]` selection/readiness snapshot from the harness.
     /// Refreshed when the Settings view opens (`QueryWebSearchConfig`) and
     /// on every `WebSearchConfigUpdated` ack.
@@ -682,6 +706,24 @@ pub struct TelemetryState {
     pub connection_usages: std::collections::HashMap<String, protocol::ConnectionUsageState>,
 }
 
+/// Client-side transport connection lifecycle (ADR-0260 `[INV-SRVPHASE-05]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientLinkPhase {
+    /// Discovering, spawning, dialing, or handshaking with the Nuo server.
+    Connecting { label: String },
+    /// Connected to a Nuo server (`server_id` identifies the server boot instance).
+    Connected { server_id: String },
+    /// Backing off before re-dialing after a dropped link or server restart.
+    Reconnecting {
+        endpoint: String,
+        attempt: u32,
+        max_attempts: u32,
+        delay_ms: Option<u64>,
+    },
+    /// Exhausted retry budget or fatal connection error.
+    Failed { message: String },
+}
+
 /// `link` state.
 pub struct LinkState {
     pub tx: mpsc::UnboundedSender<crate::shell::client::ClientOutbound>,
@@ -691,24 +733,25 @@ pub struct LinkState {
     /// composition / typing is in progress.
     pub last_key_press: std::time::Instant,
     /// Dead-link latch (D6): set the first time an outbox send
-    /// fails (the session driver's receiver is gone). A dead link is a
-    /// visible chrome state — the activity bar reports it — never a
-    /// swallowed send. It does not clear: with the driver gone nothing can
-    /// acknowledge recovery, and pretending otherwise would be a lie.
+    /// fails (the session driver's receiver is gone) or the reader dies.
     pub link_down: bool,
-    /// The link died and the attach loop should re-dial (ADR-0136).
-    ///
-    /// Distinct from `Self::link_down`, which is a *rendered* state that
-    /// latches. This one is a *request*: the event loop ends the current
-    /// attachment, the runner re-checks the server and attaches again, and the
-    /// transcript/tabs survive because they live on `TuiOutcome`.
-    ///
-    /// Without it, `link_down` was a dead end — the chrome said "server link
-    /// lost" and stayed that way, because the only thing that could reconnect
-    /// was an operator restarting the client by hand.
+    /// The link died and reconnection is requested (ADR-0136, ADR-0260).
     pub relink_requested: bool,
-    /// Background tasks tracking for the TasksBar.
-    pub background_tasks: Vec<BackgroundTaskItem>,
+    /// Client transport connection phase projected above `ServerPhase` and
+    /// `ThreadPhase` (ADR-0260 `[INV-SRVPHASE-05]`).
+    pub phase: ClientLinkPhase,
+    /// Instant when `phase` last transitioned (used for 120ms anti-flicker hysteresis).
+    pub phase_since: std::time::Instant,
+    /// Last observed `server_id` from `Wire::ServerHello` to detect server
+    /// restarts across reconnects (ADR-0260).
+    pub known_server_id: Option<String>,
+    /// True when an in-process `ConnectionSupervisor` owns reconnection in-place
+    /// so `App` never tears down across link drops (ADR-0260).
+    pub supervised: bool,
+    /// Cancels an in-flight connect or reconnect backoff when the user aborts.
+    pub supervisor_cancel: Option<tokio_util::sync::CancellationToken>,
+    /// Wakes the supervisor immediately when an outbox send detects a dead channel.
+    pub supervisor_reconnect_notify: Option<Arc<tokio::sync::Notify>>,
     /// One-shot backend navigation signals (M1): the applier latches
     /// them; the loop consumes and clears when it mounts the surface.
     pub open_sessions_signal: bool,

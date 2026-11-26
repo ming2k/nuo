@@ -243,7 +243,7 @@ pub(crate) async fn sync_transcripts_and_session(
     *runtime.viewed_session_id.lock().await = Some(viewed_session_id.clone());
 
     if app.threads.current_workspace.is_empty() && app.threads.current_role.is_none() {
-        app.threads.current_workspace = crate::shell::chrome::tilde_home(&app.session.cwd);
+        app.threads.current_workspace = view::chrome::tilde_home(&app.session.cwd);
     }
 
     app.telemetry.context_tokens = app

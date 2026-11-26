@@ -242,11 +242,18 @@ pub enum HeaderPart<'a> {
     /// A leading/trailing muted segment (e.g. the `Configuration › ` breadcrumb
     /// or `← ` back affordance). `accent` makes it the brand tone instead.
     Text { text: &'a str, accent: bool },
+    /// An active in-flight indicator (e.g. a refreshing spinner glyph):
+    /// `theme.running()`, bold (`[INV-TUI-COLOR-04]`, ADR-0258).
+    Running(&'a str),
 }
 
 impl<'a> HeaderPart<'a> {
     pub const fn title(text: &'a str) -> Self {
         HeaderPart::Title(text)
+    }
+
+    pub const fn running(text: &'a str) -> Self {
+        HeaderPart::Running(text)
     }
 }
 
@@ -273,6 +280,14 @@ pub fn modal_header_parts(
             HeaderPart::Text { text, accent } => {
                 let fg = if accent { theme.brand() } else { theme.muted() };
                 spans.push(Span::styled(text.to_string(), Style::default().fg(fg)));
+            }
+            HeaderPart::Running(text) => {
+                spans.push(Span::styled(
+                    text.to_string(),
+                    Style::default()
+                        .fg(theme.running())
+                        .add_modifier(Modifier::BOLD),
+                ));
             }
         }
     }
@@ -430,5 +445,26 @@ mod tests {
         assert_eq!(grid.get(6, 2).unwrap().symbol.as_str(), "-");
         assert_eq!(grid.get(5, 3).unwrap().symbol.as_str(), "|");
         assert_eq!(grid.get(34, 11).unwrap().symbol.as_str(), "+");
+    }
+
+    #[test]
+    fn header_part_running_paints_in_running_hue_and_bold() {
+        let theme = Theme::default();
+        let mut grid = graticule_canvas::CellGrid::new(30, 1);
+        let mut damage = graticule_canvas::Damage::new(1);
+        let mut frame = Frame::new(&mut grid, &mut damage);
+        let parts = [
+            HeaderPart::title("Models"),
+            HeaderPart::Text {
+                text: "  ",
+                accent: false,
+            },
+            HeaderPart::running("⠋"),
+        ];
+        modal_header_parts(&mut frame, Some(Rect::new(0, 0, 30, 1)), &parts, &theme);
+        let spin_cell = grid.get(8, 0).unwrap();
+        assert_eq!(spin_cell.symbol.as_str(), "⠋");
+        assert_eq!(spin_cell.style.fg, theme.running());
+        assert!(spin_cell.style.add.contains(Modifier::BOLD));
     }
 }

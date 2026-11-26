@@ -141,6 +141,8 @@ fn render_inspection_dialog(
             Some(crate::shell::overlays::draw_session_trace_modal(
                 frame,
                 &report,
+                &app.threads.round_summaries,
+                &app.threads.messages,
                 crate::shell::render::ContextUsageProps {
                     snapshot: app.telemetry.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
@@ -149,12 +151,12 @@ fn render_inspection_dialog(
                 },
                 d.index
                     .min(crate::shell::render::telemetry_round_count(&report).saturating_sub(1)),
-                d.detail,
-                d.turn,
+                &d.view,
                 d.turn_cursor,
                 app.composer.last_submit_ms,
                 loading,
                 &mut d.scroll,
+                &mut d.info_scroll,
                 ctx.theme,
                 ctx.selection,
                 ctx.layout_map,

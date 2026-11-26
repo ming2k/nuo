@@ -29,6 +29,8 @@ fn row(id: &str, status: ThreadActivity) -> MonitoredThread {
 
 fn snapshot(rows: Vec<MonitoredThread>) -> MonitorSnapshot {
     MonitorSnapshot {
+        server_id: "srv-test-1".into(),
+        server_phase: protocol::ServerPhase::Ready,
         project_root: "/home/u/proj".into(),
         server_started_at: 50,
         threads: rows,

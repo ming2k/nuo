@@ -9,9 +9,9 @@ use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use nuo::runtime::monitor::MonitorTracker;
-use nuo::runtime::registry::{HostedThread, ThreadRegistry};
 use persistence::thread::ThreadSession;
+use server::runtime::monitor::MonitorTracker;
+use server::runtime::registry::{HostedThread, ThreadRegistry};
 use tokio::sync::{Mutex, broadcast, mpsc};
 
 fn nuo_binary() -> PathBuf {

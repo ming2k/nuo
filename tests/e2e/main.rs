@@ -4,7 +4,7 @@
 //! fresh binary path arrives from the nextest `e2e` profile setup script via
 //! `NUO_TEST_BIN`; see `test_support::binary_path`.
 #![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, unsafe_code)]
 
 #[path = "../common/mod.rs"]
 mod common;

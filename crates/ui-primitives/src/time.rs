@@ -1,4 +1,5 @@
-use chrono::{Local, TimeZone};
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
 
 /// The queued item's send time, or `None` when the driver did not report one.
 ///
@@ -7,12 +8,14 @@ use chrono::{Local, TimeZone};
 /// projection painted a fabricated wall-clock next to the user's queued message.
 /// Time is either known or it is not shown.
 pub fn sent_time_label(epoch_ms: u64) -> String {
-    let secs = (epoch_ms / 1000) as i64;
-    let nsecs = ((epoch_ms % 1000) * 1_000_000) as u32;
-    Local
-        .timestamp_opt(secs, nsecs)
-        .single()
-        .map(|dt| dt.format("%H:%M").to_string())
+    i64::try_from(epoch_ms)
+        .ok()
+        .and_then(|ms| Timestamp::from_millisecond(ms).ok())
+        .map(|ts| {
+            ts.to_zoned_datetime(TimeZone::system())
+                .strftime("%H:%M")
+                .to_string()
+        })
         .unwrap_or_else(|| "--:--".to_string())
 }
 

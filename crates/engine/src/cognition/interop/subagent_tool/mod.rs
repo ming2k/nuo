@@ -1,6 +1,6 @@
 //! `SubagentTool` — spawns a read-only exploration subagent for research subtasks.
 //!
-//! Lives in `nuo-harness` proper (not the [`crate::tools`] module) because it
+//! Lives in `engine` proper (not the [`crate::tools`] module) because it
 //! constructs an
 //! [`crate::Agent`] internally: spawning a subagent is an orchestration
 //! concern, not a domain-tool concern. The other tools (Bash/Read/Web/…)

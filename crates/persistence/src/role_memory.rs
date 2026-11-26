@@ -132,9 +132,10 @@ impl RoleMemoryStore {
     /// Open or create the role dialogue memory database on disk.
     pub fn open(db_path: &Path) -> rusqlite::Result<Self> {
         if let Some(parent) = db_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            let _ = crate::fs_privacy::ensure_private_dir(parent);
         }
         let conn = Connection::open(db_path)?;
+        crate::fs_privacy::restrict_private_file(db_path);
         Self::init_connection(conn, Some(db_path))
     }
 

@@ -118,7 +118,7 @@ impl AntigravityUsageFetcher {
 
 /// Retrieve user quota summary from the Google Antigravity CodeAssist backend.
 ///
-/// Relocated verbatim (ADR-0027 §4) from `nuo-provider-adapters`' OAuth token
+/// Relocated verbatim (ADR-0027 §4) from the retired `nuo-provider-adapters`' OAuth token
 /// module, where it was an orphan with no counterpart in the `providers/` tree.
 pub async fn retrieve_antigravity_quota_summary(
     client: &provider::transport::Http,
@@ -228,9 +228,9 @@ pub(crate) fn parse_antigravity_quota(
         });
 
         let reset_at_ms = bucket.reset_time.as_deref().and_then(|rt| {
-            chrono::DateTime::parse_from_rfc3339(rt)
-                .map(|dt| dt.timestamp_millis() as u64)
+            rt.parse::<jiff::Timestamp>()
                 .ok()
+                .and_then(|ts| u64::try_from(ts.as_millisecond()).ok())
         });
 
         let used_fraction = if let Some(frac) = bucket.remaining_fraction {

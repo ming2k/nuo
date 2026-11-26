@@ -31,58 +31,38 @@ fn setback(attempt: usize, max_attempts: usize) -> crate::shell::app::ProviderRe
 }
 
 /// The producer half of `RoundEvent::RetryScheduled` in the response
-/// translator, routing included: the primary session's clause goes to the App
-/// mirror, a background session's to its own chrome entry.
-fn publish_setback(
-    app: &mut App,
-    runtime: &UiRuntime,
-    session_id: &str,
-    side: bool,
-    attempt: usize,
-) {
+/// translator: routes directly to the target `ThreadInstance` (foreground or
+/// background) via `ChromeEdit::TransportSetback`.
+fn publish_setback(app: &mut App, runtime: &UiRuntime, thread_id: Option<&str>, attempt: usize) {
     let state = setback(attempt, 16);
-    if side {
-        app.session
-            .session_chrome
-            .entry(session_id.to_string())
-            .or_default()
-            .transport_setback = Some(state);
-    } else {
-        // RetryScheduled also parks the round in the transport-wait phase.
-        crate::shell::event_loop::apply::apply(
-            app,
-            runtime,
-            crate::shell::event_loop::AppMutation::SetProviderRetry(state),
-        );
-        crate::shell::event_loop::apply::apply(
-            app,
-            runtime,
-            crate::shell::event_loop::AppMutation::SetPhase(Some(
-                view::phase::Phase::AwaitingModel,
-            )),
-        );
-    }
+    chrome_edit(
+        app,
+        runtime,
+        thread_id,
+        crate::shell::event_loop::mutations::ChromeEdit::TransportSetback(state),
+    );
 }
 
 fn set_phase(app: &mut App, runtime: &UiRuntime, phase: Option<view::phase::Phase>) {
-    crate::shell::event_loop::apply::apply(
+    chrome_edit(
         app,
         runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(phase),
+        None,
+        crate::shell::event_loop::mutations::ChromeEdit::PhaseOnly(phase),
     );
 }
 
 fn chrome_edit(
     app: &mut App,
     runtime: &UiRuntime,
-    session_id: &str,
+    thread_id: Option<&str>,
     edit: crate::shell::event_loop::mutations::ChromeEdit,
 ) {
     crate::shell::event_loop::apply::apply(
         app,
         runtime,
         crate::shell::event_loop::AppMutation::ChromeEdit {
-            session_id: session_id.to_string(),
+            thread_id: thread_id.map(str::to_string),
             edit,
         },
     );
@@ -93,7 +73,7 @@ fn the_transport_wait_phase_hosts_the_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    publish_setback(&mut app, &runtime, "s1", false, 2);
+    publish_setback(&mut app, &runtime, None, 2);
 
     // The viewed chrome carries the countdown, and the breathing dot keeps
     // animating for it.
@@ -111,8 +91,8 @@ fn a_second_retry_replaces_the_clause_and_keeps_it_alive() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    publish_setback(&mut app, &runtime, "s1", false, 2);
-    publish_setback(&mut app, &runtime, "s1", false, 3);
+    publish_setback(&mut app, &runtime, None, 2);
+    publish_setback(&mut app, &runtime, None, 3);
 
     let viewed = app.viewed_chrome();
     let clause = viewed.transport_setback.expect("still backing off");
@@ -128,16 +108,14 @@ fn a_started_stream_retires_the_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    publish_setback(&mut app, &runtime, "s1", false, 2);
+    publish_setback(&mut app, &runtime, None, 2);
     assert!(app.has_live_transport_setback());
 
-    // `RoundEvent::StreamStart`: the primary mirror's phase fact, plus the
-    // session-scoped chrome edit.
-    set_phase(&mut app, &runtime, Some(view::phase::Phase::Answering));
+    // `RoundEvent::StreamStart`: single thread-scoped chrome edit.
     chrome_edit(
         &mut app,
         &runtime,
-        "s1",
+        None,
         crate::shell::event_loop::mutations::ChromeEdit::StreamStarted,
     );
 
@@ -172,7 +150,7 @@ fn every_progress_fact_retires_the_clause() {
     for (label, phase) in cases {
         let (mut app, _tmp) = app_in_tempdir(&[], &[]);
         let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-        publish_setback(&mut app, &runtime, "s1", false, 2);
+        publish_setback(&mut app, &runtime, None, 2);
         assert!(app.has_live_transport_setback(), "{label}: precondition");
 
         set_phase(&mut app, &runtime, phase);
@@ -191,19 +169,16 @@ fn a_one_shot_text_payload_retires_the_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    publish_setback(&mut app, &runtime, "s1", false, 2);
+    publish_setback(&mut app, &runtime, None, 2);
 
-    // The translator's `Text` arm: chrome phase fact first, then the primary
-    // mirror (the round is still running, so it does not idle the bar).
     chrome_edit(
         &mut app,
         &runtime,
-        "s1",
+        None,
         crate::shell::event_loop::mutations::ChromeEdit::PhaseOnly(Some(
             view::phase::Phase::Answering,
         )),
     );
-    set_phase(&mut app, &runtime, Some(view::phase::Phase::Answering));
 
     assert!(!app.has_live_transport_setback());
     assert_eq!(
@@ -212,32 +187,30 @@ fn a_one_shot_text_payload_retires_the_clause() {
     );
 }
 
-/// An interrupted round ends the clause: the translator's interrupt/error arms
-/// write the primary mirror *and* the session chrome, and both must end up
-/// clean.
+/// An interrupted round ends the clause on its single authoritative `ThreadInstance`.
 #[test]
 fn an_ended_round_retires_the_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    app.session.current_session_id = "s1".to_string();
     app.session.live_session_id = "s1".to_string();
+    app.threads.sync_foreground_id("s1");
 
-    publish_setback(&mut app, &runtime, "s1", false, 2);
-    set_phase(&mut app, &runtime, None);
+    publish_setback(&mut app, &runtime, Some("s1"), 2);
     chrome_edit(
         &mut app,
         &runtime,
-        "s1",
+        Some("s1"),
         crate::shell::event_loop::mutations::ChromeEdit::RoundEnded,
     );
 
     assert!(app.viewed_chrome().phase.is_none());
     assert!(!app.has_live_transport_setback());
     assert!(
-        app.session
-            .session_chrome
+        app.threads
             .get("s1")
-            .is_some_and(|chrome| chrome.transport_setback.is_none() && chrome.phase.is_none()),
-        "the session-scoped store is clean too"
+            .is_some_and(|inst| inst.provider_retry.is_none() && inst.phase.is_none()),
+        "the thread instance is clean"
     );
 }
 
@@ -249,8 +222,11 @@ fn a_background_thread_setback_never_reaches_the_viewed_thread_bar() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     app.session.current_session_id = "primary".to_string();
+    app.threads.sync_foreground_id("primary");
+    app.threads
+        .register("thread-2", 1, protocol::ThreadPhase::Ready);
 
-    publish_setback(&mut app, &runtime, "thread-2", true, 2);
+    publish_setback(&mut app, &runtime, Some("thread-2"), 2);
 
     assert!(
         app.viewed_chrome().transport_setback.is_none(),
@@ -268,14 +244,17 @@ fn a_background_thread_phase_progress_retires_its_own_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     app.session.current_session_id = "primary".to_string();
+    app.threads.sync_foreground_id("primary");
+    app.threads
+        .register("thread-2", 1, protocol::ThreadPhase::Ready);
 
-    publish_setback(&mut app, &runtime, "thread-2", true, 2);
+    publish_setback(&mut app, &runtime, Some("thread-2"), 2);
     assert!(app.has_live_transport_setback());
 
     chrome_edit(
         &mut app,
         &runtime,
-        "thread-2",
+        Some("thread-2"),
         crate::shell::event_loop::mutations::ChromeEdit::StreamStarted,
     );
 
@@ -306,15 +285,11 @@ fn one_retry_episode_feeds_the_clause_and_the_receipt_from_one_state() {
         now + std::time::Duration::from_secs(1),
         "Google HTTP 503 Service Unavailable",
     );
-    crate::shell::event_loop::apply::apply(
+    chrome_edit(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetProviderRetry(first),
-    );
-    crate::shell::event_loop::apply::apply(
-        &mut app,
-        &runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(Some(view::phase::Phase::AwaitingModel)),
+        None,
+        crate::shell::event_loop::mutations::ChromeEdit::TransportSetback(first),
     );
 
     let clause = app
@@ -339,10 +314,11 @@ fn one_retry_episode_feeds_the_clause_and_the_receipt_from_one_state() {
             now + std::time::Duration::from_secs(2),
             "Google HTTP 429 Too Many Requests",
         );
-    crate::shell::event_loop::apply::apply(
+    chrome_edit(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetProviderRetry(progress.clone()),
+        None,
+        crate::shell::event_loop::mutations::ChromeEdit::TransportSetback(progress),
     );
     assert_eq!(
         app.viewed_chrome()
@@ -354,10 +330,11 @@ fn one_retry_episode_feeds_the_clause_and_the_receipt_from_one_state() {
 
     // Attempt 3 succeeds: the round completes and the clause is retired by the phase write.
     // Transient transport retries leave no recovered row in the transcript.
-    crate::shell::event_loop::apply::apply(
+    chrome_edit(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::SetPhase(None),
+        None,
+        crate::shell::event_loop::mutations::ChromeEdit::RoundEnded,
     );
     assert!(
         !app.has_live_transport_setback(),

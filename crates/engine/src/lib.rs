@@ -4,22 +4,21 @@
 //!
 //! # What lives here
 //!
-//! The crate is organized into subsystem groups (ADR-0101). The intended
-//! dependency direction — `runtime ⊳ governance ⊳ cognition ⊳ {dispatch,
-//! orchestration}` — is a strict inner-layer rule enforced by `tests/layering.rs`.
+//! The crate is organized into subsystem groups (ADR-0101, ADR-0181). The intended
+//! dependency direction — `runtime ⊳ guardrails ⊳ cognition ⊳ {dispatch,
+//! orchestration}` — is a strict inner-layer rule enforced by
+//! `tests/integration/engine/layering.rs`.
 //!
 //! - **`cognition/`** — the single agent's mind: the `Agent` struct and the
 //!   streaming ReAct loop (`cognition::agent`), model-request assembly
 //!   (`cognition::model_request`), durable harness-authored context
 //!   (`cognition::conversation_context`), causal compaction, the out-of-band task
 //!   pipeline and aspect engine, skills, and agent interoperability (subagents,
-//!   the human broker).
-//! - **`governance/`** — the restraints: permission brokering, bash policy,
-//!   execution containment, trajectory/stream guards, and interactive gating.
-//!   A strict inner layer (`[INV-HARNESS-03]`).
+//!   the human broker). Note: `cognition::interop::subagent_tool` commits
+//!   subagent turns directly through `persistence::thread::ThreadSession`.
 //! - **`orchestration/`** — the per-turn policy wrapping cognition: compaction
 //!   gating, retries with backoff, round lifecycle, session titles, and the
-//!   `/schedule` scheduler. Frontends drive the harness through
+//!   `/schedule` scheduler. Frontends drive the engine through
 //!   [`orchestration::execute_round`] and friends.
 //! - **`dispatch/`** — the tool execution pipeline and scheduler.
 //! - **`runtime/`** — the innermost substrate: host ports, execution
@@ -27,15 +26,20 @@
 //!   extensions (`[INV-HARNESS-04]`).
 //! - **`tools/`** — orchestration-native model tools (ask_user, recall, todo).
 //!
+//! Restraints (permission brokering, bash policy, execution containment,
+//! trajectory guards, interactive gating) live in the dedicated `guardrails`
+//! crate (`[INV-HARNESS-03]`, ADR-0188).
+//!
 //! # Dependency posture
 //!
-//! `nuo-harness` is the runtime wiring layer: it depends on `protocol` (domain
+//! `engine` is the runtime wiring layer: it depends on `protocol` (domain
 //! vocabulary), `persistence` (durable state: `ThreadSession`, `Config`,
-//! `EmbeddingStore`), `model-routing`, and the capability tool crates. Concrete
-//! filesystem / process / web / AST tools live in `host` and `tools/nuo-tool-*`;
-//! this crate's [`tools`] module holds only orchestration-native model tools
-//! (ask_user, recall, todo). Capabilities arrive through the core [`Tool`] and
-//! [`ToolSet`] contracts.
+//! `EmbeddingStore`), `guardrails`, `model-routing`, and the `tool` contract
+//! (`[INV-ARCH-TOOL-LINK-01]`, ADR-0183). Concrete filesystem / process / web /
+//! AST tools live in `host` and `crates/tool-*`, linked only by the composition
+//! root (`server`); this crate's [`tools`] module holds only orchestration-native
+//! model tools (ask_user, recall, todo). Capabilities arrive through the core
+//! [`tool::Tool`] and [`protocol::ToolSet`] contracts.
 //!
 //! ## Why SubagentTool lives here (not in a tool crate)
 //!
@@ -44,37 +48,35 @@
 //! inversion, since tools sit below the runtime. The subagent tool is
 //! fundamentally a runtime primitive that happens to satisfy the `Tool` trait,
 //! so it lives here, under `cognition::interop`.
-//!
-//! Everything `protocol` exports is re-exported here so consumers can
-//! `use engine::*` and get the full domain vocabulary alongside the
-//! orchestration API.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
 // test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-// Bounded contract re-exports: only protocol types that cross the harness boundary.
+// Bounded contract re-exports: only protocol/tool types actively imported across
+// the engine boundary (`[INV-VOCAB-02]`). Internal engine modules pull the rest
+// via `pub(crate) use` below.
 pub use protocol::{
-    AgentEvent, AgentIdentity, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile, Block,
-    Boundary, Budget, ContextNotice, ContextPlan, DynamicToolSink, Hook, HookContext, HookEvent,
-    HookOutcome, HookStartSource, InstructionText, LoopStatus, Overflow, PermissionDecision,
-    PlannedBlock, Position, PrefixDrift, Provider, ProviderStreamEvent, Rank, Resume, RetryPoint,
-    RoundEvent, Stability, ToolSet, Topic, Transport, async_trait,
+    AgentEvent, AgentIdentity, AgentOp, AgentRoleProfile, Block, Budget, Hook, HookContext,
+    HookEvent, HookOutcome, HookStartSource, Provider, ProviderStreamEvent, Stability, Topic,
+    Transport, async_trait,
 };
-pub use tool::{
-    AgentNotice, HookEventKind, Message, Role, SubagentEvent, TokenUsage, Tool, ToolOutput,
-    ToolStream,
-};
+pub use tool::{HookEventKind, Message, Role, SubagentEvent, ToolStream};
 
 #[allow(unused_imports)]
 pub(crate) use protocol::{
-    ExecutionEnvironment, HarnessError, InputRequest, QueuedMessage, StdinReply, UserQuestionReply,
-    WorkspaceRoot, WorkspaceRoots, pressure,
+    AgentRequest, AgentResponse, Boundary, ContextNotice, ContextPlan, DynamicToolSink,
+    ExecutionEnvironment, HarnessError, InputRequest, InstructionText, LoopStatus, Overflow,
+    PermissionDecision, PlannedBlock, Position, PrefixDrift, QueuedMessage, Rank, Resume,
+    RetryPoint, RoundEvent, StdinReply, ToolSet, UserQuestionReply, WorkspaceRoot, WorkspaceRoots,
+    pressure,
 };
+#[allow(unused_imports)]
 pub(crate) use tool::{
-    ImagePart, InjectionKind, InjectionOrigin, NoticeKind, NoticeSeverity, NoticeSource, ToolCall,
-    UserQuestion, UserQuestionRequest, message,
+    AgentNotice, ImagePart, InjectionKind, InjectionOrigin, NoticeKind, NoticeSeverity,
+    NoticeSource, TokenUsage, Tool, ToolCall, ToolOutput, UserQuestion, UserQuestionRequest,
+    message,
 };
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from
@@ -128,7 +130,6 @@ const SUBAGENT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs
 // Subsystem: Cognition — the single agent's mind
 // -----------------------------------------------------------------------------
 pub mod cognition;
-pub use cognition::agent::TitleEstablishedFn;
 pub use cognition::agent::{Agent, AgentBuilder, RequestTokenEstimate, RoundOutcome, SwitchedRole};
 pub use cognition::context::inspect::{
     render_json as render_context_json, render_table as render_context_table, view as project_plan,
@@ -137,7 +138,7 @@ pub use cognition::context::{
     ContextInputs, ContextPolicyError, ContextSource, InputKey, Policy, SourceOrder, ToolSurface,
     default_policy, default_sources,
 };
-pub use cognition::context_projection::ContextProjectionGate;
+pub use cognition::context_projection::{ContextProjectionGate, ContextProjectionOutcome};
 pub use cognition::interop::agent_slot::AgentSlot;
 pub use cognition::interop::human_broker::*;
 pub use cognition::interop::subagent_tool::{

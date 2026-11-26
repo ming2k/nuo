@@ -9,11 +9,11 @@ use graticule::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::shell::disclosure::renderers::base::truncate_to_width;
 use crate::shell::render::{Theme, draw_scene_bar, draw_tab_bar};
-use crate::shell::view_header::{TabBarNavRects, TabBarProps, ViewHints};
 use ui_primitives::primitives::viewport_rect;
+use view::disclosure::renderers::base::truncate_to_width;
 use view::text_layout::padded_tail;
+use view::view_header::{TabBarNavRects, TabBarProps, ViewHints};
 
 /// Kind of a single line in a unified diff view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +170,7 @@ pub struct DiffSceneRects {
     pub tab_close_rects: Vec<(usize, Rect)>,
     pub tab_add_rect: Option<Rect>,
     pub tab_reveal_active: bool,
+    pub tab_shimmer_active: bool,
     pub tab_prev_rect: Option<Rect>,
     pub tab_next_rect: Option<Rect>,
     pub tab_overflow_rect: Option<Rect>,
@@ -248,6 +249,7 @@ pub fn draw_diff_scene(
             can_back: false,
             can_forward: false,
         },
+        None,
         theme,
     );
 
@@ -348,6 +350,7 @@ pub fn draw_diff_scene(
         tab_close_rects: tab_rects.close_rects,
         tab_add_rect: tab_rects.add_rect,
         tab_reveal_active: tab_rects.reveal_active,
+        tab_shimmer_active: tab_rects.shimmer_active,
         tab_prev_rect: tab_rects.prev_rect,
         tab_next_rect: tab_rects.next_rect,
         tab_overflow_rect: tab_rects.overview_rect,

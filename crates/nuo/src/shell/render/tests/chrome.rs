@@ -9,12 +9,7 @@ use super::*;
 /// A fixed thread head for the scene tests (ADR-0043, ADR-0060): the head band's row 2
 /// is now the uniform thread identity and governance band drawn by settings/dashboard views.
 fn test_tab_bar() -> TabBarProps<'static> {
-    TabBarProps {
-        tabs: None,
-        active_tab: 0,
-        unread_faults: 0,
-        ..TabBarProps::default()
-    }
+    TabBarProps::default()
 }
 
 /// Smoke-render every redesigned component into a buffer to catch panics
@@ -372,7 +367,7 @@ fn redesigned_components_render_without_panicking() {
 fn config_appearance_pages_render_at_minimum_terminal_size() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -387,6 +382,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 custom_color_scheme: &custom,
                 websearch: None,
                 workspace: "~/workspace",
+                theme_files: &[],
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
@@ -421,6 +417,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 custom_color_scheme: &custom,
                 websearch: None,
                 workspace: "~/workspace",
+                theme_files: &[],
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
@@ -443,7 +440,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
 fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -458,6 +455,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
                 custom_color_scheme: &custom,
                 websearch: None,
                 workspace: "",
+                theme_files: &[],
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
@@ -542,7 +540,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
     };
 
     let mut terminal = graticule::TestTerminal::new(80, 24);
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
 
     for cat_idx in 0..ConfigCategory::ALL.len() {
         for focus in [ConfigFocus::Categories, ConfigFocus::Detail] {
@@ -558,6 +556,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
                         custom_color_scheme: &custom,
                         websearch: Some(&web),
                         workspace: "",
+                        theme_files: &[],
                         category_scroll: &mut 0,
                         detail_scroll: &mut 0,
                         breadcrumbs: None,
@@ -584,7 +583,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
 #[test]
 fn settings_view_adapts_to_terminal_profile_capabilities() {
     let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
 
     // 1. DirectColor profile: Appearance shows chromatic presets
     let direct_profile = graticule::TerminalProfile::direct_color();
@@ -606,6 +605,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 custom_color_scheme: &custom,
                 websearch: None,
                 workspace: "",
+                theme_files: &[],
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: None,
@@ -630,7 +630,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
 
     let theme_mono = Theme::monochrome();
     let mut term_mono = graticule::TestTerminal::new(80, 24);
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
     term_mono.draw(|frame| {
         draw_settings_view(
             frame,
@@ -643,6 +643,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 custom_color_scheme: &custom,
                 websearch: None,
                 workspace: "",
+                theme_files: &[],
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: None,
@@ -672,7 +673,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
 fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     fn draw_appearance(
@@ -680,7 +681,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
         hover: Option<usize>,
         theme: &Theme,
         custom: &ui_primitives::ColorSchemeConfig,
-        tui_config: &crate::shell::config::TuiConfig,
+        tui_config: &view::tui_config::TuiConfig,
     ) {
         terminal.draw(|frame| {
             draw_settings_view(
@@ -694,6 +695,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
                     custom_color_scheme: custom,
                     websearch: None,
                     workspace: "",
+                    theme_files: &[],
                     category_scroll: &mut 0,
                     detail_scroll: &mut 0,
                     breadcrumbs: None,
@@ -721,7 +723,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
         .position(|row| row.contains("Zen") && row.contains('█'))
         .expect("the Zen identity row must render");
     assert!(
-        !idle[zen_row].contains("Quiet charcoal"),
+        !idle[zen_row].contains("Low-chroma charcoal"),
         "the description must not share the identity line: {:?}",
         idle[zen_row]
     );
@@ -729,7 +731,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
         idle.iter()
             .skip(zen_row + 1)
             .take(2)
-            .any(|row| row.contains("Quiet charcoal")),
+            .any(|row| row.contains("Low-chroma charcoal")),
         "the description must appear on the following line(s)"
     );
 
@@ -775,7 +777,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
 fn components_rows_use_text_and_band_not_selection_dots_with_description_below() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -790,6 +792,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
                 custom_color_scheme: &custom,
                 websearch: None,
                 workspace: "",
+                theme_files: &[],
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: None,
@@ -836,7 +839,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
 fn web_settings_split_search_and_reader_into_clear_panels() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
     let web = protocol::WebSearchConfigView {
         revision: 0,
         provider: protocol::WebSearchProvider::Exa,
@@ -862,6 +865,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                     custom_color_scheme: &custom,
                     websearch: Some(&web),
                     workspace: "~/workspace",
+                    theme_files: &[],
                     category_scroll: &mut 0,
                     detail_scroll: &mut 0,
                     breadcrumbs: Some("Main › Settings"),
@@ -890,7 +894,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
 fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
     let theme = Theme::default();
     let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = crate::shell::config::TuiConfig::default();
+    let tui_config = view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     let mut selected_rect = None;
@@ -906,6 +910,7 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
                 custom_color_scheme: &custom,
                 websearch: None,
                 workspace: "",
+                theme_files: &[],
                 category_scroll: &mut 0,
                 detail_scroll: &mut 0,
                 breadcrumbs: Some("Main › Settings"),
@@ -1294,9 +1299,10 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
     );
 }
 
-/// ADR-0023/0024: the head band's scene row stands up on **every** scene. On
-/// the main view it names the scene (`thread`) and carries the chat title
-/// as its context, with the `C-x menu` namespace pair on the right.
+/// ADR-0261 `[INV-HEAD-09]`: the head band is universally two rows (`TabBar` +
+/// `SceneBar`). On a titled `Thread` viewport, row 1 consolidates `[ROLE]`,
+/// authentic task title (replacing `thread <id_tail>` in place), and
+/// right-anchored workspace on a single row, leaving row 2 to the transcript.
 #[test]
 fn main_view_shows_the_thread_scene_row() {
     let terminal = render_full_view(
@@ -1319,31 +1325,35 @@ fn main_view_shows_the_thread_scene_row() {
     );
     let row1 = grid_row(&terminal, 1);
     assert!(
-        row1.contains("THREAD"),
-        "scene bar carries thread identity on row 1: {row1:?}"
+        row1.contains("[DEVELOPER]"),
+        "single-row thread scene bar carries role badge on row 1: {row1:?}"
     );
     assert!(
         row1.contains("Fix the retry loop"),
-        "scene bar carries authentic task title on row 1: {row1:?}"
+        "single-row thread scene bar carries authentic task title on row 1: {row1:?}"
+    );
+    assert!(
+        !row1.contains("THREAD") && !row1.contains("b3c4"),
+        "titled thread scene bar omits redundant THREAD/uuid prefix: {row1:?}"
+    );
+    assert!(
+        row1.trim_end().ends_with("~/projects/xx"),
+        "workspace is right-anchored on row 1: {row1:?}"
+    );
+    assert!(
+        !row1.contains("F1 help") && !row1.contains("C-x"),
+        "thread scene bar does not carry help: {row1:?}"
     );
     let row2 = grid_row(&terminal, 2);
     assert!(
-        row2.contains("~/projects/xx"),
-        "workspace belongs to thread context row: {row2:?}"
-    );
-    assert!(
-        !row2.contains("thread"),
-        "thread context row omits redundant 'thread' label: {row2:?}"
-    );
-    assert!(
-        !row2.contains("F1 help") && !row2.contains("C-x"),
-        "context row does not carry help: {row2:?}"
+        !row2.contains("~/projects/xx") && !row2.contains("[DEVELOPER]"),
+        "Tier 3 ThreadContextBar is retired — row 2 belongs to the transcript viewport: {row2:?}"
     );
 }
 
-/// ADR-0062 [INV-HEAD-07]: posture tokens read as a closed lowercase
-/// vocabulary on the context row's left, while the workspace path is
-/// right-anchored because it is the only element permitted to shrink.
+/// ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`: on an untitled `Thread`
+/// viewport, row 1 carries `[ROLE]`, silent-by-default lowercase posture
+/// tokens, `thread <id_tail>`, and right-anchored workspace on a single row.
 #[test]
 fn main_view_thread_governance_row_carries_posture_tokens() {
     let context = ThreadContext {
@@ -1370,32 +1380,31 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
     assert!(!row0.contains("F1"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
     assert!(
-        row1.contains("THREAD"),
-        "scene bar carries thread identity on row 1: {row1:?}"
-    );
-    let row2 = grid_row(&terminal, 2);
-    assert!(
-        row2.contains("[DEVELOPER]"),
-        "role badge on context row 2: {row2:?}"
+        row1.contains("[DEVELOPER]"),
+        "role badge on row 1: {row1:?}"
     );
     assert!(
-        row2.contains("auto"),
-        "unattended posture token on context row: {row2:?}"
+        row1.contains("auto"),
+        "unattended posture token on row 1: {row1:?}"
     );
     assert!(
-        row2.contains("open"),
-        "unconfined posture token on context row: {row2:?}"
+        row1.contains("open"),
+        "unconfined posture token on row 1: {row1:?}"
     );
     assert!(
-        !row2.contains("UNATTENDED") && !row2.contains("UNCONFINED"),
-        "caps sentence-flags retired in favour of tokens: {row2:?}"
+        row1.contains("thread b3c4"),
+        "untitled thread carries muted `thread <id_tail>` on row 1: {row1:?}"
     );
     assert!(
-        row2.trim_end().ends_with("~/projects/xx"),
-        "workspace path is right-anchored: {row2:?}"
+        !row1.contains("UNATTENDED") && !row1.contains("UNCONFINED"),
+        "caps sentence-flags retired in favour of tokens: {row1:?}"
     );
-    assert!(!row2.contains("Esc"), "no interrupt pair: {row2:?}");
-    assert!(!row2.contains("F1"), "no global help pair: {row2:?}");
+    assert!(
+        row1.trim_end().ends_with("~/projects/xx"),
+        "workspace path is right-anchored on row 1: {row1:?}"
+    );
+    assert!(!row1.contains("Esc"), "no interrupt pair: {row1:?}");
+    assert!(!row1.contains("F1"), "no global help pair: {row1:?}");
 }
 
 /// The empty-state tour renders the current carousel page beneath the
@@ -1739,7 +1748,8 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
         // inside the already-inset band: entry inset (TRANSCRIPT_H_INSET)
         // + heading prefix (TRANSCRIPT_BODY_LEADING_INDENT). Text starts
         // at col `TRANSCRIPT_H_INSET + TRANSCRIPT_BODY_LEADING_INDENT`.
-        let text_start = super::TRANSCRIPT_H_INSET + super::TRANSCRIPT_BODY_LEADING_INDENT;
+        let text_start =
+            super::TRANSCRIPT_H_INSET + ui_primitives::design::TRANSCRIPT_BODY_LEADING_INDENT;
         for x in 0..text_start {
             let cell = &buffer.get(x, y).unwrap();
             assert!(
@@ -1772,7 +1782,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
 /// places the row at all, so no code path draws a healthy banner.
 #[test]
 fn persistence_health_banner_renders_state_and_detail() {
-    use crate::shell::chrome::draw_persistence_health_bar;
+    use view::chrome::draw_persistence_health_bar;
     let theme = Theme::default();
 
     let render = |health: &protocol::monitor::PersistenceHealth, width: u16| {

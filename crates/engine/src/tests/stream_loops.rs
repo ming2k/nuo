@@ -458,7 +458,7 @@ async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() 
         crate::AgentIdentity::default(),
     ));
 
-    let mut round = agent.begin_streaming_round();
+    let mut round = agent.begin_streaming_round(0);
     // 600,000 prompt tokens * $0.10/1M = $0.06 -> exceeds $0.05 limit
     round.set_token_usage_for_test(tool::TokenUsage {
         prompt_tokens: 600_000,

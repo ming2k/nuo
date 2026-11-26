@@ -2,7 +2,6 @@
 
 use protocol::{AgentResponse, RoundEvent};
 use view::model::document::{NoticeSeverity, TranscriptMessage};
-use view::phase::Phase;
 
 use crate::shell::event_loop;
 
@@ -132,10 +131,7 @@ impl TranslatorState {
                 )
                 .await;
 
-                self.mutations.send(M::SetResponding(false)).await;
-                self.mutations.send(M::SetPhase(None)).await;
-
-                self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundEnded)
+                self.chrome(&session_id, event_loop::mutations::ChromeEdit::RoundFailed)
                     .await;
             }
             _ => {}
@@ -173,20 +169,13 @@ impl TranslatorState {
                 self.thread_mut(&session_id).retry_progress = Some(progress);
 
                 // Publish-only. The clause is retired by the
-                // next phase write for *this* session — each
-                // store owns its own phase — never by this
-                // translator, which is why no arm of this match
-                // carries a clause clear. The primary's slot is
-                // the App mirror; a background session's is its
-                // own chrome entry, so a background retry cannot
-                // paint a countdown onto the primary's bar.
-                self.mutations.send(M::SetProviderRetry(published)).await;
-                // Transport setback, not a workflow phase: the
-                // countdown rides the dedicated clause channel.
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::AwaitingModel)))
-                    .await;
-                self.mutations.send(M::SetResponding(true)).await;
+                // next non-`AwaitingModel` phase write on *this*
+                // thread's `ThreadInstance` (ADR-0253).
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::TransportSetback(published),
+                )
+                .await;
 
                 // The receipt: the setback is retained in the
                 // notice log (a viewport the user can open,
@@ -241,6 +230,7 @@ impl TranslatorState {
                 };
                 self.mutations
                     .send(M::BackgroundTaskStarted {
+                        thread_id: Some(session_id.clone()),
                         id: info.id.0.clone(),
                         label: label.to_string(),
                         started_at_ms: info.created_at_ms,
@@ -332,6 +322,7 @@ impl TranslatorState {
                 };
                 self.mutations
                     .send(M::BackgroundTaskCompleted {
+                        thread_id: Some(session_id.clone()),
                         id: outcome.job_id.0.clone(),
                         success: is_success,
                         exit_code,

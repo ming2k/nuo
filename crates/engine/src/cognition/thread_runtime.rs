@@ -3,7 +3,8 @@
 //! `ThreadRuntime` is per `(thread, branch)`. It holds a bounded `ThreadWindow`
 //! of facts and a `RequestView` of messages. It does not own the full thread,
 //! blob bytes, sibling branches, or request context. The window and view are
-//! pure projections: they are rebuilt from `ThreadStore` and never write back.
+//! pure projections: they are rebuilt from the durable thread graph and never
+//! write back.
 pub use protocol::{RequestView, ThreadWindow};
 
 use protocol::{BranchId, FactId, Thread, ThreadError, ThreadId, ThreadRevision};

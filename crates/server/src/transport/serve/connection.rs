@@ -16,8 +16,9 @@ use crate::transport::wire_channel::{
     BoxWireSink, BoxWireStream, native_framed_split, websocket_split,
 };
 use protocol::{
-    AgentRequest, AgentResponse, AttachAction, ControlRequest, ERR_PROTOCOL_MISMATCH,
-    MonitorAction, MonitorEvent, Wire, WireFrame, protocol_accepts,
+    AgentRequest, AgentResponse, ControlRequest, ERR_PROTOCOL_MISMATCH, ERR_SERVER_DRAINING,
+    ERR_SERVER_FAILED, ERR_SERVER_NOT_READY, MonitorAction, MonitorEvent, ServerPhase,
+    ThreadTarget, Wire, WireFrame, protocol_accepts,
 };
 
 /// Shared server accept context: the session registry, connection table,
@@ -53,9 +54,12 @@ pub(crate) fn spawn_tcp_connection(
             Ok(TcpTransport::Http) => {
                 // Health responses are momentary and stateless; they stay out
                 // of the drain-tracked connection table by design.
+                let phase = registry.server_phase();
                 if let Err(e) = crate::transport::health_http::serve(
                     stream,
                     gate.version_of_server(),
+                    registry.server_id(),
+                    &phase,
                     expected_token,
                 )
                 .await
@@ -183,66 +187,90 @@ impl Drop for ConnGuard {
     }
 }
 
-/// Execute a session-management verb and reply once. The control
-/// channel is request/response (unlike the streaming monitor/attach roles):
-/// one `ControlRequest` in, one `ControlReply` out, then the connection may
-/// close or issue another verb.
-async fn run_control(
-    mut wire_sink: BoxWireSink,
-    registry: Arc<crate::runtime::registry::ThreadRegistry>,
-    gate: Arc<ShutdownGate>,
-    listeners: CancellationToken,
-    tcp_manager: Option<Arc<TcpManager>>,
+/// Check whether the current [`ServerPhase`] admits domain work (`[INV-SRVPHASE-03]`).
+fn non_ready_refusal(phase: &ServerPhase) -> Option<(&'static str, String)> {
+    match phase {
+        ServerPhase::Ready | ServerPhase::Reloading => None,
+        ServerPhase::Initializing { stage } => Some((
+            ERR_SERVER_NOT_READY,
+            format!("server is initializing ({})", stage.as_str()),
+        )),
+        ServerPhase::Draining { reason } => Some((
+            ERR_SERVER_DRAINING,
+            match reason {
+                Some(r) => format!("server is shutting down ({r})"),
+                None => "server is shutting down".to_string(),
+            },
+        )),
+        ServerPhase::Failed { message, .. } => {
+            Some((ERR_SERVER_FAILED, format!("server failed: {message}")))
+        }
+    }
+}
+
+/// Execute one session-management control verb on the unified connection
+/// (ADR-0260). Returns `Ok(true)` if `Shutdown` was triggered (caller should
+/// close the connection after sending the reply).
+async fn execute_control(
+    wire_sink: &mut BoxWireSink,
+    registry: &Arc<crate::runtime::registry::ThreadRegistry>,
+    gate: &Arc<ShutdownGate>,
+    listeners: &CancellationToken,
+    tcp_manager: &Option<Arc<TcpManager>>,
+    request_id: u64,
     request: ControlRequest,
-) -> Result<(), String> {
+) -> Result<bool, String> {
+    if matches!(request, ControlRequest::Shutdown) {
+        // Acknowledge on the wire first — the gate fires the same drain as any
+        // signal, which would otherwise cancel this connection before the reply
+        // lands. Shutdown is admitted in every ServerPhase.
+        let reply = Wire::ControlReply {
+            request_id,
+            ok: true,
+            thread_id: None,
+            error: None,
+            code: None,
+            payload: None,
+        };
+        wire_sink
+            .send(reply)
+            .await
+            .map_err(|e| format!("send control reply: {e}"))?;
+        let _ = wire_sink.close().await;
+        registry.set_server_phase(ServerPhase::Draining {
+            reason: Some(crate::runtime::shutdown::ShutdownReason::ControlVerb.to_string()),
+        });
+        gate.request(crate::runtime::shutdown::ShutdownReason::ControlVerb, false);
+        listeners.cancel();
+        return Ok(true);
+    }
+
+    // Read-only endpoint inspection works even during startup; every other
+    // control verb requires a ready/reloading server (`[INV-SRVPHASE-03]`).
+    if !matches!(request, ControlRequest::GetServerEndpoints)
+        && let Some((code, message)) = non_ready_refusal(&registry.server_phase())
+    {
+        let reply = Wire::ControlReply {
+            request_id,
+            ok: false,
+            thread_id: None,
+            error: Some(message),
+            code: Some(code.to_string()),
+            payload: None,
+        };
+        wire_sink
+            .send(reply)
+            .await
+            .map_err(|e| format!("send control reply: {e}"))?;
+        return Ok(false);
+    }
+
     let (ok, session_id, error, payload) = match request {
-        ControlRequest::Reload => {
-            // ADR-0034 Level 1 (soft reload): refresh the server's config
-            // snapshot and re-sync MCP + skills across every hosted session.
-            // No connection is dropped and no round is disturbed.
-            let reply = match registry.reload_runtime().await {
-                Ok(()) => Wire::ControlReply {
-                    ok: true,
-                    thread_id: None,
-                    error: None,
-                    payload: None,
-                },
-                Err(error) => Wire::ControlReply {
-                    ok: false,
-                    thread_id: None,
-                    error: Some(error),
-                    payload: None,
-                },
-            };
-            wire_sink
-                .send(reply)
-                .await
-                .map_err(|e| format!("send control reply: {e}"))?;
-            return Ok(());
-        }
-        ControlRequest::Shutdown => {
-            // The remote stop verb: acknowledge on the wire first
-            // — the gate fires the same drain as any signal, which would
-            // otherwise cancel this very connection before the reply lands.
-            let reply = Wire::ControlReply {
-                ok: true,
-                thread_id: None,
-                error: None,
-                payload: None,
-            };
-            wire_sink
-                .send(reply)
-                .await
-                .map_err(|e| format!("send control reply: {e}"))?;
-            let _ = wire_sink.close().await;
-            // The verb is the same trigger as a signal: latch the gate (so
-            // monitors stream ServerDraining and the run loop drains), and
-            // stop the accept loops immediately — even when the serve layer
-            // is driven standalone (no host::run), the listeners must stop.
-            gate.request(crate::runtime::shutdown::ShutdownReason::ControlVerb, false);
-            listeners.cancel();
-            return Ok(());
-        }
+        ControlRequest::Shutdown => unreachable!("handled above"),
+        ControlRequest::Reload => match registry.reload_runtime().await {
+            Ok(()) => (true, None, None, None),
+            Err(error) => (false, None, Some(error), None),
+        },
         ControlRequest::CreateThread {
             project,
             prompt,
@@ -278,10 +306,10 @@ async fn run_control(
         },
         ControlRequest::ResolvePermission {
             thread_id,
-            request_id,
+            request_id: perm_req_id,
             decision,
         } => match registry
-            .resolve_permission(&thread_id, request_id, decision)
+            .resolve_permission(&thread_id, perm_req_id, decision)
             .await
         {
             Ok(()) => (true, Some(thread_id), None, None),
@@ -320,64 +348,88 @@ async fn run_control(
             name,
             from_fact_id,
         } => {
-            let Some(hosted) = registry.get(&thread_id).await else {
-                return Err("thread is not live".to_string());
-            };
-            let from = from_fact_id.map(protocol::FactId::from_raw);
-            match hosted.session.fork_branch(name, from).await {
-                Ok(branch) => (
-                    true,
+            if let Some(hosted) = registry.get(&thread_id).await {
+                let from = from_fact_id.map(protocol::FactId::from_raw);
+                match hosted.session.fork_branch(name, from).await {
+                    Ok(branch) => (
+                        true,
+                        Some(thread_id),
+                        None,
+                        Some(serde_json::json!({ "branch_id": branch.0 }).to_string()),
+                    ),
+                    Err(error) => (false, Some(thread_id), Some(error), None),
+                }
+            } else {
+                (
+                    false,
                     Some(thread_id),
+                    Some("thread is not live".to_string()),
                     None,
-                    Some(serde_json::json!({ "branch_id": branch.0 }).to_string()),
-                ),
-                Err(error) => (false, Some(thread_id), Some(error), None),
+                )
             }
         }
         ControlRequest::ListBranches { thread_id } => {
-            let Some(hosted) = registry.get(&thread_id).await else {
-                return Err("thread is not live".to_string());
-            };
-            match hosted.session.branches().await {
-                Ok(branches) => (
-                    true,
+            if let Some(hosted) = registry.get(&thread_id).await {
+                match hosted.session.branches().await {
+                    Ok(branches) => (
+                        true,
+                        Some(thread_id),
+                        None,
+                        Some(serde_json::to_string(&branches).unwrap_or_else(|_| "[]".to_string())),
+                    ),
+                    Err(error) => (false, Some(thread_id), Some(error), None),
+                }
+            } else {
+                (
+                    false,
                     Some(thread_id),
+                    Some("thread is not live".to_string()),
                     None,
-                    Some(serde_json::to_string(&branches).unwrap_or_else(|_| "[]".to_string())),
-                ),
-                Err(error) => (false, Some(thread_id), Some(error), None),
+                )
             }
         }
         ControlRequest::SwitchBranch {
             thread_id,
             branch_id,
         } => {
-            let Some(hosted) = registry.get(&thread_id).await else {
-                return Err("thread is not live".to_string());
-            };
-            match hosted
-                .session
-                .switch_branch(protocol::BranchId::new(branch_id))
-                .await
-            {
-                Ok(()) => (true, Some(thread_id), None, None),
-                Err(error) => (false, Some(thread_id), Some(error), None),
+            if let Some(hosted) = registry.get(&thread_id).await {
+                match hosted
+                    .session
+                    .switch_branch(protocol::BranchId::new(branch_id))
+                    .await
+                {
+                    Ok(()) => (true, Some(thread_id), None, None),
+                    Err(error) => (false, Some(thread_id), Some(error), None),
+                }
+            } else {
+                (
+                    false,
+                    Some(thread_id),
+                    Some("thread is not live".to_string()),
+                    None,
+                )
             }
         }
         ControlRequest::DeleteBranch {
             thread_id,
             branch_id,
         } => {
-            let Some(hosted) = registry.get(&thread_id).await else {
-                return Err("thread is not live".to_string());
-            };
-            match hosted
-                .session
-                .delete_branch(protocol::BranchId::new(branch_id))
-                .await
-            {
-                Ok(()) => (true, Some(thread_id), None, None),
-                Err(error) => (false, Some(thread_id), Some(error), None),
+            if let Some(hosted) = registry.get(&thread_id).await {
+                match hosted
+                    .session
+                    .delete_branch(protocol::BranchId::new(branch_id))
+                    .await
+                {
+                    Ok(()) => (true, Some(thread_id), None, None),
+                    Err(error) => (false, Some(thread_id), Some(error), None),
+                }
+            } else {
+                (
+                    false,
+                    Some(thread_id),
+                    Some("thread is not live".to_string()),
+                    None,
+                )
             }
         }
         ControlRequest::PurgeThreads { filter, ids } => {
@@ -399,8 +451,6 @@ async fn run_control(
             }
         }
         ControlRequest::AskArchivist { text } => {
-            // The Archivist's answer is a successful query result, so it rides
-            // the reply payload. A failed round keeps ok=false with the error.
             let answer = registry.ask_archivist(text).await;
             match answer.status {
                 crate::runtime::archivist_service::ArchivistTurnStatus::Failed(e) => {
@@ -410,7 +460,7 @@ async fn run_control(
             }
         }
         ControlRequest::OpenTcpListener { port } => {
-            if let Some(mgr) = &tcp_manager {
+            if let Some(mgr) = tcp_manager {
                 match mgr.open_tcp(port).await {
                     Ok(rep) => {
                         let payload = serde_json::to_string(&rep).unwrap_or_default();
@@ -428,7 +478,7 @@ async fn run_control(
             }
         }
         ControlRequest::CloseTcpListener => {
-            if let Some(mgr) = &tcp_manager {
+            if let Some(mgr) = tcp_manager {
                 match mgr.close_tcp().await {
                     Ok(rep) => {
                         let payload = serde_json::to_string(&rep).unwrap_or_default();
@@ -446,7 +496,7 @@ async fn run_control(
             }
         }
         ControlRequest::GetServerEndpoints => {
-            if let Some(mgr) = &tcp_manager {
+            if let Some(mgr) = tcp_manager {
                 let rep = mgr.get_endpoints().await;
                 let payload = serde_json::to_string(&rep).unwrap_or_default();
                 (true, None, None, Some(payload))
@@ -460,9 +510,6 @@ async fn run_control(
             }
         }
         ControlRequest::GetUsageStats { event_cap } => {
-            // ADR-0129 [INV-USAGE-01]: session-free model usage query. The
-            // aggregate folds every day blob, so it runs on the blocking pool —
-            // a control connection must never stall the accept loop.
             let report = tokio::task::spawn_blocking(move || {
                 persistence::usage_stats::UsageStatsStore::new().report(event_cap)
             })
@@ -475,17 +522,18 @@ async fn run_control(
         }
     };
     let reply = Wire::ControlReply {
+        request_id,
         ok,
         thread_id: session_id,
         error,
+        code: None,
         payload,
     };
     wire_sink
         .send(reply)
         .await
         .map_err(|e| format!("send control reply: {e}"))?;
-    let _ = wire_sink.close().await;
-    Ok(())
+    Ok(false)
 }
 
 /// Consecutive streamed deltas are coalesced for this long before framing.
@@ -618,21 +666,18 @@ async fn handle_wire_stream(
     conns: Arc<ConnTable>,
     tcp_manager: Option<Arc<TcpManager>>,
 ) -> Result<(), String> {
-    let (action, project, client_posture, client_version, client_protocol) =
+    let (client_protocol, client_version, client_posture, monitor_action) =
         match wire_source.next().await {
-            Some(Ok(WireFrame::Wire(Wire::Select {
-                action,
-                project,
-                posture,
-                version,
+            Some(Ok(WireFrame::Wire(Wire::Hello {
                 protocol,
-            }))) => (action, project, posture, version, protocol),
-            // A first frame we cannot model is still a first frame: answer it
-            // with the taxonomy rather than a bare disconnect, so the peer's
-            // disclosure names the skew instead of a transport fault.
+                version,
+                posture,
+                monitor,
+            }))) => (protocol, version, posture, monitor),
             Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
                 send_error_with_code(
                     &mut wire_sink,
+                    None,
                     &format!(
                         "could not decode the first frame{}{detail}",
                         envelope
@@ -645,87 +690,70 @@ async fn handle_wire_stream(
                 return Ok(());
             }
             Some(Ok(WireFrame::Wire(_))) => {
-                send_error(&mut wire_sink, "expected Select as the first frame").await?;
+                send_error(&mut wire_sink, None, "expected Hello as the first frame").await?;
                 return Ok(());
             }
             Some(Err(error)) => {
-                send_error(&mut wire_sink, &format!("bad first frame: {error}")).await?;
+                send_error(&mut wire_sink, None, &format!("bad first frame: {error}")).await?;
                 return Ok(());
             }
             None => return Ok(()),
         };
-    // Protocol negotiation, enforced before any session work.
-    //
-    // `[INV-WIRE-04]` — the protocol number is the **only** admission authority.
-    // The server serves exact `PROTOCOL_VERSION` matches only.
-    // regardless of the product build, which is what lets a pinned client keep
-    // talking to a newer server across additive changes. There is no second
-    // lane: the field is required, so a peer that omits it fails to decode
-    // above (and is answered with the protocol taxonomy) instead of being judged
-    // by a different rule. The product version is advisory identity, used only
-    // to make the refusal name both builds.
+
+    // `[INV-WIRE-04]` — exact `PROTOCOL_VERSION` match is the sole admission rule.
     if !protocol_accepts(client_protocol) {
         send_error_with_code(
             &mut wire_sink,
+            None,
             &protocol_mismatch_error(client_protocol, client_version.as_deref()),
             Some(ERR_PROTOCOL_MISMATCH),
         )
         .await?;
         return Ok(());
     }
-    match action {
-        AttachAction::Monitor(action) => {
-            return run_monitor(wire_sink, wire_source, registry, action, gate).await;
-        }
-        AttachAction::Control(request) => {
-            return run_control(wire_sink, registry, gate, listeners, tcp_manager, request).await;
-        }
-        AttachAction::New(_) | AttachAction::Attach(_) | AttachAction::Picker(_) => {}
-    }
-    let _interactive_guard = conns.register_interactive();
-    // The caller's project scopes creation / lazy resume. Attach
-    // clients declare their working directory in the Select frame's optional
-    // `project`; a client predating that field sends none and the server
-    // falls back to its own process cwd — which is whatever the first client
-    // that spawned the server happened to use, so it is only correct by
-    // coincidence.
-    let raw_project = project.clone().unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-    });
-    let caller_project = host::paths::find_project_root(&raw_project);
-    // A modern client *declared* its project; a legacy client did not and the
-    // server is guessing from its own cwd. Auto-binding a lone cross-project
-    // session is the "launched in project A, working in project B" trap, but
-    // only the declared case can know it is cross-project — so the guard
-    // applies there, and the legacy path keeps its historical behaviour.
-    let declared_project = project.is_some();
-    let handle = match registry
-        .resolve_with_declaration(action, &caller_project, declared_project)
-        .await
-    {
-        crate::runtime::registry::ResolveOutcome::Welcome(handle) => handle,
-        crate::runtime::registry::ResolveOutcome::Pick { sessions } => {
-            wire_sink
-                .send(Wire::Pick { threads: sessions })
-                .await
-                .map_err(|e| format!("send pick: {e}"))?;
-            return Ok(());
-        }
-        crate::runtime::registry::ResolveOutcome::Refused { message, code } => {
-            // `[INV-ATTACH-01]`: the taxonomy must survive the wire. A code-less
-            // send here is what forced clients to sniff prose (ADR-0123).
-            send_error_with_code(&mut wire_sink, &message, code).await?;
-            return Ok(());
-        }
+
+    // Subscribe to server lifecycle and (optionally) monitor diffs *before*
+    // composing `ServerHello`, so no transition between snapshot and loop can
+    // be missed (ADR-0260 `[INV-SRVPHASE-01]`, `[INV-SRVPHASE-02]`).
+    let mut phase_rx = registry.subscribe_server_phase();
+    let monitor_rx = if monitor_action.is_some_and(|m| m.watch) {
+        Some(registry.subscribe_monitor())
+    } else {
+        None
     };
-    run_attach_multiplexed(
+
+    let current_phase = phase_rx.borrow_and_update().clone();
+    let monitor_snapshot = match monitor_action {
+        Some(action) => Some(registry.monitor_snapshot(action).await),
+        None => None,
+    };
+    let hello = Wire::ServerHello {
+        server_id: registry.server_id().to_string(),
+        protocol: protocol::PROTOCOL_VERSION,
+        version: gate.version_of_server().to_string(),
+        started_at: registry.server_started_at().await,
+        phase: current_phase,
+        persistence_health: registry.persistence_health_snapshot(),
+        monitor: monitor_snapshot,
+    };
+    wire_sink
+        .send(hello)
+        .await
+        .map_err(|e| format!("send server hello: {e}"))?;
+
+    run_session_loop(SessionLoopParams {
         wire_sink,
         wire_source,
         registry,
-        caller_project,
+        gate,
+        listeners,
+        conns,
+        tcp_manager,
         client_posture,
-        handle,
-    )
+        monitor_action,
+        phase_rx,
+        monitor_rx,
+    })
     .await
 }
 
@@ -796,15 +824,14 @@ fn spawn_thread_forwarder(
     })
 }
 
-/// Subscribe a resolved thread handle onto `wire_sink`, sending either
-/// `Wire::Welcome` (initial handshake) or `Wire::Subscribed` (multiplexed
-/// attach), accounting the human channel posture, and emitting the
+/// Subscribe a resolved thread handle onto `wire_sink`, sending
+/// `Wire::Subscribed`, accounting the human channel posture, and emitting the
 /// authoritative snapshot + readiness transition (`[INV-ATTACH-04]`).
 async fn hydrate_subscribed_thread(
     wire_sink: &mut BoxWireSink,
     handle: &crate::runtime::registry::AttachHandle,
     client_posture: protocol::human_request::HumanChannelPosture,
-    is_initial: bool,
+    request_id: u64,
 ) -> Result<
     (
         String,
@@ -820,23 +847,15 @@ async fn hydrate_subscribed_thread(
     let session_id = handle.session_id().await;
     let phase = handle.phase();
 
-    let ack = if is_initial {
-        Wire::Welcome {
-            thread_id: session_id.clone(),
-            generation: 1,
-            phase: phase.clone(),
-        }
-    } else {
-        Wire::Subscribed {
-            thread_id: session_id.clone(),
-            generation: 1,
-            phase: phase.clone(),
-        }
-    };
     wire_sink
-        .send(ack)
+        .send(Wire::Subscribed {
+            request_id,
+            thread_id: session_id.clone(),
+            generation: 1,
+            phase,
+        })
         .await
-        .map_err(|e| format!("send thread ack: {e}"))?;
+        .map_err(|e| format!("send thread subscribed: {e}"))?;
 
     // Fold this client's declared posture into the session's human channel
     // before publishing the snapshot, so the trust gate sees the effective
@@ -876,8 +895,8 @@ async fn hydrate_subscribed_thread(
                 .map_err(|e| format!("send trust notice: {e}"))?;
         }
         // `Ready` is a *transition* the client gates on; it is deliberately not
-        // inferred from Welcome's phase cell, so the snapshot can never race
-        // past it.
+        // inferred from `Subscribed`'s phase cell, so the snapshot can never
+        // race past it.
         wire_sink
             .send(Wire::Response {
                 response: AgentResponse::ThreadPhase(protocol::ThreadPhaseUpdate {
@@ -888,18 +907,6 @@ async fn hydrate_subscribed_thread(
             })
             .await
             .map_err(|e| format!("send ready phase: {e}"))?;
-    } else if phase != protocol::ThreadPhase::Binding {
-        // A second attacher joining an in-flight build learns where it is.
-        wire_sink
-            .send(Wire::Response {
-                response: AgentResponse::ThreadPhase(protocol::ThreadPhaseUpdate {
-                    thread_id: session_id.clone(),
-                    phase,
-                }),
-                generation: 1,
-            })
-            .await
-            .map_err(|e| format!("send thread phase: {e}"))?;
     }
 
     Ok((session_id, rx, last_snapshot))
@@ -911,22 +918,20 @@ struct SubscriptionTable {
     entries: std::collections::HashMap<String, SubscribedThread>,
     /// Flat map from historical `sub_key` -> current live key in `entries`.
     aliases: std::collections::HashMap<String, String>,
-    primary_thread_id: String,
+    primary_thread_id: Option<String>,
 }
 
 impl SubscriptionTable {
-    fn new(initial_id: String, initial_sub: SubscribedThread) -> Self {
-        let mut entries = std::collections::HashMap::new();
-        entries.insert(initial_id.clone(), initial_sub);
+    fn empty() -> Self {
         Self {
-            entries,
+            entries: std::collections::HashMap::new(),
             aliases: std::collections::HashMap::new(),
-            primary_thread_id: initial_id,
+            primary_thread_id: None,
         }
     }
 
-    fn primary(&self) -> &str {
-        &self.primary_thread_id
+    fn primary(&self) -> Option<&str> {
+        self.primary_thread_id.as_deref()
     }
 
     fn is_empty(&self) -> bool {
@@ -943,6 +948,9 @@ impl SubscriptionTable {
 
     fn insert(&mut self, thread_id: String, sub: SubscribedThread) {
         self.aliases.remove(&thread_id);
+        if self.primary_thread_id.is_none() {
+            self.primary_thread_id = Some(thread_id.clone());
+        }
         self.entries.insert(thread_id, sub);
     }
 
@@ -975,8 +983,8 @@ impl SubscriptionTable {
             self.aliases.remove(&next_id);
             self.aliases
                 .insert(previous_id.to_string(), next_id.clone());
-            if self.primary_thread_id == previous_id {
-                self.primary_thread_id = next_id;
+            if self.primary_thread_id.as_deref() == Some(previous_id) {
+                self.primary_thread_id = Some(next_id);
             }
         }
     }
@@ -986,10 +994,8 @@ impl SubscriptionTable {
         let removed = self.entries.remove(thread_id);
         if removed.is_some() {
             self.aliases.retain(|_, target| target != thread_id);
-            if self.primary_thread_id == thread_id
-                && let Some(next_primary) = self.entries.keys().next().cloned()
-            {
-                self.primary_thread_id = next_primary;
+            if self.primary_thread_id.as_deref() == Some(thread_id) {
+                self.primary_thread_id = self.entries.keys().next().cloned();
             }
         }
         removed
@@ -1006,6 +1012,7 @@ impl SubscriptionTable {
             );
         }
         self.aliases.clear();
+        self.primary_thread_id = None;
     }
 }
 
@@ -1141,11 +1148,7 @@ async fn handle_mux_event(
                     "nuo server: subscribed thread closed; human channel released"
                 );
             }
-            if subs.is_empty() {
-                MuxControl::Stop(Ok(()))
-            } else {
-                MuxControl::Continue
-            }
+            MuxControl::Continue
         }
         None => {
             let _ = flush_delta(wire_sink, pending_delta).await;
@@ -1155,26 +1158,39 @@ async fn handle_mux_event(
 }
 
 struct MuxEnv<'a> {
-    caller_project: &'a std::path::Path,
     client_posture: protocol::human_request::HumanChannelPosture,
     registry: &'a crate::runtime::registry::ThreadRegistry,
     mux_tx: &'a tokio::sync::mpsc::Sender<MuxEvent>,
 }
 
 async fn handle_subscribe_frame(
-    sub_action: protocol::AttachAction,
+    request_id: u64,
+    target: ThreadTarget,
     sub_project: Option<std::path::PathBuf>,
     env: &MuxEnv<'_>,
     subs: &mut SubscriptionTable,
     wire_sink: &mut BoxWireSink,
 ) -> MuxControl {
-    let sub_caller_project = match &sub_project {
-        Some(p) => host::paths::find_project_root(p),
-        None => env.caller_project.to_path_buf(),
-    };
+    // Explicit non-ready admission (ADR-0260 `[INV-SRVPHASE-03]`): never queue
+    // `Subscribe` silently behind opaque timeouts.
+    if let Some((code, message)) = non_ready_refusal(&env.registry.server_phase()) {
+        if let Err(e) =
+            send_error_with_code(wire_sink, Some(request_id), &message, Some(code)).await
+        {
+            return MuxControl::Stop(Err(e));
+        }
+        return MuxControl::Continue;
+    }
+
+    let raw_project = sub_project.clone().unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    });
+    let sub_caller_project = host::paths::find_project_root(&raw_project);
+    let declared_project = sub_project.is_some();
+
     match env
         .registry
-        .resolve_with_declaration(sub_action, &sub_caller_project, sub_project.is_some())
+        .resolve_with_declaration(target, &sub_caller_project, declared_project)
         .await
     {
         crate::runtime::registry::ResolveOutcome::Welcome(new_handle) => {
@@ -1187,6 +1203,7 @@ async fn handle_subscribe_frame(
                 let phase = existing.handle.phase();
                 if let Err(e) = wire_sink
                     .send(Wire::Subscribed {
+                        request_id,
                         thread_id: tid.clone(),
                         generation,
                         phase,
@@ -1214,8 +1231,13 @@ async fn handle_subscribe_frame(
                         .await;
                 }
             } else {
-                match hydrate_subscribed_thread(wire_sink, &new_handle, env.client_posture, false)
-                    .await
+                match hydrate_subscribed_thread(
+                    wire_sink,
+                    &new_handle,
+                    env.client_posture,
+                    request_id,
+                )
+                .await
                 {
                     Ok((new_tid, new_rx, new_snapshot)) => {
                         let forwarder =
@@ -1235,12 +1257,19 @@ async fn handle_subscribe_frame(
             }
         }
         crate::runtime::registry::ResolveOutcome::Pick { sessions } => {
-            if let Err(e) = wire_sink.send(Wire::Pick { threads: sessions }).await {
+            if let Err(e) = wire_sink
+                .send(Wire::Pick {
+                    request_id,
+                    threads: sessions,
+                })
+                .await
+            {
                 return MuxControl::Stop(Err(format!("send pick: {e}")));
             }
         }
         crate::runtime::registry::ResolveOutcome::Refused { message, code } => {
-            if let Err(e) = send_error_with_code(wire_sink, &message, code).await {
+            if let Err(e) = send_error_with_code(wire_sink, Some(request_id), &message, code).await
+            {
                 return MuxControl::Stop(Err(e));
             }
         }
@@ -1322,11 +1351,7 @@ async fn handle_end_thread(
         forwarder.abort();
     }
 
-    if subs.is_empty() {
-        MuxControl::Stop(Ok(()))
-    } else {
-        MuxControl::Continue
-    }
+    MuxControl::Continue
 }
 
 async fn forward_thread_request(
@@ -1348,6 +1373,7 @@ async fn forward_thread_request(
         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
             tracing::warn!("nuo server: session request queue full, shedding load");
             let err = Wire::Error {
+                request_id: None,
                 message: "server session request queue is full (server busy)".to_string(),
                 code: Some("server_busy".to_string()),
             };
@@ -1362,34 +1388,54 @@ async fn forward_thread_request(
     }
 }
 
-async fn run_attach_multiplexed(
-    mut wire_sink: BoxWireSink,
-    mut wire_source: BoxWireStream,
+struct SessionLoopParams {
+    wire_sink: BoxWireSink,
+    wire_source: BoxWireStream,
     registry: Arc<crate::runtime::registry::ThreadRegistry>,
-    caller_project: std::path::PathBuf,
+    gate: Arc<ShutdownGate>,
+    listeners: CancellationToken,
+    conns: Arc<ConnTable>,
+    tcp_manager: Option<Arc<TcpManager>>,
     client_posture: protocol::human_request::HumanChannelPosture,
-    initial_handle: crate::runtime::registry::AttachHandle,
-) -> Result<(), String> {
-    let (session_id, initial_rx, initial_snapshot) =
-        hydrate_subscribed_thread(&mut wire_sink, &initial_handle, client_posture, true).await?;
+    monitor_action: Option<MonitorAction>,
+    phase_rx: tokio::sync::watch::Receiver<ServerPhase>,
+    monitor_rx: Option<broadcast::Receiver<MonitorEvent>>,
+}
+
+async fn recv_monitor_opt(
+    rx: &mut Option<broadcast::Receiver<MonitorEvent>>,
+) -> Option<Result<MonitorEvent, broadcast::error::RecvError>> {
+    match rx {
+        Some(rx) => Some(rx.recv().await),
+        None => std::future::pending().await,
+    }
+}
+
+async fn run_session_loop(params: SessionLoopParams) -> Result<(), String> {
+    let SessionLoopParams {
+        mut wire_sink,
+        mut wire_source,
+        registry,
+        gate,
+        listeners,
+        conns,
+        tcp_manager,
+        client_posture,
+        monitor_action,
+        mut phase_rx,
+        mut monitor_rx,
+    } = params;
 
     let (mux_tx, mut mux_rx) = tokio::sync::mpsc::channel::<MuxEvent>(256);
-    let initial_forwarder = spawn_thread_forwarder(session_id.clone(), initial_rx, mux_tx.clone());
-    let mut subs = SubscriptionTable::new(
-        session_id,
-        SubscribedThread {
-            handle: initial_handle,
-            last_snapshot: initial_snapshot,
-            forwarder: initial_forwarder,
-            generation: 1,
-        },
-    );
-
-    // Consecutive streamed deltas ride one frame per coalescing window. Any
-    // non-delta event, a channel lag, a channel close, or the client's end
-    // frame flushes the pending run first, so ordering is never reordered.
+    let mut subs = SubscriptionTable::empty();
+    let mut interactive_guard = None;
     let mut pending_delta: Option<PendingDelta> = None;
     let mut flush_deadline: Option<tokio::time::Instant> = None;
+    let mut drain_latched = false;
+
+    let mut last_sent_phase = phase_rx.borrow().clone();
+    let drain = gate.triggered();
+    tokio::pin!(drain);
 
     let loop_result: Result<(), String> = loop {
         tokio::select! {
@@ -1400,6 +1446,92 @@ async fn run_attach_multiplexed(
                     break Err(e);
                 }
                 flush_deadline = None;
+            }
+            _ = &mut drain, if !drain_latched => {
+                drain_latched = true;
+                if !registry.server_phase().is_terminal() {
+                    registry.set_server_phase(ServerPhase::Draining {
+                        reason: gate.reason().map(|r| r.to_string()),
+                    });
+                }
+            }
+            changed = phase_rx.changed() => {
+                if changed.is_err() {
+                    break Ok(());
+                }
+                let phase = phase_rx.borrow_and_update().clone();
+                if phase == last_sent_phase {
+                    continue;
+                }
+                last_sent_phase = phase.clone();
+                if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                    break Err(e);
+                }
+                flush_deadline = None;
+                let is_draining = matches!(phase, ServerPhase::Draining { .. });
+                if let Err(e) = send_monitor(&mut wire_sink, MonitorEvent::ServerPhaseChanged(phase)).await {
+                    break Err(e);
+                }
+                if is_draining && subs.is_empty() && monitor_action.is_some_and(|m| m.watch) {
+                    let _ = wire_sink.close().await;
+                    break Ok(());
+                }
+            }
+            Some(mon) = recv_monitor_opt(&mut monitor_rx) => {
+                match mon {
+                    Ok(MonitorEvent::ServerPhaseChanged(phase)) => {
+                        if phase == last_sent_phase {
+                            continue;
+                        }
+                        last_sent_phase = phase.clone();
+                        if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                            break Err(e);
+                        }
+                        flush_deadline = None;
+                        let is_draining = matches!(phase, ServerPhase::Draining { .. });
+                        if let Err(e) = send_monitor(&mut wire_sink, MonitorEvent::ServerPhaseChanged(phase)).await {
+                            break Err(e);
+                        }
+                        if is_draining && subs.is_empty() && monitor_action.is_some_and(|m| m.watch) {
+                            let _ = wire_sink.close().await;
+                            break Ok(());
+                        }
+                    }
+                    Ok(event) => {
+                        let include_idle = monitor_action.is_some_and(|m| m.include_idle);
+                        let forward = match &event {
+                            MonitorEvent::ThreadAdded(row) | MonitorEvent::ThreadUpdated(row) => {
+                                include_idle || row.status.is_active()
+                            }
+                            _ => true,
+                        };
+                        if forward {
+                            if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                                break Err(e);
+                            }
+                            flush_deadline = None;
+                            if let Err(e) = send_monitor(&mut wire_sink, event).await {
+                                break Err(e);
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(skipped, "nuo server: monitor client lagged, resyncing");
+                        if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                            break Err(e);
+                        }
+                        flush_deadline = None;
+                        if let Some(action) = monitor_action {
+                            let snapshot = registry.monitor_snapshot(action).await;
+                            if let Err(e) = send_monitor(&mut wire_sink, MonitorEvent::Snapshot(snapshot)).await {
+                                break Err(e);
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        monitor_rx = None;
+                    }
+                }
             }
             mux_event = mux_rx.recv() => {
                 if let MuxControl::Stop(res) = handle_mux_event(
@@ -1413,22 +1545,47 @@ async fn run_attach_multiplexed(
                 }
             }
             msg = wire_source.next() => match msg {
+                Some(Ok(WireFrame::Wire(Wire::Control { request_id, request }))) => {
+                    if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
+                        break Err(e);
+                    }
+                    flush_deadline = None;
+                    match execute_control(
+                        &mut wire_sink,
+                        &registry,
+                        &gate,
+                        &listeners,
+                        &tcp_manager,
+                        request_id,
+                        request,
+                    )
+                    .await
+                    {
+                        Ok(true) => break Ok(()),
+                        Ok(false) => {}
+                        Err(e) => break Err(e),
+                    }
+                }
                 Some(Ok(WireFrame::Wire(Wire::Subscribe {
-                    action: sub_action,
+                    request_id,
+                    target,
                     project: sub_project,
                 }))) => {
+                    if interactive_guard.is_none() {
+                        interactive_guard = Some(conns.register_interactive());
+                    }
                     if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
                         break Err(e);
                     }
                     flush_deadline = None;
                     let env = MuxEnv {
-                        caller_project: &caller_project,
                         client_posture,
                         registry: &registry,
                         mux_tx: &mux_tx,
                     };
                     if let MuxControl::Stop(res) = handle_subscribe_frame(
-                        sub_action,
+                        request_id,
+                        target,
                         sub_project,
                         &env,
                         &mut subs,
@@ -1458,10 +1615,13 @@ async fn run_attach_multiplexed(
                     thread_id,
                     request: AgentRequest::EndThread,
                 }))) => {
-                    let target_id = thread_id
+                    let Some(target_id) = thread_id
                         .as_deref()
-                        .unwrap_or_else(|| subs.primary())
-                        .to_string();
+                        .or_else(|| subs.primary())
+                        .map(str::to_string)
+                    else {
+                        continue;
+                    };
                     if let MuxControl::Stop(res) = handle_end_thread(
                         target_id,
                         &registry,
@@ -1475,18 +1635,24 @@ async fn run_attach_multiplexed(
                     }
                 }
                 Some(Ok(WireFrame::Wire(Wire::Request { thread_id, request }))) => {
-                    let target_id = thread_id
+                    let Some(target_id) = thread_id
                         .as_deref()
-                        .unwrap_or_else(|| subs.primary())
-                        .to_string();
+                        .or_else(|| subs.primary())
+                        .map(str::to_string)
+                    else {
+                        let _ = send_error(
+                            &mut wire_sink,
+                            None,
+                            "cannot deliver request: connection has no subscribed thread",
+                        )
+                        .await;
+                        continue;
+                    };
                     forward_thread_request(&target_id, request, &subs, &mut wire_sink).await;
                 }
-                // A frame this build cannot model: report the skew on the
-                // server's own log and keep the connection. The peer still
-                // gets its turn to be understood [ADR-0136].
                 Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
                     tracing::warn!(
-                        session = %subs.primary(),
+                        session = subs.primary().unwrap_or("<none>"),
                         envelope = envelope.as_deref().unwrap_or("<none>"),
                         %detail,
                         "nuo server: undecodable frame from client; connection retained"
@@ -1575,93 +1741,7 @@ where
     .await
 }
 
-/// Serve a host-observability client: send one snapshot, then —
-/// while `watch` holds — stream diffs until the client hangs up. The channel
-/// is strictly server → client; monitor clients never steer sessions, so any
-/// inbound frame other than a close is ignored. The subscription is taken
-/// *before* the snapshot is composed so an event published between the two
-/// cannot be lost (it arrives as a redundant diff, which consumers tolerate —
-/// updates are idempotent whole-row replacements).
-async fn run_monitor(
-    mut wire_sink: BoxWireSink,
-    mut wire_source: BoxWireStream,
-    registry: Arc<crate::runtime::registry::ThreadRegistry>,
-    action: MonitorAction,
-    gate: Arc<ShutdownGate>,
-) -> Result<(), String> {
-    let mut rx = registry.subscribe_monitor();
-    let snapshot = registry.monitor_snapshot(action).await;
-    send_monitor(&mut wire_sink, MonitorEvent::Snapshot(snapshot)).await?;
-    if !action.watch {
-        let _ = wire_sink.close().await;
-        return Ok(());
-    }
-    let drain = gate.triggered();
-    tokio::pin!(drain);
-    loop {
-        tokio::select! {
-            // Server draining: say so on the stream, then close.
-            // Watch clients get an explicit terminal signal instead of an
-            // abrupt disconnect they might misread as a network fault.
-            _ = &mut drain => {
-                send_monitor(&mut wire_sink, MonitorEvent::ServerDraining).await?;
-                let _ = wire_sink.close().await;
-                return Ok(());
-            }
-            // Keep polling the inbound stream so WebSocket Ping frames are
-            // answered with Pong immediately (`tungstenite` flushes its
-            // auto-Pong on `read()`) and client disconnects end the task
-            // promptly instead of leaking until the next broadcast (ADR-0224).
-            inbound = wire_source.next() => match inbound {
-                Some(Ok(_)) => {}
-                Some(Err(e)) => {
-                    tracing::debug!(error = %e, "nuo server: monitor client read ended");
-                    return Ok(());
-                }
-                None => return Ok(()),
-            },
-            received = rx.recv() => {
-                let event = match received {
-                    Ok(event) => event,
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        // The client fell behind; rows are whole-row replacements, so
-                        // the safest resync is a fresh snapshot.
-                        tracing::warn!(
-                            skipped = n,
-                            "nuo server: monitor client lagged, resyncing"
-                        );
-                        let snapshot = registry.monitor_snapshot(action).await;
-                        send_monitor(&mut wire_sink, MonitorEvent::Snapshot(snapshot)).await?;
-                        continue;
-                    }
-                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
-                };
-                let filtered = match &event {
-                    MonitorEvent::ThreadAdded(row) | MonitorEvent::ThreadUpdated(row) => {
-                        if action.include_idle || row.status.is_active() {
-                            Some(event.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    MonitorEvent::Snapshot(_)
-                    | MonitorEvent::TaskUpdated(_)
-                    | MonitorEvent::TaskRemoved { .. }
-                    | MonitorEvent::PersistenceHealth(_)
-                    | MonitorEvent::ThreadRemoved { .. }
-                    | MonitorEvent::ServerDraining => Some(event.clone()),
-                };
-                if let Some(event) = filtered {
-                    send_monitor(&mut wire_sink, event).await?;
-                }
-            }
-        }
-    }
-}
-
-/// Send one monitor stream frame. Frames ride the `Wire::Monitor` envelope
-/// so the client sees the same wire shape for the initial
-/// snapshot and every diff.
+/// Send one server lifecycle / monitor stream frame.
 async fn send_monitor(wire_sink: &mut BoxWireSink, event: MonitorEvent) -> Result<(), String> {
     wire_sink
         .send(Wire::Monitor { event })
@@ -1669,19 +1749,25 @@ async fn send_monitor(wire_sink: &mut BoxWireSink, event: MonitorEvent) -> Resul
         .map_err(|e| format!("send monitor event: {e}"))
 }
 
-async fn send_error(wire_sink: &mut BoxWireSink, message: &str) -> Result<(), String> {
-    send_error_with_code(wire_sink, message, None).await
+async fn send_error(
+    wire_sink: &mut BoxWireSink,
+    request_id: Option<u64>,
+    message: &str,
+) -> Result<(), String> {
+    send_error_with_code(wire_sink, request_id, message, None).await
 }
 
 /// `send_error` with a stable machine-readable `code` so clients
 /// can branch on the reason instead of string-sniffing the message.
 async fn send_error_with_code(
     wire_sink: &mut BoxWireSink,
+    request_id: Option<u64>,
     message: &str,
     code: Option<&str>,
 ) -> Result<(), String> {
     wire_sink
         .send(Wire::Error {
+            request_id,
             message: message.to_string(),
             code: code.map(str::to_string),
         })

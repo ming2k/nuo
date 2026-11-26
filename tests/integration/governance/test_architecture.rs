@@ -25,7 +25,7 @@ const TIERS: &[&str] = &["crates"];
 const EXEMPT_CRATES: &[(&str, &str)] = &[];
 
 fn workspace_root() -> PathBuf {
-    nuo::dev::find_workspace_root()
+    test_support::dev::find_workspace_root()
 }
 
 fn workspace_crates(root: &Path) -> Vec<PathBuf> {

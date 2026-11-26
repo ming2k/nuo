@@ -84,6 +84,15 @@ pub struct ProviderSelection {
 pub use protocol::ContextProjectionResult;
 pub use protocol::{ContextProjectionCheckpoint, ContextProjectionKind};
 
+/// Offloaded base64 image reference for a `FactPayload::Message` inside the
+/// branch DAG sidecar (`ThreadData::graph`, ADR-0255 `[INV-SHARD-04]`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct GraphImageBlobRef {
+    pub(crate) fact_id: String,
+    pub(crate) index: usize,
+    pub(crate) hash: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThreadData {
@@ -102,6 +111,11 @@ pub struct ThreadData {
     /// without SQLite (ADR-0239).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) graph: Option<protocol::Thread>,
+    /// CAS blob hashes for offloaded base64 images inside `graph` (so branched
+    /// `Full` frames and `snap-*.json` snapshots never inline multi-megabyte
+    /// image pixels inside the DAG sidecar, ADR-0255).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) graph_image_blobs: Vec<GraphImageBlobRef>,
     /// Materialised catalog summary: message entries in the transcript.
     #[serde(default)]
     pub(crate) msg_count: u64,
@@ -171,6 +185,12 @@ pub struct ThreadData {
     /// the transcript.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) round_interrupts: Vec<protocol::RoundInterrupt>,
+    /// Durable per-round completion summaries (`round` -> wall-clock
+    /// `duration_ms`, `paused_ms`, `generation_ms`), persisted in the session
+    /// journal so `/trace` L1 and Round Inspector retain exact timing across
+    /// restarts and session switches (ADR-0263 `[INV-TRACE-03]`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) round_summaries: Vec<protocol::RoundSummary>,
     /// The durable `/retry` resume point (C12).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) retry_pending: Option<protocol::RetryPoint>,
@@ -197,6 +217,7 @@ impl ThreadData {
             active_branch: self.active_branch.clone(),
             branches: self.branches.clone(),
             graph: None,
+            graph_image_blobs: Vec::new(),
             msg_count,
             last_user_prompt,
             parent_id: self.parent_id.clone(),
@@ -226,6 +247,7 @@ impl ThreadData {
             // normalized rows; ordinary turns never clone or rewrite the ledger.
             commands: Vec::new(),
             round_interrupts: self.round_interrupts.clone(),
+            round_summaries: self.round_summaries.clone(),
             retry_pending: self.retry_pending.clone(),
             unattended: self.unattended,
         }
@@ -264,6 +286,7 @@ impl ThreadData {
         // the active transcript. Carry the previously materialised graph
         // forward; a branch/full frame supplies its own and replaces it.
         let graph = self.graph.take();
+        let graph_image_blobs = std::mem::take(&mut self.graph_image_blobs);
         match mode {
             crate::db::SaveMode::FullRewrite => *self = incoming,
             crate::db::SaveMode::MetadataOnly => {
@@ -298,6 +321,9 @@ impl ThreadData {
         // wholesale transcript rebuild (ADR-0239).
         if !matches!(mode, crate::db::SaveMode::FullRewrite) && self.graph.is_none() {
             self.graph = graph;
+            if self.graph_image_blobs.is_empty() {
+                self.graph_image_blobs = graph_image_blobs;
+            }
         }
     }
 }
@@ -318,6 +344,7 @@ impl Default for ThreadData {
                 branches
             },
             graph: None,
+            graph_image_blobs: Vec::new(),
             msg_count: 0,
             last_user_prompt: None,
             parent_id: None,
@@ -341,6 +368,7 @@ impl Default for ThreadData {
             request_usage_records: Vec::new(),
             commands: Vec::new(),
             round_interrupts: Vec::new(),
+            round_summaries: Vec::new(),
             retry_pending: None,
             unattended: false,
         }
@@ -522,8 +550,187 @@ pub(crate) fn verify_checksum(data: &ThreadData, session_id: &str) {
     }
 }
 
-/// Characters above which a message content is moved to the blob store.
-/// Rehydrate entry bodies from `content_blob` references after loading.
+/// True when any transcript entry or branch-graph fact carries an oversized
+/// inline text body or oversized inline base64 image that should be offloaded
+/// to the CAS before hitting disk (ADR-0255 `[INV-SHARD-04]`).
+pub(crate) fn needs_blob_offload(data: &ThreadData) -> bool {
+    let threshold = crate::db::CAS_THRESHOLD_BYTES;
+    let transcript_has_large = data.transcript.entries.iter().any(|entry| {
+        let EntryPayload::Message(payload) = &entry.payload else {
+            return false;
+        };
+        let large_text = entry
+            .content
+            .as_deref()
+            .is_some_and(|c| c.len() >= threshold);
+        let large_image = payload
+            .images
+            .as_ref()
+            .is_some_and(|imgs| imgs.iter().any(|img| img.data.len() >= threshold));
+        large_text || large_image
+    });
+    transcript_has_large
+        || data
+            .graph
+            .as_ref()
+            .is_some_and(|g| g.graph.has_large_inline_message_blobs(threshold))
+}
+
+/// Offload oversized message bodies (`content_blob`) and base64 image payloads
+/// (`image_blobs` / `graph_image_blobs`) into the content-addressed blob store
+/// on a disk-bound [`ThreadData`] clone so journal frames and `snap-*.json`
+/// snapshots never bloat with multi-megabyte inline text or image pixels
+/// (ADR-0255).
+///
+/// Entries that already carry a blob hash clear their inline copy in O(1)
+/// without re-hashing or re-writing the CAS file.
+pub(crate) fn offload_session_blobs(
+    data: &mut ThreadData,
+    blob_store: &BlobStore,
+) -> Result<(), String> {
+    let threshold = crate::db::CAS_THRESHOLD_BYTES;
+    for entry in data.transcript.entries.iter_mut() {
+        let EntryPayload::Message(payload) = &mut entry.payload else {
+            continue;
+        };
+        if let Some(content) = entry.content.as_deref()
+            && content.len() >= threshold
+        {
+            if payload.content_blob.is_none() {
+                let hash = blob_store.put(content.as_bytes())?;
+                payload.content_blob = Some(hash);
+            }
+            entry.content = Some(String::new());
+        }
+        if let Some(images) = payload.images.as_mut() {
+            for (idx, image) in images.iter_mut().enumerate() {
+                if image.data.len() >= threshold {
+                    if !payload.image_blobs.iter().any(|b| b.index == idx) {
+                        let hash = blob_store.put(image.data.as_bytes())?;
+                        payload
+                            .image_blobs
+                            .push(protocol::ImageBlobRef { index: idx, hash });
+                    }
+                    image.data.clear();
+                }
+            }
+        }
+    }
+    if let Some(graph_thread) = data.graph.as_mut() {
+        let graph_image_blobs = &mut data.graph_image_blobs;
+        graph_thread.graph.visit_messages_mut(|fact_id, message| {
+            if message.content.len() >= threshold {
+                if message.content_blob.is_none() {
+                    let hash = blob_store.put(message.content.as_bytes())?;
+                    message.content_blob = Some(hash);
+                }
+                message.content.clear();
+            }
+            if let Some(images) = message.images.as_mut() {
+                for (idx, image) in images.iter_mut().enumerate() {
+                    if image.data.len() >= threshold {
+                        if !graph_image_blobs
+                            .iter()
+                            .any(|b| b.fact_id == fact_id.0 && b.index == idx)
+                        {
+                            let hash = blob_store.put(image.data.as_bytes())?;
+                            graph_image_blobs.push(GraphImageBlobRef {
+                                fact_id: fact_id.0.clone(),
+                                index: idx,
+                                hash,
+                            });
+                        }
+                        image.data.clear();
+                    }
+                }
+            }
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+/// Collect every CAS blob reference carried by transcript messages and the
+/// branch DAG sidecar (`content_blob`, `image_blobs`, `graph_image_blobs`) so
+/// the content shard's `thread_blob_refs` ledger keeps them live across CAS
+/// garbage collection (ADR-0255).
+pub(crate) fn collect_session_blob_refs(
+    data: &ThreadData,
+) -> Vec<crate::db::content_projection::ExtraBlobRef> {
+    let mut refs = Vec::new();
+    let mut seen_keys = std::collections::HashSet::new();
+    for entry in &data.transcript.entries {
+        let EntryPayload::Message(payload) = &entry.payload else {
+            continue;
+        };
+        if let Some(hash) = payload.content_blob.as_ref() {
+            let key = format!("{}:body", entry.id);
+            if seen_keys.insert(key.clone()) {
+                refs.push(crate::db::content_projection::ExtraBlobRef {
+                    fact_id_key: key,
+                    hash: hash.clone(),
+                    size: entry.content.as_deref().map_or(0, str::len) as u64,
+                    mime: "text/plain".to_string(),
+                });
+            }
+        }
+        if !payload.image_blobs.is_empty() {
+            let images = payload.images.as_deref().unwrap_or(&[]);
+            for blob_ref in &payload.image_blobs {
+                let idx = blob_ref.index;
+                let key = format!("{}:img:{idx}", entry.id);
+                if seen_keys.insert(key.clone()) {
+                    let mime = images
+                        .get(idx)
+                        .map(|img| img.mime.clone())
+                        .unwrap_or_else(|| "application/octet-stream".to_string());
+                    let size = images.get(idx).map_or(0, |img| img.data.len() as u64);
+                    refs.push(crate::db::content_projection::ExtraBlobRef {
+                        fact_id_key: key,
+                        hash: blob_ref.hash.clone(),
+                        size,
+                        mime,
+                    });
+                }
+            }
+        }
+    }
+    if let Some(graph_thread) = data.graph.as_ref() {
+        for fact in graph_thread.graph.iter() {
+            if let protocol::FactPayload::Message { message } = &fact.payload
+                && let Some(hash) = message.content_blob.as_ref()
+            {
+                let key = format!("{}:body", fact.id.0);
+                if seen_keys.insert(key.clone()) {
+                    refs.push(crate::db::content_projection::ExtraBlobRef {
+                        fact_id_key: key,
+                        hash: hash.clone(),
+                        size: message.content.len() as u64,
+                        mime: "text/plain".to_string(),
+                    });
+                }
+            }
+        }
+    }
+    for blob_ref in &data.graph_image_blobs {
+        let key = format!("{}:img:{}", blob_ref.fact_id, blob_ref.index);
+        if seen_keys.insert(key.clone()) {
+            refs.push(crate::db::content_projection::ExtraBlobRef {
+                fact_id_key: key,
+                hash: blob_ref.hash.clone(),
+                size: 0,
+                mime: "application/octet-stream".to_string(),
+            });
+        }
+    }
+    refs
+}
+
+/// Rehydrate entry bodies (`content_blob`), image payloads (`image_blobs`), and
+/// branch-graph sidecar blobs (`graph` / `graph_image_blobs`) from the CAS
+/// after loading. Hash metadata is preserved so subsequent offloads and
+/// `thread_blob_refs` projections do not need to re-hash or re-write unchanged
+/// blobs.
 pub(crate) fn load_session_blobs(
     data: &mut ThreadData,
     blob_store: &BlobStore,
@@ -532,15 +739,85 @@ pub(crate) fn load_session_blobs(
         let EntryPayload::Message(payload) = &mut entry.payload else {
             continue;
         };
-        let Some(hash) = payload.content_blob.take() else {
-            continue;
-        };
-        let bytes = blob_store
-            .get(&hash)
-            .ok_or_else(|| format!("missing content blob {hash}"))?;
-        entry.content = Some(String::from_utf8(bytes).map_err(|e| e.to_string())?);
+        if let Some(hash) = payload.content_blob.as_deref()
+            && entry.content.as_deref().unwrap_or("").is_empty()
+        {
+            let bytes = blob_store
+                .get(hash)
+                .ok_or_else(|| format!("missing content blob {hash}"))?;
+            entry.content = Some(String::from_utf8(bytes).map_err(|e| e.to_string())?);
+        }
+        if !payload.image_blobs.is_empty()
+            && let Some(images) = payload.images.as_mut()
+        {
+            for blob_ref in &payload.image_blobs {
+                if let Some(image) = images.get_mut(blob_ref.index)
+                    && image.data.is_empty()
+                {
+                    let bytes = blob_store
+                        .get(&blob_ref.hash)
+                        .ok_or_else(|| format!("missing image blob {}", blob_ref.hash))?;
+                    image.data = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    if let Some(graph_thread) = data.graph.as_mut() {
+        let graph_image_blobs = &data.graph_image_blobs;
+        graph_thread.graph.visit_messages_mut(|fact_id, message| {
+            if let Some(hash) = message.content_blob.as_deref()
+                && message.content.is_empty()
+            {
+                let bytes = blob_store
+                    .get(hash)
+                    .ok_or_else(|| format!("missing graph content blob {hash}"))?;
+                message.content = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+            }
+            if let Some(images) = message.images.as_mut() {
+                for blob_ref in graph_image_blobs.iter().filter(|b| b.fact_id == fact_id.0) {
+                    if let Some(image) = images.get_mut(blob_ref.index)
+                        && image.data.is_empty()
+                    {
+                        let bytes = blob_store
+                            .get(&blob_ref.hash)
+                            .ok_or_else(|| format!("missing graph image blob {}", blob_ref.hash))?;
+                        image.data = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+            Ok(())
+        })?;
     }
     Ok(())
+}
+
+/// Rehydrate only `content_blob` text bodies (in both transcript and graph) for
+/// FTS indexing during cold shard rebuild, keeping base64 images offloaded.
+fn rehydrate_text_blobs_for_projection(data: &mut ThreadData, blob_store: &BlobStore) {
+    for entry in data.transcript.entries.iter_mut() {
+        let EntryPayload::Message(payload) = &mut entry.payload else {
+            continue;
+        };
+        if let Some(hash) = payload.content_blob.as_deref()
+            && entry.content.as_deref().unwrap_or("").is_empty()
+            && let Some(bytes) = blob_store.get(hash)
+            && let Ok(text) = String::from_utf8(bytes)
+        {
+            entry.content = Some(text);
+        }
+    }
+    if let Some(graph_thread) = data.graph.as_mut() {
+        let _ = graph_thread.graph.visit_messages_mut(|_fact_id, message| {
+            if let Some(hash) = message.content_blob.as_deref()
+                && message.content.is_empty()
+                && let Some(bytes) = blob_store.get(hash)
+                && let Ok(text) = String::from_utf8(bytes)
+            {
+                message.content = text;
+            }
+            Ok(())
+        });
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -656,6 +933,7 @@ pub(crate) struct SessionUndo {
     round_counter: u64,
     retry_pending: Option<protocol::RetryPoint>,
     round_interrupts_len: usize,
+    round_summaries: Vec<protocol::RoundSummary>,
     request_usage_records: Vec<protocol::RequestUsageRecord>,
     defer_persist: bool,
     /// Present iff the commit may replace the transcript wholesale: the exact
@@ -676,6 +954,7 @@ impl SessionUndo {
             round_counter: state.data.round_counter,
             retry_pending: state.data.retry_pending.clone(),
             round_interrupts_len: state.data.round_interrupts.len(),
+            round_summaries: state.data.round_summaries.clone(),
             request_usage_records: state.data.request_usage_records.clone(),
             defer_persist: state.defer_persist,
             replaced: None,
@@ -723,6 +1002,7 @@ impl SessionUndo {
             .data
             .round_interrupts
             .truncate(self.round_interrupts_len);
+        state.data.round_summaries = self.round_summaries;
         state.data.request_usage_records = self.request_usage_records;
         state.defer_persist = self.defer_persist;
         // The projection cache mirrors whatever transcript was current; after a
@@ -777,12 +1057,13 @@ pub(crate) fn journal_alias_path(journal_root: &Path, legacy_path: &Path) -> Pat
 fn write_journal_alias(journal_root: &Path, legacy_path: &Path, session_id: &str) {
     let path = journal_alias_path(journal_root, legacy_path);
     if let Some(parent) = path.parent()
-        && fs::create_dir_all(parent).is_err()
+        && crate::fs_privacy::ensure_private_dir(parent).is_err()
     {
         return;
     }
     let temp = path.with_extension("tmp");
     if fs::write(&temp, session_id).is_ok() {
+        crate::fs_privacy::restrict_private_file(&temp);
         if let Ok(file) = fs::File::open(&temp) {
             let _ = file.sync_all();
         }
@@ -1031,7 +1312,10 @@ pub(crate) fn last_effective_prompt_from_data(data: &ThreadData) -> Option<Strin
             && let Some(m) = entry.to_message()
             && !m.hidden
         {
-            return Some(m.content);
+            // Keep catalog & metadata frames bounded: `last_user_prompt` is a
+            // picker/monitor preview, never a second copy of a giant pasted
+            // prompt (ADR-0255 `[INV-SHARD-04]`).
+            return Some(truncate_preview(&m.content, 512));
         }
     }
     None
@@ -1119,7 +1403,7 @@ mod projection;
 pub(crate) use history::{thread_from_session_data, transcript_from_thread};
 pub(crate) use projection::{ProjectionJob, ProjectionState};
 
-pub use history::{CommitBasis, CommitTurn, ForkTarget};
+pub use history::{CommitTurn, ForkTarget};
 mod store;
 #[cfg(test)]
 mod tests;
@@ -1140,7 +1424,15 @@ pub fn catch_up_projections_for(handle: &crate::db::PersistenceHandle) -> Result
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(error) => return Err(format!("could not scan the journal root: {error}")),
     };
-    let mut repaired = 0usize;
+    struct PendingRepair {
+        id: String,
+        durable: u64,
+        present: bool,
+        data: Option<ThreadData>,
+        effects: Vec<crate::workspace_effects::WorkspaceEffect>,
+    }
+
+    let mut pending = Vec::new();
     for entry in entries.flatten() {
         if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
             continue;
@@ -1170,32 +1462,198 @@ pub fn catch_up_projections_for(handle: &crate::db::PersistenceHandle) -> Result
             continue;
         }
         let effects = journal.load_workspace_effects().unwrap_or_default();
-        if let Some(mut data) = journal.load()? {
-            if journal.is_deleted() {
-                continue;
+        let data = match journal.load()? {
+            Some(mut data) if !journal.is_deleted() => {
+                data.checksum = Some(compute_checksum(&data)?);
+                Some(data)
             }
-            data.checksum = Some(compute_checksum(&data)?);
-            match handle.save_session_blocking(data, Some(durable)) {
+            _ => None,
+        };
+        pending.push(PendingRepair {
+            id,
+            durable,
+            present,
+            data,
+            effects,
+        });
+    }
+
+    // Compute full ancestor depth so arbitrarily deep hierarchies
+    // (`root -> subagent -> sub-subagent -> ...`) replay strictly parent-before-child
+    // regardless of filesystem directory traversal order (ADR-0255).
+    let parent_by_id: std::collections::HashMap<String, Option<String>> = pending
+        .iter()
+        .map(|item| {
+            (
+                item.id.clone(),
+                item.data.as_ref().and_then(|d| d.parent_id.clone()),
+            )
+        })
+        .collect();
+    let mut depth_memo: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for id in parent_by_id.keys() {
+        let mut visiting = std::collections::HashSet::new();
+        let _ = ancestor_depth(id, &parent_by_id, &mut depth_memo, &mut visiting);
+    }
+    pending.sort_by_key(|item| {
+        (
+            depth_memo.get(&item.id).copied().unwrap_or(0),
+            item.id.clone(),
+        )
+    });
+
+    let mut repaired = 0usize;
+    for item in pending {
+        if let Some(mut data) = item.data {
+            if let Some(blob_store) = handle.blob_store() {
+                rehydrate_text_blobs_for_projection(&mut data, blob_store);
+            }
+            match handle.save_session_blocking(data, Some(item.durable)) {
                 Ok(()) => {
                     repaired = repaired.saturating_add(1);
-                    tracing::info!(session = %id, seq = durable, "rebuilt a derived session from its journal");
+                    tracing::info!(session = %item.id, seq = item.durable, "rebuilt a derived session from its journal");
                 }
                 Err(error) => {
-                    tracing::warn!(session = %id, %error, "could not rebuild a derived session");
+                    tracing::warn!(session = %item.id, %error, "could not rebuild a derived session");
                 }
             }
         }
-        if !effects.is_empty() {
-            if let Err(error) =
-                handle.replay_workspace_effects_blocking(id.clone(), effects, Some(durable))
-            {
-                tracing::warn!(session = %id, %error, "could not replay workspace effects from journal");
-            } else if !present {
+        if !item.effects.is_empty() {
+            if let Err(error) = handle.replay_workspace_effects_blocking(
+                item.id.clone(),
+                item.effects,
+                Some(item.durable),
+            ) {
+                tracing::warn!(session = %item.id, %error, "could not replay workspace effects from journal");
+            } else if !item.present {
                 repaired = repaired.saturating_add(1);
             }
         }
     }
     Ok(repaired)
+}
+
+/// Cycle-safe recursive ancestor depth over a pending rebuild map.
+fn ancestor_depth(
+    id: &str,
+    parents: &std::collections::HashMap<String, Option<String>>,
+    memo: &mut std::collections::HashMap<String, usize>,
+    visiting: &mut std::collections::HashSet<String>,
+) -> usize {
+    if let Some(&depth) = memo.get(id) {
+        return depth;
+    }
+    if !visiting.insert(id.to_string()) {
+        return 0;
+    }
+    let depth = match parents.get(id).and_then(|p| p.as_deref()) {
+        Some(parent_id) if parents.contains_key(parent_id) => {
+            ancestor_depth(parent_id, parents, memo, visiting).saturating_add(1)
+        }
+        _ => 0,
+    };
+    visiting.remove(id);
+    memo.insert(id.to_string(), depth);
+    depth
+}
+
+/// Replay a single session's journal into the catalog + owning content shard
+/// on demand (runtime self-healing when a disposable shard is deleted or
+/// invalidated while the server is running, ADR-0255).
+///
+/// Deliberately avoids calling `handle.reader()` so it can be invoked safely
+/// from inside an active `DbReader` without risking reader-pool exhaustion.
+pub(crate) fn catch_up_single_session(
+    handle: &crate::db::PersistenceHandle,
+    session_id: &str,
+) -> Result<bool, String> {
+    if handle.is_lock_contention() {
+        return Ok(false);
+    }
+    let root = journal_root(handle.db_path());
+    if !root.join(session_id).is_dir() {
+        return Ok(false);
+    }
+    let journal = crate::journal::SessionJournal::shared(&root, session_id);
+    if journal.is_deleted() {
+        return Ok(false);
+    }
+    let durable = journal.durable_seq();
+    if durable == 0 {
+        return Ok(false);
+    }
+    let mut repaired = false;
+    if let Some(mut data) = journal.load()?
+        && !journal.is_deleted()
+    {
+        if let Some(blob_store) = handle.blob_store() {
+            rehydrate_text_blobs_for_projection(&mut data, blob_store);
+        }
+        data.checksum = Some(compute_checksum(&data)?);
+        handle
+            .save_session_blocking(data, Some(durable))
+            .map_err(|error| error.to_string())?;
+        repaired = true;
+    }
+    let effects = journal.load_workspace_effects().unwrap_or_default();
+    if !effects.is_empty() {
+        handle
+            .replay_workspace_effects_blocking(session_id.to_string(), effects, Some(durable))
+            .map_err(|error| error.to_string())?;
+        repaired = true;
+    }
+    if repaired {
+        tracing::info!(
+            session = %session_id,
+            seq = durable,
+            "self-healed missing/outdated content shard from session journal"
+        );
+    }
+    Ok(repaired)
+}
+
+/// True iff every non-deleted session journal on disk with commits has been
+/// absorbed by both the catalog plane and its owning content shard
+/// (`projection_watermark >= durable_seq`).
+///
+/// Used as a fail-closed gate before CAS garbage collection (ADR-0255): if any
+/// journal is still ahead of its derived shard, sweeping `blobs/` would risk
+/// deleting authoritative blobs not yet recorded in `thread_blob_refs`.
+pub(crate) fn all_journals_caught_up(
+    handle: &crate::db::PersistenceHandle,
+) -> Result<bool, String> {
+    let root = journal_root(handle.db_path());
+    let Ok(entries) = fs::read_dir(&root) else {
+        return Ok(true);
+    };
+    let reader = handle
+        .reader()
+        .map_err(|error| format!("could not open reader to verify catch-up: {error}"))?;
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().into_owned();
+        if id == "aliases" {
+            continue;
+        }
+        let journal = crate::journal::SessionJournal::shared(&root, &id);
+        if journal.is_deleted() {
+            continue;
+        }
+        let durable = journal.durable_seq();
+        if durable == 0 {
+            continue;
+        }
+        let watermark = reader
+            .projection_watermark(&id)
+            .map_err(|error| error.to_string())?
+            .unwrap_or(0);
+        if watermark < durable {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Process-wide catch-up: the first caller pays for the scan, later callers

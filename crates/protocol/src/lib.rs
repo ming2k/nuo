@@ -37,9 +37,9 @@ pub mod discovery;
 pub use discovery::{Discovery, ServerInfo};
 pub mod version;
 pub use version::{
-    ERR_PROTOCOL_MISMATCH, ERR_SESSION_GONE, ERR_SESSION_UNRESUMABLE, ERR_VERSION_MISMATCH,
-    incompatibility_error, protocol_accepts, protocol_mismatch, version_mismatch,
-    versions_compatible,
+    ERR_PROTOCOL_MISMATCH, ERR_SERVER_DRAINING, ERR_SERVER_FAILED, ERR_SERVER_NOT_READY,
+    ERR_SESSION_GONE, ERR_SESSION_UNRESUMABLE, ERR_VERSION_MISMATCH, incompatibility_error,
+    protocol_accepts, protocol_mismatch, version_mismatch, versions_compatible,
 };
 pub mod cache;
 pub use cache::{
@@ -63,8 +63,8 @@ pub use error::{
 pub mod transcript;
 pub use transcript::{
     CompactionMeta, DirectiveKind, DirectivePayload, EntryKind, EntryOrigin, EntryPayload,
-    MessagePayload, ProjectionDirective, PrunedMediaOutput, PrunedToolOutput, StatePayload,
-    SubagentRef, Transcript, TranscriptEntry, checkpoint_message,
+    ImageBlobRef, MessagePayload, ProjectionDirective, PrunedMediaOutput, PrunedToolOutput,
+    StatePayload, SubagentRef, Transcript, TranscriptEntry, checkpoint_message,
 };
 
 pub mod context;
@@ -79,7 +79,6 @@ pub use language::{MAX_LANGUAGE_TAG_LEN, ResponseLanguage};
 pub mod observation;
 pub mod request_builder;
 pub mod thread;
-pub mod thread_store;
 pub mod thread_view;
 pub use instructions::{
     Block, Boundary, InstructionRoute, InstructionSelector, InstructionSource, InstructionText,
@@ -97,16 +96,9 @@ pub use observation::{
 };
 pub use request_builder::{RequestBuilder, RequestContext};
 pub use thread::{
-    BlobRef, BranchId, BranchPolicy, BranchState, ByteRange, Client, ClientId, ClientState,
-    CommandEnvelope, CommandMeta, CommandOutcome, FACT_SCHEMA_VERSION, FactContext, FactEnvelope,
-    FactId, FactKind, FactPayload, InputQueue, PermissionSnapshot, QueuedInput,
-    THREAD_SCHEMA_VERSION, Thread, ThreadCommand, ThreadDelta, ThreadError, ThreadFact,
-    ThreadGraph, ThreadId, ThreadPolicy, ThreadQuery, ThreadRevision, ThreadState,
-    ThreadStateUpdate, ThreadStatus, TranscriptItem, TranscriptView, TurnState, WriterLease,
-};
-pub use thread_store::{
-    Ack, BlobStore, CommandAck, GcReport, MemoryBlobStore, MemoryThreadStore, ThreadStore,
-    ThreadStoreError,
+    BlobRef, BranchId, BranchPolicy, BranchState, FactContext, FactId, FactKind, FactPayload,
+    THREAD_SCHEMA_VERSION, Thread, ThreadError, ThreadFact, ThreadGraph, ThreadId, ThreadRevision,
+    ThreadState, ThreadStatus,
 };
 pub use thread_view::{FactSummary, FoldReason, FoldRecord, RequestView, ThreadWindow};
 
@@ -260,7 +252,8 @@ pub use model::{
 };
 pub use monitor::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredTask, MonitoredThread,
-    PersistenceHealth, StoragePressure, ThreadActivity, ThreadHosting,
+    PersistenceHealth, ServerInitStage, ServerPhase, StoragePressure, ThreadActivity,
+    ThreadHosting,
 };
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
@@ -372,7 +365,16 @@ pub use policy_schema::{
 /// 34: Server-scoped draft catalog reconciliation (ADR-0250).
 /// `AgentRequest` gains `CheckThreadsExist`; `AgentResponse` gains
 /// `ThreadsExistence` and `ThreadDeleted`. Floor moves with the ceiling.
-pub const PROTOCOL_VERSION: u32 = 35;
+/// 35: Monotonic per-thread generation gating (`ThreadKey { id, generation }`,
+/// ADR-0253).
+/// 36: Server lifecycle contract and session-free unified handshake (ADR-0260).
+/// `Wire::Select`/`Welcome` and `AttachAction` are replaced by `Wire::Hello` ->
+/// `Wire::ServerHello` and `ThreadTarget`; `ServerPhase` and
+/// `MonitorEvent::ServerPhaseChanged` replace `MonitorEvent::ServerDraining`;
+/// `ThreadPhase` retires `Binding` and unproduced `Loading`; `Subscribe`,
+/// `Subscribed`, `Pick`, `Control`, `ControlReply`, and `Error` carry
+/// `request_id` for unified single-connection multiplexing. Clean break.
+pub const PROTOCOL_VERSION: u32 = 36;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -431,95 +433,26 @@ impl ThreadInitOptions {
     }
 }
 
-/// What role the connection wants to assume.
-#[derive(Debug, Clone, PartialEq)]
-pub enum AttachAction {
-    New(Option<ThreadInitOptions>),
-    Attach(Option<String>),
-    Picker(Option<ThreadInitOptions>),
-    Control(ControlRequest),
-    Monitor(MonitorAction),
-}
-
-impl Serialize for AttachAction {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::New(None) => serializer.serialize_str("new"),
-            Self::New(Some(opts)) => {
-                use serde::ser::SerializeMap;
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("new", opts)?;
-                map.end()
-            }
-            Self::Attach(id) => {
-                use serde::ser::SerializeMap;
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("attach", id)?;
-                map.end()
-            }
-            Self::Picker(None) => serializer.serialize_str("picker"),
-            Self::Picker(Some(opts)) => {
-                use serde::ser::SerializeMap;
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("picker", opts)?;
-                map.end()
-            }
-            Self::Control(req) => {
-                use serde::ser::SerializeMap;
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("control", req)?;
-                map.end()
-            }
-            Self::Monitor(act) => {
-                use serde::ser::SerializeMap;
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("monitor", act)?;
-                map.end()
-            }
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for AttachAction {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        enum RawAttachAction {
-            New(Option<ThreadInitOptions>),
-            Attach(Option<String>),
-            Picker(Option<ThreadInitOptions>),
-            Control(ControlRequest),
-            Monitor(MonitorAction),
-        }
-
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum WireHelper {
-            Str(String),
-            Structured(RawAttachAction),
-        }
-
-        match WireHelper::deserialize(deserializer)? {
-            WireHelper::Str(s) => match s.as_str() {
-                "new" => Ok(AttachAction::New(None)),
-                "picker" => Ok(AttachAction::Picker(None)),
-                other => Err(serde::de::Error::unknown_variant(other, &["new", "picker"])),
-            },
-            WireHelper::Structured(raw) => Ok(match raw {
-                RawAttachAction::New(opts) => AttachAction::New(opts),
-                RawAttachAction::Attach(id) => AttachAction::Attach(id),
-                RawAttachAction::Picker(opts) => AttachAction::Picker(opts),
-                RawAttachAction::Control(c) => AttachAction::Control(c),
-                RawAttachAction::Monitor(m) => AttachAction::Monitor(m),
-            }),
-        }
-    }
+/// Target for subscribing a connection to a thread (`Wire::Subscribe`, ADR-0260).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ThreadTarget {
+    /// Create a fresh thread in the caller's project.
+    New {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<ThreadInitOptions>,
+    },
+    /// Attach to a specific thread by ID, or auto-resolve the caller's project
+    /// thread when `id` is `None`.
+    Attach {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// Open a lightweight picker carrier thread for the threads browser.
+    Picker {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<ThreadInitOptions>,
+    },
 }
 
 /// Single-shot session-management verbs.
@@ -638,7 +571,7 @@ pub struct ServerEndpointsReport {
 
 /// The unified wire envelope on every connection.
 ///
-/// Payloads are **nested** (`{"type":"response","response":{…}}`), never
+/// Payloads are **nested** (`{"type":"Response","response":{…}}`), never
 /// flattened into the envelope. `#[serde(flatten)]` forces the decoder to
 /// buffer the frame into an intermediate map before it can name the inner
 /// enum, which is a per-frame allocation and copy on the stream hot path —
@@ -648,61 +581,63 @@ pub struct ServerEndpointsReport {
 #[serde(tag = "type")]
 #[allow(clippy::large_enum_variant)]
 pub enum Wire {
-    /// Handshake frame declaring role, scope, and capabilities.
-    Select {
-        action: AttachAction,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        project: Option<std::path::PathBuf>,
-        #[serde(default)]
-        posture: human_request::HumanChannelPosture,
+    /// Session-free handshake frame declaring protocol version, posture, and
+    /// optional server-observability subscription (ADR-0260 `[INV-SRVPHASE-02]`).
+    Hello {
+        /// The wire protocol this client speaks. **Required.**
+        protocol: u32,
         /// The product build, advisory identity only.
-        ///
-        /// It is **not** a gate: the protocol number below decides whether this
-        /// peer can be served. Keeping it lets a refusal name both builds.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         version: Option<String>,
-        /// The wire protocol this client speaks. **Required.**
-        ///
-        /// There is no pre-protocol client: dropping the field from `Option`
-        /// deleted the "judge it by exact product-version equality instead"
-        /// fallback, which was a compatibility lane for peers that no longer
-        /// exist. A `Select` without a protocol number is now a deserialization
-        /// failure at the boundary — loud, at the right layer, instead of a
-        /// silently different admission rule.
-        protocol: u32,
+        #[serde(default)]
+        posture: human_request::HumanChannelPosture,
+        /// When `Some`, includes an initial [`MonitorSnapshot`] in
+        /// [`Wire::ServerHello`] and (if `watch: true`) streams live
+        /// [`MonitorEvent`] updates over this same connection.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        monitor: Option<MonitorAction>,
     },
-    /// Server acknowledgement of an attached connection.
+    /// Immediate server-level handshake acknowledgement (ADR-0260 `[INV-SRVPHASE-02]`).
     ///
-    /// `[INV-ATTACH-03]` (ADR-0133): a handle, not a payload. The server sends
-    /// this as soon as it has claimed a thread identity — before opening the
-    /// thread store, building the agent, loading skills, running hooks, or
-    /// touching any provider credential. Hydration follows on the same
-    /// connection as an authoritative [`crate::AgentResponse::ThreadSnapshot`],
-    /// and readiness transitions arrive as
-    /// [`crate::AgentResponse::ThreadPhase`].
-    Welcome {
+    /// Sent as soon as protocol compatibility is verified — before any thread
+    /// is claimed and regardless of whether `phase` is `Initializing`, `Ready`,
+    /// `Reloading`, `Draining`, or `Failed`.
+    ServerHello {
+        server_id: String,
+        protocol: u32,
+        version: String,
+        started_at: u64,
+        phase: ServerPhase,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        persistence_health: Option<PersistenceHealth>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        monitor: Option<MonitorSnapshot>,
+    },
+    /// Subscribe this connection to a thread (create new, attach, or picker)
+    /// without tearing down existing subscriptions (ADR-0251, ADR-0260).
+    Subscribe {
+        request_id: u64,
+        target: ThreadTarget,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<std::path::PathBuf>,
+    },
+    /// Server acknowledgement for [`Wire::Subscribe`], preceding that thread's
+    /// authoritative [`AgentResponse::ThreadSnapshot`] and `ThreadPhase::Ready`.
+    Subscribed {
+        request_id: u64,
         thread_id: String,
         #[serde(default)]
         generation: u64,
         phase: ThreadPhase,
     },
-    /// Server response to ambiguous attach / picker.
-    Pick { threads: Vec<ThreadOverview> },
-    /// Reply to single-shot control verb.
-    ControlReply {
-        ok: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        thread_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-        /// ADR-0171: the verb's JSON-encoded result. Data-bearing verbs
-        /// (`ListThreads`, `StopThreads`, `PurgeThreads`, usage/endpoint
-        /// reports, Archivist answers) carry their answer here; verbs without
-        /// a result leave it `None`. The `error` field is errors only.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        payload: Option<String>,
+    /// Server response to an ambiguous auto-attach [`Wire::Subscribe`].
+    Pick {
+        request_id: u64,
+        threads: Vec<ThreadOverview>,
     },
-
+    /// Detach a subscribed thread from this connection, releasing its
+    /// `HumanChannel` hold and stopping event forwarding (ADR-0251).
+    Unsubscribe { thread_id: String },
     /// Full-duplex client agent request envelope.
     ///
     /// On a multiplexed connection (ADR-0251), `thread_id` names the target
@@ -713,34 +648,40 @@ pub enum Wire {
         thread_id: Option<String>,
         request: AgentRequest,
     },
-    /// Subscribe this connection to an additional thread (attach or create new)
-    /// without tearing down existing subscriptions (ADR-0251).
-    Subscribe {
-        action: AttachAction,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        project: Option<std::path::PathBuf>,
-    },
-    /// Detach a subscribed thread from this connection, releasing its
-    /// `HumanChannel` hold and stopping event forwarding (ADR-0251).
-    Unsubscribe { thread_id: String },
-    /// Server acknowledgement for [`Wire::Subscribe`], preceding that thread's
-    /// authoritative [`AgentResponse::ThreadSnapshot`] and `ThreadPhase::Ready`.
-    Subscribed {
-        thread_id: String,
-        #[serde(default)]
-        generation: u64,
-        phase: ThreadPhase,
-    },
     /// Full-duplex server agent response envelope.
     Response {
         response: AgentResponse,
         #[serde(default, skip_serializing_if = "is_zero_u64")]
         generation: u64,
     },
-    /// Server observability event envelope.
+    /// Session-free control-plane verb over the unified connection (ADR-0260).
+    Control {
+        request_id: u64,
+        request: ControlRequest,
+    },
+    /// Reply to a [`Wire::Control`] verb.
+    ControlReply {
+        request_id: u64,
+        ok: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+        /// ADR-0171: the verb's JSON-encoded result. Data-bearing verbs
+        /// (`ListThreads`, `StopThreads`, `PurgeThreads`, usage/endpoint
+        /// reports, Archivist answers) carry their answer here; verbs without
+        /// a result leave it `None`. The `error` field is errors only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        payload: Option<String>,
+    },
+    /// Server lifecycle & observability event envelope.
     Monitor { event: MonitorEvent },
-    /// Connection-level error envelope.
+    /// Connection-level or request-correlated error envelope.
     Error {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
@@ -951,6 +892,7 @@ mod readiness_protocol_tests {
         let error = NativeWireCodec
             .encode(
                 Wire::Error {
+                    request_id: None,
                     message: "x".repeat(MAX_WIRE_FRAME_SIZE + 1),
                     code: None,
                 },
@@ -973,6 +915,7 @@ mod readiness_protocol_tests {
     fn the_stream_stays_aligned_after_an_undecodable_frame() {
         let unknown = br#"{"type":"Response","response":{"NoSuchVariant":{}}}"#;
         let good = serde_json::to_vec(&Wire::Error {
+            request_id: None,
             message: "still here".to_string(),
             code: None,
         })
@@ -982,6 +925,7 @@ mod readiness_protocol_tests {
         NativeWireCodec
             .encode(
                 Wire::Error {
+                    request_id: None,
                     message: "first".to_string(),
                     code: None,
                 },
@@ -1010,17 +954,41 @@ mod readiness_protocol_tests {
         );
     }
 
-    /// ADR-0133 / ADR-0135: Welcome is a handle, not a hydration payload.
+    /// ADR-0260: ServerHello is session-free and carries server lifecycle state.
     #[test]
-    fn welcome_carries_identity_and_phase_only() {
-        let welcome = Wire::Welcome {
+    fn server_hello_is_session_free_and_carries_server_phase() {
+        let hello = Wire::ServerHello {
+            server_id: "srv-1".to_string(),
+            protocol: PROTOCOL_VERSION,
+            version: "1.0.0".to_string(),
+            started_at: 1_700_000_000,
+            phase: ServerPhase::Initializing {
+                stage: ServerInitStage::Storage,
+            },
+            persistence_health: None,
+            monitor: None,
+        };
+        let json = serde_json::to_string(&hello).unwrap();
+        assert!(json.contains(r#""type":"ServerHello""#));
+        assert!(json.contains(r#""phase":"initializing""#));
+        assert!(json.contains(r#""stage":"storage""#));
+        assert!(!json.contains("thread_id"));
+    }
+
+    /// ADR-0133 / ADR-0260: Subscribed carries identity and preparing phase only.
+    #[test]
+    fn subscribed_carries_identity_and_phase_only() {
+        let sub = Wire::Subscribed {
+            request_id: 7,
             thread_id: "thread-1".to_string(),
             generation: 1,
-            phase: ThreadPhase::Binding,
+            phase: ThreadPhase::Preparing {
+                stage: PrepareStage::Thread,
+            },
         };
-        let json = serde_json::to_string(&welcome).unwrap();
-        assert!(json.contains(r#""type":"Welcome""#));
-        assert!(json.contains(r#""phase":"binding""#));
+        let json = serde_json::to_string(&sub).unwrap();
+        assert!(json.contains(r#""type":"Subscribed""#));
+        assert!(json.contains(r#""phase":"preparing""#));
         assert!(json.contains(r#""thread_id":"thread-1""#));
         assert!(!json.contains("messages"));
         assert!(!json.contains("command_catalog"));

@@ -58,7 +58,7 @@ arboard = { version = "3.6", default-features = false }
 uuid = { version = "1", features = ["v4", "serde"] }
 httpdate = "1"
 fastrand = "2"
-chrono = { version = "0.4", features = ["serde"] }
+jiff = { version = "1.0", features = ["serde"] }
 sha2 = "0.10"
 md-5 = "0.10"
 rsa = { version = "0.10", features = ["pkcs1v15"] }
@@ -184,7 +184,7 @@ tool-ast = { version = "0.0.101", path = "crates/tool-ast" }
 # The root test host links every crate whose public surface the integration
 # and E2E suites exercise. All edges are dev-only; `nuo-tests` is not shipped.
 [dev-dependencies]
-nuo = { workspace = true, features = ["dev-tools"] }
+nuo = { workspace = true }
 acp = { workspace = true }
 engine = { workspace = true }
 host = { workspace = true }
@@ -231,7 +231,10 @@ walkdir = { workspace = true }
 workspace = true
 
 [workspace.lints.rust]
-unsafe_code = "allow"
+# Shipped crates deny `unsafe` by default. OS-boundary crates (`host`) and
+# explicitly audited Unix process-group / pre-exec / dev-startup sites opt in
+# locally with a `// SAFETY:` contract.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 # Shipped code must not abort the process or silently short-circuit: fallible
@@ -249,7 +252,7 @@ print_stderr = "allow"
 
 # rustdoc is a hard gate alongside clippy: a citation that does not resolve, a
 # public doc that reaches a private item, or a stray HTML tag fails `cargo doc`
-# (CI `docs` step). The workspace cites hundreds of items and ~100 ADRs, so this
+# (CI `docs` step). The workspace cites hundreds of items and 250+ ADRs, so this
 # drift has to be caught mechanically rather than by review.
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"

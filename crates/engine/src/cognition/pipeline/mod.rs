@@ -59,6 +59,9 @@ pub struct HarnessTaskPipeline {
 /// Legacy alias for [`HarnessTaskPipeline`].
 pub type CognitivePipeline = HarnessTaskPipeline;
 
+/// Character budget for a raw prompt excerpt fed to [`ThreadTitleTask`].
+const TITLE_PROMPT_BUDGET_CHARS: usize = 1_000;
+
 impl HarnessTaskPipeline {
     /// Create a new harness task pipeline bound to `provider`.
     pub fn new(provider: Arc<dyn Provider>) -> Self {
@@ -164,6 +167,17 @@ impl HarnessTaskPipeline {
             }
         }
     }
+
+    /// Distill a raw user prompt into a concise thread title, applying the
+    /// prompt excerpt budget and skipping blank inputs.
+    pub async fn generate_title_from_prompt(&self, prompt: &str) -> Option<String> {
+        let trimmed = prompt.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let excerpt: String = trimmed.chars().take(TITLE_PROMPT_BUDGET_CHARS).collect();
+        self.generate_title(ThreadTitleInput { excerpt }).await
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +255,27 @@ mod tests {
                 })
                 .await
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_title_from_prompt_skips_blank_and_trims() {
+        let provider = Arc::new(MockProvider {
+            response: Ok("\"Refactor user auth\"".to_string()),
+        });
+        let pipeline = CognitivePipeline::new(provider);
+        assert!(
+            pipeline
+                .generate_title_from_prompt("  \n\t ")
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            pipeline
+                .generate_title_from_prompt("Can we refactor auth.rs?")
+                .await
+                .as_deref(),
+            Some("Refactor user auth")
         );
     }
 

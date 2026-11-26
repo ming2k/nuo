@@ -207,7 +207,24 @@ async fn all_historical_on_disk_versions_upgrade_through_persistence_handle_and_
         let after = inspect_db(&db_path).unwrap();
         assert_eq!(after.user_version, CURRENT_DB_VERSION);
         assert_eq!(after.ledger.len(), CURRENT_DB_VERSION as usize);
-        assert!(!after.tables.iter().any(|t| t == "request_projections"));
+        for retired in [
+            "request_projections",
+            "causal_nodes",
+            "thread_branches",
+            "thread_blob_refs",
+            "command_acts",
+            "workspace_effects",
+            "fts_thread_facts",
+            "thread_commands",
+            "thread_leases",
+            "thread_lease_counters",
+            "thread_blobs",
+        ] {
+            assert!(
+                !after.tables.iter().any(|t| t == retired),
+                "retired table {retired} must not remain in nuo.db after v{from_version} -> v{CURRENT_DB_VERSION}"
+            );
+        }
         assert!(after.tables.iter().any(|t| t == "permission_rules"));
         assert!(after.tables.iter().any(|t| t == "projection_watermarks"));
         verify_db_integrity(&db_path).unwrap();

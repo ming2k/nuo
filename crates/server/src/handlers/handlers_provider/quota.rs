@@ -300,7 +300,7 @@ pub(crate) fn build_provider_quota_snapshot(
         total_accounts,
         available_accounts,
         depleted_accounts,
-        updated_at_ms: chrono::Utc::now().timestamp_millis() as u64,
+        updated_at_ms: jiff::Timestamp::now().as_millisecond().max(0) as u64,
     }
 }
 

@@ -4,27 +4,25 @@ use super::*;
 
 /// The lifecycle of a claimed thread: existence is not readiness.
 ///
-/// `[INV-ATTACH-04]` (ADR-0133): a client MUST NOT submit a turn before
-/// [`Self::Ready`], and the authoritative snapshot (plus the workspace-trust
-/// snapshot it carries) MUST arrive before `Ready`. Failure after Welcome is a
-/// phase — not a disconnect — and MUST NOT terminate the client (extends
-/// `[INV-ATTACH-02]` to post-handshake assembly).
+/// `[INV-ATTACH-04]` (ADR-0133) & `[INV-SRVPHASE-01]` (ADR-0260): a client
+/// MUST NOT submit a turn before [`Self::Ready`], and the authoritative
+/// snapshot (plus the workspace-trust snapshot it carries) MUST arrive before
+/// `Ready`. Failure after subscription acknowledgement is a phase — not a
+/// disconnect — and MUST NOT terminate the client. Every variant has a live
+/// server producer; no transient internal claim or unproduced placeholder
+/// variants exist.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum ThreadPhase {
-    /// Identity claimed; no store or harness exists yet. The server sends this
-    /// in the Welcome frame.
-    Binding,
-    /// The durable thread store is being opened or resumed.
-    Loading,
     /// Local harness assembly is in progress.
     Preparing { stage: PrepareStage },
     /// The thread is usable: snapshot delivered, local harness assembled.
     /// Network work (OAuth, remote skills, MCP, catalog) may still be running
     /// and MUST NOT be a prerequisite of this state.
     Ready,
-    /// Assembly failed after the handshake. `code` carries the machine-readable
-    /// taxonomy (`[INV-ATTACH-01]`), e.g. `thread_unresumable`.
+    /// Assembly failed after subscription acknowledgement. `code` carries the
+    /// machine-readable taxonomy (`[INV-ATTACH-01]`), e.g.
+    /// `session_unresumable`.
     Failed {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,

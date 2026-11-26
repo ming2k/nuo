@@ -160,32 +160,31 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                 }
             }
             crate::shell::overlays::ConfigCategory::Components => {
-                use crate::shell::views::settings::components::{ComponentRowId, row_for_index};
+                use view::views::settings::components::{ComponentRowId, row_for_index};
                 match row_for_index(app.surfaces.config_detail_index) {
                     Some(ComponentRowId::Reasoning) => {
-                        let next = !crate::shell::config::reasoning_default_expanded(
-                            &app.session.tui_config,
-                        );
+                        let next =
+                            !view::tui_config::reasoning_default_expanded(&app.session.tui_config);
                         if next {
                             app.session
                                 .tui_config
                                 .default_expanded
-                                .insert(crate::shell::config::THINKING_KEY.to_string(), true);
+                                .insert(view::tui_config::THINKING_KEY.to_string(), true);
                         } else {
                             app.session
                                 .tui_config
                                 .default_expanded
-                                .remove(crate::shell::config::THINKING_KEY);
+                                .remove(view::tui_config::THINKING_KEY);
                         }
                         app.viewport.reasoning_default_expanded = next;
                         app.save_tui_config();
                     }
                     Some(ComponentRowId::Tool(component)) => {
-                        let next = !crate::shell::config::tool_default_expanded(
+                        let next = !view::tui_config::tool_default_expanded(
                             &app.session.tui_config,
                             component.primary_name(),
                         );
-                        crate::shell::config::set_component_default_expanded(
+                        view::tui_config::set_component_default_expanded(
                             &mut app.session.tui_config,
                             component,
                             next,
@@ -229,11 +228,10 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 .as_ref()
                                 .map(|ws| ws.provider.as_str())
                                 .unwrap_or("exa");
-                            let dropdown =
-                                crate::shell::views::settings::build_websearch_provider_dropdown(
-                                    current,
-                                    app.surfaces.websearch_config.as_ref(),
-                                );
+                            let dropdown = view::views::settings::build_websearch_provider_dropdown(
+                                current,
+                                app.surfaces.websearch_config.as_ref(),
+                            );
                             app.surfaces.config_dropdown = Some((dropdown, anchor));
                         } else {
                             let current = app
@@ -242,11 +240,10 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 .as_ref()
                                 .map(|ws| ws.reader.as_str())
                                 .unwrap_or("disabled");
-                            let dropdown =
-                                crate::shell::views::settings::build_websearch_reader_dropdown(
-                                    current,
-                                    app.surfaces.websearch_config.as_ref(),
-                                );
+                            let dropdown = view::views::settings::build_websearch_reader_dropdown(
+                                current,
+                                app.surfaces.websearch_config.as_ref(),
+                            );
                             app.surfaces.config_dropdown = Some((dropdown, anchor));
                         }
                     }

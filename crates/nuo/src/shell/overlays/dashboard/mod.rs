@@ -46,11 +46,11 @@ use protocol::{MonitoredThread, ThreadActivity, ThreadHosting};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;
-use crate::shell::view_header::TabBarProps;
 use ui_primitives::design::INPUT_PROMPT_PREFIX;
 use ui_primitives::primitives::{
     ElevationContainer, LayoutTier, SCROLL_EDGE_MARGIN, resolve_scroll, viewport_rect,
 };
+use view::view_header::TabBarProps;
 
 /// Which zone of the dashboard currently owns the keyboard.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -82,6 +82,7 @@ pub struct DashboardRects {
     pub tab_close_rects: Vec<(usize, Rect)>,
     pub tab_add_rect: Option<Rect>,
     pub tab_reveal_active: bool,
+    pub tab_shimmer_active: bool,
     /// Bounding rect for left overflow indicator (`‹N`), if present.
     pub tab_prev_rect: Option<Rect>,
     /// Bounding rect for right overflow indicator (`N›`), if present.
@@ -167,7 +168,7 @@ pub fn status_chip(status: ThreadActivity, theme: &Theme) -> (&'static str, Styl
                 "● RUNNING"
             },
             Style::default()
-                .fg(theme.brand())
+                .fg(theme.running())
                 .add_modifier(Modifier::BOLD),
         ),
         ThreadActivity::NeedsApproval => (
@@ -345,7 +346,7 @@ pub fn draw_dashboard(
     let tab_rects = if let Some(bar) = tab_bar.as_ref() {
         crate::shell::render::draw_tab_bar(frame, header_rect, bar, theme)
     } else {
-        crate::shell::view_header::TabBarNavRects::default()
+        view::view_header::TabBarNavRects::default()
     };
     let (summary, needs_attention) = header_content(rows);
     crate::shell::render::draw_scene_bar(
@@ -360,6 +361,7 @@ pub fn draw_dashboard(
             can_back: false,
             can_forward: false,
         },
+        None,
         theme,
     );
 
@@ -406,6 +408,7 @@ pub fn draw_dashboard(
             tab_close_rects: tab_rects.close_rects,
             tab_add_rect: tab_rects.add_rect,
             tab_reveal_active: tab_rects.reveal_active,
+            tab_shimmer_active: tab_rects.shimmer_active,
             tab_bar_rect: Some(header_rect),
             tab_prev_rect: tab_rects.prev_rect,
             tab_next_rect: tab_rects.next_rect,
@@ -484,6 +487,7 @@ pub fn draw_dashboard(
         tab_close_rects: tab_rects.close_rects,
         tab_add_rect: tab_rects.add_rect,
         tab_reveal_active: tab_rects.reveal_active,
+        tab_shimmer_active: tab_rects.shimmer_active,
         tab_bar_rect: Some(header_rect),
         tab_prev_rect: tab_rects.prev_rect,
         tab_next_rect: tab_rects.next_rect,

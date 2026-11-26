@@ -8,7 +8,7 @@ publish = false
 description = "Domain-agnostic terminal UI primitives, design tokens, and components for Nuo"
 
 [dependencies]
-chrono = { workspace = true }
+jiff = { workspace = true }
 graticule-canvas = { workspace = true }
 serde = { workspace = true }
 unicode-segmentation = { workspace = true }

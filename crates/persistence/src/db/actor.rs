@@ -65,11 +65,6 @@ impl PersistenceCommand {
                 let res = guarded(|| crate::db::kv_store::delete_kv(&engine.conn, &key));
                 let _ = ack.send(res);
             }
-            Self::CollectEntryGarbage { ack } => {
-                let res =
-                    guarded(|| crate::db::garbage_collection::collect_entry_garbage(&engine.conn));
-                let _ = ack.send(res);
-            }
             // Supervisor-only: `run_supervisor` intercepts `RebuildEngine`
             // before any writer forwarding, so `execute` never observes it.
             // A deflected ack is the honest outcome — the rebuild was not
@@ -221,9 +216,6 @@ impl PersistenceCommand {
                 }
             }
             Self::DeleteKV { ack, .. } => {
-                let _ = ack.send(Err(error));
-            }
-            Self::CollectEntryGarbage { ack } => {
                 let _ = ack.send(Err(error));
             }
             Self::RebuildEngine { ack } => {

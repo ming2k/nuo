@@ -16,17 +16,17 @@
 use std::sync::Arc;
 
 use super::sandbox_once;
-use nuo::UiBridge;
-use nuo::composition::bootstrap::{self, BootstrapParams};
-use nuo::composition::startup::ThreadStart;
 use protocol::{AgentRequest, AgentResponse, RoundEvent};
+use server::UiBridge;
+use server::composition::bootstrap::{self, BootstrapParams};
+use server::composition::startup::ThreadStart;
 use tokio::sync::mpsc;
 
 struct HeadlessProbe;
 
 #[async_trait::async_trait]
 impl UiBridge for HeadlessProbe {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo::CopyOutcome, String> {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::CopyOutcome, String> {
         Err("probe: headless".to_string())
     }
 }

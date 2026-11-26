@@ -15,15 +15,17 @@ pub mod tokens;
 #[cfg(test)]
 mod tests;
 
-pub use color_math::mix;
-pub(crate) use color_math::{desaturate, luminance, min_swatch_distance, rgb_opt};
+pub(crate) use color_math::{
+    derive_running_color, desaturate, luminance, min_swatch_distance, rgb_opt,
+};
+pub use color_math::{hsl_saturation, mix, wcag_contrast_ratio};
 
 pub use presets::{
     COLOR_SCHEMES, ColorSchemePreset, DEFAULT_CARET_FG, DEFAULT_CRATE_FG,
     DEFAULT_INPUT_PLACEHOLDER_FG, DEFAULT_KEYCAP_ACCENT_FG, DEFAULT_KEYCAP_BG, DEFAULT_KEYCAP_FG,
     DEFAULT_KEYCAP_LABEL_FG, DEFAULT_KEYCAP_WARN_FG, ListingClass, SemanticPalette,
 };
-pub(crate) use presets::{LISTING_DIR_HUE, LISTING_EXEC_HUE, LISTING_LINK_HUE, RUNNING_HUE};
+pub(crate) use presets::{LISTING_DIR_HUE, LISTING_EXEC_HUE, LISTING_LINK_HUE};
 
 pub use tokens::{
     ColorPaletteSpecimen, CommandTokens, ComponentsTokens, DiffTokens, FeedbackToneTokens,
@@ -219,9 +221,8 @@ impl Default for Theme {
             quote_fg: Color::Rgb(156, 145, 118),
             dim_fg: Color::Rgb(94, 99, 94),
             selected_bg: Color::Rgb(38, 48, 44),
-            // Zen palette: ink-black base, charcoal surfaces, quiet sage
-            // accents. Contrast comes from luminance, not saturated hue, so
-            // the interface stays calm while preserving semantic cues.
+            // Zen: near-black canvas, stepped charcoal surfaces, low-chroma sage
+            // accents. Hierarchy is luminance-led, not hue-saturated.
             app_bg: Color::Rgb(7, 8, 8),
             text: Color::Rgb(213, 213, 205),
             text_muted: Color::Rgb(119, 125, 117),
@@ -255,10 +256,12 @@ impl Default for Theme {
             // sent-message panel inside the pane still separates from its page.
             pane_focus_bg: Color::Rgb(13, 14, 14),
             pane_marker_fg: Color::Rgb(142, 161, 145),
-            // Liveness owns the one semantic hue nothing else claims: structure
-            // is cool (info/brand), outcomes are green/amber/red, and the neutral
-            // axis belongs to muted/dim. See `RUNNING_HUE`.
-            running_fg: Color::Rgb(56, 222, 235),
+            // Palette-native in-flight hue (ADR-0258 `[INV-TUI-COLOR-03]`):
+            // muted slate-indigo (`#9A9FD1`, 37% saturation, WCAG 7.88:1 on
+            // `#070808`). Distinct from structural slate-teal (`info`), sage
+            // (`brand`), and every outcome tone while honoring Zen's low-chroma,
+            // luminance-led discipline.
+            running_fg: Color::Rgb(154, 159, 209),
 
             caret_fg: DEFAULT_CARET_FG,
             input_selection_bg: Color::Rgb(38, 48, 44),
@@ -538,6 +541,9 @@ impl Theme {
                 success: Color::Rgb(87, 190, 141),
                 warning: Color::Rgb(226, 174, 91),
                 error: Color::Rgb(226, 105, 117),
+                // Soft twilight violet (`#AE94E4`, WCAG 7.70:1) — distinct from
+                // Midnight's crisp blue `accent`/`info` and mint `success`.
+                running: Some(Color::Rgb(174, 148, 228)),
             }),
             "nord" => Self::from_semantic(SemanticPalette {
                 background: Color::Rgb(46, 52, 64),
@@ -548,6 +554,11 @@ impl Theme {
                 success: Color::Rgb(163, 190, 140),
                 warning: Color::Rgb(235, 203, 139),
                 error: Color::Rgb(191, 97, 106),
+                // Lifted Nord15 Aurora (`#D6B2D0`, WCAG 6.62:1 on `app_bg`,
+                // 5.34:1 on `panel`, 4.64:1 on `raised`) — native to Nord's
+                // quiet arctic aurora family while staying WCAG-AA legible
+                // even on raised tab pills and modal panels.
+                running: Some(Color::Rgb(214, 178, 208)),
             }),
             "catppuccin" => Self::from_semantic(SemanticPalette {
                 background: Color::Rgb(30, 30, 46),
@@ -558,6 +569,9 @@ impl Theme {
                 success: Color::Rgb(166, 227, 161),
                 warning: Color::Rgb(249, 226, 175),
                 error: Color::Rgb(243, 139, 168),
+                // Official Catppuccin Mocha Sapphire (`#74C7EC`, WCAG 8.69:1) —
+                // soft pastel separation from Mauve `accent`/`info` and Green `success`.
+                running: Some(Color::Rgb(116, 199, 236)),
             }),
             "paper" => Self::from_semantic(SemanticPalette {
                 background: Color::Rgb(247, 246, 242),
@@ -568,6 +582,9 @@ impl Theme {
                 success: Color::Rgb(56, 126, 79),
                 warning: Color::Rgb(157, 105, 31),
                 error: Color::Rgb(177, 63, 58),
+                // Deep ink-indigo (`#764B9E`, WCAG 5.94:1 on warm paper) —
+                // crisp ink contrast without neon washout on bright terminals.
+                running: Some(Color::Rgb(118, 75, 158)),
             }),
             "ansi16" => Self::ansi16(),
             "monochrome" | "mono" => Self::monochrome(),
@@ -748,6 +765,7 @@ impl Theme {
             success: color(&custom.success, &fallback.success),
             warning: color(&custom.warning, &fallback.warning),
             error: color(&custom.error, &fallback.error),
+            running: custom.running.as_deref().and_then(Self::color_from_hex),
         })
     }
 
@@ -761,8 +779,16 @@ impl Theme {
             success,
             warning,
             error,
+            running,
         } = palette;
         let light = luminance(background) > 150.0;
+        let element_bg = mix(surface, text, if light { 0.035 } else { 0.05 });
+        let info = mix(accent, text, 0.12);
+        let running_fg = running.unwrap_or_else(|| {
+            derive_running_color(
+                background, surface, element_bg, muted, accent, info, success, warning, error,
+            )
+        });
         let code_bg = mix(background, text, if light { 0.06 } else { 0.05 });
         let user_bg = mix(surface, accent, if light { 0.08 } else { 0.10 });
         let menu_bg = mix(background, surface, 0.72);
@@ -794,7 +820,7 @@ impl Theme {
             input_bg_active: mix(surface, text, if light { 0.06 } else { 0.08 }),
             input_bg_inactive: mix(surface, text, if light { 0.015 } else { 0.02 }),
             user_panel_bg: user_bg,
-            element_bg: mix(surface, text, if light { 0.035 } else { 0.05 }),
+            element_bg,
             menu_bg,
             toast_bg: mix(surface, text, if light { 0.08 } else { 0.12 }),
             which_key_bg: mix(surface, text, if light { 0.05 } else { 0.08 }),
@@ -803,7 +829,7 @@ impl Theme {
             primary: accent,
             warning,
             success,
-            info: mix(accent, text, 0.12),
+            info,
             diff_add_bg: mix(background, success, if light { 0.11 } else { 0.15 }),
             diff_del_bg: mix(background, error, if light { 0.10 } else { 0.14 }),
             diff_add_hl: mix(background, success, if light { 0.24 } else { 0.34 }),
@@ -834,12 +860,10 @@ impl Theme {
                 mix(background, text, if light { 0.55 } else { 0.50 }),
                 0.85,
             ),
-            // Liveness (ADR-0110 `[INV-TUI-RUNNING-01]`): a saturated teal that is
-            // a hue step away from `info` (which owns structure — turn headers,
-            // links, the info severity band) and from every outcome tone. Nudged
-            // toward the scheme's text so it stays legible on light palettes,
-            // exactly as the listing hues are.
-            running_fg: mix(RUNNING_HUE, text, if light { 0.20 } else { 0.10 }),
+            // Palette-native in-flight hue (ADR-0258 `[INV-TUI-COLOR-03]`):
+            // either the scheme's curated / user-declared `running` tone or a
+            // chroma-bounded, WCAG-AA legible derivation from the palette itself.
+            running_fg,
             caret_fg: text,
             input_selection_bg: mix(surface, accent, if light { 0.18 } else { 0.24 }),
             input_placeholder_fg: muted,
@@ -868,7 +892,7 @@ impl Theme {
     pub fn raised(&self) -> Color {
         self.element_bg
     }
-    /// Tier 1: Client Global TabBar background (ADR-0062).
+    /// Tier 1: Client Global TabBar background (ADR-0062, ADR-0261).
     /// Subtly recessed base (~0.8% luminance offset in dark mode),
     /// acting as a calm window shell that elevates active tab pills.
     pub fn tabbar_bg(&self) -> Color {
@@ -880,26 +904,15 @@ impl Theme {
             _ => self.element_bg,
         }
     }
-    /// Tier 2: Polymorphic SceneBar background (ADR-0062).
+    /// Tier 2: Polymorphic SceneBar background (ADR-0062, ADR-0261).
     /// The primary focal plane of the top chrome (~8.0% luminance offset in dark mode),
-    /// drawing immediate optical attention to the active task identity and drill-in stack.
+    /// carrying thread governance + identity/title + workspace on Thread viewports and
+    /// scene label + drill-in stack elsewhere.
     pub fn scenebar_bg(&self) -> Color {
         match (self.app_bg, self.text) {
             (Color::Rgb(..), Color::Rgb(..)) => {
                 let light = luminance(self.app_bg) > 150.0;
                 mix(self.app_bg, self.text, if light { 0.055 } else { 0.080 })
-            }
-            _ => self.element_bg,
-        }
-    }
-    /// Tier 3: Sovereign ThreadContextBar background (ADR-0062).
-    /// Subordinate execution boundaries and posture (~4.0% luminance offset in dark mode),
-    /// gently transitioning down toward the main content surface.
-    pub fn contextbar_bg(&self) -> Color {
-        match (self.app_bg, self.text) {
-            (Color::Rgb(..), Color::Rgb(..)) => {
-                let light = luminance(self.app_bg) > 150.0;
-                mix(self.app_bg, self.text, if light { 0.028 } else { 0.040 })
             }
             _ => self.element_bg,
         }

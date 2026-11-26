@@ -607,7 +607,10 @@ pub(crate) async fn handle_esc_interrupt_with_runtime(
     if matches!(target, InterruptTarget::Subagent) {
         return;
     }
-    runtime.is_responding.store(false, Ordering::SeqCst);
+    runtime.is_responding.store(
+        app.threads.any_responding() || !app.session.running_sessions.is_empty(),
+        Ordering::SeqCst,
+    );
     // The round is being stopped: no request is in flight any more, so the
     // transport-setback clause goes with the phase.
     app.set_phase(None);

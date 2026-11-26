@@ -1,31 +1,49 @@
-//! Attach handshake: errors, welcome parsing, and the duplex link.
+//! Unified `Hello` → `ServerHello` transport link, multiplexed thread
+//! subscriptions, and same-connection control verbs (ADR-0133, ADR-0251,
+//! ADR-0260).
 
+use super::control::ControlOutcome;
 use super::current_posture;
-use super::lifecycle::ATTACH_ACK_TIMEOUT;
+use super::lifecycle::{ATTACH_ACK_TIMEOUT, CONTROL_REPLY_TIMEOUT};
 use super::*;
-use protocol::ThreadOverview;
+use protocol::{
+    ControlRequest, MonitorAction, MonitorEvent, PersistenceHealth, ServerPhase, ThreadOverview,
+    ThreadTarget,
+};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::oneshot;
 
-/// A failed attach.
+/// Maximum wait for a freshly spawned server to finish bounded local
+/// initialization (`ServerPhase::Initializing` -> `Ready`) on blocking
+/// `connect()` helpers (headless CLI, integration tests).
+const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A failed attach, subscription, or control verb.
 ///
 /// `[INV-ATTACH-01]`: `code` is the server's machine-readable taxonomy, carried
-/// verbatim from `Wire::Error`. Downgrading a refusal to a bare `String` is what
-/// made an expected outcome (a tab whose session is gone) indistinguishable from
-/// a transport fault, so the client had no choice but to die on it (ADR-0123).
-///
-/// `code: None` covers both "transport failure" (the server never spoke) and
-/// "refusal with no declared taxonomy". Both are unrecoverable by contract: a
-/// client may not invent a recovery the server did not authorize.
+/// verbatim from `Wire::Error` / `Wire::ControlReply`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachError {
     pub code: Option<String>,
     pub message: String,
-    /// `true` when the attach failed at the transport/framing layer (connect,
-    /// timeout, EOF, or undecodable handshake), `false` when the server spoke
-    /// an explicit `Wire::Error` refusal.
+    /// `true` when the failure originated at the transport/framing layer
+    /// (connect, timeout, EOF, or undecodable handshake), `false` when the
+    /// server spoke an explicit refusal frame.
     is_transport: bool,
 }
 
 impl AttachError {
+    /// A transport-level failure: no server taxonomy exists.
+    pub fn from_transport(message: impl Into<String>) -> Self {
+        Self::transport(message)
+    }
+
+    /// An explicit server refusal from `Wire::Error` / `Wire::ControlReply`.
+    pub fn from_server_refusal(code: Option<String>, message: impl Into<String>) -> Self {
+        Self::server_refusal(code, message)
+    }
+
     /// A transport-level failure: no server taxonomy exists.
     pub(super) fn transport(message: impl Into<String>) -> Self {
         Self {
@@ -55,23 +73,35 @@ impl AttachError {
         self.is_transport
     }
 
-    /// Whether the target session provably no longer exists
-    /// (`ERR_SESSION_GONE`). The tab naming it must be retired.
+    /// Whether the target session provably no longer exists (`ERR_SESSION_GONE`).
     pub fn is_session_gone(&self) -> bool {
         self.code() == Some(protocol::ERR_SESSION_GONE)
     }
 
     /// Whether the target session exists durably but could not be assembled
-    /// (`ERR_SESSION_UNRESUMABLE`). The tab must be kept — its history is real.
+    /// (`ERR_SESSION_UNRESUMABLE`).
     pub fn is_session_unresumable(&self) -> bool {
         self.code() == Some(protocol::ERR_SESSION_UNRESUMABLE)
+    }
+
+    /// Whether the server refused because it is still initializing.
+    pub fn is_server_not_ready(&self) -> bool {
+        self.code() == Some(protocol::ERR_SERVER_NOT_READY)
+    }
+
+    /// Whether the server refused because it is shutting down.
+    pub fn is_server_draining(&self) -> bool {
+        self.code() == Some(protocol::ERR_SERVER_DRAINING)
+    }
+
+    /// Whether the server refused because it entered a fatal failed state.
+    pub fn is_server_failed(&self) -> bool {
+        self.code() == Some(protocol::ERR_SERVER_FAILED)
     }
 }
 
 impl std::fmt::Display for AttachError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // The message alone: diagnostics must not grow a code prefix into prose
-        // a human reads (and a caller must never parse it back out).
         f.write_str(&self.message)
     }
 }
@@ -84,31 +114,37 @@ impl From<AttachError> for String {
     }
 }
 
-struct Welcome {
-    session_id: String,
-    generation: u64,
-    phase: protocol::ThreadPhase,
+/// Server metadata and initial lifecycle phase returned by `Wire::ServerHello`
+/// (ADR-0260 `[INV-SRVPHASE-02]`).
+#[derive(Debug, Clone)]
+pub struct ServerHelloInfo {
+    pub server_id: String,
+    pub protocol: u32,
+    pub version: String,
+    pub started_at: u64,
+    pub phase: ServerPhase,
+    pub persistence_health: Option<PersistenceHealth>,
+    pub monitor: Option<protocol::MonitorSnapshot>,
 }
 
-enum Reply {
-    Welcome(Welcome),
-    Pick(Vec<ThreadOverview>),
-}
-
-pub type AttachResult = Result<Handshake, AttachError>;
-
-/// Where an attached reader records the *transport* failure that ended it.
-///
-/// Deliberately not an [`AgentResponse`]: a socket death is not something the
-/// server said, and encoding it as one made a decode fault indistinguishable
-/// from a server instruction to stop (ADR-0136). The consumer reads this after
-/// the response stream closes — `None` means the connection ended cleanly.
+/// Where an attached reader records the *transport* or *drain* failure that ended it.
 pub type LinkLostMarker = Arc<Mutex<Option<String>>>;
 
-/// One outbound frame sent from the client over a multiplexed attach
-/// connection (ADR-0251 `[INV-MUX-04]`). All domain requests and subscription
-/// verbs share a single FIFO channel so ordering is strictly preserved.
+/// Structured link-level events delivered from a live unified connection
+/// alongside `AgentResponse` and `MonitorEvent` (ADR-0260 `[INV-ATTACH-01]`).
 #[derive(Debug, Clone)]
+pub enum LinkEvent {
+    /// Server explicitly refused a `Wire::Subscribe` (or emitted a non-control
+    /// `Wire::Error`) with its machine-readable refusal code preserved.
+    SubscribeRefused(AttachError),
+    /// Server answered an ambiguous auto-attach `Wire::Subscribe` with
+    /// candidate threads (`Wire::Pick`).
+    PickRequired(Vec<ThreadOverview>),
+}
+
+/// One outbound frame sent from the client over a unified multiplexed
+/// connection (ADR-0251 `[INV-MUX-04]`, ADR-0260 `[INV-SRVPHASE-04]`).
+#[derive(Debug)]
 pub enum ClientOutbound {
     /// Route an [`AgentRequest`] to `thread_id` (`None` targets the
     /// connection's primary thread).
@@ -116,14 +152,20 @@ pub enum ClientOutbound {
         thread_id: Option<String>,
         request: AgentRequest,
     },
-    /// Subscribe this connection to an additional thread (attach or create new)
+    /// Subscribe this connection to a thread (create new, attach, or picker)
     /// without disturbing existing subscriptions.
     Subscribe {
-        action: AttachAction,
+        target: ThreadTarget,
         project: Option<std::path::PathBuf>,
     },
     /// Detach a subscribed thread from this connection.
     Unsubscribe { thread_id: String },
+    /// Execute a session-free [`ControlRequest`] over the existing unified
+    /// connection — works identically for local and `--remote` clients.
+    Control {
+        request: ControlRequest,
+        reply_tx: oneshot::Sender<Result<ControlOutcome, AttachError>>,
+    },
 }
 
 impl ClientOutbound {
@@ -131,7 +173,7 @@ impl ClientOutbound {
     pub fn into_request(self) -> Option<AgentRequest> {
         match self {
             Self::Request { request, .. } => Some(request),
-            Self::Subscribe { .. } | Self::Unsubscribe { .. } => None,
+            Self::Subscribe { .. } | Self::Unsubscribe { .. } | Self::Control { .. } => None,
         }
     }
 
@@ -139,7 +181,7 @@ impl ClientOutbound {
     pub fn as_request(&self) -> Option<&AgentRequest> {
         match self {
             Self::Request { request, .. } => Some(request),
-            Self::Subscribe { .. } | Self::Unsubscribe { .. } => None,
+            Self::Subscribe { .. } | Self::Unsubscribe { .. } | Self::Control { .. } => None,
         }
     }
 }
@@ -153,33 +195,65 @@ impl From<AgentRequest> for ClientOutbound {
     }
 }
 
+/// Issue a [`ControlRequest`] over an existing unified client link (`req_tx`)
+/// with a bounded reply deadline (ADR-0260 `[INV-SRVPHASE-04]`).
+pub async fn send_control_over_link(
+    tx: &mpsc::UnboundedSender<ClientOutbound>,
+    request: ControlRequest,
+) -> Result<ControlOutcome, String> {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    tx.send(ClientOutbound::Control { request, reply_tx })
+        .map_err(|_| "server connection is closed".to_string())?;
+    tokio::time::timeout(CONTROL_REPLY_TIMEOUT, reply_rx)
+        .await
+        .map_err(|_| "timed out waiting for control reply from server".to_string())?
+        .map_err(|_| "server closed connection before answering control request".to_string())?
+        .map_err(|e| e.message)
+}
+
+/// A live session-free connection established via `Wire::Hello` → `Wire::ServerHello`
+/// (ADR-0260 `[INV-SRVPHASE-02]`, `[INV-SRVPHASE-04]`).
+pub struct ServerLink {
+    pub hello: ServerHelloInfo,
+    pub req_tx: mpsc::UnboundedSender<ClientOutbound>,
+    pub resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
+    pub monitor_rx: mpsc::UnboundedReceiver<MonitorEvent>,
+    pub link_event_rx: mpsc::UnboundedReceiver<LinkEvent>,
+    /// Resolves immediately when the underlying connection reader ends:
+    /// `None` after an explicit `AgentResponse::Exit`, or `Some(reason)` on a
+    /// transport drop or server drain.
+    pub closed_rx: oneshot::Receiver<Option<String>>,
+    pub link_lost: LinkLostMarker,
+}
+
 #[allow(clippy::large_enum_variant)]
 pub enum Handshake {
     Attached {
         req_tx: mpsc::UnboundedSender<ClientOutbound>,
         resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
-        /// Where the reader's *transport* failure lands, when there is one.
-        ///
-        /// Separate from `resp_rx` by construction: a socket death is not an
-        /// `AgentResponse`, and spelling it `Exit` made a client click look
-        /// like a server instruction (ADR-0136). `None` when the reader ended
-        /// because the connection closed cleanly.
+        monitor_rx: mpsc::UnboundedReceiver<MonitorEvent>,
+        server_hello: ServerHelloInfo,
         link_lost: LinkLostMarker,
         session_id: String,
-        /// Readiness at the moment of the handshake. Informational only:
-        /// `[INV-ATTACH-04]` (ADR-0133) makes the *post-snapshot*
-        /// `AgentResponse::ThreadPhase(Ready)` the gate for input.
+        /// Readiness at the moment of subscription acknowledgement.
+        /// `[INV-ATTACH-04]` makes the post-snapshot `ThreadPhase::Ready`
+        /// the gate for input.
         phase: protocol::ThreadPhase,
     },
     Pick(Vec<ThreadOverview>),
 }
 
-pub async fn connect(info: &ServerInfo, action: AttachAction) -> AttachResult {
+pub type AttachResult = Result<Handshake, AttachError>;
+pub type ServerLinkResult = Result<ServerLink, AttachError>;
+
+/// Open a raw wire transport stream to a local server (IPC first, TCP fallback).
+pub(super) async fn dial_local_wire(
+    info: &ServerInfo,
+) -> Result<(BoxWireSink, BoxWireStream), AttachError> {
     if let Some(endpoint) = info.effective_local_endpoint()
         && let Ok(stream) = host::ipc::connect(&endpoint).await
     {
-        let (sink, source) = native_framed_split(stream);
-        return finish_handshake((sink, source), action).await;
+        return Ok(native_framed_split(stream));
     }
     if info.port == 0 {
         return Err(AttachError::transport(
@@ -187,79 +261,347 @@ pub async fn connect(info: &ServerInfo, action: AttachAction) -> AttachResult {
         ));
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
-    let (sink, source) = connect_ws_wire(
+    connect_ws_wire(
         &url,
         info.token.as_deref(),
         netune::WsSessionConfig::default(),
     )
     .await
-    .map_err(AttachError::transport)?;
-    finish_handshake((sink, source), action).await
+    .map_err(AttachError::transport)
+}
+
+/// Establish a session-free [`ServerLink`] to a local server (`Wire::Hello` →
+/// `Wire::ServerHello`). Succeeds immediately across all `ServerPhase` values.
+pub async fn connect_server_local(
+    info: &ServerInfo,
+    monitor: Option<MonitorAction>,
+) -> ServerLinkResult {
+    let parts = dial_local_wire(info).await?;
+    finish_server_hello(parts, monitor).await
+}
+
+/// Complete `Wire::Hello` → `Wire::ServerHello` and spawn the unified full-duplex
+/// reader/writer tasks for a [`ServerLink`].
+pub(super) async fn finish_server_hello(
+    parts: (BoxWireSink, BoxWireStream),
+    monitor: Option<MonitorAction>,
+) -> ServerLinkResult {
+    let (mut wire_sink, mut wire_source) = parts;
+    let hello_info = exchange_hello(&mut wire_sink, &mut wire_source, monitor).await?;
+
+    let (req_out_tx, req_out_rx) = mpsc::unbounded_channel::<ClientOutbound>();
+    let (resp_in_tx, resp_in_rx) = mpsc::unbounded_channel::<AgentResponse>();
+    let (mon_in_tx, mon_in_rx) = mpsc::unbounded_channel::<MonitorEvent>();
+    let (link_ev_tx, link_ev_rx) = mpsc::unbounded_channel::<LinkEvent>();
+    let (closed_tx, closed_rx) = oneshot::channel::<Option<String>>();
+
+    if let Some(snap) = hello_info.monitor.clone() {
+        let _ = mon_in_tx.send(MonitorEvent::Snapshot(snap));
+    }
+
+    let link_lost_marker = Arc::new(Mutex::new(None::<String>));
+    spawn_duplex_tasks(
+        wire_sink,
+        wire_source,
+        req_out_rx,
+        resp_in_tx,
+        mon_in_tx,
+        Some(link_ev_tx),
+        Some(closed_tx),
+        Arc::clone(&link_lost_marker),
+        None,
+        1,
+    );
+
+    Ok(ServerLink {
+        hello: hello_info,
+        req_tx: req_out_tx,
+        resp_rx: resp_in_rx,
+        monitor_rx: mon_in_rx,
+        link_event_rx: link_ev_rx,
+        closed_rx,
+        link_lost: link_lost_marker,
+    })
+}
+
+/// Connect to a local server, wait for `ServerPhase::Ready` if initializing,
+/// and subscribe to `target`.
+pub async fn connect(info: &ServerInfo, target: ThreadTarget) -> AttachResult {
+    let parts = dial_local_wire(info).await?;
+    finish_handshake(parts, target).await
 }
 
 async fn finish_handshake(
     parts: (BoxWireSink, BoxWireStream),
-    action: AttachAction,
+    target: ThreadTarget,
 ) -> AttachResult {
-    finish_handshake_with_project(parts, action, std::env::current_dir().ok()).await
+    finish_handshake_with_project(parts, target, std::env::current_dir().ok()).await
 }
 
 pub(super) async fn finish_handshake_with_project(
     parts: (BoxWireSink, BoxWireStream),
-    action: AttachAction,
+    target: ThreadTarget,
     project: Option<std::path::PathBuf>,
+) -> AttachResult {
+    finish_handshake_with_options(parts, target, project, None).await
+}
+
+pub(super) async fn finish_handshake_with_options(
+    parts: (BoxWireSink, BoxWireStream),
+    target: ThreadTarget,
+    project: Option<std::path::PathBuf>,
+    monitor: Option<MonitorAction>,
 ) -> AttachResult {
     let (mut wire_sink, mut wire_source) = parts;
 
-    let select = Wire::Select {
-        action,
-        project,
-        posture: current_posture(),
-        version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        protocol: PROTOCOL_VERSION,
-    };
-    wire_sink
-        .send(select)
+    let mut hello_info = exchange_hello(&mut wire_sink, &mut wire_source, monitor).await?;
+    let mut buffered_monitor: Vec<MonitorEvent> = Vec::new();
+    if let Some(snap) = hello_info.monitor.clone() {
+        buffered_monitor.push(MonitorEvent::Snapshot(snap));
+    }
+
+    // If the server is still completing bounded local initialization, wait on
+    // its live `ServerPhaseChanged` stream before subscribing (`[INV-SRVPHASE-03]`).
+    if matches!(hello_info.phase, ServerPhase::Initializing { .. }) {
+        let ready_phase = tokio::time::timeout(SERVER_READY_TIMEOUT, async {
+            loop {
+                match wire_source.next().await {
+                    Some(Ok(WireFrame::Wire(Wire::Monitor { event }))) => {
+                        if let MonitorEvent::ServerPhaseChanged(ref next) = event {
+                            let phase_clone = next.clone();
+                            buffered_monitor.push(event);
+                            if !matches!(phase_clone, ServerPhase::Initializing { .. }) {
+                                return Ok(phase_clone);
+                            }
+                        } else {
+                            buffered_monitor.push(event);
+                        }
+                    }
+                    Some(Ok(WireFrame::Wire(Wire::Error { message, code, .. }))) => {
+                        return Err(AttachError::server_refusal(code, message));
+                    }
+                    Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
+                        return Err(AttachError::transport(format!(
+                            "server sent a frame this client cannot decode{}: {detail}",
+                            envelope
+                                .map(|tag| format!(" (envelope `{tag}`)"))
+                                .unwrap_or_default()
+                        )));
+                    }
+                    Some(Ok(_)) => continue,
+                    Some(Err(error)) => {
+                        return Err(AttachError::transport(format!(
+                            "wire recv while waiting for server ready: {error}"
+                        )));
+                    }
+                    None => {
+                        return Err(AttachError::transport(
+                            "server closed connection while initializing",
+                        ));
+                    }
+                }
+            }
+        })
         .await
-        .map_err(|e| AttachError::transport(format!("wire send select: {e}")))?;
+        .map_err(|_| {
+            AttachError::transport("timed out waiting for server to finish initialization")
+        })??;
+        hello_info.phase = ready_phase;
+    }
+
+    match &hello_info.phase {
+        ServerPhase::Failed { code, message } => {
+            return Err(AttachError::server_refusal(
+                code.clone()
+                    .or_else(|| Some(protocol::ERR_SERVER_FAILED.to_string())),
+                format!("server startup failed: {message}"),
+            ));
+        }
+        ServerPhase::Draining { reason } => {
+            let msg = match reason {
+                Some(r) => format!("server is shutting down ({r})"),
+                None => "server is shutting down".to_string(),
+            };
+            return Err(AttachError::server_refusal(
+                Some(protocol::ERR_SERVER_DRAINING.to_string()),
+                msg,
+            ));
+        }
+        _ => {}
+    }
+
+    let request_id = 1;
+    wire_sink
+        .send(Wire::Subscribe {
+            request_id,
+            target,
+            project,
+        })
+        .await
+        .map_err(|e| AttachError::transport(format!("wire send subscribe: {e}")))?;
+
+    enum SubscribeReply {
+        Subscribed {
+            session_id: String,
+            generation: u64,
+            phase: protocol::ThreadPhase,
+        },
+        Pick(Vec<ThreadOverview>),
+    }
 
     let reply = tokio::time::timeout(ATTACH_ACK_TIMEOUT, async {
-        match wire_source.next().await {
-            Some(Ok(WireFrame::Wire(wire))) => match wire {
-                Wire::Welcome {
-                    thread_id,
-                    generation,
-                    phase,
-                } => Ok(Reply::Welcome(Welcome {
-                    session_id: thread_id,
-                    generation,
-                    phase,
-                })),
-                Wire::Pick { threads } => Ok(Reply::Pick(threads)),
-                Wire::Error { message, code } => {
-                    // `[INV-ATTACH-01]`: the code travels with the message.
-                    // This is the hop that used to discard the taxonomy
-                    // with a `..` and leave the client to sniff prose.
-                    Err(AttachError::server_refusal(
+        loop {
+            match wire_source.next().await {
+                Some(Ok(WireFrame::Wire(wire))) => match wire {
+                    Wire::Subscribed {
+                        request_id: rid,
+                        thread_id,
+                        generation,
+                        phase,
+                    } if rid == request_id => {
+                        return Ok(SubscribeReply::Subscribed {
+                            session_id: thread_id,
+                            generation,
+                            phase,
+                        });
+                    }
+                    Wire::Pick {
+                        request_id: rid,
+                        threads,
+                    } if rid == request_id => {
+                        return Ok(SubscribeReply::Pick(threads));
+                    }
+                    Wire::Error {
+                        request_id: rid,
+                        message,
                         code,
-                        format!("server rejected the attach: {message}"),
-                    ))
+                    } if rid.is_none() || rid == Some(request_id) => {
+                        return Err(AttachError::server_refusal(
+                            code,
+                            format!("server rejected the attach: {message}"),
+                        ));
+                    }
+                    Wire::Monitor { event } => {
+                        buffered_monitor.push(event);
+                    }
+                    other => {
+                        return Err(AttachError::transport(format!(
+                            "unexpected frame before Subscribed: {other:?}"
+                        )));
+                    }
+                },
+                Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
+                    return Err(AttachError::transport(format!(
+                        "server sent a frame this client cannot decode{}: {detail}",
+                        envelope
+                            .map(|tag| format!(" (envelope `{tag}`)"))
+                            .unwrap_or_default()
+                    )));
                 }
-                other => {
-                    // `[INV-ATTACH-03]` (ADR-0133): Welcome is the first
-                    // frame by contract. Silently dropping an earlier state
-                    // frame hid a protocol violation and lost hydration, so
-                    // this is now a hard, diagnosable error.
-                    Err(AttachError::transport(format!(
-                        "unexpected frame before Welcome: {other:?}"
-                    )))
+                Some(Err(error)) => {
+                    return Err(AttachError::transport(format!(
+                        "wire recv during subscribe: {error}"
+                    )));
                 }
-            },
-            // The handshake is the one place where a frame we cannot model is
-            // still an attach refusal: no thread has been claimed yet, and a
-            // Welcome we cannot read is exactly the disagreement the protocol
-            // number exists to prevent. Refusing with the taxonomy lets the
-            // attach loop disclose it instead of dying on it.
+                None => return Err(AttachError::transport("server closed the connection")),
+            }
+        }
+    })
+    .await
+    .map_err(|_| {
+        AttachError::transport(
+            "server did not acknowledge the thread subscription within the liveness window",
+        )
+    })??;
+
+    let (session_id, generation, phase) = match reply {
+        SubscribeReply::Subscribed {
+            session_id,
+            generation,
+            phase,
+        } => (session_id, generation, phase),
+        SubscribeReply::Pick(sessions) => {
+            let _ = wire_sink.close().await;
+            return Ok(Handshake::Pick(sessions));
+        }
+    };
+
+    let (req_out_tx, req_out_rx) = mpsc::unbounded_channel::<ClientOutbound>();
+    let (resp_in_tx, resp_in_rx) = mpsc::unbounded_channel::<AgentResponse>();
+    let (mon_in_tx, mon_in_rx) = mpsc::unbounded_channel::<MonitorEvent>();
+    for event in buffered_monitor {
+        let _ = mon_in_tx.send(event);
+    }
+
+    let link_lost_marker = Arc::new(Mutex::new(None::<String>));
+    spawn_duplex_tasks(
+        wire_sink,
+        wire_source,
+        req_out_rx,
+        resp_in_tx,
+        mon_in_tx,
+        None,
+        None,
+        Arc::clone(&link_lost_marker),
+        Some((session_id.clone(), generation)),
+        2,
+    );
+
+    Ok(Handshake::Attached {
+        req_tx: req_out_tx,
+        resp_rx: resp_in_rx,
+        monitor_rx: mon_in_rx,
+        server_hello: hello_info,
+        link_lost: link_lost_marker,
+        session_id,
+        phase,
+    })
+}
+
+async fn exchange_hello(
+    wire_sink: &mut BoxWireSink,
+    wire_source: &mut BoxWireStream,
+    monitor: Option<MonitorAction>,
+) -> Result<ServerHelloInfo, AttachError> {
+    let hello = Wire::Hello {
+        protocol: PROTOCOL_VERSION,
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        posture: current_posture(),
+        monitor,
+    };
+    wire_sink
+        .send(hello)
+        .await
+        .map_err(|e| AttachError::transport(format!("wire send hello: {e}")))?;
+
+    tokio::time::timeout(ATTACH_ACK_TIMEOUT, async {
+        match wire_source.next().await {
+            Some(Ok(WireFrame::Wire(Wire::ServerHello {
+                server_id,
+                protocol,
+                version,
+                started_at,
+                phase,
+                persistence_health,
+                monitor,
+            }))) => Ok(ServerHelloInfo {
+                server_id,
+                protocol,
+                version,
+                started_at,
+                phase,
+                persistence_health,
+                monitor,
+            }),
+            Some(Ok(WireFrame::Wire(Wire::Error { message, code, .. }))) => {
+                Err(AttachError::server_refusal(
+                    code,
+                    format!("server rejected the handshake: {message}"),
+                ))
+            }
+            Some(Ok(WireFrame::Wire(other))) => Err(AttachError::transport(format!(
+                "unexpected frame before ServerHello: {other:?}"
+            ))),
             Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
                 Err(AttachError::transport(format!(
                     "server sent a frame this client cannot decode{}: {detail}",
@@ -277,28 +619,37 @@ pub(super) async fn finish_handshake_with_project(
     .await
     .map_err(|_| {
         AttachError::transport(
-            "server did not acknowledge the attach within the liveness window \
+            "server did not acknowledge Hello within the liveness window \
              (the server may be starting, wedged, or speaking a different protocol)",
         )
-    })??;
+    })?
+}
 
-    let welcome = match reply {
-        Reply::Welcome(w) => w,
-        Reply::Pick(sessions) => {
-            let _ = wire_sink.close().await;
-            return Ok(Handshake::Pick(sessions));
-        }
-    };
+type PendingControlMap =
+    Arc<Mutex<HashMap<u64, oneshot::Sender<Result<ControlOutcome, AttachError>>>>>;
 
-    let (req_out_tx, mut req_out_rx) = mpsc::unbounded_channel::<ClientOutbound>();
-    let (resp_in_tx, resp_in_rx) = mpsc::unbounded_channel::<AgentResponse>();
-    // Shared with the reader task: after `resp_rx` closes, this is *how* the
-    // consumer learns whether the link failed and why, without guessing.
-    let link_lost_marker = Arc::new(Mutex::new(None::<String>));
+#[allow(clippy::too_many_arguments)]
+fn spawn_duplex_tasks(
+    mut wire_sink: BoxWireSink,
+    mut wire_source: BoxWireStream,
+    mut req_out_rx: mpsc::UnboundedReceiver<ClientOutbound>,
+    resp_in_tx: mpsc::UnboundedSender<AgentResponse>,
+    mon_in_tx: mpsc::UnboundedSender<MonitorEvent>,
+    link_ev_tx: Option<mpsc::UnboundedSender<LinkEvent>>,
+    closed_tx: Option<oneshot::Sender<Option<String>>>,
+    link_lost_marker: LinkLostMarker,
+    initial_thread: Option<(String, u64)>,
+    initial_request_id: u64,
+) {
     let link_lost_inner = Arc::clone(&link_lost_marker);
     let link_lost_for_writer = Arc::clone(&link_lost_marker);
     let exit_seen = Arc::new(Mutex::new(false));
     let exit_seen_inner = Arc::clone(&exit_seen);
+    let draining_reason = Arc::new(Mutex::new(None::<String>));
+    let draining_reason_inner = Arc::clone(&draining_reason);
+    let next_req_id = Arc::new(AtomicU64::new(initial_request_id));
+    let pending_controls: PendingControlMap = Arc::new(Mutex::new(HashMap::new()));
+    let pending_controls_writer = Arc::clone(&pending_controls);
 
     tokio::spawn(async move {
         let mut end_pending = false;
@@ -310,10 +661,26 @@ pub(super) async fn finish_handshake_with_project(
                     }
                     Wire::Request { thread_id, request }
                 }
-                ClientOutbound::Subscribe { action, project } => {
-                    Wire::Subscribe { action, project }
+                ClientOutbound::Subscribe { target, project } => {
+                    let request_id = next_req_id.fetch_add(1, Ordering::Relaxed);
+                    Wire::Subscribe {
+                        request_id,
+                        target,
+                        project,
+                    }
                 }
                 ClientOutbound::Unsubscribe { thread_id } => Wire::Unsubscribe { thread_id },
+                ClientOutbound::Control { request, reply_tx } => {
+                    let request_id = next_req_id.fetch_add(1, Ordering::Relaxed);
+                    pending_controls_writer
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(request_id, reply_tx);
+                    Wire::Control {
+                        request_id,
+                        request,
+                    }
+                }
             };
             if let Err(error) = wire_sink.send(wire).await {
                 tracing::warn!(%error, "attach: wire send failed");
@@ -332,13 +699,13 @@ pub(super) async fn finish_handshake_with_project(
         let _ = wire_sink.close().await;
     });
 
-    let initial_session_id = welcome.session_id.clone();
-    let initial_generation = welcome.generation;
     tokio::spawn(async move {
-        let mut active_generations: std::collections::HashMap<String, u64> =
-            std::collections::HashMap::new();
-        if !initial_session_id.is_empty() && initial_generation > 0 {
-            active_generations.insert(initial_session_id, initial_generation);
+        let mut active_generations: HashMap<String, u64> = HashMap::new();
+        if let Some((tid, generation)) = initial_thread
+            && !tid.is_empty()
+            && generation > 0
+        {
+            active_generations.insert(tid, generation);
         }
         while let Some(frame) = wire_source.next().await {
             match frame {
@@ -346,8 +713,6 @@ pub(super) async fn finish_handshake_with_project(
                     response,
                     generation,
                 })) => {
-                    // ADR-0253 `[INV-INSTANCE-03]`: drop thread-scoped frames
-                    // carrying an older generation than the current subscription.
                     if generation > 0
                         && let Some(tid) = response_thread_id(&response)
                     {
@@ -367,19 +732,18 @@ pub(super) async fn finish_handshake_with_project(
                             *entry = generation;
                         }
                     }
-                    // A server instruction to stop is recorded as such, so the
-                    // close that follows is not mistaken for a fault.
                     if matches!(response, AgentResponse::Exit) {
                         *exit_seen_inner.lock().unwrap_or_else(|e| e.into_inner()) = true;
                     }
                     if resp_in_tx.send(response).is_err() {
-                        return;
+                        break;
                     }
                 }
                 Ok(WireFrame::Wire(Wire::Subscribed {
                     thread_id,
                     generation,
                     phase,
+                    ..
                 })) => {
                     if generation > 0 {
                         let entry = active_generations.entry(thread_id.clone()).or_insert(0);
@@ -391,20 +755,85 @@ pub(super) async fn finish_handshake_with_project(
                         .send(AgentResponse::ThreadSubscribed { thread_id, phase })
                         .is_err()
                     {
-                        return;
+                        break;
                     }
                 }
-                Ok(WireFrame::Wire(Wire::Error { message, .. })) => {
-                    if resp_in_tx.send(AgentResponse::Error(message)).is_err() {
-                        return;
+                Ok(WireFrame::Wire(Wire::ControlReply {
+                    request_id,
+                    ok,
+                    thread_id,
+                    error,
+                    code,
+                    payload,
+                })) => {
+                    let waiter = pending_controls
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&request_id);
+                    if let Some(tx) = waiter {
+                        let res = if ok {
+                            Ok(ControlOutcome { thread_id, payload })
+                        } else {
+                            Err(AttachError::server_refusal(
+                                code,
+                                error.unwrap_or_else(|| "control verb rejected".to_string()),
+                            ))
+                        };
+                        let _ = tx.send(res);
                     }
                 }
-                // One frame this build cannot model. Both transports are
-                // self-delimiting, so the reader stays aligned and the session
-                // is untouched — disclose the skew and keep reading
-                // [ADR-0136]. Before this arm existed the frame arrived as
-                // `Err`, the loop ended, and the synthesized `Exit` closed the
-                // window mid-round.
+                Ok(WireFrame::Wire(Wire::Monitor { event })) => {
+                    // Record draining explicitly without conflating it with a
+                    // user-requested `AgentResponse::Exit`: when the socket
+                    // closes after draining, the client sees the honest drain
+                    // reason rather than a silent normal exit.
+                    if let MonitorEvent::ServerPhaseChanged(ServerPhase::Draining { ref reason }) =
+                        event
+                    {
+                        let msg = match reason {
+                            Some(r) if !r.trim().is_empty() => {
+                                format!("server is shutting down ({r})")
+                            }
+                            _ => "server is shutting down".to_string(),
+                        };
+                        *draining_reason_inner
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = Some(msg);
+                    }
+                    let _ = mon_in_tx.send(event);
+                }
+                Ok(WireFrame::Wire(Wire::Pick { threads, .. })) => {
+                    if let Some(ref ev_tx) = link_ev_tx {
+                        let _ = ev_tx.send(LinkEvent::PickRequired(threads));
+                    } else if resp_in_tx
+                        .send(AgentResponse::ThreadsOverview(threads))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(WireFrame::Wire(Wire::Error {
+                    request_id,
+                    code,
+                    message,
+                })) => {
+                    if let Some(rid) = request_id
+                        && let Some(tx) = pending_controls
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .remove(&rid)
+                    {
+                        let _ = tx.send(Err(AttachError::server_refusal(code, message)));
+                        continue;
+                    }
+                    if let Some(ref ev_tx) = link_ev_tx {
+                        let _ = ev_tx.send(LinkEvent::SubscribeRefused(
+                            AttachError::server_refusal(code, message),
+                        ));
+                    } else if resp_in_tx.send(AgentResponse::Error(message)).is_err() {
+                        break;
+                    }
+                }
                 Ok(WireFrame::Undecodable { envelope, detail }) => {
                     tracing::warn!(
                         envelope = envelope.as_deref().unwrap_or("<none>"),
@@ -421,15 +850,12 @@ pub(super) async fn finish_handshake_with_project(
                             .unwrap_or_default()
                     ));
                     if resp_in_tx.send(notice).is_err() {
-                        return;
+                        break;
                     }
                 }
                 Ok(WireFrame::Wire(_)) => {
                     tracing::warn!("attach: unexpected post-handshake frame, ignored")
                 }
-                // The socket itself failed. This is *not* a response and must
-                // never be spelled `Exit`; it is recorded where the consumer
-                // can read the real reason after `resp_rx` closes [ADR-0136].
                 Err(error) => {
                     tracing::warn!(%error, "attach: wire recv failed; link is down");
                     *link_lost_inner.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -438,21 +864,43 @@ pub(super) async fn finish_handshake_with_project(
                 }
             }
         }
+
         let exit_seen = *exit_seen_inner.lock().unwrap_or_else(|e| e.into_inner());
-        let mut marker = link_lost_inner.lock().unwrap_or_else(|e| e.into_inner());
-        if !exit_seen && marker.is_none() {
-            tracing::warn!("attach: connection closed by server unexpectedly without Exit frame");
-            *marker = Some("server closed connection unexpectedly".to_string());
+        let drain_msg = draining_reason_inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let closed_reason = {
+            let mut marker = link_lost_inner.lock().unwrap_or_else(|e| e.into_inner());
+            if !exit_seen && marker.is_none() {
+                if let Some(msg) = drain_msg {
+                    *marker = Some(msg);
+                } else {
+                    tracing::warn!(
+                        "attach: connection closed by server unexpectedly without Exit frame"
+                    );
+                    *marker = Some("server closed connection unexpectedly".to_string());
+                }
+            }
+            marker.clone()
+        };
+
+        // Fail any in-flight control requests immediately so callers never hang.
+        let err_msg = closed_reason
+            .clone()
+            .unwrap_or_else(|| "server connection closed".to_string());
+        for (_, tx) in pending_controls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain()
+        {
+            let _ = tx.send(Err(AttachError::transport(err_msg.clone())));
+        }
+
+        if let Some(tx) = closed_tx {
+            let _ = tx.send(closed_reason);
         }
     });
-
-    Ok(Handshake::Attached {
-        req_tx: req_out_tx,
-        resp_rx: resp_in_rx,
-        link_lost: link_lost_marker,
-        session_id: welcome.session_id,
-        phase: welcome.phase,
-    })
 }
 
 /// Extract the owning thread id from a thread-scoped [`AgentResponse`] for

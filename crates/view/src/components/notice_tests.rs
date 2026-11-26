@@ -43,14 +43,14 @@ mod nuo_view_test_support {
         }
     }
 
-    /// Paint `msg` into a `width × height` frame.
-    pub(super) fn paint(
+    /// Paint `msg` into a `width × height` frame using `theme`.
+    pub(super) fn paint_with_theme(
         msg: &TranscriptMessage,
         width: u16,
         height: u16,
         selection: SelectionState,
+        theme: &Theme,
     ) -> Painted {
-        let theme = Theme::default();
         let mut grid = CellGrid::new(width, height);
         let mut damage = Damage::new(height);
         let mut frame = Frame::new(&mut grid, &mut damage);
@@ -71,7 +71,7 @@ mod nuo_view_test_support {
             &mut content_lines,
             &mut wrap,
             &selection,
-            &theme,
+            theme,
             false,
             false,
         );
@@ -83,6 +83,17 @@ mod nuo_view_test_support {
             current_y,
         }
     }
+
+    /// Paint `msg` into a `width × height` frame.
+    pub(super) fn paint(
+        msg: &TranscriptMessage,
+        width: u16,
+        height: u16,
+        selection: SelectionState,
+    ) -> Painted {
+        let theme = Theme::default();
+        paint_with_theme(msg, width, height, selection, &theme)
+    }
 }
 
 #[test]
@@ -93,7 +104,7 @@ fn entry_head_is_chrome_and_body_is_indented_document_text() {
     // Head (row 0) + 1-row gap (row 1) + body (row 2).
     assert_eq!(painted.content_lines, 3);
     assert_eq!(painted.current_y, 3);
-    assert!(painted.row(0, 20).starts_with("▎notification"));
+    assert!(painted.row(0, 20).starts_with("! notification"));
     assert!(
         painted.row(2, 25).starts_with("  Connection refused"),
         "body must be indented past the entry head: {:?}",
@@ -174,7 +185,7 @@ fn core_notice_head_names_the_topic_and_body_keeps_the_structured_split() {
     let msg = TranscriptMessage::notice_from_core(&core);
     let painted = paint(&msg, 60, 10, SelectionState::None);
 
-    assert!(painted.row(0, 58).starts_with("▎trust"));
+    assert!(painted.row(0, 58).starts_with("! trust"));
     assert!(!painted.row(0, 58).contains("notification"));
     assert!(
         painted
@@ -210,7 +221,7 @@ fn a_notice_head_carries_only_settled_facts_never_a_ticking_counter() {
     let painted = paint(&msg, 80, 20, SelectionState::None);
 
     let head = painted.row(0, 80);
-    assert!(head.starts_with("▎notification"), "head: {head:?}");
+    assert!(head.starts_with("! notification"), "head: {head:?}");
     assert!(
         !head.contains("retry"),
         "a settled notice carries no live retry counter: {head:?}"
@@ -280,5 +291,81 @@ fn every_entry_kind_copies_the_same_bytes_it_displays() {
             .collect::<Vec<_>>()
             .join("\n");
         assert_eq!(rebuilt, msg.raw, "blocks must tile the display text");
+    }
+}
+
+#[test]
+fn notice_head_uses_uniform_lead_and_monochrome_appends_severity_marker() {
+    let theme = Theme::default();
+    let mut painted_colors = Vec::new();
+    for (severity, tag_color) in [
+        (NoticeSeverity::Error, theme.err()),
+        (NoticeSeverity::Warning, theme.warn()),
+        (NoticeSeverity::Info, theme.info()),
+    ] {
+        let mut msg = TranscriptMessage::notice(severity, "Detail");
+        msg.sent_at_ms = Some(1_700_000_000_000);
+        let painted = paint_with_theme(&msg, 40, 6, SelectionState::None, &theme);
+        let head = painted.row(0, 40);
+        assert!(
+            head.starts_with("! notification"),
+            "every severity shares the uniform `! ` entry lead: {head:?}"
+        );
+        // Topic starts at the exact same column as the indented body.
+        assert_eq!(
+            head.find("notification"),
+            Some(TRANSCRIPT_BODY_LEADING_INDENT as usize),
+            "topic column must align with body indent: {head:?}"
+        );
+        assert_eq!(
+            painted.row(2, 40).find("Detail"),
+            Some(TRANSCRIPT_BODY_LEADING_INDENT as usize),
+            "body must align with topic column"
+        );
+        // Timestamp stays right-aligned at the edge of the row.
+        let expected_time = ui_primitives::time::sent_time_label(1_700_000_000_000);
+        assert!(
+            head.ends_with(&expected_time),
+            "timestamp must stay right-aligned: {head:?}"
+        );
+        // Severity is conveyed by color + BOLD on both `!` and topic.
+        let expected_color = summary_text_color(
+            Some(tag_color),
+            Disclosure::Expanded,
+            Interaction::Idle,
+            &theme,
+        );
+        let lead_cell = painted.grid.get(0, 0).expect("lead cell");
+        let topic_cell = painted
+            .grid
+            .get(TRANSCRIPT_BODY_LEADING_INDENT, 0)
+            .expect("topic cell");
+        assert_eq!(lead_cell.style.fg, expected_color);
+        assert_eq!(topic_cell.style.fg, expected_color);
+        assert!(lead_cell.style.add.contains(Modifier::BOLD));
+        assert!(topic_cell.style.add.contains(Modifier::BOLD));
+        painted_colors.push(expected_color);
+    }
+    assert_ne!(painted_colors[0], painted_colors[1]);
+    assert_ne!(painted_colors[1], painted_colors[2]);
+    assert_ne!(painted_colors[0], painted_colors[2]);
+
+    let mono = Theme::from_color_scheme(
+        "monochrome",
+        &ui_primitives::color_scheme::ColorSchemeConfig::default(),
+    );
+    assert!(!mono.severity_is_color_distinguishable());
+    for (severity, expected_marker) in [
+        (NoticeSeverity::Error, "error"),
+        (NoticeSeverity::Warning, "warn"),
+        (NoticeSeverity::Info, "info"),
+    ] {
+        let msg = TranscriptMessage::notice(severity, "Detail");
+        let painted = paint_with_theme(&msg, 40, 6, SelectionState::None, &mono);
+        let head = painted.row(0, 40);
+        assert!(
+            head.starts_with(&format!("! notification {expected_marker}")),
+            "monochrome head must append textual severity marker: {head:?}"
+        );
     }
 }

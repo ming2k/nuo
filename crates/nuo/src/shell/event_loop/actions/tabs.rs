@@ -45,6 +45,7 @@ pub(crate) fn activate_tab_at_index(
                 if id != viewed_session_id {
                     app.activate_thread_workspace(id);
                 } else {
+                    app.acknowledge_thread_outcome(id);
                     app.hand_composer_to_current_thread();
                 }
                 app.threads.selection = SelectionState::None;
@@ -105,6 +106,7 @@ pub(crate) fn handle_close_tab_at(
                 if id != viewed_session_id {
                     app.activate_thread_workspace(id);
                 } else {
+                    app.acknowledge_thread_outcome(id);
                     app.hand_composer_to_current_thread();
                 }
                 app.threads.selection = SelectionState::None;
@@ -151,7 +153,7 @@ pub(crate) fn start_fresh_thread_bare(app: &mut App) {
         app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
     } else {
         let cwd = app.session.cwd.clone();
-        app.subscribe_thread(protocol::AttachAction::New(None), Some(cwd));
+        app.subscribe_thread(protocol::ThreadTarget::New { options: None }, Some(cwd));
     }
 }
 

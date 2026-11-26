@@ -3,7 +3,7 @@
 //! The subject under test is the *seam*: the harness's row vocabulary converted to
 //! the storage layer's, written through the single-writer door, and readable back
 //! with the invariants intact. The capture and reversal logic is tested where it
-//! lives (`nuo-harness`); here the question is only whether the two halves agree.
+//! lives (`engine`); here the question is only whether the two halves agree.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -54,7 +54,6 @@ fn seed_thread(handle: &PersistenceHandle, thread_id: &str) {
         msg_count: 0,
         last_user_prompt: None,
         digest: None,
-        status: "idle".into(),
         round_counter: 0,
     });
 }

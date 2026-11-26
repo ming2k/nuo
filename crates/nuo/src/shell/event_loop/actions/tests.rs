@@ -686,7 +686,7 @@ mod transcript_scroll_tests {
         });
 
         // 1. Open dropdown
-        let dropdown = crate::shell::views::settings::build_websearch_provider_dropdown(
+        let dropdown = view::views::settings::build_websearch_provider_dropdown(
             "exa",
             app.surfaces.websearch_config.as_ref(),
         );
@@ -710,7 +710,7 @@ mod transcript_scroll_tests {
         );
 
         // 2. Open dropdown again and click item 1 (Tavily) at (25, 8)
-        let dropdown = crate::shell::views::settings::build_websearch_provider_dropdown(
+        let dropdown = view::views::settings::build_websearch_provider_dropdown(
             "exa",
             app.surfaces.websearch_config.as_ref(),
         );
@@ -1031,7 +1031,7 @@ mod tab_lifecycle_tests {
         assert!(matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                action: protocol::AttachAction::New(_),
+                target: protocol::ThreadTarget::New { .. },
                 ..
             })
         ));
@@ -1077,7 +1077,7 @@ mod tab_lifecycle_tests {
     /// stepping from a pill onto its own `✕` keeps the reveal clock running.
     #[tokio::test]
     async fn hover_tracks_the_pill_then_its_close_mark_as_one_visit() {
-        use crate::shell::view_header::TabBarHover;
+        use view::view_header::TabBarHover;
         let mut app = app_with_tabs();
         let runtime = UiRuntime::minimal_for_test();
 
@@ -1129,7 +1129,7 @@ mod tab_lifecycle_tests {
     #[tokio::test]
     async fn clicking_tabbar_help_toggles_help_dialog() {
         use crate::shell::surfaces::DialogKind;
-        use crate::shell::view_header::TabBarHover;
+        use view::view_header::TabBarHover;
 
         let mut app = app_with_tabs();
         let runtime = UiRuntime::minimal_for_test();

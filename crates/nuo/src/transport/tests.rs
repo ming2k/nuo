@@ -30,7 +30,7 @@ async fn an_unmodelled_frame_on_the_control_plane_names_the_skew() {
     let (sink, source) = crate::transport::native_framed_split(client_side);
     let error = finish_control(
         (sink, source),
-        AttachAction::Control(ControlRequest::Reload),
+        ControlRequest::Reload,
         CONTROL_REPLY_TIMEOUT,
     )
     .await
@@ -61,9 +61,17 @@ async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
 
     let (client_side, mut server_side) = tokio::net::UnixStream::pair().unwrap();
 
-    // Handshake: the snapshot, which must arrive as the first frame.
-    let snapshot = Wire::Monitor {
-        event: MonitorEvent::Snapshot(protocol::monitor::MonitorSnapshot {
+    // Handshake: ServerHello with the monitor snapshot as the first frame.
+    let hello_reply = Wire::ServerHello {
+        server_id: "srv-monitor-test".to_string(),
+        protocol: PROTOCOL_VERSION,
+        version: "0.0.0-test".to_string(),
+        started_at: 0,
+        phase: ServerPhase::Ready,
+        persistence_health: None,
+        monitor: Some(protocol::monitor::MonitorSnapshot {
+            server_id: "srv-monitor-test".to_string(),
+            server_phase: ServerPhase::Ready,
             project_root: "/tmp/nuo-monitor-test".to_string(),
             server_started_at: 0,
             threads: Vec::new(),
@@ -73,7 +81,9 @@ async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
         }),
     };
     let after = Wire::Monitor {
-        event: MonitorEvent::ServerDraining,
+        event: MonitorEvent::ServerPhaseChanged(ServerPhase::Draining {
+            reason: Some("test".into()),
+        }),
     };
 
     tokio::spawn(async move {
@@ -81,11 +91,11 @@ async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
         let mut prefix = [0u8; 4];
         server_side.read_exact(&mut prefix).await.unwrap();
         let len = u32::from_be_bytes(prefix) as usize;
-        let mut select = vec![0u8; len];
-        server_side.read_exact(&mut select).await.unwrap();
+        let mut hello = vec![0u8; len];
+        server_side.read_exact(&mut hello).await.unwrap();
 
         let mut out = Vec::new();
-        let snap = serde_json::to_vec(&snapshot).unwrap();
+        let snap = serde_json::to_vec(&hello_reply).unwrap();
         out.extend_from_slice(&(snap.len() as u32).to_be_bytes());
         out.extend_from_slice(&snap);
 
@@ -128,7 +138,10 @@ async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
         .expect("a frame after the skew must still arrive: the stream is alive")
         .expect("the monitor channel must still be open");
     assert!(
-        matches!(next, MonitorEvent::ServerDraining),
+        matches!(
+            next,
+            MonitorEvent::ServerPhaseChanged(ServerPhase::Draining { .. })
+        ),
         "the event behind the unmodelled frame must be delivered, got {next:?}"
     );
 }
@@ -259,6 +272,7 @@ fn attach_refusal_preserves_code() {
 #[test]
 fn wire_error_frame_carries_the_refusal_code() {
     let frame = Wire::Error {
+        request_id: None,
         message: "session 'abc' no longer exists".to_string(),
         code: Some(protocol::ERR_SESSION_GONE.to_string()),
     };
@@ -521,22 +535,48 @@ async fn an_unmodelled_frame_after_welcome_does_not_end_the_attachment() {
         use tokio::io::AsyncReadExt;
         use tokio::io::AsyncWriteExt;
 
-        // Consume the client's `Select` (length prefix + payload).
+        // Consume the client's `Hello`, reply `ServerHello`, then consume
+        // `Subscribe` and reply `Subscribed` + skewed frame.
         let mut prefix = [0u8; 4];
         server_side.read_exact(&mut prefix).await.unwrap();
         let len = u32::from_be_bytes(prefix) as usize;
-        let mut select = vec![0u8; len];
-        server_side.read_exact(&mut select).await.unwrap();
+        let mut hello = vec![0u8; len];
+        server_side.read_exact(&mut hello).await.unwrap();
 
-        let welcome = serde_json::to_vec(&Wire::Welcome {
+        let server_hello = serde_json::to_vec(&Wire::ServerHello {
+            server_id: "srv-drifted".to_string(),
+            protocol: PROTOCOL_VERSION,
+            version: "0.0.0-test".to_string(),
+            started_at: 0,
+            phase: ServerPhase::Ready,
+            persistence_health: None,
+            monitor: None,
+        })
+        .unwrap();
+        server_side
+            .write_all(&(server_hello.len() as u32).to_be_bytes())
+            .await
+            .unwrap();
+        server_side.write_all(&server_hello).await.unwrap();
+        server_side.flush().await.unwrap();
+
+        server_side.read_exact(&mut prefix).await.unwrap();
+        let len = u32::from_be_bytes(prefix) as usize;
+        let mut sub = vec![0u8; len];
+        server_side.read_exact(&mut sub).await.unwrap();
+
+        let subscribed = serde_json::to_vec(&Wire::Subscribed {
+            request_id: 1,
             thread_id: "thread-drifted".to_string(),
             generation: 1,
-            phase: protocol::ThreadPhase::Binding,
+            phase: protocol::ThreadPhase::Preparing {
+                stage: protocol::PrepareStage::Thread,
+            },
         })
         .unwrap();
         let mut out = Vec::new();
-        out.extend_from_slice(&(welcome.len() as u32).to_be_bytes());
-        out.extend_from_slice(&welcome);
+        out.extend_from_slice(&(subscribed.len() as u32).to_be_bytes());
+        out.extend_from_slice(&subscribed);
 
         // The exact shape that killed the client: a `Response` envelope
         // naming a variant this build no longer has.
@@ -553,9 +593,10 @@ async fn an_unmodelled_frame_after_welcome_does_not_end_the_attachment() {
     });
 
     let (sink, source) = crate::transport::native_framed_split(client_side);
-    let handshake = finish_handshake_with_project((sink, source), AttachAction::Attach(None), None)
-        .await
-        .expect("the attach itself succeeds: Welcome arrived first");
+    let handshake =
+        finish_handshake_with_project((sink, source), ThreadTarget::Attach { id: None }, None)
+            .await
+            .expect("the attach itself succeeds: Subscribed arrived first");
 
     let Handshake::Attached { mut resp_rx, .. } = handshake else {
         panic!("expected an attached handshake");
@@ -780,19 +821,35 @@ async fn netune_ws_session_wire_roundtrip_and_liveness() {
         while let Ok((opcode, payload)) = read_masked_ws_frame(&mut socket).await {
             match opcode {
                 0x1 => {
-                    // Answer the client's `Select` with `Welcome`, then stay
-                    // open to echo at least 2 heartbeat pings.
                     let wire: Wire = serde_json::from_slice(&payload).unwrap();
-                    assert!(matches!(wire, Wire::Select { .. }));
-                    let welcome = serde_json::to_vec(&Wire::Welcome {
-                        thread_id: "ws-live".to_string(),
-                        generation: 1,
-                        phase: protocol::ThreadPhase::Ready,
-                    })
-                    .unwrap();
-                    write_server_ws_frame(&mut socket, 0x1, &welcome)
-                        .await
-                        .unwrap();
+                    match wire {
+                        Wire::Hello { .. } => {
+                            let hello = serde_json::to_vec(&Wire::ServerHello {
+                                server_id: "srv-ws".to_string(),
+                                protocol: PROTOCOL_VERSION,
+                                version: "0.0.0-test".to_string(),
+                                started_at: 0,
+                                phase: ServerPhase::Ready,
+                                persistence_health: None,
+                                monitor: None,
+                            })
+                            .unwrap();
+                            write_server_ws_frame(&mut socket, 0x1, &hello)
+                                .await
+                                .unwrap();
+                        }
+                        Wire::Subscribe { request_id, .. } => {
+                            let sub = serde_json::to_vec(&Wire::Subscribed {
+                                request_id,
+                                thread_id: "ws-live".to_string(),
+                                generation: 1,
+                                phase: protocol::ThreadPhase::Ready,
+                            })
+                            .unwrap();
+                            write_server_ws_frame(&mut socket, 0x1, &sub).await.unwrap();
+                        }
+                        other => panic!("unexpected wire frame: {other:?}"),
+                    }
                 }
                 0x9 => {
                     pings += 1;
@@ -828,9 +885,10 @@ async fn netune_ws_session_wire_roundtrip_and_liveness() {
     .await
     .expect("connect_ws_wire must succeed");
 
-    let handshake = finish_handshake_with_project((sink, source), AttachAction::Attach(None), None)
-        .await
-        .expect("handshake over netune WsSession must succeed");
+    let handshake =
+        finish_handshake_with_project((sink, source), ThreadTarget::Attach { id: None }, None)
+            .await
+            .expect("handshake over netune WsSession must succeed");
 
     let Handshake::Attached {
         req_tx,
@@ -931,8 +989,11 @@ async fn connect_ws_wire_survives_idle_monitor_heartbeats_against_real_server() 
         .expect("draining event must arrive on live stream")
         .expect("stream must still be open after idle heartbeat cycles");
     assert!(
-        matches!(draining, MonitorEvent::ServerDraining),
-        "expected ServerDraining, got {draining:?}"
+        matches!(
+            draining,
+            MonitorEvent::ServerPhaseChanged(ServerPhase::Draining { .. })
+        ),
+        "expected ServerPhaseChanged(Draining), got {draining:?}"
     );
     handle.cancel.cancel();
 }
@@ -942,8 +1003,9 @@ async fn attach_error_distinguishes_transport_failures_from_uncoded_server_refus
     let (client_io, server_io) = tokio::io::duplex(4096);
     let server_task = tokio::spawn(async move {
         let (mut sink, mut source) = native_framed_split(server_io);
-        let _select = source.next().await;
+        let _hello = source.next().await;
         sink.send(Wire::Error {
+            request_id: None,
             message: "unauthorized".to_string(),
             code: None,
         })
@@ -953,7 +1015,7 @@ async fn attach_error_distinguishes_transport_failures_from_uncoded_server_refus
 
     let err = finish_handshake_with_project(
         native_framed_split(client_io),
-        AttachAction::Attach(None),
+        ThreadTarget::Attach { id: None },
         None,
     )
     .await

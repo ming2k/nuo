@@ -33,7 +33,7 @@ fn a_restored_checkpoint_opens_no_round_and_advances_no_turn() {
         Message::new(Role::Assistant, "round two answer"),
     ];
 
-    let restored = transcript_messages_from_core(messages, &config::TuiConfig::default());
+    let restored = transcript_messages_from_core(messages, &view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 5, "no row is dropped by the fold");
     assert!(
         restored[2].is_compacted_card(),
@@ -77,7 +77,8 @@ fn restored_assistant_tool_step_uses_message_timestamp_for_turn_header() {
         arguments: r#"{"path":"README.md"}"#.to_string(),
     }]);
 
-    let restored = transcript_messages_from_core(vec![assistant], &config::TuiConfig::default());
+    let restored =
+        transcript_messages_from_core(vec![assistant], &view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 1);
     assert_eq!(restored[0].sent_at_ms, Some(1_700_000_002_000));
     assert_eq!(restored[0].round, Some(1));
@@ -94,7 +95,8 @@ fn restored_reasoning_component_carries_the_turn_send_time() {
     assistant.timestamp = Some(1_700_000_002);
     assistant.reasoning_content = Some("inspect first".to_string());
 
-    let restored = transcript_messages_from_core(vec![assistant], &config::TuiConfig::default());
+    let restored =
+        transcript_messages_from_core(vec![assistant], &view::tui_config::TuiConfig::default());
     assert!(restored[0].is_reasoning());
     assert_eq!(
         restored[0].sent_at_ms,
@@ -113,7 +115,8 @@ fn restored_assistant_components_share_their_round_and_turn() {
         arguments: r#"{"path":"README.md"}"#.to_string(),
     }]);
 
-    let restored = transcript_messages_from_core(vec![assistant], &config::TuiConfig::default());
+    let restored =
+        transcript_messages_from_core(vec![assistant], &view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 3);
     assert!(restored[0].is_reasoning());
     assert!(restored[1].is_tool_step());
@@ -159,8 +162,10 @@ fn restored_user_insert_keeps_mid_round_origin_without_opening_a_turn() {
         .with_origin(tool::InjectionOrigin::new(tool::InjectionKind::UserSteer));
     let second = Message::new(Role::Assistant, "revised answer");
 
-    let restored =
-        transcript_messages_from_core(vec![first, inserted, second], &config::TuiConfig::default());
+    let restored = transcript_messages_from_core(
+        vec![first, inserted, second],
+        &view::tui_config::TuiConfig::default(),
+    );
     assert_eq!(restored[1].origin, UserMessageOrigin::Steer);
     assert_eq!(restored[1].round, Some(1));
     assert_eq!(restored[1].turn, None);
@@ -228,7 +233,8 @@ fn restored_reasoning_is_not_shown_as_running() {
         sent_at_ms: None,
     };
 
-    let restored = transcript_messages_from_core(vec![message], &config::TuiConfig::default());
+    let restored =
+        transcript_messages_from_core(vec![message], &view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 1);
     let thinking = &restored[0];
     assert!(thinking.is_reasoning());
@@ -324,7 +330,8 @@ fn restored_tool_results_merge_into_steps_in_fifo_order() {
         ),
     ];
 
-    let mut restored = transcript_messages_from_core(messages, &config::TuiConfig::default());
+    let mut restored =
+        transcript_messages_from_core(messages, &view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 2);
     restored[0].set_tool_step_expanded(true);
     restored[1].set_tool_step_expanded(true);
@@ -389,7 +396,8 @@ fn restored_tool_steps_carry_the_call_id_and_pair_by_identity() {
         ),
     ];
 
-    let mut restored = transcript_messages_from_core(messages, &config::TuiConfig::default());
+    let mut restored =
+        transcript_messages_from_core(messages, &view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 2);
     assert_eq!(restored[0].tool_step_call_id(), Some("call_a"));
     assert_eq!(restored[1].tool_step_call_id(), Some("call_b"));

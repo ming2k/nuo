@@ -74,17 +74,36 @@ impl DbReader {
             .map(|receipt| receipt.map(|(operation_id, _hash, revision)| (operation_id, revision)))
     }
 
+    /// Open a read-only connection to `thread_id`'s owning content shard.
+    ///
+    /// Runtime self-healing (ADR-0255): if the disposable shard file is absent
+    /// or fails schema validation while a journal exists for `thread_id`,
+    /// replays that single session into its owning shard on demand and retries
+    /// once rather than silently reporting missing data until the next restart.
+    fn open_content_reader(&self, thread_id: &str) -> Result<Option<Connection>> {
+        if let Some(conn) = self.shards.open_reader_for(thread_id)? {
+            return Ok(Some(conn));
+        }
+        if let Some(repair) = self.shard_repair.as_ref()
+            && repair(thread_id)
+        {
+            return self.shards.open_reader_for(thread_id);
+        }
+        Ok(None)
+    }
+
     /// Load the canonical durable thread aggregate from catalog + content shard (ADR-0242).
     pub fn load_thread(&self, thread_id: &str) -> Result<Option<protocol::Thread>> {
-        let Some(content_conn) = self.shards.open_reader_for(thread_id)? else {
+        let Some(content_conn) = self.open_content_reader(thread_id)? else {
             return Ok(None);
         };
-        crate::db::thread_store::load_thread_from_planes(
+        crate::db::content_projection::load_thread_from_planes(
             self.conn(),
             &content_conn,
             &protocol::ThreadId::new(thread_id),
+            self.blob_store.as_ref(),
         )
-        .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))
+        .map_err(rusqlite::Error::InvalidParameterName)
     }
 
     #[allow(dead_code)]
@@ -282,23 +301,25 @@ impl DbReader {
         session_id: &str,
         active_id: &str,
     ) -> Result<Option<protocol::ThreadDetail>> {
-        let content_conn = self.shards.open_reader_for(session_id)?;
+        let content_conn = self.open_content_reader(session_id)?;
         crate::db::thread_session::get_session_detail_from_planes(
             self.conn(),
             content_conn.as_ref(),
             session_id,
             active_id,
+            self.blob_store.as_ref(),
         )
     }
 
     /// One session's raw durable data (the load path of `ThreadSession`),
     /// assembled from catalog metadata + owning content shard (ADR-0242).
     pub fn load_session_full(&self, session_id: &str) -> Result<Option<crate::thread::ThreadData>> {
-        let content_conn = self.shards.open_reader_for(session_id)?;
+        let content_conn = self.open_content_reader(session_id)?;
         crate::db::thread_session::load_session_full_from_planes(
             self.conn(),
             content_conn.as_ref(),
             session_id,
+            self.blob_store.as_ref(),
         )
     }
 
@@ -309,22 +330,34 @@ impl DbReader {
         session_id: &str,
         tail: usize,
     ) -> Result<Option<ThreadTranscriptView>> {
-        let content_conn = self.shards.open_reader_for(session_id)?;
+        let content_conn = self.open_content_reader(session_id)?;
         crate::db::thread_session::read_session_transcript_from_planes(
             self.conn(),
             content_conn.as_ref(),
             session_id,
             tail,
+            self.blob_store.as_ref(),
         )
     }
 
     /// Every blob hash the durable reference ledger still mentions across all
-    /// content shards (ADR-0242).
+    /// content shards (ADR-0242). Fail-closed if any existing shard fails
+    /// schema verification (ADR-0255).
     pub fn live_blob_hashes(&self) -> Result<std::collections::HashSet<String>> {
         self.shards.live_blob_hashes()
     }
 
     // -- recall / history --------------------------------------------------
+
+    /// Ensure at least one shard exists when searching globally after a
+    /// runtime `rm -rf shards/` (ADR-0255).
+    fn ensure_shards_for_global_search(&self) {
+        if !self.shards.has_any_shard()
+            && let Some(repair) = self.full_shard_repair.as_ref()
+        {
+            let _ = repair();
+        }
+    }
 
     /// BM25 search over every persisted transcript entry (strict AND form),
     /// fanning out across all content shards and merging by score (ADR-0242).
@@ -334,6 +367,7 @@ impl DbReader {
         workspace: Option<&Path>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
+        self.ensure_shards_for_global_search();
         self.shards
             .search_history_fanout(self.conn(), query, workspace, limit, false)
     }
@@ -345,6 +379,7 @@ impl DbReader {
         workspace: Option<&Path>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
+        self.ensure_shards_for_global_search();
         self.shards
             .search_history_fanout(self.conn(), query, workspace, limit, true)
     }

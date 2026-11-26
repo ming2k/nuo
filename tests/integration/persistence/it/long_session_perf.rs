@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use persistence::thread::{CommitBasis, CommitTurn, ThreadSession};
+use persistence::thread::{CommitTurn, ThreadSession};
 use tool::{Message, Role};
 
 #[tokio::test]
@@ -20,37 +20,35 @@ async fn long_session_commit_turn_scales_with_delta_not_session_length() {
     let initial_msg = vec![Message::new(Role::User, "Initial user request")];
     store
         .commit_turn(CommitTurn {
-            messages: &initial_msg,
-            basis: CommitBasis::Appended,
+            appended: &initial_msg,
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,
             round_interrupt: None,
+            round_summary: None,
             operation_id: None,
             expected_revision: None,
         })
         .await
         .expect("initial commit");
 
-    let mut current_messages = initial_msg;
-
     // Simulate 200 consecutive ReAct turns accumulating content
     let mut turn_latencies = Vec::new();
     for turn in 1..=200 {
         // Append an assistant tool-call turn
-        current_messages.push(Message::new(
+        let assistant_msg = [Message::new(
             Role::Assistant,
             format!("Turn {turn}: thinking and preparing tool call..."),
-        ));
+        )];
         let start = Instant::now();
         store
             .commit_turn(CommitTurn {
-                messages: &current_messages,
-                basis: CommitBasis::Appended,
+                appended: &assistant_msg,
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,
                 round_interrupt: None,
+                round_summary: None,
                 operation_id: None,
                 expected_revision: None,
             })
@@ -60,19 +58,19 @@ async fn long_session_commit_turn_scales_with_delta_not_session_length() {
         turn_latencies.push(elapsed);
 
         // Append tool result
-        current_messages.push(Message::new(
+        let tool_msg = [Message::new(
             Role::Tool,
             format!("Result for turn {turn} content payload with some output lines."),
-        ));
+        )];
         let start = Instant::now();
         store
             .commit_turn(CommitTurn {
-                messages: &current_messages,
-                basis: CommitBasis::Appended,
+                appended: &tool_msg,
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,
                 round_interrupt: None,
+                round_summary: None,
                 operation_id: None,
                 expected_revision: None,
             })

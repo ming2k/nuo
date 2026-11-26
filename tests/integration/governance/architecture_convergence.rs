@@ -17,7 +17,7 @@ const MAX_STRUCT_FIELDS: usize = 80;
 const MAX_FILE_LINES: usize = 2_000;
 
 fn workspace_root() -> PathBuf {
-    nuo::dev::find_workspace_root()
+    test_support::dev::find_workspace_root()
 }
 
 fn tier_crates(root: &Path) -> Vec<PathBuf> {
@@ -303,28 +303,74 @@ fn server_root_is_grouped() {
 #[test]
 fn no_cross_crate_reexport_modules() {
     let root = workspace_root();
+    let crates = tier_crates(&root);
+    let workspace_idents: Vec<String> = crates
+        .iter()
+        .filter_map(|dir| dir.file_name().and_then(|n| n.to_str()))
+        .map(|name| name.replace('-', "_"))
+        .collect();
     let mut violations = Vec::new();
-    for crate_dir in tier_crates(&root) {
+    for crate_dir in &crates {
+        let own_ident = crate_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .replace('-', "_");
         for path in rust_files(&crate_dir.join("src")) {
-            let source = fs::read_to_string(&path).unwrap_or_default();
-            let code: Vec<&str> = source
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with("//"))
-                .collect();
-            if code.is_empty() || code.len() > 3 {
+            if is_test_source(&path) {
                 continue;
             }
-            let all_reexport = code
-                .iter()
-                .all(|line| line.starts_with("pub use nuo_") || line.starts_with("pub use acp::"));
-            if all_reexport {
-                violations.push(path.strip_prefix(&root).unwrap_or(&path).to_path_buf());
-            }
-            for line in code {
-                if line.starts_with("pub use nuo_") && line.ends_with("::*;") {
-                    violations.push(path.strip_prefix(&root).unwrap_or(&path).to_path_buf());
+            let source = fs::read_to_string(&path).unwrap_or_default();
+            // Strip any trailing `#[cfg(test)]` block so a pure re-export module
+            // with an inline unit test cannot slip past the gate.
+            let prod_source = source.split("#[cfg(test)]").next().unwrap_or(&source);
+            let code: Vec<&str> = prod_source
+                .lines()
+                .map(str::trim)
+                .filter(|line| {
+                    !line.is_empty() && !line.starts_with("//") && !line.starts_with('#')
+                })
+                .collect();
+
+            let is_cross_crate_reexport = |line: &str| -> bool {
+                let Some(rest) = line.strip_prefix("pub use ") else {
+                    return false;
+                };
+                if rest.starts_with("nuo_") {
+                    return true;
                 }
+                let target = rest
+                    .trim_start_matches("::")
+                    .split("::")
+                    .next()
+                    .unwrap_or("");
+                target != own_ident && workspace_idents.iter().any(|id| id == target)
+            };
+
+            // [INV-VOCAB-02]: no crate may `pub use <other_workspace_crate>::*;`
+            // wholesale anywhere in production source.
+            for line in &code {
+                if is_cross_crate_reexport(line) && line.ends_with("::*;") {
+                    violations.push(format!(
+                        "{}: wildcard cross-crate re-export `{line}`",
+                        path.strip_prefix(&root).unwrap_or(&path).display()
+                    ));
+                }
+            }
+
+            // [INV-VOCAB-03]: a standalone module whose only production code is
+            // re-exporting another workspace crate is a compatibility facade.
+            if !code.is_empty()
+                && code.len() <= 5
+                && code.iter().all(|line| {
+                    is_cross_crate_reexport(line) || line.ends_with(',') || line.ends_with("};")
+                })
+                && code.iter().any(|line| is_cross_crate_reexport(line))
+            {
+                violations.push(format!(
+                    "{}: pure cross-crate re-export facade",
+                    path.strip_prefix(&root).unwrap_or(&path).display()
+                ));
             }
         }
     }
@@ -332,8 +378,8 @@ fn no_cross_crate_reexport_modules() {
     violations.dedup();
     assert!(
         violations.is_empty(),
-        "compatibility re-export modules are retired; import the owner directly \
-         ([INV-VOCAB-02], ADR-0180): {violations:?}"
+        "compatibility re-export modules and cross-crate globs are retired; import the owner \
+         directly ([INV-VOCAB-02], [INV-VOCAB-03], ADR-0180): {violations:#?}"
     );
 }
 
@@ -540,6 +586,89 @@ fn living_docs_use_current_crate_names() {
     assert!(
         violations.is_empty(),
         "living docs must use current crate names ([INV-DOC-03], ADR-0187): {violations:#?}"
+    );
+}
+
+#[test]
+fn rust_doc_comments_use_current_crate_names() {
+    let root = workspace_root();
+    const HISTORY_MARKERS: &[&str] = &[
+        "former",
+        "formerly",
+        "retired",
+        "removed",
+        "renamed",
+        "consolidated from",
+        "predecessor",
+        "replaced",
+        "deleted",
+        "superseded",
+        "legacy",
+        "used to",
+        "was ",
+        "were ",
+    ];
+    let retired = [
+        "nuo-harness",
+        "nuo-tui",
+        "nuo-client",
+        "nuo-model-codec",
+        "nuo-catalog",
+        "nuo-mcp",
+        "nuo-provider-adapters",
+        "nuo-provider-transport",
+        "nuo-provider-opencode",
+        "nuo-egress",
+        "nuo-oauth",
+        "nuo-contracts",
+        "nuo-agent",
+        "nuo-tool-",
+        "nuo-view",
+        "nuo-ui",
+        "nuo-present",
+        "nuo-shell",
+    ];
+    let mut violations = Vec::new();
+    let mut checked = 0;
+    for crate_dir in tier_crates(&root) {
+        for path in rust_files(&crate_dir.join("src")) {
+            if is_test_source(&path) {
+                continue;
+            }
+            let file = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+            let source = fs::read_to_string(&path).unwrap_or_default();
+            checked += 1;
+            for (index, raw) in source.lines().enumerate() {
+                let trimmed = raw.trim_start();
+                if !(trimmed.starts_with("//!") || trimmed.starts_with("///")) {
+                    continue;
+                }
+                let lower = trimmed.to_lowercase();
+                if HISTORY_MARKERS.iter().any(|marker| lower.contains(marker)) {
+                    continue;
+                }
+                for name in retired {
+                    if trimmed.contains(name) {
+                        violations.push(format!(
+                            "{file}:{}: rustdoc names retired crate `{name}` as current",
+                            index + 1
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        checked >= 200,
+        "rustdoc scan read only {checked} files; a scan that sees nothing certifies nothing"
+    );
+    assert!(
+        violations.is_empty(),
+        "rustdoc comments must use current crate names ([INV-DOC-03], ADR-0187): {violations:#?}"
     );
 }
 
@@ -1178,5 +1307,62 @@ fn provider_presets_match_authoritative_model_provider_specs() {
         violations.is_empty(),
         "view::providers::PROVIDER_PRESETS drifted from MODEL_PROVIDER_SPECS:\n{}",
         violations.join("\n")
+    );
+}
+
+/// `[INV-SHARD-01]` (ADR-0255): content shards must be versioned through
+/// `db/migrations/content_shard.rs` and `migrations/content_shard/`; ad-hoc
+/// `CREATE TABLE IF NOT EXISTS` DDL in `db/shards.rs` is prohibited.
+#[test]
+fn content_shards_have_no_inline_ddl() {
+    let root = workspace_root();
+    let shards_rs = root.join("crates/persistence/src/db/shards.rs");
+    let source = fs::read_to_string(&shards_rs).expect("shards.rs exists");
+    for forbidden in ["CREATE TABLE", "CREATE VIRTUAL TABLE", "CREATE TRIGGER"] {
+        assert!(
+            !source.contains(forbidden),
+            "crates/persistence/src/db/shards.rs must not embed inline DDL `{forbidden}` ([INV-SHARD-01], ADR-0255); put schema in migrations/content_shard/"
+        );
+    }
+}
+
+/// `[INV-SESSSTORE-01]` (ADR-0256): the retired parallel `ThreadStore` /
+/// `SqliteThreadStore` persistence surface must not reappear in `crates/`.
+#[test]
+fn retired_parallel_thread_store_surface_is_absent() {
+    let root = workspace_root();
+    let mut violations = Vec::new();
+    for crate_dir in tier_crates(&root) {
+        for path in rust_files(&crate_dir.join("src")) {
+            let source = fs::read_to_string(&path).unwrap_or_default();
+            for (idx, line) in source.lines().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                for forbidden in [
+                    "struct SqliteThreadStore",
+                    "struct SqliteBlobStore",
+                    "struct MemoryThreadStore",
+                    "struct MemoryBlobStore",
+                    "trait ThreadStore",
+                    "enum ThreadQuery",
+                    "struct TranscriptView",
+                    "struct ThreadPolicy",
+                ] {
+                    if line.contains(forbidden) {
+                        violations.push(format!(
+                            "{}:{}: `{forbidden}`",
+                            path.strip_prefix(&root).unwrap_or(&path).display(),
+                            idx + 1
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "retired ThreadStore surface reappeared ([INV-SESSSTORE-01], ADR-0256): {violations:#?}"
     );
 }

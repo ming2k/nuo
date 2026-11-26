@@ -114,17 +114,22 @@ fn ready_re_reads_the_authoritative_queue() {
 fn build_app_with_non_ready_boot_phase_never_spoofs_switching_session() {
     let live_session_id = "32aa8e10-183d-4b41-835e-04fb8e64b0dd".to_string();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let preparing = protocol::ThreadPhase::Preparing {
+        stage: protocol::PrepareStage::Thread,
+    };
     let app = crate::shell::build_app(crate::shell::AppBoot {
         live_session_init: &live_session_id,
         initial_provider: "openai".to_string(),
         initial_model: "gpt-5".to_string(),
-        session_phase_init: protocol::ThreadPhase::Binding,
+        session_phase_init: preparing.clone(),
+        server_phase_init: protocol::ServerPhase::Ready,
+        pending_initial_subscribe: None,
         restored: Vec::new(),
-        tui_config: std::sync::Arc::new(crate::config::TuiConfig::default()),
+        tui_config: std::sync::Arc::new(view::tui_config::TuiConfig::default()),
         command_catalog: tool::CommandCatalog::default(),
         initial_pending_prompts: Vec::new(),
         input_history: Vec::new(),
-        input_history_config: crate::config::InputHistoryConfig::default(),
+        input_history_config: view::tui_config::InputHistoryConfig::default(),
         startup_overlay: crate::shell::StartupOverlay::None,
         profile: graticule::TerminalProfile::default(),
         token_ledger: None,
@@ -136,61 +141,462 @@ fn build_app_with_non_ready_boot_phase_never_spoofs_switching_session() {
         app.session.switching_session.is_none(),
         "build_app must never put the raw boot UUID into switching_session"
     );
-    assert_eq!(app.threads.session_phase, protocol::ThreadPhase::Binding);
+    assert_eq!(app.threads.session_phase, preparing);
+    let past_hysteresis = std::time::Duration::from_millis(200);
+    let connected = crate::shell::app::state::ClientLinkPhase::Connected {
+        server_id: "srv-1".to_string(),
+    };
     assert_eq!(
         crate::shell::event_loop::render::select_empty_state_guidance(
+            &connected,
+            past_hysteresis,
+            &app.session.server_phase,
+            past_hysteresis,
             app.session.switching_session.as_deref(),
             &app.threads.session_phase,
+            past_hysteresis,
             true,
         ),
-        crate::shell::render::EmptyStateGuidance::ThreadPhase(protocol::ThreadPhase::Binding),
+        crate::shell::render::EmptyStateGuidance::ThreadPhase(preparing),
     );
     assert_eq!(
         crate::shell::event_loop::render::select_lifecycle_status(
             false,
+            &connected,
+            past_hysteresis,
+            &app.session.server_phase,
+            past_hysteresis,
             app.session.switching_session.as_deref(),
             &app.threads.session_phase,
+            past_hysteresis,
         ),
-        Some("binding thread…".to_string()),
+        Some("preparing · thread store…".to_string()),
     );
 }
 
 #[test]
-fn render_projection_composes_resuming_with_live_phase_and_prioritizes_link_down() {
-    use crate::shell::event_loop::render::{select_empty_state_guidance, select_lifecycle_status};
+fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hysteresis() {
+    use crate::shell::app::state::ClientLinkPhase;
+    use crate::shell::event_loop::render::{
+        TRANSIENT_WAIT_HYSTERESIS, select_empty_state_guidance, select_lifecycle_status,
+    };
     use crate::shell::render::EmptyStateGuidance;
+    use std::time::Duration;
 
+    let fast = Duration::from_millis(30);
+    let slow = TRANSIENT_WAIT_HYSTERESIS + Duration::from_millis(10);
+    let connected = ClientLinkPhase::Connected {
+        server_id: "srv-1".to_string(),
+    };
+    let connecting = ClientLinkPhase::Connecting {
+        label: "Starting Nuo server…".to_string(),
+    };
+    let reconnecting = ClientLinkPhase::Reconnecting {
+        endpoint: "127.0.0.1:9800".to_string(),
+        attempt: 2,
+        max_attempts: 10,
+        delay_ms: Some(500),
+    };
+    let ready_server = protocol::ServerPhase::Ready;
+    let init_server = protocol::ServerPhase::Initializing {
+        stage: protocol::ServerInitStage::Storage,
+    };
+    let draining_server = protocol::ServerPhase::Draining {
+        reason: Some("SIGTERM".into()),
+    };
+    let reloading_server = protocol::ServerPhase::Reloading;
     let skills_phase = protocol::ThreadPhase::Preparing {
         stage: protocol::PrepareStage::Skills,
     };
+
+    // Sub-120ms transient waits suppress flashing labels via QuietWait (ADR-0260 [INV-SRVPHASE-05]).
     assert_eq!(
-        select_empty_state_guidance(Some("7c405d7e"), &skills_phase, true),
+        select_empty_state_guidance(
+            &connecting,
+            fast,
+            &ready_server,
+            fast,
+            None,
+            &protocol::ThreadPhase::Ready,
+            fast,
+            true
+        ),
+        EmptyStateGuidance::QuietWait
+    );
+    assert_eq!(
+        select_lifecycle_status(
+            false,
+            &connecting,
+            fast,
+            &ready_server,
+            fast,
+            None,
+            &protocol::ThreadPhase::Ready,
+            fast
+        ),
+        None
+    );
+    assert_eq!(
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &init_server,
+            fast,
+            None,
+            &protocol::ThreadPhase::Ready,
+            fast,
+            true
+        ),
+        EmptyStateGuidance::QuietWait
+    );
+    assert_eq!(
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &ready_server,
+            slow,
+            None,
+            &skills_phase,
+            fast,
+            true
+        ),
+        EmptyStateGuidance::QuietWait
+    );
+
+    // Non-transient states (Reconnecting, Draining, Failed) appear immediately at 0ms.
+    assert!(matches!(
+        select_empty_state_guidance(
+            &reconnecting,
+            Duration::ZERO,
+            &ready_server,
+            Duration::ZERO,
+            None,
+            &protocol::ThreadPhase::Ready,
+            Duration::ZERO,
+            true
+        ),
+        EmptyStateGuidance::Connecting { ref label } if label.contains("Reconnecting to 127.0.0.1:9800")
+    ));
+    assert_eq!(
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &draining_server,
+            Duration::ZERO,
+            None,
+            &skills_phase,
+            Duration::ZERO,
+            true
+        ),
+        EmptyStateGuidance::ServerPhase(draining_server)
+    );
+
+    // Once past 120ms, Server initializing outranks thread/resuming states.
+    assert_eq!(
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &init_server,
+            slow,
+            Some("7c405d7e"),
+            &skills_phase,
+            slow,
+            true
+        ),
+        EmptyStateGuidance::ServerPhase(init_server.clone())
+    );
+    assert_eq!(
+        select_lifecycle_status(
+            false,
+            &connected,
+            slow,
+            &init_server,
+            slow,
+            Some("7c405d7e"),
+            &skills_phase,
+            slow
+        ),
+        Some("initializing server · storage…".to_string())
+    );
+    // Dead link outranks server initializing.
+    assert_eq!(
+        select_lifecycle_status(
+            true,
+            &connected,
+            slow,
+            &init_server,
+            slow,
+            Some("7c405d7e"),
+            &skills_phase,
+            slow
+        ),
+        Some("server link lost".to_string()),
+        "dead server link must override any server or thread phase"
+    );
+    // Reloading is non-blocking: status bar discloses it, hero does not block.
+    assert_eq!(
+        select_lifecycle_status(
+            false,
+            &connected,
+            slow,
+            &reloading_server,
+            Duration::ZERO,
+            None,
+            &protocol::ThreadPhase::Ready,
+            slow
+        ),
+        Some("reloading server…".to_string())
+    );
+    assert_eq!(
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &reloading_server,
+            Duration::ZERO,
+            None,
+            &protocol::ThreadPhase::Ready,
+            slow,
+            true
+        ),
+        EmptyStateGuidance::Tour
+    );
+
+    assert_eq!(
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &ready_server,
+            slow,
+            Some("7c405d7e"),
+            &skills_phase,
+            slow,
+            true
+        ),
         EmptyStateGuidance::ResumingThread {
             short_id: "7c405d7e".to_string(),
             phase: skills_phase.clone(),
         }
     );
     assert_eq!(
-        select_lifecycle_status(false, Some("7c405d7e"), &skills_phase),
+        select_lifecycle_status(
+            false,
+            &connected,
+            slow,
+            &ready_server,
+            slow,
+            Some("7c405d7e"),
+            &skills_phase,
+            slow
+        ),
         Some("resuming 7c405d7e · preparing skills…".to_string())
     );
     assert_eq!(
-        select_lifecycle_status(true, Some("7c405d7e"), &skills_phase),
-        Some("server link lost".to_string()),
-        "dead server link must override any in-flight phase"
-    );
-    assert_eq!(
-        select_empty_state_guidance(None, &protocol::ThreadPhase::Ready, true),
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &ready_server,
+            slow,
+            None,
+            &protocol::ThreadPhase::Ready,
+            slow,
+            true
+        ),
         EmptyStateGuidance::Tour
     );
     assert_eq!(
-        select_empty_state_guidance(None, &protocol::ThreadPhase::Ready, false),
+        select_empty_state_guidance(
+            &connected,
+            slow,
+            &ready_server,
+            slow,
+            None,
+            &protocol::ThreadPhase::Ready,
+            slow,
+            false
+        ),
         EmptyStateGuidance::NeedsProvider
     );
     assert_eq!(
-        select_lifecycle_status(false, None, &protocol::ThreadPhase::Ready),
+        select_lifecycle_status(
+            false,
+            &connected,
+            slow,
+            &ready_server,
+            slow,
+            None,
+            &protocol::ThreadPhase::Ready,
+            slow
+        ),
         None
     );
+}
+
+#[test]
+fn server_phase_ready_flushes_deferred_initial_subscribe() {
+    let mut app = new_app_for_relay_tests();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.link.tx = tx;
+    app.session.server_phase = protocol::ServerPhase::Initializing {
+        stage: protocol::ServerInitStage::Storage,
+    };
+    app.session.pending_initial_subscribe = Some((
+        protocol::ThreadTarget::New { options: None },
+        Some(std::path::PathBuf::from("/tmp/proj")),
+    ));
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::Initializing {
+            stage: protocol::ServerInitStage::Runtime,
+        }),
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "must not subscribe while server is still initializing"
+    );
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::Ready),
+    );
+    assert_eq!(app.session.server_phase, protocol::ServerPhase::Ready);
+    assert!(app.session.pending_initial_subscribe.is_none());
+    assert!(
+        matches!(
+            app.threads.session_phase,
+            protocol::ThreadPhase::Preparing {
+                stage: protocol::PrepareStage::Thread
+            }
+        ),
+        "must enter Preparing(Thread) while awaiting Subscribed"
+    );
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe {
+            target: protocol::ThreadTarget::New { .. },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn link_established_reconciles_open_tabs_across_server_restart_without_destroying_app() {
+    let mut app = new_app_for_relay_tests();
+    app.surfaces
+        .surfaces
+        .open_tab(crate::shell::surfaces::ClientTab::thread(
+            "thread-a",
+            None::<String>,
+        ));
+    app.surfaces
+        .surfaces
+        .open_tab(crate::shell::surfaces::ClientTab::thread(
+            "thread-b",
+            None::<String>,
+        ));
+    app.session.current_session_id = "thread-a".to_string();
+    app.link.known_server_id = Some("srv-old".to_string());
+    app.link.link_down = true;
+    app.link.relink_requested = true;
+
+    let (new_tx, mut new_rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::LinkEstablished {
+            server_id: "srv-restarted".to_string(),
+            server_phase: protocol::ServerPhase::Ready,
+            persistence_health: None,
+            req_tx: new_tx,
+        },
+    );
+
+    assert!(!app.link.link_down);
+    assert!(!app.link.relink_requested);
+    assert_eq!(app.link.known_server_id.as_deref(), Some("srv-restarted"));
+
+    let mut subscribed = Vec::new();
+    while let Ok(crate::shell::client::ClientOutbound::Subscribe {
+        target: protocol::ThreadTarget::Attach { id: Some(id) },
+        ..
+    }) = new_rx.try_recv()
+    {
+        subscribed.push(id);
+    }
+    assert_eq!(
+        subscribed,
+        vec!["thread-a".to_string(), "thread-b".to_string()]
+    );
+}
+
+#[test]
+fn subscribe_refused_gone_and_pick_required_recover_in_place() {
+    let mut app = new_app_for_relay_tests();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.link.tx = tx;
+    app.session.current_session_id = "stale-thread".to_string();
+    app.session.live_session_id = "stale-thread".to_string();
+    app.surfaces
+        .surfaces
+        .open_tab(crate::shell::surfaces::ClientTab::thread(
+            "stale-thread",
+            None::<String>,
+        ));
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::SubscribeRefused(crate::shell::client::AttachError::from_server_refusal(
+            Some(protocol::ERR_SESSION_GONE.to_string()),
+            "session 'stale-thread' no longer exists",
+        )),
+    );
+    assert!(
+        !app.surfaces
+            .surfaces
+            .tabs()
+            .iter()
+            .any(|t| t.thread_id() == Some("stale-thread")),
+        "stale tab must be retired on ERR_SESSION_GONE"
+    );
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe {
+            target: protocol::ThreadTarget::Picker { .. },
+            ..
+        })
+    ));
+
+    let _ = crate::shell::event_loop::apply::apply(&mut app, &runtime, M::PickRequired(Vec::new()));
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe {
+            target: protocol::ThreadTarget::Picker { .. },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn zero_thread_dashboard_skips_unaddressed_thread_intents_cleanly() {
+    let mut app = new_app_for_relay_tests();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.link.tx = tx;
+    app.session.current_session_id.clear();
+    app.session.live_session_id.clear();
+    app.session.subscribed_threads.clear();
+
+    assert!(
+        !app.send_intent(protocol::AgentRequest::Interrupt),
+        "thread-scoped intent must be skipped cleanly when 0 threads are subscribed"
+    );
+    assert!(rx.try_recv().is_err());
+    assert!(!app.link.link_down);
 }
 
 #[tokio::test]

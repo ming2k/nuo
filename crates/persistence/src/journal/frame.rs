@@ -243,4 +243,47 @@ mod tests {
         bytes[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(matches!(decode(&bytes), Decoded::Corrupt(_)));
     }
+
+    #[test]
+    fn fuzz_arbitrary_truncations_bitflips_and_noise_never_panic() {
+        // Every proper prefix of a valid frame must decode as Incomplete.
+        let valid = encode(42, FrameKind::WorkspaceEffect, b"{\"op\":\"edit\",\"n\":1}");
+        for cut in 0..valid.len() {
+            assert!(
+                matches!(decode(&valid[..cut]), Decoded::Incomplete),
+                "prefix of length {cut} must be Incomplete"
+            );
+        }
+
+        // Flipping any bit in the payload or CRC must never produce a valid Frame.
+        for byte_idx in 20..valid.len() {
+            for bit in 0..8 {
+                let mut mutated = valid.clone();
+                mutated[byte_idx] ^= 1u8 << bit;
+                assert!(
+                    !matches!(decode(&mutated), Decoded::Frame(_)),
+                    "bit flip at byte {byte_idx} bit {bit} must not decode as Frame"
+                );
+            }
+        }
+
+        // Deterministic PRNG noise (both raw and with valid MAGIC header).
+        let mut state: u64 = 0x5eed_cafe_dead_beef;
+        let mut next_u8 = || -> u8 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (state >> 33) as u8
+        };
+        for case in 0..512 {
+            let len = (case % 96) + 1;
+            let mut buf: Vec<u8> = (0..len).map(|_| next_u8()).collect();
+            if case % 2 == 0 && buf.len() >= 4 {
+                buf[0..4].copy_from_slice(&MAGIC);
+            }
+            if case % 4 == 0 && buf.len() >= 7 {
+                buf[4..6].copy_from_slice(&VERSION.to_le_bytes());
+                buf[6] = ((case % 6) as u8) + 1;
+            }
+            let _ = decode(&buf);
+        }
+    }
 }

@@ -342,6 +342,7 @@ impl App {
                 self.open_tab(crate::shell::surfaces::ClientTab::dashboard());
             }
             SceneKind::Settings => {
+                self.refresh_theme_files();
                 self.open_tab(crate::shell::surfaces::ClientTab::settings());
             }
             // A log belongs to the thread tab it was read from, so it takes the
@@ -375,10 +376,11 @@ impl App {
         for s in sheets {
             self.on_sheet_dismissed(s);
         }
-        if let Some(ref tid) = target_thread_id
-            && departing_thread_id.as_deref() != Some(tid.as_str())
-        {
-            self.threads.activate(tid);
+        if let Some(ref tid) = target_thread_id {
+            self.acknowledge_thread_outcome(tid);
+            if departing_thread_id.as_deref() != Some(tid.as_str()) {
+                self.threads.activate(tid);
+            }
         }
         self.hand_composer_to_current_thread();
         idx
@@ -670,17 +672,12 @@ impl App {
                     .dlg::<crate::shell::surfaces::ToolsDialog>()
                     .info_detail)
             && !(active_dialog == Some(DialogKind::SessionTrace)
-                && (self
+                && self
                     .surfaces
                     .surfaces
                     .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-                    .detail
-                    || self
-                        .surfaces
-                        .surfaces
-                        .dlg::<crate::shell::surfaces::SessionTraceDialog>()
-                        .turn
-                        .is_some()))
+                    .view
+                    != crate::shell::surfaces::TraceView::Rounds)
             && !(scene == SceneKind::Settings
                 && (self.surfaces.config_dropdown.is_some()
                     || self.surfaces.config_focus == crate::shell::overlays::ConfigFocus::Detail))
@@ -904,15 +901,25 @@ impl App {
         self.viewport.drag.cancel();
     }
 
+    /// Reload custom theme files from the active workspace and user themes dir.
+    pub(crate) fn refresh_theme_files(&mut self) {
+        let ws = if self.threads.current_workspace.is_empty() {
+            Some(self.session.cwd.as_path())
+        } else {
+            Some(std::path::Path::new(&self.threads.current_workspace))
+        };
+        self.surfaces.theme_files = crate::shell::config::load_all_theme_files(ws);
+    }
+
     /// Persist current TUI presentation preferences into `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
     pub fn save_tui_config(&self) {
-        let mut cfg = crate::shell::config::TuiConfig::load();
+        let mut cfg = crate::shell::config::load_tui_config();
         cfg.color_scheme = self.surfaces.color_scheme.clone();
         cfg.custom_color_scheme = self.surfaces.custom_color_scheme.clone();
         cfg.click_outside_dismiss = self.surfaces.click_outside_dismiss;
         cfg.expand_auto_scroll = self.viewport.expand_auto_scroll;
         cfg.default_expanded = self.session.tui_config.default_expanded.clone();
-        let _ = cfg.save();
+        let _ = crate::shell::config::save_tui_config(&cfg);
     }
 
     /// Exit hook for a root scene.
@@ -994,18 +1001,13 @@ impl App {
                 .info_scroll = 0;
         }
         if id == DialogKind::SessionTrace {
-            self.surfaces
+            let dlg = self
                 .surfaces
-                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                .detail = false;
-            self.surfaces
                 .surfaces
-                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                .turn = None;
-            self.surfaces
-                .surfaces
-                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                .turn_cursor = 0;
+                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>();
+            dlg.view = crate::shell::surfaces::TraceView::Rounds;
+            dlg.turn_cursor = 0;
+            dlg.info_scroll = 0;
         }
         if id == DialogKind::ContextPlan {
             // The body disclosure belongs to this open, not to the next one: a
@@ -1236,16 +1238,24 @@ impl App {
                         .surfaces
                         .surfaces
                         .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>();
-                    if t.turn.is_some() {
-                        t.turn = None;
-                        t.scroll = 0;
-                        return true;
-                    }
-                    if t.detail {
-                        t.detail = false;
-                        t.turn_cursor = 0;
-                        t.scroll = 0;
-                        return true;
+                    match t.view {
+                        crate::shell::surfaces::TraceView::AttemptInfo(_) => {
+                            t.view = crate::shell::surfaces::TraceView::Turns;
+                            t.info_scroll = 0;
+                            return true;
+                        }
+                        crate::shell::surfaces::TraceView::Turns => {
+                            t.view = crate::shell::surfaces::TraceView::Rounds;
+                            t.turn_cursor = 0;
+                            t.scroll = 0;
+                            return true;
+                        }
+                        crate::shell::surfaces::TraceView::RoundInfo => {
+                            t.view = crate::shell::surfaces::TraceView::Rounds;
+                            t.info_scroll = 0;
+                            return true;
+                        }
+                        crate::shell::surfaces::TraceView::Rounds => {}
                     }
                 }
                 DialogKind::ContextPlan
@@ -1373,59 +1383,29 @@ impl App {
     }
 
     pub fn viewed_chrome(&self) -> SessionChrome {
-        SessionChrome {
-            phase: self.threads.phase.clone(),
-            responding: self.threads.round_started_at.is_some() || self.threads.phase.is_some(),
-            round_count: self.threads.round_count,
-            current_turn: self.threads.current_turn,
-            round_started_at: self.threads.round_started_at,
-            can_retry: self.threads.loop_status.is_idle() && self.threads.harness_retry_pending,
-            last_turn_performance: self
-                .session
-                .session_chrome
-                .get(&self.session.current_session_id)
-                .and_then(|chrome| chrome.last_turn_performance),
-            session_cost_nano_usd: self
-                .session
-                .session_chrome
-                .get(&self.session.current_session_id)
-                .map_or(0, |chrome| chrome.session_cost_nano_usd),
-            transport_setback: self.threads.provider_retry.clone(),
-        }
+        self.threads.chrome_snapshot()
     }
 
-    /// Write the primary session's activity phase, retiring its
+    /// Write the foreground thread's activity phase, retiring its
     /// transport-setback clause by the same rule as
-    /// [`SessionChrome::set_phase`].
+    /// [`workspaces::ThreadInstance::set_phase`].
     pub fn set_phase(&mut self, phase: Option<view::phase::Phase>) {
-        if view::phase::ends_transport_setback(phase.as_ref()) {
-            self.threads.provider_retry = None;
-        }
-        self.threads.phase = phase;
+        self.threads.set_phase(phase);
     }
 
-    /// Whether any session currently carries a live transport setback.
+    /// Whether any resident thread currently carries a live transport setback.
     pub fn has_live_transport_setback(&self) -> bool {
-        self.threads.provider_retry.is_some()
-            || self
-                .session
-                .session_chrome
-                .values()
-                .any(|chrome| chrome.transport_setback.is_some())
+        self.threads.has_live_transport_setback()
     }
 
     pub fn clear_responding(&mut self) {
-        self.set_phase(None);
+        self.threads.set_phase(None);
         self.threads.round_started_at = None;
         self.threads.loop_status = protocol::LoopStatus::Idle;
-        if let Some(chrome) = self
-            .session
-            .session_chrome
-            .get_mut(&self.session.current_session_id)
-        {
-            chrome.responding = false;
-            chrome.set_phase(None);
-            chrome.round_started_at = None;
+        if !self.session.current_session_id.is_empty() {
+            self.session
+                .running_sessions
+                .remove(&self.session.current_session_id);
         }
     }
 }

@@ -38,8 +38,8 @@ pub fn agent_code() -> AgentRoleProfile {
 pub struct ServerUiBridge;
 
 #[async_trait::async_trait]
-impl nuo::UiBridge for ServerUiBridge {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo::CopyOutcome, String> {
+impl server::api::UiBridge for ServerUiBridge {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::api::CopyOutcome, String> {
         Err(
             "clipboard export is a client capability; use the client's local copy action"
                 .to_string(),

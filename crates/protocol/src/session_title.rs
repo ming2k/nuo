@@ -1,9 +1,9 @@
-//! Session-level AI title: domain vocabulary for the titling subagent.
+//! Session-level AI title: domain vocabulary for thread title distillation.
 //!
-//! Follows the bounded-subagent split of the retired `session_review` (ADR-0016):
-//! domain types and pure helpers live here in `protocol`, while the
-//! LLM-backed subagent that drives the `TITLE` profile lives in
-//! `engine` (`orchestration::session_title`). There is no trait here because a
+//! Pure domain types and post-processing live here in `protocol`; stateless
+//! single-shot distillation runs through `engine::HarnessTaskPipeline`, while
+//! background task lifecycle, persistence, and client notification are owned by
+//! `server`'s `thread_driver` (ADR-0262). There is no trait here because a
 //! title is a single concept rather than a set of extensible dimensions — the
 //! only shared logic is the pure post-processing that turns a model's free-form
 //! answer into a valid title string.

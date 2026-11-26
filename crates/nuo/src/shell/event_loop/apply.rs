@@ -45,15 +45,8 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
 
         // ---- Chrome / round lifecycle -------------------------------------
-        AppMutation::ChromeEdit { session_id, edit } => {
-            apply_chrome_mutation(app, &session_id, edit)
-        }
-        AppMutation::SetPhase(phase) => apply_phase(app, phase),
-        AppMutation::SetResponding(responding) => {
-            runtime
-                .is_responding
-                .store(responding, std::sync::atomic::Ordering::SeqCst);
-            true
+        AppMutation::ChromeEdit { thread_id, edit } => {
+            apply_chrome_mutation(app, runtime, thread_id.as_deref(), edit)
         }
         AppMutation::SetRoundCount { thread_id, round } => {
             let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
@@ -61,18 +54,6 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             };
             inst.round_count = round;
             is_fg
-        }
-        AppMutation::SetCurrentTurn(turn) => {
-            app.threads.current_turn = turn;
-            true
-        }
-        AppMutation::SetRoundStartedAt(started) => {
-            app.threads.round_started_at = started;
-            true
-        }
-        AppMutation::SetProviderRetry(retry) => {
-            app.threads.provider_retry = Some(retry);
-            true
         }
 
         // ---- Session / thread lifecycle -----------------------------------
@@ -84,19 +65,28 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             apply_session_phase(app, thread_id.as_deref(), phase)
         }
         AppMutation::ThreadSubscribed { thread_id, phase } => {
-            apply_thread_subscribed(app, thread_id, phase)
+            super::apply_link::apply_thread_subscribed(app, thread_id, phase)
         }
         AppMutation::CommandCatalog(catalog) => {
             app.composer.command_catalog = catalog;
             true
         }
-        AppMutation::HarnessUnattended(enabled) => {
-            app.threads.unattended = enabled;
-            true
+        AppMutation::HarnessUnattended { thread_id, enabled } => {
+            let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
+                return false;
+            };
+            inst.unattended = enabled;
+            is_fg
         }
-        AppMutation::HarnessConfined(confined) => {
-            app.threads.confined = confined;
-            true
+        AppMutation::HarnessConfined {
+            thread_id,
+            confined,
+        } => {
+            let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
+                return false;
+            };
+            inst.confined = confined;
+            is_fg
         }
         AppMutation::ClearSwitchingSession => {
             app.session.switching_session = None;
@@ -158,24 +148,37 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::ClearPermissions => {
             app.human.pending_permissions.clear();
+            app.threads.clear_awaiting_user_phases();
+            app.session
+                .running_sessions
+                .retain(|id| app.threads.get(id).is_none_or(|t| t.is_responding()));
+            sync_runtime_responding(app, runtime);
             true
         }
         AppMutation::BackgroundTaskStarted {
+            thread_id,
             id,
             label,
             started_at_ms,
         } => {
-            app.upsert_background_task(id, label, started_at_ms);
-            true
+            let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
+                return false;
+            };
+            inst.upsert_background_task(id, label, started_at_ms);
+            is_fg
         }
         AppMutation::BackgroundTaskCompleted {
+            thread_id,
             id,
             success,
             exit_code,
             duration_secs,
         } => {
-            app.complete_background_task(&id, success, exit_code, duration_secs);
-            true
+            let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
+                return false;
+            };
+            inst.complete_background_task(&id, success, exit_code, duration_secs);
+            is_fg
         }
         AppMutation::BackgroundTaskDismissSettled => {
             app.dismiss_settled_background_tasks();
@@ -274,15 +277,22 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 .insert(session_id, snapshot);
             true
         }
-        AppMutation::ClearContextTokens => {
-            app.telemetry.context_tokens_by_session.clear();
+        AppMutation::ClearContextTokens { thread_id } => {
+            if let Some(ref tid) = thread_id {
+                app.telemetry.context_tokens_by_session.remove(tid);
+            } else {
+                app.telemetry.context_tokens_by_session.clear();
+            }
             // A plan belongs to one thread's `Agent`. Leaving it installed across
             // a session change is the exact failure the reply's `thread_id` guard
             // exists to prevent — the guard rejects the *reply*, so the stale
             // value must go with the session it described (ADR-0220 §3).
-            app.threads.context_plan = None;
-            app.threads.context_plan_loaded = false;
-            true
+            let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id.as_deref()) else {
+                return false;
+            };
+            inst.context_plan = None;
+            inst.context_plan_loaded = false;
+            is_fg
         }
 
         // ---- Notices / link / process -------------------------------------
@@ -298,6 +308,30 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.session.persistence_health = health;
             true
         }
+        AppMutation::ServerPhase(phase) => super::apply_link::apply_server_phase(app, phase),
+        AppMutation::LinkPhase(phase) => {
+            if app.link.phase != phase {
+                app.link.phase = phase;
+                app.link.phase_since = std::time::Instant::now();
+            }
+            true
+        }
+        AppMutation::LinkEstablished {
+            server_id,
+            server_phase,
+            persistence_health,
+            req_tx,
+        } => super::apply_link::apply_link_established(
+            app,
+            server_id,
+            server_phase,
+            persistence_health,
+            req_tx,
+        ),
+        AppMutation::SubscribeRefused(error) => {
+            super::apply_link::apply_subscribe_refused(app, error)
+        }
+        AppMutation::PickRequired(threads) => super::apply_link::apply_pick_required(app, threads),
         AppMutation::HostConsole(line) => {
             app.viewport.host_console_log.push(line);
             true
@@ -305,24 +339,104 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
     }
 }
 
-/// Apply a chrome edit and mirror the resulting running state into the
-/// session-keyed bookkeeping the keymap and queue bar consume.
-fn apply_chrome_mutation(app: &mut App, session_id: &str, edit: ChromeEdit) -> bool {
-    let is_phase_only = matches!(edit, ChromeEdit::PhaseOnly(_));
-    apply_chrome(app, session_id, edit);
-    // The round-boundary chrome edit is also the live-session fact:
-    // the queue bar's running rows and the keymap's has-running-task
-    // guard read `App::running_sessions` (M4: formerly the
-    // deleted dispatch `HarnessState` signal).
-    if let Some(chrome) = app.session.session_chrome.get(session_id) {
-        let running = chrome.responding;
-        if running {
-            app.session.running_sessions.insert(session_id.to_string());
-        } else if !is_phase_only {
-            app.session.running_sessions.remove(session_id);
+/// Mirror the aggregate liveness hint into `UiRuntime::is_responding` so
+/// stream delta coalescing stays active whenever *any* resident thread is live.
+fn sync_runtime_responding(app: &App, runtime: &UiRuntime) {
+    let any = app.threads.any_responding() || !app.session.running_sessions.is_empty();
+    runtime
+        .is_responding
+        .store(any, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Whether `thread_id` belongs to the tab the user is currently looking at.
+///
+/// When tabs are mounted, only the active tab's thread is viewed — so a
+/// resident foreground thread that finishes while the user is on `Dashboard`
+/// or `Settings` is treated as unseen and earns its TabBar outcome tint.
+/// When no tabs are mounted (minimal headless test harnesses), falls back to
+/// `is_fg`.
+fn is_viewed_thread_tab(app: &App, thread_id: &str, is_fg: bool) -> bool {
+    match app
+        .surfaces
+        .surfaces
+        .active_tab()
+        .and_then(|tab| tab.thread_id())
+    {
+        Some(active_id) => active_id == thread_id,
+        None => app.surfaces.surfaces.tabs().is_empty() && is_fg,
+    }
+}
+
+/// Apply a chrome edit directly to the target [`ThreadInstance`] and mirror the
+/// resulting running state into the session-keyed bookkeeping the keymap and
+/// queue bar consume (ADR-0253 `[INV-INSTANCE-01]` / `[INV-INSTANCE-02]`).
+fn apply_chrome_mutation(
+    app: &mut App,
+    runtime: &UiRuntime,
+    thread_id: Option<&str>,
+    edit: ChromeEdit,
+) -> bool {
+    let is_turn_perf = matches!(edit, ChromeEdit::TurnPerformance(_));
+    let is_round_started = matches!(
+        edit,
+        ChromeEdit::RoundLifecycle { running: true, .. }
+            | ChromeEdit::TurnStarted { .. }
+            | ChromeEdit::StreamStarted
+    );
+    let is_round_completed = matches!(edit, ChromeEdit::RoundCompleted(_));
+    let is_round_failed = matches!(edit, ChromeEdit::RoundFailed);
+    let is_lifecycle_stop = matches!(edit, ChromeEdit::RoundLifecycle { running: false, .. });
+    let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id) else {
+        return false;
+    };
+    let prev_running = inst.is_responding();
+    let prev_attention = inst.phase == Some(Phase::AwaitingUser);
+    let resolved_id = inst.key.id.clone();
+
+    inst.apply_chrome_edit(edit);
+
+    let now_running = inst.is_responding();
+    let now_attention = inst.phase == Some(Phase::AwaitingUser);
+
+    let prev_outcome = app.session.unseen_outcomes.get(&resolved_id).copied();
+    let is_viewed_tab = is_viewed_thread_tab(app, &resolved_id, is_fg);
+    if !resolved_id.is_empty() {
+        if is_round_started {
+            app.session.unseen_outcomes.remove(&resolved_id);
+        } else if !is_viewed_tab {
+            if is_round_failed {
+                app.session.unseen_outcomes.insert(
+                    resolved_id.clone(),
+                    crate::shell::app::workspaces::UnseenOutcome::Failed,
+                );
+            } else if is_round_completed
+                || (is_lifecycle_stop && prev_running && !now_running && prev_outcome.is_none())
+            {
+                app.session.unseen_outcomes.insert(
+                    resolved_id.clone(),
+                    crate::shell::app::workspaces::UnseenOutcome::Succeeded,
+                );
+            }
         }
     }
-    true
+    let now_outcome = app.session.unseen_outcomes.get(&resolved_id).copied();
+
+    if !is_turn_perf && !resolved_id.is_empty() {
+        if now_running {
+            app.session.running_sessions.insert(resolved_id);
+        } else {
+            app.session.running_sessions.remove(&resolved_id);
+        }
+    }
+    sync_runtime_responding(app, runtime);
+
+    // Foreground chrome changes repaint the activity/model bar. Background
+    // threads request a repaint whenever their Tier 1 TabBar status changes
+    // (Running, Attention, Succeeded, Failed, or Idle).
+    is_fg
+        || prev_running != now_running
+        || prev_attention != now_attention
+        || prev_outcome != now_outcome
 }
 
 /// Fold a harness snapshot into the loop-status and trust-gate projection.
@@ -343,7 +457,7 @@ fn apply_harness_snapshot(
         inst.current_role = Some(role);
     }
     if let Some(ws) = snapshot.workspace {
-        inst.current_workspace = crate::shell::chrome::tilde_home(std::path::Path::new(&ws));
+        inst.current_workspace = view::chrome::tilde_home(std::path::Path::new(&ws));
     } else if inst.current_role.is_some() {
         inst.current_workspace.clear();
     }
@@ -379,26 +493,6 @@ fn apply_harness_snapshot(
     true
 }
 
-/// Apply a server-attested readiness transition, flushing queued prompts and
-/// disclosing a post-Welcome failure as a notice rather than a death.
-fn apply_thread_subscribed(app: &mut App, thread_id: String, phase: protocol::ThreadPhase) -> bool {
-    app.session.subscribed_threads.insert(thread_id.clone());
-    app.threads.register(thread_id.clone(), 1, phase.clone());
-    let has_tab = app
-        .surfaces
-        .surfaces
-        .tabs()
-        .iter()
-        .any(|t| t.thread_id() == Some(thread_id.as_str()));
-    if !has_tab {
-        let tab = crate::shell::surfaces::ClientTab::thread(&thread_id, None::<String>);
-        app.open_tab(tab);
-        app.activate_thread_workspace(&thread_id);
-        app.threads.session_phase = phase;
-    }
-    true
-}
-
 fn apply_session_phase(
     app: &mut App,
     thread_id: Option<&str>,
@@ -407,9 +501,21 @@ fn apply_session_phase(
     let (Some(inst), is_fg) = app.threads.resolve_mut(thread_id) else {
         return false;
     };
+    let resolved_id = inst.key.id.clone();
+    let is_failed = matches!(phase, protocol::ThreadPhase::Failed { .. });
     if !is_fg {
         let ready = phase == protocol::ThreadPhase::Ready;
         inst.session_phase = phase;
+        let is_viewed_tab = is_viewed_thread_tab(app, &resolved_id, false);
+        let prev_outcome = app.session.unseen_outcomes.get(&resolved_id).copied();
+        if is_failed && !is_viewed_tab && !resolved_id.is_empty() {
+            app.session.unseen_outcomes.insert(
+                resolved_id.clone(),
+                crate::shell::app::workspaces::UnseenOutcome::Failed,
+            );
+        }
+        let outcome_changed =
+            app.session.unseen_outcomes.get(&resolved_id).copied() != prev_outcome;
         if ready && let Some(tid) = thread_id {
             let _ = app.send_intent_to(
                 tid,
@@ -418,14 +524,23 @@ fn apply_session_phase(
                 },
             );
         }
-        return false;
+        return outcome_changed;
     }
     let failed = match &phase {
         protocol::ThreadPhase::Failed { message, .. } => Some(message.clone()),
         _ => None,
     };
     let ready = phase == protocol::ThreadPhase::Ready;
-    app.threads.session_phase = phase;
+    if app.threads.session_phase != phase {
+        app.threads.session_phase = phase;
+        app.session.thread_phase_since = std::time::Instant::now();
+    }
+    if is_failed && !is_viewed_thread_tab(app, &resolved_id, true) && !resolved_id.is_empty() {
+        app.session.unseen_outcomes.insert(
+            resolved_id,
+            crate::shell::app::workspaces::UnseenOutcome::Failed,
+        );
+    }
     if ready {
         app.session.switching_session = None;
         let queued: Vec<_> = std::mem::take(&mut app.composer.pending_prompts);
@@ -476,16 +591,6 @@ fn apply_live_session(app: &mut App, previous_id: String, next_id: String) -> bo
         // never collateral damage.
         app.surfaces.surfaces.clear_tab_title(&next_id);
     }
-    true
-}
-
-/// Mirror the primary phase, retiring the provider-retry clause with it.
-fn apply_phase(app: &mut App, phase: Option<Phase>) -> bool {
-    // The primary's half of the setback-clause lifetime: this mirror is
-    // written by every primary phase move, so retiring the clause here
-    // is what makes "the clause ends with its phase" true by
-    // construction.
-    app.set_phase(phase);
     true
 }
 
@@ -865,11 +970,52 @@ fn apply_connection_detail(app: &mut App, detail: protocol::ConnectionDetail) ->
 }
 
 fn apply_host_sessions(app: &mut App, rows: Vec<protocol::MonitoredThread>) -> bool {
+    let open_thread_ids: std::collections::HashSet<String> = app
+        .surfaces
+        .surfaces
+        .tabs()
+        .iter()
+        .filter_map(|tab| tab.thread_id().map(str::to_string))
+        .collect();
+    let prev_statuses: std::collections::HashMap<String, protocol::ThreadActivity> = app
+        .session
+        .host_sessions
+        .iter()
+        .map(|row| (row.id.clone(), row.status))
+        .collect();
+
     for row in &rows {
         if let Some(ref t) = row.title {
             let trimmed = t.trim();
             if !trimmed.is_empty() {
                 app.surfaces.surfaces.update_tab_title(&row.id, trimmed);
+            }
+        }
+        // Cold/unsubscribed open background tabs get their terminal outcomes
+        // from monitor transitions (`Running` -> `Idle` / `Failed`).
+        let is_subscribed =
+            app.threads.get(&row.id).is_some() && app.session.subscribed_threads.contains(&row.id);
+        if !is_subscribed && open_thread_ids.contains(&row.id) {
+            let viewed = is_viewed_thread_tab(app, &row.id, false);
+            let prev = prev_statuses.get(&row.id).copied();
+            if row.status == protocol::ThreadActivity::Running {
+                app.session.unseen_outcomes.remove(&row.id);
+            } else if !viewed && prev == Some(protocol::ThreadActivity::Running) {
+                match row.status {
+                    protocol::ThreadActivity::Idle => {
+                        app.session.unseen_outcomes.insert(
+                            row.id.clone(),
+                            crate::shell::app::workspaces::UnseenOutcome::Succeeded,
+                        );
+                    }
+                    protocol::ThreadActivity::Failed => {
+                        app.session.unseen_outcomes.insert(
+                            row.id.clone(),
+                            crate::shell::app::workspaces::UnseenOutcome::Failed,
+                        );
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -1085,7 +1231,7 @@ fn turn_time_adoption(
 
 /// Per-edit bookkeeping accumulated while the document is mutably borrowed.
 struct TranscriptApply {
-    tui_config: crate::shell::config::TuiConfig,
+    tui_config: view::tui_config::TuiConfig,
     post: PostEdit,
     changed: bool,
     /// A command name the dispatcher did not recognize. Its draft was consumed
@@ -1097,7 +1243,7 @@ struct TranscriptApply {
 }
 
 impl TranscriptApply {
-    fn new(tui_config: crate::shell::config::TuiConfig) -> Self {
+    fn new(tui_config: view::tui_config::TuiConfig) -> Self {
         Self {
             tui_config,
             post: PostEdit::None,
@@ -1798,73 +1944,6 @@ fn restore_rejected_command_draft(app: &mut App, invocation: String) {
     app.composer.suggestion_index = None;
     app.composer.completion_dismissed = true;
     app.refresh_backend_completion_request();
-}
-
-/// Execute one view-scoped chrome edit against `App::session_chrome`
-/// (formerly `ChromeUpdate` closures over a shared map).
-fn apply_chrome(app: &mut App, session_id: &str, edit: ChromeEdit) {
-    let chrome = app
-        .session
-        .session_chrome
-        .entry(session_id.to_string())
-        .or_default();
-    match edit {
-        ChromeEdit::RoundLifecycle {
-            round_count,
-            running,
-            can_retry,
-        } => {
-            chrome.round_count = round_count;
-            chrome.responding = running;
-            chrome.can_retry = can_retry;
-            if running {
-                chrome.current_turn = 0;
-                if chrome.round_started_at.is_none() {
-                    chrome.round_started_at = Some(std::time::Instant::now());
-                }
-                if chrome.phase.is_none() {
-                    chrome.set_phase(Some(Phase::Admitting));
-                }
-            } else {
-                chrome.set_phase(None);
-                chrome.current_turn = 0;
-                chrome.round_started_at = None;
-            }
-        }
-        ChromeEdit::ActivityFolded(phase) => {
-            chrome.set_phase(Some(phase));
-            chrome.responding = true;
-        }
-        ChromeEdit::PhaseOnly(phase) => {
-            chrome.set_phase(phase);
-        }
-        ChromeEdit::StreamStarted => {
-            chrome.responding = true;
-            if chrome.round_started_at.is_none() {
-                chrome.round_started_at = Some(std::time::Instant::now());
-            }
-            if !matches!(chrome.phase, Some(Phase::Reasoning | Phase::Answering)) {
-                chrome.set_phase(Some(Phase::Answering));
-            }
-        }
-        ChromeEdit::TurnStarted { round, turn } => {
-            chrome.round_count = round;
-            chrome.current_turn = turn;
-            chrome.set_phase(Some(Phase::AwaitingModel));
-        }
-        ChromeEdit::RoundEnded => {
-            chrome.set_phase(None);
-            chrome.responding = false;
-            chrome.current_turn = 0;
-            chrome.round_started_at = None;
-        }
-        ChromeEdit::TurnPerformance(performance) => {
-            if let Some(cost) = performance.cost_nano_usd {
-                chrome.session_cost_nano_usd = chrome.session_cost_nano_usd.saturating_add(cost);
-            }
-            chrome.last_turn_performance = Some(*performance);
-        }
-    }
 }
 
 #[cfg(test)]

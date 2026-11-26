@@ -14,6 +14,8 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-11-15
 - Amends: [ADR-0176](0176-read-is-one-capability-with-bounded-content-dispatch.md)
+- Amended: [ADR-0257](0257-read-boundary-hardening-virtual-path-confinement-and-modular-dispatch.md)
+  (versioned LRU extraction cache and line-window page-span headers)
 - Complements: [ADR-0153](0153-effective-input-ceiling-tool-output-retention-and-ingest-image-normalization.md),
   [ADR-0179](0179-one-capability-one-producer-and-no-ghost-builtins.md),
   [ADR-0183](0183-composition-root-owns-capability-linkage.md)

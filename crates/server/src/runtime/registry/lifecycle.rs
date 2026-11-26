@@ -436,7 +436,13 @@ impl ThreadRegistry {
     /// the server-wide snapshot and ask every hosted session to re-sync its
     /// MCP servers and skills — without dropping a single connection.
     pub async fn reload_runtime(&self) -> Result<(), String> {
-        let config = persistence::config::Config::load();
+        if !self.server_phase().admits_work() {
+            return Err("server is not ready to reload".to_string());
+        }
+        self.set_server_phase(protocol::ServerPhase::Reloading);
+        let config = tokio::task::spawn_blocking(persistence::config::Config::load)
+            .await
+            .map_err(|error| format!("reload config task failed: {error}"))?;
         *self.shared_config.write().await = config;
         let sessions: Vec<Arc<HostedThread>> = {
             let guard = self.sessions.lock().await;
@@ -447,6 +453,9 @@ impl ThreadRegistry {
                 .req_tx
                 .send(protocol::AgentRequest::ReloadRuntime)
                 .await;
+        }
+        if matches!(self.server_phase(), protocol::ServerPhase::Reloading) {
+            self.set_server_phase(protocol::ServerPhase::Ready);
         }
         Ok(())
     }
@@ -564,30 +573,31 @@ impl ThreadRegistry {
         });
     }
 
-    /// One storage-maintenance pass (ADR-0090): sweep unreferenced blobs,
-    /// prune over-age usage day files, reclaim orphaned fact entries, and
-    /// generate an autonomous rolling hot-backup snapshot.
+    /// One storage-maintenance pass (ADR-0090, ADR-0255): expire over-age
+    /// workspace pre-images, sweep unreferenced blobs (with grace window),
+    /// generate an autonomous rolling hot-backup snapshot of `nuo.db`, and
+    /// optimize SQLite planner statistics.
     pub fn spawn_storage_maintenance(self: &Arc<Self>) {
-        let usage = persistence::usage_stats::UsageStatsStore::new();
         tokio::task::spawn_blocking(move || {
             let handle = persistence::db::get_persistence_handle();
             let report = handle
                 .perform_storage_maintenance_blocking(persistence::DEFAULT_BACKUP_RETENTION_LIMIT)
                 .unwrap_or_default();
-            let days = usage.prune_old_days();
             if report.reclaimed_blobs > 0
-                || report.reclaimed_entries > 0
+                || report.expired_preimages > 0
                 || report.created_backup.is_some()
-                || days > 0
+                || report.created_role_memory_backup.is_some()
+                || report.created_journal_backup.is_some()
             {
                 tracing::info!(
                     blobs = report.reclaimed_blobs,
                     bytes = report.reclaimed_blob_bytes,
-                    entries = report.reclaimed_entries,
+                    expired_preimages = report.expired_preimages,
                     backup = ?report.created_backup,
+                    role_memory_backup = ?report.created_role_memory_backup,
+                    journal_backup = ?report.created_journal_backup,
                     pruned_backups = report.pruned_backups,
-                    pruned_days = days,
-                    "storage maintenance: reclaimed unreferenced data and refreshed rolling snapshot"
+                    "storage maintenance: reclaimed unreferenced data and refreshed rolling snapshots"
                 );
             }
         });

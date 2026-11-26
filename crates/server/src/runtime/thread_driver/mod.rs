@@ -60,6 +60,7 @@ pub async fn send_harness_state_for_session(
 /// landed only in the harness would have left the user-facing command broken.
 pub async fn compact_round_history(
     history: &mut Vec<tool::Message>,
+    committed_len: usize,
     session: &ThreadSession,
     settings: &engine::orchestration::ContextProjectionSettings,
     provider: Option<Arc<dyn Provider>>,
@@ -67,6 +68,7 @@ pub async fn compact_round_history(
 ) -> Result<Option<engine::orchestration::CompactionReport>, String> {
     engine::orchestration::compact_round_history(
         history,
+        committed_len,
         session,
         settings,
         provider,
@@ -87,7 +89,9 @@ use crate::transport::thread_view::{build_sessions_overview, provider_key_status
 mod driver;
 mod followup;
 mod recovery;
+mod titler;
 
 pub(crate) use self::driver::SessionContext;
 pub use self::driver::ThreadDriver;
 pub(crate) use self::followup::FollowUpQueue;
+pub(crate) use self::titler::SessionTitler;

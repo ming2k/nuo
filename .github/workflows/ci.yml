@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.100.0
         with:
           components: rustfmt, clippy
 
@@ -33,7 +33,11 @@ jobs:
 
       - uses: taiki-e/install-action@v2
         with:
-          tool: nextest, cargo-machete
+          tool: nextest, cargo-machete, cargo-deny
+
+      # Supply-chain license, source, and advisory gate.
+      - name: supply chain (cargo-deny)
+        run: cargo deny check
 
       # Unused dependencies must not accumulate in shipped crates.
       - name: unused dependencies
@@ -121,7 +125,7 @@ jobs:
         os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.100.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets
 
@@ -136,7 +140,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.100.0
 
       - uses: Swatinem/rust-cache@v2
 
@@ -157,7 +161,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.100.0
         with:
           components: llvm-tools-preview
 
@@ -218,7 +222,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: ${{ matrix.target }}
 

@@ -105,9 +105,9 @@ struct StreamAttempt {
     /// from the unique `Completed` event.
     streamed_usage: Option<TokenUsage>,
     completion_meta: Option<protocol::ProviderCompletionMeta>,
-    text_loop_detector: guardrails::stream_loop_detector::StreamLoopDetector,
-    reasoning_loop_detector: guardrails::stream_loop_detector::StreamLoopDetector,
-    tool_loop_detector: guardrails::stream_loop_detector::StreamLoopDetector,
+    text_loop_detector: inference_wire::loop_detector::StreamLoopDetector,
+    reasoning_loop_detector: inference_wire::loop_detector::StreamLoopDetector,
+    tool_loop_detector: inference_wire::loop_detector::StreamLoopDetector,
     stream_loop_incident: Option<StreamLoopIncident>,
     /// Bounded evidence tail for the Stream Sentinel when the tool-call
     /// argument channel is the one looping.
@@ -165,11 +165,9 @@ impl StreamAttempt {
             emitted_reasoning: false,
             streamed_usage: None,
             completion_meta: None,
-            text_loop_detector: guardrails::stream_loop_detector::StreamLoopDetector::new(1024),
-            reasoning_loop_detector: guardrails::stream_loop_detector::StreamLoopDetector::new(
-                1024,
-            ),
-            tool_loop_detector: guardrails::stream_loop_detector::StreamLoopDetector::new(1024),
+            text_loop_detector: inference_wire::loop_detector::StreamLoopDetector::new(1024),
+            reasoning_loop_detector: inference_wire::loop_detector::StreamLoopDetector::new(1024),
+            tool_loop_detector: inference_wire::loop_detector::StreamLoopDetector::new(1024),
             stream_loop_incident: None,
             tool_argument_text: String::new(),
             cognitive_cleared_candidates: std::collections::HashSet::new(),
@@ -885,7 +883,7 @@ impl Agent {
     /// failures so it can retry the failed request without re-entering the
     /// round from scratch. Standalone callers use [`Self::run_streaming_with_events`],
     /// which creates and consumes the state in one call.
-    pub(crate) fn begin_streaming_round(&self) -> StreamingRoundState {
+    pub(crate) fn begin_streaming_round(&self, committed_len: usize) -> StreamingRoundState {
         // Reset the human-decision pause accumulator for this round so the
         // tokens/sec derived at the exit gate excludes only *this* round's
         // permission/ask_user waits.
@@ -910,6 +908,7 @@ impl Agent {
             pending_request: None,
             withhold_images: false,
             session_queue_generation: self.session_queue_generation(),
+            committed_len,
         }
     }
 
@@ -934,6 +933,7 @@ impl Agent {
     pub(crate) fn resume_streaming_round(
         &self,
         point: &protocol::RetryPoint,
+        committed_len: usize,
     ) -> StreamingRoundState {
         self.queues
             .round_paused_ms
@@ -956,6 +956,7 @@ impl Agent {
             pending_request: None,
             withhold_images: false,
             session_queue_generation: self.session_queue_generation(),
+            committed_len,
         }
     }
 
@@ -1075,7 +1076,7 @@ impl Agent {
                 if self.check_hard_stop(round.turn_index).is_break() {
                     return Err(self.hard_stop_error());
                 }
-                self.fire_turn_persist(messages).await?;
+                self.fire_turn_persist(messages, round).await?;
                 self.run_turn_hooks(messages, &round.state, round.turn_index)
                     .await;
                 self.restore_scoped_turn_end();
@@ -1160,7 +1161,7 @@ impl Agent {
                 // messages (the assistant response + all tool results) before
                 // any further work, so a crash leaves the transcript in sync
                 // with filesystem side effects.
-                self.fire_turn_persist(messages).await?;
+                self.fire_turn_persist(messages, round).await?;
                 // The next loop iteration publishes the estimate from the
                 // assembled request after Turn/TurnStart hooks. Rebuilding it
                 // here repeats full-history work and projects stale hook state.
@@ -1240,7 +1241,7 @@ impl Agent {
             on_event,
         ) > 0
         {
-            self.fire_turn_persist(messages).await?;
+            self.fire_turn_persist(messages, round).await?;
         }
 
         crate::cognition::conversation_context::inject_mentioned_skills(
@@ -1289,11 +1290,14 @@ impl Agent {
                 relief,
             )));
         }
-        if self
-            .project_context_if_needed(messages, &request, cancel)
+        if let Some(compacted) = self
+            .project_context_if_needed(messages, &request, round, cancel)
             .await?
         {
             request = self.model_request(messages);
+            if let Some(checkpoint) = compacted {
+                on_event(AgentEvent::Compacted(checkpoint));
+            }
         }
         request.turn_context = Arc::clone(&round.turn_context);
         // The vision probe withholds attachments from *every* turn of the
@@ -1570,14 +1574,14 @@ impl Agent {
             match incident.channel {
                 protocol::StreamLoopChannel::AssistantText => {
                     attempt.content =
-                        guardrails::stream_loop_detector::StreamLoopDetector::trim_suffix(
+                        inference_wire::loop_detector::StreamLoopDetector::trim_suffix(
                             &attempt.content,
                             &incident.pattern,
                         );
                 }
                 protocol::StreamLoopChannel::Reasoning => {
                     attempt.reasoning_content =
-                        guardrails::stream_loop_detector::StreamLoopDetector::trim_suffix(
+                        inference_wire::loop_detector::StreamLoopDetector::trim_suffix(
                             &attempt.reasoning_content,
                             &incident.pattern,
                         );
@@ -1880,7 +1884,7 @@ impl Agent {
         if self.check_hard_stop(round.turn_index).is_break() {
             return Err(self.hard_stop_error());
         }
-        self.fire_turn_persist(messages).await?;
+        self.fire_turn_persist(messages, round).await?;
         self.run_turn_hooks(messages, &round.state, round.turn_index)
             .await;
         self.restore_scoped_turn_end();

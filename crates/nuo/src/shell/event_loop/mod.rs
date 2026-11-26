@@ -1,6 +1,7 @@
 //! The main TUI event/render loop and its modular subsystems.
 pub(crate) mod actions;
 pub(crate) mod apply;
+pub(crate) mod apply_link;
 pub(crate) mod component_input;
 pub(crate) mod input_reader;
 pub(crate) mod mutations;
@@ -100,6 +101,27 @@ fn event_rearms_composer_follow(event: &Event) -> bool {
 /// never mutate state the user cannot see (invisible typing, modal opens,
 /// scroll moves). The dropped-Key SGR-leak tracker is still fed by the caller
 /// so a stranded mouse sequence cannot leak once the UI resumes.
+fn abort_unconnected_link_if_requested(app: &App, event: &Event) -> bool {
+    let requested = !matches!(
+        app.link.phase,
+        crate::shell::app::state::ClientLinkPhase::Connected { .. }
+    ) && matches!(
+        event,
+        Event::Key(key)
+            if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+                && (key.code == KeyCode::Esc
+                    || (key.code == KeyCode::Char('c')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)))
+    );
+    if requested {
+        if let Some(ref cancel) = app.link.supervisor_cancel {
+            cancel.cancel();
+        }
+        app.link.should_quit.store(true, Ordering::SeqCst);
+    }
+    requested
+}
+
 fn frozen_event_passthrough(event: &Event) -> bool {
     match event {
         Event::Resize(..) => true,
@@ -267,20 +289,27 @@ fn drain_background_channels(
     frame_dirty
 }
 
+/// Smooth animation heartbeat interval (~30Hz) used while a TabBar text
+/// shimmer or hover title reveal is active so light waves glide smoothly
+/// without 10fps stutter, while idle strips still sleep for 1000ms.
+const SMOOTH_ANIMATION_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
+
 /// How long the loop may sleep before it must wake to service animation or a
 /// toast/notice/escape timeout. `empty_state_showing` adds the carousel slide
 /// boundary so the empty state advances on time even while otherwise idle.
 fn next_poll_interval(
     app: &App,
     animating: bool,
+    smooth_animating: bool,
     empty_state_showing: bool,
     frame_wait: Option<std::time::Duration>,
 ) -> std::time::Duration {
-    // Animation still advances at 10Hz; content frames are independently
-    // budgeted by `STREAM_FRAME_INTERVAL`. When a frame was deferred, the loop
-    // must wake exactly at the end of that budget rather than at the animation
-    // heartbeat.
-    let mut next_timeout = if animating {
+    // Ordinary animations (10Hz breathing dot) wake every 100ms; smooth TabBar
+    // animations (text shimmer / hover title reveal) wake at ~30Hz (33ms).
+    // Content frames are independently budgeted by `STREAM_FRAME_INTERVAL`.
+    let mut next_timeout = if smooth_animating {
+        SMOOTH_ANIMATION_INTERVAL
+    } else if animating {
         std::time::Duration::from_millis(100)
     } else {
         std::time::Duration::from_millis(1000)
@@ -311,6 +340,37 @@ fn next_poll_interval(
                 .saturating_duration_since(now)
                 .max(std::time::Duration::from_millis(10)),
         );
+    }
+
+    // Anti-flicker hysteresis timer (ADR-0260 `[INV-SRVPHASE-05]`): wake right
+    // when a sub-120ms transient wait crosses the display threshold so the real
+    // connecting / initializing / preparing label appears promptly.
+    let hysteresis = render::TRANSIENT_WAIT_HYSTERESIS;
+    let transient_since = match &app.link.phase {
+        crate::shell::app::state::ClientLinkPhase::Connecting { .. } => Some(app.link.phase_since),
+        crate::shell::app::state::ClientLinkPhase::Connected { .. } => {
+            if matches!(
+                app.session.server_phase,
+                protocol::ServerPhase::Initializing { .. }
+            ) {
+                Some(app.session.server_phase_since)
+            } else if matches!(
+                app.threads.session_phase,
+                protocol::ThreadPhase::Preparing { .. }
+            ) {
+                Some(app.session.thread_phase_since)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    if let Some(since) = transient_since {
+        let elapsed = now.saturating_duration_since(since);
+        if elapsed < hysteresis {
+            next_timeout =
+                next_timeout.min((hysteresis - elapsed).max(std::time::Duration::from_millis(10)));
+        }
     }
 
     // Empty-state carousel: sleep until the next slide boundary (up to
@@ -360,12 +420,10 @@ pub(crate) async fn run_app_loop(
             return Ok(());
         }
 
-        // The link died. Ending this *attachment* — not the process — is what
-        // makes recovery possible: the runner re-dials and re-attaches, and the
-        // transcript, tabs and history ride `TuiOutcome` across the gap
-        // (ADR-0136). Recovering here rather than on the next user gesture means
-        // a transient socket failure costs the operator nothing.
-        if app.link.relink_requested {
+        // Unsupervised legacy attachments exit the event loop on link loss;
+        // supervised sessions (`ConnectionSupervisor`, ADR-0260) reconnect
+        // in-place without tearing down `App`.
+        if app.link.relink_requested && !app.link.supervised {
             tracing::warn!("link lost; ending attachment so the runner can re-dial");
             return Ok(());
         }
@@ -518,14 +576,11 @@ pub(crate) async fn run_app_loop(
                     .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
                 d.refreshing || d.reveal_active
             };
-        // A hover title reveal or a live Running tab status in the TabBar keeps
-        // the animation heartbeat alive only while motion is actually visible:
-        // idle and attention-only strips cost zero repaints (ADR-0235).
-        let any_tab_running = app.surfaces.surfaces.tabs().iter().any(|tab| {
-            render::project_tab_status(app, tab, &viewed_session_id)
-                == crate::shell::render::TabStatus::Running
-        });
-        let tab_live = app.surfaces.tab_reveal_active || any_tab_running;
+        // A hover title reveal or a visible Running text shimmer in the TabBar
+        // keeps the ~30Hz smooth animation heartbeat alive strictly while
+        // motion is actually on screen: idle, off-screen running, hover-paused,
+        // and attention/outcome-only strips cost zero repaints (ADR-0235).
+        let tab_live = app.surfaces.tab_reveal_active || app.surfaces.tab_shimmer_active;
         let animating = viewed_animating
             || app.has_live_transport_setback()
             || !app.composer.pending_images.is_empty()
@@ -661,7 +716,8 @@ pub(crate) async fn run_app_loop(
         } else {
             None
         };
-        let poll_interval = next_poll_interval(app, animating, empty_state_showing, frame_wait);
+        let poll_interval =
+            next_poll_interval(app, animating, tab_live, empty_state_showing, frame_wait);
 
         tokio::select! {
             biased;
@@ -685,6 +741,9 @@ pub(crate) async fn run_app_loop(
                     }
                     if frozen_now && !frozen_event_passthrough(&event) {
                         continue;
+                    }
+                    if abort_unconnected_link_if_requested(app, &event) {
+                        return Ok(());
                     }
                     let flow = process_one_event(
                         &event,
@@ -930,6 +989,7 @@ struct DialogInfoDetails {
     connection_info_detail: bool,
     tools_info_detail: bool,
     model_info_detail: bool,
+    trace_view: crate::shell::surfaces::TraceView,
 }
 
 impl DialogInfoDetails {
@@ -955,6 +1015,12 @@ impl DialogInfoDetails {
                 .surfaces
                 .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
                 .info_detail,
+            trace_view: app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
+                .view
+                .clone(),
         }
     }
 }
@@ -1166,6 +1232,7 @@ async fn process_one_event<W: io::Write>(
             connection_info_detail: dialog_details.connection_info_detail,
             tools_info_detail: dialog_details.tools_info_detail,
             model_info_detail: dialog_details.model_info_detail,
+            trace_view: dialog_details.trace_view,
             host_prompting,
             dialog_keys: app.dialog_keys(),
         };

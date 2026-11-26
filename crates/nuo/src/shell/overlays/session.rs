@@ -1,8 +1,9 @@
 //! Sessions picker.
-use chrono::{Local, TimeZone};
 use graticule::{
-    Frame, Style, {Line, Span},
+    Frame, Modifier, Style, {Line, Span},
 };
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
 use unicode_width::UnicodeWidthStr;
 
 use super::common::{one_line, relative_time_at, truncate_ellipsis};
@@ -19,10 +20,14 @@ use ui_primitives::primitives::{
 /// creation/last-active time is more useful than the picker's compact relative
 /// form. Falls back to `--` for an out-of-range timestamp.
 fn absolute_time(ts: u64) -> String {
-    Local
-        .timestamp_opt(ts as i64, 0)
-        .single()
-        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+    i64::try_from(ts)
+        .ok()
+        .and_then(|secs| Timestamp::from_second(secs).ok())
+        .map(|dt| {
+            dt.to_zoned_datetime(TimeZone::system())
+                .strftime("%Y-%m-%d %H:%M")
+                .to_string()
+        })
         .unwrap_or_else(|| "--".to_string())
 }
 
@@ -379,7 +384,7 @@ pub fn draw_sessions_modal(
                 vec![
                     Line::from(""),
                     Line::from(vec![
-                        Span::styled(format!("{spin} "), Style::default().fg(theme.primary)),
+                        Span::styled(format!("{spin} "), Style::default().fg(theme.running())),
                         Span::styled("Loading thread detail…", Style::default().fg(theme.muted())),
                     ]),
                 ]
@@ -421,7 +426,7 @@ pub fn draw_sessions_modal(
             vec![
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled(format!("{spin} "), Style::default().fg(theme.primary)),
+                    Span::styled(format!("{spin} "), Style::default().fg(theme.running())),
                     Span::styled("Loading threads…", Style::default().fg(theme.muted())),
                 ]),
             ]
@@ -501,8 +506,7 @@ pub fn draw_sessions_modal(
 
         let prefix = format!("{lane}{marker}");
         let prefix_w = prefix.width();
-        let badge = format!("{run_badge}{tree_badge}");
-        let badge_w = badge.width();
+        let badge_w = run_badge.width() + tree_badge.width();
         let is_current = session.active;
         let current_badge = if is_current { " [current]" } else { "" };
         let current_w = current_badge.width();
@@ -534,10 +538,14 @@ pub fn draw_sessions_modal(
         } else {
             Style::default().bg(s.bg).fg(theme.muted())
         };
-        let badge_style = if is_selected {
+        // `[INV-TUI-COLOR-04]` (ADR-0258): active thread running badges speak
+        // in `theme.running()` (bold), never `theme.warning`.
+        let run_badge_style = Style::default()
+            .bg(s.bg)
+            .fg(theme.running())
+            .add_modifier(Modifier::BOLD);
+        let tree_badge_style = if is_selected {
             Style::default().bg(s.bg).fg(theme.primary)
-        } else if is_running {
-            Style::default().bg(s.bg).fg(theme.warning)
         } else {
             Style::default().bg(s.bg).fg(theme.brand())
         };
@@ -550,7 +558,8 @@ pub fn draw_sessions_modal(
         let spans = vec![
             Span::styled(prefix, lane_style),
             Span::styled(overview, text_style),
-            Span::styled(badge, badge_style),
+            Span::styled(run_badge, run_badge_style),
+            Span::styled(tree_badge, tree_badge_style),
             Span::styled(current_badge.to_string(), current_style),
             Span::styled(" ".repeat(pad), Style::default().bg(s.bg)),
             Span::styled(meta, Style::default().bg(s.bg).fg(s.dim)),

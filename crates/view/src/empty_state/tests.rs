@@ -78,10 +78,12 @@ fn render_empty_state_to_string(guidance: EmptyStateGuidance) -> String {
 fn empty_state_renders_resuming_thread_composed_with_phase() {
     let theme = Theme::default();
     let cases = [
-        (protocol::ThreadPhase::Binding, "Resuming thread 7c405d7e…"),
+        (protocol::ThreadPhase::Ready, "Resuming thread 7c405d7e…"),
         (
-            protocol::ThreadPhase::Loading,
-            "Resuming 7c405d7e · opening thread store…",
+            protocol::ThreadPhase::Preparing {
+                stage: protocol::PrepareStage::Thread,
+            },
+            "Resuming 7c405d7e · preparing thread store…",
         ),
         (
             protocol::ThreadPhase::Preparing {
@@ -123,11 +125,66 @@ fn empty_state_renders_resuming_thread_composed_with_phase() {
 }
 
 #[test]
-fn empty_state_renders_honest_thread_phases_and_matches_line_count() {
+fn empty_state_renders_honest_server_and_thread_phases_and_matches_line_count() {
     let theme = Theme::default();
+
+    let server_cases = [
+        (
+            protocol::ServerPhase::Initializing {
+                stage: protocol::ServerInitStage::Storage,
+            },
+            "Initializing Nuo server · storage…",
+        ),
+        (
+            protocol::ServerPhase::Initializing {
+                stage: protocol::ServerInitStage::Runtime,
+            },
+            "Initializing Nuo server · runtime…",
+        ),
+        (protocol::ServerPhase::Reloading, "Reloading Nuo server…"),
+        (
+            protocol::ServerPhase::Draining {
+                reason: Some("SIGTERM".into()),
+            },
+            "Nuo server is shutting down (SIGTERM)…",
+        ),
+    ];
+    for (phase, expected) in server_cases {
+        let guidance = EmptyStateGuidance::ServerPhase(phase);
+        assert_eq!(
+            guidance_line_count(&guidance),
+            guidance_section(guidance.clone(), 0, 78, &theme).len(),
+            "guidance_line_count must stay exact for {guidance:?}"
+        );
+        let output = render_empty_state_to_string(guidance);
+        assert!(
+            output.contains(expected),
+            "expected '{expected}' in empty state:\n{output}"
+        );
+    }
+
+    let server_failed = EmptyStateGuidance::ServerPhase(protocol::ServerPhase::Failed {
+        code: Some("storage_init_failed".into()),
+        message: "database locked".into(),
+    });
+    assert_eq!(
+        guidance_line_count(&server_failed),
+        guidance_section(server_failed.clone(), 0, 78, &theme).len(),
+    );
+    let output = render_empty_state_to_string(server_failed);
+    assert!(output.contains("Nuo server startup failed."), "{output}");
+    assert!(output.contains("database locked"), "{output}");
+
+    let connecting = EmptyStateGuidance::Connecting {
+        label: "Starting Nuo server…".into(),
+    };
+    assert_eq!(
+        guidance_line_count(&connecting),
+        guidance_section(connecting.clone(), 0, 78, &theme).len(),
+    );
+    assert!(render_empty_state_to_string(connecting).contains("Starting Nuo server…"));
+
     let cases = [
-        (protocol::ThreadPhase::Binding, "Binding thread…"),
-        (protocol::ThreadPhase::Loading, "Opening thread store…"),
         (
             protocol::ThreadPhase::Preparing {
                 stage: protocol::PrepareStage::Thread,
@@ -206,15 +263,36 @@ fn failed_detail_truncates_with_ellipsis_in_narrow_viewport() {
 }
 
 #[test]
-fn thread_phase_and_resuming_status_map_every_phase_honestly() {
+fn server_and_thread_phase_status_map_every_phase_honestly() {
     assert_eq!(
-        thread_phase_status(&protocol::ThreadPhase::Binding),
-        Some("binding thread…")
+        server_phase_status(&protocol::ServerPhase::Initializing {
+            stage: protocol::ServerInitStage::Storage
+        }),
+        Some("initializing server · storage…")
     );
     assert_eq!(
-        thread_phase_status(&protocol::ThreadPhase::Loading),
-        Some("opening thread store…")
+        server_phase_status(&protocol::ServerPhase::Initializing {
+            stage: protocol::ServerInitStage::Runtime
+        }),
+        Some("initializing server · runtime…")
     );
+    assert_eq!(server_phase_status(&protocol::ServerPhase::Ready), None);
+    assert_eq!(
+        server_phase_status(&protocol::ServerPhase::Reloading),
+        Some("reloading server…")
+    );
+    assert_eq!(
+        server_phase_status(&protocol::ServerPhase::Draining { reason: None }),
+        Some("server shutting down…")
+    );
+    assert_eq!(
+        server_phase_status(&protocol::ServerPhase::Failed {
+            code: None,
+            message: "boom".into(),
+        }),
+        Some("server startup failed")
+    );
+
     assert_eq!(
         thread_phase_status(&protocol::ThreadPhase::Preparing {
             stage: protocol::PrepareStage::Thread
@@ -249,12 +327,8 @@ fn thread_phase_and_resuming_status_map_every_phase_honestly() {
     assert_eq!(thread_phase_status(&protocol::ThreadPhase::Ready), None);
 
     assert_eq!(
-        resuming_thread_status("7c405d7e", &protocol::ThreadPhase::Binding),
+        resuming_thread_status("7c405d7e", &protocol::ThreadPhase::Ready),
         "resuming thread 7c405d7e…"
-    );
-    assert_eq!(
-        resuming_thread_status("7c405d7e", &protocol::ThreadPhase::Loading),
-        "resuming 7c405d7e · opening thread store…"
     );
     assert_eq!(
         resuming_thread_status(

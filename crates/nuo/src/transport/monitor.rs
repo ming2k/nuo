@@ -1,5 +1,7 @@
-//! Monitor handshake and event stream.
+//! Monitor handshake and event stream over the unified `Hello` → `ServerHello`
+//! protocol (ADR-0260).
 
+use super::current_posture;
 use super::lifecycle::MONITOR_FIRST_FRAME_TIMEOUT;
 use super::*;
 use protocol::MonitorAction;
@@ -31,23 +33,28 @@ pub(super) async fn finish_monitor(
 ) -> Result<tokio::sync::mpsc::UnboundedReceiver<MonitorEvent>, String> {
     let (mut wire_sink, mut wire_source) = parts;
 
-    let select = Wire::Select {
-        action: AttachAction::Monitor(action),
-        project: None,
-        posture: current_posture(),
-        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+    let hello = Wire::Hello {
         protocol: PROTOCOL_VERSION,
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        posture: current_posture(),
+        monitor: Some(action),
     };
     wire_sink
-        .send(select)
+        .send(hello)
         .await
-        .map_err(|e| format!("wire send select: {e}"))?;
+        .map_err(|e| format!("wire send hello: {e}"))?;
 
     let first = tokio::time::timeout(MONITOR_FIRST_FRAME_TIMEOUT, async {
         loop {
             match wire_source.next().await {
                 Some(Ok(WireFrame::Wire(wire))) => match wire {
-                    Wire::Monitor { event } => return Ok(event),
+                    Wire::ServerHello {
+                        monitor: Some(snapshot),
+                        ..
+                    } => return Ok(MonitorEvent::Snapshot(snapshot)),
+                    Wire::ServerHello { monitor: None, .. } => {
+                        return Err("server returned ServerHello without monitor snapshot".into());
+                    }
                     Wire::Error { message, .. } => return Err(message),
                     _ => tracing::warn!("status: unexpected frame during handshake, ignored"),
                 },
@@ -69,7 +76,12 @@ pub(super) async fn finish_monitor(
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let _ = tx.send(first);
+    if !action.watch {
+        let _ = wire_sink.close().await;
+        return Ok(rx);
+    }
     tokio::spawn(async move {
+        let _keep_sink_alive = wire_sink;
         while let Some(frame) = wire_source.next().await {
             match frame {
                 Ok(WireFrame::Wire(Wire::Monitor { event })) => {
@@ -80,9 +92,6 @@ pub(super) async fn finish_monitor(
                 Ok(WireFrame::Wire(_)) => {
                     tracing::warn!("status: unexpected post-handshake frame, ignored")
                 }
-                // Monitor frames are independent; an unmodelled one is
-                // disclosed and skipped, exactly like the attach reader
-                // [ADR-0136].
                 Ok(WireFrame::Undecodable { envelope, detail }) => {
                     tracing::warn!(
                         envelope = envelope.as_deref().unwrap_or("<none>"),

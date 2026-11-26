@@ -18,10 +18,11 @@ mod projection;
 #[cfg(test)]
 mod tests;
 
-use projection::{mcp_connecting_status, tab_hover_projection};
 pub(crate) use projection::{
-    project_tab_status, project_tab_statuses, select_empty_state_guidance, select_lifecycle_status,
+    TRANSIENT_WAIT_HYSTERESIS, project_tab_items, select_empty_state_guidance,
+    select_lifecycle_status,
 };
+use projection::{mcp_connecting_status, tab_hover_projection};
 
 /// Loop stage: the per-frame draw. Paints the chrome (startup picker,
 /// transcript, hint bar, composer, completion popup), recesses the live
@@ -51,6 +52,7 @@ fn compose_frame(
     // startup picker) cannot inherit a heartbeat from the frame before it
     // (ADR-0235 `[INV-TAB-15]`).
     app.surfaces.tab_reveal_active = false;
+    app.surfaces.tab_shimmer_active = false;
     // Modality is scene-owned: a modal owns keys because the
     // mounted component declares `Modal` policy, not because an app flag says
     // so. The mount here pre-registers the modal at viewport size; the modal
@@ -226,8 +228,13 @@ fn draw_transcript_surface(
         .then_some(view::phase::Phase::AwaitingUser);
     let status = if let Some(lifecycle) = select_lifecycle_status(
         app.link.link_down,
+        &app.link.phase,
+        app.link.phase_since.elapsed(),
+        &app.session.server_phase,
+        app.session.server_phase_since.elapsed(),
         app.session.switching_session.as_deref(),
         &app.threads.session_phase,
+        app.session.thread_phase_since.elapsed(),
     ) {
         lifecycle
     } else {
@@ -365,8 +372,13 @@ fn draw_transcript_surface(
                 .unwrap_or(true)
     }) || app.surfaces.provider_picker.rows.is_empty();
     let guidance = select_empty_state_guidance(
+        &app.link.phase,
+        app.link.phase_since.elapsed(),
+        &app.session.server_phase,
+        app.session.server_phase_since.elapsed(),
         app.session.switching_session.as_deref(),
         &app.threads.session_phase,
+        app.session.thread_phase_since.elapsed(),
         has_keyed_provider,
     );
     // Suppress the hover affordance whenever a full-overlay modal is
@@ -401,7 +413,7 @@ fn draw_transcript_surface(
     // borrow of `app` for `view_messages`, and the TabBar hover fact is a
     // single frame-stable value rather than something to re-read per widget.
     let tab_hover = tab_hover_projection(app);
-    let tab_statuses = project_tab_statuses(app, viewed_session_id);
+    let tab_items = project_tab_items(app, viewed_session_id);
     let transcript_render = ui.paint(f, UiKey::Root, |f| {
         render::draw_transcript(
             f,
@@ -436,7 +448,7 @@ fn draw_transcript_surface(
                         .effective_binding(crate::shell::keymap::CommandId::OpenQueue),
                 },
                 tasks_bar: render::TasksBarProps {
-                    tasks: &app.link.background_tasks,
+                    tasks: &app.threads.background_tasks,
                 },
                 // The armed interrupt repeats the *resolved* chord, so remapping
                 // `CancelOrBack` moves the keycap rather than leaving a stale one.
@@ -447,9 +459,8 @@ fn draw_transcript_surface(
                 subagent_bar,
                 page_hints: Some(page_hints),
                 tab_bar: Some(render::TabBarProps {
-                    tabs: Some(app.surfaces.surfaces.tabs()),
+                    items: &tab_items,
                     active_tab: app.surfaces.surfaces.active_tab_index(),
-                    statuses: Some(&tab_statuses),
                     unread_faults: if app.has_unread_notice_fault() {
                         app.unread_notices()
                     } else {
@@ -699,7 +710,15 @@ fn draw_model_bar_surface(
                     cost_nano_usd: Some(app.viewed_chrome().session_cost_nano_usd),
                 },
                 &app.surfaces.theme,
-                &app.surfaces.key_overrides,
+                render::ModelBarKeys {
+                    telemetry: app
+                        .surfaces
+                        .key_overrides
+                        .effective_binding(crate::shell::keymap::CommandId::OpenThreadStats),
+                    connection: app.surfaces.key_overrides.effective_binding(
+                        crate::shell::keymap::CommandId::OpenActiveConnectionDetail,
+                    ),
+                },
             )
         });
         for (key, rect) in [
@@ -958,6 +977,7 @@ fn persist_transcript_layout(
     // (ADR-0235 `[INV-TAB-15]`). A full-screen scene's own draw overwrites this
     // below, because its TabBar is the one on screen.
     app.surfaces.tab_reveal_active = transcript.tab_reveal_active;
+    app.surfaces.tab_shimmer_active = transcript.tab_shimmer_active;
     // Hit-test rects for the footer bars, resolved from the one registry the
     // renderer placed this frame (`TranscriptRender::footer`) — one source
     // of truth instead of per-bar plumbing.
@@ -1399,7 +1419,7 @@ fn draw_scene(
     // borrow of `app` (the diff viewer's state, the composer), and the hover
     // fact is one frame-stable value shared by every page renderer.
     let tab_hover = tab_hover_projection(app);
-    let tab_statuses = project_tab_statuses(app, viewed_session_id);
+    let tab_items = project_tab_items(app, viewed_session_id);
     let scene_prompt_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Scene;
     let mut dashboard_list_body_height: Option<u16> = None;
@@ -1425,9 +1445,8 @@ fn draw_scene(
                     current_session_id: viewed_session_id,
                     show_caret: scene_prompt_owns_caret,
                     tab_bar: Some(render::TabBarProps {
-                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        items: &tab_items,
                         active_tab: app.surfaces.surfaces.active_tab_index(),
-                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1464,6 +1483,7 @@ fn draw_scene(
                 ui.mount(UiKey::TabBarHelp, rect);
             }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
+            app.surfaces.tab_shimmer_active = rects.tab_shimmer_active;
             if let Some(preview_id) = &app.surfaces.host_preview {
                 let row = app
                     .session
@@ -1496,6 +1516,7 @@ fn draw_scene(
                     custom_color_scheme: &app.surfaces.custom_color_scheme,
                     websearch: app.surfaces.websearch_config.as_ref(),
                     workspace: &app.threads.current_workspace,
+                    theme_files: &app.surfaces.theme_files,
                     category_scroll: &mut app.surfaces.config_scroll,
                     detail_scroll: &mut app.surfaces.config_detail_scroll,
                     breadcrumbs: Some(breadcrumbs_str),
@@ -1503,9 +1524,8 @@ fn draw_scene(
                     profile: &app.surfaces.profile,
                     tui_config: &app.session.tui_config,
                     tab_bar: Some(render::TabBarProps {
-                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        items: &tab_items,
                         active_tab: app.surfaces.surfaces.active_tab_index(),
-                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1535,6 +1555,7 @@ fn draw_scene(
                 ui.mount(UiKey::TabBarHelp, rect);
             }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
+            app.surfaces.tab_shimmer_active = rects.tab_shimmer_active;
             for (index, cat_rect) in rects.category_rects {
                 ui.mount(UiKey::SettingsCategory(index), cat_rect);
             }
@@ -1580,9 +1601,8 @@ fn draw_scene(
                     scroll: &mut app.surfaces.command_log_scroll,
                     thread_id: Some(viewed_session_id),
                     tab_bar: Some(render::TabBarProps {
-                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        items: &tab_items,
                         active_tab: app.surfaces.surfaces.active_tab_index(),
-                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1613,6 +1633,7 @@ fn draw_scene(
                 ui.mount(UiKey::TabBarHelp, rect);
             }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
+            app.surfaces.tab_shimmer_active = rects.tab_shimmer_active;
             // The dashboard's list-body slot stays unset: this scene's scroll
             // is its own field and its page step is derived from the body
             // rect the renderer just clamped against.
@@ -1625,9 +1646,8 @@ fn draw_scene(
                     state: app.threads.diff_viewer.as_mut(),
                     thread_id: Some(viewed_session_id),
                     tab_bar: Some(render::TabBarProps {
-                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        items: &tab_items,
                         active_tab: app.surfaces.surfaces.active_tab_index(),
-                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1657,6 +1677,7 @@ fn draw_scene(
                 ui.mount(UiKey::TabBarHelp, rect);
             }
             app.surfaces.tab_reveal_active = rects.tab_reveal_active;
+            app.surfaces.tab_shimmer_active = rects.tab_shimmer_active;
             Some(rects.area)
         }
         SceneKind::Thread | SceneKind::Subagent => None,

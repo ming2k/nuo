@@ -1,16 +1,16 @@
-//! Terminal user interface, presentation substrate, and interactive rendering engine for Nuo.
+//! Terminal user interface and interactive application runtime for Nuo.
 //!
 //! Subsystem architecture ratified under ADR-0223 (Graticule Terminal Substrate),
-//! ADR-0072 (Elm Architecture Declarative Component Paradigm), ADR-0185 (Single Render Path),
-//! and ADR-0103 (Presentation Substrate Purification).
+//! ADR-0185 (Single Render Path), and ADR-0107 (Two-Tier Presentation Purification).
 //!
 //! Layer structure:
-//! - The in-house grid engine (`graticule`) — a retained cell grid with dirty tracking and a back/front diff.
-//! - The view and component tree — painting `protocol` domain types into the engine grid:
-//!   `model`, `render`, `components`, `overlays`, `tools`, `disclosure`, `layout`,
-//!   `declarative` (ADR-0072), `theme`, `design`, `chrome`, `composer`, `primitives`.
-//! - The interactive application runtime: application state ([`app`]), input mapping ([`input`]),
-//!   and the event/render loop (`event_loop`). [`start_tui`] is the entry point wired by the `nuo` binary.
+//! - The terminal substrate (`graticule`) — retained cell grid (`graticule-canvas`)
+//!   with dirty tracking and back/front diff, plus physical TTY input (`graticule-tty`).
+//! - The pure zero-IO presentation crates (`ui-primitives` for generic tokens/components,
+//!   `view` for agent-domain transcript models, tool presenters, layout, chrome, and views).
+//! - This interactive shell runtime: application state ([`app`]), input mapping ([`input`]),
+//!   surface routing ([`surfaces`]), overlays ([`overlays`]), and the event/render loop
+//!   (`event_loop`). [`runner::run_with_options`] is the entry point wired by the `nuo` binary.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
 // test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
@@ -39,7 +39,6 @@ pub mod composer_grid;
 pub mod composer_hints;
 pub mod config;
 pub mod copy;
-pub mod disclosure;
 pub mod draft_store;
 pub mod event_loop;
 pub mod focus;
@@ -57,12 +56,11 @@ pub mod runner;
 pub mod session;
 pub mod sheet;
 pub mod step_interaction;
+pub mod supervisor;
 pub mod surfaces;
 pub mod terminal;
 pub mod transcript;
 pub mod ui;
-pub mod view_header;
-pub mod views;
 
 pub use app::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
 pub use completion::CompletionKind;
@@ -186,12 +184,12 @@ impl StartupOverlay {
                 let suffix_cat = lower.split_once([':', '/', '.']).map(|(_, s)| s);
                 let cat = suffix_cat
                     .or(nav_val.as_deref())
-                    .and_then(crate::shell::views::ConfigCategory::from_name)
+                    .and_then(view::views::ConfigCategory::from_name)
                     .map(|c| c as usize);
                 return Some(StartupOverlay::Settings { category: cat });
             }
         } else if let Some(nav) = nav_val {
-            let cat = crate::shell::views::ConfigCategory::from_name(&nav).map(|c| c as usize);
+            let cat = view::views::ConfigCategory::from_name(&nav).map(|c| c as usize);
             return Some(StartupOverlay::Settings { category: cat });
         }
 
@@ -259,8 +257,8 @@ pub struct TuiLaunchConfig {
     pub initial_round_count: u64,
     pub command_catalog: tool::CommandCatalog,
     pub initial_round_interrupts: Vec<protocol::RoundInterrupt>,
-    pub tui_config: config::TuiConfig,
-    pub input_history_config: config::InputHistoryConfig,
+    pub tui_config: view::tui_config::TuiConfig,
+    pub input_history_config: view::tui_config::InputHistoryConfig,
     pub session: HookStartSource,
     pub token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
@@ -280,6 +278,11 @@ pub struct TuiLaunchConfig {
     /// authoritative when the snapshot has also been applied; the client gates
     /// input on the transition, not on this initial value.
     pub initial_phase: protocol::ThreadPhase,
+    /// Server-attested global lifecycle phase from `Wire::ServerHello` (ADR-0260).
+    pub initial_server_phase: protocol::ServerPhase,
+    /// Optional thread subscription deferred until `ServerPhase::Ready` arrives
+    /// (ADR-0260 `[INV-SRVPHASE-02]`).
+    pub pending_initial_subscribe: Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
     /// Opening prompt (`-p`) dispatched on the `Ready` transition rather than
     /// at handshake time (ADR-0133).
     pub initial_prompt: Option<String>,
@@ -311,6 +314,7 @@ pub fn ensure_panic_hook() {
 pub async fn run_tui(
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
@@ -321,7 +325,7 @@ pub async fn run_tui(
     let mut terminal = graticule::live_terminal(backend);
     terminal::spawn_signal_guard();
     ensure_panic_hook();
-    let outcome = run_tui_with_terminal(&mut terminal, tx, rx, link_lost, config).await;
+    let outcome = run_tui_with_terminal(&mut terminal, tx, rx, monitor_rx, link_lost, config).await;
     session_guard.restore();
     outcome
 }
@@ -330,11 +334,12 @@ pub async fn run_tui_with_terminal(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
     let mut input = event_loop::input_reader::InputSource::spawn()?;
-    run_tui_with_input(terminal, tx, rx, link_lost, config, &mut input).await
+    run_tui_with_input(terminal, tx, rx, monitor_rx, link_lost, config, &mut input).await
 }
 
 /// One attachment's TUI run against a caller-owned [`InputSource`].
@@ -382,7 +387,7 @@ fn restore_transcript(
     initial_commands: Vec<protocol::CommandRecord>,
     initial_round_interrupts: Vec<protocol::RoundInterrupt>,
     initial_round_count: u64,
-    tui_config: &config::TuiConfig,
+    tui_config: &view::tui_config::TuiConfig,
 ) -> Vec<view::model::document::TranscriptMessage> {
     let mut restored = transcript_messages_from_core(initial_messages, tui_config);
     restored = merge_timeline_rows(
@@ -394,29 +399,29 @@ fn restore_transcript(
     restored
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn start_ui_runtime(
-    tui_config: config::TuiConfig,
+    tui_config: view::tui_config::TuiConfig,
     session: &crate::shell::HookStartSource,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     initial_provider: &str,
     initial_model: &str,
     initial_round_count: u64,
 ) -> (
-    Arc<config::TuiConfig>,
+    Arc<view::tui_config::TuiConfig>,
     event_loop::UiRuntime,
     String,
     Arc<AtomicBool>,
     tokio::sync::mpsc::Receiver<event_loop::AppMutation>,
 ) {
     let tui_config = Arc::new(tui_config);
-    // M1: the response translator and the monitor client own **no**
-    // application state. They consume wire frames and produce typed
-    // `AppMutation`s onto a bounded channel; the event loop — the sole
-    // `App` writer — drains and applies them each iteration (see
-    // `event_loop::apply`). There are no shared state cells and no
-    // per-frame mirroring; the few cross-task facts that flow the other
-    // way live on `UiRuntime` (see its module docs).
+    // M1: the response translator and the server-event translator own **no**
+    // application state. They consume wire frames from the single unified
+    // connection (ADR-0260 `[INV-SRVPHASE-04]`) and produce typed
+    // `AppMutation`s onto a bounded channel; the event loop — the sole `App`
+    // writer — drains and applies them each iteration.
     let (mutation_tx, mutation_rx) = tokio::sync::mpsc::channel::<event_loop::AppMutation>(1024);
     let mutations = event_loop::mutations::MutationSink::new(mutation_tx);
 
@@ -446,7 +451,7 @@ async fn start_ui_runtime(
         mutations,
     };
 
-    event_loop::translators::spawn_monitor_translator(&runtime);
+    event_loop::translators::spawn_monitor_translator(&runtime, monitor_rx);
     event_loop::translators::spawn_response_translator(
         event_loop::translators::ResponseTranslatorConfig {
             rx,
@@ -478,12 +483,15 @@ pub(crate) struct AppBoot<'a> {
     pub(crate) initial_provider: String,
     pub(crate) initial_model: String,
     pub(crate) session_phase_init: protocol::ThreadPhase,
+    pub(crate) server_phase_init: protocol::ServerPhase,
+    pub(crate) pending_initial_subscribe:
+        Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
     pub(crate) restored: Vec<TranscriptMessage>,
-    pub(crate) tui_config: Arc<config::TuiConfig>,
+    pub(crate) tui_config: Arc<view::tui_config::TuiConfig>,
     pub(crate) command_catalog: tool::CommandCatalog,
     pub(crate) initial_pending_prompts: Vec<protocol::AgentRequest>,
     pub(crate) input_history: Vec<protocol::HistoryEntry>,
-    pub(crate) input_history_config: config::InputHistoryConfig,
+    pub(crate) input_history_config: view::tui_config::InputHistoryConfig,
     pub(crate) startup_overlay: StartupOverlay,
     pub(crate) profile: graticule::TerminalProfile,
     pub(crate) token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
@@ -506,10 +514,12 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
     initial_thread.current_provider = boot.initial_provider;
     initial_thread.current_model = boot.initial_model;
 
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let theme_files = crate::shell::config::load_all_theme_files(Some(&cwd));
+
     App {
         session: SessionState {
             queue_exit_session: None,
-            session_chrome: std::collections::HashMap::new(),
             subscribed_threads: {
                 let mut set = std::collections::HashSet::new();
                 if !boot.live_session_init.is_empty() {
@@ -521,17 +531,24 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
             tui_config: (*boot.tui_config).clone(),
             session_detail: None,
-            cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            cwd,
             current_session_id: boot.live_session_init.clone(),
             // Only set when the user explicitly switches/resumes another thread;
             // initial thread readiness is projected directly from `session_phase`
             // (ADR-0133) rather than pretending a cold boot is switching sessions.
             switching_session: None,
             persistence_health: None,
+            server_phase: boot.server_phase_init,
+            server_phase_since: std::time::Instant::now(),
+            thread_phase_since: std::time::Instant::now(),
+            pending_initial_subscribe: boot.pending_initial_subscribe,
+            initial_init_options: protocol::ThreadInitOptions::default(),
+            project_scope: None,
             sessions_overview: Vec::new(),
             host_sessions: Vec::new(),
             queue_blocked_sessions: std::collections::HashSet::new(),
             running_sessions: std::collections::HashSet::new(),
+            unseen_outcomes: std::collections::HashMap::new(),
         },
         threads: crate::shell::app::workspaces::Threads::new(initial_thread),
         viewport: Viewport {
@@ -544,7 +561,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             carousel_epoch: std::time::Instant::now(),
             transcript_layout: crate::shell::render::layout::Strategy::TurnBand,
             expand_auto_scroll: boot.tui_config.expand_auto_scroll,
-            reasoning_default_expanded: crate::shell::config::reasoning_default_expanded(
+            reasoning_default_expanded: view::tui_config::reasoning_default_expanded(
                 &boot.tui_config,
             ),
             logs: view::model::log::SurfaceLogs::new(),
@@ -619,6 +636,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
         surfaces: SurfacesState {
             pending_fold_copy: None,
             command_log_scroll: 0,
+            theme_files,
             surface_store: crate::shell::surfaces::SurfaceStore::new(),
             drafts: crate::shell::draft_store::DraftLedger::load_for_scope(
                 host::paths::get().drafts_dir(),
@@ -647,11 +665,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             config_category: match boot.startup_overlay {
                 StartupOverlay::Settings {
                     category: Some(cat),
-                } => cat.min(
-                    crate::shell::views::ConfigCategory::ALL
-                        .len()
-                        .saturating_sub(1),
-                ),
+                } => cat.min(view::views::ConfigCategory::ALL.len().saturating_sub(1)),
                 _ => 0,
             },
             config_detail_index: 0,
@@ -660,6 +674,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             tab_hover: None,
             tab_hover_since: None,
             tab_reveal_active: false,
+            tab_shimmer_active: false,
             websearch_config: None,
             config_dropdown: None,
             config_selected_rect: None,
@@ -685,8 +700,8 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             color_scheme: Theme::normalize_color_scheme(&boot.tui_config.color_scheme).to_string(),
             custom_color_scheme: boot.tui_config.custom_color_scheme.clone(),
             click_outside_dismiss: boot.tui_config.click_outside_dismiss,
-            key_overrides: boot.tui_config.global_key_overrides(),
-            surface_overrides: boot.tui_config.surface_key_overrides(),
+            key_overrides: crate::shell::config::global_key_overrides(&boot.tui_config),
+            surface_overrides: crate::shell::config::surface_key_overrides(&boot.tui_config),
             copy_toast_until: None,
             copy_toast_message: String::new(),
             copy_toast_failed: false,
@@ -765,7 +780,14 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             last_key_press: std::time::Instant::now(),
             link_down: false,
             relink_requested: false,
-            background_tasks: Vec::new(),
+            phase: crate::shell::app::state::ClientLinkPhase::Connected {
+                server_id: String::new(),
+            },
+            phase_since: std::time::Instant::now(),
+            known_server_id: None,
+            supervised: false,
+            supervisor_cancel: None,
+            supervisor_reconnect_notify: None,
         },
     }
 }
@@ -774,6 +796,7 @@ pub(crate) async fn run_tui_with_input(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
     input: &mut event_loop::input_reader::InputSource,
@@ -796,6 +819,8 @@ pub(crate) async fn run_tui_with_input(
         initial_tab_history,
         startup_notices,
         initial_phase,
+        initial_server_phase,
+        pending_initial_subscribe,
         initial_prompt,
     } = config;
     let session_phase_init = initial_phase.clone();
@@ -812,6 +837,7 @@ pub(crate) async fn run_tui_with_input(
         tui_config,
         &session,
         rx,
+        monitor_rx,
         link_lost,
         &initial_provider,
         &initial_model,
@@ -824,6 +850,8 @@ pub(crate) async fn run_tui_with_input(
         initial_provider,
         initial_model,
         session_phase_init,
+        server_phase_init: initial_server_phase,
+        pending_initial_subscribe,
         restored,
         tui_config,
         command_catalog,
@@ -839,20 +867,22 @@ pub(crate) async fn run_tui_with_input(
     let mut app = build_app(boot);
 
     // ADR-0250: reconcile parked drafts against the server's catalog on connect.
-    let draft_ids: Vec<String> = app
-        .surfaces
-        .drafts
-        .known_thread_ids()
-        .into_iter()
-        .filter(|id| id != &live_session_init)
-        .collect();
-    if !draft_ids.is_empty() {
-        app.send_intent(protocol::AgentRequest::CheckThreadsExist {
-            thread_ids: draft_ids,
-        });
+    if !live_session_init.is_empty() {
+        let draft_ids: Vec<String> = app
+            .surfaces
+            .drafts
+            .known_thread_ids()
+            .into_iter()
+            .filter(|id| id != &live_session_init)
+            .collect();
+        if !draft_ids.is_empty() {
+            app.send_intent(protocol::AgentRequest::CheckThreadsExist {
+                thread_ids: draft_ids,
+            });
+        }
     }
 
-    // Mount tabs: restore preserved tabs if re-attaching, or mount initial thread tab (ADR-0039, ADR-0058)
+    // Mount tabs: restore preserved tabs if re-attaching, or mount initial thread/overlay tab
     if let Some(tabs) = initial_tabs {
         for tab in tabs {
             app.surfaces.surfaces.open_tab(tab);
@@ -860,16 +890,27 @@ pub(crate) async fn run_tui_with_input(
         if let Some(history) = initial_tab_history {
             app.surfaces.surfaces.set_tab_mru_history(history);
         }
-        if let Some(pos) = app
-            .surfaces
-            .surfaces
-            .tabs()
-            .iter()
-            .position(|t| t.thread_id() == Some(live_session_init.as_str()))
-        {
-            app.surfaces.surfaces.select_tab(pos);
-            app.hand_composer_to_current_thread();
-        } else {
+        if !live_session_init.is_empty() {
+            if let Some(pos) = app
+                .surfaces
+                .surfaces
+                .tabs()
+                .iter()
+                .position(|t| t.thread_id() == Some(live_session_init.as_str()))
+            {
+                app.surfaces.surfaces.select_tab(pos);
+                app.hand_composer_to_current_thread();
+            } else {
+                app.surfaces
+                    .surfaces
+                    .open_tab(crate::shell::surfaces::ClientTab::thread(
+                        &live_session_init,
+                        None::<String>,
+                    ));
+            }
+        }
+    } else {
+        if !live_session_init.is_empty() {
             app.surfaces
                 .surfaces
                 .open_tab(crate::shell::surfaces::ClientTab::thread(
@@ -877,13 +918,6 @@ pub(crate) async fn run_tui_with_input(
                     None::<String>,
                 ));
         }
-    } else {
-        app.surfaces
-            .surfaces
-            .open_tab(crate::shell::surfaces::ClientTab::thread(
-                &live_session_init,
-                None::<String>,
-            ));
         if matches!(startup_overlay, StartupOverlay::Dashboard) {
             app.surfaces
                 .surfaces
@@ -950,10 +984,14 @@ pub(crate) async fn run_tui_with_input(
     // *every* outcome — switch, fork, `/new`, detach, or a dead link — because
     // all of them end this `App`.
     app.seal_drafts();
+    let active_session_id = app.session.live_session_id.clone();
+    let exit_tx = Some(app.link.tx.clone());
     let tabs = Some(app.surfaces.surfaces.tabs().to_vec());
     let tab_history = Some(app.surfaces.surfaces.tab_mru_history().to_vec());
     Ok(TuiOutcome {
         history: app.composer.input_history,
+        active_session_id,
+        exit_tx,
         switch_to: switch,
         switch_to_prompt,
         tabs,
@@ -962,11 +1000,179 @@ pub(crate) async fn run_tui_with_input(
     })
 }
 
-/// What a TUI run produced: the input history to persist, and —
-/// when the user picked a session in the `/host` panel — the server session
-/// to switch to (the caller re-attaches).
+/// Launch configuration for a single-lifetime supervised TUI process
+/// (ADR-0260 `[INV-SRVPHASE-02]`, `[INV-SRVPHASE-04]`).
+pub(crate) struct SupervisedTuiLaunch {
+    pub remote: Option<String>,
+    pub token: Option<String>,
+    pub project_override: Option<std::path::PathBuf>,
+    pub explicit_port: Option<u16>,
+    pub initial_subscribe: Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
+    pub initial_init_options: protocol::ThreadInitOptions,
+    pub project_scope: Option<std::path::PathBuf>,
+    pub startup_overlay: StartupOverlay,
+    pub initial_prompt: Option<String>,
+    pub tui_config: view::tui_config::TuiConfig,
+}
+
+/// Run the interactive TUI with a single `App` lifetime and an in-process
+/// `ConnectionSupervisor` owning discovery, server spawn, `Hello -> ServerHello`,
+/// single-connection monitoring/responses, and in-place reconnection (ADR-0260).
+pub(crate) async fn run_supervised_tui(
+    terminal: &mut Terminal<io::Stdout>,
+    input: &mut event_loop::input_reader::InputSource,
+    launch: SupervisedTuiLaunch,
+) -> Result<(TuiOutcome, Option<client::ClientTarget>), Box<dyn Error>> {
+    let SupervisedTuiLaunch {
+        remote,
+        token,
+        project_override,
+        explicit_port,
+        initial_subscribe,
+        initial_init_options,
+        project_scope,
+        startup_overlay,
+        initial_prompt,
+        tui_config,
+    } = launch;
+
+    let profile = terminal::detect_terminal_profile();
+    let input_history_config = tui_config.input_history.clone();
+    let tui_config = Arc::new(tui_config);
+
+    let (mutation_tx, mutation_rx) = tokio::sync::mpsc::channel::<event_loop::AppMutation>(1024);
+    let mutations = event_loop::mutations::MutationSink::new(mutation_tx);
+    let dirty = Arc::new(AtomicBool::new(true));
+    let dirty_notify = Arc::new(tokio::sync::Notify::new());
+    let should_quit = Arc::new(AtomicBool::new(false));
+    let runtime = event_loop::UiRuntime {
+        dirty,
+        dirty_notify,
+        is_responding: Arc::new(AtomicBool::new(false)),
+        awaiting_oauth_add: Arc::new(AtomicBool::new(false)),
+        trust_gate_dismissed: Arc::new(AtomicBool::new(false)),
+        viewed_session_id: Arc::new(Mutex::new(None::<String>)),
+        mutations,
+    };
+
+    // Placeholder channel until `ConnectionSupervisor` installs the live `ServerLink.req_tx`.
+    let (placeholder_tx, _placeholder_rx) = mpsc::unbounded_channel();
+    let live_session_init = String::new();
+    let initial_thread_phase = if initial_subscribe.is_some() {
+        protocol::ThreadPhase::Preparing {
+            stage: protocol::PrepareStage::Thread,
+        }
+    } else {
+        protocol::ThreadPhase::Ready
+    };
+
+    let mut app = build_app(AppBoot {
+        live_session_init: &live_session_init,
+        initial_provider: String::new(),
+        initial_model: String::new(),
+        session_phase_init: initial_thread_phase,
+        server_phase_init: protocol::ServerPhase::Ready,
+        pending_initial_subscribe: initial_subscribe,
+        restored: Vec::new(),
+        tui_config: tui_config.clone(),
+        command_catalog: tool::CommandCatalog::default(),
+        initial_pending_prompts: pending_prompts(initial_prompt),
+        input_history: Vec::new(),
+        input_history_config,
+        startup_overlay,
+        profile,
+        token_ledger: None,
+        tx: placeholder_tx,
+        should_quit: should_quit.clone(),
+    });
+
+    let supervisor_cancel = tokio_util::sync::CancellationToken::new();
+    let reconnect_notify = Arc::new(tokio::sync::Notify::new());
+    let resolved_target = Arc::new(std::sync::Mutex::new(None::<client::ClientTarget>));
+
+    app.session.initial_init_options = initial_init_options;
+    app.session.project_scope = project_scope;
+    app.link.supervised = true;
+    app.link.phase = crate::shell::app::state::ClientLinkPhase::Connecting {
+        label: if let Some(ref addr) = remote {
+            format!("Connecting to {addr}…")
+        } else {
+            "Starting Nuo server…".to_string()
+        },
+    };
+    app.link.phase_since = std::time::Instant::now();
+    app.link.supervisor_cancel = Some(supervisor_cancel.clone());
+    app.link.supervisor_reconnect_notify = Some(reconnect_notify.clone());
+
+    if matches!(startup_overlay, StartupOverlay::Dashboard) {
+        app.surfaces
+            .surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::dashboard());
+    } else if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
+        app.surfaces
+            .surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::settings());
+    }
+
+    let supervisor_handle = supervisor::spawn_connection_supervisor(supervisor::SupervisorConfig {
+        remote,
+        token,
+        project_override,
+        explicit_port,
+        runtime: runtime.clone(),
+        tui_config,
+        should_quit: should_quit.clone(),
+        cancel: supervisor_cancel.clone(),
+        reconnect_notify,
+        resolved_target: resolved_target.clone(),
+    });
+
+    let session = HookStartSource::Remote {
+        session_id: String::new(),
+    };
+    let loop_res =
+        event_loop::run_app_loop(terminal, &mut app, runtime, mutation_rx, session, input).await;
+
+    supervisor_cancel.cancel();
+    supervisor_handle.abort();
+
+    if let Err(err) = loop_res {
+        return Err(err.into());
+    }
+
+    app.seal_drafts();
+    let active_session_id = app.session.live_session_id.clone();
+    let exit_tx = Some(app.link.tx.clone());
+    let tabs = Some(app.surfaces.surfaces.tabs().to_vec());
+    let tab_history = Some(app.surfaces.surfaces.tab_mru_history().to_vec());
+    let final_target = resolved_target
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    Ok((
+        TuiOutcome {
+            history: app.composer.input_history,
+            active_session_id,
+            exit_tx,
+            switch_to: app.surfaces.switch_to_target.take(),
+            switch_to_prompt: app.surfaces.switch_to_prompt.take(),
+            tabs,
+            tab_history,
+            relink_requested: app.link.relink_requested,
+        },
+        final_target,
+    ))
+}
+
+/// What a TUI run produced: the input history to persist and the live active
+/// thread id / outbound link for exit-time flush.
 pub struct TuiOutcome {
     pub history: Vec<protocol::HistoryEntry>,
+    /// Actual live thread id at exit (populated even when subscribed lazily
+    /// after `ServerPhase::Initializing` or from a 0-thread Dashboard).
+    pub active_session_id: String,
+    /// Active outbound link at exit for flushing `RecordInputHistory`.
+    pub exit_tx: Option<mpsc::UnboundedSender<client::ClientOutbound>>,
     pub switch_to: Option<String>,
     /// Opening prompt to dispatch after re-attaching to [`Self::switch_to`]
     /// (a retired `/btw <prompt>` fork steer). `None` for a plain switch.
@@ -974,18 +1180,18 @@ pub struct TuiOutcome {
     pub tabs: Option<Vec<crate::shell::surfaces::ClientTab>>,
     pub tab_history: Option<Vec<crate::shell::surfaces::TabKind>>,
     /// The attachment ended because the link died, not because the operator
-    /// asked to leave (ADR-0136). The runner re-dials and re-attaches, so a
-    /// transient socket failure does not end the session.
+    /// asked to leave (ADR-0136).
     pub relink_requested: bool,
 }
 
 pub async fn start_tui(
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
-    run_tui(tx, rx, link_lost, config).await
+    run_tui(tx, rx, monitor_rx, link_lost, config).await
 }
 
 /// Apply the visible transcript effect of a stream-start signal: settle any

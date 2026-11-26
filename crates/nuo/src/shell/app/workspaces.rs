@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
-use protocol::{AttachAction, LoopStatus};
+use protocol::{LoopStatus, ThreadTarget};
 use view::model::document::TranscriptMessage;
 use view::model::selection::{SelectionDrag, SelectionState};
 
@@ -31,6 +31,18 @@ impl ThreadKey {
             generation,
         }
     }
+}
+
+/// Unseen terminal outcome of a round that finished while this thread was not
+/// the actively viewed tab.
+///
+/// Projected onto the Tier 1 TabBar as semantic text color (`theme.ok()` for
+/// `Succeeded`, `theme.err()` for `Failed`) and cleared automatically the
+/// moment the user views the thread or starts a new round on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnseenOutcome {
+    Succeeded,
+    Failed,
 }
 
 /// Everything that belongs to one resident thread and survives tab switches
@@ -78,9 +90,16 @@ pub struct ThreadInstance {
     pub round_count: u64,
     pub current_turn: u64,
     pub round_started_at: Option<std::time::Instant>,
+    pub last_turn_performance: Option<protocol::TurnPerformanceSnapshot>,
+    pub session_cost_nano_usd: u64,
+    pub background_tasks: Vec<view::chrome::tasks_bar::BackgroundTaskItem>,
     pub session_tree: protocol::ThreadTree,
     pub session_context: Option<protocol::ThreadContextSnapshot>,
     pub token_report: Option<protocol::TokenSourceReport>,
+    /// Per-round completion summaries received live during this client session,
+    /// consumed by `/trace`'s L1 Round Inspector for exact wall/paused timing
+    /// (ADR-0263 `[INV-TRACE-03]`).
+    pub round_summaries: HashMap<u64, protocol::RoundSummary>,
     pub context_plan: Option<protocol::ContextPlanView>,
     pub context_plan_loaded: bool,
 }
@@ -122,9 +141,13 @@ impl ThreadInstance {
             round_count: 0,
             current_turn: 0,
             round_started_at: None,
+            last_turn_performance: None,
+            session_cost_nano_usd: 0,
+            background_tasks: Vec::new(),
             session_tree: protocol::ThreadTree::default(),
             session_context: None,
             token_report: None,
+            round_summaries: HashMap::new(),
             context_plan: None,
             context_plan_loaded: false,
         }
@@ -136,6 +159,134 @@ impl ThreadInstance {
     /// client recycle semantics with durable `ThreadData::is_user_facing_empty`.
     pub fn is_dialogue_empty(&self) -> bool {
         self.round_count == 0 && !self.messages.iter().any(|m| !m.is_command_result())
+    }
+
+    /// Write this thread's activity phase, retiring its transport-setback
+    /// clause under [`view::phase::ends_transport_setback`].
+    pub fn set_phase(&mut self, phase: Option<view::phase::Phase>) {
+        if view::phase::ends_transport_setback(phase.as_ref()) {
+            self.provider_retry = None;
+        }
+        self.phase = phase;
+    }
+
+    /// Whether this thread currently has a live round or optimistic dispatch in flight.
+    pub fn is_responding(&self) -> bool {
+        !self.loop_status.is_idle() || self.phase.is_some() || self.round_started_at.is_some()
+    }
+
+    /// Project this thread's view-scoped chrome directly from its single-owner fields.
+    pub fn chrome_snapshot(&self) -> crate::shell::app::SessionChrome {
+        crate::shell::app::SessionChrome {
+            phase: self.phase.clone(),
+            responding: self.is_responding(),
+            round_count: self.round_count,
+            current_turn: self.current_turn,
+            round_started_at: self.round_started_at,
+            can_retry: self.loop_status.is_idle() && self.harness_retry_pending,
+            last_turn_performance: self.last_turn_performance,
+            session_cost_nano_usd: self.session_cost_nano_usd,
+            transport_setback: self.provider_retry.clone(),
+        }
+    }
+
+    /// Reset per-thread transient chrome & telemetry when `/new` or `/resume`
+    /// replaces a thread in place under a new id so the fresh thread never
+    /// inherits the superseded thread's activity bar, cost, tasks, or context plan.
+    pub fn reset_ephemeral_chrome(&mut self) {
+        self.loop_status = LoopStatus::Idle;
+        self.harness_retry_pending = false;
+        self.set_phase(None);
+        self.current_turn = 0;
+        self.round_started_at = None;
+        self.last_turn_performance = None;
+        self.session_cost_nano_usd = 0;
+        self.background_tasks.clear();
+        self.session_tree = protocol::ThreadTree::default();
+        self.token_report = None;
+        self.round_summaries.clear();
+        self.context_plan = None;
+        self.context_plan_loaded = false;
+    }
+
+    /// Apply a view-scoped chrome edit directly to this thread's authoritative
+    /// fields (ADR-0253 `[INV-INSTANCE-01]` / `[INV-INSTANCE-02]`).
+    pub(crate) fn apply_chrome_edit(
+        &mut self,
+        edit: crate::shell::event_loop::mutations::ChromeEdit,
+    ) {
+        use crate::shell::event_loop::mutations::ChromeEdit;
+        use view::phase::Phase;
+
+        match edit {
+            ChromeEdit::RoundLifecycle {
+                round_count,
+                running,
+                can_retry,
+            } => {
+                self.round_count = round_count;
+                self.harness_retry_pending = can_retry;
+                if running {
+                    self.loop_status = LoopStatus::Running;
+                    self.current_turn = 0;
+                    if self.round_started_at.is_none() {
+                        self.round_started_at = Some(std::time::Instant::now());
+                    }
+                    if self.phase.is_none() {
+                        self.set_phase(Some(Phase::Admitting));
+                    }
+                } else {
+                    self.loop_status = LoopStatus::Idle;
+                    self.set_phase(None);
+                    self.current_turn = 0;
+                    self.round_started_at = None;
+                }
+            }
+            ChromeEdit::ActivityFolded(phase) => {
+                self.set_phase(Some(phase));
+            }
+            ChromeEdit::PhaseOnly(phase) => {
+                self.set_phase(phase);
+            }
+            ChromeEdit::StreamStarted => {
+                if self.round_started_at.is_none() {
+                    self.round_started_at = Some(std::time::Instant::now());
+                }
+                if !matches!(self.phase, Some(Phase::Reasoning | Phase::Answering)) {
+                    self.set_phase(Some(Phase::Answering));
+                }
+            }
+            ChromeEdit::TurnStarted { round, turn } => {
+                self.round_count = round;
+                self.current_turn = turn;
+                self.set_phase(Some(Phase::AwaitingModel));
+            }
+            ChromeEdit::TransportSetback(retry) => {
+                self.provider_retry = Some(retry);
+                self.phase = Some(Phase::AwaitingModel);
+            }
+            ChromeEdit::RoundCompleted(summary) => {
+                self.loop_status = LoopStatus::Idle;
+                self.set_phase(None);
+                self.current_turn = 0;
+                self.round_started_at = None;
+                if summary.round > 0 {
+                    self.round_summaries.insert(summary.round, summary);
+                }
+            }
+            ChromeEdit::RoundFailed | ChromeEdit::RoundEnded => {
+                self.loop_status = LoopStatus::Idle;
+                self.set_phase(None);
+                self.current_turn = 0;
+                self.round_started_at = None;
+            }
+            ChromeEdit::TurnPerformance(performance) => {
+                if let Some(cost) = performance.cost_nano_usd {
+                    self.session_cost_nano_usd = self.session_cost_nano_usd.saturating_add(cost);
+                }
+                self.last_turn_performance = Some(*performance);
+            }
+        }
     }
 }
 
@@ -248,25 +399,44 @@ impl Threads {
         if target_id == self.foreground.key.id {
             return;
         }
-        let next = self
-            .background
-            .remove(target_id)
-            .unwrap_or_else(|| ThreadInstance::new(target_id, 0, protocol::ThreadPhase::Binding));
+        let next = self.background.remove(target_id).unwrap_or_else(|| {
+            ThreadInstance::new(
+                target_id,
+                0,
+                protocol::ThreadPhase::Preparing {
+                    stage: protocol::PrepareStage::Thread,
+                },
+            )
+        });
         let prev = std::mem::replace(&mut self.foreground, next);
         if !prev.key.id.is_empty() {
             self.background.insert(prev.key.id.clone(), prev);
         }
     }
 
-    /// Remove a background thread instance (called when closing a tab).
-    pub fn remove_background(&mut self, id: &str) -> Option<ThreadInstance> {
-        self.background.remove(id)
+    /// Remove a resident thread instance (foreground or background) when closing a tab.
+    ///
+    /// If `id` is currently the foreground instance, clears its identity so the
+    /// subsequent `activate(next_id)` drops it instead of parking the closed tab
+    /// into `background`.
+    pub fn remove(&mut self, id: &str) -> Option<ThreadInstance> {
+        if id == self.foreground.key.id {
+            let removed = std::mem::replace(
+                &mut self.foreground,
+                ThreadInstance::new("", 0, protocol::ThreadPhase::Ready),
+            );
+            Some(removed)
+        } else {
+            self.background.remove(id)
+        }
     }
 
     /// Re-key an instance when `/new`, `/resume`, or `/fork` replaces a thread's id
-    /// in place, advancing its generation.
+    /// in place, advancing its generation and resetting transient chrome when the
+    /// thread identity actually changes.
     pub fn rekey(&mut self, previous_id: &str, next_id: impl Into<String>, generation: u64) {
         let next_id = next_id.into();
+        let id_changed = previous_id != next_id;
         if previous_id == self.foreground.key.id {
             self.foreground.key.id = next_id;
             if generation > self.foreground.key.generation {
@@ -274,9 +444,12 @@ impl Threads {
             } else {
                 self.foreground.key.generation = self.foreground.key.generation.saturating_add(1);
             }
+            if id_changed {
+                self.foreground.reset_ephemeral_chrome();
+            }
             return;
         }
-        if previous_id == next_id {
+        if !id_changed {
             if let Some(inst) = self.background.get_mut(previous_id) {
                 inst.key.generation = inst.key.generation.max(generation);
             }
@@ -289,6 +462,7 @@ impl Threads {
             } else {
                 inst.key.generation.saturating_add(1)
             };
+            inst.reset_ephemeral_chrome();
             self.background.insert(next_id, inst);
         }
     }
@@ -299,6 +473,38 @@ impl Threads {
         if self.foreground.key.id != id && !id.is_empty() && !self.background.contains_key(id) {
             self.foreground.key.id = id.to_string();
         }
+    }
+
+    /// Whether any resident thread (foreground or background) currently
+    /// carries a live transport setback.
+    pub fn has_live_transport_setback(&self) -> bool {
+        self.foreground.provider_retry.is_some()
+            || self
+                .background
+                .values()
+                .any(|inst| inst.provider_retry.is_some())
+    }
+
+    /// Whether any resident thread (foreground or background) currently has a
+    /// live round or optimistic dispatch in flight.
+    pub fn any_responding(&self) -> bool {
+        self.foreground.is_responding() || self.background.values().any(|inst| inst.is_responding())
+    }
+
+    /// Clear `Phase::AwaitingUser` on any resident thread parked on a permission
+    /// gate without disturbing threads in other active phases.
+    pub fn clear_awaiting_user_phases(&mut self) -> bool {
+        let mut fg_changed = false;
+        if self.foreground.phase == Some(view::phase::Phase::AwaitingUser) {
+            self.foreground.set_phase(None);
+            fg_changed = true;
+        }
+        for inst in self.background.values_mut() {
+            if inst.phase == Some(view::phase::Phase::AwaitingUser) {
+                inst.set_phase(None);
+            }
+        }
+        fg_changed
     }
 }
 
@@ -317,9 +523,16 @@ impl DerefMut for Threads {
 }
 
 impl App {
+    /// Mark a thread's unseen terminal outcome (`Succeeded` / `Failed`) as
+    /// viewed so its TabBar title returns to the quiet idle tone.
+    pub(crate) fn acknowledge_thread_outcome(&mut self, thread_id: &str) {
+        self.session.unseen_outcomes.remove(thread_id);
+    }
+
     /// Switch the foreground thread to `target_id` in O(1) without tearing down
     /// `App`, reconnecting, or copying fields (ADR-0251 / ADR-0253).
     pub(crate) fn activate_thread_workspace(&mut self, target_id: &str) {
+        self.acknowledge_thread_outcome(target_id);
         // Ensure foreground key matches `current_session_id` before swapping.
         if !self.session.current_session_id.is_empty()
             && self.threads.foreground_id() != self.session.current_session_id
@@ -335,7 +548,12 @@ impl App {
                     .subscribed_threads
                     .insert(target_id.to_string())
             {
-                self.subscribe_thread(AttachAction::Attach(Some(target_id.to_string())), None);
+                self.subscribe_thread(
+                    ThreadTarget::Attach {
+                        id: Some(target_id.to_string()),
+                    },
+                    None,
+                );
             }
             return;
         }
@@ -355,14 +573,27 @@ impl App {
                 .subscribed_threads
                 .insert(target_id.to_string())
         {
-            self.subscribe_thread(AttachAction::Attach(Some(target_id.to_string())), None);
+            self.subscribe_thread(
+                ThreadTarget::Attach {
+                    id: Some(target_id.to_string()),
+                },
+                None,
+            );
         }
     }
 
     /// Release a closed thread tab's resident instance and unsubscribe it on
     /// the multiplexed connection (ADR-0251 / ADR-0253).
     pub(crate) fn close_thread_workspace(&mut self, thread_id: &str) {
-        self.threads.remove_background(thread_id);
+        self.threads.remove(thread_id);
+        self.session.running_sessions.remove(thread_id);
+        self.session.unseen_outcomes.remove(thread_id);
+        if self.session.current_session_id == thread_id {
+            self.session.current_session_id.clear();
+        }
+        if self.session.live_session_id == thread_id {
+            self.session.live_session_id.clear();
+        }
         if self.session.subscribed_threads.remove(thread_id) {
             self.unsubscribe_thread(thread_id);
         }
@@ -372,210 +603,15 @@ impl App {
     /// replaces a thread's id in place.
     pub(crate) fn rekey_thread_workspace(&mut self, previous_id: &str, next_id: &str) {
         self.threads.rekey(previous_id, next_id, 0);
-        if previous_id != next_id && self.session.subscribed_threads.remove(previous_id) {
-            self.session.subscribed_threads.insert(next_id.to_string());
+        if previous_id != next_id {
+            self.session.running_sessions.remove(previous_id);
+            self.session.unseen_outcomes.remove(previous_id);
+            if self.session.subscribed_threads.remove(previous_id) {
+                self.session.subscribed_threads.insert(next_id.to_string());
+            }
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::shell::client::ClientOutbound;
-    use crate::shell::event_loop::apply::apply;
-    use crate::shell::event_loop::{AppMutation, TranscriptEdit, UiRuntime};
-    use crate::shell::tests::new_app_for_relay_tests;
-    use tool::Role;
-    use view::model::document::TranscriptMessage;
-
-    /// ADR-0251 / ADR-0253: switching between two resident thread tabs moves whole
-    /// `ThreadInstance`s in O(1) — preserving messages, scroll, follow_bottom,
-    /// disclosure state, composer drafts, and model attribution with zero network
-    /// traffic and zero field-by-field reconciliation.
-    #[test]
-    fn switching_between_resident_tabs_preserves_state_without_rebuild() {
-        let mut app = new_app_for_relay_tests();
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        app.link.tx = tx;
-
-        app.session.current_session_id = "thread-a".to_string();
-        app.session.live_session_id = "thread-a".to_string();
-        app.threads.sync_foreground_id("thread-a");
-        app.session
-            .subscribed_threads
-            .insert("thread-a".to_string());
-        app.open_tab(crate::shell::surfaces::ClientTab::thread(
-            "thread-a",
-            Some("A"),
-        ));
-        app.open_tab(crate::shell::surfaces::ClientTab::thread(
-            "thread-b",
-            Some("B"),
-        ));
-        app.open_tab(crate::shell::surfaces::ClientTab::thread(
-            "thread-a",
-            Some("A"),
-        ));
-        app.threads.current_model = "deepseek-v4.1-flash".to_string();
-        app.threads
-            .messages
-            .push(TranscriptMessage::new(Role::User, "Question in thread A"));
-        app.threads.scroll = 42;
-        app.threads.follow_bottom = false;
-        app.composer.input = "Draft for A".to_string();
-
-        // First switch to cold thread-b: mounts B, sends one Subscribe.
-        app.surfaces.surfaces.select_tab(1);
-        app.activate_thread_workspace("thread-b");
-        assert_eq!(app.session.current_session_id, "thread-b");
-        assert!(app.threads.messages.is_empty());
-        assert_eq!(app.composer.input, "");
-        assert!(matches!(
-            rx.try_recv(),
-            Ok(ClientOutbound::Subscribe {
-                action: protocol::AttachAction::Attach(Some(ref tid)),
-                ..
-            }) if tid == "thread-b"
-        ));
-
-        // Populate thread-b.
-        app.threads.current_model = "gemini-4-neon".to_string();
-        app.threads
-            .messages
-            .push(TranscriptMessage::new(Role::User, "Question in thread B"));
-        app.threads.scroll = 17;
-        app.composer.input = "Draft for B".to_string();
-
-        // Switch back to thread-a: ZERO Subscribe frames, exact state restored!
-        app.surfaces.surfaces.select_tab(0);
-        app.activate_thread_workspace("thread-a");
-        assert!(
-            rx.try_recv().is_err(),
-            "switching to an already-subscribed resident tab must send zero wire frames"
-        );
-        assert_eq!(app.session.current_session_id, "thread-a");
-        assert_eq!(app.threads.current_model, "deepseek-v4.1-flash");
-        assert_eq!(app.threads.messages.len(), 1);
-        assert_eq!(app.threads.messages[0].raw, "Question in thread A");
-        assert_eq!(app.threads.scroll, 42);
-        assert!(!app.threads.follow_bottom);
-        assert_eq!(app.composer.input, "Draft for A");
-
-        // Switch back to thread-b: ZERO Subscribe frames, exact state restored!
-        app.surfaces.surfaces.select_tab(1);
-        app.activate_thread_workspace("thread-b");
-        assert!(rx.try_recv().is_err());
-        assert_eq!(app.threads.current_model, "gemini-4-neon");
-        assert_eq!(app.threads.messages.len(), 1);
-        assert_eq!(app.threads.messages[0].raw, "Question in thread B");
-        assert_eq!(app.threads.scroll, 17);
-        assert_eq!(app.composer.input, "Draft for B");
-    }
-
-    /// ADR-0251 / ADR-0253: background thread streaming mutations land directly in
-    /// the background `ThreadInstance` through the same unified applier path.
-    #[test]
-    fn background_thread_mutations_update_resident_workspace_live() {
-        let mut app = new_app_for_relay_tests();
-        let runtime = UiRuntime::minimal_for_test();
-
-        app.session.current_session_id = "thread-a".to_string();
-        app.session.live_session_id = "thread-a".to_string();
-        app.threads.sync_foreground_id("thread-a");
-        app.session
-            .subscribed_threads
-            .insert("thread-a".to_string());
-        app.session
-            .subscribed_threads
-            .insert("thread-b".to_string());
-        app.threads
-            .messages
-            .push(TranscriptMessage::new(Role::User, "A prompt"));
-
-        // Switch to thread-b while thread-a stays resident in background.
-        app.activate_thread_workspace("thread-b");
-        assert_eq!(app.session.current_session_id, "thread-b");
-        assert!(app.threads.messages.is_empty());
-
-        // A live assistant message arrives for background thread-a.
-        let bg_changed = apply(
-            &mut app,
-            &runtime,
-            AppMutation::Transcript {
-                thread_id: Some("thread-a".to_string()),
-                edit: TranscriptEdit::Append {
-                    class: protocol::EventClass::Dialogue,
-                    message: TranscriptMessage::new(Role::Assistant, "Live reply for A"),
-                },
-            },
-        );
-        assert!(
-            !bg_changed,
-            "background transcript mutation must not mark foreground dirty"
-        );
-        assert!(
-            app.threads.messages.is_empty(),
-            "foreground thread-b must remain untouched"
-        );
-
-        // Switching back to thread-a immediately reveals the live reply!
-        app.activate_thread_workspace("thread-a");
-        assert_eq!(app.threads.messages.len(), 2);
-        assert_eq!(app.threads.messages[1].raw, "Live reply for A");
-    }
-
-    /// Closing a thread tab drops its resident instance and emits
-    /// `ClientOutbound::Unsubscribe`.
-    #[test]
-    fn closing_thread_workspace_unsubscribes_and_frees_memory() {
-        let mut app = new_app_for_relay_tests();
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        app.link.tx = tx;
-
-        app.session.current_session_id = "thread-a".to_string();
-        app.session.live_session_id = "thread-a".to_string();
-        app.threads.sync_foreground_id("thread-a");
-        app.session
-            .subscribed_threads
-            .insert("thread-a".to_string());
-        app.session
-            .subscribed_threads
-            .insert("thread-b".to_string());
-        app.activate_thread_workspace("thread-b");
-        app.activate_thread_workspace("thread-a");
-        assert!(app.threads.contains("thread-b"));
-
-        app.close_thread_workspace("thread-b");
-        assert!(!app.threads.contains("thread-b"));
-        assert!(!app.session.subscribed_threads.contains("thread-b"));
-        assert!(matches!(
-            rx.try_recv(),
-            Ok(ClientOutbound::Unsubscribe { thread_id }) if thread_id == "thread-b"
-        ));
-    }
-
-    /// ADR-0253 §5: emptiness predicate agrees with durable authority — command rows
-    /// do not make a thread non-empty, whereas dialogue or a started round does.
-    #[test]
-    fn emptiness_predicate_excludes_command_rows_and_includes_dialogue_and_rounds() {
-        let mut inst = super::ThreadInstance::new("t1", 1, protocol::ThreadPhase::Ready);
-        assert!(inst.is_dialogue_empty(), "fresh thread is empty");
-
-        // Command rows are not dialogue (ADR-0252 §2, ADR-0253 §5).
-        inst.messages
-            .push(TranscriptMessage::pending_command("status", ""));
-        assert!(
-            inst.is_dialogue_empty(),
-            "command-only thread must still be empty"
-        );
-
-        // Started round makes it non-empty even with zero dialogue rows.
-        inst.round_count = 1;
-        assert!(!inst.is_dialogue_empty(), "started round is non-empty");
-        inst.round_count = 0;
-
-        // Dialogue message makes it non-empty.
-        inst.messages
-            .push(TranscriptMessage::new(Role::User, "hello"));
-        assert!(!inst.is_dialogue_empty(), "dialogue row is non-empty");
-    }
-}
+mod tests;

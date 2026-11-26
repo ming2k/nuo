@@ -38,10 +38,7 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
         fold,
     );
 
-    let tabs = [crate::shell::surfaces::ClientTab::thread(
-        "s1",
-        Some("build"),
-    )];
+    let tab_items = [crate::shell::render::TabBarItem::new("build")];
     let mut terminal = graticule::TestTerminal::new(80, 20);
     let mut scroll = 0usize;
     terminal.draw(|f| {
@@ -53,7 +50,7 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
                 scroll: &mut scroll,
                 thread_id: Some("s1"),
                 tab_bar: Some(crate::shell::render::TabBarProps {
-                    tabs: Some(&tabs),
+                    items: &tab_items,
                     active_tab: 0,
                     unread_faults: 0,
                     ..crate::shell::render::TabBarProps::default()
@@ -99,10 +96,7 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
         Some(&structured),
         fold,
     );
-    let tabs = [crate::shell::surfaces::ClientTab::thread(
-        "s1",
-        Some("build"),
-    )];
+    let tab_items = [crate::shell::render::TabBarItem::new("build")];
 
     let render = |log: &CommandLog| {
         let mut terminal = graticule::TestTerminal::new(80, 20);
@@ -116,7 +110,7 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
                     scroll: &mut scroll,
                     thread_id: Some("s1"),
                     tab_bar: Some(crate::shell::render::TabBarProps {
-                        tabs: Some(&tabs),
+                        items: &tab_items,
                         active_tab: 0,
                         unread_faults: 0,
                         ..crate::shell::render::TabBarProps::default()

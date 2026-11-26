@@ -5,165 +5,46 @@
 //! frontend's presentation state and the server's behavioural policy stay
 //! cleanly decoupled while both live under one application directory
 //! (ADR-0011, ADR-0031).
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use ui_primitives::{ColorSchemeConfig, ThemeFile};
 
-use view::disclosure_config::{DisclosureSource, reasoning_expanded, tool_expanded};
+use view::tui_config::TuiConfig;
+#[cfg(test)]
+use view::tui_config::{THINKING_KEY, reasoning_default_expanded, tool_default_expanded};
 
-pub use view::disclosure_config::THINKING_KEY;
-
-fn default_true() -> bool {
-    true
+/// The effective global-chord overrides declared in `[keybindings]`.
+/// Empty when the user has not customized any global chord.
+pub fn global_key_overrides(config: &TuiConfig) -> crate::shell::keymap::GlobalOverrides {
+    crate::shell::keymap::GlobalOverrides::from_config(&config.keybindings.commands)
 }
 
-/// Input-history behaviour: prompt dedup and slash-command persistence.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct InputHistoryConfig {
-    pub dedup: bool,
-    pub record_commands: bool,
+/// The effective surface-verb overrides declared in `[keybindings.session]`.
+/// Empty when the user has not customized any full-screen-view chord.
+pub fn surface_key_overrides(config: &TuiConfig) -> crate::shell::keymap::SurfaceOverrides {
+    crate::shell::keymap::SurfaceOverrides::from_config(&config.keybindings.session)
 }
 
-impl Default for InputHistoryConfig {
-    fn default() -> Self {
-        Self {
-            dedup: true,
-            record_commands: false,
-        }
+/// Load configuration from `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
+pub fn load_tui_config() -> TuiConfig {
+    read_tui_config_from(&host::paths::get().terminal_config_file()).unwrap_or_default()
+}
+
+fn read_tui_config_from(path: &Path) -> Option<TuiConfig> {
+    let content = fs::read_to_string(path).ok()?;
+    toml::from_str::<TuiConfig>(&content).ok()
+}
+
+/// Save the configuration to `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
+pub fn save_tui_config(config: &TuiConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let path = host::paths::get().terminal_config_file();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
     }
-}
-
-/// Complete configuration for the TUI frontend application.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct TuiConfig {
-    pub color_scheme: String,
-    #[serde(default = "default_true")]
-    pub click_outside_dismiss: bool,
-    pub expand_auto_scroll: bool,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub default_expanded: HashMap<String, bool>,
-    #[serde(default)]
-    pub custom_color_scheme: ColorSchemeConfig,
-    #[serde(default)]
-    pub input_history: InputHistoryConfig,
-    /// User remaps of the chords: bare `command-id → chord spec`
-    /// entries for the global layer (e.g. `interrupt = "ctrl+x"`), plus a
-    /// `[keybindings.session]` sub-table for the full-screen-view verbs. See
-    /// [`crate::shell::keymap::parse_key`] for the chord syntax.
-    #[serde(default, skip_serializing_if = "KeybindingsConfig::is_empty")]
-    pub keybindings: KeybindingsConfig,
-}
-
-/// The `[keybindings]` table. Unknown top-level keys are the
-/// global command remaps; the nested `session` table holds the surface verbs
-/// of the full-screen views.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct KeybindingsConfig {
-    /// Global chords: `command-id → chord spec`.
-    #[serde(flatten)]
-    pub commands: HashMap<String, String>,
-    /// Surface verbs: `verb → chord spec` (step 9). Keys are the unqualified
-    /// [`crate::shell::keymap::SurfaceVerb`] names (`open_history`, `toggle_send_mode`, …).
-    pub session: HashMap<String, String>,
-}
-
-impl KeybindingsConfig {
-    pub fn is_empty(&self) -> bool {
-        self.commands.is_empty() && self.session.is_empty()
-    }
-}
-
-impl Default for TuiConfig {
-    fn default() -> Self {
-        Self {
-            color_scheme: String::new(),
-            click_outside_dismiss: true,
-            expand_auto_scroll: false,
-            default_expanded: HashMap::new(),
-            custom_color_scheme: ColorSchemeConfig::default(),
-            input_history: InputHistoryConfig::default(),
-            keybindings: KeybindingsConfig::default(),
-        }
-    }
-}
-
-impl TuiConfig {
-    /// The effective global-chord overrides declared in `[keybindings]`
-    /// Empty when the user has not customized any global chord.
-    pub fn global_key_overrides(&self) -> crate::shell::keymap::GlobalOverrides {
-        crate::shell::keymap::GlobalOverrides::from_config(&self.keybindings.commands)
-    }
-    /// The effective surface-verb overrides declared in `[keybindings.session]`
-    /// (step 9). Empty when the user has not customized any
-    /// full-screen-view chord.
-    pub fn surface_key_overrides(&self) -> crate::shell::keymap::SurfaceOverrides {
-        crate::shell::keymap::SurfaceOverrides::from_config(&self.keybindings.session)
-    }
-    /// Load configuration from `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
-    pub fn load() -> Self {
-        Self::read_from(&host::paths::get().terminal_config_file()).unwrap_or_default()
-    }
-
-    fn read_from(path: &Path) -> Option<Self> {
-        let content = fs::read_to_string(path).ok()?;
-        toml::from_str::<TuiConfig>(&content).ok()
-    }
-
-    /// Save the configuration to `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = host::paths::get().terminal_config_file();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let serialized = toml::to_string_pretty(self)?;
-        host::fsutil::atomic_write_bytes(&path, serialized.as_bytes())?;
-        Ok(())
-    }
-}
-
-impl DisclosureSource for TuiConfig {
-    fn disclosure_default(&self, name: &str) -> Option<bool> {
-        self.default_expanded.get(name).copied()
-    }
-}
-
-/// Effective default-expand state for a tool step. An explicit config entry
-/// wins; otherwise the declared component default applies; a tool with no
-/// declared component (MCP / unknown) stays collapsed.
-pub fn tool_default_expanded(config: &TuiConfig, name: &str) -> bool {
-    tool_expanded(config, name)
-}
-
-/// Effective default-expand state for a reasoning trace. Defaults to
-/// collapsed (`false`) when not configured.
-pub fn reasoning_default_expanded(config: &TuiConfig) -> bool {
-    reasoning_expanded(config)
-}
-
-/// Record a user's disclosure choice for one interactive tool component.
-///
-/// If `expanded` equals the component's declared default, the override is pruned
-/// from `config.default_expanded` so the configuration stays minimal and clean.
-/// When it differs, every name the component claims is written so aliases
-/// honour the choice (ADR-0020).
-pub fn set_component_default_expanded(
-    config: &mut TuiConfig,
-    component: &view::tools::ToolComponent,
-    expanded: bool,
-) {
-    for name in component.names() {
-        if expanded == component.default_expanded() {
-            config.default_expanded.remove(name);
-        } else {
-            config.default_expanded.insert(name.to_string(), expanded);
-        }
-    }
+    let serialized = toml::to_string_pretty(config)?;
+    host::fsutil::atomic_write_bytes(&path, serialized.as_bytes())?;
+    Ok(())
 }
 
 /// Discover all candidate theme directories: project-local `.nuo/themes` (and
@@ -316,6 +197,7 @@ pub fn resolve_theme_with_profile(
 mod tests {
     use super::*;
     use crate::shell::keymap::{KeyCode, KeyModifiers};
+    use std::collections::HashMap;
 
     fn config(defaults: &[(&str, bool)]) -> TuiConfig {
         let mut map = HashMap::new();
@@ -390,7 +272,7 @@ quit = "ctrl+shift+q"
         let cfg: TuiConfig = toml::from_str(toml).expect("parses");
         assert_eq!(cfg.keybindings.commands.len(), 2);
         assert!(cfg.keybindings.session.is_empty());
-        let o = cfg.global_key_overrides();
+        let o = global_key_overrides(&cfg);
         assert_eq!(
             o.effective_binding(crate::shell::keymap::CommandId::CommandPalette),
             Some(crate::shell::keymap::Key::ctrl('k'))
@@ -422,7 +304,7 @@ bogus = "ctrl+z"
 "##;
         let cfg: TuiConfig = toml::from_str(toml).expect("parses");
         // Global parsing ignores the nested session table and unknown verbs.
-        let g = cfg.global_key_overrides();
+        let g = global_key_overrides(&cfg);
         assert_eq!(
             g.effective_binding(crate::shell::keymap::CommandId::CommandPalette),
             Some(crate::shell::keymap::Key::ctrl('k'))
@@ -432,7 +314,7 @@ bogus = "ctrl+z"
             Some(crate::shell::keymap::Key::CTRL_C)
         );
         // Surface parsing picks only the session-table verb names.
-        let s = cfg.surface_key_overrides();
+        let s = surface_key_overrides(&cfg);
         assert_eq!(
             s.effective_binding(crate::shell::keymap::SurfaceVerb::OpenHistory),
             crate::shell::keymap::Key::CTRL_SHIFT_R
@@ -589,11 +471,11 @@ error = "#dc322f"
         assert!(!comp.default_expanded());
 
         // Overriding to true inserts into map
-        set_component_default_expanded(&mut cfg, comp, true);
+        view::tui_config::set_component_default_expanded(&mut cfg, comp, true);
         assert_eq!(cfg.default_expanded.get("execute_command"), Some(&true));
 
         // Reverting to false (declared default) removes from map
-        set_component_default_expanded(&mut cfg, comp, false);
+        view::tui_config::set_component_default_expanded(&mut cfg, comp, false);
         assert!(!cfg.default_expanded.contains_key("execute_command"));
         assert!(cfg.default_expanded.is_empty());
 

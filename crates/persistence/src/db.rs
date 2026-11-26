@@ -16,6 +16,7 @@ use tracing::{info, warn};
 mod actor;
 pub mod backup;
 mod connection;
+pub(crate) mod content_projection;
 pub mod garbage_collection;
 mod handle;
 pub mod input_history;
@@ -25,7 +26,6 @@ pub mod permissions;
 mod reader;
 pub(crate) mod shards;
 pub mod thread_session;
-pub mod thread_store;
 pub mod usage_projection;
 
 pub use handle::{StorageMaintenanceReport, get_persistence_handle};
@@ -68,8 +68,7 @@ fn map_session_row(row: &Row) -> Result<ThreadRecord> {
         msg_count: row.get(8)?,
         last_user_prompt: row.get(9)?,
         digest: row.get(10)?,
-        status: row.get(11)?,
-        round_counter: row.get::<_, i64>(12)?.max(0) as u64,
+        round_counter: row.get::<_, i64>(11)?.max(0) as u64,
     })
 }
 
@@ -235,6 +234,9 @@ pub(crate) struct PreparedSave {
     /// Complete fact projection. `None` for [`SaveMode::MetadataOnly`], which
     /// must never rewrite transcript lineage.
     pub(crate) thread: Option<protocol::Thread>,
+    /// Additional CAS blob references (offloaded message text / base64 images)
+    /// to register in `thread_blob_refs` on the owning content shard.
+    pub(crate) extra_blob_refs: Vec<crate::db::content_projection::ExtraBlobRef>,
     /// SHA-256 of the commit payload, present only when the caller supplied an
     /// idempotency identity (D3).
     pub(crate) payload_hash: Option<String>,
@@ -253,6 +255,9 @@ pub(crate) struct PreparedSave {
     pub(crate) active_branch_id: String,
     pub(crate) active_leaf: Option<String>,
 }
+
+type ShardRepairFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+type FullShardRepairFn = Arc<dyn Fn() -> usize + Send + Sync>;
 
 /// The **only** way to read the unified store.
 ///
@@ -276,6 +281,13 @@ pub struct DbReader {
     conn: Option<Connection>,
     db_path: PathBuf,
     shards: Arc<shards::ContentShardPool>,
+    blob_store: Option<BlobStore>,
+    /// Optional single-session shard repair hook invoked when a content shard
+    /// is missing or outdated at runtime (ADR-0255).
+    shard_repair: Option<ShardRepairFn>,
+    /// Optional full-catalog shard repair hook invoked by global search when
+    /// the entire `shards/` directory was removed at runtime (ADR-0255).
+    full_shard_repair: Option<FullShardRepairFn>,
     pool: Option<Arc<ReaderPool>>,
     generation: u64,
     _permit: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -763,10 +775,6 @@ pub(crate) enum PersistenceCommand {
         text: String,
         created_at_ms: u64,
         ack: Option<oneshot::Sender<Result<usize, PersistenceError>>>,
-    },
-    /// Reclaim transcript entries no session membership references
-    CollectEntryGarbage {
-        ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
     /// Rebuild the writer generation from scratch: stop the live
     /// writer — a clean engine close checkpoints any live WAL back into the

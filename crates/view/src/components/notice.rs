@@ -33,7 +33,9 @@ use crate::model::layout::{BlockRegion, LayoutMap, NOTICE_BLOCK_IDX};
 use crate::model::selection::SelectionState;
 use crate::text_layout::{BlockWrapCache, block_selection_range, line_selection};
 use ui_primitives::components::row::{RowSegment, render_row_line};
-use ui_primitives::design::{TRANSCRIPT_BODY_LEADING_INDENT, TURN_HEADER_BODY_GAP_ROWS};
+use ui_primitives::design::{
+    NOTICE_LEAD_PREFIX, TRANSCRIPT_BODY_LEADING_INDENT, TURN_HEADER_BODY_GAP_ROWS,
+};
 
 use ui_primitives::theme::Theme;
 
@@ -101,9 +103,9 @@ pub fn draw_notice_view(
 
     // A notice is an **always-open** entry (ADR-0020 "fully disclosed
     // entries"): its severity, title, and detail *are* the message, so nothing
-    // gates them and it carries no disclosure marker — the severity tone rail
-    // is its whole marker vocabulary (ADR-0139), matching the marker-free rule
-    // for command entries.
+    // gates them and it carries no disclosure marker — the uniform `! ` entry
+    // lead plus severity tone is its whole marker vocabulary (ADR-0139),
+    // matching the marker-free rule for command entries (`⌘ command`).
     //
     // The `expanded` field remains part of the record contract (`y`-copy,
     // `pin_notice_expanded`, restore). A future collapsible notice — one whose
@@ -114,9 +116,10 @@ pub fn draw_notice_view(
         NoticeSeverity::Warning => theme.warn(),
         NoticeSeverity::Info => theme.info(),
     };
-    // On a monochrome/vt100 profile color carries severity for neither the rail
-    // nor the topic, so a textual marker joins the head (ADR-0139) — the exact
-    // terminal where the deleted `!`/`▲`/`ℹ` glyph was the only working signal.
+    // On a monochrome/vt100 profile color carries severity for neither the
+    // lead nor the topic, so a textual marker joins the head (ADR-0139) — the
+    // exact terminal where the deleted per-severity `▲`/`ℹ` glyphs were the
+    // only working signal.
     let marker = if theme.severity_is_color_distinguishable() {
         ""
     } else {
@@ -238,21 +241,24 @@ pub fn draw_notice_view(
 
 /// Build the one-row header of a notification entry: topic left, chrome right.
 ///
-/// Severity is conveyed by **color alone** (ADR-0139): a thin left rail
-/// (`▎`, in the block range with an ASCII `#` fallback) plus the topic label
+/// Follows the transcript's `<1-col glyph> <space> <label>` entry-header
+/// grammar (`› round N`, `› turn N`, `⌘ command`, `! trust`), so the topic
+/// starts at column 2 and aligns directly with the indented body.
+///
+/// Severity is conveyed by **color alone** (ADR-0139): the uniform pure-ASCII
+/// entry lead ([`NOTICE_LEAD_PREFIX`], `"! "`) followed by the topic label
 /// (`trust`, `provider`, …; generic `notification` when no topic is known),
-/// both in the severity indicator tone (BOLD). The legacy lead glyphs
-/// (`! `, `▲ `, `ℹ `) are gone — they were raw literals with no ASCII fallback
-/// for the triangle, and the tone rail + tinted topic carries the same signal
-/// in the card's own color language.
+/// painted in the severity indicator tone (BOLD). There are no per-severity
+/// glyphs (`▲`, `ℹ`), and the `!` lead distinguishes notice entries from
+/// conversation rounds/turns (`›`) and slash commands (`⌘`).
 ///
 /// A notice is an **always-open** entry (see [`draw_notice_view`]), so it
-/// carries no disclosure marker: the severity rail is the whole marker
-/// vocabulary, exactly as keeps command entries marker-free.
+/// carries no disclosure marker: the uniform `!` lead + severity tone is the
+/// whole marker vocabulary, matching command entries.
 ///
 /// `marker` is the color-independent severity token (ADR-0139); it is empty on
 /// a color-capable theme and `error`/`warn`/`info` on a monochrome profile,
-/// where it appends to the topic because the rail's color carries nothing.
+/// where it appends to the topic because color carries nothing.
 fn notice_header_line(
     topic: &str,
     marker: &str,
@@ -264,14 +270,13 @@ fn notice_header_line(
     let mut spans = Vec::with_capacity(4);
     let mut used = 0usize;
 
-    // Severity rail + topic: `▎ trust`, `▎ provider`, `▎ command` in
-    // severity_tone + BOLD. The rail is the color channel; the topic is the
-    // word. Both share the tone so the pair reads as one marker. On a
-    // color-blind profile the marker word rides after the topic.
+    // Uniform entry lead + space + topic: `! trust`, `! provider`, `! notification`
+    // in severity_tone + BOLD. On a color-blind profile the marker word rides
+    // after the topic.
     let tag = if marker.is_empty() {
-        format!("▎{topic}")
+        format!("{NOTICE_LEAD_PREFIX}{topic}")
     } else {
-        format!("▎{topic} {marker}")
+        format!("{NOTICE_LEAD_PREFIX}{topic} {marker}")
     };
     used += tag.width();
     spans.push(Span::styled(

@@ -23,6 +23,9 @@ impl TranslatorState {
                     .entry(thread_id.clone())
                     .or_insert(0);
                 *gen_entry = gen_entry.saturating_add(1).max(1);
+                if self.live_session.is_empty() {
+                    self.live_session = thread_id.clone();
+                }
                 let _ = self.thread_mut(&thread_id);
                 self.mutations
                     .send(M::ThreadSubscribed { thread_id, phase })
@@ -62,7 +65,11 @@ impl TranslatorState {
                         round: 0,
                     })
                     .await;
-                self.mutations.send(M::ClearContextTokens).await;
+                self.mutations
+                    .send(M::ClearContextTokens {
+                        thread_id: Some(previous_id.clone()),
+                    })
+                    .await;
                 // `/new` minted a fresh thread and switched to it: rebase
                 // **the tab that represented `previous_id`** — never "the
                 // active tab" (ADR-0123 `[INV-TAB-13]`). The two can differ
@@ -76,10 +83,6 @@ impl TranslatorState {
                     })
                     .await;
                 self.live_session = session_id.clone();
-                self.mutations.send(M::TokenReport(None)).await;
-                self.mutations
-                    .send(M::SessionTree(protocol::ThreadTree::default()))
-                    .await;
             }
             AgentResponse::ConversationReplaced {
                 previous_id,
@@ -123,7 +126,11 @@ impl TranslatorState {
                     .await;
                 // The model-window revision changed; do not reuse an API
                 // anchor from the previous thread/projection.
-                self.mutations.send(M::ClearContextTokens).await;
+                self.mutations
+                    .send(M::ClearContextTokens {
+                        thread_id: Some(previous_id.clone()),
+                    })
+                    .await;
                 // Track the new id so thread-scoped client state follows,
                 // and drop the previous thread's cached report. Addressed
                 // by `previous_id`, exactly as `ConversationCleared` is
@@ -135,10 +142,6 @@ impl TranslatorState {
                     })
                     .await;
                 self.live_session = session_id;
-                self.mutations.send(M::TokenReport(None)).await;
-                self.mutations
-                    .send(M::SessionTree(protocol::ThreadTree::default()))
-                    .await;
             }
             AgentResponse::ThreadSnapshot(snapshot) => {
                 let sid = snapshot.thread_id.clone();
@@ -199,6 +202,16 @@ impl TranslatorState {
                         .await;
                 }
                 if let Some(harness) = snapshot.harness_state {
+                    let running = !harness.loop_status.is_idle();
+                    self.chrome(
+                        &sid,
+                        event_loop::mutations::ChromeEdit::RoundLifecycle {
+                            round_count: harness.round_counter,
+                            running,
+                            can_retry: harness.retry_pending && !running,
+                        },
+                    )
+                    .await;
                     self.mutations
                         .send(M::Harness {
                             thread_id: Some(sid.clone()),
@@ -370,24 +383,12 @@ impl TranslatorState {
                             .await;
                     }
                 }
-                if running {
-                    // A new round resets the turn counter and
-                    // stamps the elapsed-timer origin.
-                    self.mutations.send(M::SetCurrentTurn(0)).await;
-                    self.mutations
-                        .send(M::SetRoundStartedAt(Some(std::time::Instant::now())))
-                        .await;
-                }
-                self.mutations.send(M::SetResponding(running)).await;
                 if !running {
                     // The dispatch cycle is complete: any
                     // command component still Pending will
                     // never receive its reply on this pass
                     // mark Cancelled.
                     self.transcript(&session_id, E::CancelPendingCommands).await;
-                    self.mutations.send(M::SetPhase(None)).await;
-                    self.mutations.send(M::SetCurrentTurn(0)).await;
-                    self.mutations.send(M::SetRoundStartedAt(None)).await;
                 }
                 if !running && self.thread_mut(&session_id).needs_round_rebase {
                     // A session switch replaced the transcript
@@ -430,11 +431,21 @@ impl TranslatorState {
             RoundEvent::TodosUpdated(_) => {}
             RoundEvent::UnattendedChanged(enabled) => {
                 self.thread_mut(&session_id).harness.unattended = enabled;
-                self.mutations.send(M::HarnessUnattended(enabled)).await;
+                self.mutations
+                    .send(M::HarnessUnattended {
+                        thread_id: Some(session_id),
+                        enabled,
+                    })
+                    .await;
             }
             RoundEvent::ConfinementChanged(confined) => {
                 self.thread_mut(&session_id).harness.confined = confined;
-                self.mutations.send(M::HarnessConfined(confined)).await;
+                self.mutations
+                    .send(M::HarnessConfined {
+                        thread_id: Some(session_id),
+                        confined,
+                    })
+                    .await;
             }
             _ => {}
         }

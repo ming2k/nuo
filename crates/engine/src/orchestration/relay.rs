@@ -201,6 +201,10 @@ pub fn relay_agent_event(
             ));
             return;
         }
+        AgentEvent::Compacted(checkpoint) => {
+            super::compaction::send_compaction(tx, session_id, &checkpoint);
+            return;
+        }
     };
     let _ = tx.send(response);
 }

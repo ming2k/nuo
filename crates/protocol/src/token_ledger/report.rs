@@ -44,6 +44,11 @@ pub struct TokenSourceRow {
 pub struct TokenSourceReport {
     pub rows: Vec<TokenSourceRow>,
     pub grand_total: TokenSourceTotals,
+    /// Durable per-round completion summaries (`round` -> exact wall-clock
+    /// duration, human wait pause, and generation time), ordered ascending by
+    /// `round` (ADR-0263 `[INV-TRACE-03]`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub round_summaries: Vec<crate::RoundSummary>,
 }
 
 impl TokenSourceReport {

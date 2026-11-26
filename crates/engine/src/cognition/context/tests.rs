@@ -802,3 +802,34 @@ fn changing_the_language_moves_only_the_session_band() {
     );
     assert_ne!(rendered(&before), rendered(&after));
 }
+
+#[test]
+fn todo_guidance_is_gated_on_declared_todo_capability() {
+    let policy = super::builtin::default_policy();
+
+    let without_todo = ContextInputs {
+        tool_surface: ToolSurface::new([&FakeTool(BuiltinTool::Read) as &dyn tool::Tool], false),
+        ..ContextInputs::default()
+    };
+    let text_without = rendered(&policy.plan(&without_todo));
+    assert!(
+        !text_without.contains("Use the todo tool"),
+        "sessions without todo must not receive todo guidance: {text_without}"
+    );
+
+    let with_todo = ContextInputs {
+        tool_surface: ToolSurface::new(
+            [
+                &FakeTool(BuiltinTool::Read) as &dyn tool::Tool,
+                &FakeTool(BuiltinTool::Todo),
+            ],
+            false,
+        ),
+        ..ContextInputs::default()
+    };
+    let text_with = rendered(&policy.plan(&with_todo));
+    assert!(
+        text_with.contains("Use the todo tool"),
+        "sessions with todo must receive todo guidance: {text_with}"
+    );
+}

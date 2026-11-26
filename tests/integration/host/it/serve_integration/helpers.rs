@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
-use nuo::runtime::monitor::MonitorTracker;
-use nuo::runtime::registry::{HostedThread, ThreadRegistry};
 use persistence::thread::ThreadSession;
 use protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
+use server::runtime::monitor::MonitorTracker;
+use server::runtime::registry::{HostedThread, ThreadRegistry};
 use tokio::sync::{Mutex, broadcast, mpsc};
 pub(super) fn idle_base(id: String) -> protocol::MonitoredThread {
     protocol::MonitoredThread {

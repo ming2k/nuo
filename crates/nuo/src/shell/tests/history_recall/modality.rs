@@ -393,7 +393,7 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
 }
 
 #[tokio::test]
-async fn history_search_opening_preserves_scene_bar_and_context_bar() {
+async fn history_search_opening_preserves_thread_scene_bar() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-test".to_string();
     app.record_input_history("existing entry".to_string(), Vec::new(), Vec::new());
@@ -407,12 +407,9 @@ async fn history_search_opening_preserves_scene_bar_and_context_bar() {
     let row1_normal: String = (0..80)
         .map(|x| buffer_normal.get(x, 1).unwrap().symbol.as_str())
         .collect();
-    let row2_normal: String = (0..80)
-        .map(|x| buffer_normal.get(x, 2).unwrap().symbol.as_str())
-        .collect();
     assert!(
-        row1_normal.contains("THREAD"),
-        "Row 1 must be SceneBar carrying THREAD tag: {row1_normal:?}"
+        row1_normal.contains("thread test"),
+        "Row 1 must be the single-row Thread SceneBar carrying untitled thread tag: {row1_normal:?}"
     );
 
     // 2. Open HistorySearch
@@ -431,19 +428,12 @@ async fn history_search_opening_preserves_scene_bar_and_context_bar() {
     let row1_hist: String = (0..80)
         .map(|x| buffer_hist.get(x, 1).unwrap().symbol.as_str())
         .collect();
-    let row2_hist: String = (0..80)
-        .map(|x| buffer_hist.get(x, 2).unwrap().symbol.as_str())
-        .collect();
     assert!(
-        row1_hist.contains("THREAD"),
-        "Row 1 SceneBar must NOT be hidden when HistorySearch is opened: {row1_hist:?}"
+        row1_hist.contains("thread test"),
+        "Row 1 Thread SceneBar must NOT be hidden when HistorySearch is opened: {row1_hist:?}"
     );
     assert_eq!(
         row1_hist, row1_normal,
-        "SceneBar must remain identical during HistorySearch"
-    );
-    assert_eq!(
-        row2_hist, row2_normal,
-        "ThreadContextBar must remain identical during HistorySearch"
+        "Thread SceneBar must remain identical during HistorySearch"
     );
 }

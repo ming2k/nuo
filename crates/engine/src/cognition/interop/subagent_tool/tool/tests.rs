@@ -1075,3 +1075,219 @@ fn subagent_child_inherits_profile_reasoning_effort_override() {
     let debug_req = debug_child.model_request(&[Message::new(Role::User, "debug")]);
     assert_eq!(debug_req.reasoning_effort, None);
 }
+
+/// `[INV-CMP-08]` for subagents: when a child's mid-turn projection gate folds
+/// older child turns during a multi-turn run, `finalize_child_messages` still
+/// commits the terminal delta and surfaces the child's **full** conversation
+/// (every prior child turn + checkpoint + final answer) to the parent.
+#[tokio::test]
+async fn subagent_mid_turn_compaction_preserves_full_nested_transcript() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct HeavyChildTool;
+
+    #[async_trait]
+    impl Tool for HeavyChildTool {
+        fn name(&self) -> &str {
+            "read"
+        }
+
+        fn description(&self) -> &str {
+            "Returns a large payload to trigger child mid-turn compaction."
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({ "type": "object", "properties": {} })
+        }
+
+        async fn execute(
+            &self,
+            _ctx: &::tool::ToolContext,
+            _arguments: serde_json::Value,
+        ) -> Result<::tool::ToolOutput, ::tool::ToolError> {
+            Ok(::tool::ToolOutput::text(
+                "child heavy observation payload line\n".repeat(120),
+            ))
+        }
+    }
+
+    struct ThreeTurnChildProvider {
+        calls: AtomicUsize,
+        seen_requests: std::sync::Mutex<Vec<Vec<Message>>>,
+    }
+
+    #[async_trait]
+    impl Provider for ThreeTurnChildProvider {
+        async fn chat(
+            &self,
+            _request: &protocol::ModelRequest,
+        ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+            Ok(protocol::ProviderCompletion::message(Message::new(
+                Role::Assistant,
+                "unused",
+            )))
+        }
+
+        async fn stream_chat(
+            &self,
+            _request: &protocol::ModelRequest,
+            _telemetry: protocol::TransportTelemetry,
+        ) -> Result<
+            futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
+            protocol::ProviderError,
+        > {
+            Ok(Box::pin(futures::stream::empty()))
+        }
+
+        async fn stream_chat_events(
+            &self,
+            request: &protocol::ModelRequest,
+            _telemetry: protocol::TransportTelemetry,
+        ) -> Result<protocol::ProviderEventStream, protocol::ProviderError> {
+            self.seen_requests
+                .lock()
+                .unwrap()
+                .push(request.messages.clone());
+            let step = self.calls.fetch_add(1, Ordering::SeqCst);
+            let events = match step {
+                0 => vec![
+                    Ok(protocol::ProviderStreamEvent::ToolCallDelta {
+                        index: 0,
+                        id: Some("child-call-1".to_string()),
+                        name: Some("read".to_string()),
+                        arguments: "{}".to_string(),
+                    }),
+                    Ok(protocol::ProviderStreamEvent::Completed(
+                        protocol::ProviderCompletionMeta::default(),
+                    )),
+                ],
+                1 => vec![
+                    Ok(protocol::ProviderStreamEvent::ToolCallDelta {
+                        index: 0,
+                        id: Some("child-call-2".to_string()),
+                        name: Some("read".to_string()),
+                        arguments: "{}".to_string(),
+                    }),
+                    Ok(protocol::ProviderStreamEvent::Completed(
+                        protocol::ProviderCompletionMeta::default(),
+                    )),
+                ],
+                _ => vec![
+                    Ok(protocol::ProviderStreamEvent::TextDelta(
+                        "CHILD-FINAL-ANSWER".to_string(),
+                    )),
+                    Ok(protocol::ProviderStreamEvent::Completed(
+                        protocol::ProviderCompletionMeta::default(),
+                    )),
+                ],
+            };
+            Ok(Box::pin(futures::stream::iter(events)))
+        }
+    }
+
+    let tmp = tempfile::tempdir().unwrap();
+    let parent = Arc::new(persistence::thread::ThreadSession::for_path(
+        tmp.path().join("parent.json"),
+    ));
+    parent
+        .commit_turn(persistence::thread::CommitTurn::new(&[Message::new(
+            Role::User,
+            "parent task",
+        )]))
+        .await
+        .unwrap();
+
+    let provider = Arc::new(ThreeTurnChildProvider {
+        calls: AtomicUsize::new(0),
+        seen_requests: std::sync::Mutex::new(Vec::new()),
+    });
+    let tool = SubagentTool::new(
+        provider.clone(),
+        protocol::ToolSet::from_tools([Arc::new(HeavyChildTool) as Arc<dyn Tool>]),
+        &SubAgentProfile::EXPLORE,
+    );
+    tool.bind_session(
+        Arc::clone(&parent),
+        Arc::new(|child, child_session| {
+            let mut settings = crate::orchestration::ContextProjectionSettings::from_policy(
+                &protocol::CompactionPolicy::default(),
+                200_000,
+            );
+            settings.budget.prune_threshold_tokens = 250;
+            settings.budget.compaction_threshold_tokens = 300;
+            settings.budget.target_tokens = 128;
+            settings.prune = true;
+            settings.prune_protect_tokens = usize::MAX;
+            settings.summarize = false;
+            child.set_context_prune_threshold(settings.budget.prune_threshold_tokens);
+            let s = settings.clone();
+            child.set_context_projection_gate(Some(Arc::new(crate::PruningProjectionGate::new(
+                child_session,
+                Arc::new(move || s.clone()),
+                child.token_weights_handle(),
+                None,
+            ))));
+        }),
+    );
+
+    let outcome = tool
+        .run_subagent_outcome(
+            Some("parent-call-1"),
+            r#"{"description":"heavy explore","prompt":"CHILD-INITIAL-TASK-PROMPT"}"#,
+            Box::new(|_event: ::tool::SubagentEvent| {}),
+        )
+        .await
+        .unwrap();
+
+    assert!(!outcome.failed);
+    assert_eq!(outcome.final_content, "CHILD-FINAL-ANSWER");
+
+    // Verify mid-turn compaction actually fired during the child's run.
+    let requests = provider.seen_requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 3, "child runs 2 tool turns + 1 final turn");
+    assert!(
+        requests[2].iter().any(|m| {
+            m.origin
+                .as_ref()
+                .is_some_and(|o| o.kind == ::tool::InjectionKind::CompactionCheckpoint)
+        }),
+        "child turn 2 must have received a mid-turn compacted window"
+    );
+
+    // Returned nested transcript must preserve the initial prompt, both tool
+    // calls, the compaction checkpoint, and the final answer.
+    assert!(
+        outcome
+            .messages
+            .iter()
+            .any(|m| m.content == "CHILD-INITIAL-TASK-PROMPT"),
+        "child initial task must survive mid-turn compaction"
+    );
+    assert!(
+        outcome
+            .messages
+            .iter()
+            .any(|m| m.tool_call_id.as_deref() == Some("child-call-1")),
+        "child turn 0 tool observation must survive mid-turn compaction"
+    );
+    assert!(
+        outcome
+            .messages
+            .iter()
+            .any(|m| m.tool_call_id.as_deref() == Some("child-call-2")),
+        "child turn 1 tool observation must survive mid-turn compaction"
+    );
+    assert!(
+        outcome.messages.iter().any(|m| {
+            m.origin
+                .as_ref()
+                .is_some_and(|o| o.kind == ::tool::InjectionKind::CompactionCheckpoint)
+        }),
+        "child compaction checkpoint must survive in nested transcript"
+    );
+    assert_eq!(
+        outcome.messages.last().unwrap().content,
+        "CHILD-FINAL-ANSWER"
+    );
+}

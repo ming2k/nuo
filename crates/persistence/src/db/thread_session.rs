@@ -16,7 +16,11 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
         INSERT INTO threads (
             id, parent_thread_id, origin, title, digest, created_at_ms, updated_at_ms
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6 * 1000, ?7 * 1000)
+        VALUES (
+            ?1,
+            CASE WHEN ?2 IS NOT NULL AND EXISTS(SELECT 1 FROM threads WHERE id = ?2) THEN ?2 ELSE NULL END,
+            ?3, ?4, ?5, ?6 * 1000, ?7 * 1000
+        )
         ON CONFLICT(id) DO UPDATE SET
             parent_thread_id = excluded.parent_thread_id,
             origin = excluded.origin,
@@ -46,7 +50,7 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
     )?
     .execute(params![
         session.id,
-        session.workspace_root.as_deref().unwrap_or(""),
+        session.workspace_root.as_deref().filter(|s| !s.is_empty()),
         session.persona.as_deref().unwrap_or("developer"),
         session.updated_at_s,
     ])?;
@@ -56,7 +60,7 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
 /// Every column a [`ThreadRecord`] maps positionally.
 pub(crate) const THREAD_RECORD_COLUMNS: &str = "id, parent_id, origin, title, \
     created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, \
-    digest, status, round_counter";
+    digest, round_counter";
 
 /// Build the WHERE fragment for a role-scoped thread query. `role_col` and
 /// `workspace_col` let callers target either the canonical view columns or a
@@ -136,22 +140,10 @@ pub(crate) fn list_subagent_sessions(
     Ok(sessions)
 }
 
-/// Delete a session and cascade all its events, messages, and command records.
+/// Delete a session's catalog rows (`threads` cascades `thread_policies` and
+/// `commit_receipts`; content-plane rows live on the owning shard and are
+/// removed by `ContentShardPool::delete_thread`, ADR-0242, ADR-0255).
 pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool> {
-    // Derived rows carry no foreign key to `threads` (FTS is a virtual table
-    // and `causal_nodes` predates the thread schema), so the membership trigger
-    // was what used to reclaim FTS rows. With derived indexing off the hot path
-    // the deletion is explicit and ordered before the owning row disappears.
-    conn.prepare_cached("DELETE FROM fts_thread_facts WHERE thread_id = ?1")?
-        .execute(params![session_id])?;
-    conn.prepare_cached("DELETE FROM command_acts WHERE thread_id = ?1")?
-        .execute(params![session_id])?;
-    // The workspace-effect journal is append-only evidence and deliberately has
-    // no foreign key to `threads`: deleting the conversation must not rewrite
-    // or erase what it did to the filesystem. Expiring the pre-image bytes lets
-    // the CAS collector reclaim them without deleting the observation.
-    let _ =
-        crate::workspace_effects::expire_thread_preimages(conn, session_id, crate::db::unix_ms());
     let affected = conn
         .prepare_cached("DELETE FROM threads WHERE id = ?1")?
         .execute(params![session_id])?;
@@ -189,6 +181,11 @@ pub(crate) fn prepare_save(
     journal_seq: Option<u64>,
     blob_store: Option<&BlobStore>,
 ) -> std::result::Result<PreparedSave, SaveError> {
+    let extra_blob_refs = if mode == SaveMode::MetadataOnly {
+        Vec::new()
+    } else {
+        crate::thread::collect_session_blob_refs(&data)
+    };
     let thread = if mode == SaveMode::MetadataOnly {
         None
     } else {
@@ -260,6 +257,7 @@ pub(crate) fn prepare_save(
         guard: guard.clone(),
         journal_seq,
         thread,
+        extra_blob_refs,
         payload_hash,
     })
 }
@@ -318,6 +316,7 @@ pub(crate) fn save_session_inner(
         guard,
         journal_seq,
         thread,
+        extra_blob_refs: _,
         payload_hash,
         digest_json,
         additional_roots_json,
@@ -384,7 +383,8 @@ pub(crate) fn save_session_inner(
         let workspace_root = data
             .workspace
             .as_ref()
-            .map(|w| w.root.to_string_lossy().into_owned());
+            .map(|w| w.root.to_string_lossy().into_owned())
+            .filter(|root| !root.is_empty());
         let (summary_msg_count, summary_last_prompt) = (*msg_count, last_user_prompt.clone());
 
         if mode == SaveMode::MetadataOnly {
@@ -393,11 +393,15 @@ pub(crate) fn save_session_inner(
             conn.prepare_cached(
                 r#"
                 INSERT INTO threads (
-                    id, parent_thread_id, origin, title, status,
+                    id, parent_thread_id, origin, title,
                     active_branch_id, round_counter,
                     transcript_generation, digest, digest_anchor, checksum,
                     created_at_ms, updated_at_ms, msg_count, last_user_prompt
-                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000, ?12, ?13)
+                ) VALUES (
+                    ?1,
+                    CASE WHEN ?2 IS NOT NULL AND EXISTS(SELECT 1 FROM threads WHERE id = ?2) THEN ?2 ELSE NULL END,
+                    ?3, ?4, 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000, ?12, ?13
+                )
                 ON CONFLICT(id) DO UPDATE SET
                     parent_thread_id = excluded.parent_thread_id,
                     origin = excluded.origin,
@@ -428,11 +432,15 @@ pub(crate) fn save_session_inner(
             conn.prepare_cached(
                 r#"
                 INSERT INTO threads (
-                    id, parent_thread_id, origin, title, status,
+                    id, parent_thread_id, origin, title,
                     active_branch_id, round_counter,
                     transcript_generation, digest, digest_anchor, checksum,
                     created_at_ms, updated_at_ms, msg_count, last_user_prompt
-                ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000, ?12, ?13)
+                ) VALUES (
+                    ?1,
+                    CASE WHEN ?2 IS NOT NULL AND EXISTS(SELECT 1 FROM threads WHERE id = ?2) THEN ?2 ELSE NULL END,
+                    ?3, ?4, 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000, ?12, ?13
+                )
                 ON CONFLICT(id) DO UPDATE SET
                     parent_thread_id = excluded.parent_thread_id,
                     origin = excluded.origin,
@@ -489,7 +497,7 @@ pub(crate) fn save_session_inner(
         )?
         .execute(params![
             data.id,
-            workspace_root.as_deref().unwrap_or(""),
+            workspace_root.as_deref(),
             persona.unwrap_or("developer"),
             if data.unattended { 1 } else { 0 },
             provider_pin_json,
@@ -502,18 +510,11 @@ pub(crate) fn save_session_inner(
             data.updated_at as i64,
         ])?;
 
-        // ADR-0242: when `thread` was routed to a content shard (`None` here),
-        // update the catalog's branch cursor columns directly; when present
-        // (direct single-connection engine tests), persist inline.
-        if let Some(thread) = thread.as_ref() {
-            if replace || !thread.graph.is_empty() {
-                crate::db::thread_store::persist_thread_facts(conn, thread, replace)
-                    .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
-            }
-            if mode == SaveMode::FullRewrite {
-                sync_command_acts(conn, &data.id, &data.commands)?;
-            }
-        } else if mode != SaveMode::MetadataOnly {
+        // ADR-0242 / ADR-0255: content-plane rows (facts, branches, blob refs,
+        // FTS, command_acts) live exclusively in content shards. The catalog
+        // plane records only the active branch cursor columns.
+        let _ = thread;
+        if mode != SaveMode::MetadataOnly {
             conn.prepare_cached(
                 "UPDATE threads SET active_leaf = COALESCE(?2, active_leaf), active_branch_id = ?3 WHERE id = ?1",
             )?
@@ -752,25 +753,14 @@ fn load_usage_records(
     Ok(records)
 }
 
-/// Load a full [`crate::thread::ThreadData`] by session ID from SQLite.
-/// Facts are the durable conversation rows; the transcript is projected from
-/// the active branch. A fact the current binary cannot decode fails the load
-/// rather than being silently reinterpreted.
-#[cfg(test)]
-pub(crate) fn load_session_full(
-    conn: &Connection,
-    session_id: &str,
-) -> Result<Option<crate::thread::ThreadData>> {
-    load_session_full_from_planes(conn, Some(conn), session_id)
-}
-
 /// Load a full [`crate::thread::ThreadData`] by joining lifecycle metadata from
 /// `catalog_conn` with facts, branches, and command acts from `content_conn`
-/// (ADR-0242).
+/// (ADR-0242, ADR-0255).
 pub(crate) fn load_session_full_from_planes(
     catalog_conn: &Connection,
     content_conn: Option<&Connection>,
     session_id: &str,
+    blob_store: Option<&BlobStore>,
 ) -> Result<Option<crate::thread::ThreadData>> {
     let row = catalog_conn
         .prepare_cached(
@@ -781,8 +771,7 @@ pub(crate) fn load_session_full_from_planes(
                    t.digest, t.digest_anchor, t.transcript_generation,
                    p.provider_pin, t.round_counter, p.unattended,
                    p.disabled_tools_json, p.round_interrupts_json,
-                   p.retry_pending, t.checksum,
-                   13, p.role_manifest
+                   p.retry_pending, t.checksum, p.role_manifest
             FROM threads t
             LEFT JOIN thread_policies p ON p.thread_id = t.id
             WHERE t.id = ?1
@@ -809,8 +798,7 @@ pub(crate) fn load_session_full_from_planes(
                 row.get::<_, String>(16)?,
                 row.get::<_, Option<String>>(17)?,
                 row.get::<_, Option<i64>>(18)?,
-                row.get::<_, i64>(19)?,
-                row.get::<_, Option<String>>(20)?,
+                row.get::<_, Option<String>>(19)?,
             ))
         })
         .optional()?;
@@ -834,7 +822,6 @@ pub(crate) fn load_session_full_from_planes(
         round_interrupts,
         retry_pending,
         checksum,
-        schema_version,
         role_manifest,
     )) = row
     else {
@@ -850,12 +837,13 @@ pub(crate) fn load_session_full_from_planes(
     // Facts are the only durable conversation rows; the transcript is rebuilt
     // from the active branch on the content shard (ADR-0242).
     if let Some(content) = content_conn {
-        let thread = crate::db::thread_store::load_thread_from_planes(
+        let thread = crate::db::content_projection::load_thread_from_planes(
             catalog_conn,
             content,
             &protocol::ThreadId::new(session_id),
+            blob_store,
         )
-        .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
+        .map_err(rusqlite::Error::InvalidParameterName)?;
         if let Some(thread) = thread {
             loaded_branch = thread.state.active_branch.clone();
             loaded_branches = thread.state.branches.clone();
@@ -881,13 +869,11 @@ pub(crate) fn load_session_full_from_planes(
             min_next_seq: entries
                 .iter()
                 .map(|entry| entry.seq + 1)
-                .chain(entries.iter().map(|row| row.seq + 1))
                 .max()
                 .unwrap_or(0),
             min_next_directive_seq: directives
                 .iter()
                 .map(|directive| directive.seq + 1)
-                .chain(directives.iter().map(|row| row.seq + 1))
                 .max()
                 .unwrap_or(0),
             entries,
@@ -895,6 +881,7 @@ pub(crate) fn load_session_full_from_planes(
         },
         branches: loaded_branches,
         graph: loaded_graph,
+        graph_image_blobs: Vec::new(),
         msg_count: 0,
         last_user_prompt: None,
         last_projection: None,
@@ -922,14 +909,20 @@ pub(crate) fn load_session_full_from_planes(
         role_manifest: role_manifest
             .as_deref()
             .and_then(|raw| serde_json::from_str(raw).ok()),
-        workspace: workspace_root.map(|root| protocol::WorkspaceBinding {
-            root: PathBuf::from(root),
-            additional_roots: serde_json::from_str(&additional_roots).unwrap_or_else(|error| {
-                tracing::warn!(session = %session_id, error = %error, "additional_roots column undecodable; treated as empty");
-                Vec::new()
+        workspace: workspace_root
+            .filter(|root| !root.is_empty())
+            .map(|root| protocol::WorkspaceBinding {
+                root: PathBuf::from(root),
+                additional_roots: serde_json::from_str(&additional_roots).unwrap_or_else(|error| {
+                    tracing::warn!(session = %session_id, error = %error, "additional_roots column undecodable; treated as empty");
+                    Vec::new()
+                }),
             }),
-        }),
-        schema_version: if schema_version > 0 { schema_version as u32 } else { crate::thread::CURRENT_SCHEMA_VERSION },
+        // ADR-0255 `[INV-SHARD-05]`: rows hydrated from the v7+ normalized
+        // `command_acts` table already carry post-ADR-0140 acts only; stamping
+        // `CURRENT_SCHEMA_VERSION` prevents `migrate_session_data` from wiping
+        // them on SQLite fallback.
+        schema_version: crate::thread::CURRENT_SCHEMA_VERSION,
         checksum: checksum.map(|c| c as u32),
         generation: generation.unwrap_or_default(),
         provider_selection: provider_connection
@@ -949,6 +942,7 @@ pub(crate) fn load_session_full_from_planes(
             tracing::warn!(session = %session_id, error = %error, "round_interrupts column undecodable; treated as empty");
             Default::default()
         }),
+        round_summaries: Vec::new(),
         retry_pending: retry_pending
             .as_deref()
             .and_then(|raw| serde_json::from_str(raw).ok()),
@@ -981,8 +975,11 @@ pub(crate) fn read_session_transcript_from_planes(
     content_conn: Option<&Connection>,
     session_id: &str,
     tail: usize,
+    blob_store: Option<&BlobStore>,
 ) -> Result<Option<ThreadTranscriptView>> {
-    let Some(data) = load_session_full_from_planes(catalog_conn, content_conn, session_id)? else {
+    let Some(data) =
+        load_session_full_from_planes(catalog_conn, content_conn, session_id, blob_store)?
+    else {
         return Ok(None);
     };
     // The Archivist reads the **conversation**, not the request window: a fold
@@ -1062,10 +1059,13 @@ pub(crate) fn lookup_session_workspace(
     let Some((workspace_root, additional_roots, persona)) = row else {
         return Ok(None);
     };
-    let workspace = workspace_root.map(|root| protocol::WorkspaceBinding {
-        root: PathBuf::from(root),
-        additional_roots: serde_json::from_str(&additional_roots).unwrap_or_default(),
-    });
+    let workspace =
+        workspace_root
+            .filter(|root| !root.is_empty())
+            .map(|root| protocol::WorkspaceBinding {
+                root: PathBuf::from(root),
+                additional_roots: serde_json::from_str(&additional_roots).unwrap_or_default(),
+            });
     Ok(Some((workspace, persona)))
 }
 
@@ -1155,8 +1155,11 @@ pub(crate) fn get_session_detail_from_planes(
     content_conn: Option<&Connection>,
     session_id: &str,
     active_id: &str,
+    blob_store: Option<&BlobStore>,
 ) -> Result<Option<protocol::ThreadDetail>> {
-    if let Some(data) = load_session_full_from_planes(catalog_conn, content_conn, session_id)? {
+    if let Some(data) =
+        load_session_full_from_planes(catalog_conn, content_conn, session_id, blob_store)?
+    {
         let last_prompt = crate::thread::last_effective_prompt_from_data(&data);
         Ok(Some(protocol::ThreadDetail {
             id: data.id.clone(),

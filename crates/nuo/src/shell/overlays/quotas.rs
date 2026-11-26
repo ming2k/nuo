@@ -281,7 +281,7 @@ fn quotas_body_l2(entry: &ConnectionQuotaEntry, theme: &Theme) -> Vec<Line<'stat
         meta_parts.push(format!("account: {acct}"));
     }
     if let Some(reset_ms) = entry.earliest_reset_ms {
-        let now = chrono::Utc::now().timestamp_millis() as u64;
+        let now = jiff::Timestamp::now().as_millisecond().max(0) as u64;
         if reset_ms > now {
             let diff_secs = (reset_ms - now) / 1000;
             let hours = diff_secs / 3600;

@@ -144,7 +144,7 @@ impl Channel {
             channel: self.id.clone(),
             from,
             body: body.into(),
-            at: chrono::Utc::now(),
+            at: jiff::Timestamp::now(),
             mentions,
             thread,
         };

@@ -9,7 +9,7 @@ fn fresh_db_migrates_to_baseline() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(CURRENT_DB_VERSION, 8);
+    assert_eq!(CURRENT_DB_VERSION, 9);
 
     let (name, checksum): (String, String) = conn
         .query_row(
@@ -24,7 +24,29 @@ fn fresh_db_migrates_to_baseline() {
     let ledger_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(ledger_rows, 8);
+    assert_eq!(ledger_rows, 9);
+}
+
+#[test]
+fn content_shard_migration_catalog_is_contiguous_and_checksum_stable() {
+    use crate::db::migrations::content_shard::{
+        BASELINE_CHECKSUM, CURRENT_CONTENT_SHARD_VERSION, MIGRATIONS as SHARD_MIGRATIONS,
+        SHIPPED_CHECKSUMS,
+    };
+    let versions: Vec<u32> = SHARD_MIGRATIONS.iter().map(|m| m.version).collect();
+    assert_eq!(
+        versions,
+        (1..=CURRENT_CONTENT_SHARD_VERSION).collect::<Vec<_>>()
+    );
+    assert_eq!(SHARD_MIGRATIONS[0].checksum(), BASELINE_CHECKSUM);
+    assert_eq!(SHARD_MIGRATIONS.len(), SHIPPED_CHECKSUMS.len());
+    for (migration, (version, name, checksum)) in
+        SHARD_MIGRATIONS.iter().zip(SHIPPED_CHECKSUMS.iter())
+    {
+        assert_eq!(migration.version, *version);
+        assert_eq!(migration.name, *name);
+        assert_eq!(migration.checksum(), *checksum);
+    }
 }
 
 #[test]
@@ -298,13 +320,41 @@ fn every_historical_version_upgrades_cleanly_to_current() {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate_to_for_tests(&mut conn, from_version).unwrap();
 
-        if from_version >= 1 {
+        if (1..=8).contains(&from_version) {
             conn.execute_batch(
                 r#"
                 INSERT INTO threads(id, title, status, origin, created_at_ms, updated_at_ms)
                     VALUES('t-matrix', 'Matrix Thread', 'idle', 'trunk', 1000, 2000);
+                "#,
+            )
+            .unwrap();
+        } else if from_version >= 9 {
+            conn.execute_batch(
+                r#"
+                INSERT INTO threads(id, title, origin, created_at_ms, updated_at_ms)
+                    VALUES('t-matrix', 'Matrix Thread', 'trunk', 1000, 2000);
+                "#,
+            )
+            .unwrap();
+        }
+        if from_version >= 1 {
+            conn.execute_batch(
+                r#"
                 INSERT INTO thread_policies(thread_id, workspace_root, system_role, updated_at_ms)
                     VALUES('t-matrix', '/repo/matrix', 'developer', 2000);
+                INSERT INTO input_history(text, session_id, workspace, created_at_ms)
+                    VALUES('latest prompt', 't-matrix', '/repo/matrix', 1300);
+                INSERT INTO kv_store(key, value, updated_at)
+                    VALUES('matrix:key', 'matrix:val', 1300);
+                INSERT INTO usage_records(session_id, actor_id, round, turn, attempt, payload, day, recorded_at_ms, project, revision)
+                    VALUES('t-matrix', 'main', 1, 1, 1, '{"status":"completed"}', '2026-01-01', 1300, 'matrix', 1);
+                "#,
+            )
+            .unwrap();
+        }
+        if (1..=8).contains(&from_version) {
+            conn.execute_batch(
+                r#"
                 INSERT INTO thread_branches(thread_id, branch_id, name, created_at_ms, updated_at_ms)
                     VALUES('t-matrix', 'main', 'main', 1000, 2000);
                 INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
@@ -318,12 +368,6 @@ fn every_historical_version_upgrades_cleanly_to_current() {
                            '{"type":"message","message":{"role":"user","content":"latest prompt"}}', 1300);
                 INSERT INTO thread_commands(thread_id, command_id, ack_json, created_at_ms)
                     VALUES('t-matrix', 'cmd-1', '{"ok":true}', 1300);
-                INSERT INTO input_history(text, session_id, workspace, created_at_ms)
-                    VALUES('latest prompt', 't-matrix', '/repo/matrix', 1300);
-                INSERT INTO kv_store(key, value, updated_at)
-                    VALUES('matrix:key', 'matrix:val', 1300);
-                INSERT INTO usage_records(session_id, actor_id, round, turn, attempt, payload, day, recorded_at_ms, project, revision)
-                    VALUES('t-matrix', 'main', 1, 1, 1, '{"status":"completed"}', '2026-01-01', 1300, 'matrix', 1);
                 INSERT INTO workspace_effects(thread_id, round_id, turn_id, call_id, seq, tool_name, path, op, effect_class, created_at_ms)
                     VALUES('t-matrix', 'r1', 'turn1', 'c1', 1, 'write_file', '/repo/matrix/a.rs', 'create', 'file_bytes', 1300);
                 "#,
@@ -375,10 +419,24 @@ fn every_historical_version_upgrades_cleanly_to_current() {
             "from_version={from_version}"
         );
 
-        assert!(
-            !table_exists(&conn, "request_projections").unwrap(),
-            "request_projections must be retired after upgrade from v{from_version}"
-        );
+        for retired in [
+            "request_projections",
+            "causal_nodes",
+            "thread_branches",
+            "thread_blob_refs",
+            "command_acts",
+            "workspace_effects",
+            "fts_thread_facts",
+            "thread_commands",
+            "thread_leases",
+            "thread_lease_counters",
+            "thread_blobs",
+        ] {
+            assert!(
+                !table_exists(&conn, retired).unwrap(),
+                "{retired} must be retired from nuo.db after upgrade from v{from_version} to v{CURRENT_DB_VERSION}"
+            );
+        }
         assert!(table_exists(&conn, "permission_rules").unwrap());
         assert!(table_exists(&conn, "projection_watermarks").unwrap());
         assert_referential_integrity(&conn).unwrap();
@@ -392,7 +450,7 @@ fn every_historical_version_upgrades_cleanly_to_current() {
                 )
                 .unwrap();
             if from_version < 6 {
-                // v6 backfill materializes count & prompt from causal_nodes.
+                // v6 backfill materializes count & prompt from causal_nodes before v9 drops it.
                 assert_eq!(msg_count, 3, "from_version={from_version}");
                 assert_eq!(
                     last_prompt.as_deref(),
@@ -408,14 +466,14 @@ fn every_historical_version_upgrades_cleanly_to_current() {
                 )
                 .unwrap();
             assert_eq!(kv, "matrix:val");
-            let effects: i64 = conn
+            let usage: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM workspace_effects WHERE thread_id = 't-matrix'",
+                    "SELECT COUNT(*) FROM usage_records WHERE session_id = 't-matrix'",
                     [],
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(effects, 1);
+            assert_eq!(usage, 1);
         }
         if from_version >= 3 {
             let perms: i64 = conn

@@ -1,54 +1,55 @@
-//! Server monitor translator: folds monitor stream into application mutations.
+//! Unified server-event translator: folds the single connection's `MonitorEvent`
+//! stream (server lifecycle phases, persistence health, hosted threads) into
+//! typed `AppMutation`s for both local and `--remote` clients
+//! (ADR-0260 `[INV-SRVPHASE-04]`).
 
 use crate::shell::{client, event_loop};
 use std::sync::atomic::Ordering;
+use tokio::sync::mpsc;
 
-/// Spawn the server monitor client: a *translator* over the
-/// monitor stream. It owns the session-row snapshot (its own domain) and
-/// publishes whole snapshots to `App` via mutations — no cells, no
-/// rev counters.
-pub(crate) fn spawn_monitor_translator(runtime: &event_loop::UiRuntime) {
+/// Spawn the server-event translator over the unified connection's
+/// `monitor_rx`. No second discovery or socket connection is opened.
+pub(crate) fn spawn_monitor_translator(
+    runtime: &event_loop::UiRuntime,
+    mut rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
+) {
     let mutations = runtime.mutations.clone();
     let dirty = runtime.dirty.clone();
     let dirty_notify = runtime.dirty_notify.clone();
 
     tokio::spawn(async move {
-        let project_root =
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let Some(info) = client::discover(&project_root).await else {
-            return;
-        };
-        let action = protocol::MonitorAction {
-            watch: true,
-            include_idle: true,
-        };
-        let Ok(mut rx) = client::monitor_stream(&info, action).await else {
-            return;
-        };
         let mut rows: Vec<protocol::MonitoredThread> = Vec::new();
         while let Some(event) = rx.recv().await {
+            let mut rows_changed = false;
             match event {
                 protocol::MonitorEvent::Snapshot(snap) => {
                     rows = snap.threads;
+                    rows_changed = true;
+                    mutations
+                        .send(event_loop::AppMutation::ServerPhase(snap.server_phase))
+                        .await;
                     mutations
                         .send(event_loop::AppMutation::PersistenceHealth(
                             snap.persistence_health,
                         ))
                         .await;
                 }
+                protocol::MonitorEvent::ServerPhaseChanged(phase) => {
+                    mutations
+                        .send(event_loop::AppMutation::ServerPhase(phase))
+                        .await;
+                }
                 protocol::MonitorEvent::ThreadAdded(row)
                 | protocol::MonitorEvent::ThreadUpdated(row) => {
                     client::upsert_session_row(&mut rows, row);
+                    rows_changed = true;
                 }
                 protocol::MonitorEvent::ThreadRemoved { thread_id } => {
                     rows.retain(|r| r.id != thread_id);
+                    rows_changed = true;
                 }
-                // Server-level task diffs: the dashboard's
-                // task section is folded in a later phase.
-                protocol::MonitorEvent::TaskUpdated(_) => {}
-                protocol::MonitorEvent::TaskRemoved { .. } => {}
-                // Durability-health transitions (D4): a degraded
-                // state retains the visible banner; Healthy clears it.
+                protocol::MonitorEvent::TaskUpdated(_)
+                | protocol::MonitorEvent::TaskRemoved { .. } => {}
                 protocol::MonitorEvent::PersistenceHealth(health) => {
                     mutations
                         .send(event_loop::AppMutation::PersistenceHealth(
@@ -56,14 +57,39 @@ pub(crate) fn spawn_monitor_translator(runtime: &event_loop::UiRuntime) {
                         ))
                         .await;
                 }
-                // The server began its graceful shutdown: the
-                // stream closes right after; the next server interaction
-                // re-discovers or re-spawns.
-                protocol::MonitorEvent::ServerDraining => {}
             }
-            mutations
-                .send(event_loop::AppMutation::HostSessions(rows.clone()))
-                .await;
+            if rows_changed {
+                mutations
+                    .send(event_loop::AppMutation::HostSessions(rows.clone()))
+                    .await;
+            }
+            dirty.store(true, Ordering::SeqCst);
+            dirty_notify.notify_one();
+        }
+    });
+}
+
+/// Forward structured link-level events (`SubscribeRefused`, `PickRequired`)
+/// from the unified connection into `AppMutation`s (`[INV-ATTACH-01]`, ADR-0260).
+pub(crate) fn spawn_link_event_translator(
+    runtime: &event_loop::UiRuntime,
+    mut rx: mpsc::UnboundedReceiver<client::LinkEvent>,
+) {
+    let mutations = runtime.mutations.clone();
+    let dirty = runtime.dirty.clone();
+    let dirty_notify = runtime.dirty_notify.clone();
+
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            let mutation = match event {
+                client::LinkEvent::SubscribeRefused(error) => {
+                    event_loop::AppMutation::SubscribeRefused(error)
+                }
+                client::LinkEvent::PickRequired(threads) => {
+                    event_loop::AppMutation::PickRequired(threads)
+                }
+            };
+            mutations.send(mutation).await;
             dirty.store(true, Ordering::SeqCst);
             dirty_notify.notify_one();
         }

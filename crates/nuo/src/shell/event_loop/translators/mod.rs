@@ -6,5 +6,5 @@
 pub(crate) mod monitor;
 pub(crate) mod response;
 
-pub(crate) use monitor::spawn_monitor_translator;
+pub(crate) use monitor::{spawn_link_event_translator, spawn_monitor_translator};
 pub(crate) use response::{ResponseTranslatorConfig, spawn_response_translator};

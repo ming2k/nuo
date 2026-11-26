@@ -195,9 +195,8 @@ async fn open_repoints_projection_to_the_switched_session() {
     );
 }
 
-/// The same staleness hazard for `reset` (`/new`): a stale window made the
-/// length-based delta check in `append_turn` drop the fresh session's first
-/// durable write.
+/// The same staleness hazard for `reset` (`/new`): a fresh session must drop
+/// the previous session's cached model window before accepting its first turn.
 #[tokio::test]
 async fn reset_does_not_inherit_the_previous_projection() {
     let dir = temp_dir("reset-cache");
@@ -216,9 +215,11 @@ async fn reset_does_not_inherit_the_previous_projection() {
         "the fresh session must start with an empty window"
     );
 
-    // The first turn on the fresh session must be appended, not silently
-    // dropped by a stale cache length.
-    store.append_turn(&[user("hello")]).await.unwrap();
+    // The first turn on the fresh session must be appended cleanly.
+    store
+        .commit_turn(CommitTurn::new(&[user("hello")]))
+        .await
+        .unwrap();
     assert_eq!(
         store
             .model_window()
@@ -233,12 +234,12 @@ async fn reset_does_not_inherit_the_previous_projection() {
 }
 
 // ---------------------------------------------------------------
-// Request projection is disposable and never rewrites facts.
+// Projection directives update model_window without mutating facts (ADR-0264).
 // ---------------------------------------------------------------
 
 #[tokio::test]
-async fn request_projection_never_changes_the_durable_window() {
-    let store = store("projection-disposable").await;
+async fn prune_projection_updates_model_window_without_mutating_facts() {
+    let store = store("projection-directive").await;
     let call = ToolCall::new("call-1", "read", "{}");
     let mut assistant_message = assistant("working");
     assistant_message.tool_calls = Some(vec![call.clone()]);
@@ -253,7 +254,7 @@ async fn request_projection_never_changes_the_durable_window() {
     projected[2].content = "[pruned]".into();
     store
         .commit_context_projection(ContextProjectionResult {
-            model_window: projected,
+            model_window: projected.clone(),
             archived_originals: vec![before[2].clone()],
             checkpoint: ContextProjectionCheckpoint {
                 operation: ContextProjectionKind::Prune,
@@ -268,8 +269,9 @@ async fn request_projection_never_changes_the_durable_window() {
         .await
         .unwrap();
 
-    // The request-local fold is not a fact: the durable window is unchanged.
-    assert_eq!(store.model_window().await, before);
+    // Durable append-only Prune directive updates `model_window()` while
+    // leaving immutable `full_transcript()` facts completely untouched (ADR-0264).
+    assert_eq!(store.model_window().await, projected);
     assert_eq!(store.full_transcript().await, before);
 }
 
@@ -313,29 +315,17 @@ async fn a_compaction_projection_does_not_survive_a_reload() {
 // ---------------------------------------------------------------
 
 #[tokio::test]
-async fn append_turn_appends_delta() {
-    let store = store("append").await;
+async fn commit_turn_persists_appended_delta_counter_and_usage() {
+    let store = store("commit").await;
     store.replace_messages(vec![user("go")]).await.unwrap();
     store
-        .append_turn(&[user("go"), assistant("done")])
+        .commit_turn(CommitTurn::new(&[assistant("ok")]).tap_counter(3))
         .await
         .unwrap();
     let window = store.model_window().await;
     assert_eq!(window.len(), 2);
-    assert_eq!(window[1].content, "done");
-}
-
-#[tokio::test]
-async fn commit_turn_persists_window_counter_and_usage() {
-    let store = store("commit").await;
-    store.replace_messages(vec![user("go")]).await.unwrap();
-    let mut messages = store.model_window().await;
-    messages.push(assistant("ok"));
-    store
-        .commit_turn(CommitTurn::new(&messages, CommitBasis::Appended).tap_counter(3))
-        .await
-        .unwrap();
-    assert_eq!(store.model_window().await.len(), 2);
+    assert_eq!(window[0].content, "go");
+    assert_eq!(window[1].content, "ok");
     assert_eq!(store.round_counter().await, 3);
 }
 
@@ -346,66 +336,271 @@ impl CommitTurn<'_> {
     }
 }
 
+/// `[INV-CMP-08]` / `[INV-THREADSSOT-02]`: `commit_turn` is strictly
+/// append-only and never rewrites durable history. Committing subsequent turns
+/// after a compaction (and after a disposable request-time prune) must retain
+/// every pre-compaction turn in `full_transcript()` across reload while
+/// keeping `model_window()` bounded to `[checkpoint, kept_tail..., new_turns]`.
 #[tokio::test]
-async fn commit_turn_rebuilds_on_divergence() {
-    let store = store("diverge").await;
+async fn commit_turn_after_compaction_preserves_full_conversation_across_reload() {
+    let dir = temp_dir("commit-after-compact");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
     store
-        .replace_messages(vec![user("a"), assistant("b")])
+        .commit_turn(CommitTurn::new(&[
+            user("round one"),
+            assistant("answer one"),
+            user("round two"),
+            assistant("answer two"),
+            user("round three"),
+        ]))
+        .await
+        .unwrap();
+
+    // Fold round one behind a compaction horizon.
+    let mut thread = store.thread().await;
+    let branch = protocol::BranchId::main();
+    let path_facts = thread.path(&branch).unwrap();
+    let kept = path_facts[2].id.clone();
+    thread
+        .compact(&branch, "summary of round one", kept, 4_000, 1_009)
+        .unwrap();
+    store.commit_thread(&thread).await.unwrap();
+
+    // Record a disposable request-time projection (e.g. Tier-1 prune), then
+    // commit multiple subsequent turns via `commit_turn`.
+    store
+        .commit_context_projection(ContextProjectionResult {
+            model_window: vec![user("pruned-request-view-only")],
+            archived_originals: Vec::new(),
+            checkpoint: ContextProjectionCheckpoint {
+                operation: ContextProjectionKind::Prune,
+                archived_messages: 1,
+                active_messages: 1,
+                window_tokens_before: 200,
+                window_tokens_after: 50,
+                summary: None,
+                tracked_files: Vec::new(),
+            },
+        })
+        .await
+        .unwrap();
+
+    store
+        .commit_turn(CommitTurn::new(&[assistant("answer three")]).tap_counter(3))
         .await
         .unwrap();
     store
-        .commit_turn(CommitTurn::new(
-            &[user("replaced")],
-            CommitBasis::Reprojected,
-        ))
+        .commit_turn(
+            CommitTurn::new(&[user("round four"), assistant("answer four")]).tap_counter(4),
+        )
         .await
         .unwrap();
-    let window = store.model_window().await;
-    assert_eq!(window.len(), 1);
-    assert_eq!(window[0].content, "replaced");
+
+    let reloaded = ThreadSession::for_path(path);
+
+    // Full conversation keeps every turn from round one through round four,
+    // plus the compaction checkpoint with canonical provenance.
+    let full = reloaded.full_transcript().await;
+    let contents: Vec<&str> = full.iter().map(|m| m.content.as_str()).collect();
+    assert!(
+        contents.contains(&"round one") && contents.contains(&"answer one"),
+        "pre-compaction history must survive subsequent commit_turn + reload: {contents:?}"
+    );
+    assert!(
+        contents.contains(&"round two")
+            && contents.contains(&"round three")
+            && contents.contains(&"answer three")
+            && contents.contains(&"round four")
+            && contents.contains(&"answer four"),
+        "kept tail and post-compaction turns must all be present: {contents:?}"
+    );
+    assert!(
+        full.iter().any(|m| {
+            m.origin
+                .as_ref()
+                .is_some_and(|o| o.kind == tool::InjectionKind::CompactionCheckpoint)
+                && m.content.contains("summary of round one")
+        }),
+        "compaction checkpoint must retain CompactionCheckpoint provenance"
+    );
+
+    // Model window remains bounded to [checkpoint, kept_tail..., new_turns].
+    let window = reloaded.model_window().await;
+    assert!(
+        !window.iter().any(|m| m.content == "round one"),
+        "folded round must stay out of model_window"
+    );
+    assert!(
+        window[0]
+            .origin
+            .as_ref()
+            .is_some_and(|o| o.kind == tool::InjectionKind::CompactionCheckpoint),
+        "model_window must lead with the canonical compaction checkpoint"
+    );
+    assert_eq!(window.last().unwrap().content, "answer four");
 }
 
-/// An `Appended` claim is verified, not trusted: a tail that does not match the
-/// durable projection degrades to the safe path and rebuilds. A wrong claim
-/// costs a comparison, never a persisted prefix that disagrees with the caller.
+/// Two consecutive compactions interleaved with append-only `commit_turn`
+/// deltas must preserve **every** turn from round 0 onward across **both**
+/// journal replay (`ThreadSession::for_path`) and SQLite content-shard
+/// reconstruction (`reader.load_thread` / `reader.load_session_full`).
 #[tokio::test]
-async fn a_broken_appended_claim_falls_back_to_a_rebuild() {
-    let store = store("basis-fallback").await;
-    let first = vec![user("a"), assistant("b")];
-    store
-        .commit_turn(CommitTurn::new(&first, CommitBasis::Appended))
-        .await
-        .unwrap();
+async fn consecutive_compactions_and_delta_commits_preserve_full_history_in_journal_and_content_shard()
+ {
+    let dir = temp_dir("double-compact-shard");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
 
-    // Same length, different tail, but the caller *claims* append-only.
-    let claimed_append = vec![user("a"), assistant("CHANGED")];
-    store
-        .commit_turn(CommitTurn::new(&claimed_append, CommitBasis::Appended))
-        .await
-        .unwrap();
-    let window = store.model_window().await;
-    assert_eq!(window.len(), 2);
-    assert_eq!(window[1].content, "CHANGED");
-}
+    for round in 0..4 {
+        store
+            .commit_turn(
+                CommitTurn::new(&[
+                    user(&format!("round {round} prompt")),
+                    assistant(&format!("round {round} reply")),
+                ])
+                .tap_counter(round as u64 + 1),
+            )
+            .await
+            .unwrap();
+    }
 
-/// A reprojection that keeps the window length still rewrites the transcript.
-/// Length alone is not identity: a prune clears committed tool bodies in place.
-#[tokio::test]
-async fn reprojected_basis_rewrites_an_equally_sized_window() {
-    let store = store("basis-reproject").await;
-    let first = vec![user("a"), assistant("b")];
-    store
-        .commit_turn(CommitTurn::new(&first, CommitBasis::Appended))
-        .await
+    // Compaction #1: keep from round 2 onward (folding rounds 0..1).
+    let branch = protocol::BranchId::main();
+    let mut thread1 = store.thread().await;
+    let facts1 = thread1.path(&branch).unwrap();
+    let kept1 = facts1[4].id.clone();
+    thread1
+        .compact(&branch, "summary pass one", kept1.clone(), 4_000, 1_010)
         .unwrap();
+    store.commit_thread(&thread1).await.unwrap();
 
-    let reprojected = vec![user("a"), assistant("pruned body")];
-    store
-        .commit_turn(CommitTurn::new(&reprojected, CommitBasis::Reprojected))
-        .await
+    // Subsequent delta commits after compaction #1.
+    for round in 4..8 {
+        store
+            .commit_turn(
+                CommitTurn::new(&[
+                    user(&format!("round {round} prompt")),
+                    assistant(&format!("round {round} reply")),
+                ])
+                .tap_counter(round as u64 + 1),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Compaction #2: advance horizon to round 6 (folding rounds 2..5 too).
+    let mut thread2 = store.thread().await;
+    let live2 = thread2.live_path(&branch).unwrap();
+    let kept2 = live2
+        .iter()
+        .find(|f| {
+            matches!(
+                &f.payload,
+                protocol::FactPayload::Message { message } if message.content == "round 6 prompt"
+            )
+        })
+        .expect("round 6 prompt must be in live_path before compaction #2")
+        .id
+        .clone();
+    thread2
+        .compact(&branch, "summary pass two", kept2.clone(), 8_000, 2_020)
         .unwrap();
-    let window = store.model_window().await;
-    assert_eq!(window[1].content, "pruned body");
+    store.commit_thread(&thread2).await.unwrap();
+
+    // Final delta commits after compaction #2.
+    for round in 8..10 {
+        store
+            .commit_turn(
+                CommitTurn::new(&[
+                    user(&format!("round {round} prompt")),
+                    assistant(&format!("round {round} reply")),
+                ])
+                .tap_counter(round as u64 + 1),
+            )
+            .await
+            .unwrap();
+    }
+
+    let id = store.id().await;
+    store.flush_projection().await.unwrap();
+
+    // 1. SQLite content-shard read path (`load_thread` + `load_session_full`).
+    let reader = store.writer.reader().unwrap();
+    let shard_thread = reader
+        .load_thread(&id)
+        .unwrap()
+        .expect("thread must exist in content shard");
+    let shard_full_path = shard_thread.path(&branch).unwrap();
+    assert_eq!(
+        shard_thread
+            .state
+            .active_branch()
+            .unwrap()
+            .compaction_horizon
+            .as_ref(),
+        Some(&kept2),
+        "content shard must preserve compaction #2 horizon across subsequent delta commits"
+    );
+    let shard_live_path = shard_thread.live_path(&branch).unwrap();
+    assert!(
+        shard_live_path.len() < shard_full_path.len(),
+        "live_path must remain strictly shorter than full conversation path"
+    );
+    let shard_session = reader
+        .load_session_full(&id)
+        .unwrap()
+        .expect("session full must load from catalog + content shard");
+    let shard_conversation = shard_session.transcript.conversation_messages();
+    for round in 0..10 {
+        let needle = format!("round {round} prompt");
+        assert!(
+            shard_conversation.iter().any(|m| m.content == needle),
+            "content-shard conversation missing `{needle}`"
+        );
+    }
+    let shard_window = shard_session.transcript.project_messages();
+    assert_eq!(
+        shard_window[0].origin.as_ref().map(|o| o.kind),
+        Some(tool::InjectionKind::CompactionCheckpoint)
+    );
+    assert!(shard_window[0].content.contains("summary pass two"));
+    assert!(
+        !shard_window[1..]
+            .iter()
+            .any(|m| m.content == "round 0 prompt" || m.content == "round 5 prompt"),
+        "folded rounds 0..5 must stay excluded from content-shard model window"
+    );
+    assert_eq!(shard_window.last().unwrap().content, "round 9 reply");
+
+    // 2. Journal cold-reload path (`ThreadSession::for_path`).
+    drop(reader);
+    drop(store);
+    let reloaded = ThreadSession::for_path(path);
+    let full = reloaded.full_transcript().await;
+    for round in 0..10 {
+        let needle = format!("round {round} prompt");
+        assert!(
+            full.iter().any(|m| m.content == needle),
+            "journal-reloaded full_transcript missing `{needle}`"
+        );
+    }
+    let checkpoints: Vec<&Message> = full
+        .iter()
+        .filter(|m| {
+            m.origin
+                .as_ref()
+                .is_some_and(|o| o.kind == tool::InjectionKind::CompactionCheckpoint)
+        })
+        .collect();
+    assert_eq!(
+        checkpoints.len(),
+        2,
+        "both compaction checkpoints must survive in reading order"
+    );
+    let window = reloaded.model_window().await;
+    assert!(window[0].content.contains("summary pass two"));
+    assert_eq!(window.last().unwrap().content, "round 9 reply");
 }
 
 /// A commit writes facts; the thread projection is the read seam.
@@ -413,10 +608,7 @@ async fn reprojected_basis_rewrites_an_equally_sized_window() {
 async fn committed_messages_are_visible_as_thread_facts() {
     let store = store("thread-fact-read").await;
     store
-        .commit_turn(CommitTurn::new(
-            &[user("question"), assistant("answer")],
-            CommitBasis::Appended,
-        ))
+        .commit_turn(CommitTurn::new(&[user("question"), assistant("answer")]))
         .await
         .unwrap();
 
@@ -432,9 +624,8 @@ async fn committed_messages_are_visible_as_thread_facts() {
 #[tokio::test]
 async fn commit_turn_honors_the_revision_precondition() {
     let store = store("commit-guard").await;
-    let messages = vec![user("hello")];
     let first = store
-        .commit_turn(CommitTurn::new(&messages, CommitBasis::Appended))
+        .commit_turn(CommitTurn::new(&[user("hello")]))
         .await
         .unwrap();
 
@@ -442,7 +633,7 @@ async fn commit_turn_honors_the_revision_precondition() {
     let stale = store
         .commit_turn(CommitTurn {
             expected_revision: Some(first + 5),
-            ..CommitTurn::new(&messages, CommitBasis::Appended)
+            ..CommitTurn::new(&[])
         })
         .await
         .unwrap_err();
@@ -452,7 +643,7 @@ async fn commit_turn_honors_the_revision_precondition() {
     let advanced = store
         .commit_turn(CommitTurn {
             expected_revision: Some(first),
-            ..CommitTurn::new(&messages, CommitBasis::Appended)
+            ..CommitTurn::new(&[])
         })
         .await
         .unwrap();
@@ -977,11 +1168,8 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
         .with_children(child_messages.clone())
         .with_subagent_meta(subagent_meta);
 
-    let mut window = store.model_window().await;
-    window.push(parent);
-    window.push(result);
     store
-        .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+        .commit_turn(CommitTurn::new(&[parent, result]))
         .await
         .unwrap();
 
@@ -1162,10 +1350,10 @@ async fn tool_output_straddling_the_preview_limit_persists_across_reload() {
 async fn fork_branch_is_a_cursor_and_switch_projects_it() {
     let store = store("branch-cursors").await;
     store
-        .commit_turn(CommitTurn::new(
-            &[user("main question"), assistant("main answer")],
-            CommitBasis::Appended,
-        ))
+        .commit_turn(CommitTurn::new(&[
+            user("main question"),
+            assistant("main answer"),
+        ]))
         .await
         .unwrap();
 
@@ -1195,27 +1383,17 @@ async fn fork_branch_is_a_cursor_and_switch_projects_it() {
 async fn incremental_commit_preserves_prior_fts_rows_and_no_duplicates_on_branch_save() {
     let store = store("fts-incremental").await;
     let t1 = vec![user("alpha_needle_one"), assistant("alpha_reply_one")];
-    store
-        .commit_turn(CommitTurn::new(&t1, CommitBasis::Appended))
-        .await
-        .unwrap();
+    store.commit_turn(CommitTurn::new(&t1)).await.unwrap();
 
-    let mut t2 = t1.clone();
-    t2.push(user("beta_needle_two"));
-    t2.push(assistant("beta_reply_two"));
-    store
-        .commit_turn(CommitTurn::new(&t2, CommitBasis::Appended))
-        .await
-        .unwrap();
+    let t2 = vec![user("beta_needle_two"), assistant("beta_reply_two")];
+    store.commit_turn(CommitTurn::new(&t2)).await.unwrap();
 
     // A branch mutation is a full rewrite frame projected through the
     // ordinary session writer; it must not wipe or duplicate FTS rows.
     let _branch = store.fork_branch("side", None).await.unwrap();
 
-    let mut t3 = t2.clone();
-    t3.push(user("gamma_needle_three"));
     store
-        .commit_turn(CommitTurn::new(&t3, CommitBasis::Appended))
+        .commit_turn(CommitTurn::new(&[user("gamma_needle_three")]))
         .await
         .unwrap();
 
@@ -1241,10 +1419,7 @@ async fn metadata_setters_preserve_facts_after_branch_switch_and_todos_across_de
     let path = dir.join("session.json");
     let store = ThreadSession::for_path(path.clone());
     let m1 = vec![user("branchable question"), assistant("branchable answer")];
-    store
-        .commit_turn(CommitTurn::new(&m1, CommitBasis::Appended))
-        .await
-        .unwrap();
+    store.commit_turn(CommitTurn::new(&m1)).await.unwrap();
 
     let side = store.fork_branch("side", None).await.unwrap();
     // switch_branch rotates state.data.generation in memory without rewriting
@@ -1270,10 +1445,8 @@ async fn metadata_setters_preserve_facts_after_branch_switch_and_todos_across_de
     store.set_round_counter(7).await.unwrap();
 
     // A subsequent delta commit must preserve previously stored todos and facts.
-    let mut m2 = m1.clone();
-    m2.push(user("follow-up after metadata"));
     store
-        .commit_turn(CommitTurn::new(&m2, CommitBasis::Appended))
+        .commit_turn(CommitTurn::new(&[user("follow-up after metadata")]))
         .await
         .unwrap();
 
@@ -1298,7 +1471,7 @@ async fn a_journal_head_repairs_a_missing_derived_row() {
     let path = dir.join("session.json");
     let store = ThreadSession::for_path(path.clone());
     store
-        .commit_turn(CommitTurn::new(&[user("durable")], CommitBasis::Appended))
+        .commit_turn(CommitTurn::new(&[user("durable")]))
         .await
         .unwrap();
     let id = store.id().await;
@@ -1439,10 +1612,10 @@ async fn catch_up_repairs_a_missing_derived_row() {
 async fn catalog_summary_tracks_turns_and_metadata() {
     let store = store("catalog-summary").await;
     store
-        .commit_turn(CommitTurn::new(
-            &[user("first prompt"), assistant("first reply")],
-            CommitBasis::Appended,
-        ))
+        .commit_turn(CommitTurn::new(&[
+            user("first prompt"),
+            assistant("first reply"),
+        ]))
         .await
         .unwrap();
     store.flush_projection().await.unwrap();
@@ -1458,14 +1631,7 @@ async fn catalog_summary_tracks_turns_and_metadata() {
     assert_eq!(summary.overview, "first prompt");
 
     store
-        .commit_turn(CommitTurn::new(
-            &[
-                user("first prompt"),
-                assistant("first reply"),
-                user("second prompt"),
-            ],
-            CommitBasis::Appended,
-        ))
+        .commit_turn(CommitTurn::new(&[user("second prompt")]))
         .await
         .unwrap();
     store.flush_projection().await.unwrap();
@@ -1502,10 +1668,8 @@ async fn a_failed_journal_append_rolls_the_session_back() {
     let before = store.model_window().await;
 
     store.fail_next_journal_append().await;
-    let mut window = before.clone();
-    window.push(assistant("must not survive"));
     let failed = store
-        .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+        .commit_turn(CommitTurn::new(&[assistant("must not survive")]))
         .await;
     assert!(
         failed.is_err(),
@@ -1520,10 +1684,8 @@ async fn a_failed_journal_append_rolls_the_session_back() {
 
     // The next commit must carry only its own turn; if the rolled-back entries
     // had been treated as durable, this file would lose them on reload.
-    let mut recovered = after.clone();
-    recovered.push(assistant("recovered"));
     store
-        .commit_turn(CommitTurn::new(&recovered, CommitBasis::Appended))
+        .commit_turn(CommitTurn::new(&[assistant("recovered")]))
         .await
         .unwrap();
 
@@ -1558,12 +1720,13 @@ async fn independent_sessions_commit_concurrently() {
         let path = dir.join(format!("session-{session}.json"));
         tasks.push(tokio::spawn(async move {
             let store = ThreadSession::for_path(path);
-            let mut window = Vec::new();
             for turn in 0..TURNS {
-                window.push(user(&format!("s{session} user {turn}")));
-                window.push(assistant(&format!("s{session} reply {turn}")));
+                let delta = [
+                    user(&format!("s{session} user {turn}")),
+                    assistant(&format!("s{session} reply {turn}")),
+                ];
                 store
-                    .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+                    .commit_turn(CommitTurn::new(&delta))
                     .await
                     .expect("every session's commits must succeed");
             }
@@ -1623,10 +1786,7 @@ async fn deleting_all_content_shards_rebuilds_facts_fts_commands_and_workspace_e
         Message::new(Role::User, "rebuildable_needle_phoenix".to_string()),
         Message::new(Role::Assistant, "rebuilt cleanly".to_string()),
     ];
-    store
-        .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
-        .await
-        .unwrap();
+    store.commit_turn(CommitTurn::new(&window)).await.unwrap();
     store
         .mutate_commands(|cmds| {
             cmds.push(protocol::CommandRecord::new("unattended", "on"));
@@ -1698,4 +1858,483 @@ async fn deleting_all_content_shards_rebuilds_facts_fts_commands_and_workspace_e
     assert_eq!(effects[0].before_hash.as_deref(), Some("pre-hash-1"));
     assert_eq!(effects[0].after_hash.as_deref(), Some("post-hash-1"));
     assert!(effects[0].is_undoable());
+}
+
+/// Deleting `shards/` at runtime while `PersistenceHandle` stays live heals
+/// transparently on the next content read (`load_thread` and
+/// `list_workspace_effects`) without restarting (ADR-0255).
+#[tokio::test]
+async fn runtime_deleted_content_shards_self_heal_on_read() {
+    let dir = temp_dir("runtime-shard-self-heal");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path);
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("live shard needle"),
+            assistant("live shard reply"),
+        ]))
+        .await
+        .unwrap();
+    let id = store.id().await;
+    let effect_id = store
+        .writer
+        .append_workspace_effect(crate::workspace_effects::NewOwnedEffect {
+            thread_id: id.clone(),
+            round_id: "r1".to_string(),
+            turn_id: "t1".to_string(),
+            call_id: "c1".to_string(),
+            seq: 1,
+            tool_name: "edit_text".to_string(),
+            path: Some("/ws/live.rs".to_string()),
+            op: crate::workspace_effects::JournalOp::Edit,
+            effect_class: "file_bytes".to_string(),
+            before_hash: Some("pre-live".to_string()),
+            after_hash: None,
+            irreversible_reason: None,
+            created_at_ms: 1_000,
+        })
+        .await
+        .unwrap();
+    assert!(
+        store
+            .writer
+            .complete_workspace_effect(&id, effect_id, Some("post-live".to_string()), 1_500)
+            .await
+            .unwrap()
+    );
+    store.flush_projection().await.unwrap();
+
+    // Remove the entire shards directory while the live handle is running.
+    let shards_dir = store.writer.shards_dir().to_path_buf();
+    assert!(shards_dir.is_dir());
+    std::fs::remove_dir_all(&shards_dir).unwrap();
+    assert!(!shards_dir.exists());
+
+    // Cold read on the existing handle self-heals on demand without restarting.
+    let reader = store.writer.reader().unwrap();
+    let thread = reader
+        .load_thread(&id)
+        .unwrap()
+        .expect("thread must self-heal on read");
+    assert_eq!(thread.graph.len(), 2);
+
+    let effects = store.writer.list_workspace_effects(id).await.unwrap();
+    assert_eq!(effects.len(), 1);
+    assert_eq!(effects[0].id, effect_id);
+    assert_eq!(effects[0].after_hash.as_deref(), Some("post-live"));
+}
+
+/// Cold rebuild from journals preserves arbitrarily deep parent chains
+/// (`root -> child -> grandchild`) and cleanly detaches (`parent_id = None`)
+/// any child whose parent was terminally deleted (ADR-0255).
+#[tokio::test]
+async fn catch_up_rebuilds_multi_level_hierarchy_and_handles_deleted_parent() {
+    let dir = temp_dir("hierarchy-rebuild");
+    let root = ThreadSession::for_path(dir.join("root.json"));
+    root.commit_turn(CommitTurn::new(&[user("root")]))
+        .await
+        .unwrap();
+    root.flush_projection().await.unwrap();
+    let root_id = root.id().await;
+
+    let (child, _) = ThreadSession::for_subagent(&root, "child-1").unwrap();
+    child
+        .commit_turn(CommitTurn::new(&[user("child")]))
+        .await
+        .unwrap();
+    child.flush_projection().await.unwrap();
+    let child_id = child.id().await;
+
+    let (grandchild, _) = ThreadSession::for_subagent(&child, "grandchild-1").unwrap();
+    grandchild
+        .commit_turn(CommitTurn::new(&[user("grandchild")]))
+        .await
+        .unwrap();
+    grandchild.flush_projection().await.unwrap();
+    let grandchild_id = grandchild.id().await;
+
+    let db_path = root.writer.db_path().to_path_buf();
+    let blobs_dir = dir.join("blobs");
+    drop((root, child, grandchild));
+
+    // Wipe derived SQLite + shards and rebuild all 3 levels.
+    for ext in ["", "-wal", "-shm"] {
+        let p = PathBuf::from(format!("{}{ext}", db_path.display()));
+        let _ = std::fs::remove_file(p);
+    }
+    let _ = std::fs::remove_dir_all(db_path.parent().unwrap().join("shards"));
+
+    let fresh = crate::db::PersistenceHandle::spawn(
+        db_path.clone(),
+        Some(crate::blobs::BlobStore::new(blobs_dir.clone())),
+    );
+    fresh.ensure_ready().unwrap();
+    let repaired = catch_up_projections_for(&fresh).unwrap();
+    assert!(repaired >= 3);
+
+    let reader = fresh.reader().unwrap();
+    assert_eq!(
+        reader.get_session(&root_id).unwrap().unwrap().parent_id,
+        None
+    );
+    assert_eq!(
+        reader
+            .get_session(&child_id)
+            .unwrap()
+            .unwrap()
+            .parent_id
+            .as_deref(),
+        Some(root_id.as_str())
+    );
+    assert_eq!(
+        reader
+            .get_session(&grandchild_id)
+            .unwrap()
+            .unwrap()
+            .parent_id
+            .as_deref(),
+        Some(child_id.as_str())
+    );
+    drop(reader);
+
+    // Now delete `root` (leaving `child` and `grandchild` alive), wipe DB again,
+    // and verify cold rebuild succeeds with `child.parent_id == None` (no FK error).
+    open_journal(fresh.db_path(), &root_id)
+        .mark_deleted()
+        .await
+        .unwrap();
+    let _ = fresh.delete_session(root_id.clone()).await;
+    drop(fresh);
+    for ext in ["", "-wal", "-shm"] {
+        let p = PathBuf::from(format!("{}{ext}", db_path.display()));
+        let _ = std::fs::remove_file(p);
+    }
+    let _ = std::fs::remove_dir_all(db_path.parent().unwrap().join("shards"));
+
+    let rebuilt =
+        crate::db::PersistenceHandle::spawn(db_path, Some(crate::blobs::BlobStore::new(blobs_dir)));
+    rebuilt.ensure_ready().unwrap();
+    let repaired_after_delete = catch_up_projections_for(&rebuilt).unwrap();
+    assert!(repaired_after_delete >= 2);
+    let reader = rebuilt.reader().unwrap();
+    assert!(reader.get_session(&root_id).unwrap().is_none());
+    assert_eq!(
+        reader.get_session(&child_id).unwrap().unwrap().parent_id,
+        None,
+        "orphaned child must detach cleanly instead of failing FK on rebuild"
+    );
+    assert_eq!(
+        reader
+            .get_session(&grandchild_id)
+            .unwrap()
+            .unwrap()
+            .parent_id
+            .as_deref(),
+        Some(child_id.as_str())
+    );
+}
+
+/// Oversized message bodies and inline base64 images are offloaded to CAS
+/// before journal write, tracked in `thread_blob_refs` so CAS GC keeps them
+/// alive, and rehydrated byte-for-byte on reopen (ADR-0255 `[INV-SHARD-04]`).
+#[tokio::test]
+async fn large_text_and_base64_images_offload_to_cas_survive_gc_and_rehydrate() {
+    let dir = temp_dir("blob-offload-images");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+
+    let big_text = "x".repeat(crate::db::CAS_THRESHOLD_BYTES + 1024);
+    let big_image_b64 = "A".repeat(crate::db::CAS_THRESHOLD_BYTES + 2048);
+    let msg =
+        tool::Message::new(tool::Role::User, big_text.clone()).with_images(vec![tool::ImagePart {
+            mime: "image/png".to_string(),
+            data: big_image_b64.clone(),
+        }]);
+
+    store
+        .commit_turn(CommitTurn::new(&[msg, assistant("saw it")]))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+    let id = store.id().await;
+
+    // Raw journal segment must be dramatically smaller than the 16 KiB+ inline payloads.
+    let session_journal_dir = journal_root(store.writer.db_path()).join(&id);
+    let seg_bytes: u64 = std::fs::read_dir(&session_journal_dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("seg-"))
+        .map(|e| e.metadata().unwrap().len())
+        .sum();
+    assert!(
+        seg_bytes < (crate::db::CAS_THRESHOLD_BYTES as u64),
+        "journal segment ({seg_bytes} bytes) must not inline oversized text/image payloads"
+    );
+
+    // CAS GC with zero grace must keep both offloaded blobs alive because
+    // `thread_blob_refs` registered them on the content shard.
+    let live = store.writer.reader().unwrap().live_blob_hashes().unwrap();
+    let expected_text_hash = crate::blobs::BlobStore::hash(big_text.as_bytes());
+    let expected_img_hash = crate::blobs::BlobStore::hash(big_image_b64.as_bytes());
+    assert!(live.contains(&expected_text_hash));
+    assert!(live.contains(&expected_img_hash));
+
+    let (reclaimed, _) = store.blob_store.retain_only(&live);
+    assert_eq!(reclaimed, 0, "live text & image blobs must survive CAS GC");
+
+    // Shard read paths (`load_thread` and `load_session_full`) must also
+    // rehydrate offloaded text and base64 images losslessly via `thread_blob_refs`.
+    let reader = store.writer.reader().unwrap();
+    let loaded_thread = reader.load_thread(&id).unwrap().expect("thread");
+    let first_fact = loaded_thread.all_facts()[0];
+    match &first_fact.payload {
+        protocol::FactPayload::Message { message } => {
+            assert_eq!(message.content, big_text);
+            let shard_imgs = message.images.as_ref().expect("shard image");
+            assert_eq!(shard_imgs[0].data, big_image_b64);
+        }
+        other => panic!("expected message fact, got {other:?}"),
+    }
+    let loaded_full = reader.load_session_full(&id).unwrap().expect("full");
+    let full_msgs = loaded_full.transcript.project_messages();
+    assert_eq!(full_msgs[0].content, big_text);
+    assert_eq!(full_msgs[0].images.as_ref().unwrap()[0].data, big_image_b64);
+    drop(reader);
+
+    // Forking writes a `Full` frame carrying `data.graph`; `data.graph` must
+    // also offload oversized text & images so the journal stays small.
+    store.fork_branch("alt", None).await.unwrap();
+    let seg_bytes_after_fork: u64 = std::fs::read_dir(&session_journal_dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("seg-"))
+        .map(|e| e.metadata().unwrap().len())
+        .sum();
+    assert!(
+        seg_bytes_after_fork < (crate::db::CAS_THRESHOLD_BYTES as u64) * 2,
+        "branched journal segment ({seg_bytes_after_fork} bytes) must offload data.graph blobs too"
+    );
+
+    // Reopening from disk must rehydrate both text and base64 image losslessly.
+    drop(store);
+    let reopened = ThreadSession::for_path(path);
+    let messages = reopened.model_window().await;
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].content, big_text);
+    let imgs = messages[0].images.as_ref().expect("rehydrated image");
+    assert_eq!(imgs.len(), 1);
+    assert_eq!(imgs[0].mime, "image/png");
+    assert_eq!(imgs[0].data, big_image_b64);
+}
+
+/// CAS garbage collection is fail-closed:
+/// 1. `perform_storage_maintenance_blocking` catches up missing shards first
+///    so live blobs are never deleted, and reports exact `pruned_backups`.
+/// 2. `live_blob_hashes` returns `Err` when an existing shard fails schema
+///    verification rather than returning an incomplete live set (ADR-0255).
+#[tokio::test]
+async fn fail_closed_cas_gc_and_accurate_backup_pruning_count() {
+    let dir = temp_dir("fail-closed-gc");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path);
+    let big_text = "z".repeat(crate::db::CAS_THRESHOLD_BYTES + 1024);
+    store
+        .commit_turn(CommitTurn::new(&[user(&big_text), assistant("ok")]))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+    let hash = crate::blobs::BlobStore::hash(big_text.as_bytes());
+    assert!(store.blob_store.exists(&hash));
+
+    // Delete shards completely, then run maintenance twice with retention = 1.
+    let shards_dir = store.writer.shards_dir().to_path_buf();
+    std::fs::remove_dir_all(&shards_dir).unwrap();
+
+    let report1 = store
+        .writer
+        .perform_storage_maintenance_blocking(1)
+        .unwrap();
+    assert!(report1.created_backup.is_some());
+    assert!(report1.created_journal_backup.is_some());
+    assert!(
+        store.blob_store.exists(&hash),
+        "catch-up before GC must preserve authoritative blobs even after shards wipe"
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(15));
+    let report2 = store
+        .writer
+        .perform_storage_maintenance_blocking(1)
+        .unwrap();
+    assert!(
+        report2.pruned_backups >= 2,
+        "second maintenance pass with retention=1 must prune older db + journal backups, got {}",
+        report2.pruned_backups
+    );
+
+    // Plant an unledgered/corrupted shard file: `live_blob_hashes` must fail closed!
+    let bad_shard = shards_dir.join("content-00.db");
+    std::fs::write(&bad_shard, b"not a valid sqlite database").unwrap();
+    let reader = store.writer.reader().unwrap();
+    assert!(
+        reader.live_blob_hashes().is_err(),
+        "corrupted shard must cause live_blob_hashes to fail closed"
+    );
+}
+
+/// Global FTS search self-heals when `shards/` is deleted at runtime while the
+/// handle stays alive (ADR-0255).
+#[tokio::test]
+async fn global_search_self_heals_after_runtime_shards_deletion() {
+    let dir = temp_dir("search-self-heal");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path);
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("unique_global_search_helios_token"),
+            assistant("ack"),
+        ]))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+    let id = store.id().await;
+
+    let shards_dir = store.writer.shards_dir().to_path_buf();
+    std::fs::remove_dir_all(&shards_dir).unwrap();
+    assert!(!shards_dir.exists());
+
+    let reader = store.writer.reader().unwrap();
+    let hits = reader
+        .search_history("unique_global_search_helios_token", None, 10)
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].session_id, id);
+}
+
+#[tokio::test]
+async fn round_summaries_persist_and_upsert_across_journal_reload() {
+    let dir = temp_dir("round-summaries-persist");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+
+    let r1 = protocol::RoundSummary {
+        round: 1,
+        output_tokens: 120,
+        duration_ms: 4_200,
+        paused_ms: 1_100,
+        generation_ms: 2_500,
+        session_revision: 0,
+    };
+    let r2 = protocol::RoundSummary {
+        round: 2,
+        output_tokens: 340,
+        duration_ms: 9_800,
+        paused_ms: 0,
+        generation_ms: 6_100,
+        session_revision: 0,
+    };
+
+    store
+        .commit_turn(CommitTurn {
+            appended: &[user("first"), assistant("ok")],
+            round_counter: Some(1),
+            round_summary: Some(r1),
+            ..CommitTurn::new(&[])
+        })
+        .await
+        .unwrap();
+    store
+        .commit_turn(CommitTurn {
+            appended: &[user("second"), assistant("done")],
+            round_counter: Some(2),
+            round_summary: Some(r2),
+            ..CommitTurn::new(&[])
+        })
+        .await
+        .unwrap();
+
+    // Upsert round 1 (e.g. after `/retry` completion): overwrites slot 1 without duplicating.
+    let r1_updated = protocol::RoundSummary {
+        duration_ms: 5_000,
+        ..r1
+    };
+    store
+        .commit_turn(CommitTurn {
+            appended: &[],
+            round_summary: Some(r1_updated),
+            ..CommitTurn::new(&[])
+        })
+        .await
+        .unwrap();
+
+    let reloaded = ThreadSession::for_path(path);
+    let summaries = reloaded.round_summaries().await;
+    assert_eq!(summaries, vec![r1_updated, r2]);
+}
+
+#[tokio::test]
+async fn context_projection_directives_survive_reopen_without_mutating_facts() {
+    let dir = temp_dir("projection-directive-persist");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path.clone());
+
+    let mut prompt = user("compare these images");
+    prompt.images = Some(vec![
+        tool::ImagePart {
+            mime: "image/png".to_string(),
+            data: "old-pixels".to_string(),
+        },
+        tool::ImagePart {
+            mime: "image/png".to_string(),
+            data: "new-pixels".to_string(),
+        },
+    ]);
+    let mut tool_msg = Message::new(Role::Tool, "huge tool body".repeat(100));
+    tool_msg.tool_call_id = Some("call-1".to_string());
+
+    store
+        .commit_turn(CommitTurn::new(&[prompt.clone(), tool_msg.clone()]))
+        .await
+        .unwrap();
+
+    let mut projected_prompt = prompt.clone();
+    projected_prompt.content =
+        "compare these images\n[Image Offloaded: image/png elided to relieve request size]"
+            .to_string();
+    projected_prompt.images = Some(vec![tool::ImagePart {
+        mime: "image/png".to_string(),
+        data: "new-pixels".to_string(),
+    }]);
+    let mut projected_tool = tool_msg.clone();
+    projected_tool.content = "[tool output elided]".to_string();
+
+    store
+        .commit_context_projection(ContextProjectionResult {
+            model_window: vec![projected_prompt, projected_tool],
+            archived_originals: vec![prompt, tool_msg],
+            checkpoint: ContextProjectionCheckpoint {
+                operation: ContextProjectionKind::Payload,
+                archived_messages: 2,
+                active_messages: 2,
+                window_tokens_before: 500,
+                window_tokens_after: 50,
+                summary: None,
+                tracked_files: Vec::new(),
+            },
+        })
+        .await
+        .unwrap();
+
+    let reloaded = ThreadSession::for_path(path);
+    let window = reloaded.model_window().await;
+    assert!(window[0].content.contains("[Image Offloaded:"));
+    assert_eq!(window[0].images.as_ref().map(Vec::len), Some(1));
+    assert_eq!(window[0].images.as_ref().unwrap()[0].data, "new-pixels");
+    assert_eq!(window[1].content, "[tool output elided]");
+
+    // Human-facing full transcript stays immutable (ADR-0264 `[INV-PROJ-01]`).
+    let full = reloaded.full_transcript().await;
+    assert_eq!(full[0].content, "compare these images");
+    assert_eq!(full[0].images.as_ref().map(Vec::len), Some(2));
+    assert!(full[1].content.starts_with("huge tool body"));
 }

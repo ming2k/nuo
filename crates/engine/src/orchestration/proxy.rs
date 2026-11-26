@@ -300,9 +300,9 @@ impl<S> Drop for CapturedStream<S> {
 /// turn. Files are owner-only (`0o600`) via `atomic_write_bytes` — request
 /// messages can carry pasted secrets, the same privacy profile as `/export`.
 fn write_capture(capture: &PendingCapture, items: &[serde_json::Value]) {
-    let timestamp = chrono::Utc::now();
+    let timestamp = jiff::Timestamp::now();
     let record = serde_json::json!({
-        "timestamp": timestamp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
         "provider": capture.provider,
         "model": capture.model,
         "kind": capture.kind,
@@ -321,7 +321,7 @@ fn write_capture(capture: &PendingCapture, items: &[serde_json::Value]) {
     };
     let provider_slug = slug(&capture.provider);
     let model_slug = slug(&capture.model);
-    let stamp = timestamp.format("%Y%m%d-%H%M%S%.3f");
+    let stamp = timestamp.strftime("%Y%m%d-%H%M%S%.3f");
     let file = capture.dir.join(format!(
         "{stamp}_{seq:04}_{provider_slug}_{model_slug}.json",
         seq = capture.seq,

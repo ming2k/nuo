@@ -186,10 +186,7 @@ pub fn draw_connections_modal(
                 text: "  ",
                 accent: false,
             },
-            ui_primitives::elevation::HeaderPart::Text {
-                text: spin,
-                accent: true,
-            },
+            ui_primitives::elevation::HeaderPart::running(spin),
             ui_primitives::elevation::HeaderPart::Text {
                 text: " refreshing…",
                 accent: false,

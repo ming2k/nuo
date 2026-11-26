@@ -257,27 +257,20 @@ fn check_bearer_accepts_only_the_exact_token() {
     assert!(!check_bearer(&req(None), expected));
 }
 #[test]
-fn attach_action_roundtrips() {
-    assert_eq!(
-        serde_json::to_string(&AttachAction::New(None)).unwrap(),
-        "\"new\""
-    );
-    assert_eq!(
-        serde_json::to_string(&AttachAction::Attach(Some("abc".into()))).unwrap(),
-        r#"{"attach":"abc"}"#
-    );
-    let back: AttachAction = serde_json::from_str(r#"{"attach":"abc"}"#).unwrap();
-    assert_eq!(back, AttachAction::Attach(Some("abc".into())));
-    // The picker action serializes as a bare unit variant;
-    // an older server that does not know it fails the Select frame with
-    // a clear deserialize error instead of a mid-handshake protocol
-    // fault.
-    assert_eq!(
-        serde_json::to_string(&AttachAction::Picker(None)).unwrap(),
-        "\"picker\""
-    );
-    let back: AttachAction = serde_json::from_str("\"picker\"").unwrap();
-    assert_eq!(back, AttachAction::Picker(None));
+fn thread_target_roundtrips() {
+    let cases = [
+        ThreadTarget::New { options: None },
+        ThreadTarget::Attach {
+            id: Some("abc".into()),
+        },
+        ThreadTarget::Attach { id: None },
+        ThreadTarget::Picker { options: None },
+    ];
+    for target in cases {
+        let json = serde_json::to_string(&target).unwrap();
+        let back: ThreadTarget = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, target);
+    }
 }
 
 fn handshake_req(headers: &[(&str, &str)]) -> Request {
@@ -365,6 +358,7 @@ fn classify_splits_websocket_from_plain_http() {
 #[test]
 fn error_frame_carries_an_optional_code() {
     let with_code = serde_json::to_string(&Wire::Error {
+        request_id: None,
         message: "m".to_string(),
         code: Some(ERR_PROTOCOL_MISMATCH.to_string()),
     })
@@ -373,8 +367,9 @@ fn error_frame_carries_an_optional_code() {
         with_code,
         r#"{"type":"Error","message":"m","code":"protocol_mismatch"}"#
     );
-    // Absent code stays absent on the wire (older clients unaffected).
+    // Absent code stays absent on the wire.
     let without = serde_json::to_string(&Wire::Error {
+        request_id: None,
         message: "m".to_string(),
         code: None,
     })

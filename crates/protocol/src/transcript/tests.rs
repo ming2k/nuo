@@ -291,6 +291,7 @@ fn prune_replaces_user_media_with_invoice_placeholder() {
                     "User prompt with image\n[Image Offloaded: image/png elided to relieve context pressure]\n- Artifact Path: \"{}/abc.png\"",
                     tool::spool_root_dir().display()
                 ),
+                retained_image_indices: vec![],
             }],
         },
     });
@@ -299,6 +300,57 @@ fn prune_replaces_user_media_with_invoice_placeholder() {
     assert_eq!(view.len(), 2);
     assert!(view[0].1.images.is_none());
     assert!(view[0].1.content.contains("abc.png"));
+}
+
+#[test]
+fn partial_media_prune_retains_selected_images_and_keeps_conversation_immutable() {
+    let mut transcript = Transcript::new();
+    let mut msg = Message::new(Role::User, "compare these screenshots");
+    msg.images = Some(vec![
+        tool::ImagePart {
+            mime: "image/png".to_string(),
+            data: "old-a".to_string(),
+        },
+        tool::ImagePart {
+            mime: "image/png".to_string(),
+            data: "old-b".to_string(),
+        },
+        tool::ImagePart {
+            mime: "image/png".to_string(),
+            data: "newest".to_string(),
+        },
+    ]);
+    transcript.push(TranscriptEntry::from_message(0, &msg));
+
+    transcript.push_directive(ProjectionDirective {
+        seq: 0,
+        kind: DirectiveKind::Prune,
+        up_to_seq: 0,
+        payload: DirectivePayload::Prune {
+            elided: vec![],
+            pruned_media: vec![PrunedMediaOutput {
+                seq: 0,
+                placeholder: "compare these screenshots\n[Image Offloaded: image/png]".to_string(),
+                retained_image_indices: vec![2],
+            }],
+        },
+    });
+
+    let view = transcript.project();
+    assert_eq!(view.len(), 1);
+    assert!(view[0].1.content.contains("[Image Offloaded:"));
+    let retained = view[0].1.images.as_ref().expect("newest image retained");
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].data, "newest");
+
+    // Conversation view stays immutable with all 3 original images intact.
+    let conversation = transcript.conversation_messages();
+    assert_eq!(conversation[0].content, "compare these screenshots");
+    assert_eq!(
+        conversation[0].images.as_ref().map(Vec::len),
+        Some(3),
+        "immutable conversation facts must retain every original attachment"
+    );
 }
 
 /// The model-facing projection may fold; the conversation may not

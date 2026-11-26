@@ -16,7 +16,6 @@ pub mod permission_policy;
 pub mod permission_store;
 pub mod scoped_tools;
 pub mod shell_input;
-pub mod stream_loop_detector;
 pub mod trajectory_guard;
 
 pub use bash_policy::{BashPolicy, BashPolicyAction, BashPolicyMatch};
@@ -30,7 +29,6 @@ pub use permission_store::{
     LoadedPermissionRules, PermissionBackend, PermissionRule, PermissionScopeKey, PermissionStore,
 };
 pub use scoped_tools::ScopedToolDisable;
-pub use stream_loop_detector::{DegeneratePattern, StreamLoopDetector};
 pub use trajectory_guard::TrajectoryLoopGuard;
 
 /// Acquire a `Mutex` guard, recovering from poisoning via `into_inner()`.

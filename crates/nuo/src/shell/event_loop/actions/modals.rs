@@ -635,16 +635,11 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     app.surfaces.config_hover_index = None;
                 }
                 crate::shell::overlays::ConfigFocus::Detail => {
-                    let ws_path = if app.threads.current_workspace.is_empty() {
-                        None
-                    } else {
-                        Some(std::path::Path::new(&app.threads.current_workspace))
-                    };
                     let active_category = crate::shell::overlays::ConfigCategory::from_index(
                         app.surfaces.config_category,
                     );
                     let count = active_category.detail_item_count(
-                        ws_path,
+                        &app.surfaces.theme_files,
                         app.surfaces.websearch_config.as_ref(),
                         &app.surfaces.profile,
                     );
@@ -695,16 +690,11 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     app.surfaces.config_hover_index = None;
                 }
                 crate::shell::overlays::ConfigFocus::Detail => {
-                    let ws_path = if app.threads.current_workspace.is_empty() {
-                        None
-                    } else {
-                        Some(std::path::Path::new(&app.threads.current_workspace))
-                    };
                     let active_category = crate::shell::overlays::ConfigCategory::from_index(
                         app.surfaces.config_category,
                     );
                     let count = active_category.detail_item_count(
-                        ws_path,
+                        &app.surfaces.theme_files,
                         app.surfaces.websearch_config.as_ref(),
                         &app.surfaces.profile,
                     );

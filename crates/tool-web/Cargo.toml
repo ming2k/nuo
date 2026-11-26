@@ -10,7 +10,7 @@ description = "Web search and reader tools for Nuo cognitive agents"
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 http = { workspace = true }
 netune = { workspace = true }
 tool = { workspace = true }

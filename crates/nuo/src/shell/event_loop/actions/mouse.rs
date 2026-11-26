@@ -805,25 +805,21 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     // text under the user's pointer.
     let tab_hover = match app.viewport.ui.target(x, y) {
         Some(crate::shell::ui::UiKey::TabBarClose(index)) => {
-            Some(crate::shell::view_header::TabBarHover::Close(index))
+            Some(view::view_header::TabBarHover::Close(index))
         }
         Some(crate::shell::ui::UiKey::TabBarItem(index)) => {
-            Some(crate::shell::view_header::TabBarHover::Tab(index))
+            Some(view::view_header::TabBarHover::Tab(index))
         }
-        Some(crate::shell::ui::UiKey::TabBarAdd) => {
-            Some(crate::shell::view_header::TabBarHover::Add)
-        }
-        Some(crate::shell::ui::UiKey::TabBarHelp) => {
-            Some(crate::shell::view_header::TabBarHover::Help)
-        }
-        Some(crate::shell::ui::UiKey::TabBar) => Some(crate::shell::view_header::TabBarHover::Rail),
+        Some(crate::shell::ui::UiKey::TabBarAdd) => Some(view::view_header::TabBarHover::Add),
+        Some(crate::shell::ui::UiKey::TabBarHelp) => Some(view::view_header::TabBarHover::Help),
+        Some(crate::shell::ui::UiKey::TabBar) => Some(view::view_header::TabBarHover::Rail),
         _ => None,
     };
     let previous_anchor = app
         .surfaces
         .tab_hover
-        .map(crate::shell::view_header::TabBarHover::anchor);
-    let next_anchor = tab_hover.map(crate::shell::view_header::TabBarHover::anchor);
+        .map(view::view_header::TabBarHover::anchor);
+    let next_anchor = tab_hover.map(view::view_header::TabBarHover::anchor);
     app.surfaces.tab_hover = tab_hover;
     app.surfaces.tab_hover_since = match (tab_hover, next_anchor) {
         (None, _) => None,

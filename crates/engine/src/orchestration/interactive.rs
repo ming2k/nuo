@@ -21,7 +21,14 @@ pub struct InteractiveRoundContext {
     pub retry_max_ms: u64,
 }
 
-pub async fn start_interactive_round(context: InteractiveRoundContext, input: RoundInput) {
+/// Start an interactive round task and return an admission oneshot that
+/// resolves to `true` once the round passes `UserPromptSubmit` hooks and
+/// commits its opening prompt, or `false` (or closed) if admission was denied
+/// or failed before commit.
+pub async fn start_interactive_round(
+    context: InteractiveRoundContext,
+    input: RoundInput,
+) -> tokio::sync::oneshot::Receiver<bool> {
     // Snapshot the counter *before* `begin`: this is the number the round
     // this task is about to run will be admitted under (fresh rounds bump in
     // `execute_round`; a `/retry` resume keeps the stopped round's frozen
@@ -79,6 +86,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
     // The spawned tail records the round-interrupt into its own store handle
     // (C11); `RoundContext` consumes `context.session`, so keep an extra Arc.
     let session_for_tail = Arc::clone(&context.session);
+    let (admitted_tx, admitted_rx) = tokio::sync::oneshot::channel();
 
     tokio::spawn(async move {
         // Supervised round task: the tail below (close_user_input_round →
@@ -91,7 +99,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
         // a visible `RoundEvent::Error` instead of silence.
         send_harness_state_running(&context.tx, &context.session_id, &context.agent);
         let result = {
-            let round_fut = execute_round(
+            let round_fut = execute_round_with_admission(
                 RoundContext {
                     agent: context.agent.clone(),
                     tx: context.tx.clone(),
@@ -106,6 +114,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
                     emit_round_completed: true,
                 },
                 input,
+                Some(admitted_tx),
             );
             match futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(round_fut)).await {
                 Ok(result) => result,
@@ -246,4 +255,6 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
             }
         }
     });
+
+    admitted_rx
 }

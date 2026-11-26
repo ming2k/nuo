@@ -31,6 +31,8 @@ pub(crate) struct PaletteContext {
     pub focus: FocusPlane,
     /// Whether the Settings scene's detail pane owns focus (segment verbs).
     pub settings_detail: bool,
+    /// Active view inside `DialogKind::SessionTrace` (ADR-0263 `[INV-TRACE-02]`).
+    pub trace_view: crate::shell::surfaces::TraceView,
     pub tabs: Vec<TabRef>,
     /// Effective chords, so every keycap shown is the one that fires.
     pub global_keys: GlobalOverrides,
@@ -93,6 +95,12 @@ impl PaletteContext {
             focus: app.threads.focus.plane(),
             settings_detail: app.surfaces.config_focus
                 == crate::shell::overlays::ConfigFocus::Detail,
+            trace_view: app
+                .surfaces
+                .surfaces
+                .dlg::<crate::shell::surfaces::SessionTraceDialog>()
+                .view
+                .clone(),
             tabs,
             global_keys: app.surfaces.key_overrides.clone(),
             surface_keys: app.surfaces.surface_overrides.clone(),

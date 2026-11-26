@@ -8,7 +8,7 @@
 //! 2. [`SessionBlobAdapter`] implements the harness's [`PreImageStore`] over the
 //!    session's existing content-addressed store.
 //!
-//! Both are deliberately thin. The interesting decisions live in `nuo-harness`
+//! Both are deliberately thin. The interesting decisions live in `engine`
 //! (what to capture, when to veto, how to reverse) and `persistence` (the
 //! schema, the immutability triggers, the queries). This module is only the seam
 //! where those two meet a live session, so it is the one place that knows both

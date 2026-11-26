@@ -166,11 +166,6 @@ pub(crate) struct ContextState {
     /// Optional mid-turn model-context projection gate.
     pub(crate) context_projection_gate:
         Arc<std::sync::Mutex<Option<Arc<dyn ContextProjectionGate>>>>,
-    /// Set when a context projection replaced the live window; consumed by the
-    /// next durable commit to pick [`CommitBasis::Reprojected`] instead of the
-    /// O(delta) append path. Conservative by construction: a spurious `true`
-    /// costs one comparison, a missing `true` could persist a stale prefix.
-    pub(crate) history_reprojected: std::sync::atomic::AtomicBool,
     /// Learned per-route image-input suppression: the
     /// [`RouteFingerprint`] of the route on
     /// which a provider rejected image input, once the harness has seen that
@@ -255,12 +250,6 @@ pub(crate) struct ControlState {
     /// whole registry without the insertion points holding the lock across the
     /// async `fire` — they clone the `Arc` and drop the guard first.
     pub(crate) hooks: crate::runtime::hook_runner::HookRunner,
-    /// Title-established observer installed by the session driver: fired
-    /// once when the background titler durably persists a session's first
-    /// title, so the runtime can push a fresh sessions overview (and the
-    /// monitor tap republishes the row) to every attached client. `None`
-    /// keeps titling silent (subagents, tests).
-    pub(crate) title_established: std::sync::Mutex<Option<TitleEstablishedFn>>,
     /// Optional mid-round save point invoked at every ReAct-turn boundary
     /// (ADR-0048). The embedding (orchestration) installs a closure that
     /// durably appends the round's new messages to the session log so a crash

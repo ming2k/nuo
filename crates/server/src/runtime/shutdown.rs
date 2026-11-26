@@ -59,6 +59,76 @@ impl std::fmt::Display for ShutdownReason {
     }
 }
 
+/// Single source of truth for the server process's global lifecycle phase
+/// (ADR-0260 `[INV-SRVPHASE-01]`).
+///
+/// Every server-level phase projection (`Wire::ServerHello`,
+/// `MonitorEvent::ServerPhaseChanged`, `MonitorSnapshot.server_phase`, HTTP
+/// `/healthz` and `/readyz`) reads from this one watch channel so no peer can
+/// observe conflicting phases or lose a transition to broadcast lag.
+#[derive(Clone)]
+pub struct ServerLifecycle {
+    server_id: String,
+    phase_tx: tokio::sync::watch::Sender<protocol::ServerPhase>,
+    phase_rx: tokio::sync::watch::Receiver<protocol::ServerPhase>,
+}
+
+impl ServerLifecycle {
+    /// Construct a lifecycle already in [`protocol::ServerPhase::Ready`]
+    /// (used by standalone/prehost registries and tests).
+    pub fn new_ready() -> Self {
+        Self::with_phase(protocol::ServerPhase::Ready)
+    }
+
+    /// Construct a lifecycle starting in [`protocol::ServerPhase::Initializing`]
+    /// at `stage` (used by `host::run_inner` before binding listeners).
+    pub fn new_initializing(stage: protocol::ServerInitStage) -> Self {
+        Self::with_phase(protocol::ServerPhase::Initializing { stage })
+    }
+
+    fn with_phase(initial: protocol::ServerPhase) -> Self {
+        let (phase_tx, phase_rx) = tokio::sync::watch::channel(initial);
+        Self {
+            server_id: uuid::Uuid::new_v4().to_string(),
+            phase_tx,
+            phase_rx,
+        }
+    }
+
+    /// Unique server boot identifier generated once per process start.
+    pub fn server_id(&self) -> &str {
+        &self.server_id
+    }
+
+    /// Current global lifecycle phase.
+    pub fn phase(&self) -> protocol::ServerPhase {
+        self.phase_rx.borrow().clone()
+    }
+
+    /// Subscribe to phase transitions without broadcast-lag drops.
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<protocol::ServerPhase> {
+        self.phase_rx.clone()
+    }
+
+    /// Advance the server phase. Returns `true` if the phase actually changed.
+    pub fn set_phase(&self, next: protocol::ServerPhase) -> bool {
+        self.phase_tx.send_if_modified(|current| {
+            if *current == next {
+                false
+            } else {
+                *current = next;
+                true
+            }
+        })
+    }
+}
+
+impl Default for ServerLifecycle {
+    fn default() -> Self {
+        Self::new_ready()
+    }
+}
+
 /// Single shutdown trigger point: a cancellation gate plus the reason it
 /// fired (first wins). Clone the gate into every subsystem that needs to
 /// observe "the server is going down"; ask it why afterwards.

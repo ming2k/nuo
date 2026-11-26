@@ -22,11 +22,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo::runtime::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
-use nuo::runtime::registry::{HostedThread, ThreadRegistry};
-use nuo::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
 use persistence::thread::ThreadSession;
 use protocol::MonitorEvent;
+use server::runtime::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
+use server::runtime::registry::{HostedThread, ThreadRegistry};
+use server::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
 use server::transport::serve::ServeExpose;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
@@ -96,8 +96,8 @@ fn test_identity() -> HostIdentity {
 struct HeadlessProbe;
 
 #[async_trait::async_trait]
-impl nuo::UiBridge for HeadlessProbe {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo::CopyOutcome, String> {
+impl server::UiBridge for HeadlessProbe {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::CopyOutcome, String> {
         Err("probe: headless".to_string())
     }
 }
@@ -111,7 +111,7 @@ async fn host_one(registry: &Arc<ThreadRegistry>, project: &str) -> String {
     let id = session.id().await;
     let id_ret = id.clone();
     let tracker = Arc::new(Mutex::new(
-        nuo::runtime::monitor::MonitorTracker::bootstrap(
+        server::runtime::monitor::MonitorTracker::bootstrap(
             protocol::MonitoredThread::empty(id),
             protocol::ThreadActivity::Idle,
         ),
@@ -178,7 +178,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
         trigger_gate.request(ShutdownReason::ControlVerb, false);
     });
 
-    let outcome = nuo::runtime::host::run_with_registry(
+    let outcome = server::runtime::host::run_with_registry(
         test_identity(),
         options(tmp.path().join("a.sock"), 0),
         gate,
@@ -207,7 +207,9 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     let mut saw_removed = false;
     while let Ok(event) = monitor_rx.try_recv() {
         match event {
-            MonitorEvent::ServerDraining => saw_draining = true,
+            MonitorEvent::ServerPhaseChanged(protocol::ServerPhase::Draining { .. }) => {
+                saw_draining = true
+            }
             MonitorEvent::ThreadRemoved { .. } => saw_removed = true,
             _ => {}
         }
@@ -230,7 +232,7 @@ async fn idle_exit_triggers_after_the_grace_period() {
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let gate = Arc::new(ShutdownGate::new());
     let _ = registry;
-    let outcome = nuo::runtime::host::run_with_gate(
+    let outcome = server::runtime::host::run_with_gate(
         test_identity(),
         options(tmp.path().join("b.sock"), 0),
         gate,
@@ -269,7 +271,7 @@ async fn escalation_skips_the_graceful_phases() {
     let run_gate = gate.clone();
     let run_probe = probe.clone();
     let run = tokio::spawn(async move {
-        nuo::runtime::host::run_with_registry(
+        server::runtime::host::run_with_registry(
             test_identity(),
             options(sock, 0),
             run_gate,
@@ -303,7 +305,9 @@ async fn escalation_skips_the_graceful_phases() {
     let mut saw_removed = false;
     while let Ok(event) = monitor_rx.try_recv() {
         match event {
-            MonitorEvent::ServerDraining => saw_draining = true,
+            MonitorEvent::ServerPhaseChanged(protocol::ServerPhase::Draining { .. }) => {
+                saw_draining = true
+            }
             MonitorEvent::ThreadRemoved { .. } => saw_removed = true,
             _ => {}
         }
@@ -326,7 +330,7 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let _ = registry;
-    let outcome = nuo::runtime::host::run_with_gate(
+    let outcome = server::runtime::host::run_with_gate(
         test_identity(),
         options(tmp.path().join("d.sock"), taken),
         Arc::new(ShutdownGate::new()),
@@ -370,7 +374,7 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
         let (req_tx, _req_rx) = mpsc::channel::<protocol::AgentRequest>(512);
         let (bc_tx, _) = broadcast::channel::<protocol::AgentResponse>(16);
         let tracker = Arc::new(Mutex::new(
-            nuo::runtime::monitor::MonitorTracker::bootstrap(
+            server::runtime::monitor::MonitorTracker::bootstrap(
                 protocol::MonitoredThread::empty(session.id().await),
                 protocol::ThreadActivity::Idle,
             ),
@@ -443,7 +447,7 @@ async fn server_persists_when_interactive_client_disconnects() {
     let gate_run = gate.clone();
     let sock_clone = sock.clone();
     let run = tokio::spawn(async move {
-        nuo::runtime::host::run_with_registry(
+        server::runtime::host::run_with_registry(
             test_identity(),
             options(sock_clone, 0),
             gate_run,
@@ -469,20 +473,32 @@ async fn server_persists_when_interactive_client_disconnects() {
     let (mut sink, mut source) = nuo::transport::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(protocol::Wire::Select {
-        action: protocol::AttachAction::Attach(None),
-        project: Some(proj_dir),
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        version: None,
+    sink.send(protocol::Wire::Hello {
         protocol: protocol::PROTOCOL_VERSION,
+        version: None,
+        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        monitor: None,
+    })
+    .await
+    .unwrap();
+    let hello = source.next().await.unwrap().unwrap();
+    assert!(matches!(
+        hello,
+        protocol::WireFrame::Wire(protocol::Wire::ServerHello { .. })
+    ));
+
+    sink.send(protocol::Wire::Subscribe {
+        request_id: 1,
+        target: protocol::ThreadTarget::Attach { id: None },
+        project: Some(proj_dir),
     })
     .await
     .unwrap();
 
-    let welcome = source.next().await.unwrap().unwrap();
+    let sub = source.next().await.unwrap().unwrap();
     assert!(matches!(
-        welcome,
-        protocol::WireFrame::Wire(protocol::Wire::Welcome { .. })
+        sub,
+        protocol::WireFrame::Wire(protocol::Wire::Subscribed { .. })
     ));
 
     // Disconnect (Detach) the interactive client
@@ -537,7 +553,7 @@ async fn client_detach_spares_active_autonomous_work() {
     let gate_clone = gate.clone();
     let sock_clone = sock.clone();
     let run = tokio::spawn(async move {
-        nuo::runtime::host::run_with_registry(
+        server::runtime::host::run_with_registry(
             test_identity(),
             options(sock_clone, 0),
             gate_clone,
@@ -563,20 +579,32 @@ async fn client_detach_spares_active_autonomous_work() {
     let (mut sink, mut source) = nuo::transport::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(protocol::Wire::Select {
-        action: protocol::AttachAction::Attach(None),
-        project: Some(proj_dir),
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        version: None,
+    sink.send(protocol::Wire::Hello {
         protocol: protocol::PROTOCOL_VERSION,
+        version: None,
+        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        monitor: None,
+    })
+    .await
+    .unwrap();
+    let hello = source.next().await.unwrap().unwrap();
+    assert!(matches!(
+        hello,
+        protocol::WireFrame::Wire(protocol::Wire::ServerHello { .. })
+    ));
+
+    sink.send(protocol::Wire::Subscribe {
+        request_id: 1,
+        target: protocol::ThreadTarget::Attach { id: None },
+        project: Some(proj_dir),
     })
     .await
     .unwrap();
 
-    let welcome = source.next().await.unwrap().unwrap();
+    let sub = source.next().await.unwrap().unwrap();
     assert!(matches!(
-        welcome,
-        protocol::WireFrame::Wire(protocol::Wire::Welcome { .. })
+        sub,
+        protocol::WireFrame::Wire(protocol::Wire::Subscribed { .. })
     ));
 
     // Disconnect (Detach) the interactive client
@@ -614,7 +642,7 @@ async fn conflicting_stale_socket_is_directly_replaced() {
         g1.request(ShutdownReason::ControlVerb, false);
     });
 
-    let outcome = nuo::runtime::host::run_with_registry(
+    let outcome = server::runtime::host::run_with_registry(
         test_identity(),
         options(sock.clone(), 0),
         gate,
@@ -632,4 +660,101 @@ async fn conflicting_stale_socket_is_directly_replaced() {
         RunOutcome::Stopped { reason } => assert_eq!(*reason, ShutdownReason::ControlVerb),
         other => panic!("expected ControlVerb, got {other:?}"),
     }
+}
+
+/// ADR-0260 `[INV-SRVPHASE-01]`, `[INV-SRVPHASE-02]`: verifies the real
+/// `host::run_with_registry` listen-first startup path advances
+/// `Initializing(Storage) -> Initializing(Runtime) -> Ready` after binding
+/// listeners and publishing discovery, and serves live `ServerPhase` events.
+#[tokio::test]
+async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_control() {
+    sandbox_once();
+    let _lock = LIFECYCLE_TEST_LOCK.lock().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let sock = tmp.path().join("init-seq.sock");
+
+    let registry = Arc::new(ThreadRegistry::prehost_only());
+    registry.set_server_phase(protocol::ServerPhase::Initializing {
+        stage: protocol::ServerInitStage::Storage,
+    });
+    let mut monitor_rx = registry.subscribe_monitor();
+
+    let gate = Arc::new(ShutdownGate::new());
+    let run_gate = gate.clone();
+    let run_reg = registry.clone();
+    let run_sock = sock.clone();
+    let run = tokio::spawn(async move {
+        server::runtime::host::run_with_registry(
+            test_identity(),
+            options(run_sock, 0),
+            run_gate,
+            LifecycleOptions {
+                shutdown_grace: Duration::from_secs(3),
+                idle_exit: None,
+                drain_probe: None,
+            },
+            run_reg,
+        )
+        .await
+    });
+
+    // Wait for Storage -> Runtime -> Ready to publish over the live monitor bus.
+    let mut observed = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout_at(deadline, monitor_rx.recv()).await {
+            Ok(Ok(MonitorEvent::ServerPhaseChanged(phase))) => {
+                let is_ready = phase == protocol::ServerPhase::Ready;
+                observed.push(phase);
+                if is_ready {
+                    break;
+                }
+            }
+            Ok(Ok(_)) => continue,
+            _ => break,
+        }
+    }
+
+    assert!(
+        observed.contains(&protocol::ServerPhase::Initializing {
+            stage: protocol::ServerInitStage::Runtime,
+        }),
+        "must observe Initializing(Runtime) stage during real host startup, got {observed:?}"
+    );
+    assert_eq!(
+        observed.last(),
+        Some(&protocol::ServerPhase::Ready),
+        "host startup must finish in ServerPhase::Ready, got {observed:?}"
+    );
+    assert_eq!(registry.server_phase(), protocol::ServerPhase::Ready);
+
+    // Connect over the bound local IPC socket and verify ServerHello reports Ready.
+    let endpoint = host::ipc::LocalEndpoint::UnixSocket(sock.clone());
+    let stream = host::ipc::connect(&endpoint).await.unwrap();
+    let (mut sink, mut source) = server::transport::wire_channel::native_framed_split(stream);
+    use futures::{SinkExt, StreamExt};
+    sink.send(protocol::Wire::Hello {
+        protocol: protocol::PROTOCOL_VERSION,
+        version: None,
+        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        monitor: Some(protocol::MonitorAction {
+            watch: false,
+            include_idle: true,
+        }),
+    })
+    .await
+    .unwrap();
+    let frame = source.next().await.unwrap().unwrap();
+    assert!(matches!(
+        frame,
+        protocol::WireFrame::Wire(protocol::Wire::ServerHello {
+            phase: protocol::ServerPhase::Ready,
+            monitor: Some(_),
+            ..
+        })
+    ));
+
+    gate.request(ShutdownReason::ControlVerb, false);
+    let outcome = run.await.unwrap();
+    assert_eq!(outcome.exit_code(), 0);
 }

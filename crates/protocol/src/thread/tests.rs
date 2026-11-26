@@ -250,9 +250,9 @@ fn a_fold_never_moves_a_fact_out_of_the_gc_roots() {
         .unwrap();
     // `a` is folded but still reachable: the kept tail's parent edge crosses
     // the folded range, so retention is not a side effect of a token budget.
-    assert!(thread.live_facts().contains(&a));
-    assert!(!thread.gc_eligible_facts().contains(&a));
-    assert!(!thread.gc_eligible_facts().contains(&b));
+    let live = thread.live_facts();
+    assert!(live.contains(&a));
+    assert!(live.contains(&b));
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn live_facts_are_the_union_of_branch_paths() {
 }
 
 #[test]
-fn gc_eligibility_is_reachability_from_every_branch() {
+fn folded_facts_stay_reachable_after_sibling_branch_deletion() {
     let mut thread = thread();
     let a = thread
         .append(notice("a"), FactContext::default(), 1_001)
@@ -350,22 +350,20 @@ fn gc_eligibility_is_reachability_from_every_branch() {
     thread
         .compact(&BranchId::main(), "summary", b.clone(), 100, 1_004)
         .unwrap();
-    // `a` is reachable from `side`, so it is not garbage; only a fact no
-    // branch reaches at all is.
-    assert!(!thread.gc_eligible_facts().contains(&a));
+    assert!(thread.live_facts().contains(&a));
     thread.delete_branch(&branch, 1_005).unwrap();
     assert!(
-        !thread.gc_eligible_facts().contains(&a),
+        thread.live_facts().contains(&a),
         "the folded fact is still on main's conversation path"
     );
-    let orphan = thread
-        .append(notice("orphan"), FactContext::default(), 1_006)
+    let kept = thread
+        .append(notice("kept"), FactContext::default(), 1_006)
         .unwrap();
     thread
-        .compact(&BranchId::main(), "second", orphan.clone(), 10, 1_007)
+        .compact(&BranchId::main(), "second", kept.clone(), 10, 1_007)
         .unwrap();
     assert!(
-        !thread.gc_eligible_facts().contains(&orphan),
+        thread.live_facts().contains(&kept),
         "the kept fact is live by construction"
     );
 }
@@ -456,125 +454,13 @@ fn tool_observations_round_trip() {
 }
 
 #[test]
-fn apply_delta_is_idempotent() {
-    let mut thread = thread();
-    thread
-        .append(notice("one"), FactContext::default(), 1_001)
-        .unwrap();
-    let delta = thread.drain_delta(0);
-    let mut clone = Thread::new(ThreadId::new("thread-1"), 1_000);
-    clone.apply_delta(delta.clone()).unwrap();
-    clone.apply_delta(delta).unwrap();
-    assert_eq!(clone.max_seq(), 1);
-    assert_eq!(clone.revision, ThreadRevision(1));
-}
-
-#[test]
-fn command_replay_shape_is_stable() {
-    let mut thread = thread();
-    let outcome = thread
-        .apply_command(
-            ThreadCommand::AppendFacts {
-                facts: vec![ThreadFact::new(
-                    FactId::from_raw("fact-1"),
-                    None,
-                    1,
-                    1_001,
-                    notice("one"),
-                    FactContext::default(),
-                )],
-            },
-            1_001,
-        )
-        .unwrap();
-    assert!(matches!(outcome, CommandOutcome::Appended { .. }));
-    assert_eq!(thread.max_seq(), 1);
-    assert_eq!(
-        thread.graph.get(&FactId::from_raw("fact-1")).unwrap().seq,
-        1
-    );
-    // A second command that reuses the fact identity is rejected: fact ids
-    // are never reused, even through a different command envelope.
-    let error = thread
-        .apply_command(
-            ThreadCommand::AppendFacts {
-                facts: vec![ThreadFact::new(
-                    FactId::from_raw("fact-1"),
-                    Some(FactId::from_raw("fact-1")),
-                    2,
-                    1_002,
-                    notice("two"),
-                    FactContext::default(),
-                )],
-            },
-            1_002,
-        )
-        .unwrap_err();
-    assert!(matches!(error, ThreadError::DuplicateFact(_)));
-}
-
-#[test]
-fn branch_promotion_is_explicitly_unsupported() {
-    let mut thread = thread();
-    let error = thread
-        .apply_command(
-            ThreadCommand::PromoteBranch {
-                branch: BranchId::main(),
-            },
-            1_001,
-        )
-        .unwrap_err();
-    assert_eq!(error, ThreadError::UnsupportedPromotion);
-}
-
-#[test]
 fn archived_thread_rejects_writes() {
     let mut thread = thread();
-    thread.apply_command(ThreadCommand::Archive, 1_001).unwrap();
-    assert_eq!(thread.state.status, ThreadStatus::Archived);
+    thread.state.status = ThreadStatus::Archived;
     assert_eq!(
         thread
             .append(notice("nope"), FactContext::default(), 1_002)
             .unwrap_err(),
         ThreadError::Archived
     );
-}
-
-#[test]
-fn transcript_page_is_branch_scoped_and_pageable() {
-    let mut thread = thread();
-    for i in 0..5 {
-        thread
-            .append(message(&format!("m{i}")), FactContext::default(), 1_001 + i)
-            .unwrap();
-    }
-    let first = TranscriptView::from_thread(&thread, &BranchId::main(), None, 3).unwrap();
-    assert_eq!(first.items.len(), 3);
-    assert!(first.next_before.is_some());
-    let older =
-        TranscriptView::from_thread(&thread, &BranchId::main(), first.next_before.as_ref(), 3)
-            .unwrap();
-    assert_eq!(older.items.len(), 2);
-    assert_eq!(older.next_before, None);
-}
-
-#[test]
-fn fact_envelope_rejects_a_newer_schema() {
-    let thread = thread();
-    let fact = ThreadFact::new(
-        FactId::from_raw("fact-1"),
-        None,
-        1,
-        1_000,
-        notice("one"),
-        FactContext::default(),
-    );
-    let mut envelope = FactEnvelope::new(fact);
-    assert!(envelope.clone().into_fact().is_ok());
-    envelope.schema_version = FACT_SCHEMA_VERSION + 1;
-    assert!(matches!(
-        envelope.into_fact(),
-        Err(ThreadError::UnsupportedSchema { .. })
-    ));
-    assert!(!thread.graph.is_empty() || thread.graph.is_empty());
 }

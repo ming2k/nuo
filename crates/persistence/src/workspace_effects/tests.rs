@@ -9,19 +9,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
-use crate::db::open_in_memory_for_tests;
+use crate::db::migrations::open_content_shard_in_memory_for_tests;
 
 const THREAD: &str = "thread-1";
 const OTHER_THREAD: &str = "thread-2";
-
-/// Insert a thread row so the journal's foreign key is satisfiable.
-fn seed_thread(conn: &Connection, thread_id: &str) {
-    conn.execute(
-        "INSERT INTO threads (id, title, created_at_ms, updated_at_ms) VALUES (?1, '', 0, 0)",
-        params![thread_id],
-    )
-    .unwrap();
-}
 
 /// A write-ahead effect: pre-image known, post-image not yet observed.
 fn new_edit<'a>(seq: i64, path: &'a str, before: &'a str) -> NewWorkspaceEffect<'a> {
@@ -52,8 +43,7 @@ fn append_completed(conn: &Connection, effect: &NewWorkspaceEffect<'_>, after: &
 
 #[test]
 fn append_and_read_back_preserves_every_field() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     let id = append_completed(&conn, &new_edit(1, "/ws/src/lib.rs", "aaa"), "bbb");
 
@@ -85,8 +75,7 @@ fn append_and_read_back_preserves_every_field() {
 /// here rather than in production.
 #[test]
 fn write_ahead_effect_is_recorded_before_its_post_image_exists() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     let id = append_effect(&conn, &new_edit(1, "/ws/a.rs", "before")).unwrap();
     let row = &list_effects(&conn, THREAD).unwrap()[0];
@@ -111,8 +100,7 @@ fn write_ahead_effect_is_recorded_before_its_post_image_exists() {
 /// "helpful" repair) could have substituted.
 #[test]
 fn observations_are_write_once() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = append_completed(&conn, &new_edit(1, "/ws/a.rs", "before"), "after");
 
     for (column, value) in [
@@ -151,8 +139,7 @@ fn observations_are_write_once() {
 /// `INV-EFFECT-03`: completion happens at most once and is then frozen.
 #[test]
 fn completion_is_one_shot_and_the_post_image_cannot_be_rewritten() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = append_effect(&conn, &new_edit(1, "/ws/a.rs", "before")).unwrap();
 
     assert!(complete_effect(&conn, id, Some("after"), 2_000).unwrap());
@@ -187,8 +174,7 @@ fn completion_is_one_shot_and_the_post_image_cannot_be_rewritten() {
 /// changed the file — exactly what an incomplete record cannot tell us.
 #[test]
 fn unconfirmed_effect_cannot_be_reversed() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = append_effect(&conn, &new_edit(1, "/ws/a.rs", "before")).unwrap();
 
     let err = conn
@@ -214,8 +200,7 @@ fn unconfirmed_effect_cannot_be_reversed() {
 /// cannot write stale bytes back over content a later round produced.
 #[test]
 fn reversal_is_one_shot_and_cannot_be_cleared() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = append_completed(&conn, &new_edit(1, "/ws/a.rs", "before"), "after");
 
     assert!(mark_reversed(&conn, id, 5_000, None).unwrap());
@@ -238,8 +223,7 @@ fn reversal_is_one_shot_and_cannot_be_cleared() {
 /// `INV-EFFECT-01`: rows are append-only evidence, so there is no delete path.
 #[test]
 fn journal_rows_cannot_be_deleted() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = append_completed(&conn, &new_edit(1, "/ws/a.rs", "before"), "after");
 
     let err = conn
@@ -253,9 +237,7 @@ fn journal_rows_cannot_be_deleted() {
 
 #[test]
 fn reads_are_thread_scoped_and_ordered_by_observation() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
-    seed_thread(&conn, OTHER_THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     // Insert out of seq order to prove the read sorts rather than relying on
     // insertion order (AUTOINCREMENT id and seq need not agree across
@@ -288,8 +270,7 @@ fn reads_are_thread_scoped_and_ordered_by_observation() {
 /// through their own history instead of jumping to the oldest pre-image.
 #[test]
 fn undoable_set_is_reversible_only_and_newest_first() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     let first = append_completed(&conn, &new_edit(1, "/ws/a.rs", "a0"), "a1");
     // A shell-out in the middle: recorded, never undoable, and it *breaks the
@@ -328,8 +309,7 @@ fn undoable_set_is_reversible_only_and_newest_first() {
 /// would mean `/undo` reported work it then refused to do.
 #[test]
 fn undoable_set_excludes_unconfirmed_effects() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     append_effect(&conn, &new_edit(1, "/ws/a.rs", "a0")).unwrap();
     append_completed(&conn, &new_edit(2, "/ws/b.rs", "b0"), "b1");
@@ -344,8 +324,7 @@ fn undoable_set_excludes_unconfirmed_effects() {
 
 #[test]
 fn undoable_set_honours_the_limit() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     for seq in 1..=5 {
         append_completed(&conn, &new_edit(seq, "/ws/a.rs", "x"), "y");
     }
@@ -355,8 +334,7 @@ fn undoable_set_honours_the_limit() {
 
 #[test]
 fn round_scoped_read_starts_at_that_round_boundary() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     let mut r1 = new_edit(1, "/ws/a.rs", "a0");
     r1.round_id = "r1";
@@ -402,16 +380,15 @@ fn round_scoped_read_starts_at_that_round_boundary() {
 /// future build widens the `CHECK` without teaching the parser.
 #[test]
 fn unknown_op_is_refused_on_both_the_write_and_read_paths() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     // Write side: the CHECK constraint closes the vocabulary.
     let err = conn
         .execute(
             "INSERT INTO workspace_effects (
-                thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
+                id, thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
                 effect_class, created_at_ms
-             ) VALUES (?1, 'r1', 't1', 'c1', 1, 'tool', '/ws/a.rs', 'rename', 'file_bytes', 0)",
+             ) VALUES (1, ?1, 'r1', 't1', 'c1', 1, 'tool', '/ws/a.rs', 'rename', 'file_bytes', 0)",
             params![THREAD],
         )
         .expect_err("the op CHECK must refuse an undefined operation");
@@ -431,9 +408,7 @@ fn unknown_op_is_refused_on_both_the_write_and_read_paths() {
 
 #[test]
 fn latest_seq_tracks_the_thread_not_the_table() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
-    seed_thread(&conn, OTHER_THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
 
     assert_eq!(latest_seq(&conn, THREAD).unwrap(), 0);
     append_completed(&conn, &new_edit(1, "/ws/a.rs", "x"), "y");
@@ -450,8 +425,7 @@ fn latest_seq_tracks_the_thread_not_the_table() {
 
 #[test]
 fn irreversibility_reason_survives_round_trip() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     append_completed(
         &conn,
         &NewWorkspaceEffect {
@@ -482,8 +456,7 @@ fn irreversibility_reason_survives_round_trip() {
 /// writing empty content — the operation, not the hash, decides that.
 #[test]
 fn create_effect_has_no_pre_image_and_stays_undoable() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     append_completed(
         &conn,
         &NewWorkspaceEffect {

@@ -169,10 +169,7 @@ pub fn draw_models_modal(
                 text: "  ",
                 accent: false,
             },
-            ui_primitives::elevation::HeaderPart::Text {
-                text: spin,
-                accent: true,
-            },
+            ui_primitives::elevation::HeaderPart::running(spin),
             ui_primitives::elevation::HeaderPart::Text {
                 text: " refreshing…",
                 accent: false,
@@ -213,7 +210,7 @@ pub fn draw_models_modal(
             vec![
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled(format!("{spin} "), Style::default().fg(theme.primary)),
+                    Span::styled(format!("{spin} "), Style::default().fg(theme.running())),
                     Span::styled("Refreshing models…", Style::default().fg(theme.muted())),
                 ]),
             ]
@@ -925,9 +922,10 @@ pub(crate) fn model_detail_body(
             if reset_ms > now_ms {
                 let rem_secs = (reset_ms - now_ms) / 1000;
                 let mins = rem_secs.div_ceil(60);
-                let dt = chrono::DateTime::from_timestamp_millis(reset_ms as i64);
-                let time_str = dt
-                    .map(|d| d.format("%H:%M").to_string())
+                let time_str = i64::try_from(reset_ms)
+                    .ok()
+                    .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+                    .map(|ts| ts.strftime("%H:%M").to_string())
                     .unwrap_or_default();
                 let reset_desc = if mins > 60 {
                     let hrs = mins / 60;

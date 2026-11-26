@@ -5,19 +5,19 @@
 use std::sync::Arc;
 
 use super::sandbox_once;
-use nuo::UiBridge;
-use nuo::composition::bootstrap::{self, BootstrapParams};
-use nuo::composition::startup::ThreadStart;
-use nuo::runtime::thread_driver::send_harness_state_for_session;
 use persistence::thread::ThreadSession;
 use protocol::{AgentResponse, LoopStatus, RetryPoint, RoundEvent};
+use server::UiBridge;
+use server::composition::bootstrap::{self, BootstrapParams};
+use server::composition::startup::ThreadStart;
+use server::runtime::thread_driver::send_harness_state_for_session;
 use tokio::sync::mpsc;
 
 struct HeadlessProbe;
 
 #[async_trait::async_trait]
 impl UiBridge for HeadlessProbe {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo::CopyOutcome, String> {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::CopyOutcome, String> {
         Err("probe: headless".to_string())
     }
 }
@@ -190,7 +190,10 @@ admit_mcp = ["security-scan"]
         tool::Message::new(tool::Role::User, "audit this codebase"),
         tool::Message::new(tool::Role::Assistant, "auditing now"),
     ];
-    store.append_turn(&turn).await.unwrap();
+    store
+        .commit_turn(persistence::CommitTurn::new(&turn))
+        .await
+        .unwrap();
 
     // Verify the store captured the manifest at birth
     let manifest = store.role_manifest().await;

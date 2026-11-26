@@ -134,12 +134,12 @@ pub enum InjectionKind {
     SubagentTask,
     /// Implicit skill auto-load: the latest user round mentioned a skill name,
     /// so the skill body was injected in-context. Site:
-    /// `nuo-harness`'s conversation-context skill-injection policy.
+    /// `engine`'s conversation-context skill-injection policy.
     ImplicitSkill,
     /// Implicit file auto-load: the latest user round referenced a path via
     /// `@file:` / `@files:`, so the file's contents were injected in-context
     /// (sandboxed to the workspace root and capped in size). The companion to
-    /// `ImplicitSkill` for source files. Site: `nuo-harness`'s
+    /// `ImplicitSkill` for source files. Site: `engine`'s
     /// conversation-context file-injection policy.
     ImplicitFile,
     /// Built-in anti-anchoring nudge fired by the deterministic read-loop guard
@@ -149,7 +149,7 @@ pub enum InjectionKind {
     /// backstops (`hard_stop_turns`, `abort`, `Esc`) still cap. This is a
     /// harness-internal steering injection, distinct from the user-configurable
     /// `Hook(Turn)` axis. Site: `Agent::maybe_inject_loop_nudge`
-    /// (`nuo-harness`'s trajectory guard).
+    /// (`guardrails`'s trajectory guard).
     LoopReviewNudge,
     /// Context-compaction checkpoint: an LLM summary of archived rounds wrapped
     /// under the stable checkpoint header. Site: `checkpoint_message`.

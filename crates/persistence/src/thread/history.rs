@@ -2,42 +2,30 @@
 //! bookkeeping, fork/lineage queries, and the session tree.
 use super::*;
 
-/// What the caller guarantees about the durable projection.
+/// One unified append-only turn commit for [`ThreadSession::commit_turn`].
 ///
-/// `commit_turn` used to *infer* append-vs-rebuild by deep-comparing the
-/// caller's whole window against the durable projection on every commit — an
-/// O(history) scan on the turn hot path. The caller already knows: round
-/// admission and turn boundaries append, while a context projection rewrites
-/// committed messages. It now states which; the store verifies the claim with
-/// a single-message tail check instead of scanning history. A failed check
-/// degrades to [`Self::Reprojected`], so a wrong claim costs a comparison, not
-/// data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommitBasis {
-    /// `messages` is the durable projection plus appended messages. The store
-    /// appends the tail without comparing history.
-    Appended,
-    /// `messages` may differ anywhere: a projection rewrote committed
-    /// messages, a rebuild happened, or the caller cannot prove appending.
-    /// The store compares and rebuilds as needed.
-    Reprojected,
-}
-
-/// One unified turn commit for [`ThreadSession::commit_turn`]. `messages` is
-/// the full current window; `basis` says whether its committed prefix is known
-/// to be untouched; `round_counter` is committed only when it differs;
-/// `usage_records` are upserted only where they changed; `retry_point` arms or
-/// clears the retry affordance; `round_interrupt` records an interrupted
-/// outcome.
+/// `appended` contains **strictly the new messages produced since the last
+/// durable commit** — never a projected model window (ADR-0173
+/// `[INV-THREADSSOT-02]`, ADR-0246 `[INV-CMP-08]`). Turn commits are
+/// append-only by construction: they never rewrite or drop prior transcript
+/// entries, never clear `ThreadData::graph`, and never emit
+/// `SaveMode::FullRewrite`.
+///
+/// `round_counter` is committed only when it differs; `usage_records` are
+/// upserted only where they changed; `retry_point` arms or clears the retry
+/// affordance; `round_interrupt` records an interrupted outcome.
 #[derive(Debug, Clone)]
 pub struct CommitTurn<'a> {
-    pub messages: &'a [Message],
-    /// The caller's guarantee about the committed prefix.
-    pub basis: CommitBasis,
+    /// Strictly the newly produced messages to append to the durable transcript.
+    pub appended: &'a [Message],
     pub round_counter: Option<u64>,
     pub usage_records: &'a [protocol::RequestUsageRecord],
     pub retry_point: Option<Option<protocol::RetryPoint>>,
     pub round_interrupt: Option<protocol::RoundInterrupt>,
+    /// Authoritative completion summary for a naturally completed round,
+    /// upserted by `summary.round` inside the same atomic turn commit
+    /// (ADR-0263 `[INV-TRACE-03]`).
+    pub round_summary: Option<protocol::RoundSummary>,
     /// D3 idempotency identity. Replaying the same key returns the
     /// original commit receipt instead of applying the deltas a second time.
     /// `None` mints a fresh identity for this commit.
@@ -61,14 +49,14 @@ pub enum ForkTarget {
 }
 
 impl<'a> CommitTurn<'a> {
-    pub fn new(messages: &'a [Message], basis: CommitBasis) -> Self {
+    pub fn new(appended: &'a [Message]) -> Self {
         Self {
-            messages,
-            basis,
+            appended,
             round_counter: None,
             usage_records: &[],
             retry_point: None,
             round_interrupt: None,
+            round_summary: None,
             operation_id: None,
             expected_revision: None,
         }
@@ -80,16 +68,6 @@ impl<'a> CommitTurn<'a> {
 /// (Kept as a doc anchor; each accessor inlines the guard so the decision and
 /// the persist are atomic under the session lock.)
 fn _persist_guard_doc() {}
-
-/// Wire-normalized equality: harness sidecars (timestamps, display content,
-/// provenance) are not provider-visible content, so comparisons that decide
-/// append-vs-rebuild must ignore them.
-///
-/// Implemented via zero-copy `semantic_wire_eq` to eliminate repetitive heap
-/// allocations and clones on the ReAct turn hot path.
-fn wire_eq(a: &[Message], b: &[Message]) -> bool {
-    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.semantic_wire_eq(y))
-}
 
 impl ThreadSession {
     fn forensics_dir(&self, session_id: &str) -> std::path::PathBuf {
@@ -318,77 +296,14 @@ impl ThreadSession {
         }
     }
 
-    /// Incrementally persist new messages appended since the last durable
-    /// write (ADR-0048). The prefix is compared against the **projection**;
-    /// on divergence the transcript is rebuilt (the caller's window is the
-    /// truth).
-    pub async fn append_turn(&self, current: &[Message]) -> Result<(), String> {
-        let (data, mode, children, undo) = {
-            let mut state = self.state.lock().await;
-            // Built before the first mutation; restored if the frame never
-            // becomes durable. A wholesale rebuild makes this an O(history)
-            // clone, which is the cost the rebuild itself already pays.
-            let undo = SessionUndo::replacing(&state);
-            let durable_len = state.get_or_project_messages().len();
-            if current.len() <= durable_len && !wire_eq(current, state.get_or_project_messages()) {
-                return Ok(());
-            }
-            let old_entries_len = state.data.transcript.entries.len();
-            let mut children = Vec::new();
-            let mut full_rewrite = false;
-            if current.len() > durable_len
-                && wire_eq(&current[..durable_len], state.get_or_project_messages())
-            {
-                let tail = &current[durable_len..];
-                for message in tail {
-                    state
-                        .data
-                        .transcript
-                        .push(protocol::TranscriptEntry::from_message(0, message));
-                }
-                children = admit_subagent_children(&mut state.data, tail);
-                state.append_to_projection_cache(tail);
-            } else if !wire_eq(current, state.get_or_project_messages()) {
-                state.data.transcript = rebuild_transcript_from_messages(current);
-                state.data.graph = None;
-                state.data.generation = uuid::Uuid::new_v4().to_string();
-                children = admit_subagent_children(&mut state.data, current);
-                state.invalidate_projection_cache();
-                full_rewrite = true;
-            }
-            state.data.updated_at = unix_timestamp();
-            state.defer_persist = false;
-
-            let (data, mode) = if full_rewrite {
-                (state.data.clone(), crate::db::SaveMode::FullRewrite)
-            } else if old_entries_len == state.data.transcript.entries.len() {
-                (
-                    state.data.clone_metadata_without_history(),
-                    crate::db::SaveMode::MetadataOnly,
-                )
-            } else {
-                let mut delta = state.data.clone_metadata_without_history();
-                delta.transcript.entries =
-                    state.data.transcript.entries[old_entries_len..].to_vec();
-                (delta, crate::db::SaveMode::Delta)
-            };
-            (data, mode, children, undo)
-        };
-        persist_subagent_children(&self.writer, &children).await;
-        self.persist_with_mode_guarded(
-            data,
-            mode,
-            Vec::new(),
-            crate::db::CommitGuard::default(),
-            undo,
-        )
-        .await
-        .map(|_| ())
-    }
-
     /// Commit everything a finished ReAct turn changed, in **one** lock
-    /// acquisition and at most **one** snapshot write. Returns the committed
+    /// acquisition and at most **one** journal write. Returns the committed
     /// session revision (D3).
+    ///
+    /// Strictly append-only (`[INV-THREADSSOT-02]`, `[INV-CMP-08]`): appends
+    /// `commit.appended` onto the durable transcript without ever rewriting
+    /// prior entries, clearing `ThreadData::graph`, or emitting
+    /// `SaveMode::FullRewrite`.
     pub async fn commit_turn(&self, commit: CommitTurn<'_>) -> Result<u64, String> {
         let guard = crate::db::CommitGuard {
             operation_id: commit.operation_id.clone(),
@@ -396,56 +311,21 @@ impl ThreadSession {
         };
         let (data, mode, children, usage_upserts, undo) = {
             let mut state = self.state.lock().await;
-            // A turn reports `Reprojected` when it may have rewritten committed
-            // messages, so the undo must be able to restore the old transcript.
-            let undo = if commit.basis == CommitBasis::Reprojected {
-                SessionUndo::replacing(&state)
-            } else {
-                SessionUndo::appending(&state)
-            };
+            let undo = SessionUndo::appending(&state);
 
-            // 1. Message-tail delta against the projection.
-            //
-            // The caller states whether the committed prefix is untouched. An
-            // `Appended` claim is verified by one tail comparison — not by
-            // deep-comparing the whole window, which made every turn boundary
-            // scan the session's history. A failed check falls through to the
-            // safe path, so a wrong claim costs a comparison, never data.
-            let (durable_len, tail_ok) = {
-                let projection = state.get_or_project_messages();
-                let len = projection.len();
-                let tail_ok = len == 0
-                    || (commit.messages.len() >= len
-                        && commit.messages[len - 1].semantic_wire_eq(&projection[len - 1]));
-                (len, tail_ok)
-            };
-            let appended = commit.basis == CommitBasis::Appended
-                && commit.messages.len() >= durable_len
-                && tail_ok;
+            // 1. Append newly produced messages onto the durable transcript.
             let old_entries_len = state.data.transcript.entries.len();
             let mut children = Vec::new();
-            let mut full_rewrite = false;
-            if appended {
-                let tail = &commit.messages[durable_len..];
-                if !tail.is_empty() {
-                    for message in tail {
-                        state
-                            .data
-                            .transcript
-                            .push(protocol::TranscriptEntry::from_message(0, message));
-                    }
-                    children = admit_subagent_children(&mut state.data, tail);
-                    state.append_to_projection_cache(tail);
-                    state.data.updated_at = unix_timestamp();
+            if !commit.appended.is_empty() {
+                for message in commit.appended {
+                    state
+                        .data
+                        .transcript
+                        .push(protocol::TranscriptEntry::from_message(0, message));
                 }
-            } else if !wire_eq(commit.messages, state.get_or_project_messages()) {
-                state.data.transcript = rebuild_transcript_from_messages(commit.messages);
-                state.data.graph = None;
-                state.data.generation = uuid::Uuid::new_v4().to_string();
-                children = admit_subagent_children(&mut state.data, commit.messages);
-                state.invalidate_projection_cache();
+                children = admit_subagent_children(&mut state.data, commit.appended);
+                state.append_to_projection_cache(commit.appended);
                 state.data.updated_at = unix_timestamp();
-                full_rewrite = true;
             }
 
             // 2. Round counter.
@@ -525,10 +405,34 @@ impl ThreadSession {
                 }
             }
 
+            // 6. Round completion summary (ADR-0263 `[INV-TRACE-03]`): upsert by
+            // `summary.round` so a resumed `/retry` overwrites its own round slot
+            // cleanly and summaries stay sorted ascending by round.
+            if let Some(summary) = commit.round_summary
+                && summary.round > 0
+            {
+                match state
+                    .data
+                    .round_summaries
+                    .iter_mut()
+                    .find(|existing| existing.round == summary.round)
+                {
+                    Some(existing) => {
+                        if *existing != summary {
+                            *existing = summary;
+                            state.data.updated_at = unix_timestamp();
+                        }
+                    }
+                    None => {
+                        state.data.round_summaries.push(summary);
+                        state.data.round_summaries.sort_by_key(|s| s.round);
+                        state.data.updated_at = unix_timestamp();
+                    }
+                }
+            }
+
             state.defer_persist = false;
-            let (data, mode) = if full_rewrite {
-                (state.data.clone(), crate::db::SaveMode::FullRewrite)
-            } else if old_entries_len == state.data.transcript.entries.len() {
+            let (data, mode) = if old_entries_len == state.data.transcript.entries.len() {
                 (
                     state.data.clone_metadata_without_history(),
                     crate::db::SaveMode::MetadataOnly,
@@ -589,18 +493,128 @@ impl ThreadSession {
         Ok(count)
     }
 
-    /// Record one request-time projection without touching durable facts.
+    /// Durably record a model-context projection (tool-output prune or media
+    /// payload offload) as an append-only [`protocol::ProjectionDirective`]
+    /// without mutating immutable transcript facts (ADR-0264 `[INV-PROJ-01]`,
+    /// ADR-0173 `[INV-THREADSSOT-02]`, ADR-0246 `[INV-CMP-08]`).
     ///
-    /// Pruning and folding are `RequestView` transforms. They may change the
-    /// window for the current request, but they never rewrite history and never
-    /// survive a restart (`INV-FOLDVIEW-01`).
+    /// Human-facing [`Self::full_transcript`] remains untouched; subsequent
+    /// rounds and reopened sessions inherit the directive through
+    /// [`Self::model_window`] instead of re-offloading or re-pruning the same
+    /// entries on every turn.
     pub async fn commit_context_projection(
         &self,
         result: ContextProjectionResult,
     ) -> Result<(), String> {
-        let mut state = self.state.lock().await;
-        state.data.last_projection = Some(result.checkpoint);
-        state.invalidate_projection_cache();
+        let delta_and_undo: Option<(ThreadData, SessionUndo)> = {
+            let mut state = self.state.lock().await;
+            let undo = SessionUndo::appending(&state);
+            state.data.last_projection = Some(result.checkpoint.clone());
+
+            let current = state.data.transcript.project();
+            let mut elided = Vec::new();
+            let mut pruned_media = Vec::new();
+            let mut max_seq: u64 = 0;
+
+            // Only `Prune` and `Payload` emit append-only `DirectivePayload::Prune`
+            // records; summarizing compaction must go through `commit_compaction`
+            // so the causal `Compaction` fact and branch horizon commit atomically.
+            if result.checkpoint.operation != ContextProjectionKind::Compact {
+                for ((seq, before), after) in current.iter().zip(result.model_window.iter()) {
+                    if before.semantic_wire_eq(after) {
+                        continue;
+                    }
+                    if let Some(tool_call_id) = &before.tool_call_id
+                        && before.role == Role::Tool
+                        && after.role == Role::Tool
+                        && after.tool_call_id.as_deref() == Some(tool_call_id.as_str())
+                    {
+                        elided.push(protocol::PrunedToolOutput {
+                            tool_call_id: tool_call_id.clone(),
+                            placeholder: after.content.clone(),
+                        });
+                        max_seq = max_seq.max(*seq);
+                    } else if before.images.is_some()
+                        && before.role == after.role
+                        && (before.images != after.images || before.content != after.content)
+                    {
+                        let original_images = state
+                            .data
+                            .transcript
+                            .entries
+                            .iter()
+                            .find(|entry| entry.seq == *seq)
+                            .and_then(|entry| entry.to_message())
+                            .and_then(|message| message.images)
+                            .unwrap_or_default();
+                        let mut used = vec![false; original_images.len()];
+                        let mut retained_image_indices = Vec::new();
+                        if let Some(kept_images) = &after.images {
+                            for kept in kept_images {
+                                if let Some((idx, _)) =
+                                    original_images.iter().enumerate().find(|(idx, orig)| {
+                                        !used[*idx]
+                                            && orig.mime == kept.mime
+                                            && orig.data == kept.data
+                                    })
+                                {
+                                    used[idx] = true;
+                                    retained_image_indices.push(idx);
+                                }
+                            }
+                        }
+                        pruned_media.push(protocol::PrunedMediaOutput {
+                            seq: *seq,
+                            placeholder: after.content.clone(),
+                            retained_image_indices,
+                        });
+                        max_seq = max_seq.max(*seq);
+                    }
+                }
+            }
+
+            state.invalidate_projection_cache();
+
+            if elided.is_empty() && pruned_media.is_empty() {
+                None
+            } else {
+                state
+                    .data
+                    .transcript
+                    .push_directive(protocol::ProjectionDirective {
+                        seq: 0,
+                        kind: protocol::DirectiveKind::Prune,
+                        up_to_seq: max_seq,
+                        payload: protocol::DirectivePayload::Prune {
+                            elided,
+                            pruned_media,
+                        },
+                    });
+                let persisted_directive = state.data.transcript.directives.last().cloned();
+                state.data.updated_at = unix_timestamp();
+                if Self::should_skip_persist(&state) {
+                    None
+                } else {
+                    state.defer_persist = false;
+                    let mut delta = state.data.clone_metadata_without_history();
+                    if let Some(directive) = persisted_directive {
+                        delta.transcript.directives.push(directive);
+                    }
+                    Some((delta, undo))
+                }
+            }
+        };
+
+        if let Some((delta, undo)) = delta_and_undo {
+            self.persist_with_mode_guarded(
+                delta,
+                crate::db::SaveMode::Delta,
+                Vec::new(),
+                crate::db::CommitGuard::default(),
+                undo,
+            )
+            .await?;
+        }
         Ok(())
     }
 

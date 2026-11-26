@@ -89,9 +89,6 @@ impl UsageStatsStore {
                 UsageStatsReport::default()
             })
     }
-    pub fn prune_old_days(&self) -> usize {
-        0
-    }
 }
 pub fn day_key(at: u64) -> String {
     day_key_from_epoch_ms(at)

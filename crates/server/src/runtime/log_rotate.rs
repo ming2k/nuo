@@ -83,7 +83,7 @@ impl Write for RetainedRollingFile {
 
 /// Local-time `YYYY-MM-DD`, matching `tracing_appender`'s filename component.
 fn today() -> String {
-    chrono::Local::now().format("%Y-%m-%d").to_string()
+    jiff::ZonedDateTime::now().strftime("%Y-%m-%d").to_string()
 }
 
 fn open_day(dir: &Path, prefix: &str, day: &str) -> Option<File> {

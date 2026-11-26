@@ -473,7 +473,7 @@ fn event_state(event: &UsageStatRecord, theme: &Theme) -> (&'static str, Style) 
         RequestUsageStatus::Completed => theme.ok(),
         RequestUsageStatus::Interrupted | RequestUsageStatus::Abandoned => theme.warn(),
         RequestUsageStatus::Failed => theme.err(),
-        RequestUsageStatus::InFlight => theme.info(),
+        RequestUsageStatus::InFlight => theme.running(),
     };
     (label, Style::default().fg(color))
 }
@@ -481,13 +481,14 @@ fn event_state(event: &UsageStatRecord, theme: &Theme) -> (&'static str, Style) 
 /// `MM-DD HH:MM` in the local timezone — the day is already the row's
 /// bucket, so the time only needs to disambiguate within a day.
 fn event_time(event: &UsageStatRecord) -> String {
-    use chrono::TimeZone;
-    let secs = (event.recorded_at_ms / 1_000) as i64;
-    let nanos = ((event.recorded_at_ms % 1_000) * 1_000_000) as u32;
-    chrono::Local
-        .timestamp_opt(secs, nanos)
-        .single()
-        .map(|dt| dt.format("%m-%d %H:%M").to_string())
+    i64::try_from(event.recorded_at_ms)
+        .ok()
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+        .map(|ts| {
+            ts.to_zoned_datetime(jiff::tz::TimeZone::system())
+                .strftime("%m-%d %H:%M")
+                .to_string()
+        })
         .unwrap_or_else(|| "--:--".to_string())
 }
 

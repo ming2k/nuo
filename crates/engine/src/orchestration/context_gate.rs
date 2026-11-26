@@ -40,7 +40,7 @@ use std::sync::Arc;
 use tool::Message;
 
 use crate::cognition::compaction::CompactionCutMode;
-use crate::cognition::context_projection::ContextProjectionGate;
+use crate::cognition::context_projection::{ContextProjectionGate, ContextProjectionOutcome};
 use crate::orchestration::{
     ContextProjectionSettings, compact_round_history_with_mode, prune_and_commit,
 };
@@ -81,13 +81,18 @@ impl PruningProjectionGate {
 
 #[async_trait]
 impl ContextProjectionGate for PruningProjectionGate {
-    async fn project_context(&self, mut messages: Vec<Message>) -> Option<Vec<Message>> {
+    async fn project_context(
+        &self,
+        mut messages: Vec<Message>,
+        committed_len: usize,
+    ) -> Option<ContextProjectionOutcome> {
         let settings = (self.settings)();
         let before = messages.len();
+        let mut committed_len = committed_len.min(before);
         let tokens_before = protocol::pressure::estimate_tokens_weighted(&messages, &self.weights);
 
         // Tier 1: clear stale tool bodies. In place, wire-compatible, no message
-        // removed — so a failure here leaves the window exactly as it was.
+        // removed — so a failure here leaves the window and committed cursor untouched.
         if let Err(error) = prune_and_commit(
             &mut messages,
             &self.session,
@@ -105,12 +110,14 @@ impl ContextProjectionGate for PruningProjectionGate {
         // followed by a summarization call — that is the expensive tier, and
         // spending it on a healthy window is how compaction gets a reputation for
         // being slow.
+        let mut compacted = None;
         let tokens_after_prune =
             protocol::pressure::estimate_tokens_weighted(&messages, &self.weights);
         if tokens_after_prune > settings.budget.prune_threshold_tokens {
             let mode = CompactionCutMode::TargetTokens(settings.budget.target_tokens.max(1));
             match compact_round_history_with_mode(
                 &mut messages,
+                committed_len,
                 &self.session,
                 &settings,
                 self.provider.clone(),
@@ -120,14 +127,17 @@ impl ContextProjectionGate for PruningProjectionGate {
             .await
             {
                 Ok(Some(report)) => {
+                    committed_len = report.committed_len;
                     tracing::debug!(
                         before_messages = before,
                         after_messages = messages.len(),
+                        committed_len,
                         tokens_before = report.checkpoint.window_tokens_before,
                         tokens_after = report.checkpoint.window_tokens_after,
                         satisfied = report.satisfied,
                         "mid-turn compaction folded the window"
                     );
+                    compacted = Some(report.checkpoint);
                 }
                 Ok(None) => {
                     tracing::debug!("mid-turn compaction found nothing to fold");
@@ -143,7 +153,11 @@ impl ContextProjectionGate for PruningProjectionGate {
         // when something actually changed. `Some` with an identical window would
         // force a pointless request re-assembly every turn.
         if tokens_after < tokens_before || messages.len() != before {
-            Some(messages)
+            Some(ContextProjectionOutcome {
+                messages,
+                committed_len,
+                compacted,
+            })
         } else {
             None
         }

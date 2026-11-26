@@ -14,7 +14,9 @@ mod attach_refusal_tests {
         let registry = ThreadRegistry::prehost_only();
         match registry
             .resolve_with_declaration(
-                AttachAction::Attach(Some("no-such-session-anywhere".into())),
+                ThreadTarget::Attach {
+                    id: Some("no-such-session-anywhere".into()),
+                },
                 std::path::Path::new("/tmp"),
                 true,
             )
@@ -38,7 +40,11 @@ mod attach_refusal_tests {
     async fn missing_host_refuses_without_taxonomy() {
         let registry = ThreadRegistry::prehost_only();
         match registry
-            .resolve_with_declaration(AttachAction::New(None), std::path::Path::new("/tmp"), true)
+            .resolve_with_declaration(
+                ThreadTarget::New { options: None },
+                std::path::Path::new("/tmp"),
+                true,
+            )
             .await
         {
             ResolveOutcome::Refused { code, .. } => assert_eq!(

@@ -2,8 +2,9 @@
 
 use super::*;
 
-/// One durable conversation shape: facts plus branch cursors, no retired
-/// transcript tables and no migration machinery from the pre-baseline chain.
+/// Pure catalog + authoritative local state shape in `nuo.db` (ADR-0255, ADR-0256):
+/// no retired content-plane tables, no dead `ThreadStore` tables, and no
+/// pre-baseline transcript tables.
 #[test]
 fn a_fresh_database_has_one_conversation_shape() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
@@ -21,18 +22,19 @@ fn a_fresh_database_has_one_conversation_shape() {
         "schema_migrations",
         "threads",
         "thread_policies",
-        "thread_branches",
-        "causal_nodes",
-        "thread_blob_refs",
-        "thread_commands",
-        "workspace_effects",
-        "fts_thread_facts",
+        "commit_receipts",
+        "input_history",
+        "kv_store",
+        "usage_records",
+        "usage_clock",
+        "usage_dirty",
+        "usage_contributions",
         "permission_rules",
         "projection_watermarks",
     ] {
         assert!(
             tables.iter().any(|name| name == expected),
-            "missing baseline table {expected}: {tables:?}"
+            "missing catalog table {expected}: {tables:?}"
         );
     }
     for retired in [
@@ -43,20 +45,30 @@ fn a_fresh_database_has_one_conversation_shape() {
         "projections",
         "thread_revisions",
         "asset_attestations",
+        "causal_nodes",
+        "thread_branches",
+        "thread_blob_refs",
+        "command_acts",
+        "workspace_effects",
+        "fts_thread_facts",
+        "thread_commands",
+        "thread_leases",
+        "thread_lease_counters",
+        "thread_blobs",
     ] {
         assert!(
             !tables.iter().any(|name| name == retired),
-            "retired table {retired} leaked into the baseline"
+            "retired table {retired} leaked into nuo.db"
         );
     }
 }
 
 #[test]
 fn baseline_facts_are_thread_scoped_and_strict() {
-    let conn = open_in_memory_for_tests().unwrap();
+    let shard = crate::db::migrations::open_content_shard_in_memory_for_tests().unwrap();
 
     let columns: Vec<String> = {
-        let mut stmt = conn
+        let mut stmt = shard
             .prepare("SELECT name FROM pragma_table_info('causal_nodes')")
             .unwrap();
         stmt.query_map([], |row| row.get(0))
@@ -67,6 +79,16 @@ fn baseline_facts_are_thread_scoped_and_strict() {
     assert!(columns.iter().any(|column| column == "thread_id"));
     assert!(!columns.iter().any(|column| column == "session_id"));
 
+    let shard_strict: i64 = shard
+        .query_row(
+            "SELECT strict FROM pragma_table_list WHERE name = 'causal_nodes'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(shard_strict, 1, "content shard tables must be STRICT");
+
+    let conn = open_in_memory_for_tests().unwrap();
     let strict: i64 = conn
         .query_row(
             "SELECT strict FROM pragma_table_list WHERE name = 'threads'",
@@ -74,11 +96,12 @@ fn baseline_facts_are_thread_scoped_and_strict() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(strict, 1, "baseline tables must be STRICT");
+    assert_eq!(strict, 1, "catalog tables must be STRICT");
 }
 
-/// A thread delete must not leave per-thread rows behind; the baseline declares
-/// the cascade instead of relying on every deletion path to remember each table.
+/// A thread delete must not leave per-thread catalog rows behind; the schema
+/// declares the cascade instead of relying on every deletion path to remember
+/// each child table.
 #[test]
 fn thread_delete_cascades_per_thread_state() {
     let conn = open_in_memory_for_tests().unwrap();
@@ -94,14 +117,8 @@ fn thread_delete_cascades_per_thread_state() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
-         VALUES('f1', 't1', 1, 'dialogue', '{}', 1)",
-        [],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO thread_commands(thread_id, command_id, ack_json, created_at_ms)
-         VALUES('t1', 'c1', '{}', 1)",
+        "INSERT INTO commit_receipts(operation_id, thread_id, revision, payload_hash)
+         VALUES('op-1', 't1', 1, 'hash')",
         [],
     )
     .unwrap();
@@ -109,7 +126,7 @@ fn thread_delete_cascades_per_thread_state() {
     conn.execute("DELETE FROM threads WHERE id = 't1'", [])
         .unwrap();
 
-    for table in ["thread_policies", "causal_nodes", "thread_commands"] {
+    for table in ["thread_policies", "commit_receipts"] {
         let count: i64 = conn
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
                 row.get(0)
@@ -479,4 +496,104 @@ fn v5_to_v6_backfills_catalog_summary_across_all_edge_cases() {
         )
         .unwrap();
     assert_eq!(watermark, 7);
+}
+
+#[test]
+fn v8_to_v9_purifies_catalog_and_converts_empty_workspace_to_null() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    migrate_to_for_tests(&mut conn, 8).unwrap();
+
+    conn.execute_batch(
+        r#"
+        INSERT INTO threads(id, title, status, origin, msg_count, last_user_prompt, created_at_ms, updated_at_ms) VALUES
+            ('t-unbound', 'Unbound', 'idle', 'trunk', 2, 'hello', 1000, 2000),
+            ('t-bound',   'Bound',   'idle', 'trunk', 4, 'fix',   1000, 3000);
+        INSERT INTO thread_policies(thread_id, workspace_root, system_role, updated_at_ms) VALUES
+            ('t-unbound', '',        'philosophist', 2000),
+            ('t-bound',   '/repo/a', 'developer',    3000);
+        INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
+            VALUES('n1', 't-bound', 1, 'dialogue', '{"type":"message","message":{"role":"user","content":"fix"}}', 1100);
+        INSERT INTO thread_commands(thread_id, command_id, ack_json, created_at_ms)
+            VALUES('t-bound', 'c1', '{}', 1100);
+        INSERT INTO workspace_effects(thread_id, round_id, turn_id, call_id, seq, tool_name, path, op, effect_class, created_at_ms)
+            VALUES('t-bound', 'r1', 't1', 'c1', 1, 'edit_text', '/repo/a/lib.rs', 'edit', 'file_bytes', 1200);
+        "#,
+    )
+    .unwrap();
+
+    migrate_schema(&mut conn).unwrap();
+
+    for retired in [
+        "causal_nodes",
+        "thread_branches",
+        "thread_blob_refs",
+        "command_acts",
+        "workspace_effects",
+        "fts_thread_facts",
+        "thread_commands",
+        "thread_leases",
+        "thread_lease_counters",
+        "thread_blobs",
+    ] {
+        assert!(
+            !table_exists(&conn, retired).unwrap(),
+            "{retired} must be dropped in v9"
+        );
+    }
+
+    // Legacy empty string became SQL NULL; real path survived intact.
+    let unbound_ws: Option<String> = conn
+        .query_row(
+            "SELECT workspace_root FROM thread_policies WHERE thread_id = 't-unbound'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unbound_ws, None);
+
+    let bound_ws: Option<String> = conn
+        .query_row(
+            "SELECT workspace_root FROM thread_policies WHERE thread_id = 't-bound'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(bound_ws.as_deref(), Some("/repo/a"));
+
+    // Dead columns dropped.
+    let policy_cols: Vec<String> = conn
+        .prepare("SELECT name FROM pragma_table_info('thread_policies')")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    assert!(!policy_cols.iter().any(|c| c == "thread_policy_json"));
+
+    let thread_cols: Vec<String> = conn
+        .prepare("SELECT name FROM pragma_table_info('threads')")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    assert!(!thread_cols.iter().any(|c| c == "spawned_from_fact_id"));
+    assert!(!thread_cols.iter().any(|c| c == "status"));
+
+    // Negative check: inserting empty-string workspace_root is refused.
+    assert!(
+        conn.execute(
+            "INSERT INTO threads(id, created_at_ms, updated_at_ms) VALUES('t-bad', 1, 1)",
+            [],
+        )
+        .is_ok()
+    );
+    assert!(
+        conn.execute(
+            "INSERT INTO thread_policies(thread_id, workspace_root, updated_at_ms) VALUES('t-bad', '', 1)",
+            [],
+        )
+        .is_err(),
+        "v9 CHECK constraint must reject empty-string workspace_root"
+    );
 }

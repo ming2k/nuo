@@ -306,7 +306,10 @@ pub async fn refresh_connection_models_for_etag(
         return sync_connection_routes(connection_name).await;
     }
 
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
     if now_ms.saturating_sub(state.refreshed_at_ms) < MODEL_LIST_CACHE_TTL_MS / 2 {
         return RoutingSyncOutcome::default();
     }
@@ -408,7 +411,10 @@ async fn sync_routes_matching(
         if Connections::load().get(&connection_name).is_none() {
             continue;
         }
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
         let mut cache = match RemoteCatalogCache::lock().await {
             Ok(lock) => lock,
             Err(error) => {

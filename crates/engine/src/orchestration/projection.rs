@@ -77,6 +77,10 @@ pub struct CompactionReport {
     pub checkpoint: ContextProjectionCheckpoint,
     /// `window_after + request_overhead <= compaction_threshold`.
     pub satisfied: bool,
+    /// Exact length of the durable committed prefix inside the caller's
+    /// replaced `history` vector (everything after `committed_len` is the
+    /// preserved uncommitted tail).
+    pub committed_len: usize,
 }
 
 /// Tail and summary budgets that make the compaction post-condition reachable.

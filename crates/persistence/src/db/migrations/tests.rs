@@ -453,16 +453,31 @@ fn structural_verifier_rejects_missing_extra_and_changed_schema_objects() {
         );
     }
 
-    // Missing trigger
+    // Missing trigger on content shard (`CONTENT_SHARD_SCHEMA`)
     {
-        let conn = super::runner::open_in_memory_for_tests().unwrap();
+        let conn = super::runner::open_content_shard_in_memory_for_tests().unwrap();
         conn.execute_batch("DROP TRIGGER trg_causal_nodes_immutable;")
             .unwrap();
-        let err = verify::verify(&conn, &super::catalog::NUO_SCHEMA)
+        let err = verify::verify(&conn, &super::content_shard::CONTENT_SHARD_SCHEMA)
             .unwrap_err()
             .to_string();
         assert!(
             err.contains("missing schema object") && err.contains("trg_causal_nodes_immutable"),
+            "{err}"
+        );
+    }
+
+    // Missing INV-EFFECT-04 trigger on content shard
+    {
+        let conn = super::runner::open_content_shard_in_memory_for_tests().unwrap();
+        conn.execute_batch("DROP TRIGGER trg_workspace_effects_no_early_reversal;")
+            .unwrap();
+        let err = verify::verify(&conn, &super::content_shard::CONTENT_SHARD_SCHEMA)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("missing schema object")
+                && err.contains("trg_workspace_effects_no_early_reversal"),
             "{err}"
         );
     }

@@ -242,6 +242,7 @@ fn handle<'a>(files: &'a mut HashMap<PathBuf, File>, path: &Path) -> io::Result<
                     format!("could not open journal segment {}: {error}", path.display()),
                 )
             })?;
+        crate::fs_privacy::restrict_private_file(path);
         files.insert(path.to_path_buf(), file);
     }
     files

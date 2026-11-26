@@ -9,7 +9,7 @@
 //! `[INV-PROV-09]`: because this crate links every `crates/provider-*`
 //! crate, the shipped binary links them all.
 //!
-//! Moved from `nuo-provider-adapters`' `registry/mod.rs` + `lib.rs::init()`;
+//! Moved from the retired `nuo-provider-adapters`' `registry/mod.rs` + `lib.rs::init()`;
 //! the per-provider spec modules there were duplicates of the `providers/`
 //! crates' own `spec.rs` and are deleted.
 use provider::catalog::{Channel, Transport};

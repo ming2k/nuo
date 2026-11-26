@@ -9,7 +9,7 @@
 //! This module is presentation only: the monitor-protocol client
 //! ([`client::monitor_stream`]) and the stream-folding helper
 //! ([`client::upsert_session_row`]) live with the client transport
-//! in `nuo-tui::client`; what remains here is the terminal rendering of the
+//! in `nuo::transport`; what remains here is the terminal rendering of the
 //! snapshot.
 use std::path::Path;
 
@@ -89,14 +89,17 @@ pub async fn run(
             MonitorEvent::PersistenceHealth(health) => {
                 state.persistence_health = Some(health);
             }
-            // The server is draining: the stream ends right
-            // after this frame. Print a note and stop watching — the next
-            // `nuo status` re-discovers (or reports none running).
-            MonitorEvent::ServerDraining => {
-                if !opts.json {
-                    eprintln!("nuo: server is shutting down; watch ended.");
+            MonitorEvent::ServerPhaseChanged(phase) => {
+                let is_draining = matches!(phase, protocol::ServerPhase::Draining { .. });
+                state.server_phase = phase;
+                if is_draining {
+                    if !opts.json {
+                        eprintln!("nuo: server is shutting down; watch ended.");
+                    } else {
+                        render(&info, &state, opts);
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
         }
         render(&info, &state, opts);
@@ -323,8 +326,17 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
         snapshot.project_root.as_str()
     };
 
+    let phase_badge = match &snapshot.server_phase {
+        protocol::ServerPhase::Initializing { stage } => {
+            format!("Initializing: {}", stage.as_str())
+        }
+        protocol::ServerPhase::Ready => "Ready".to_string(),
+        protocol::ServerPhase::Reloading => "Reloading".to_string(),
+        protocol::ServerPhase::Draining { .. } => "Draining".to_string(),
+        protocol::ServerPhase::Failed { .. } => "Failed".to_string(),
+    };
     println!(
-        "● Nuo [Healthy] | Server PID {} (uptime {})",
+        "● Nuo [{phase_badge}] | Server PID {} (uptime {})",
         info.pid, uptime
     );
     println!("  Transport: {transport} | Project: {root}");
@@ -358,10 +370,10 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
 }
 
 fn format_timestamp_ms(timestamp_ms: u64) -> String {
-    let secs = (timestamp_ms / 1000) as i64;
-    let nsecs = ((timestamp_ms % 1000) * 1_000_000) as u32;
-    chrono::DateTime::from_timestamp(secs, nsecs)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+    i64::try_from(timestamp_ms)
+        .ok()
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+        .map(|ts| ts.strftime("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_else(|| timestamp_ms.to_string())
 }
 
@@ -582,6 +594,8 @@ mod persistence_health_tests {
     #[test]
     fn table_warns_when_the_persistence_writer_is_down() {
         let mut snap = MonitorSnapshot {
+            server_id: "srv-test-1".into(),
+            server_phase: protocol::ServerPhase::Ready,
             project_root: "/home/u/proj".into(),
             server_started_at: 50,
             threads: Vec::new(),

@@ -226,8 +226,8 @@ fn catalog_sync_warning_notice_renders_as_entry() {
         .find(|line| !line.trim().is_empty())
         .unwrap_or_default();
     assert!(
-        first_line.contains("notification"),
-        "notice must render with a notification entry header, got: {first_line:?}"
+        first_line.trim_start().starts_with("! notification"),
+        "notice must render with a `! notification` entry header, got: {first_line:?}"
     );
     // The body wraps inside the band; continuation lines must be flush with
     // the body start, not floating at a random gutter.
@@ -249,12 +249,17 @@ fn catalog_sync_warning_notice_renders_as_entry() {
         body_indent, first_indent,
         "continuation lines must be flush with the first body line"
     );
-    // The entry body is *content*, so it must sit at least one column deeper
-    // than the entry head (header row) — head at the gutter, body indented.
+    // The entry body is *content*, so it must sit flush under the topic label
+    // past the 2-column `! ` lead prefix.
     let header_indent = first_line.len() - first_line.trim_start().len();
+    let topic_col = first_line.find("notification").expect("topic present");
     assert!(
         first_indent > header_indent,
         "notice body must be indented past the entry head (head={header_indent}, body={first_indent})"
+    );
+    assert_eq!(
+        first_indent, topic_col,
+        "notice body must align directly under the topic label (topic_col={topic_col}, body={first_indent})"
     );
 }
 

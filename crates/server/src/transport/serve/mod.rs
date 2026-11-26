@@ -27,7 +27,7 @@ pub use options::{
     ServeExpose, ServeHandle, ServeOptions, Startup, StartupParts, protocol_mismatch_error,
     server_version,
 };
-pub use protocol::{AttachAction, ControlRequest, Wire, WireFrame};
+pub use protocol::{ControlRequest, ThreadTarget, Wire, WireFrame};
 pub use sync_buffer::AttachSyncBuffer;
 pub(crate) use sync_buffer::{build_full_session_snapshot, is_attach_sync_event};
 use tcp::TCP_MANAGER;

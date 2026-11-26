@@ -8,8 +8,19 @@
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 const BLOB_PREFIX_LEN: usize = 2;
+
+/// Minimum modification-time grace window before an unreferenced blob or
+/// `.tmp.*` staging file may be reclaimed by background maintenance
+/// (ADR-0255 `[INV-SHARD-04]`).
+///
+/// `prepare_save` offloads oversized observation bodies to the CAS *before*
+/// the content shard transaction writes `thread_blob_refs` (ADR-0248). A
+/// 10-minute grace window ensures concurrent maintenance can never sweep a
+/// freshly written blob or active staging file mid-commit.
+pub const DEFAULT_BLOB_GC_GRACE: Duration = Duration::from_secs(10 * 60);
 
 /// Store for immutable byte blobs keyed by SHA-256.
 #[derive(Clone)]
@@ -40,7 +51,8 @@ impl BlobStore {
         let Some(parent) = path.parent() else {
             return Err(format!("invalid blob path for hash {hash}"));
         };
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        crate::fs_privacy::ensure_private_dir(&self.root).map_err(|e| e.to_string())?;
+        crate::fs_privacy::ensure_private_dir(parent).map_err(|e| e.to_string())?;
 
         // Atomic write via unique temporary file in the same directory, sync to disk,
         // and atomic rename. This guarantees no partial/truncated files can ever exist at `path`.
@@ -57,6 +69,7 @@ impl BlobStore {
                 .write(true)
                 .create_new(true)
                 .open(&tmp_path)?;
+            crate::fs_privacy::restrict_private_file(&tmp_path);
             file.write_all(bytes)?;
             file.sync_all()?;
             drop(file);
@@ -103,28 +116,49 @@ impl BlobStore {
         let _ = fs::remove_file(self.path(hash));
     }
 
-    /// Delete every stored blob not in `live`. The caller derives
-    /// the live set from the durable `blob_refs` ledger — a blob absent from
-    /// it cannot be reached by any load path. Returns
-    /// `(reclaimed_count, reclaimed_bytes)`.
-    ///
-    /// Read failures on one blob are skipped, never fatal: a GC that aborts
-    /// on one unreadable entry would reclaim nothing, while a GC that skips
-    /// it merely leaves the blob in place for the next pass.
+    /// Delete every stored blob not in `live`. Delegates to
+    /// [`Self::retain_only_with_grace`] with zero grace window.
     pub fn retain_only(&self, live: &std::collections::HashSet<String>) -> (usize, u64) {
+        self.retain_only_with_grace(live, Duration::ZERO)
+    }
+
+    /// Delete every stored blob not in `live` whose modification time is older
+    /// than `grace` (ADR-0255 `[INV-SHARD-04]`).
+    ///
+    /// Both unreferenced blobs and `.tmp.*` staging files newer than `grace`
+    /// are preserved so concurrent `prepare_save` / `put` writes cannot race
+    /// with background garbage collection. Returns
+    /// `(reclaimed_count, reclaimed_bytes)`.
+    pub fn retain_only_with_grace(
+        &self,
+        live: &std::collections::HashSet<String>,
+        grace: Duration,
+    ) -> (usize, u64) {
         let mut reclaimed = 0usize;
         let mut reclaimed_bytes = 0u64;
         let Ok(prefixes) = fs::read_dir(&self.root) else {
             return (0, 0);
         };
+        let now = SystemTime::now();
         for prefix_dir in prefixes.flatten() {
             let Ok(blobs) = fs::read_dir(prefix_dir.path()) else {
                 continue;
             };
             for blob in blobs.flatten() {
                 let hash = blob.file_name().to_string_lossy().into_owned();
+                let meta = blob.metadata().ok();
+                let is_recent = !grace.is_zero()
+                    && meta
+                        .as_ref()
+                        .and_then(|m| m.modified().ok())
+                        .is_some_and(|mtime| {
+                            now.duration_since(mtime).unwrap_or(Duration::ZERO) < grace
+                        });
+                if is_recent {
+                    continue;
+                }
                 if hash.starts_with(".tmp.") {
-                    let size = blob.metadata().map(|m| m.len()).unwrap_or(0);
+                    let size = meta.map(|m| m.len()).unwrap_or(0);
                     let _ = fs::remove_file(blob.path());
                     reclaimed += 1;
                     reclaimed_bytes += size;
@@ -133,7 +167,7 @@ impl BlobStore {
                 if live.contains(&hash) {
                     continue;
                 }
-                let size = blob.metadata().map(|m| m.len()).unwrap_or(0);
+                let size = meta.map(|m| m.len()).unwrap_or(0);
                 self.remove(&hash);
                 reclaimed += 1;
                 reclaimed_bytes += size;
@@ -225,5 +259,31 @@ mod tests {
         assert_eq!(bytes_reclaimed, 7);
         assert!(!orphan_tmp.exists());
         assert!(store.exists(&hash));
+    }
+
+    #[test]
+    fn retain_only_with_grace_protects_fresh_blobs_and_staging_files() {
+        let root = tempfile::tempdir().unwrap();
+        let store = BlobStore::new(root.path().join("blobs"));
+        let fresh_orphan = store.put(b"mid-commit blob").unwrap();
+        let parent = store.path(&fresh_orphan).parent().unwrap().to_path_buf();
+        let active_tmp = parent.join(".tmp.active.12345.6789");
+        fs::write(&active_tmp, b"staging").unwrap();
+
+        // Within the grace window, neither the freshly written blob nor the
+        // active staging temp file may be deleted.
+        let (count, bytes) =
+            store.retain_only_with_grace(&std::collections::HashSet::new(), DEFAULT_BLOB_GC_GRACE);
+        assert_eq!((count, bytes), (0, 0));
+        assert!(store.exists(&fresh_orphan));
+        assert!(active_tmp.exists());
+
+        // With zero grace window, both are reclaimed cleanly.
+        let (count, bytes) =
+            store.retain_only_with_grace(&std::collections::HashSet::new(), Duration::ZERO);
+        assert_eq!(count, 2);
+        assert!(bytes > 0);
+        assert!(!store.exists(&fresh_orphan));
+        assert!(!active_tmp.exists());
     }
 }

@@ -1,7 +1,7 @@
 //! Distributed agent presence tracking and discovery ledger (Tracker).
 
 use crate::address::AgentAddress;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,15 +14,15 @@ pub struct AgentPresence {
     pub address: AgentAddress,
     pub instance_id: Option<Uuid>,
     pub metadata: HashMap<String, serde_json::Value>,
-    pub registered_at: DateTime<Utc>,
-    pub last_heartbeat: DateTime<Utc>,
+    pub registered_at: Timestamp,
+    pub last_heartbeat: Timestamp,
     pub ttl_secs: u64,
 }
 
 impl AgentPresence {
-    pub fn is_alive(&self, now: DateTime<Utc>) -> bool {
-        let elapsed = now.signed_duration_since(self.last_heartbeat);
-        elapsed.num_seconds() <= self.ttl_secs as i64
+    pub fn is_alive(&self, now: Timestamp) -> bool {
+        let elapsed = now.duration_since(self.last_heartbeat);
+        elapsed.as_secs() <= self.ttl_secs as i64
     }
 }
 
@@ -44,7 +44,7 @@ impl PresenceTracker {
         ttl_secs: u64,
         metadata: HashMap<String, serde_json::Value>,
     ) -> AgentPresence {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let presence = AgentPresence {
             address: address.clone(),
             instance_id: None,
@@ -62,7 +62,7 @@ impl PresenceTracker {
     pub async fn heartbeat(&self, address: &AgentAddress) -> bool {
         let mut guard = self.entries.write().await;
         if let Some(presence) = guard.get_mut(address) {
-            presence.last_heartbeat = Utc::now();
+            presence.last_heartbeat = Timestamp::now();
             true
         } else {
             false
@@ -71,7 +71,7 @@ impl PresenceTracker {
 
     /// Queries all currently alive agents, purging expired ones.
     pub async fn active_agents(&self) -> Vec<AgentPresence> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut guard = self.entries.write().await;
         guard.retain(|_, p| p.is_alive(now));
         guard.values().cloned().collect()
@@ -79,7 +79,7 @@ impl PresenceTracker {
 
     /// Retrieves presence info for a specific agent if alive.
     pub async fn get(&self, address: &AgentAddress) -> Option<AgentPresence> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let guard = self.entries.read().await;
         guard.get(address).filter(|p| p.is_alive(now)).cloned()
     }

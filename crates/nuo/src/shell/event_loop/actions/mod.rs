@@ -404,7 +404,8 @@ fn classify_action(action: &input::InputAction) -> ActionFamily {
         input::InputAction::QuotasActivate
         | input::InputAction::RefreshQuotas
         | input::InputAction::QuotasToggleDetail
-        | input::InputAction::TraceInspectDetail
+        | input::InputAction::TraceEnter
+        | input::InputAction::TraceInspect
         | input::InputAction::ThreadStatsOpenTrace
         | input::InputAction::OpenThreadStats
         | input::InputAction::OpenSessionTrace => ActionFamily::Telemetry,
@@ -1307,65 +1308,82 @@ fn handle_telemetry_usage_action(
             };
             app.set_active_follow(true);
         }
-        input::InputAction::TraceInspectDetail => {
+        input::InputAction::TraceEnter => {
             if app.active_dialog() == Some(DialogKind::SessionTrace) {
-                if !app
+                let is_rounds = app
                     .surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                    .detail
-                {
+                    .dlg::<crate::shell::surfaces::SessionTraceDialog>()
+                    .view
+                    == crate::shell::surfaces::TraceView::Rounds;
+                if is_rounds {
                     let has_rounds = app
                         .token_source_report(viewed_session_id)
                         .map(|report| render::telemetry_round_count(&report) > 0)
                         .unwrap_or(false);
                     if has_rounds {
-                        app.surfaces
+                        let dlg = app
                             .surfaces
-                            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                            .detail = true;
-                        app.surfaces
                             .surfaces
-                            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                            .turn_cursor = 0;
-                        app.surfaces
-                            .surfaces
-                            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                            .scroll = 0;
+                            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>();
+                        dlg.view = crate::shell::surfaces::TraceView::Turns;
+                        dlg.turn_cursor = 0;
+                        dlg.scroll = 0;
                     }
-                } else if app
+                }
+            }
+        }
+        input::InputAction::TraceInspect => {
+            if app.active_dialog() == Some(DialogKind::SessionTrace) {
+                let current_view = app
                     .surfaces
                     .surfaces
-                    .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                    .turn
-                    .is_none()
-                {
-                    let report = app.token_source_report(viewed_session_id);
-                    let round_index = app.active_index().min(
-                        report
-                            .as_ref()
-                            .map(|report| render::telemetry_round_count(report).saturating_sub(1))
-                            .unwrap_or(0),
-                    );
-                    if let Some(key) = report.as_ref().and_then(|report| {
-                        render::telemetry_attempt_key(
-                            report,
-                            round_index,
-                            app.surfaces
+                    .dlg::<crate::shell::surfaces::SessionTraceDialog>()
+                    .view
+                    .clone();
+                match current_view {
+                    crate::shell::surfaces::TraceView::Rounds => {
+                        let has_rounds = app
+                            .token_source_report(viewed_session_id)
+                            .map(|report| render::telemetry_round_count(&report) > 0)
+                            .unwrap_or(false);
+                        if has_rounds {
+                            let dlg = app
                                 .surfaces
-                                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                                .turn_cursor,
-                        )
-                    }) {
-                        app.surfaces
-                            .surfaces
-                            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                            .turn = Some(key);
-                        app.surfaces
-                            .surfaces
-                            .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
-                            .scroll = 0;
+                                .surfaces
+                                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>();
+                            dlg.view = crate::shell::surfaces::TraceView::RoundInfo;
+                            dlg.info_scroll = 0;
+                        }
                     }
+                    crate::shell::surfaces::TraceView::Turns => {
+                        let report = app.token_source_report(viewed_session_id);
+                        let round_index = app.active_index().min(
+                            report
+                                .as_ref()
+                                .map(|report| {
+                                    render::telemetry_round_count(report).saturating_sub(1)
+                                })
+                                .unwrap_or(0),
+                        );
+                        let turn_cursor = app
+                            .surfaces
+                            .surfaces
+                            .dlg::<crate::shell::surfaces::SessionTraceDialog>()
+                            .turn_cursor;
+                        if let Some(key) = report.as_ref().and_then(|report| {
+                            render::telemetry_attempt_key(report, round_index, turn_cursor)
+                        }) {
+                            let dlg = app
+                                .surfaces
+                                .surfaces
+                                .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>();
+                            dlg.view = crate::shell::surfaces::TraceView::AttemptInfo(key);
+                            dlg.info_scroll = 0;
+                        }
+                    }
+                    crate::shell::surfaces::TraceView::RoundInfo
+                    | crate::shell::surfaces::TraceView::AttemptInfo(_) => {}
                 }
             }
         }

@@ -106,48 +106,6 @@ impl RoleCatalog for NoDeclaredRoles {
     }
 }
 
-/// Where a generated session title is published (ADR-0022).
-///
-/// The titler's only needs from the product are "what is the current title" and
-/// "record this one". The session's identity, lineage, and durable store are the
-/// product's business, so this is a two-method sink rather than a store trait:
-/// a narrow question instead of a container.
-pub trait TitleSink: Send + Sync + 'static {
-    /// The current title and whether a human set it.
-    ///
-    /// A manual title is never overwritten by a generated one, which is why the
-    /// flag travels with the value.
-    fn title(&self) -> futures::future::BoxFuture<'static, (Option<String>, bool)>;
-
-    /// Record a generated title.
-    fn set_generated_title(
-        &self,
-        title: String,
-    ) -> futures::future::BoxFuture<'static, Result<(), String>>;
-}
-
-/// A host that keeps no titles: every write is discarded.
-///
-/// The titler's `title()` re-read is what makes this safe rather than merely
-/// inert: a sink that always reports "no title" would let the titler write
-/// repeatedly, so this one reports the title it was handed and thereby
-/// suppresses the second write. Nothing is durable, and nothing spins.
-#[derive(Debug, Default, Clone)]
-pub struct NoTitles;
-
-impl TitleSink for NoTitles {
-    fn title(&self) -> futures::future::BoxFuture<'static, (Option<String>, bool)> {
-        Box::pin(async { (None, false) })
-    }
-
-    fn set_generated_title(
-        &self,
-        _title: String,
-    ) -> futures::future::BoxFuture<'static, Result<(), String>> {
-        Box::pin(async { Ok(()) })
-    }
-}
-
 /// A provider reported that its model catalog moved.
 ///
 /// `ModelCatalogEtag` arrives on the *provider stream* — the kernel sees it, and

@@ -28,18 +28,10 @@ pub struct ThreadRecord {
     pub last_user_prompt: Option<String>,
     #[serde(default)]
     pub digest: Option<String>,
-    /// Durable thread status (`idle`, `running`, `suspended`, …). A listing
-    /// uses this for rows that have no live driver.
-    #[serde(default = "default_thread_status")]
-    pub status: String,
     /// Durable user-round counter (the current or most recently completed
     /// round). Live monitor rows overlay the live counter when hosted.
     #[serde(default)]
     pub round_counter: u64,
-}
-
-fn default_thread_status() -> String {
-    "idle".to_string()
 }
 
 /// One full-text search hit over transcript entries.

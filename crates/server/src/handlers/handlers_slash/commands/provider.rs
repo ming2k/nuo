@@ -83,8 +83,10 @@ pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &
     }
 
     // Universal Causal Compaction folds [0..N-1] and preserves round N
+    let committed_len = current.len();
     match compact_round_history(
         &mut current,
+        committed_len,
         session,
         &settings,
         Some(agent.provider.clone()),
@@ -201,6 +203,7 @@ pub(crate) async fn retry(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
             config,
         },
         RoundInput::resume(point),
+        None,
     )
     .await;
 }

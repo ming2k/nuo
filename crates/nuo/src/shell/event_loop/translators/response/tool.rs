@@ -6,7 +6,7 @@ use view::phase::Phase;
 
 use crate::shell::{event_loop, transcript_turn};
 
-use super::{E, M, TranslatorState, TurnCtx};
+use super::{E, TranslatorState, TurnCtx};
 
 impl TranslatorState {
     /// Tool call lifecycle: announcement, argument stream, dispatch, preview,
@@ -27,13 +27,6 @@ impl TranslatorState {
                 // The step carries the call id the later
                 // `ToolCall` will carry, so the applier merges
                 // instead of inserting a second row.
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::Tool(event_loop::tool_verb_for(
-                        &name,
-                    )))))
-                    .await;
-                self.mutations.send(M::SetResponding(true)).await;
-
                 self.chrome(
                     &session_id,
                     event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Tool(
@@ -68,8 +61,6 @@ impl TranslatorState {
                 arguments,
             } => {
                 // ADR-0026 / ADR-0046: progress tick and streaming arguments.
-                self.mutations.send(M::SetResponding(true)).await;
-
                 self.transcript(
                     &session_id,
                     E::ToolInputProgress {
@@ -93,11 +84,13 @@ impl TranslatorState {
                 name,
                 arguments,
             } => {
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::Tool(event_loop::tool_verb_for(
-                        &name,
-                    )))))
-                    .await;
+                self.chrome(
+                    &session_id,
+                    event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Tool(
+                        event_loop::tool_verb_for(&name),
+                    ))),
+                )
+                .await;
 
                 let (provider, model) = self.attribution_for(&session_id);
                 let effort = self.picker_effort_for(&session_id);
@@ -124,8 +117,6 @@ impl TranslatorState {
                 }
                 self.transcript(&session_id, E::ToolStepUpsert { message })
                     .await;
-
-                self.mutations.send(M::SetResponding(true)).await;
             }
             RoundEvent::ToolPreview { id, preview, .. } => {
                 // ADR-0125: the preview arrives strictly after the
@@ -143,10 +134,6 @@ impl TranslatorState {
                 structured,
                 duration_ms,
             } => {
-                self.mutations
-                    .send(M::SetPhase(Some(Phase::Preparing)))
-                    .await;
-
                 self.chrome(
                     &session_id,
                     event_loop::mutations::ChromeEdit::PhaseOnly(Some(Phase::Preparing)),

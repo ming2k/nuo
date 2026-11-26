@@ -973,7 +973,7 @@ pub fn termination_model_note(termination: ShellTermination) -> Option<&'static 
 /// character. Returns a `&str` slice of `text`.
 ///
 /// Shared by the structured-output formatter (in this crate) and the tool
-/// implementations (`nuo-harness`'s `tools`) that produce the outputs being formatted.
+/// implementations (`engine`'s `tools`) that produce the outputs being formatted.
 pub fn truncate_utf8(text: &str, max_bytes: usize) -> &str {
     if text.len() <= max_bytes {
         return text;

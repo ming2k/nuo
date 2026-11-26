@@ -1,6 +1,6 @@
 //! Structured UI tokens for views, sheets, modals, and components.
 use super::Theme;
-use super::color_math::luminance;
+use super::color_math::{luminance, wcag_contrast_ratio};
 use graticule_canvas::Color;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,18 +143,11 @@ impl Theme {
         let is_dark = bg_lum < 150.0;
 
         let make_swatch = |name: &'static str, desc: &'static str, color: Color| -> SwatchRole {
-            let col_lum = luminance(color);
-            let (l1, l2) = if col_lum >= bg_lum {
-                (col_lum, bg_lum)
-            } else {
-                (bg_lum, col_lum)
-            };
-            let ratio = (l1 + 5.0) / (l2 + 5.0);
             SwatchRole {
                 name,
                 description: desc,
                 color,
-                contrast_ratio: ratio,
+                contrast_ratio: wcag_contrast_ratio(color, bg_c),
             }
         };
 

@@ -46,8 +46,9 @@ raw `▲` literal to the `GlyphSet` so VT100 gets a real fallback.
 ## Decision Drivers
 
 - **One severity channel per surface.** A card conveys severity with color
-  (band + tone-foreground); the transcript conveys it with tone-colored text and
-  a thin left rail. Never two glyphs + a badge + a color for the same fact.
+  (band + tone-foreground); the transcript conveys it with a severity-colored
+  uniform `!` entry lead and topic label. Never per-severity glyphs + a badge +
+  a color for the same fact.
 - **Clean break, zero legacy burden** ([ADR-0059](0059-canonical-thread-persistence-schema-and-zero-legacy-clean-break.md)): the legacy glyph/text
   badge vocabulary is deleted, not layered behind a config knob.
 - **Terminal-proof**: every remaining literal must round-trip through
@@ -113,22 +114,18 @@ The header row becomes:
 - The selected-row bar (`▌`) and the right-aligned `at HH:MM` stay unchanged;
   the empty-state text stays unchanged.
 
-### 3. Transcript notice head: tone-colored left rail, no glyph
+### 3. Transcript notice head: uniform `!` entry lead + severity tone
 
-The transcript head currently paints `! trust` / `▲ trust` / `ℹ trust`. It
-becomes:
+The transcript head previously painted per-severity glyphs (`! trust` / `▲ trust` / `ℹ trust`), then briefly tried a left vertical bar (`▎trust`). Because `▎` is a vertical gutter/focus marker (and `▎{topic}` broke the transcript's `<1-col glyph> <space> <label>` header alignment shared by `› round N`, `› turn N`, and `⌘ command`), the transcript notice head uses a **uniform, severity-neutral `!` entry lead** (`NOTICE_LEAD_GLYPH`) plus one space, painted in the severity tone:
 
 ```text
-▎ trust   (rail + topic, in severity tone, BOLD)          at HH:MM
+! trust   (uniform lead + space + topic, in severity tone, BOLD)   HH:MM
 ```
 
-- The lead glyph is replaced by a **thin left rail** (`▎` — in the glyph set's
-  border/block family) painted in the severity tone, followed by the topic in
-  the same tone. Severity is carried by color alone, matching the card.
-- The sentinel/layout-map contract (head is chrome, body is content) is
-  unchanged; only the head's text changes.
-- `translucent ▎` has an ASCII fallback (the `▎` maps to `#` per
-  `ASCII_FALLBACKS`'s block range), so VT100 renders a real marker, not `?`.
+- The lead glyph (`!`) is constant across `Error`, `Warning`, and `Info` — it identifies the **entry kind** (distinct from `›` conversation rounds/turns and `⌘` commands), while severity is still carried by **color alone** (or the appended monochrome text marker `error`/`warn`/`info`).
+- The 2-column prefix (`"! "`) matches `TRANSCRIPT_BODY_LEADING_INDENT`, keeping the topic column flush with the indented body below.
+- The sentinel/layout-map contract (head is chrome, body is content) is unchanged.
+- `!` is pure ASCII, so VT100 needs no fallback glyph.
 
 ### 4. Toast keeps its icon; the triangle dies everywhere
 
@@ -145,7 +142,8 @@ ASCII branch.
 
 - **`nuo-ui-primitives`**: add `SeverityBand` + `Theme::severity_band()` +
   tests (dark, light, ANSI-16/monochrome fallback).
-- **`nuo-view`**: `components/notice.rs` head rendering → rail + tone topic.
+- **`nuo-view`**: `components/notice.rs` head rendering → uniform `!` lead +
+  space + severity-toned topic (`NOTICE_LEAD_PREFIX`).
 - **`nuo` (host)**: `overlays/notices.rs` card header → band pill; delete the
   `{glyph} {badge}` match; `overlays/toast.rs` warning icon → glyph-set.
 - **Tests**: rewrite only the assertions that test the *legacy glyph/badge
@@ -155,9 +153,10 @@ ASCII branch.
 ## Normative Invariants Established
 
 - `[INV-NOTICE-09]` **Color-Only Card Severity**: Notice-card surfaces (dialog,
-  transcript head) MUST NOT paint a legacy severity glyph (`▲`/`ℹ`/`✗`/`✓`) or a
-  bracketed `[ERROR]`/`[WARN]`/`[OK]`/`[INFO]` text badge; severity is conveyed
-  by the `SeverityBand` tint (dialog) / tone-rail (transcript). Where the theme
+  transcript head) MUST NOT paint a per-severity legacy glyph (`▲`/`ℹ`/`✗`/`✓`)
+  or a bracketed `[ERROR]`/`[WARN]`/`[OK]`/`[INFO]` text badge; severity is
+  conveyed by the `SeverityBand` tint (dialog) / severity-toned uniform `! `
+  lead + topic (transcript). Where the theme
   cannot distinguish severities by color
   (`Theme::severity_is_color_distinguishable` is `false`, i.e. monochrome), the
   band's ASCII `marker` word (`error`/`warn`/`ok`/`info`) MUST appear instead, so
@@ -185,8 +184,8 @@ ASCII branch.
     kept wide enough that severity is still visible as a surface difference, not
     only a hue. A user-configurable "add glyphs back" knob is rejected (below).
   - The transcript head, being one row, cannot carry a full background band; it
-    uses the rail + tone, which is the same color channel, so the two surfaces
-    stay consistent.
+    uses a severity-neutral `! ` entry lead plus the severity-toned topic, which
+    is the same color channel, so the two surfaces stay consistent.
 
 ## Rejected Alternatives & Negative Knowledge
 
@@ -211,9 +210,9 @@ ASCII branch.
 - **Why considered**: Maximum color surface.
 - **Why rejected**: A full card body wash is heavy: it stains the whole detail
   area and makes the expanded JSON detail harder to read. The band lives on the
-  header pill and the thin left rail — a strong signal without a heavy wash.
-  This matches the theme's own diff-band language (highlight pair on a band,
-  not a full-row paint).
+  dialog header pill (and the transcript carries severity on its `! ` lead +
+  topic) — a strong signal without a heavy wash. This matches the theme's own
+  diff-band language (highlight pair on a band, not a full-row paint).
 
 ## Links
 

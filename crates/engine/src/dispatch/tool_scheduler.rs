@@ -47,7 +47,7 @@
 //! sent); callers must treat that as "no result was produced", on par with
 //! a queued task rejected by cancellation.
 //!
-//! Lives in `nuo-harness` (not `protocol`) because it spins up tokio
+//! Lives in `engine` (not `protocol`) because it spins up tokio
 //! tasks: core is pure domain, zero I/O (ADR-0005).
 
 use std::future::Future;

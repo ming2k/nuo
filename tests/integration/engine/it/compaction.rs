@@ -18,7 +18,6 @@ use std::sync::Arc;
 use engine::cognition::compaction::{CausalCompactor, CompactionCutMode};
 use engine::orchestration::{ContextProjectionSettings, compact_round_history};
 use engine::{Agent, AgentIdentity};
-use persistence::thread::CommitBasis;
 use persistence::thread::{CommitTurn, ThreadSession};
 use tool::{Message, Role};
 
@@ -53,15 +52,16 @@ fn round_messages(index: usize) -> Vec<Message> {
 async fn commit_rounds(session: &ThreadSession, rounds: usize) -> Vec<Message> {
     let mut committed = Vec::new();
     for index in 0..rounds {
-        committed.extend(round_messages(index));
+        let delta = round_messages(index);
+        committed.extend(delta.iter().cloned());
         session
             .commit_turn(CommitTurn {
-                messages: &committed,
-                basis: CommitBasis::Appended,
+                appended: &delta,
                 round_counter: Some(index as u64 + 1),
                 usage_records: &[],
                 retry_point: None,
                 round_interrupt: None,
+                round_summary: None,
                 operation_id: None,
                 expected_revision: None,
             })
@@ -96,6 +96,7 @@ async fn compaction_engages_on_a_session_built_from_plain_rounds() {
     );
 
     let mut history = session.model_window().await;
+    let committed_len = history.len();
     history.push(Message::new(Role::User, "THE-NEWEST-PROMPT"));
     let tokens_before = protocol::pressure::estimate_tokens(&history);
 
@@ -105,10 +106,17 @@ async fn compaction_engages_on_a_session_built_from_plain_rounds() {
     // compacting to half the current size is what the production trigger does.
     settings.budget.target_tokens = (tokens_before / 2).max(64);
 
-    let report = compact_round_history(&mut history, &session, &settings, None, Vec::new())
-        .await
-        .expect("compaction must not error")
-        .expect("compaction must engage on a populated IR");
+    let report = compact_round_history(
+        &mut history,
+        committed_len,
+        &session,
+        &settings,
+        None,
+        Vec::new(),
+    )
+    .await
+    .expect("compaction must not error")
+    .expect("compaction must engage on a populated IR");
     let checkpoint = report.checkpoint;
 
     // 1. The prompt being admitted is still there. Seeding the window from
@@ -176,10 +184,18 @@ async fn an_impossible_target_reports_insufficiency() {
     settings.budget.target_tokens = 5;
     settings.request_overhead_tokens = 0;
 
-    let report = compact_round_history(&mut history, &session, &settings, None, Vec::new())
-        .await
-        .unwrap()
-        .expect("the fold still runs on an impossible target");
+    let committed_len = history.len();
+    let report = compact_round_history(
+        &mut history,
+        committed_len,
+        &session,
+        &settings,
+        None,
+        Vec::new(),
+    )
+    .await
+    .unwrap()
+    .expect("the fold still runs on an impossible target");
     assert!(
         !report.satisfied,
         "insufficiency was silently reported as success: {:?}",
@@ -207,10 +223,18 @@ async fn a_fold_stops_at_the_horizon() {
     let mut settings =
         ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), 200_000);
     settings.budget.target_tokens = (full_tokens / 2).max(64);
-    compact_round_history(&mut history, &session, &settings, None, Vec::new())
-        .await
-        .unwrap()
-        .expect("the first fold must engage");
+    let committed_len = history.len();
+    compact_round_history(
+        &mut history,
+        committed_len,
+        &session,
+        &settings,
+        None,
+        Vec::new(),
+    )
+    .await
+    .unwrap()
+    .expect("the first fold must engage");
 
     // The reopened IR is derived from the checkpoint entry, and its active
     // branch is [horizon, kept tail…], never the archived prefix.
@@ -252,6 +276,7 @@ async fn a_fold_survives_reopening_the_session() {
         let session = ThreadSession::for_path(path.clone());
         commit_rounds(&session, 8).await;
         let committed = session.model_window().await;
+        let committed_len = committed.len();
         let committed_tokens = protocol::pressure::estimate_tokens(&committed);
         let mut history = committed;
         history.push(Message::new(Role::User, "THE-NEWEST-PROMPT"));
@@ -259,10 +284,17 @@ async fn a_fold_survives_reopening_the_session() {
         let mut settings =
             ContextProjectionSettings::from_policy(&protocol::CompactionPolicy::default(), 200_000);
         settings.budget.target_tokens = (tokens_before / 2).max(64);
-        compact_round_history(&mut history, &session, &settings, None, Vec::new())
-            .await
-            .unwrap()
-            .expect("compaction must engage");
+        compact_round_history(
+            &mut history,
+            committed_len,
+            &session,
+            &settings,
+            None,
+            Vec::new(),
+        )
+        .await
+        .unwrap()
+        .expect("compaction must engage");
 
         // The fold must reach the window the next round seeds from, not only
         // the IR. Without a durable `Compact` projection every send reloaded
@@ -309,15 +341,29 @@ async fn a_fold_survives_reopening_the_session() {
         folded_tokens < tokens_before,
         "the reopened session un-folded: {folded_tokens} tokens vs {tokens_before} before"
     );
+    // `RequestView::from_window` emits the single canonical `checkpoint_message`
+    // (`Role::User`, `hidden: true`, `InjectionKind::CompactionCheckpoint`),
+    // which legitimately quotes folded user prompts. Assert the checkpoint leads
+    // the folded window and that no live (non-checkpoint) user message from
+    // round 0 survived.
     assert!(
-        !folded
-            .iter()
-            .any(|message| message.role == Role::User && message.content.contains("user round 0")),
+        folded.first().is_some_and(|message| {
+            message.hidden
+                && message.origin.as_ref().map(|o| o.kind)
+                    == Some(tool::InjectionKind::CompactionCheckpoint)
+        }),
+        "expected canonical CompactionCheckpoint at head of folded window: {folded:#?}"
+    );
+    assert!(
+        !folded.iter().any(|message| {
+            message.role == Role::User
+                && !message.hidden
+                && message.origin.as_ref().map(|o| o.kind)
+                    != Some(tool::InjectionKind::CompactionCheckpoint)
+                && message.content.contains("user round 0")
+        }),
         "the folded head came back as a live message: {folded:#?}"
     );
-    // The summary legitimately *quotes* folded prompts (that is its job), so the
-    // assertion above is role-scoped: what must be gone is the node, not the
-    // recollection of it.
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -356,6 +402,7 @@ async fn an_aggressive_fold_never_drops_the_admitted_prompt() {
     commit_rounds(&session, 6).await;
 
     let mut history = session.model_window().await;
+    let committed_len = history.len();
     history.push(Message::new(Role::User, "THE-ADMITTED-PROMPT"));
 
     let mut settings =
@@ -363,9 +410,16 @@ async fn an_aggressive_fold_never_drops_the_admitted_prompt() {
     // A target far below the window: this is the fold that eats the tail.
     settings.budget.target_tokens = 1;
 
-    let outcome = compact_round_history(&mut history, &session, &settings, None, Vec::new())
-        .await
-        .unwrap();
+    let outcome = compact_round_history(
+        &mut history,
+        committed_len,
+        &session,
+        &settings,
+        None,
+        Vec::new(),
+    )
+    .await
+    .unwrap();
     assert!(
         outcome.is_some(),
         "an impossibly small target must still fold"
@@ -409,12 +463,12 @@ async fn the_mid_turn_gate_prunes_a_pressurised_window() {
     committed.push(Message::new(Role::User, "NOW"));
     session
         .commit_turn(CommitTurn {
-            messages: &committed,
-            basis: CommitBasis::Appended,
+            appended: &committed,
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,
             round_interrupt: None,
+            round_summary: None,
             operation_id: None,
             expected_revision: None,
         })
@@ -438,10 +492,12 @@ async fn the_mid_turn_gate_prunes_a_pressurised_window() {
         Arc::new(protocol::MessageTokenWeights::new()),
         None,
     );
-    let projected = gate
-        .project_context(window.clone())
+    let outcome = gate
+        .project_context(window.clone(), window.len())
         .await
         .expect("the gate must engage on a pressurised window");
+    let projected = outcome.messages;
+    assert_eq!(outcome.committed_len, window.len());
 
     let tokens_after = protocol::pressure::estimate_tokens(&projected);
     assert!(

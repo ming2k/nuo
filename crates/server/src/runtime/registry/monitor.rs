@@ -378,6 +378,8 @@ impl ThreadRegistry {
             .collect();
         let meta = self.meta.lock().await.clone();
         MonitorSnapshot {
+            server_id: self.server_id().to_string(),
+            server_phase: self.server_phase(),
             project_root: meta.project_root.unwrap_or_default(),
             server_started_at: meta.started_at,
             threads: sessions,
@@ -389,11 +391,18 @@ impl ThreadRegistry {
 
     /// Read the storage plane's live pressure signals (ADR-0248).
     ///
-    /// `storage_metrics` already existed but had no caller, so "the WAL is
-    /// large" and "a reader is pinning a snapshot" were invisible in every
-    /// frontend and in `nuo status`. They are now part of the snapshot the
-    /// monitor already publishes.
+    /// Returns `None` while the server is still in `ServerInitStage::Storage`
+    /// so handshake snapshots never block on an uninitialized storage handle
+    /// (ADR-0260 `[INV-SRVPHASE-02]`).
     fn storage_pressure(&self) -> Option<protocol::monitor::StoragePressure> {
+        if matches!(
+            self.server_phase(),
+            protocol::ServerPhase::Initializing {
+                stage: protocol::ServerInitStage::Storage
+            }
+        ) {
+            return None;
+        }
         let metrics = persistence::db::get_persistence_handle().storage_metrics();
         Some(protocol::monitor::StoragePressure {
             main_bytes: metrics.main_bytes,

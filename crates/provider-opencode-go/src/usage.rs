@@ -366,9 +366,11 @@ fn parse_go_usage(envelope: GoUsageEnvelope) -> ProviderUsage {
 /// An unparseable instant yields `None` so the surfaces fall back to the raw
 /// string (`reset_time_str`) instead of the bucket silently losing its reset.
 fn epoch_ms_from_rfc3339(value: &str) -> Option<u64> {
-    chrono::DateTime::parse_from_rfc3339(value.trim())
+    value
+        .trim()
+        .parse::<jiff::Timestamp>()
         .ok()
-        .and_then(|dt| u64::try_from(dt.timestamp_millis()).ok())
+        .and_then(|ts| u64::try_from(ts.as_millisecond()).ok())
 }
 
 #[cfg(test)]

@@ -331,7 +331,7 @@ impl ThreadSession {
 
     /// The persistence handle this session writes through.
     ///
-    /// Exposed so the server can install a `nuo-harness`-facing journal port
+    /// Exposed so the server can install an `engine`-facing journal port
     /// (ADR-0125) that writes through the *same* single-writer door rather than
     /// opening a second connection. Narrow on purpose: callers get the handle,
     /// not a way to reach into session state.
@@ -406,8 +406,7 @@ impl ThreadSession {
         state.journal = open_journal(&self.db_path, &state.data.id);
         state.projection = ProjectionState::new();
         // Same staleness hazard as `open`: a fresh session must not inherit
-        // the previous session's projected window, or `append_turn` would
-        // silently drop the first durable delta (length-based delta check).
+        // the previous session's projected window cache.
         state.invalidate_projection_cache();
         state.defer_persist = true;
         Ok(id)
@@ -767,6 +766,19 @@ impl ThreadSession {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         guard.operation_id = Some(operation_id.clone());
 
+        // Offload oversized text & inline base64 images to CAS off the tokio
+        // runtime before writing the journal frame so neither the append log
+        // nor `snap-*.json` bloats with multi-megabyte payloads (ADR-0255).
+        // The projection copy keeps hydrated text for FTS while carrying the
+        // same blob hashes (and stripping offloaded base64 pixels).
+        let journal_data = match self.prepare_offloaded_journal_data(&mut data).await {
+            Ok(offloaded) => offloaded,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(format!("session blob offload failed: {error}"));
+            }
+        };
+
         let (journal, projection) = {
             let state = self.state.lock().await;
             (state.journal.clone(), state.projection.clone())
@@ -781,12 +793,12 @@ impl ThreadSession {
                     ));
                 }
                 journal
-                    .append(&operation_id, mode, &data, &usage_upserts)
+                    .append(&operation_id, mode, &journal_data, &usage_upserts)
                     .await
             }
             None => {
                 journal
-                    .append(&operation_id, mode, &data, &usage_upserts)
+                    .append(&operation_id, mode, &journal_data, &usage_upserts)
                     .await
             }
         };
@@ -851,13 +863,25 @@ impl ThreadSession {
                 return Err(error);
             }
         });
+        let journal_data = match self.prepare_offloaded_journal_data(&mut data).await {
+            Ok(offloaded) => offloaded,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(format!("session blob offload failed: {error}"));
+            }
+        };
         let operation_id = uuid::Uuid::new_v4().to_string();
         let (journal, projection) = {
             let state = self.state.lock().await;
             (state.journal.clone(), state.projection.clone())
         };
         let seq = match journal
-            .append(&operation_id, crate::db::SaveMode::FullRewrite, &data, &[])
+            .append(
+                &operation_id,
+                crate::db::SaveMode::FullRewrite,
+                &journal_data,
+                &[],
+            )
             .await
         {
             Ok(seq) => seq,
@@ -949,11 +973,86 @@ impl ThreadSession {
             return;
         }
         let journal = Arc::clone(journal);
+        let blob_store = self.blob_store.clone();
         tokio::task::spawn_blocking(move || {
+            let mut full = full;
+            if let Err(error) = offload_session_blobs(&mut full, &blob_store) {
+                tracing::warn!(%error, "could not offload blobs before journal compaction");
+            }
             if let Err(error) = journal.compact_at(seq, &full) {
                 tracing::warn!(%error, "could not compact the session journal");
             }
         });
+    }
+
+    /// Produce an offloaded clone of `data` for the journal while copying the
+    /// resulting CAS blob hashes onto `data` (preserving `entry.content` on
+    /// `data` for FTS indexing, while stripping offloaded base64 image pixels).
+    async fn prepare_offloaded_journal_data(
+        &self,
+        data: &mut ThreadData,
+    ) -> Result<ThreadData, String> {
+        if !needs_blob_offload(data) {
+            return Ok(data.clone());
+        }
+        let mut offloaded = data.clone();
+        let blob_store = self.blob_store.clone();
+        let offloaded = tokio::task::spawn_blocking(move || {
+            offload_session_blobs(&mut offloaded, &blob_store)?;
+            Ok::<ThreadData, String>(offloaded)
+        })
+        .await
+        .map_err(|error| format!("blob offload task failed: {error}"))??;
+
+        for (proj_entry, off_entry) in data
+            .transcript
+            .entries
+            .iter_mut()
+            .zip(offloaded.transcript.entries.iter())
+        {
+            let (EntryPayload::Message(proj_payload), EntryPayload::Message(off_payload)) =
+                (&mut proj_entry.payload, &off_entry.payload)
+            else {
+                continue;
+            };
+            if proj_payload.content_blob.is_none() {
+                proj_payload.content_blob = off_payload.content_blob.clone();
+            }
+            if !off_payload.image_blobs.is_empty() {
+                proj_payload.image_blobs = off_payload.image_blobs.clone();
+                if let Some(images) = proj_payload.images.as_mut() {
+                    for blob_ref in &off_payload.image_blobs {
+                        if let Some(image) = images.get_mut(blob_ref.index) {
+                            image.data.clear();
+                        }
+                    }
+                }
+            }
+        }
+        if !offloaded.graph_image_blobs.is_empty() {
+            data.graph_image_blobs = offloaded.graph_image_blobs.clone();
+        }
+        if let (Some(proj_graph), Some(off_graph)) = (data.graph.as_mut(), offloaded.graph.as_ref())
+        {
+            let graph_img_blobs = &offloaded.graph_image_blobs;
+            let _ = proj_graph.graph.visit_messages_mut(|fact_id, proj_msg| {
+                if let Some(off_fact) = off_graph.graph.get(fact_id)
+                    && let protocol::FactPayload::Message { message: off_msg } = &off_fact.payload
+                    && proj_msg.content_blob.is_none()
+                {
+                    proj_msg.content_blob = off_msg.content_blob.clone();
+                }
+                if let Some(images) = proj_msg.images.as_mut() {
+                    for blob_ref in graph_img_blobs.iter().filter(|b| b.fact_id == fact_id.0) {
+                        if let Some(image) = images.get_mut(blob_ref.index) {
+                            image.data.clear();
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
+        Ok(offloaded)
     }
 
     /// Resolve `input` (a 4+ char hex id or prefix) to the full session id
@@ -1050,18 +1149,21 @@ mod subagent_store_tests {
         // The parent row must be durable before a child can reference it.
         parent
             .commit_turn(CommitTurn {
-                messages: &[Message::new(Role::User, "parent question")],
-                basis: CommitBasis::Appended,
+                appended: &[Message::new(Role::User, "parent question")],
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,
                 round_interrupt: None,
+                round_summary: None,
                 operation_id: None,
                 expected_revision: None,
             })
             .await
             .unwrap();
         let parent_id = parent.id().await;
+        // Flush the parent's async catalog projection so its `threads` row
+        // exists before the child projects `parent_thread_id`.
+        parent.flush_projection().await.unwrap();
 
         let (child, reported_parent) = ThreadSession::for_subagent(&parent, "child-1")
             .expect("the parent is idle, so the child must open");
@@ -1070,12 +1172,12 @@ mod subagent_store_tests {
 
         child
             .commit_turn(CommitTurn {
-                messages: &[Message::new(Role::User, "subagent task")],
-                basis: CommitBasis::Appended,
+                appended: &[Message::new(Role::User, "subagent task")],
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,
                 round_interrupt: None,
+                round_summary: None,
                 operation_id: None,
                 expected_revision: None,
             })

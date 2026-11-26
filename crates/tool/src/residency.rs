@@ -32,7 +32,7 @@
 //! model or the transcript. That channel is about text in flight; this one is about
 //! bytes at rest.
 //!
-//! [`SecretScrubMiddleware`]: ../../crates/nuo-harness/src/runtime/execution/middleware/scrub.rs
+//! [`SecretScrubMiddleware`]: ../../crates/engine/src/runtime/execution/middleware/scrub.rs
 
 use std::path::Path;
 

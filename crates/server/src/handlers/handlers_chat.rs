@@ -46,7 +46,11 @@ pub(crate) async fn refuse_if_no_provider(
 }
 
 /// Start an interactive turn on the active sovereign thread.
-pub(crate) async fn start_turn(env: ChatEnv<'_>, mut input: RoundInput) {
+pub(crate) async fn start_turn(
+    env: ChatEnv<'_>,
+    mut input: RoundInput,
+    titler: Option<&mut crate::runtime::thread_driver::SessionTitler>,
+) {
     let ChatEnv {
         agent,
         session,
@@ -73,13 +77,21 @@ pub(crate) async fn start_turn(env: ChatEnv<'_>, mut input: RoundInput) {
         };
         input = RoundInput::resume(pending);
     }
+
+    let prompt_for_title =
+        if !input.hidden && matches!(input.driver, engine::orchestration::RoundDriver::Fresh) {
+            Some(input.prompt.clone())
+        } else {
+            None
+        };
+
     let projection = ContextProjectionSettings::for_window(active_context_window(agent));
     let retry_max_attempts = config.connection_retry_max_attempts;
     let stream_restart_max_attempts = config.connection_stream_restart_max_attempts;
     let retry_base_ms = config.connection_retry_base_ms;
     let retry_max_ms = config.connection_retry_max_ms;
 
-    engine::orchestration::start_interactive_round(
+    let admitted = engine::orchestration::start_interactive_round(
         InteractiveRoundContext {
             agent: (*agent).clone(),
             tx: (*tx).clone(),
@@ -95,11 +107,22 @@ pub(crate) async fn start_turn(env: ChatEnv<'_>, mut input: RoundInput) {
         input,
     )
     .await;
+
+    // Session Title (ADR-0262 `[INV-TITLE-02]`): launch background title
+    // distillation from the driver layer gated on round admission, so a prompt
+    // denied by `UserPromptSubmit` hooks never wastes a model call or titles an
+    // empty session, while admitted rounds still distill concurrently with TTFT.
+    if let (Some(prompt), Some(titler)) = (prompt_for_title, titler) {
+        titler
+            .maybe_spawn_on_admission(agent, session, tx, &prompt, admitted)
+            .await;
+    }
 }
 
 /// `AgentRequest::Chat` — start an interactive round against the thread session.
 pub(crate) async fn chat(
     env: ChatEnv<'_>,
+    titler: &mut crate::runtime::thread_driver::SessionTitler,
     text: String,
     images: Vec<tool::ImagePart>,
     sent_at_ms: Option<u64>,
@@ -114,6 +137,7 @@ pub(crate) async fn chat(
             images,
             driver: engine::orchestration::RoundDriver::Fresh,
         },
+        Some(titler),
     )
     .await;
 }
@@ -165,6 +189,7 @@ pub(crate) async fn follow_up(
     env: ChatEnv<'_>,
     queue: &mut crate::runtime::thread_driver::FollowUpQueue,
     wake: &mpsc::Sender<String>,
+    titler: Option<&mut crate::runtime::thread_driver::SessionTitler>,
     session_id: String,
     input: QueuedMessage,
 ) {
@@ -189,7 +214,7 @@ pub(crate) async fn follow_up(
         }
         return;
     }
-    start_queued_follow_up(env, session_id, input, queue).await;
+    start_queued_follow_up(env, session_id, input, queue, titler).await;
 }
 
 /// Start one dequeued follow-up.
@@ -198,6 +223,7 @@ pub(crate) async fn start_queued_follow_up(
     session_id: String,
     input: QueuedMessage,
     queue: &mut crate::runtime::thread_driver::FollowUpQueue,
+    titler: Option<&mut crate::runtime::thread_driver::SessionTitler>,
 ) {
     let current_id = env.session.id().await;
     if current_id != session_id {
@@ -220,6 +246,7 @@ pub(crate) async fn start_queued_follow_up(
                 images: input.images.clone(),
                 driver: engine::orchestration::RoundDriver::Fresh,
             },
+            titler,
         )
         .await;
     }

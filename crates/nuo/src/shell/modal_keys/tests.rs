@@ -202,6 +202,78 @@ fn tools_modal_enter_and_space() {
 }
 
 #[test]
+fn session_trace_separates_enter_drill_in_from_i_inspect() {
+    use crate::shell::surfaces::{TraceAttemptKey, TraceView};
+
+    // L1 Rounds: Enter drills into Turns; `i` inspects the highlighted round.
+    let l1 = keys(|k| k.trace_view = TraceView::Rounds);
+    assert_eq!(
+        resolve_dialog(
+            DialogKind::SessionTrace,
+            crate::shell::keymap::Key::ENTER,
+            &l1
+        ),
+        Some(InputAction::TraceEnter)
+    );
+    assert_eq!(
+        resolve_dialog(DialogKind::SessionTrace, key('i'), &l1),
+        Some(InputAction::TraceInspect)
+    );
+
+    // L1 RoundInfo: read-only inspector — both Enter and `i` are inert.
+    let round_info = keys(|k| k.trace_view = TraceView::RoundInfo);
+    assert_eq!(
+        resolve_dialog(
+            DialogKind::SessionTrace,
+            crate::shell::keymap::Key::ENTER,
+            &round_info
+        ),
+        None
+    );
+    assert_eq!(
+        resolve_dialog(DialogKind::SessionTrace, key('i'), &round_info),
+        None
+    );
+
+    // L2 Turns: attempts are leaves, so Enter is inert; `i` inspects the attempt.
+    let l2 = keys(|k| k.trace_view = TraceView::Turns);
+    assert_eq!(
+        resolve_dialog(
+            DialogKind::SessionTrace,
+            crate::shell::keymap::Key::ENTER,
+            &l2
+        ),
+        None
+    );
+    assert_eq!(
+        resolve_dialog(DialogKind::SessionTrace, key('i'), &l2),
+        Some(InputAction::TraceInspect)
+    );
+
+    // L2 AttemptInfo: read-only inspector — both Enter and `i` are inert.
+    let attempt_info = keys(|k| {
+        k.trace_view = TraceView::AttemptInfo(TraceAttemptKey {
+            round: 1,
+            actor_id: "root".to_string(),
+            turn: 1,
+            attempt: 1,
+        });
+    });
+    assert_eq!(
+        resolve_dialog(
+            DialogKind::SessionTrace,
+            crate::shell::keymap::Key::ENTER,
+            &attempt_info
+        ),
+        None
+    );
+    assert_eq!(
+        resolve_dialog(DialogKind::SessionTrace, key('i'), &attempt_info),
+        None
+    );
+}
+
+#[test]
 fn dashboard_chars_are_always_actions() {
     let c = keys(|_| {});
     assert_eq!(

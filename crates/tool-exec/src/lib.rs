@@ -3,7 +3,10 @@
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
 // test result. `cfg_attr(test, ..)` scopes that exemption to the test build only,
 // so the shipped graph stays under the workspace `deny` for these lints.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+#![cfg_attr(
+    test,
+    allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, unsafe_code)
+)]
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -148,6 +151,7 @@ impl ExecuteCommandTool {
         configure_noninteractive_env(&mut cmd);
 
         #[cfg(unix)]
+        #[allow(unsafe_code)]
         {
             // SAFETY: `setsid` is async-signal-safe and performs no allocation.
             // It establishes the child as its own session and process-group
@@ -566,6 +570,7 @@ impl ProcessGroupGuard {
         self.0 = None;
     }
 
+    #[allow(unsafe_code)]
     fn kill_group(&self) {
         if let Some(pgid) = self.0 {
             // SAFETY: `pre_exec` called `setsid()`, making the child the

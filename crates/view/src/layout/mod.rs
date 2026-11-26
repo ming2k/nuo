@@ -154,26 +154,6 @@ impl HeightCache {
     }
 }
 
-pub type StepDrawFn = for<'b, 'c> fn(
-    frame: &mut Frame<'_>,
-    band: Rect,
-    msg: &TranscriptMessage,
-    mi: usize,
-    layout_map: &mut LayoutMap,
-    skip_rows: &mut usize,
-    current_y: &mut u16,
-    content_lines: &mut usize,
-    wrap: &mut BlockWrapCache,
-    theme: &Theme,
-    selection: &SelectionState,
-    cell_selection: Option<&CellDragInfo>,
-    sticky_anchors: &mut Vec<StickyAnchor>,
-    hovered: bool,
-    focused_entry: Option<InteractiveTarget>,
-    workspace_root: Option<&std::path::Path>,
-    diff_cache: &mut crate::tools::DiffCache,
-);
-
 /// Which layout strategy to use for the transcript message stream.
 ///
 /// The canonical layout is [`Strategy::TurnBand`], which groups stamped ReAct turns.
@@ -573,8 +553,6 @@ pub struct Stream<'a, 'f> {
 
     // accumulators consumed by `draw_transcript` after the layout returns
     pub sticky_anchors: Vec<StickyAnchor>,
-    /// Optional step drawing hook that decouples step rendering from layout.
-    pub step_draw: Option<StepDrawFn>,
 }
 
 impl<'a, 'f> Stream<'a, 'f> {
@@ -655,25 +633,75 @@ impl<'a, 'f> Stream<'a, 'f> {
             || msg.is_command_result()
             || msg.is_compacted_card()
         {
-            if let Some(step_draw) = self.step_draw {
-                step_draw(
-                    self.frame,
-                    self.band,
+            let mut ctx = crate::disclosure::renderers::RenderCtx::from_cursor(
+                self.frame,
+                self.band,
+                self.band.width as usize,
+                self.theme,
+                self.layout_map,
+                &mut self.skip_rows,
+                &mut self.current_y,
+                &mut self.content_lines,
+                &mut self.height_cache.wrap,
+            )
+            .with_workspace_root(self.workspace_root);
+
+            let focused_tool = self.focused_entry == Some(InteractiveTarget::tool_step(mi));
+            let focused_reasoning = self.focused_entry == Some(InteractiveTarget::reasoning(mi));
+            let focused_command = self.focused_entry == Some(InteractiveTarget::command_result(mi));
+            let focused_compacted =
+                self.focused_entry == Some(InteractiveTarget::compacted_card(mi));
+
+            if msg.is_subagent_task() {
+                crate::disclosure::draw_subagent_inline_step(
+                    &mut ctx,
                     msg,
                     mi,
-                    self.layout_map,
-                    &mut self.skip_rows,
-                    &mut self.current_y,
-                    &mut self.content_lines,
-                    &mut self.height_cache.wrap,
-                    self.theme,
+                    hovered,
+                    focused_tool,
+                );
+            } else if msg.is_tool_step() {
+                crate::disclosure::draw_tool_step(
+                    &mut ctx,
+                    msg,
+                    mi,
+                    self.selection,
+                    self.cell_selection,
+                    &mut self.height_cache.diff_cache,
+                    &mut self.sticky_anchors,
+                    hovered,
+                    focused_tool,
+                );
+            } else if msg.is_reasoning() {
+                crate::disclosure::draw_reasoning_trace(
+                    &mut ctx,
+                    msg,
+                    mi,
                     self.selection,
                     self.cell_selection,
                     &mut self.sticky_anchors,
                     hovered,
-                    self.focused_entry,
-                    self.workspace_root,
-                    &mut self.height_cache.diff_cache,
+                    focused_reasoning,
+                );
+            } else if msg.is_command_result() {
+                crate::disclosure::draw_command_result(
+                    &mut ctx,
+                    msg,
+                    mi,
+                    self.selection,
+                    self.cell_selection,
+                    hovered,
+                    focused_command,
+                );
+            } else if msg.is_compacted_card() {
+                crate::disclosure::draw_compacted_card(
+                    &mut ctx,
+                    msg,
+                    mi,
+                    self.selection,
+                    self.cell_selection,
+                    hovered,
+                    focused_compacted,
                 );
             }
         } else {

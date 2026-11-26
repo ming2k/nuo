@@ -46,12 +46,7 @@ fn render_full_view_with_context(
             confined: true,
         })
     });
-    let tab_bar = Some(TabBarProps {
-        tabs: None,
-        active_tab: 0,
-        unread_faults: 0,
-        ..TabBarProps::default()
-    });
+    let tab_bar = Some(TabBarProps::default());
     terminal.draw(|f| {
         let _ = draw_transcript(
             f,

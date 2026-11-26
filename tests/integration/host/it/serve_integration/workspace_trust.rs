@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo::runtime::monitor::MonitorTracker;
-use nuo::runtime::registry::{HostedThread, ThreadRegistry};
 use persistence::thread::ThreadSession;
 use protocol::{AgentRequest, AgentResponse, RoundEvent};
-use server::transport::serve::{self, AttachAction, Wire};
+use server::runtime::monitor::MonitorTracker;
+use server::runtime::registry::{HostedThread, ThreadRegistry};
+use server::transport::serve::{self, ThreadTarget, Wire};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -95,12 +95,27 @@ async fn attach_trust_workspace_with_posture(
         .await
         .unwrap();
     ws.send(WsMessage::Text(
-        serde_json::to_string(&Wire::Select {
-            action: AttachAction::Attach(None),
-            project: Some(tmp.path().to_string_lossy().into_owned().into()),
-            posture,
-            version: None,
+        serde_json::to_string(&Wire::Hello {
             protocol: protocol::PROTOCOL_VERSION,
+            version: None,
+            posture,
+            monitor: None,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    let _hello = tokio::time::timeout(Duration::from_secs(2), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Subscribe {
+            request_id: 1,
+            target: ThreadTarget::Attach { id: None },
+            project: Some(tmp.path().to_string_lossy().into_owned().into()),
         })
         .unwrap()
         .into(),
@@ -167,12 +182,27 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
         .await
         .unwrap();
     ws.send(WsMessage::Text(
-        serde_json::to_string(&Wire::Select {
-            action: AttachAction::Attach(None),
-            project: Some(tmp.path().to_string_lossy().into_owned().into()),
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
-            version: None,
+        serde_json::to_string(&Wire::Hello {
             protocol: protocol::PROTOCOL_VERSION,
+            version: None,
+            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            monitor: None,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    let _hello = tokio::time::timeout(Duration::from_secs(2), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Subscribe {
+            request_id: 1,
+            target: ThreadTarget::Attach { id: None },
+            project: Some(tmp.path().to_string_lossy().into_owned().into()),
         })
         .unwrap()
         .into(),

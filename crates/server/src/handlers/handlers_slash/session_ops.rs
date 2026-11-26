@@ -425,7 +425,9 @@ pub(crate) async fn restore_session_runtime(
     let before_len = messages.len();
     agent.fire_session_start(source, &mut messages).await;
     if messages.len() > before_len
-        && let Err(err) = session.append_turn(&messages).await
+        && let Err(err) = session
+            .commit_turn(persistence::CommitTurn::new(&messages[before_len..]))
+            .await
     {
         tracing::warn!(error = %err, "failed to persist ThreadStart hook context");
     }

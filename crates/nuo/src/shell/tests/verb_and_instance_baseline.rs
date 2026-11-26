@@ -85,8 +85,9 @@ fn app_with_dialogue(session_id: &str) -> App {
 
 fn describe(frame: &ClientOutbound) -> String {
     match frame {
-        ClientOutbound::Subscribe { action, .. } => format!("Subscribe({action:?})"),
+        ClientOutbound::Subscribe { target, .. } => format!("Subscribe({target:?})"),
         ClientOutbound::Unsubscribe { thread_id } => format!("Unsubscribe({thread_id})"),
+        ClientOutbound::Control { request, .. } => format!("Control({request:?})"),
         ClientOutbound::Request { request, .. } => match request {
             protocol::AgentRequest::SlashCommand(cmd) => format!("SlashCommand({cmd})"),
             other => format!("{other:?}")
@@ -213,7 +214,11 @@ fn report(outcomes: &[(Trigger, Outcome)]) -> String {
 #[tokio::test]
 async fn all_triggers_agree_on_a_non_empty_thread() {
     let outcomes = measure_all("verb-nonempty-target", true).await;
-    let expected = outcome(&["Subscribe(New(None))"], (1, 1), Mechanism::Resident);
+    let expected = outcome(
+        &["Subscribe(New { options: None })"],
+        (1, 1),
+        Mechanism::Resident,
+    );
     for (trigger, actual) in &outcomes {
         assert_eq!(
             actual,

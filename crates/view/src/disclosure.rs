@@ -197,5 +197,11 @@ const ACCENT_IDLE_BLEND: f32 = 0.0;
 const ACCENT_EXPANDED_BLEND: f32 = 0.6;
 const INTERACTION_HOVER_BLEND: f32 = 0.70;
 
+pub mod renderers;
+pub use renderers::{
+    RenderCtx, StickyAnchor, StickyInfo, draw_command_result, draw_compacted_card,
+    draw_reasoning_trace, draw_sticky_anchor_if_needed, draw_subagent_inline_step, draw_tool_step,
+};
+
 #[cfg(test)]
 mod tests;

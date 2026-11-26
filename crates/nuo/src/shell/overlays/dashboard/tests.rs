@@ -613,8 +613,11 @@ fn fmt_tokens_compact_formats_correctly() {
 #[test]
 fn status_chip_provides_distinct_visual_vocabulary() {
     let theme = Theme::default();
-    let (label_run, _) = status_chip(ThreadActivity::Running, &theme);
+    let (label_run, style_run) = status_chip(ThreadActivity::Running, &theme);
     assert!(label_run.contains("RUNNING"));
+    // `[INV-TUI-COLOR-04]` (ADR-0258): running fleet chip speaks in `theme.running()`.
+    assert_eq!(style_run.fg, theme.running());
+    assert!(style_run.add.contains(Modifier::BOLD));
     let (label_app, _) = status_chip(ThreadActivity::NeedsApproval, &theme);
     assert!(label_app.contains("APPROVAL"));
     let (label_inp, _) = status_chip(ThreadActivity::NeedsInput, &theme);

@@ -533,3 +533,41 @@ async fn cross_workspace_prompt_always_persists_to_dot_nuo_and_reject_refuses() 
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[tokio::test]
+async fn virtual_prefix_with_parent_traversal_does_not_bypass_workspace_confinement() {
+    let base = cross_workspace_scratch("vfs-traversal");
+    let primary = base.join("primary");
+    std::fs::create_dir_all(&primary).unwrap();
+
+    let agent = Agent::new(
+        Arc::new(TestProvider),
+        vec![Arc::new(PathBoundReadTool)],
+        crate::AgentIdentity::default(),
+    );
+    agent.set_permission_scope("developer", Some(primary));
+    agent.set_unattended(true);
+
+    for malicious in [
+        "/tmp/nuo/spool/../../../../etc/passwd",
+        ".nuo/virtual/../../../../etc/passwd",
+    ] {
+        let call = ToolCall {
+            id: format!("vfs-escape-{malicious}"),
+            name: "path_bound_read".to_string(),
+            arguments: serde_json::json!({ "path": malicious }).to_string(),
+        };
+        let out = agent
+            .execute_tool_evented(&call, &CancellationToken::new(), &mut |_| {})
+            .await
+            .unwrap()
+            .result
+            .unwrap();
+        assert!(
+            matches!(out, ToolOutput::Error { .. }),
+            "path `{malicious}` must be refused by workspace confinement, got {out:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&base);
+}

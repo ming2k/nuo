@@ -57,7 +57,7 @@ async fn provider_turn_context_survives_tools_and_retries_but_not_new_rounds() {
     ));
     let mut messages = vec![Message::new(Role::User, "run")];
     let cancel = CancellationToken::new();
-    let mut round = agent.begin_streaming_round();
+    let mut round = agent.begin_streaming_round(0);
     assert!(
         agent
             .resume_streaming_with_events(&mut messages, &cancel, &mut round, |_| {})
@@ -434,28 +434,89 @@ async fn an_aborted_stream_retracts_its_announced_calls_rather_than_cancelling_t
 
 #[tokio::test]
 async fn turn_persist_fires_at_each_react_turn_boundary() {
-    // ADR-0048: the mid-round save point must fire once per completed
-    // tool-carrying turn, carrying the full history including that turn's
-    // tool results. `StreamingToolProvider` produces two turns (turn 0 = tool
-    // call, turn 1 = terminal text), so exactly one continuing-turn boundary is crossed and the
-    // callback should see three messages: user prompt + assistant + tool
-    // result. The final turn (plain text, no tools) does not cross a
-    // boundary and must not fire the callback.
+    // ADR-0048 + `[INV-THREADSSOT-02]`: the mid-round save point fires once per
+    // completed tool-carrying turn, receiving strictly the newly produced
+    // uncommitted delta slice (`&messages[round.committed_len..]`) — never a
+    // cumulative window. Over 3 turns (turn 0 = tool call, turn 1 = tool call,
+    // turn 2 = terminal text), two boundaries are crossed:
+    // - boundary 0 sees `[user, assistant_0, tool_0]` (3 uncommitted messages);
+    // - boundary 1 sees strictly `[assistant_1, tool_1]` (2 new messages).
+    // The final plain-text turn does not cross a mid-round boundary.
+    struct TwoToolStreamingProvider(AtomicUsize);
+    #[async_trait]
+    impl Provider for TwoToolStreamingProvider {
+        async fn chat(
+            &self,
+            _request: &protocol::ModelRequest,
+        ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
+            unreachable!("streaming path is used")
+        }
+        async fn stream_chat(
+            &self,
+            _request: &protocol::ModelRequest,
+            _telemetry: protocol::TransportTelemetry,
+        ) -> Result<
+            BoxStream<'static, Result<String, protocol::ProviderError>>,
+            protocol::ProviderError,
+        > {
+            Ok(Box::pin(stream::empty()))
+        }
+        async fn stream_chat_events(
+            &self,
+            _request: &protocol::ModelRequest,
+            _telemetry: protocol::TransportTelemetry,
+        ) -> Result<
+            BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
+            protocol::ProviderError,
+        > {
+            let step = self.0.fetch_add(1, Ordering::SeqCst);
+            let events = match step {
+                0 => vec![
+                    Ok(ProviderStreamEvent::ToolCallDelta {
+                        index: 0,
+                        id: Some("call-0".to_string()),
+                        name: Some("read_test".to_string()),
+                        arguments: "{}".to_string(),
+                    }),
+                    Ok(ProviderStreamEvent::Completed(
+                        protocol::ProviderCompletionMeta::default(),
+                    )),
+                ],
+                1 => vec![
+                    Ok(ProviderStreamEvent::ToolCallDelta {
+                        index: 0,
+                        id: Some("call-1".to_string()),
+                        name: Some("read_test".to_string()),
+                        arguments: "{}".to_string(),
+                    }),
+                    Ok(ProviderStreamEvent::Completed(
+                        protocol::ProviderCompletionMeta::default(),
+                    )),
+                ],
+                _ => vec![
+                    Ok(ProviderStreamEvent::TextDelta("done".to_string())),
+                    Ok(ProviderStreamEvent::Completed(
+                        protocol::ProviderCompletionMeta::default(),
+                    )),
+                ],
+            };
+            Ok(Box::pin(stream::iter(events)))
+        }
+    }
+
     let calls = Arc::new(AtomicUsize::new(0));
-    let seen_lengths: Arc<std::sync::Mutex<Vec<usize>>> =
+    let seen_deltas: Arc<std::sync::Mutex<Vec<usize>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     let agent = Arc::new(Agent::new(
-        Arc::new(StreamingToolProvider(AtomicUsize::new(0))),
+        Arc::new(TwoToolStreamingProvider(AtomicUsize::new(0))),
         vec![Arc::new(StreamingReadTool(calls.clone()))],
         crate::AgentIdentity::default(),
     ));
-    let seen_for_cb = Arc::clone(&seen_lengths);
-    agent.set_turn_persist(Arc::new(move |messages: &[Message]| {
-        let len = messages.len();
+    let seen_for_cb = Arc::clone(&seen_deltas);
+    agent.set_turn_persist(Arc::new(move |delta: &[Message]| {
+        let len = delta.len();
         seen_for_cb.lock().unwrap().push(len);
-        // Snapshot the slice for the 'static future (the closure itself does
-        // not borrow; the persistence target is external in production).
-        let _ = messages.to_vec();
+        let _ = delta.to_vec();
         Box::pin(async { Ok(()) })
     }));
 
@@ -466,16 +527,66 @@ async fn turn_persist_fires_at_each_react_turn_boundary() {
         .unwrap();
     assert_eq!(outcome.message.content, "done");
 
-    // Exactly one boundary crossing (after turn 0's tool result). The
-    // callback receives the full live history: [user, assistant, tool_result]
-    // = 3. Request-scoped system policy is deliberately absent. The final
-    // turn (plain text, no tools) does not cross a boundary and must not fire.
-    let recorded = seen_lengths.lock().unwrap().clone();
+    let recorded = seen_deltas.lock().unwrap().clone();
     assert_eq!(
         recorded,
-        vec![3],
-        "turn persist fires once with the full history"
+        vec![3, 2],
+        "turn persist must receive strictly each turn's uncommitted delta slice"
     );
+}
+
+#[tokio::test]
+async fn payload_projection_refuses_message_count_drift() {
+    use crate::cognition::context_projection::{ContextProjectionGate, ContextProjectionOutcome};
+
+    struct ShrinkingPayloadGate;
+
+    #[async_trait]
+    impl ContextProjectionGate for ShrinkingPayloadGate {
+        async fn project_context(
+            &self,
+            _messages: Vec<Message>,
+            _committed_len: usize,
+        ) -> Option<ContextProjectionOutcome> {
+            None
+        }
+
+        async fn project_payload(
+            &self,
+            mut messages: Vec<Message>,
+            _media_target_bytes: usize,
+        ) -> Option<Vec<Message>> {
+            // Illegally drops a message instead of offloading in place.
+            messages.pop();
+            Some(messages)
+        }
+    }
+
+    let agent = Arc::new(Agent::new(
+        Arc::new(StreamingToolProvider(AtomicUsize::new(0))),
+        Vec::new(),
+        crate::AgentIdentity::default(),
+    ));
+    agent.set_context_projection_gate(Some(Arc::new(ShrinkingPayloadGate)));
+
+    let big_image = tool::ImagePart {
+        mime: "image/png".to_string(),
+        data: "A".repeat(1024),
+    };
+    let mut messages = vec![
+        Message::new(Role::User, "first").with_images(vec![big_image]),
+        Message::new(Role::Assistant, "ack"),
+    ];
+    let request = agent.model_request(&messages);
+    let relief = agent
+        .relieve_payload_if_needed(&mut messages, &request, 128)
+        .await
+        .unwrap();
+    assert!(
+        relief.is_none(),
+        "a payload gate that alters message count must be refused so committed_len stays aligned"
+    );
+    assert_eq!(messages.len(), 2);
 }
 
 /// A provider whose SSE stream never yields and never ends simulates a stalled

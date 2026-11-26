@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo::runtime::monitor::MonitorTracker;
-use nuo::runtime::registry::{HostedThread, ThreadRegistry};
 use persistence::thread::ThreadSession;
-use protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
-use server::transport::serve::{self, AttachAction, Wire};
+use protocol::{AgentRequest, AgentResponse, MonitorAction};
+use server::runtime::monitor::MonitorTracker;
+use server::runtime::registry::{HostedThread, ThreadRegistry};
+use server::transport::serve::{self, Wire};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -23,25 +23,42 @@ async fn control_create_observe_kill_roundtrip() {
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
     let _ = handle;
 
-    // Create a session via the control verb. prehost_only cannot assemble, so
-    // this must fail cleanly — proving the verb reaches the registry and the
-    // reply shape is right.
+    // Create and kill via control verbs over the SAME Hello -> ServerHello connection!
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
         .await
         .unwrap();
-    let select = serde_json::to_string(&Wire::Select {
-        action: AttachAction::Control(serve::ControlRequest::CreateThread {
-            project: "/tmp/x".into(),
-            prompt: None,
-            init_options: None,
-        }),
-        project: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        version: None,
-        protocol: protocol::PROTOCOL_VERSION,
-    })
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Hello {
+            protocol: protocol::PROTOCOL_VERSION,
+            version: None,
+            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            monitor: None,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
     .unwrap();
-    ws.send(WsMessage::Text(select.into())).await.unwrap();
+    let _hello = tokio::time::timeout(Duration::from_secs(2), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Control {
+            request_id: 1,
+            request: serve::ControlRequest::CreateThread {
+                project: "/tmp/x".into(),
+                prompt: None,
+                init_options: None,
+            },
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
     let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
         .unwrap()
@@ -49,28 +66,31 @@ async fn control_create_observe_kill_roundtrip() {
         .unwrap();
     let frame: Wire = serde_json::from_str(msg.to_text().unwrap_or("")).unwrap();
     match frame {
-        Wire::ControlReply { ok, error, .. } => {
+        Wire::ControlReply {
+            request_id: 1,
+            ok,
+            error,
+            ..
+        } => {
             assert!(!ok, "prehost registry cannot create sessions");
             assert!(error.unwrap().contains("cannot create"));
         }
         other => panic!("expected ControlReply, got {other:?}"),
     }
 
-    // Kill on a missing session is a clean error too.
-    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
-        .await
-        .unwrap();
-    let select = serde_json::to_string(&Wire::Select {
-        action: AttachAction::Control(serve::ControlRequest::KillThread {
-            thread_id: "nope".into(),
-        }),
-        project: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        version: None,
-        protocol: protocol::PROTOCOL_VERSION,
-    })
+    // Kill on a missing session over the SAME connection is a clean error too.
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Control {
+            request_id: 2,
+            request: serve::ControlRequest::KillThread {
+                thread_id: "nope".into(),
+            },
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
     .unwrap();
-    ws.send(WsMessage::Text(select.into())).await.unwrap();
     let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
         .unwrap()
@@ -78,7 +98,12 @@ async fn control_create_observe_kill_roundtrip() {
         .unwrap();
     let frame: Wire = serde_json::from_str(msg.to_text().unwrap_or("")).unwrap();
     match frame {
-        Wire::ControlReply { ok, error, .. } => {
+        Wire::ControlReply {
+            request_id: 2,
+            ok,
+            error,
+            ..
+        } => {
             assert!(!ok);
             assert!(error.unwrap().contains("nope"));
         }
@@ -127,31 +152,32 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
         assert_eq!(mode, 0o600, "socket must be 0600, got {mode:o}");
     }
 
-    // Full handshake over the native endpoint: monitor one-shot (native framed).
+    // Full handshake over the native endpoint: Hello with monitor snapshot (native framed).
     let stream = host::ipc::connect(&endpoint).await.unwrap();
     let (mut wire_sink, mut wire_source) =
         server::transport::wire_channel::native_framed_split(stream);
-    let select = Wire::Select {
-        action: AttachAction::Monitor(MonitorAction {
+    let hello = Wire::Hello {
+        protocol: protocol::PROTOCOL_VERSION,
+        version: None,
+        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        monitor: Some(MonitorAction {
             watch: false,
             include_idle: true,
         }),
-        project: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        version: None,
-        protocol: protocol::PROTOCOL_VERSION,
     };
-    wire_sink.send(select).await.unwrap();
+    wire_sink.send(hello).await.unwrap();
     let msg = tokio::time::timeout(Duration::from_secs(2), wire_source.next())
         .await
         .unwrap()
         .unwrap()
         .unwrap();
     match msg {
-        protocol::WireFrame::Wire(Wire::Monitor {
-            event: MonitorEvent::Snapshot(_),
+        protocol::WireFrame::Wire(Wire::ServerHello {
+            monitor: Some(_), ..
         }) => {}
-        other => panic!("expected Snapshot over native local IPC, got {other:?}"),
+        other => panic!(
+            "expected ServerHello with monitor snapshot over native local IPC, got {other:?}"
+        ),
     }
 
     // Cancel cleans up the socket file — deterministically: the removal runs
@@ -213,15 +239,33 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
         .await
         .unwrap();
-    let select = serde_json::to_string(&Wire::Select {
-        action: AttachAction::Control(serve::ControlRequest::Shutdown),
-        project: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        version: None,
-        protocol: protocol::PROTOCOL_VERSION,
-    })
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Hello {
+            protocol: protocol::PROTOCOL_VERSION,
+            version: None,
+            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            monitor: None,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
     .unwrap();
-    ws.send(WsMessage::Text(select.into())).await.unwrap();
+    let _hello = tokio::time::timeout(Duration::from_secs(2), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Control {
+            request_id: 1,
+            request: serve::ControlRequest::Shutdown,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
     let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
         .unwrap()
@@ -295,15 +339,14 @@ async fn protocol_window_is_the_only_admission_authority() {
         let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
             .await
             .unwrap();
-        let select = serde_json::to_string(&Wire::Select {
+        let hello = serde_json::to_string(&Wire::Hello {
             version: version.map(str::to_string),
             protocol,
-            action: AttachAction::Attach(Some("definitely-not-a-session".into())),
-            project: None,
             posture: protocol::human_request::HumanChannelPosture::Interactive,
+            monitor: None,
         })
         .unwrap();
-        ws.send(WsMessage::Text(select.into())).await.unwrap();
+        ws.send(WsMessage::Text(hello.into())).await.unwrap();
         let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
             .await
             .unwrap()
@@ -312,22 +355,18 @@ async fn protocol_window_is_the_only_admission_authority() {
         serde_json::from_str(msg.to_text().unwrap_or("")).unwrap()
     }
 
-    // Same protocol, wildly skewed product version: SERVED. This is the
-    // whole point of the ADR — a pinned client keeps talking to a newer
-    // server across additive wire changes.
-    match first_frame(port, Some("0.0.1-skew"), PROTOCOL_VERSION).await {
-        Wire::Error { message, .. } => {
-            assert!(
-                !message.contains("mismatch"),
-                "same-protocol client must not be judged on its product version: {message}"
-            );
-        }
-        other => panic!("expected the normal unknown-session error, got {other:?}"),
-    }
+    // Same protocol, wildly skewed product version: SERVED.
+    assert!(
+        matches!(
+            first_frame(port, Some("0.0.1-skew"), PROTOCOL_VERSION).await,
+            Wire::ServerHello { .. }
+        ),
+        "same-protocol client must be accepted regardless of product version"
+    );
 
     // Too new: refused with the protocol message and the restart fix.
     match first_frame(port, None, PROTOCOL_VERSION + 1).await {
-        Wire::Error { message, code } => {
+        Wire::Error { message, code, .. } => {
             assert_eq!(code.as_deref(), Some("protocol_mismatch"));
             assert!(
                 message.contains("nuo server stop"),
@@ -344,7 +383,7 @@ async fn protocol_window_is_the_only_admission_authority() {
     // Too old: refused with the protocol message and the update fix.
     if PROTOCOL_VERSION > 1 {
         match first_frame(port, None, PROTOCOL_VERSION - 1).await {
-            Wire::Error { message, code } => {
+            Wire::Error { message, code, .. } => {
                 assert_eq!(code.as_deref(), Some("protocol_mismatch"));
                 assert!(
                     message.contains("update your nuo client"),
@@ -356,14 +395,12 @@ async fn protocol_window_is_the_only_admission_authority() {
     }
 
     // A first frame with no protocol number cannot even be modelled: it is a
-    // decode failure answered with the protocol taxonomy, not a silently
-    // different admission rule. This is the case the old `Option<u32>` field
-    // accepted and judged by product version.
+    // decode failure answered with the protocol taxonomy.
     {
         let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
             .await
             .unwrap();
-        let raw = r#"{"type":"Select","action":{"Attach":null},"posture":"Interactive"}"#;
+        let raw = r#"{"type":"Hello","posture":"Interactive"}"#;
         ws.send(WsMessage::Text(raw.into())).await.unwrap();
         let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
             .await
@@ -372,7 +409,7 @@ async fn protocol_window_is_the_only_admission_authority() {
             .unwrap();
         let frame: Wire = serde_json::from_str(msg.to_text().unwrap_or("")).unwrap();
         match frame {
-            Wire::Error { message, code } => {
+            Wire::Error { message, code, .. } => {
                 assert_eq!(
                     code.as_deref(),
                     Some("protocol_mismatch"),
@@ -388,30 +425,46 @@ async fn protocol_window_is_the_only_admission_authority() {
     }
 
     // Exact match: PROTOCOL_VERSION is served whatever the product version.
-    match first_frame(port, Some("0.0.1-skew"), PROTOCOL_VERSION).await {
-        Wire::Error { message, .. } => {
-            assert!(
-                !message.contains("mismatch"),
-                "exact protocol version must be accepted: {message}"
-            );
-        }
-        other => panic!("expected the normal unknown-session error, got {other:?}"),
-    }
+    assert!(
+        matches!(
+            first_frame(port, Some("0.0.1-skew"), PROTOCOL_VERSION).await,
+            Wire::ServerHello { .. }
+        ),
+        "exact protocol version must be accepted"
+    );
 }
 /// One control verb over a fresh connection, returning the reply.
 async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<bool, String> {
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
         .await
         .unwrap();
-    let select = serde_json::to_string(&Wire::Select {
-        action: AttachAction::Control(request),
-        project: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        version: None,
-        protocol: protocol::PROTOCOL_VERSION,
-    })
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Hello {
+            protocol: protocol::PROTOCOL_VERSION,
+            version: None,
+            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            monitor: None,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
     .unwrap();
-    ws.send(WsMessage::Text(select.into())).await.unwrap();
+    let _hello = tokio::time::timeout(Duration::from_secs(2), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Control {
+            request_id: 1,
+            request,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
     let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
         .unwrap()
@@ -615,7 +668,7 @@ fn test_inv_remote_01_endpoint_resolution() {
 /// without destroying the remote server process.
 #[tokio::test]
 async fn test_inv_remote_02_remote_symmetry_and_detach() {
-    use nuo::transport::{AttachAction, ClientTarget, Handshake, RemoteServer};
+    use nuo::transport::{ClientTarget, Handshake, RemoteServer, ThreadTarget};
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let _session_id = host_with_project(&registry, std::env::temp_dir()).await;
@@ -638,7 +691,7 @@ async fn test_inv_remote_02_remote_symmetry_and_detach() {
     let bad_remote =
         RemoteServer::parse(&format!("127.0.0.1:{port}"), Some("bad-token".into())).unwrap();
     let bad_target = ClientTarget::Remote(bad_remote);
-    let bad_res = bad_target.connect(AttachAction::Attach(None)).await;
+    let bad_res = bad_target.connect(ThreadTarget::Attach { id: None }).await;
     assert!(
         bad_res.is_err(),
         "connecting with invalid bearer token must fail"
@@ -650,7 +703,7 @@ async fn test_inv_remote_02_remote_symmetry_and_detach() {
     let valid_target = ClientTarget::Remote(valid_remote.clone());
 
     let handshake = valid_target
-        .connect(AttachAction::Attach(None))
+        .connect(ThreadTarget::Attach { id: None })
         .await
         .expect("remote attach handshake must succeed");
 
@@ -675,9 +728,12 @@ async fn test_inv_remote_02_remote_symmetry_and_detach() {
 
     // 5. Remote server is still running and healthy; a subsequent client can attach
     let re_target = ClientTarget::Remote(valid_remote);
-    let re_handshake = re_target.connect(AttachAction::Attach(None)).await.expect(
-        "server must remain running and accept re-attachment after previous client detached",
-    );
+    let re_handshake = re_target
+        .connect(ThreadTarget::Attach { id: None })
+        .await
+        .expect(
+            "server must remain running and accept re-attachment after previous client detached",
+        );
 
     assert!(matches!(re_handshake, Handshake::Attached { .. }));
 

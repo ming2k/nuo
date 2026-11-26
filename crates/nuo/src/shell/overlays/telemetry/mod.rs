@@ -1,19 +1,22 @@
-//! Thread Stats and Session Trace overlays (ADR-0037).
+//! Thread Stats and Session Trace overlays (ADR-0037, ADR-0263).
 //!
 //! Separated into two distinct surfaces:
 //! - [`draw::draw_thread_stats_modal`] — Thread Stats (/stats)
-//! - [`draw::draw_session_trace_modal`] — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
+//! - [`draw::draw_session_trace_modal`] — Session Trace (/trace) with orthogonal
+//!   `Enter` drill-in (`Rounds` -> `Turns`) and `i` inspection (`RoundInfo` / `AttemptInfo`)
 //!
 //! Rendering lives in level-focused submodules:
-//! - [`draw`]     — modal chrome, breadcrumbs, level routing
+//! - [`draw`]     — modal chrome, breadcrumbs, view routing
 //! - [`overview`] — stats overview body
+//! - [`round`]    — L1 round inspector (timing breakdown, activity, tokens/cost)
 //! - [`tables`]   — trace rounds/turns tables
-//! - [`attempt`]  — attempt inspector with the latency timeline
+//! - [`attempt`]  — L2 attempt inspector with the latency timeline
 
 pub mod attempt;
 pub mod draw;
 pub mod model;
 pub mod overview;
+pub mod round;
 pub mod tables;
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use persistence::thread::{CommitBasis, CommitTurn, ThreadSession};
+use persistence::thread::{CommitTurn, ThreadSession};
 use tool::{Message, Role};
 
 struct Percentiles {
@@ -124,22 +124,20 @@ async fn run_tier(sessions: usize, turns_per_session: usize) -> RunResult {
         };
         handles.push(tokio::spawn(async move {
             let mut latencies_us = Vec::with_capacity(turns_per_session);
-            let mut window = Vec::with_capacity(turns_per_session * 2);
             for turn in 0..turns_per_session {
-                window.push(Message::new(
-                    Role::User,
-                    format!("s{idx} t{turn} bench_needle query"),
-                ));
                 let reply = if let Some(ref blob) = heavy {
                     format!("s{idx} t{turn} heavy {blob}")
                 } else {
                     format!("s{idx} t{turn} compact reply")
                 };
-                window.push(Message::new(Role::Assistant, reply));
+                let delta = [
+                    Message::new(Role::User, format!("s{idx} t{turn} bench_needle query")),
+                    Message::new(Role::Assistant, reply),
+                ];
 
                 let t0 = Instant::now();
                 store
-                    .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+                    .commit_turn(CommitTurn::new(&delta))
                     .await
                     .expect("commit_turn must succeed");
                 latencies_us.push(t0.elapsed().as_micros() as u64);

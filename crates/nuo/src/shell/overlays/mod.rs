@@ -8,7 +8,7 @@
 //! - [`mcp`] — MCP manager modal (per-server enable/reconnect surface)
 //! - [`permission`] — permission sheet + question modal
 //! - [`history`] — history search modal
-//! - [`crate::shell::views::settings`] — full-screen dual-pane settings view
+//! - [`view::views::settings`] — full-screen dual-pane settings view
 //! - [`toast`] — copy / armed-action notice bubbles
 //! - [`common`] — shared helpers (time formatting, truncation, caret, glyphs)
 
@@ -38,13 +38,13 @@ pub mod tools;
 pub mod tree;
 pub mod usage_stats;
 
-pub use crate::shell::views::settings::{
-    ConfigCategory, ConfigFocus, SettingsProps, build_websearch_provider_dropdown,
-    build_websearch_reader_dropdown, draw_settings_view,
-};
 pub use dashboard::{
     ConsoleCommand, ConsoleLine, ConsoleVerb, DashboardFocus, creation_order, draw_dashboard,
     draw_session_preview, parse_console_command,
+};
+pub use view::views::settings::{
+    ConfigCategory, ConfigFocus, SettingsProps, build_websearch_provider_dropdown,
+    build_websearch_reader_dropdown, draw_settings_view,
 };
 // `DashboardRects` is used by the event loop via `draw_dashboard`'s return; it
 // is part of the module's public API surface.

@@ -8,42 +8,41 @@ impl ThreadRegistry {
 
     pub async fn resolve(
         &self,
-        action: AttachAction,
+        target: ThreadTarget,
         caller_project: &std::path::Path,
     ) -> ResolveOutcome {
-        self.resolve_with_declaration(action, caller_project, true)
+        self.resolve_with_declaration(target, caller_project, true)
             .await
     }
 
     /// [`Self::resolve`] with the caller's declaration status made explicit.
-    /// A *declared* project (modern client's `Select.project`) forbids
-    /// silently auto-binding a session from another project — that is the
-    /// "launched in project A, working in project B" trap. An undeclared
-    /// project (legacy client; the server guessing its own cwd) keeps the
-    /// historical lone-session auto-bind because the server cannot tell a
-    /// cross-project attach from a same-project one.
+    /// A *declared* project (`Wire::Subscribe.project`) forbids silently
+    /// auto-binding a session from another project — that is the "launched in
+    /// project A, working in project B" trap. An undeclared project (the server
+    /// guessing its own cwd) keeps lone-session auto-bind because the server
+    /// cannot tell a cross-project attach from a same-project one.
     pub async fn resolve_with_declaration(
         &self,
-        action: AttachAction,
+        target: ThreadTarget,
         caller_project: &std::path::Path,
         declared: bool,
     ) -> ResolveOutcome {
-        match action {
-            AttachAction::New(options) => {
+        match target {
+            ThreadTarget::New { options } => {
                 self.create_session_outcome(
                     caller_project.to_path_buf(),
                     options.unwrap_or_default(),
                 )
                 .await
             }
-            AttachAction::Attach(None) => self.resolve_auto(caller_project, declared).await,
-            AttachAction::Attach(Some(id)) => self.resolve_id(&id, caller_project).await,
+            ThreadTarget::Attach { id: None } => self.resolve_auto(caller_project, declared).await,
+            ThreadTarget::Attach { id: Some(id) } => self.resolve_id(&id, caller_project).await,
             // The picker carrier: a throwaway session whose only
             // job is to host the client's picker modal. The bootstrap skips
             // restore and hooks for it; `/sessions <id>` switches to the
             // real session through the ordinary re-attach path.
-            AttachAction::Picker(init_options) => {
-                let opts = init_options.unwrap_or_default();
+            ThreadTarget::Picker { options } => {
+                let opts = options.unwrap_or_default();
                 let role_id = opts.role.clone();
                 let ws = Some(protocol::WorkspaceBinding::new(
                     caller_project.to_path_buf(),
@@ -66,14 +65,6 @@ impl ThreadRegistry {
                         "could not open the session picker: {e}"
                     )),
                 })
-            }
-            // Monitor handshakes are intercepted by the WS layer
-            // (`serve::handle_connection`) and never reach `resolve`.
-            AttachAction::Monitor(_) => {
-                ResolveOutcome::refused_untaxed("monitor connections are served directly")
-            }
-            AttachAction::Control(_) => {
-                ResolveOutcome::refused_untaxed("control connections are served directly")
             }
         }
     }
@@ -327,7 +318,9 @@ impl ThreadRegistry {
         // the build task drains this into the agent's inbox once it exists.
         let (client_tx, client_rx) = mpsc::channel::<AgentRequest>(SESSION_REQUEST_BUFFER);
         let sync_buffer = Arc::new(Mutex::new(AttachSyncBuffer::new()));
-        let (phase_tx, _) = tokio::sync::watch::channel(protocol::ThreadPhase::Binding);
+        let (phase_tx, _) = tokio::sync::watch::channel(protocol::ThreadPhase::Preparing {
+            stage: protocol::PrepareStage::Thread,
+        });
         // Claiming the store is bounded: `for_workspace` creates the session
         // directory and pins an id; it does not load the transcript. Resume
         // does that inside the build task, after Welcome. It runs on the

@@ -1,7 +1,7 @@
 use crate::address::AgentAddress;
 use crate::error::{ProtocolError, Result};
 use crate::intent::{DelegationOutcome, MessageIntent};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -82,7 +82,7 @@ pub struct AgentEnvelope {
     pub intent: MessageIntent,
 
     /// Message creation timestamp in UTC
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 
     /// Optional execution budget and constraints
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,7 +123,7 @@ impl AgentEnvelope {
             source,
             target,
             intent,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             budget: None,
             metadata: HashMap::new(),
             instance_id: None,
@@ -192,7 +192,7 @@ impl AgentEnvelope {
             source,
             target: self.source.clone(),
             intent,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             // Hop allowance is carried through so descendant workflows
             // stay within the originating request's depth budget.
             budget: self.budget,
@@ -226,7 +226,7 @@ pub struct PendingRequest {
     /// Natural language task sent, retained for diagnostics.
     pub task: String,
     /// Time the request was issued.
-    pub issued_at: DateTime<Utc>,
+    pub issued_at: Timestamp,
     /// Hop allowance granted to this request.
     pub remaining_hops: u32,
 }

@@ -78,9 +78,10 @@ pub(crate) use guardrails::ScopedToolDisable;
 
 /// Mid-turn save-point closure installed by orchestration (ADR-0048).
 ///
-/// Invoked at each ReAct-turn boundary with the current full round history.
-/// The implementation diffs against its own durable baseline and appends only
-/// the new tail to the session event log (see `ThreadSession::append_turn`).
+/// Invoked at each ReAct-turn boundary with strictly the newly produced
+/// uncommitted delta slice (`&messages[round.committed_len..]`) so the store
+/// appends only new facts via `ThreadSession::commit_turn` without ever
+/// rewriting prior history (`[INV-THREADSSOT-02]`, `[INV-CMP-08]`).
 /// Errors are surfaced back to the ReAct loop, which treats a persist failure
 /// as a round-ending error (better to stop than to keep mutating state that may
 /// not be recoverable).
@@ -93,18 +94,6 @@ pub(crate) type TurnPersistFn =
 /// by design: forensic persistence must never block or fail request dispatch.
 /// It is `None` on subagents, the review diagnostic, and tests.
 pub(crate) type RequestProjectionFn = Arc<dyn Fn(protocol::RequestProjection) + Send + Sync>;
-
-/// Title-established observer fired by the background session titler
-/// (ADR-0022).
-///
-/// The titler lives in `nuo-harness` and cannot reach the runtime's response
-/// channel, so the driver installs a closure that pushes a fresh
-/// `SessionsOverview` snapshot (and thereby republishes the monitor row, so
-/// every attached client's picker title updates live). Fired at most once per
-/// session — a non-`NULL` title is terminal. Errors and absent
-/// observers are non-fatal: the title is already durably persisted when this
-/// fires, so the notification is pure presentation.
-pub type TitleEstablishedFn = Arc<dyn Fn(&str) -> BoxFuture<'static, ()> + Send + Sync>;
 
 pub use protocol::RequestTokenEstimate;
 
@@ -341,6 +330,12 @@ pub(crate) struct StreamingRoundState {
     /// confirmed.
     withhold_images: bool,
     session_queue_generation: Option<u64>,
+    /// Index in the live `messages` vector up to which every message is already
+    /// durably persisted in the thread store. Everything in
+    /// `messages[committed_len..]` is uncommitted delta and is handed to
+    /// `turn_persist` / terminal `commit_turn` without ever rewriting prior
+    /// history (`[INV-THREADSSOT-02]`, `[INV-CMP-08]`).
+    committed_len: usize,
 }
 
 impl StreamingRoundState {
@@ -418,6 +413,18 @@ impl StreamingRoundState {
     /// keeps numbering turns contiguously instead of restarting at 0.
     pub(crate) fn committed_turns(&self) -> usize {
         self.turn_index
+    }
+
+    /// Number of leading entries in the live round `messages` slice that are
+    /// already durably committed to the thread store.
+    pub(crate) fn committed_len(&self) -> usize {
+        self.committed_len
+    }
+
+    /// Advance or reset the committed prefix cursor (e.g., after an overflow
+    /// compaction replaces the live window with a freshly projected tail).
+    pub(crate) fn set_committed_len(&mut self, len: usize) {
+        self.committed_len = len;
     }
 
     #[cfg(test)]

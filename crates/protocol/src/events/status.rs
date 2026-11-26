@@ -4,7 +4,7 @@ use super::*;
 
 /// Coarse, display-level status of a session's round lifecycle, mirrored to
 /// the TUI activity bar. This is a badge, not the protocol state: the round
-/// lifecycle itself (`RoundLifecycle` in `nuo-harness`) is binary — no active
+/// lifecycle itself (`RoundLifecycle` in `engine`) is binary — no active
 /// round, or an active round identified by a generation.
 /// Awaiting-permission / awaiting-input are overlays derived from the
 /// parked-request tables, not values here: they carry

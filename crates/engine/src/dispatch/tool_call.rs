@@ -258,8 +258,8 @@ pub(crate) fn attach_fallback_tool_call(messages: &mut [Message], call: &ToolCal
 
 /// Extract a partial string field value from an in-flight streaming JSON arguments string.
 ///
-/// For example, given an in-flight stream `{"path": "crates/nuo-harness/src/`
-/// this extracts `"crates/nuo-harness/src/"` without waiting for the closing quote or brace.
+/// For example, given an in-flight stream `{"path": "crates/engine/src/`
+/// this extracts `"crates/engine/src/"` without waiting for the closing quote or brace.
 /// This enables speculative pre-warming (e.g. disk page-cache read, path validation, permission check)
 /// while the LLM is still streaming the rest of the arguments.
 pub fn extract_partial_string_field(partial_json: &str, field_name: &str) -> Option<String> {
@@ -513,5 +513,68 @@ mod tests {
 
         assert_eq!(messages[0].tool_calls.as_ref().unwrap().len(), 1);
         assert_eq!(messages[0].content, "Config: {\"mode\": \"fast\"}");
+    }
+
+    #[test]
+    fn fuzz_partial_string_and_text_tool_call_never_panic_on_malformed_or_utf8_streams() {
+        let corpus = [
+            "",
+            "{",
+            "\"path\":",
+            r#"{"path": "\\\\\\\\\\\\\\\\\\"#,
+            r#"{"path": "中文路径/傩面/🦀.rs", "body": "\"escaped\" \u003c"#,
+            r#"{"path":"a\"b\\c\nd\te","nested":{"path":"inner"}}"#,
+            r#"{{{{{{{{{{{{{{{{{{{{{"tool":"x","arguments":{"path":"\"#,
+            "[Called tool `read` with arguments: {\"path\": \"/tmp/测试/🔥",
+        ];
+
+        // Every UTF-8 char-boundary prefix of every corpus entry must succeed without panicking.
+        for sample in corpus {
+            for (byte_idx, _) in sample.char_indices() {
+                let prefix = &sample[..byte_idx];
+                let _ = extract_partial_string_field(prefix, "path");
+                let _ = extract_partial_string_field(prefix, "command");
+                let _ = parse_text_tool_call(prefix);
+            }
+            let _ = extract_partial_string_field(sample, "path");
+            let _ = parse_text_tool_call(sample);
+        }
+
+        // Deterministic seeded grammar-soup inputs covering escapes, quotes, braces, and UTF-8.
+        let alphabet: &[&str] = &[
+            "{",
+            "}",
+            "[",
+            "]",
+            "\"",
+            "\\",
+            ":",
+            ",",
+            " ",
+            "\n",
+            "path",
+            "tool",
+            "name",
+            "arguments",
+            "中",
+            "🦀",
+            "u",
+            "n",
+            "t",
+            "0",
+        ];
+        let mut state: u64 = 0x1234_5678_9abc_def0;
+        for _ in 0..512 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let tokens = ((state >> 48) as usize % 40) + 1;
+            let mut s = String::new();
+            for _ in 0..tokens {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let idx = (state >> 33) as usize % alphabet.len();
+                s.push_str(alphabet[idx]);
+            }
+            let _ = extract_partial_string_field(&s, "path");
+            let _ = parse_text_tool_call(&s);
+        }
     }
 }

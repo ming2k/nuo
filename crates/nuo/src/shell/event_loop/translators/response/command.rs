@@ -86,8 +86,11 @@ impl TranslatorState {
                     .await;
                 }
                 if self.thread_mut(&session_id).harness.loop_status.is_idle() {
-                    self.mutations.send(M::SetResponding(false)).await;
-                    self.mutations.send(M::SetPhase(None)).await;
+                    self.chrome(
+                        &session_id,
+                        crate::shell::event_loop::mutations::ChromeEdit::PhaseOnly(None),
+                    )
+                    .await;
                 }
             }
             _ => {}

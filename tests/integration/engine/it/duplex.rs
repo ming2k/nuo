@@ -420,12 +420,12 @@ async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
     // The parent must be durable: the child's row references it.
     parent
         .commit_turn(persistence::thread::CommitTurn {
-            messages: &[tool::Message::new(tool::Role::User, "parent question")],
-            basis: persistence::thread::CommitBasis::Appended,
+            appended: &[tool::Message::new(tool::Role::User, "parent question")],
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,
             round_interrupt: None,
+            round_summary: None,
             operation_id: None,
             expected_revision: None,
         })

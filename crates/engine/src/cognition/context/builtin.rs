@@ -113,9 +113,6 @@ impl ContextSource for CodingBaselineGuidance {
                  - After a change, verify it with the project's own build, test, or lint command \
                  when available.\n\
                  - If a tool is denied or a command fails, adapt rather than claiming success.\n\
-                 - Use the todo tool only for multi-step implementation or code-modification work, \
-                 keeping one item in progress; never call it for questions, explanations, or \
-                 read-only lookups.\n\
                  - Cite paths and line numbers when explaining code. Keep the final answer concise.",
             )
             .with_title("Working Contract")
@@ -248,8 +245,15 @@ impl ContextSource for ExplorationProtocolGuidance {
         }
         if surface.has_native(BuiltinTool::CodeQuery) {
             lines.push(
-                "- Use the code query tool (outline, symbol, references) when navigating a large \
-                 unfamiliar file or tracing a cross-file symbol.",
+                "- Use the code query tool (outline, symbol, find) when navigating a large \
+                 unfamiliar file or locating declarations across a scope.",
+            );
+        }
+        if surface.has_native(BuiltinTool::Todo) {
+            lines.push(
+                "- Use the todo tool only for multi-step implementation or code-modification \
+                 work, keeping one item in progress; never call it for questions, explanations, \
+                 or read-only lookups.",
             );
         }
         if surface.supports_parallel() && lines.len() > 1 {

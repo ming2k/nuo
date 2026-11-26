@@ -74,13 +74,79 @@ impl std::fmt::Display for ThreadHosting {
     }
 }
 
+/// Bounded local startup stage of a Nuo server (ADR-0260 `[INV-SRVPHASE-01]`).
+///
+/// Every variant has a real production producer in `server::runtime::host`.
+/// Network I/O (OAuth, MCP, remote catalog sync) never gates server readiness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerInitStage {
+    /// Opening durable storage, persistence supervision, and connection usage state.
+    Storage,
+    /// Loading shared runtime configuration and starting server monitors/reapers.
+    Runtime,
+}
+
+impl ServerInitStage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Storage => "storage",
+            Self::Runtime => "runtime",
+        }
+    }
+}
+
+/// Global lifecycle phase of the Nuo server process (ADR-0260 `[INV-SRVPHASE-01]`).
+///
+/// Strictly orthogonal to [`PersistenceHealth`] (durability degradation while
+/// serving) and [`crate::ThreadPhase`] (per-thread harness assembly).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "phase", rename_all = "snake_case")]
+pub enum ServerPhase {
+    /// Listeners are bound and serving handshakes; bounded local initialization
+    /// is in progress.
+    Initializing { stage: ServerInitStage },
+    /// All local subsystems are ready; thread subscriptions and requests are admitted.
+    Ready,
+    /// Applying a non-disruptive configuration/catalog reload (`Reload`).
+    /// Existing threads and new subscriptions remain admitted.
+    Reloading,
+    /// Graceful shutdown in progress: refusing new thread subscriptions and
+    /// draining active connections and threads within the grace budget.
+    Draining {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    /// Fatal startup or runtime error; the server cannot serve requests.
+    Failed {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+        message: String,
+    },
+}
+
+impl ServerPhase {
+    /// Whether the server currently admits thread subscriptions and domain work.
+    pub fn admits_work(&self) -> bool {
+        matches!(self, Self::Ready | Self::Reloading)
+    }
+
+    /// Whether the server has entered a terminal or shutting-down phase.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Draining { .. } | Self::Failed { .. })
+    }
+}
+
 /// A stream frame about the server as a whole.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MonitorEvent {
-    /// The full current state, sent exactly once as the first frame after the
-    /// monitor handshake. Threads are sorted by `updated_at`, newest first.
+    /// The full current state, sent on initial monitor attach or after lag resync.
+    /// Threads are sorted by `updated_at`, newest first.
     Snapshot(MonitorSnapshot),
+    /// The server's global lifecycle phase changed (ADR-0260 `[INV-SRVPHASE-01]`).
+    /// Delivered reliably to every connected client from `ServerLifecycle`.
+    ServerPhaseChanged(ServerPhase),
     /// One hosted thread was created or re-hosted (lazy resume). Carries its
     /// complete row so a consumer needs no back-reference.
     ThreadAdded(MonitoredThread),
@@ -88,15 +154,6 @@ pub enum MonitorEvent {
     ThreadUpdated(MonitoredThread),
     /// A hosted thread shut down. Consumers drop the row.
     ThreadRemoved { thread_id: String },
-    /// The server as a whole began its graceful shutdown: no new
-    /// attaches will be served, live connections are being closed with a
-    /// WebSocket `GoingAway`, and every hosted session's teardown (including
-    /// `SessionEnd` hooks) is in flight. Watch clients should treat the
-    /// stream as terminal — the process exits after a bounded grace budget —
-    /// and surface a "server stopping" notice rather than attempting
-    /// reconnects against it. Emitted exactly once, before the individual
-    /// `SessionRemoved` diffs of the same shutdown.
-    ServerDraining,
     /// A server-level task changed in place — spawned, progressed
     /// to `Ready`, or settled. Carries the complete row; consumers upsert
     /// by id. Session-scoped tasks do not stream here.
@@ -153,6 +210,11 @@ impl PersistenceHealth {
 /// The server-level snapshot: who is serving and what is happening right now.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitorSnapshot {
+    /// Unique server instance identifier generated once per server boot
+    /// (ADR-0260). Clients compare this across reconnects to detect restarts.
+    pub server_id: String,
+    /// Current global lifecycle phase of the server (ADR-0260 `[INV-SRVPHASE-01]`).
+    pub server_phase: ServerPhase,
     pub project_root: String,
     /// Unix seconds when the server process started (from the discovery
     /// record; `0` when the registry was not created by a server, e.g. an
@@ -442,11 +504,30 @@ mod tests {
     }
 
     #[test]
-    fn server_draining_serializes_as_unit_tag() {
-        let json = serde_json::to_string(&MonitorEvent::ServerDraining).unwrap();
-        assert_eq!(json, r#"{"kind":"server_draining"}"#);
-        let back: MonitorEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, MonitorEvent::ServerDraining);
+    fn server_phase_changed_roundtrips_all_variants() {
+        let cases = [
+            ServerPhase::Initializing {
+                stage: ServerInitStage::Storage,
+            },
+            ServerPhase::Initializing {
+                stage: ServerInitStage::Runtime,
+            },
+            ServerPhase::Ready,
+            ServerPhase::Reloading,
+            ServerPhase::Draining {
+                reason: Some("SIGTERM".into()),
+            },
+            ServerPhase::Failed {
+                code: Some("storage_failed".into()),
+                message: "disk full".into(),
+            },
+        ];
+        for phase in cases {
+            let event = MonitorEvent::ServerPhaseChanged(phase.clone());
+            let json = serde_json::to_string(&event).unwrap();
+            let back: MonitorEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, event);
+        }
     }
 
     #[test]
@@ -459,6 +540,8 @@ mod tests {
     #[test]
     fn snapshot_roundtrips_with_a_full_row() {
         let snapshot = MonitorSnapshot {
+            server_id: "srv-test-1".into(),
+            server_phase: ServerPhase::Ready,
             project_root: "/tmp/proj".into(),
             server_started_at: 1_700_000_000,
             tasks: Vec::new(),

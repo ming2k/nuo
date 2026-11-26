@@ -448,12 +448,15 @@ fn entry_focus_marker_is_neutral_and_visible() {
     }
 }
 
-/// Liveness owns its own hue (ADR-0110 `[INV-TUI-RUNNING-01]`, amended).
+/// Liveness owns its own hue (ADR-0110 `[INV-TUI-RUNNING-01]`, amended by
+/// ADR-0258 `[INV-TUI-COLOR-03]`).
 ///
 /// The reported ambiguity: a running tool step and the `› turn N` header
 /// above it were both `info`, so "this row is working" and "this is where the
 /// turn starts" read as the same fact. The in-flight tone must therefore be
-/// distinct from every structural and outcome tone in every scheme.
+/// distinct from every structural and outcome tone in every scheme — while
+/// staying within each palette's chroma envelope and clearing WCAG 2.1 AA
+/// readability (`>= 4.5:1`) against `app_bg`.
 #[test]
 fn running_hue_is_distinct_from_structure_and_outcomes() {
     for name in ["zen", "midnight", "nord", "catppuccin", "paper", "ansi16"] {
@@ -480,6 +483,148 @@ fn running_hue_is_distinct_from_structure_and_outcomes() {
             }
         }
     }
+}
+
+/// `[INV-TUI-COLOR-03]` (ADR-0258): Every chromatic theme's `running()` token
+/// must stay within its palette's chroma discipline (never a neon outlier) and
+/// meet WCAG 2.1 AA contrast (`>= 4.5:1`) against `app_bg`, including light
+/// themes like `paper` and derived custom dark/light palettes.
+#[test]
+fn running_hue_obeys_wcag_aa_and_chroma_envelope() {
+    for name in ["zen", "midnight", "nord", "catppuccin", "paper"] {
+        let theme = Theme::from_color_scheme(name, &ColorSchemeConfig::default());
+        let running = theme.running();
+        for (surf_label, bg) in [
+            ("surface", theme.surface()),
+            ("panel", theme.panel()),
+            ("raised", theme.raised()),
+        ] {
+            let contrast = wcag_contrast_ratio(running, bg);
+            assert!(
+                contrast >= 4.5,
+                "{name}: running color {running:?} fails WCAG AA against {surf_label} {bg:?} (ratio {contrast:.2})"
+            );
+        }
+        let running_sat = hsl_saturation(running);
+        let max_palette_sat = [
+            theme.brand(),
+            theme.info(),
+            theme.ok(),
+            theme.warn(),
+            theme.err(),
+        ]
+        .into_iter()
+        .map(hsl_saturation)
+        .fold(0.0_f32, f32::max);
+        assert!(
+            running_sat <= max_palette_sat + 0.02 && running_sat <= 0.78,
+            "{name}: running color {running:?} saturation ({running_sat:.2}) exceeds palette chroma envelope ({max_palette_sat:.2})"
+        );
+    }
+
+    // Derived custom palettes (dark, mid-dark Nord-like, and light) with `running: None`.
+    for (label, custom) in [
+        (
+            "custom-dark-low-chroma",
+            ColorSchemeConfig {
+                background: "#121417".to_string(),
+                surface: "#1a1d21".to_string(),
+                text: "#d8dce2".to_string(),
+                muted: "#767d87".to_string(),
+                accent: "#7ea1a8".to_string(),
+                success: "#77997c".to_string(),
+                warning: "#b89a64".to_string(),
+                error: "#b87470".to_string(),
+                running: None,
+            },
+        ),
+        (
+            "custom-mid-dark-nord-like",
+            ColorSchemeConfig {
+                background: "#2e3440".to_string(),
+                surface: "#3b4252".to_string(),
+                text: "#eceff4".to_string(),
+                muted: "#8894a6".to_string(),
+                accent: "#88c0d0".to_string(),
+                success: "#a3be8c".to_string(),
+                warning: "#ebcb8b".to_string(),
+                error: "#bf616a".to_string(),
+                running: None,
+            },
+        ),
+        (
+            "custom-light-warm",
+            ColorSchemeConfig {
+                background: "#f4f1ea".to_string(),
+                surface: "#fcfbf8".to_string(),
+                text: "#2c2a27".to_string(),
+                muted: "#757068".to_string(),
+                accent: "#3d6b8c".to_string(),
+                success: "#3e7852".to_string(),
+                warning: "#996c24".to_string(),
+                error: "#a8443e".to_string(),
+                running: None,
+            },
+        ),
+    ] {
+        let theme = Theme::from_color_scheme("custom", &custom);
+        let running = theme.running();
+        for (surf_label, bg) in [
+            ("surface", theme.surface()),
+            ("panel", theme.panel()),
+            ("raised", theme.raised()),
+        ] {
+            let contrast = wcag_contrast_ratio(running, bg);
+            assert!(
+                contrast >= 4.5,
+                "{label}: derived running {running:?} fails WCAG AA against {surf_label} {bg:?} ({contrast:.2})"
+            );
+        }
+        assert!(
+            hsl_saturation(running) <= 0.60,
+            "{label}: derived running {running:?} must not glare (sat={:.2})",
+            hsl_saturation(running)
+        );
+        for (peer_label, other) in [
+            ("info", theme.info()),
+            ("brand", theme.brand()),
+            ("ok", theme.ok()),
+            ("warn", theme.warn()),
+            ("err", theme.err()),
+            ("muted", theme.muted()),
+        ] {
+            assert!(
+                color_distance(running, other) >= 80.0,
+                "{label}: derived running {running:?} too close to {peer_label} ({other:?})"
+            );
+        }
+    }
+}
+
+/// Custom `ColorSchemeConfig::running` overrides derivation directly, and
+/// `Theme::palette_specimen` reports authentic WCAG 2.1 contrast ratios.
+#[test]
+fn custom_running_override_and_wcag_specimen_ratio() {
+    let custom = ColorSchemeConfig {
+        running: Some("#8899cc".to_string()),
+        ..ColorSchemeConfig::default()
+    };
+    let theme = Theme::from_color_scheme("custom", &custom);
+    assert_eq!(theme.running(), Color::Rgb(0x88, 0x99, 0xcc));
+
+    let paper = Theme::from_color_scheme("paper", &ColorSchemeConfig::default());
+    let specimen = paper.palette_specimen("Paper");
+    let running_swatch = specimen
+        .signals
+        .iter()
+        .find(|s| s.name == "Running")
+        .expect("specimen must include Running signal");
+    assert_eq!(running_swatch.color, paper.running());
+    assert!(
+        running_swatch.contrast_ratio >= 4.5 && running_swatch.contrast_ratio <= 21.0,
+        "WCAG ratio must lie in [4.5, 21.0], got {:.2}",
+        running_swatch.contrast_ratio
+    );
 }
 
 /// On the no-colour archetypes the marker is carried by DEC reverse video
@@ -842,8 +987,8 @@ fn command_card_bands_stay_visible_in_every_scheme() {
     }
 }
 
-/// `[INV-HEAD-06]` The top chrome tiers must exhibit a discrete, in-family micro-elevation
-/// ladder across all preset color schemes.
+/// `[INV-HEAD-06]` (revised by ADR-0261) The two-tier top chrome must exhibit
+/// a discrete, in-family micro-elevation ladder across all preset color schemes.
 #[test]
 fn header_tiers_micro_elevation_is_guaranteed_in_every_scheme() {
     let custom = ColorSchemeConfig::default();
@@ -854,35 +999,21 @@ fn header_tiers_micro_elevation_is_guaranteed_in_every_scheme() {
         let theme = Theme::from_color_scheme(&scheme.id, &custom);
         let tabbar = theme.tabbar_bg();
         let scenebar = theme.scenebar_bg();
-        let contextbar = theme.contextbar_bg();
 
         assert_ne!(
             tabbar, scenebar,
             "{scheme:?}: tabbar and scenebar must not share identical fill"
         );
-        assert_ne!(
-            scenebar, contextbar,
-            "{scheme:?}: scenebar and contextbar must not share identical fill"
-        );
-        assert_ne!(
-            tabbar, contextbar,
-            "{scheme:?}: tabbar and contextbar must not share identical fill"
-        );
 
         let tab_lum = luminance(tabbar);
         let scene_lum = luminance(scenebar);
-        let ctx_lum = luminance(contextbar);
         let base_lum = luminance(theme.surface());
 
         if base_lum <= 150.0 {
-            // Dark mode: SceneBar is the elevated spotlight, ContextBar is intermediate, TabBar is base.
+            // Dark mode: SceneBar is the elevated focal plane above TabBar.
             assert!(
-                scene_lum > ctx_lum,
-                "{scheme:?}: scenebar must have higher luminance than contextbar"
-            );
-            assert!(
-                ctx_lum > tab_lum,
-                "{scheme:?}: contextbar must have higher luminance than tabbar"
+                scene_lum > tab_lum,
+                "{scheme:?}: scenebar must have higher luminance than tabbar"
             );
             assert!(
                 scene_lum - tab_lum >= 4.0,
@@ -891,12 +1022,8 @@ fn header_tiers_micro_elevation_is_guaranteed_in_every_scheme() {
         } else {
             // Light mode: surfaces mix toward dark text, so elevation steps down in luminance.
             assert!(
-                scene_lum < ctx_lum,
-                "{scheme:?}: scenebar must step darker than contextbar in light mode"
-            );
-            assert!(
-                ctx_lum < tab_lum,
-                "{scheme:?}: contextbar must step darker than tabbar in light mode"
+                scene_lum < tab_lum,
+                "{scheme:?}: scenebar must step darker than tabbar in light mode"
             );
         }
     }

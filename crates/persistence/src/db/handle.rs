@@ -3,16 +3,17 @@
 use super::actor::{SupervisorContext, run_supervisor};
 use super::*;
 
-/// Summary of unified storage maintenance operations (ADR-0090).
+/// Summary of unified storage maintenance operations (ADR-0090, ADR-0255).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StorageMaintenanceReport {
-    pub reclaimed_entries: usize,
     pub reclaimed_blobs: usize,
     pub reclaimed_blob_bytes: u64,
     /// Pre-images whose retention window elapsed this pass. Their journal rows
     /// survive as evidence; only their bytes became reclaimable.
     pub expired_preimages: usize,
     pub created_backup: Option<PathBuf>,
+    pub created_role_memory_backup: Option<PathBuf>,
+    pub created_journal_backup: Option<PathBuf>,
     pub pruned_backups: usize,
 }
 
@@ -212,6 +213,10 @@ impl PersistenceHandle {
         &self.db_path
     }
 
+    pub(crate) fn blob_store(&self) -> Option<&BlobStore> {
+        self.blob_store.as_ref()
+    }
+
     /// Directory containing the fixed-K rebuildable content shards (ADR-0242).
     pub fn shards_dir(&self) -> &Path {
         self.shards.shards_dir()
@@ -246,17 +251,19 @@ impl PersistenceHandle {
         // Route content-plane data (facts, branches, blob_refs, FTS, command_acts)
         // to the owning content shard before the catalog commit.
         let thread = prepared.thread.take();
+        let extra_blob_refs = std::mem::take(&mut prepared.extra_blob_refs);
         let commands = if mode == SaveMode::FullRewrite {
             Some(prepared.data.commands.clone())
         } else {
             None
         };
-        if thread.is_some() || commands.is_some() {
+        if thread.is_some() || commands.is_some() || !extra_blob_refs.is_empty() {
             let replace = mode == SaveMode::FullRewrite;
             self.shards
                 .save_content(
                     prepared.data.id.clone(),
                     thread,
+                    extra_blob_refs,
                     replace,
                     commands,
                     journal_seq,
@@ -293,10 +300,12 @@ impl PersistenceHandle {
         .map_err(SaveError::into_persistence)?;
 
         let thread = prepared.thread.take();
+        let extra_blob_refs = std::mem::take(&mut prepared.extra_blob_refs);
         let commands = Some(prepared.data.commands.clone());
         self.shards.save_content_blocking(
             prepared.data.id.clone(),
             thread,
+            extra_blob_refs,
             true,
             commands,
             journal_seq,
@@ -479,14 +488,28 @@ impl PersistenceHandle {
     }
 
     /// Read a thread's whole journal in observation order from its content shard.
+    ///
+    /// Self-heals on demand if the disposable shard is missing/outdated at
+    /// runtime while the session's journal exists (ADR-0255).
     pub async fn list_workspace_effects(
         &self,
         thread_id: String,
     ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
-        let shards = Arc::clone(&self.shards);
-        tokio::task::spawn_blocking(move || shards.list_workspace_effects(&thread_id))
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?
+        let handle = self.clone();
+        tokio::task::spawn_blocking(move || {
+            if handle
+                .shards
+                .open_reader_for(&thread_id)
+                .ok()
+                .flatten()
+                .is_none()
+            {
+                let _ = crate::thread::catch_up_single_session(&handle, &thread_id);
+            }
+            handle.shards.list_workspace_effects(&thread_id)
+        })
+        .await
+        .map_err(|_| PersistenceError::WriterDown)?
     }
 
     /// Expire pre-images older than `older_than_ms` across all content shards.
@@ -508,15 +531,26 @@ impl PersistenceHandle {
     }
 
     /// Read the newest confirmed, not-yet-reversed reversible effects from the
-    /// owning content shard, newest first.
+    /// owning content shard, newest first. Self-heals missing shards on demand.
     pub async fn undoable_workspace_effects(
         &self,
         thread_id: String,
         limit: u32,
     ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
-        let shards = Arc::clone(&self.shards);
+        let handle = self.clone();
         tokio::task::spawn_blocking(move || {
-            shards.undoable_workspace_effects(&thread_id, limit as usize)
+            if handle
+                .shards
+                .open_reader_for(&thread_id)
+                .ok()
+                .flatten()
+                .is_none()
+            {
+                let _ = crate::thread::catch_up_single_session(&handle, &thread_id);
+            }
+            handle
+                .shards
+                .undoable_workspace_effects(&thread_id, limit as usize)
         })
         .await
         .map_err(|_| PersistenceError::WriterDown)?
@@ -773,10 +807,21 @@ impl PersistenceHandle {
                 id: reader_ages.register(),
                 reader_ages,
             };
+            let repair_handle = self.clone();
+            let shard_repair: ShardRepairFn = Arc::new(move |thread_id: &str| {
+                crate::thread::catch_up_single_session(&repair_handle, thread_id).unwrap_or(false)
+            });
+            let full_repair_handle = self.clone();
+            let full_shard_repair: FullShardRepairFn = Arc::new(move || {
+                crate::thread::catch_up_projections_for(&full_repair_handle).unwrap_or(0)
+            });
             Ok(DbReader {
                 conn: Some(conn),
                 db_path: self.db_path.clone(),
                 shards: self.shards.clone(),
+                blob_store: self.blob_store.clone(),
+                shard_repair: Some(shard_repair),
+                full_shard_repair: Some(full_shard_repair),
                 pool: Some(self.reader_pool.clone()),
                 generation,
                 _permit: Some(permit),
@@ -957,28 +1002,6 @@ impl PersistenceHandle {
         self.run_blocking(PersistenceCommand::DeleteKV { key, ack: ack_tx }, ack_rx)
     }
 
-    /// Reclaim transcript entries no session references: the
-    /// periodic storage-maintenance sweep. Routed through the actor so the
-    /// DELETE serializes with every other write.
-    pub async fn collect_entry_garbage(&self) -> Result<usize, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::CollectEntryGarbage { ack: ack_tx })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
-    /// Synchronous [`Self::collect_entry_garbage`] for a blocking maintenance
-    /// pass.
-    pub fn collect_entry_garbage_blocking(&self) -> Result<usize, PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.run_blocking(
-            PersistenceCommand::CollectEntryGarbage { ack: ack_tx },
-            ack_rx,
-        )
-    }
-
     /// Refresh SQLite's query-planner statistics (`PRAGMA optimize`).
     ///
     /// Runs on its own write connection, not through the writer queue:
@@ -1064,20 +1087,50 @@ impl PersistenceHandle {
         )
     }
 
-    /// Unified storage maintenance (ADR-0090):
-    /// 1. Reclaims orphaned fact entries from SQLite.
-    /// 2. Sweeps unreferenced CAS blobs.
-    /// 3. Generates rolling atomic hot backup and prunes excess snapshots.
-    /// 4. Optimizes SQLite internal indexes.
+    /// Unified storage maintenance (ADR-0090, ADR-0255):
+    /// 1. Catches up all derived projections from authoritative journals
+    ///    (fail-closed prerequisite for CAS GC).
+    /// 2. Expires workspace pre-images past the retention window.
+    /// 3. Sweeps unreferenced CAS blobs older than `DEFAULT_BLOB_GC_GRACE`
+    ///    ONLY when all journals are caught up and all shards verify cleanly.
+    /// 4. Generates rolling backups for authoritative stores (`nuo.db`,
+    ///    `role_memory.db`, and `journal/`) and records exact pruned counts.
+    /// 5. Optimizes SQLite internal query-planner statistics.
     pub fn perform_storage_maintenance_blocking(
         &self,
         retention_limit: usize,
     ) -> Result<StorageMaintenanceReport, PersistenceError> {
         let mut report = StorageMaintenanceReport::default();
 
-        // 1. Reclaim zero-reference fact entries
-        let entries = self.collect_entry_garbage_blocking().unwrap_or(0);
-        report.reclaimed_entries = entries;
+        // 1. Fail-closed catch-up before GC: ensure derived content shards
+        //    reflect every authoritative journal before computing live blobs
+        //    (ADR-0255). A lagging or missing shard must never cause GC to
+        //    delete blobs still referenced by journals.
+        let projections_caught_up = match crate::thread::catch_up_projections_for(self) {
+            Ok(_) => match crate::thread::all_journals_caught_up(self) {
+                Ok(true) => true,
+                Ok(false) => {
+                    tracing::warn!(
+                        "skipping CAS blob GC during maintenance: one or more session journals are still ahead of derived projections"
+                    );
+                    false
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "skipping CAS blob GC during maintenance: could not verify journal catch-up state"
+                    );
+                    false
+                }
+            },
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "skipping CAS blob GC during maintenance: projection catch-up failed"
+                );
+                false
+            }
+        };
 
         // 2. Expire pre-images past the retention window, *then* sweep the CAS.
         //
@@ -1098,10 +1151,14 @@ impl PersistenceHandle {
             }
         }
 
-        // 3. CAS blob sweep against reader snapshot
-        if let Some(ref blob_store) = self.blob_store {
+        // 3. Fail-closed CAS blob sweep against reader snapshot with an mtime
+        //    grace window so freshly written blobs in `prepare_save` cannot
+        //    race with GC (ADR-0255).
+        if projections_caught_up && let Some(ref blob_store) = self.blob_store {
             let (blob_count, blob_bytes) = match self.reader().and_then(|r| r.live_blob_hashes()) {
-                Ok(live) => blob_store.retain_only(&live),
+                Ok(live) => {
+                    blob_store.retain_only_with_grace(&live, crate::blobs::DEFAULT_BLOB_GC_GRACE)
+                }
                 Err(error) => {
                     tracing::warn!(%error, "blob garbage collection failed during maintenance; skipping");
                     (0, 0)
@@ -1111,21 +1168,58 @@ impl PersistenceHandle {
             report.reclaimed_blob_bytes = blob_bytes;
         }
 
-        // 3. Online hot rolling backup (its own read-only connection)
-        let backup_dir = super::backup::BackupManager::default_dir();
+        // 4. Online hot rolling backups for all authoritative local stores
+        //    (ADR-0255 `[INV-SHARD-03]`): `nuo.db`, `role_memory.db`, and a
+        //    point-in-time rolling snapshot of `journal/`.
+        let backup_dir = self.db_path.with_extension("backups");
         let backup_mgr = super::backup::BackupManager::new(backup_dir);
-        match backup_mgr.create_rolling_backup(&self.db_path, retention_limit) {
-            Ok(meta) => {
+        match backup_mgr.create_rolling_backup_with_pruned(&self.db_path, retention_limit) {
+            Ok((meta, pruned)) => {
                 report.created_backup = Some(meta.path);
+                report.pruned_backups = report.pruned_backups.saturating_add(pruned);
             }
             Err(error) => {
-                tracing::warn!(%error, "rolling hot backup failed during maintenance");
+                tracing::warn!(%error, "rolling hot backup of nuo.db failed during maintenance");
             }
         }
 
-        // 4. Prune excess snapshots
-        if let Ok(pruned) = backup_mgr.prune_excess_backups(retention_limit) {
-            report.pruned_backups = pruned;
+        let role_memory_path = self
+            .db_path
+            .parent()
+            .map(|parent| parent.join("role_memory.db"))
+            .filter(|path| path.exists())
+            .or_else(|| {
+                let default_db = host::paths::get().db_file();
+                if self.db_path == default_db {
+                    let rm = host::paths::get().role_memory_db();
+                    rm.exists().then_some(rm)
+                } else {
+                    None
+                }
+            });
+        if let Some(rm_path) = role_memory_path {
+            let rm_backup_mgr =
+                super::backup::BackupManager::new(rm_path.with_extension("backups"));
+            match rm_backup_mgr.create_rolling_backup_with_pruned(&rm_path, retention_limit) {
+                Ok((meta, pruned)) => {
+                    report.created_role_memory_backup = Some(meta.path);
+                    report.pruned_backups = report.pruned_backups.saturating_add(pruned);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "rolling hot backup of role_memory.db failed during maintenance");
+                }
+            }
+        }
+
+        let journal_root = crate::thread::journal_root(&self.db_path);
+        match backup_mgr.create_journal_snapshot_with_pruned(&journal_root, retention_limit) {
+            Ok((path, pruned)) => {
+                report.created_journal_backup = path;
+                report.pruned_backups = report.pruned_backups.saturating_add(pruned);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "rolling journal snapshot failed during maintenance");
+            }
         }
 
         // 5. Run PRAGMA optimize

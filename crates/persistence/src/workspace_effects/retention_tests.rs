@@ -11,17 +11,9 @@
 
 use super::*;
 use crate::db::garbage_collection;
-use crate::db::open_in_memory_for_tests;
+use crate::db::migrations::open_content_shard_in_memory_for_tests;
 
 const THREAD: &str = "thread-1";
-
-fn seed_thread(conn: &Connection, thread_id: &str) {
-    conn.execute(
-        "INSERT INTO threads (id, title, created_at_ms, updated_at_ms) VALUES (?1, '', 0, 0)",
-        params![thread_id],
-    )
-    .unwrap();
-}
 
 /// A completed, reversible row with both images recorded.
 fn completed_row(conn: &Connection, before: &str, after: &str, created_at_ms: u64) -> i64 {
@@ -51,8 +43,7 @@ fn completed_row(conn: &Connection, before: &str, after: &str, created_at_ms: u6
 /// file write fails at the last moment.
 #[test]
 fn journal_preimages_are_live_for_the_blob_collector() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     completed_row(&conn, "preimage-hash", "postimage-hash", 1_000);
 
     let live = garbage_collection::live_blob_hashes(&conn).unwrap();
@@ -74,8 +65,7 @@ fn journal_preimages_are_live_for_the_blob_collector() {
 /// removal silently disowns the other's bytes.
 #[test]
 fn shared_content_is_live_for_both_owners() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     // A transcript entry references the same hash as the pre-image.
     conn.execute(
         "INSERT INTO thread_blob_refs (thread_id, fact_id, hash, size, mime, preview, trust)
@@ -101,8 +91,7 @@ fn shared_content_is_live_for_both_owners() {
 /// so the journal keeps describing it; only the ability to restore it lapses.
 #[test]
 fn expiry_reclaims_bytes_but_keeps_the_record() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = completed_row(&conn, "old-preimage", "old-postimage", 1_000);
 
     // Nothing expires inside the window.
@@ -132,8 +121,7 @@ fn expiry_reclaims_bytes_but_keeps_the_record() {
 /// it then has to refuse for a missing blob.
 #[test]
 fn expired_rows_leave_the_undo_candidate_set() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     completed_row(&conn, "pre", "post", 1_000);
     assert_eq!(undoable_effects(&conn, THREAD, 10).unwrap().len(), 1);
 
@@ -148,8 +136,7 @@ fn expired_rows_leave_the_undo_candidate_set() {
 /// resurrected into the live set after the collector has reclaimed it.
 #[test]
 fn expiry_is_one_way() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = completed_row(&conn, "pre", "post", 1_000);
     expire_preimages(&conn, 5_000, 10_000).unwrap();
 
@@ -169,8 +156,7 @@ fn expiry_is_one_way() {
 /// call record?" must still be answerable from its own hashes.
 #[test]
 fn unconfirmed_rows_are_never_expired() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let effect = NewWorkspaceEffect {
         thread_id: THREAD,
         round_id: "r1",
@@ -202,8 +188,7 @@ fn unconfirmed_rows_are_never_expired() {
 /// expiring it would be bookkeeping for no benefit.
 #[test]
 fn reversed_rows_are_not_expired() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     let id = completed_row(&conn, "pre", "post", 1_000);
     mark_reversed(&conn, id, 2_000, Some("restored")).unwrap();
 
@@ -214,8 +199,7 @@ fn reversed_rows_are_not_expired() {
 /// reclaim and nothing to expire.
 #[test]
 fn opaque_receipts_have_nothing_to_expire() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     append_completed_effect(
         &conn,
         &NewWorkspaceEffect {
@@ -251,8 +235,7 @@ fn opaque_receipts_have_nothing_to_expire() {
 /// `preimage_posture` reports what the retention policy is about to do.
 #[test]
 fn posture_counts_live_and_stale_preimages() {
-    let conn = open_in_memory_for_tests().unwrap();
-    seed_thread(&conn, THREAD);
+    let conn = open_content_shard_in_memory_for_tests().unwrap();
     // Two rows: one old, one recent.
     let old = completed_row(&conn, "old", "old-after", 1_000);
     let recent = completed_row(&conn, "recent", "recent-after", 9_000);

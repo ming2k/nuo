@@ -16,8 +16,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
-/// Prefix used for auto-generated backup files.
+/// Prefix used for auto-generated SQLite backup files.
 pub const BACKUP_PREFIX: &str = "nuo_backup_";
+/// Prefix used for auto-generated rolling journal snapshot directories.
+pub const JOURNAL_BACKUP_PREFIX: &str = "nuo_journal_backup_";
 /// Default number of rolling backups retained if uncapped.
 pub const DEFAULT_BACKUP_RETENTION_LIMIT: usize = 7;
 
@@ -154,7 +156,18 @@ impl BackupManager {
         db_path: &Path,
         retention_limit: usize,
     ) -> Result<BackupMetadata, String> {
-        fs::create_dir_all(&self.backups_dir)
+        let (meta, _) = self.create_rolling_backup_with_pruned(db_path, retention_limit)?;
+        Ok(meta)
+    }
+
+    /// Create an atomic online hot-backup and prune excess snapshots, returning
+    /// both the new snapshot metadata and the exact number of pruned files.
+    pub(crate) fn create_rolling_backup_with_pruned(
+        &self,
+        db_path: &Path,
+        retention_limit: usize,
+    ) -> Result<(BackupMetadata, usize), String> {
+        crate::fs_privacy::ensure_private_dir(&self.backups_dir)
             .map_err(|e| format!("failed to create backup dir: {e}"))?;
 
         let now_ms = SystemTime::now()
@@ -166,13 +179,126 @@ impl BackupManager {
         let target_path = self.backups_dir.join(file_name);
 
         vacuum_into(db_path, &target_path).map_err(|e| format!("online hot backup failed: {e}"))?;
+        crate::fs_privacy::restrict_private_file(&target_path);
 
         let meta = self.inspect_backup(&target_path)?;
 
-        // Prune older backups beyond retention limit
-        let _ = self.prune_excess_backups(retention_limit);
+        // Prune older backups beyond retention limit and preserve exact count.
+        let pruned = self.prune_excess_backups(retention_limit).unwrap_or(0);
 
-        Ok(meta)
+        Ok((meta, pruned))
+    }
+
+    /// Create an atomic rolling point-in-time snapshot of the authoritative
+    /// `journal/` directory (ADR-0255 `[INV-SHARD-03]`).
+    ///
+    /// Immutable artifacts (`snap-*.json`, `DELETED`) are hard-linked (falling
+    /// back to copy across filesystems) for near-zero extra disk usage; active
+    /// append-only segments (`seg-*.log`) and aliases are copied so subsequent
+    /// turns never mutate the snapshot. Returns `Ok(None)` when `journal_root`
+    /// does not exist or is empty.
+    pub fn create_journal_snapshot(
+        &self,
+        journal_root: &Path,
+        retention_limit: usize,
+    ) -> Result<Option<PathBuf>, String> {
+        let (path, _) = self.create_journal_snapshot_with_pruned(journal_root, retention_limit)?;
+        Ok(path)
+    }
+
+    /// Create an atomic rolling journal snapshot and return the exact number
+    /// of pruned older snapshot directories.
+    pub(crate) fn create_journal_snapshot_with_pruned(
+        &self,
+        journal_root: &Path,
+        retention_limit: usize,
+    ) -> Result<(Option<PathBuf>, usize), String> {
+        if !journal_root.is_dir() {
+            return Ok((None, 0));
+        }
+        let mut has_entries = false;
+        if let Ok(mut rd) = fs::read_dir(journal_root) {
+            has_entries = rd.next().is_some();
+        }
+        if !has_entries {
+            return Ok((None, 0));
+        }
+
+        crate::fs_privacy::ensure_private_dir(&self.backups_dir)
+            .map_err(|e| format!("failed to create backup dir: {e}"))?;
+
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let short_id = &uuid::Uuid::new_v4().to_string()[..8];
+        let final_name = format!("{JOURNAL_BACKUP_PREFIX}{now_ms}_{short_id}");
+        let staging_path = self.backups_dir.join(format!(".tmp_{final_name}"));
+        let target_path = self.backups_dir.join(final_name);
+
+        if let Err(error) = snapshot_journal_tree(journal_root, &staging_path) {
+            let _ = fs::remove_dir_all(&staging_path);
+            return Err(error);
+        }
+
+        if let Err(error) = fs::rename(&staging_path, &target_path) {
+            let _ = fs::remove_dir_all(&staging_path);
+            return Err(format!(
+                "failed to publish journal snapshot {}: {error}",
+                target_path.display()
+            ));
+        }
+
+        let pruned = self
+            .prune_excess_journal_snapshots(retention_limit)
+            .unwrap_or(0);
+        Ok((Some(target_path), pruned))
+    }
+
+    /// List rolling journal snapshot directories (newest first).
+    pub fn list_journal_snapshots(&self) -> Result<Vec<PathBuf>, String> {
+        if !self.backups_dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut entries: Vec<(u64, PathBuf)> = Vec::new();
+        let read_dir = fs::read_dir(&self.backups_dir)
+            .map_err(|e| format!("failed to read backups dir: {e}"))?;
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(tail) = name.strip_prefix(JOURNAL_BACKUP_PREFIX) else {
+                continue;
+            };
+            let ts = tail
+                .split('_')
+                .next()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            entries.push((ts, path));
+        }
+        entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+        Ok(entries.into_iter().map(|(_, p)| p).collect())
+    }
+
+    /// Prune oldest rolling journal snapshot directories exceeding `retention_limit`.
+    pub fn prune_excess_journal_snapshots(&self, retention_limit: usize) -> Result<usize, String> {
+        if retention_limit == 0 {
+            return Ok(0);
+        }
+        let snapshots = self.list_journal_snapshots()?;
+        if snapshots.len() <= retention_limit {
+            return Ok(0);
+        }
+        let mut pruned = 0;
+        for excess in &snapshots[retention_limit..] {
+            if fs::remove_dir_all(excess).is_ok() {
+                pruned += 1;
+            }
+        }
+        Ok(pruned)
     }
 
     /// Prune oldest backups exceeding `retention_limit`. Returns number of deleted files.
@@ -245,6 +371,43 @@ impl BackupManager {
 
         Ok(emergency_path)
     }
+}
+
+fn snapshot_journal_tree(src: &Path, dst: &Path) -> Result<(), String> {
+    crate::fs_privacy::ensure_private_dir(dst).map_err(|e| {
+        format!(
+            "failed to create journal snapshot dir {}: {e}",
+            dst.display()
+        )
+    })?;
+    let read_dir = fs::read_dir(src)
+        .map_err(|e| format!("failed to read journal dir {}: {e}", src.display()))?;
+    for entry in read_dir.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.ends_with(".tmp") || name_str.starts_with(".tmp") {
+            continue;
+        }
+        let src_path = entry.path();
+        let dst_path = dst.join(&name);
+        if src_path.is_dir() {
+            snapshot_journal_tree(&src_path, &dst_path)?;
+        } else if src_path.is_file() {
+            let immutable = name_str.starts_with("snap-") || name_str == "DELETED";
+            if immutable && fs::hard_link(&src_path, &dst_path).is_ok() {
+                continue;
+            }
+            fs::copy(&src_path, &dst_path).map_err(|e| {
+                format!(
+                    "failed to copy journal file {} to {}: {e}",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
+            crate::fs_privacy::restrict_private_file(&dst_path);
+        }
+    }
+    Ok(())
 }
 
 /// Copy a live database into `target` with `VACUUM INTO`.
@@ -354,5 +517,52 @@ mod tests {
             .with_reader(|r| r.get_kv("restore_key"))
             .unwrap();
         assert_eq!(val.as_deref(), Some("first_snapshot"));
+    }
+
+    #[test]
+    fn journal_rolling_snapshot_isolates_segments_and_prunes_excess() {
+        let tmp = tempfile::tempdir().unwrap();
+        let journal_root = tmp.path().join("journal");
+        let session_dir = journal_root.join("session-1");
+        fs::create_dir_all(&session_dir).unwrap();
+        let snap = session_dir.join("snap-00000000000000000001.json");
+        let seg = session_dir.join("seg-00000000000000000002.log");
+        fs::write(&snap, b"{\"id\":\"session-1\"}").unwrap();
+        fs::write(&seg, b"initial-segment").unwrap();
+
+        let manager = BackupManager::new(tmp.path().join("backups"));
+        let s1 = manager
+            .create_journal_snapshot(&journal_root, 2)
+            .unwrap()
+            .expect("snapshot 1");
+
+        // Mutate the live segment after snapshot 1; snapshot 1 must retain its
+        // point-in-time bytes.
+        fs::write(&seg, b"initial-segment+appended").unwrap();
+        assert_eq!(
+            fs::read(s1.join("session-1").join("seg-00000000000000000002.log")).unwrap(),
+            b"initial-segment"
+        );
+        assert_eq!(
+            fs::read(s1.join("session-1").join("snap-00000000000000000001.json")).unwrap(),
+            b"{\"id\":\"session-1\"}"
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        let s2 = manager
+            .create_journal_snapshot(&journal_root, 2)
+            .unwrap()
+            .expect("snapshot 2");
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        let s3 = manager
+            .create_journal_snapshot(&journal_root, 2)
+            .unwrap()
+            .expect("snapshot 3");
+
+        let list = manager.list_journal_snapshots().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0], s3);
+        assert_eq!(list[1], s2);
+        assert!(!s1.exists(), "oldest journal snapshot must be pruned");
     }
 }
