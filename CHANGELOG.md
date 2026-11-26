@@ -6,6 +6,44 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.103] - 2026-11-27
+
+### Added
+
+- **Observable storage migration progress and honest server readiness (ADR-0266, RFC-0006; wire protocol v37).**
+  Extended `ServerPhase::Initializing` with optional `StorageInitDetail`
+  (`BackingUp`, `Migrating { step, total, name }`, `Verifying`) and
+  `started_at_ms` emitted exclusively when pending database migrations run;
+  wired `PersistenceHandle::ensure_ready()` into `initialize_storage()` so
+  storage errors fail fast into `ServerPhase::Failed`; switched
+  `ServerPhaseChanged` to watch-only delivery, shared one `ShutdownGate` without
+  `handle_gate()`, replaced the 50 ms failure sleep with deterministic
+  `ConnTable::wait_empty_or_cancel`, moved `catch_up_projections_once()` out of
+  first-thread bootstrap to post-`Ready` background execution, unified client
+  init waiting into a progress-aware watchdog, and made `/readyz` and
+  `nuo status --diagnostic` reflect live `ServerPhase` and `PersistenceHealth`.
+
+### Changed
+
+- **Zen Thread SceneBar and UUID-free untitled chrome (ADR-0268).**
+  Rendered staffed role tokens bare and uppercase on chromatic surfaces while
+  preserving intact brackets on non-chromatic framed surfaces, kept the Tier 2
+  Thread `SceneBar` title slot silent on untitled threads so all remaining slack
+  flows to the workspace path, projected untitled Tier 1 tabs (and the tab
+  overview / command palette) as `new thread` / `new thread N` instead of random
+  UUID tails, and removed unused `thread_id` / `id_tail` chrome plumbing.
+- **Wire protocol bumped to v37 (`PROTOCOL_VERSION = 37`).**
+  Clients and servers must match v37 during handshake.
+
+### Fixed
+
+- **Causal link establishment and warm-server startup deadlock (ADR-0267).**
+  Enqueued `AppMutation::LinkEstablished` ahead of connection translator spawns,
+  gated `reconcile_subscriptions` on an active connected link with
+  confirmation-gated `pending_initial_subscribe` tracking, and dropped the
+  pre-connect placeholder outbox receiver immediately so initial subscriptions
+  can never vanish into an unread channel.
+
 ## [0.0.102] - 2026-11-26
 
 ### Added
