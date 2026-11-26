@@ -11,6 +11,7 @@
 //! (ADR-0190).
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, Result, TransactionBehavior, params};
@@ -23,8 +24,40 @@ use super::history;
 use super::schema::Schema;
 use super::verify;
 
+/// Observable progress emitted exclusively when pending database migrations
+/// execute during open (ADR-0266 `[INV-SRVPHASE-07]`).
+///
+/// Up-to-date databases emit zero events (zero fast-path overhead).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MigrationProgress {
+    /// Creating the mandatory pre-migration `VACUUM INTO` snapshot (ADR-0191).
+    BackingUp { target_version: u32 },
+    /// Executing one pending migration inside the upgrade transaction.
+    Migrating {
+        step: u32,
+        total: u32,
+        name: &'static str,
+    },
+    /// Running post-migration `foreign_key_check`, `quick_check`, and structural
+    /// schema verification (ADR-0190).
+    Verifying,
+}
+
+/// Callback invoked synchronously at each migration boundary.
+pub type MigrationObserver = Arc<dyn Fn(MigrationProgress) + Send + Sync>;
+
 /// Open a database file and bring it to the current schema.
+#[cfg(test)]
 pub(crate) fn initialize_db(db_path: &Path) -> Result<Connection> {
+    initialize_db_with_observer(db_path, None)
+}
+
+/// Open a database file and bring it to the current schema, reporting
+/// [`MigrationProgress`] transitions when pending migrations execute.
+pub(crate) fn initialize_db_with_observer(
+    db_path: &Path,
+    observer: Option<&MigrationObserver>,
+) -> Result<Connection> {
     if let Some(parent) = db_path.parent() {
         let _ = crate::fs_privacy::ensure_private_dir(parent);
     }
@@ -32,7 +65,7 @@ pub(crate) fn initialize_db(db_path: &Path) -> Result<Connection> {
     let mut conn = Connection::open(db_path)?;
     crate::fs_privacy::restrict_private_file(db_path);
     configure_connection(&mut conn)?;
-    migrate_schema_with(&mut conn, &NUO_SCHEMA, Some(db_path))
+    migrate_schema_with_observer(&mut conn, &NUO_SCHEMA, Some(db_path), observer)
         .map_err(|error| with_database_path(error, db_path))?;
 
     Ok(conn)
@@ -233,6 +266,17 @@ pub(crate) fn migrate_schema_with(
     schema: &Schema,
     db_path: Option<&Path>,
 ) -> Result<()> {
+    migrate_schema_with_observer(conn, schema, db_path, None)
+}
+
+/// Bring one schema to its current version, reporting [`MigrationProgress`]
+/// when pending migrations execute.
+pub(crate) fn migrate_schema_with_observer(
+    conn: &mut Connection,
+    schema: &Schema,
+    db_path: Option<&Path>,
+    observer: Option<&MigrationObserver>,
+) -> Result<()> {
     let version = user_version(conn)?;
     let ledger = history::ledger_exists(conn)?;
 
@@ -244,7 +288,7 @@ pub(crate) fn migrate_schema_with(
                 schema.name
             )));
         }
-        apply_pending(conn, schema, db_path)?;
+        apply_pending(conn, schema, db_path, observer)?;
     } else {
         if !ledger {
             return Err(history::incompatible(format!(
@@ -261,7 +305,7 @@ pub(crate) fn migrate_schema_with(
             )));
         }
         history::validate(conn, version, schema)?;
-        apply_pending(conn, schema, db_path)?;
+        apply_pending(conn, schema, db_path, observer)?;
         let version = user_version(conn)?;
         history::validate(conn, version, schema)?;
     }
@@ -270,7 +314,12 @@ pub(crate) fn migrate_schema_with(
 }
 
 /// Apply every migration above the ledger's last row in one transaction.
-fn apply_pending(conn: &mut Connection, schema: &Schema, db_path: Option<&Path>) -> Result<()> {
+fn apply_pending(
+    conn: &mut Connection,
+    schema: &Schema,
+    db_path: Option<&Path>,
+    observer: Option<&MigrationObserver>,
+) -> Result<()> {
     let applied = history::read_applied(conn)?;
     let pending = history::next_pending(&applied, schema);
     if pending.is_empty() {
@@ -283,23 +332,35 @@ fn apply_pending(conn: &mut Connection, schema: &Schema, db_path: Option<&Path>)
     if !applied.is_empty()
         && let Some(path) = db_path
     {
+        if let Some(obs) = observer {
+            obs(MigrationProgress::BackingUp {
+                target_version: pending[0].version,
+            });
+        }
         backup_before_migration(conn, path, pending[0].version)?;
     }
 
     conn.pragma_update(None, "foreign_keys", "OFF")?;
-    let outcome = apply_pending_transaction(conn, schema);
+    let outcome = apply_pending_transaction(conn, schema, observer);
     // Enforcement is a per-connection invariant installed by
     // `configure_connection`; restore it even when the migration fails.
     let restore = conn.pragma_update(None, "foreign_keys", "ON");
     outcome?;
     restore?;
 
+    if let Some(obs) = observer {
+        obs(MigrationProgress::Verifying);
+    }
     assert_referential_integrity(conn)?;
     assert_quick_check(conn)?;
     Ok(())
 }
 
-fn apply_pending_transaction(conn: &mut Connection, schema: &Schema) -> Result<()> {
+fn apply_pending_transaction(
+    conn: &mut Connection,
+    schema: &Schema,
+    observer: Option<&MigrationObserver>,
+) -> Result<()> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // The ledger is infrastructure, created in the same transaction as the
     // baseline it records: a failed first migration leaves no half-created
@@ -317,7 +378,15 @@ fn apply_pending_transaction(conn: &mut Connection, schema: &Schema) -> Result<(
         return Ok(());
     }
 
-    for migration in pending {
+    let total = pending.len() as u32;
+    for (idx, migration) in pending.iter().enumerate() {
+        if let Some(obs) = observer {
+            obs(MigrationProgress::Migrating {
+                step: (idx + 1) as u32,
+                total,
+                name: migration.name,
+            });
+        }
         info!(
             schema = schema.name,
             version = migration.version,

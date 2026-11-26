@@ -53,6 +53,10 @@ impl PaletteContext {
         let responding = app.viewed_chrome().responding;
         let router = &app.surfaces.surfaces;
         let active_tab = router.active_tab_index();
+        let projected = crate::shell::event_loop::render::project_tab_items(
+            app,
+            &app.session.current_session_id,
+        );
         let tabs = router
             .tabs()
             .iter()
@@ -60,9 +64,10 @@ impl PaletteContext {
             .map(|(index, tab)| {
                 let (label, key) = match &tab.kind {
                     TabKind::Thread(id) => (
-                        tab.title.clone().unwrap_or_else(|| {
-                            format!("Thread {}", crate::shell::session::short_session_id(id))
-                        }),
+                        projected
+                            .get(index)
+                            .map(|item| item.title.to_string())
+                            .unwrap_or_else(|| "new thread".to_string()),
                         format!("tab:thread:{id}"),
                     ),
                     TabKind::Dashboard => ("Dashboard".to_string(), "tab:dashboard".to_string()),

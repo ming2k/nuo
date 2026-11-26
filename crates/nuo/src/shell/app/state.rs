@@ -25,8 +25,15 @@ pub struct SessionState {
     /// Instant when foreground `session_phase` last transitioned (120ms hysteresis).
     pub thread_phase_since: std::time::Instant,
     /// Deferred initial thread subscription queued while connecting or while the
-    /// server is still in `ServerPhase::Initializing` (ADR-0260 `[INV-SRVPHASE-02]`).
+    /// server is still in `ServerPhase::Initializing` (ADR-0260 `[INV-SRVPHASE-02]`,
+    /// ADR-0267 `[INV-SRVPHASE-09]`). Cleared only once the server confirms
+    /// `Wire::Subscribed` / `Wire::Pick` or issues a terminal refusal.
     pub pending_initial_subscribe: Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
+    /// Whether `pending_initial_subscribe` has already been dispatched on the
+    /// current connection and is awaiting server acknowledgement. Reset on
+    /// `LinkEstablished` and on retryable `ERR_SERVER_NOT_READY` refusals so
+    /// mid-flight server restarts never strand the client in `Preparing`.
+    pub initial_subscribe_in_flight: bool,
     /// Launch options preserved for picker fallback (`PickRequired` / `ERR_SESSION_GONE`).
     pub initial_init_options: protocol::ThreadInitOptions,
     /// Caller project scope remembered across reconnects and picker fallbacks.

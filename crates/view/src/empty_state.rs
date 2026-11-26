@@ -373,20 +373,68 @@ fn server_init_stage_label(stage: protocol::ServerInitStage) -> &'static str {
     }
 }
 
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+fn format_elapsed_suffix(started_at_ms: Option<u64>, now_ms: u64) -> String {
+    let Some(started) = started_at_ms else {
+        return String::new();
+    };
+    let secs = now_ms.saturating_sub(started) / 1000;
+    if secs < 2 {
+        String::new()
+    } else {
+        format!(" ({secs}s)")
+    }
+}
+
+/// Format an optional [`protocol::StorageInitDetail`] as a concise lowercase
+/// phrase for status bars and CLI progress lines (ADR-0266).
+pub fn storage_init_detail_label(detail: &protocol::StorageInitDetail) -> String {
+    match detail {
+        protocol::StorageInitDetail::BackingUp { target_version } => {
+            format!("backing up database before v{target_version}")
+        }
+        protocol::StorageInitDetail::Migrating { step, total, name } => {
+            format!("migrating database ({step}/{total} · {name})")
+        }
+        protocol::StorageInitDetail::Verifying => "verifying database integrity".to_string(),
+    }
+}
+
 /// Concise, lowercase status-bar label for a non-`Ready` [`protocol::ServerPhase`]
-/// (ADR-0260 `[INV-SRVPHASE-05]`).
+/// (ADR-0260 `[INV-SRVPHASE-05]`, ADR-0266 `[INV-SRVPHASE-07]`).
 ///
 /// Returns `None` once the server is [`protocol::ServerPhase::Ready`].
-pub fn server_phase_status(phase: &protocol::ServerPhase) -> Option<&'static str> {
+pub fn server_phase_status(phase: &protocol::ServerPhase) -> Option<String> {
+    server_phase_status_at(phase, unix_now_ms())
+}
+
+/// Deterministic variant of [`server_phase_status`] taking an explicit `now_ms`.
+pub fn server_phase_status_at(phase: &protocol::ServerPhase, now_ms: u64) -> Option<String> {
     match phase {
-        protocol::ServerPhase::Initializing { stage } => Some(match stage {
-            protocol::ServerInitStage::Storage => "initializing server · storage…",
-            protocol::ServerInitStage::Runtime => "initializing server · runtime…",
-        }),
+        protocol::ServerPhase::Initializing {
+            stage,
+            detail,
+            started_at_ms,
+        } => {
+            let suffix = format_elapsed_suffix(*started_at_ms, now_ms);
+            let label = match detail {
+                Some(detail) => format!("{}…{suffix}", storage_init_detail_label(detail)),
+                None => format!(
+                    "initializing server · {}…{suffix}",
+                    server_init_stage_label(*stage)
+                ),
+            };
+            Some(label)
+        }
         protocol::ServerPhase::Ready => None,
-        protocol::ServerPhase::Reloading => Some("reloading server…"),
-        protocol::ServerPhase::Draining { .. } => Some("server shutting down…"),
-        protocol::ServerPhase::Failed { .. } => Some("server startup failed"),
+        protocol::ServerPhase::Reloading => Some("reloading server…".to_string()),
+        protocol::ServerPhase::Draining { .. } => Some("server shutting down…".to_string()),
+        protocol::ServerPhase::Failed { .. } => Some("server startup failed".to_string()),
     }
 }
 
@@ -575,11 +623,33 @@ fn guidance_section(
             muted,
         )])],
         EmptyStateGuidance::ServerPhase(ref phase) => match phase {
-            protocol::ServerPhase::Initializing { stage } => vec![Line::from(vec![
-                Span::styled("Initializing Nuo server · ", muted),
-                Span::styled(server_init_stage_label(*stage), info),
-                Span::styled("…", muted),
-            ])],
+            protocol::ServerPhase::Initializing {
+                stage,
+                detail,
+                started_at_ms,
+            } => {
+                let elapsed = format_elapsed_suffix(*started_at_ms, unix_now_ms());
+                match detail {
+                    Some(detail) => {
+                        let text = format!(
+                            "Initializing Nuo server · {}…{elapsed}",
+                            storage_init_detail_label(detail)
+                        );
+                        vec![Line::from(vec![Span::styled(
+                            truncate_display_width(&text, max_width),
+                            info,
+                        )])]
+                    }
+                    None => {
+                        let tail = format!("…{elapsed}");
+                        vec![Line::from(vec![
+                            Span::styled("Initializing Nuo server · ", muted),
+                            Span::styled(server_init_stage_label(*stage), info),
+                            Span::styled(tail, muted),
+                        ])]
+                    }
+                }
+            }
             protocol::ServerPhase::Reloading => vec![Line::from(vec![Span::styled(
                 "Reloading Nuo server…",
                 muted,

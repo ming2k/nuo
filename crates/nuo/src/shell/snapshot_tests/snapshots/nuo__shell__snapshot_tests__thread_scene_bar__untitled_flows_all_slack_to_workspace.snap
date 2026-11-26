@@ -1,0 +1,5 @@
+---
+source: crates/nuo/src/shell/snapshot_tests/thread_scene_bar.rs
+expression: "render_bar(50, None, &h)"
+---
+  DEVELOPER  auto  open       .../crates/nuo-tui

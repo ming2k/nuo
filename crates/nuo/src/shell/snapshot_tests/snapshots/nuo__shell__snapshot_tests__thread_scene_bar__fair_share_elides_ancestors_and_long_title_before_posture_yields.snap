@@ -1,5 +1,5 @@
 ---
 source: crates/nuo/src/shell/snapshot_tests/thread_scene_bar.rs
-expression: "render_bar(64, Some(\"sess-01a2b3c4\"), Some(\"Refactor database migration layer for multi-tenant isolation\"), &h)"
+expression: "render_bar(64,\nSome(\"Refactor database migration layer for multi-tenant isolation\"), &h)"
 ---
-  [DEVELOPER]  auto  open  Refactor database mig…  .../nuo-tui
+  DEVELOPER  auto  open  Refactor database migra…  .../nuo-tui

@@ -60,8 +60,7 @@ fn redesigned_components_render_without_panicking() {
                         subagent_bar: None,
                         page_hints: None,
                         tab_bar: None,
-                thread_id: None,
-                thread_context: None,
+                        thread_context: None,
                         round_started_at: None,
                         hovered_step: None,
                         focused_entry: None,
@@ -968,7 +967,6 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
-                    thread_id: None,
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,
@@ -1037,7 +1035,6 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -1140,7 +1137,6 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -1205,7 +1201,6 @@ fn nonempty_session_does_not_render_empty_state() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -1275,7 +1270,6 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -1299,10 +1293,11 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
     );
 }
 
-/// ADR-0261 `[INV-HEAD-09]`: the head band is universally two rows (`TabBar` +
-/// `SceneBar`). On a titled `Thread` viewport, row 1 consolidates `[ROLE]`,
-/// authentic task title (replacing `thread <id_tail>` in place), and
-/// right-anchored workspace on a single row, leaving row 2 to the transcript.
+/// ADR-0261 `[INV-HEAD-09]`, ADR-0268 `[INV-HEAD-11]`, `[INV-HEAD-12]`: the
+/// head band is universally two rows (`TabBar` + `SceneBar`). On a titled
+/// `Thread` viewport on a chromatic surface, row 1 consolidates bare `ROLE`,
+/// authentic task title, and right-anchored workspace on a single row, leaving
+/// row 2 to the transcript.
 #[test]
 fn main_view_shows_the_thread_scene_row() {
     let terminal = render_full_view(
@@ -1311,6 +1306,7 @@ fn main_view_shows_the_thread_scene_row() {
         &[],
         Some(ViewHints {
             kind: crate::shell::surfaces::SceneKind::Thread,
+            role: None,
             context: Some("Fix the retry loop"),
             context_warn: false,
             breadcrumbs: None,
@@ -1325,8 +1321,8 @@ fn main_view_shows_the_thread_scene_row() {
     );
     let row1 = grid_row(&terminal, 1);
     assert!(
-        row1.contains("[DEVELOPER]"),
-        "single-row thread scene bar carries role badge on row 1: {row1:?}"
+        row1.contains("DEVELOPER") && !row1.contains("[DEVELOPER]"),
+        "chromatic single-row thread scene bar carries bare role token on row 1: {row1:?}"
     );
     assert!(
         row1.contains("Fix the retry loop"),
@@ -1346,14 +1342,15 @@ fn main_view_shows_the_thread_scene_row() {
     );
     let row2 = grid_row(&terminal, 2);
     assert!(
-        !row2.contains("~/projects/xx") && !row2.contains("[DEVELOPER]"),
+        !row2.contains("~/projects/xx") && !row2.contains("DEVELOPER"),
         "Tier 3 ThreadContextBar is retired — row 2 belongs to the transcript viewport: {row2:?}"
     );
 }
 
-/// ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`: on an untitled `Thread`
-/// viewport, row 1 carries `[ROLE]`, silent-by-default lowercase posture
-/// tokens, `thread <id_tail>`, and right-anchored workspace on a single row.
+/// ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`, ADR-0268 `[INV-HEAD-11]`,
+/// `[INV-HEAD-12]`: on an untitled `Thread` viewport, row 1 carries bare
+/// `ROLE`, silent-by-default lowercase posture tokens, an empty title slot
+/// (no UUID tail), and right-anchored workspace on a single row.
 #[test]
 fn main_view_thread_governance_row_carries_posture_tokens() {
     let context = ThreadContext {
@@ -1368,6 +1365,7 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
         &[],
         Some(ViewHints {
             kind: crate::shell::surfaces::SceneKind::Thread,
+            role: None,
             context: None,
             context_warn: false,
             breadcrumbs: None,
@@ -1380,8 +1378,8 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
     assert!(!row0.contains("F1"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
     assert!(
-        row1.contains("[DEVELOPER]"),
-        "role badge on row 1: {row1:?}"
+        row1.contains("DEVELOPER") && !row1.contains("[DEVELOPER]"),
+        "chromatic bare role token on row 1: {row1:?}"
     );
     assert!(
         row1.contains("auto"),
@@ -1392,8 +1390,8 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
         "unconfined posture token on row 1: {row1:?}"
     );
     assert!(
-        row1.contains("thread b3c4"),
-        "untitled thread carries muted `thread <id_tail>` on row 1: {row1:?}"
+        !row1.contains("thread") && !row1.contains("b3c4"),
+        "untitled thread SceneBar stays silent without dummy thread/UUID fallback on row 1: {row1:?}"
     );
     assert!(
         !row1.contains("UNATTENDED") && !row1.contains("UNCONFINED"),
@@ -1439,7 +1437,6 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -1514,7 +1511,6 @@ fn h1_underline_clamps_to_text_extent() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -1613,7 +1609,6 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -1697,7 +1692,6 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,

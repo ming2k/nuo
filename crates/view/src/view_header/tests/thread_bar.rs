@@ -1,39 +1,42 @@
-//! Single-row Thread SceneBar tests: governance, title lifecycle, fair-share
-//! slack redistribution, path ladder, and width invariants (ADR-0261).
+//! Single-row Thread SceneBar tests: chromatic bare role token, framed bracket
+//! fallback, silent untitled title slot, zero-displacement title arrival,
+//! fair-share slack redistribution, path ladder, and width invariants
+//! (ADR-0261, ADR-0268).
 
 use super::*;
 
 #[test]
-fn thread_bar_untitled_reads_role_posture_id_and_workspace() {
+fn thread_bar_untitled_reads_role_posture_and_workspace_silently() {
     let context = ThreadContext {
         workspace: "~/projects/xx",
         role: Some("developer"),
         unattended: true,
         confined: false,
     };
-    let row = render_thread_row(80, Some("sess-01a2b3c4"), None, context);
+    let row = render_thread_row(80, None, context);
+    assert!(row.starts_with("  DEVELOPER  auto  open  "), "{row}");
     assert!(
-        row.starts_with("  [DEVELOPER]  auto  open  thread b3c4"),
-        "{row}"
+        !row.contains("thread"),
+        "untitled thread SceneBar must not emit a dummy thread/UUID token: {row}"
     );
     assert!(row.trim_end().ends_with("~/projects/xx"), "{row}");
 }
 
 #[test]
-fn thread_bar_title_replaces_thread_id_in_place_without_shifting_governance() {
+fn thread_bar_title_arrival_causes_zero_displacement_of_governance_or_workspace() {
     let context = ThreadContext {
         workspace: "~/projects/nuo",
         role: Some("developer"),
         unattended: true,
         confined: false,
     };
-    let untitled = render_thread_row(80, Some("sess-01a2b3c4"), None, context);
-    let titled = render_thread_row(80, Some("sess-01a2b3c4"), Some("Fix retry loop"), context);
+    let untitled = render_thread_row(80, None, context);
+    let titled = render_thread_row(80, Some("Fix retry loop"), context);
 
     // Governance cluster stays at identical columns across the title lifecycle.
     assert_eq!(
-        untitled.find("[DEVELOPER]"),
-        titled.find("[DEVELOPER]"),
+        untitled.find("DEVELOPER"),
+        titled.find("DEVELOPER"),
         "role position must not move:\nuntitled: {untitled}\ntitled:   {titled}"
     );
     assert_eq!(
@@ -41,15 +44,9 @@ fn thread_bar_title_replaces_thread_id_in_place_without_shifting_governance() {
         titled.find("auto  open"),
         "posture position must not move:\nuntitled: {untitled}\ntitled:   {titled}"
     );
-    // Title takes the exact starting column of `thread b3c4`.
-    assert_eq!(
-        untitled.find("thread b3c4"),
-        titled.find("Fix retry loop"),
-        "title must replace `thread <id_tail>` strictly in place:\nuntitled: {untitled}\ntitled:   {titled}"
-    );
     assert!(
-        !titled.contains("thread b3c4") && !titled.contains("b3c4"),
-        "titled bar omits redundant thread id: {titled}"
+        titled.starts_with("  DEVELOPER  auto  open  Fix retry loop"),
+        "title lands directly after the governance cluster: {titled}"
     );
     // Right-anchored workspace stays pinned at identical columns.
     assert_eq!(
@@ -67,13 +64,15 @@ fn thread_bar_reports_only_deviations_from_the_safe_default() {
         unattended: false,
         confined: true,
     };
-    let row = render_thread_row(80, Some("sess-01a2b3c4"), None, context);
+    let row = render_thread_row(80, None, context);
     assert!(
-        row.starts_with("  [DEVELOPER]  thread b3c4"),
-        "no posture tokens in safe default: {row}"
+        row.starts_with("  DEVELOPER  "),
+        "bare role token with no posture tokens in safe default: {row}"
     );
     assert!(!row.contains("auto"), "{row}");
     assert!(!row.contains("open"), "{row}");
+    assert!(!row.contains("thread"), "{row}");
+    assert!(row.trim_end().ends_with("~/projects/xx"), "{row}");
 }
 
 #[test]
@@ -96,9 +95,9 @@ fn thread_bar_posture_tokens_join_with_pure_whitespace_no_punctuation_soup() {
         unattended: true,
         confined: false,
     };
-    let row = render_thread_row(80, Some("sess-01a2b3c4"), Some("Audit auth"), context);
+    let row = render_thread_row(80, Some("Audit auth"), context);
     assert!(
-        row.contains("[DEVELOPER]  auto  open  Audit auth"),
+        row.contains("DEVELOPER  auto  open  Audit auth"),
         "peer tokens use a plain two-column gap, no glyph: {row}"
     );
     assert!(!row.contains('·') && !row.contains('|'), "{row}");
@@ -112,23 +111,53 @@ fn thread_bar_workspace_free_hides_workspace_and_keeps_role_and_title() {
         unattended: false,
         confined: true,
     };
-    let row = render_thread_row(80, Some("sess-01a2b3c4"), Some("Discuss ethics"), context);
-    assert!(row.starts_with("  [PHILOSOPHIST]  Discuss ethics"), "{row}");
+    let row = render_thread_row(80, Some("Discuss ethics"), context);
+    assert!(row.starts_with("  PHILOSOPHIST  Discuss ethics"), "{row}");
     assert!(!row.contains("~/"), "{row}");
 }
 
 #[test]
-fn thread_bar_shows_custom_user_role_badge() {
+fn thread_bar_shows_custom_user_role_token_and_framed_bracket_fallback() {
     let context = ThreadContext {
         workspace: "~/projects/xx",
         role: Some("security-auditor"),
         unattended: false,
         confined: true,
     };
-    let row = render_thread_row(80, Some("sess-01a2b3c4"), None, context);
+    let chromatic = render_thread_row(80, None, context);
     assert!(
-        row.starts_with("  [SECURITY-AUDITOR]  thread b3c4"),
-        "{row}"
+        chromatic.starts_with("  SECURITY-AUDITOR  "),
+        "chromatic surface renders bare uppercase role: {chromatic}"
+    );
+    assert!(!chromatic.contains('['), "{chromatic}");
+
+    let framed_theme = Theme {
+        elevation: ui_primitives::elevation::ElevationArchetype::Structured,
+        ..Theme::default()
+    };
+    let framed = render_thread_row_with_theme(80, None, context, &framed_theme);
+    assert!(
+        framed.starts_with("  [SECURITY-AUDITOR]  "),
+        "non-chromatic framed surface preserves structural brackets: {framed}"
+    );
+}
+
+#[test]
+fn thread_bar_framed_truncation_preserves_intact_brackets() {
+    let framed_theme = Theme {
+        elevation: ui_primitives::elevation::ElevationArchetype::Structured,
+        ..Theme::default()
+    };
+    let context = ThreadContext {
+        workspace: "~/projects/nuo",
+        role: Some("security-auditor"),
+        unattended: true,
+        confined: false,
+    };
+    let row = render_thread_row_with_theme(30, Some("Fix auth"), context, &framed_theme);
+    assert!(
+        row.trim_end() == "  [SECURITY-AU…]  auto  open",
+        "framed truncation must keep intact brackets: {row:?}"
     );
 }
 
@@ -147,8 +176,8 @@ fn thread_bar_toggling_posture_never_reflows_the_workspace_path() {
         confined: false,
         ..quiet
     };
-    let quiet_row = render_thread_row(80, Some("sess-01a2b3c4"), Some("Fix auth"), quiet);
-    let loud_row = render_thread_row(80, Some("sess-01a2b3c4"), Some("Fix auth"), loud);
+    let quiet_row = render_thread_row(80, Some("Fix auth"), quiet);
+    let loud_row = render_thread_row(80, Some("Fix auth"), loud);
     for row in [&quiet_row, &loud_row] {
         assert!(row.trim_end().ends_with("~/projects/nuo"), "{row}");
     }
@@ -172,12 +201,11 @@ fn thread_bar_fair_share_preserves_both_title_and_workspace_leaf() {
     };
     let row = render_thread_row(
         80,
-        Some("sess-01a2b3c4"),
         Some("Refactor database migration layer for multi-tenant isolation"),
         context,
     );
     assert!(
-        row.starts_with("  [DEVELOPER]  auto  open  Refactor"),
+        row.starts_with("  DEVELOPER  auto  open  Refactor"),
         "{row}"
     );
     assert!(
@@ -191,23 +219,45 @@ fn thread_bar_fair_share_preserves_both_title_and_workspace_leaf() {
     assert!(row.contains('…'), "long title elides cleanly: {row}");
 }
 
-/// `[INV-HEAD-10]` slack redistribution: a short identity yields its unused
-/// share back to a deep workspace path.
+/// `[INV-HEAD-10]` / `[INV-HEAD-12]`: an untitled thread spends zero columns on
+/// a fake identifier, so the entire remaining width flows to the workspace path.
 #[test]
-fn thread_bar_short_identity_flows_slack_to_workspace() {
+fn thread_bar_untitled_gives_full_slack_to_workspace() {
     let context = ThreadContext {
         workspace: "~/projects/nuo/crates/nuo-tui",
         role: Some("developer"),
         unattended: true,
         confined: false,
     };
-    // At 50 columns (46 text): gov=23, gap=2, shared=21, usable=19.
-    // `thread b3c4` uses 11 < id_share(13), so 8 cols go to workspace -> `nuo-tui`.
-    let row = render_thread_row(50, Some("sess-01a2b3c4"), None, context);
+    // At 50 columns (46 text): gov = `DEVELOPER  auto  open` (21), gap = 2,
+    // shared = 23 -> workspace gets all 23 cols (`.../crates/nuo-tui`) instead
+    // of being squeezed by a dummy `thread b3c4`.
+    let row = render_thread_row(50, None, context);
+    assert!(row.starts_with("  DEVELOPER  auto  open  "), "{row}");
     assert!(
-        row.contains("[DEVELOPER]  auto  open  thread b3c4"),
-        "{row}"
+        row.contains("nuo-tui"),
+        "workspace gets full remaining slack: {row}"
     );
+    assert!(
+        !row.contains("thread"),
+        "no dummy thread id competing with workspace: {row}"
+    );
+}
+
+/// `[INV-HEAD-10]` slack redistribution: a short title yields its unused share
+/// back to a deep workspace path.
+#[test]
+fn thread_bar_short_title_flows_slack_to_workspace() {
+    let context = ThreadContext {
+        workspace: "~/projects/nuo/crates/nuo-tui",
+        role: Some("developer"),
+        unattended: true,
+        confined: false,
+    };
+    // At 50 columns (46 text): gov=21, gap=2, shared=23, usable=21.
+    // `Fix auth` uses 8 < title_share(14), so 13 cols go to workspace -> `.../nuo-tui`.
+    let row = render_thread_row(50, Some("Fix auth"), context);
+    assert!(row.contains("DEVELOPER  auto  open  Fix auth"), "{row}");
     assert!(row.contains("nuo-tui"), "leaf survives from slack: {row}");
     assert!(
         !row.contains("~/projects/nuo/crates"),
@@ -226,15 +276,10 @@ fn thread_bar_extreme_pressure_prefers_workspace_over_title() {
         unattended: true,
         confined: false,
     };
-    // Width 38 -> 34 text cols. gov=23, gap=2 -> shared=9, usable=7 < 4+6=10.
+    // Width 36 -> 32 text cols. gov=21, gap=2 -> shared=9, usable=7 < 4+6=10.
     // Only workspace can fit honestly -> `nuo` (or `~/p/nuo`) survives, title omitted.
-    let row = render_thread_row(
-        38,
-        Some("sess-01a2b3c4"),
-        Some("Long conversation title"),
-        context,
-    );
-    assert!(row.starts_with("  [DEVELOPER]  auto  open"), "{row}");
+    let row = render_thread_row(36, Some("Long conversation title"), context);
+    assert!(row.starts_with("  DEVELOPER  auto  open"), "{row}");
     assert!(row.contains("nuo"), "workspace leaf survives: {row}");
     assert!(
         !row.contains("Long"),
@@ -253,7 +298,7 @@ fn thread_bar_never_paints_beyond_the_row_width() {
     };
     for title in [None, Some("Fix retry logic in auth loop")] {
         for width in 8u16..=120 {
-            let row = render_thread_row(width, Some("sess-01a2b3c4"), title, context);
+            let row = render_thread_row(width, title, context);
             assert_eq!(
                 row.chars().count(),
                 width as usize,
@@ -263,7 +308,7 @@ fn thread_bar_never_paints_beyond_the_row_width() {
     }
 }
 
-/// Below the honesty floor both identity and workspace are dropped wholesale:
+/// Below the honesty floor both title and workspace are dropped wholesale:
 /// posture and role keep the row.
 #[test]
 fn thread_bar_drops_optional_elements_rather_than_lying() {
@@ -273,27 +318,27 @@ fn thread_bar_drops_optional_elements_rather_than_lying() {
         unattended: true,
         confined: false,
     };
-    // 30 columns -> 26 text columns. Governance cluster is 23 wide, leaving
+    // 28 columns -> 24 text columns. Governance cluster is 21 wide, leaving
     // 1 column after the 2-col gap — below both floors, so both drop cleanly.
-    let row = render_thread_row(30, Some("sess-01a2b3c4"), Some("Fix auth"), context);
-    assert!(row.contains("[DEVELOPER]  auto  open"), "{row}");
+    let row = render_thread_row(28, Some("Fix auth"), context);
+    assert!(row.contains("DEVELOPER  auto  open"), "{row}");
     assert!(!row.contains('~'), "no fake path: {row}");
     assert!(!row.contains('…'), "no fake fragment: {row}");
 }
 
 /// Posture is safety state, so it outranks every other element on the row
-/// (`[INV-HEAD-10]`): a role badge long enough to crowd it must yield.
+/// (`[INV-HEAD-10]`): a role token long enough to crowd it must yield.
 #[test]
-fn thread_bar_posture_outranks_a_long_role_badge() {
+fn thread_bar_posture_outranks_a_long_role_token() {
     let context = ThreadContext {
         workspace: "~/projects/nuo",
         role: Some("a-very-long-custom-user-role-name"),
         unattended: true,
         confined: false,
     };
-    let row = render_thread_row(44, Some("sess-01a2b3c4"), Some("Fix auth"), context);
+    let row = render_thread_row(44, Some("Fix auth"), context);
     assert!(row.contains("auto  open"), "posture intact: {row}");
-    assert!(row.contains('…'), "role badge elided instead: {row}");
+    assert!(row.contains('…'), "role token elided instead: {row}");
     assert!(
         !row.contains("A-VERY-LONG-CUSTOM-USER-ROLE-NAME"),
         "full role must yield to safety state: {row}"
@@ -311,7 +356,7 @@ fn thread_bar_never_emits_a_truncated_posture_token() {
             unattended: true,
             confined: false,
         };
-        let row = render_thread_row(width, Some("sess-01a2b3c4"), Some("Fix auth"), context);
+        let row = render_thread_row(width, Some("Fix auth"), context);
         let words: Vec<&str> = row.split_whitespace().collect();
         for word in &words {
             assert!(
@@ -322,7 +367,7 @@ fn thread_bar_never_emits_a_truncated_posture_token() {
     }
 }
 
-/// A non-Unicode terminal must never receive `…` from badge, title, or path
+/// A non-Unicode terminal must never receive `…` from role, title, or path
 /// truncation; all three take their marker from `theme.glyphs.ellipsis`.
 #[test]
 fn thread_bar_degrades_all_ellipsis_markers_under_ascii_glyphs() {
@@ -331,18 +376,17 @@ fn thread_bar_degrades_all_ellipsis_markers_under_ascii_glyphs() {
         ..Theme::default()
     };
 
-    // 1. Elided role badge
-    let badge_ctx = ThreadContext {
+    // 1. Elided role token
+    let role_ctx = ThreadContext {
         workspace: "~/projects/nuo/crates/nuo-tui",
         role: Some("security-auditor"),
         unattended: true,
         confined: false,
     };
-    let badge_row =
-        render_thread_row_with_theme(30, Some("sess-01a2b3c4"), None, badge_ctx, &theme);
-    assert!(!badge_row.contains('…'), "{badge_row:?}");
-    assert!(badge_row.contains("..."), "{badge_row:?}");
-    assert!(badge_row.contains("auto  open"), "{badge_row:?}");
+    let role_row = render_thread_row_with_theme(30, None, role_ctx, &theme);
+    assert!(!role_row.contains('…'), "{role_row:?}");
+    assert!(role_row.contains("..."), "{role_row:?}");
+    assert!(role_row.contains("auto  open"), "{role_row:?}");
 
     // 2. Elided title
     let title_ctx = ThreadContext {
@@ -353,7 +397,6 @@ fn thread_bar_degrades_all_ellipsis_markers_under_ascii_glyphs() {
     };
     let title_row = render_thread_row_with_theme(
         52,
-        Some("sess-01a2b3c4"),
         Some("A very long authentic conversation title that overflows"),
         title_ctx,
         &theme,
@@ -368,7 +411,7 @@ fn thread_bar_degrades_all_ellipsis_markers_under_ascii_glyphs() {
         unattended: false,
         confined: true,
     };
-    let path_row = render_thread_row_with_theme(30, Some("sess-01a2b3c4"), None, path_ctx, &theme);
+    let path_row = render_thread_row_with_theme(30, None, path_ctx, &theme);
     assert!(!path_row.contains('…'), "{path_row:?}");
 }
 
@@ -412,7 +455,6 @@ fn thread_bar_paints_scenebar_bg_across_the_full_row_width() {
     };
     let cells = render_row2_cells(
         60,
-        Some("sess-01a2b3c4"),
         ViewHints {
             kind: SceneKind::Thread,
             context: Some("Refactor auth"),
@@ -439,7 +481,7 @@ fn thread_bar_preserves_short_root_workspace_without_dropping() {
     };
     // Even when exact slack leaves < SCENE_BAR_WORKSPACE_MIN_COLS for "/",
     // the full root path fits verbatim without truncation and must survive.
-    let row = render_thread_row(34, Some("sess-01a2b3c4"), Some("Fix auth"), context);
+    let row = render_thread_row(34, Some("Fix auth"), context);
     assert!(
         row.trim_end().ends_with('/'),
         "root workspace must survive: {row:?}"
@@ -449,7 +491,7 @@ fn thread_bar_preserves_short_root_workspace_without_dropping() {
         workspace: "~/a",
         ..context
     };
-    let row_tilde = render_thread_row(34, Some("sess-01a2b3c4"), Some("Fix auth"), short_tilde);
+    let row_tilde = render_thread_row(34, Some("Fix auth"), short_tilde);
     assert!(
         row_tilde.trim_end().ends_with("~/a"),
         "short full path fitting budget must survive: {row_tilde:?}"
@@ -468,7 +510,6 @@ fn thread_bar_handles_cjk_title_widths_without_overflow() {
     for width in 20u16..=100 {
         let cells = render_row2_cells(
             width,
-            Some("sess-01a2b3c4"),
             ViewHints {
                 kind: SceneKind::Thread,
                 context: Some(cjk_title),
@@ -500,11 +541,10 @@ fn thread_bar_handles_cjk_title_widths_without_overflow() {
 }
 
 #[test]
-fn thread_bar_falls_back_to_bare_thread_when_id_absent_and_tolerates_none_context() {
-    let no_id = render_thread_row(
+fn thread_bar_tolerates_none_context_and_empty_title() {
+    let empty_title = render_thread_row(
         60,
-        None,
-        None,
+        Some("   "),
         ThreadContext {
             workspace: "~/projects/nuo",
             role: Some("developer"),
@@ -513,14 +553,16 @@ fn thread_bar_falls_back_to_bare_thread_when_id_absent_and_tolerates_none_contex
         },
     );
     assert!(
-        no_id.starts_with("  [DEVELOPER]  thread  "),
-        "missing id falls back to bare `thread`: {no_id:?}"
+        empty_title.starts_with("  DEVELOPER  "),
+        "whitespace-only title treated as untitled/silent: {empty_title:?}"
     );
-    assert!(no_id.trim_end().ends_with("~/projects/nuo"), "{no_id:?}");
+    assert!(
+        empty_title.trim_end().ends_with("~/projects/nuo"),
+        "{empty_title:?}"
+    );
 
     let no_ctx = render_row2_with_context(
         60,
-        Some("sess-01a2b3c4"),
         ViewHints {
             kind: SceneKind::Thread,
             context: Some("Standalone title"),
@@ -535,34 +577,7 @@ fn thread_bar_falls_back_to_bare_thread_when_id_absent_and_tolerates_none_contex
 }
 
 #[test]
-fn thread_bar_id_tail_is_utf8_safe() {
-    let cells = render_row2_cells(
-        60,
-        Some("会话-甲乙丙丁戊"),
-        hints(SceneKind::Thread),
-        Some(ThreadContext {
-            workspace: "",
-            role: None,
-            unattended: false,
-            confined: true,
-        }),
-        &Theme::default(),
-    );
-    let mut text = String::new();
-    let mut idx = 0usize;
-    while idx < cells.len() {
-        let sym = cells[idx].symbol.as_str();
-        text.push_str(sym);
-        idx += sym.width().max(1);
-    }
-    assert!(
-        text.starts_with("  thread 乙丙丁戊"),
-        "id_tail must slice on UTF-8 char boundaries without panicking: {text:?}"
-    );
-}
-
-#[test]
-fn thread_bar_styles_untitled_dim_and_titled_bold_heading() {
+fn thread_bar_styles_role_brand_bold_and_title_heading_bold() {
     let theme = Theme::default();
     let context = ThreadContext {
         workspace: "~/projects/nuo",
@@ -570,33 +585,8 @@ fn thread_bar_styles_untitled_dim_and_titled_bold_heading() {
         unattended: false,
         confined: true,
     };
-    let untitled_cells = render_row2_cells(
-        72,
-        Some("sess-01a2b3c4"),
-        hints(SceneKind::Thread),
-        Some(context),
-        &theme,
-    );
-    let untitled_row: String = untitled_cells.iter().map(|c| c.symbol.as_str()).collect();
-    let thread_col = untitled_row
-        .find("thread b3c4")
-        .expect("untitled fallback present");
-    assert_eq!(
-        untitled_cells[thread_col].style.fg,
-        theme.dim(),
-        "untitled fallback must use dim foreground"
-    );
-    assert!(
-        !untitled_cells[thread_col]
-            .style
-            .add
-            .contains(Modifier::BOLD),
-        "untitled fallback must not be bold"
-    );
-
     let titled_cells = render_row2_cells(
         72,
-        Some("sess-01a2b3c4"),
         ViewHints {
             kind: SceneKind::Thread,
             context: Some("Fix retry loop"),
@@ -606,6 +596,17 @@ fn thread_bar_styles_untitled_dim_and_titled_bold_heading() {
         &theme,
     );
     let titled_row: String = titled_cells.iter().map(|c| c.symbol.as_str()).collect();
+    let role_col = titled_row.find("DEVELOPER").expect("role token present");
+    assert_eq!(
+        titled_cells[role_col].style.fg,
+        theme.brand(),
+        "role token must use brand foreground"
+    );
+    assert!(
+        titled_cells[role_col].style.add.contains(Modifier::BOLD),
+        "role token must be bold"
+    );
+
     let title_col = titled_row
         .find("Fix retry loop")
         .expect("authentic title present");
@@ -627,7 +628,6 @@ fn thread_bar_golden_baselines_lock_exact_columns() {
             "untitled_default_posture_is_silent",
             render_thread_row(
                 72,
-                Some("sess-01a2b3c4"),
                 None,
                 ThreadContext {
                     workspace: "~/projects/nuo",
@@ -638,10 +638,9 @@ fn thread_bar_golden_baselines_lock_exact_columns() {
             ),
         ),
         (
-            "titled_full_deviation_replaces_thread_id_in_place",
+            "titled_full_deviation_places_title_in_place",
             render_thread_row(
                 72,
-                Some("sess-01a2b3c4"),
                 Some("Fix retry loop"),
                 ThreadContext {
                     workspace: "~/projects/nuo",
@@ -655,7 +654,6 @@ fn thread_bar_golden_baselines_lock_exact_columns() {
             "fair_share_elides_ancestors_and_long_title_before_posture_yields",
             render_thread_row(
                 64,
-                Some("sess-01a2b3c4"),
                 Some("Refactor database migration layer for multi-tenant isolation"),
                 ThreadContext {
                     workspace: "~/projects/nuo/crates/nuo-tui",
@@ -666,10 +664,9 @@ fn thread_bar_golden_baselines_lock_exact_columns() {
             ),
         ),
         (
-            "short_identity_flows_slack_to_workspace_leaf",
+            "untitled_flows_all_slack_to_workspace",
             render_thread_row(
                 50,
-                Some("sess-01a2b3c4"),
                 None,
                 ThreadContext {
                     workspace: "~/projects/nuo/crates/nuo-tui",
@@ -683,7 +680,6 @@ fn thread_bar_golden_baselines_lock_exact_columns() {
             "long_role_elides_before_posture_yields",
             render_thread_row(
                 30,
-                Some("sess-01a2b3c4"),
                 Some("Fix auth"),
                 ThreadContext {
                     workspace: "~/projects/nuo",
@@ -697,7 +693,6 @@ fn thread_bar_golden_baselines_lock_exact_columns() {
             "narrow_row_drops_optional_elements_but_keeps_posture",
             render_thread_row(
                 28,
-                Some("sess-01a2b3c4"),
                 Some("Fix auth"),
                 ThreadContext {
                     workspace: "~/projects/nuo/crates/nuo-tui",
@@ -711,27 +706,27 @@ fn thread_bar_golden_baselines_lock_exact_columns() {
     let expected = [
         (
             "untitled_default_posture_is_silent",
-            "  [DEVELOPER]  thread b3c4                              ~/projects/nuo",
+            "  DEVELOPER                                             ~/projects/nuo",
         ),
         (
-            "titled_full_deviation_replaces_thread_id_in_place",
-            "  [DEVELOPER]  auto  open  Fix retry loop               ~/projects/nuo",
+            "titled_full_deviation_places_title_in_place",
+            "  DEVELOPER  auto  open  Fix retry loop                 ~/projects/nuo",
         ),
         (
             "fair_share_elides_ancestors_and_long_title_before_posture_yields",
-            "  [DEVELOPER]  auto  open  Refactor database mig…  .../nuo-tui",
+            "  DEVELOPER  auto  open  Refactor database migra…  .../nuo-tui",
         ),
         (
-            "short_identity_flows_slack_to_workspace_leaf",
-            "  [DEVELOPER]  auto  open  thread b3c4   nuo-tui",
+            "untitled_flows_all_slack_to_workspace",
+            "  DEVELOPER  auto  open       .../crates/nuo-tui",
         ),
         (
             "long_role_elides_before_posture_yields",
-            "  [SECURITY-AU…]  auto  open",
+            "  SECURITY-AUDI…  auto  open",
         ),
         (
             "narrow_row_drops_optional_elements_but_keeps_posture",
-            "  [DEVELOPER]  auto  open",
+            "  DEVELOPER  auto  open",
         ),
     ];
     for ((name, actual), (exp_name, exp_row)) in cases.iter().zip(expected.iter()) {

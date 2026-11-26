@@ -1,0 +1,5 @@
+---
+source: crates/nuo/src/shell/snapshot_tests/thread_scene_bar.rs
+expression: "render_bar(50, Some(\"Fix auth\"), &h)"
+---
+  DEVELOPER  auto  open  Fix auth    .../nuo-tui

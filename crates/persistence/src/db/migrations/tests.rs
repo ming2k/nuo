@@ -633,3 +633,64 @@ fn role_memory_on_disk_reopen_and_refusals_follow_adr_0192() {
         assert!(err.contains(&legacy_path.display().to_string()), "{err}");
     }
 }
+
+#[test]
+fn migration_observer_reports_backup_steps_and_verify_and_stays_silent_when_current() {
+    use super::{
+        CURRENT_DB_VERSION, MIGRATIONS, MigrationObserver, MigrationProgress,
+        initialize_db_with_observer, migrate_to_for_tests,
+    };
+    use std::sync::{Arc, Mutex};
+
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("nuo.db");
+
+    // Seed an existing database at v1 so opening it at CURRENT_DB_VERSION
+    // exercises pre-migration backup, numbered migration steps, and verify.
+    {
+        let mut conn = Connection::open(&db_path).unwrap();
+        migrate_to_for_tests(&mut conn, 1).unwrap();
+    }
+
+    let events: Arc<Mutex<Vec<MigrationProgress>>> = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&events);
+    let observer: MigrationObserver = Arc::new(move |progress| {
+        captured.lock().unwrap().push(progress);
+    });
+
+    let conn = initialize_db_with_observer(&db_path, Some(&observer)).unwrap();
+    drop(conn);
+
+    let recorded = events.lock().unwrap().clone();
+    let pending_count = (CURRENT_DB_VERSION - 1) as usize;
+    assert_eq!(
+        recorded.len(),
+        1 + pending_count + 1,
+        "expected BackingUp + {pending_count} Migrating + Verifying, got: {recorded:?}"
+    );
+    assert_eq!(
+        recorded[0],
+        MigrationProgress::BackingUp { target_version: 2 }
+    );
+    for (i, migration) in MIGRATIONS[1..].iter().enumerate() {
+        assert_eq!(
+            recorded[1 + i],
+            MigrationProgress::Migrating {
+                step: (i + 1) as u32,
+                total: pending_count as u32,
+                name: migration.name,
+            }
+        );
+    }
+    assert_eq!(recorded.last(), Some(&MigrationProgress::Verifying));
+
+    // Reopening an already up-to-date database MUST emit zero observer events
+    // (ADR-0266 `[INV-SRVPHASE-07]` fast-path purity).
+    events.lock().unwrap().clear();
+    let conn = initialize_db_with_observer(&db_path, Some(&observer)).unwrap();
+    drop(conn);
+    assert!(
+        events.lock().unwrap().is_empty(),
+        "up-to-date reopen must emit zero migration events"
+    );
+}

@@ -462,6 +462,7 @@ fn draw_scene(
                     subagent_bar: None,
                     page_hints: Some(ViewHints {
                         kind: SceneKind::Thread,
+                        role: None,
                         context: Some("Refactor color tokens"),
                         context_warn: false,
                         breadcrumbs: None,
@@ -469,7 +470,6 @@ fn draw_scene(
                         can_forward: false,
                     }),
                     tab_bar: Some(tab_bar),
-                    thread_id: Some("thr-8f2a10"),
                     thread_context: Some(ThreadContext {
                         role: Some("developer"),
                         workspace: "~/projects/nuo",
@@ -578,6 +578,7 @@ fn draw_scene(
                     subagent_bar: None,
                     page_hints: Some(ViewHints {
                         kind: SceneKind::Thread,
+                        role: None,
                         context: Some("Refactor color tokens"),
                         context_warn: false,
                         breadcrumbs: None,
@@ -585,7 +586,6 @@ fn draw_scene(
                         can_forward: false,
                     }),
                     tab_bar: Some(tab_bar),
-                    thread_id: Some("thr-8f2a10"),
                     thread_context: Some(ThreadContext {
                         role: Some("developer"),
                         workspace: "~/projects/nuo",
@@ -656,7 +656,6 @@ fn draw_scene(
                 frame,
                 DiffSceneProps {
                     state: Some(&mut diff_state),
-                    thread_id: Some("thr-8f2a10"),
                     tab_bar: Some(tab_bar),
                 },
                 theme,
@@ -763,6 +762,7 @@ fn draw_scene(
                     subagent_bar: None,
                     page_hints: Some(ViewHints {
                         kind: SceneKind::Thread,
+                        role: None,
                         context: Some("Refactor color tokens"),
                         context_warn: true,
                         breadcrumbs: None,
@@ -770,7 +770,6 @@ fn draw_scene(
                         can_forward: false,
                     }),
                     tab_bar: Some(tab_bar),
-                    thread_id: Some("thr-8f2a10"),
                     thread_context: Some(ThreadContext {
                         role: Some("developer"),
                         workspace: "~/projects/nuo",
@@ -859,6 +858,7 @@ fn draw_scene(
                     subagent_bar: None,
                     page_hints: Some(ViewHints {
                         kind: SceneKind::Thread,
+                        role: None,
                         context: Some("Refactor color tokens"),
                         context_warn: false,
                         breadcrumbs: None,
@@ -866,7 +866,6 @@ fn draw_scene(
                         can_forward: false,
                     }),
                     tab_bar: Some(tab_bar),
-                    thread_id: Some("thr-8f2a10"),
                     thread_context: Some(ThreadContext {
                         role: Some("developer"),
                         workspace: "~/projects/nuo",

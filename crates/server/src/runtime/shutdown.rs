@@ -83,7 +83,11 @@ impl ServerLifecycle {
     /// Construct a lifecycle starting in [`protocol::ServerPhase::Initializing`]
     /// at `stage` (used by `host::run_inner` before binding listeners).
     pub fn new_initializing(stage: protocol::ServerInitStage) -> Self {
-        Self::with_phase(protocol::ServerPhase::Initializing { stage })
+        Self::with_phase(protocol::ServerPhase::initializing_with(
+            stage,
+            None,
+            Some(unix_now_ms()),
+        ))
     }
 
     fn with_phase(initial: protocol::ServerPhase) -> Self {
@@ -129,10 +133,18 @@ impl Default for ServerLifecycle {
     }
 }
 
+/// Current Unix epoch time in milliseconds, used to stamp `started_at_ms` on
+/// `ServerPhase::Initializing` transitions (ADR-0266).
+pub(crate) fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
 /// Single shutdown trigger point: a cancellation gate plus the reason it
 /// fired (first wins). Clone the gate into every subsystem that needs to
 /// observe "the server is going down"; ask it why afterwards.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ShutdownGate {
     cancel: CancellationToken,
     reason_tx: tokio::sync::watch::Sender<Option<ShutdownReason>>,

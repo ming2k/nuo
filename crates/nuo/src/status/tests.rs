@@ -137,6 +137,9 @@ fn base_diag() -> ServerDiagnostics {
         local_endpoint_connectable: false,
         tcp_port: 9800,
         tcp_listening: false,
+        live_probe_attempted: false,
+        live_phase: None,
+        live_persistence_health: None,
         startup_log_path: std::path::PathBuf::from("/tmp/startup.log"),
         last_startup_log: None,
         installed_image: None,
@@ -246,6 +249,110 @@ fn diagnostics_formatter_renders_client_bound_zero_tcp_healthy_state() {
         text.contains("Server is running and healthy (client-bound local IPC)"),
         "{text}"
     );
+}
+
+#[test]
+fn diagnostics_formatter_surfaces_initializing_failed_and_degraded_honestly() {
+    let base_live = || ServerDiagnostics {
+        discovery_record: Some(client::ServerInfo {
+            pid: 12345,
+            port: 0,
+            started_at: 1000,
+            uds_path: Some(std::path::PathBuf::from("/run/user/1000/nuo/server.sock")),
+            version: Some("0.25.1".to_string()),
+            ..Default::default()
+        }),
+        discovery_valid: true,
+        lock_held: true,
+        lock_holder_pid: Some(12345),
+        lock_holder_alive: true,
+        local_endpoint_exists: true,
+        local_endpoint_connectable: true,
+        tcp_port: 0,
+        tcp_listening: false,
+        ..base_diag()
+    };
+
+    let init_diag = ServerDiagnostics {
+        live_phase: Some(protocol::ServerPhase::initializing_with(
+            protocol::ServerInitStage::Storage,
+            Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+            None,
+        )),
+        ..base_live()
+    };
+    let init_text = format_diagnostics(&init_diag);
+    assert!(
+        init_text.contains("Server is initializing (backing up database before v9)"),
+        "{init_text}"
+    );
+    assert!(!init_text.contains("running and healthy"), "{init_text}");
+
+    let failed_diag = ServerDiagnostics {
+        live_phase: Some(protocol::ServerPhase::Failed {
+            code: Some("storage_init_failed".into()),
+            message: "checksum mismatch".into(),
+        }),
+        ..base_live()
+    };
+    let failed_text = format_diagnostics(&failed_diag);
+    assert!(
+        failed_text.contains("Server startup failed: checksum mismatch"),
+        "{failed_text}"
+    );
+    assert!(
+        !failed_text.contains("running and healthy"),
+        "{failed_text}"
+    );
+
+    let degraded_diag = ServerDiagnostics {
+        live_phase: Some(protocol::ServerPhase::Ready),
+        live_persistence_health: Some(protocol::PersistenceHealth::Down {
+            attempt: 5,
+            since_ms: 1_700_000_000_000,
+            error: "disk full".into(),
+        }),
+        ..base_live()
+    };
+    let degraded_text = format_diagnostics(&degraded_diag);
+    assert!(
+        degraded_text.contains("Server is running with degraded persistence: disk full"),
+        "{degraded_text}"
+    );
+    assert!(
+        !degraded_text.contains("running and healthy"),
+        "{degraded_text}"
+    );
+
+    let wedged_diag = ServerDiagnostics {
+        live_probe_attempted: true,
+        live_phase: None,
+        ..base_live()
+    };
+    let wedged_text = format_diagnostics(&wedged_diag);
+    assert!(
+        wedged_text.contains("did not answer Wire::Hello"),
+        "{wedged_text}"
+    );
+    assert!(
+        !wedged_text.contains("running and healthy"),
+        "{wedged_text}"
+    );
+}
+
+#[test]
+fn db_status_never_claims_wal_healthy_while_initializing_or_failed() {
+    let mut init_snap = snapshot(Vec::new());
+    init_snap.server_phase =
+        protocol::ServerPhase::initializing(protocol::ServerInitStage::Storage);
+    assert_eq!(format_db_status(&init_snap), "initializing…");
+
+    let mut failed_snap = snapshot(Vec::new());
+    failed_snap.server_phase = protocol::ServerPhase::Failed {
+        code: Some("storage_init_failed".into()),
+        message: "checksum mismatch".into(),
+    };
+    assert_eq!(format_db_status(&failed_snap), "unavailable");
 }
 
 #[test]

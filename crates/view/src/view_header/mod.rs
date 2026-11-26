@@ -27,15 +27,16 @@
 //!
 //! - **Tier 2 — Polymorphic SceneBar (`draw_scene_bar`).**
 //!   Fixed height: 1 row. Owned by the active scene view [INV-SCENE-02].
-//!   - For `Thread` (ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`): consolidates
-//!     thread governance, identity/title, and workspace into a single row on
-//!     `theme.scenebar_bg()`. Left: staffing `[ROLE]` badge (brand), silent-by-
-//!     default safety posture tokens (`auto`, `open`; warning tone), and an
-//!     anchor-stable identity slot (`thread <id_tail>` dimmed while untitled,
-//!     replaced in place by the bold authentic title once present). Right:
-//!     bound workspace path pinned to the right edge (`PathView` ancestor-first
-//!     shortening). Peer elements separate by `JOIN_ENUMERATE_COLS` pure
-//!     whitespace.
+//!   - For `Thread` (ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`; ADR-0268
+//!     `[INV-HEAD-11]`, `[INV-HEAD-12]`): consolidates thread governance,
+//!     authentic task title, and workspace into a single row on
+//!     `theme.scenebar_bg()`. Left: staffed role token (`ROLE` brand bold on
+//!     chromatic surfaces; `[ROLE]` on framed fallback), silent-by-default
+//!     safety posture tokens (`auto`, `open`; warning tone), and an
+//!     anchor-stable title slot (silent while untitled; bold heading once an
+//!     authentic title exists). Right: bound workspace path pinned to the right
+//!     edge (`PathView` ancestor-first shortening). Peer elements separate by
+//!     `JOIN_ENUMERATE_COLS` pure whitespace.
 //!   - For Non-Thread (`Subagent`, `Dashboard`, `Settings`, `CommandLog`, `Diff`):
 //!     scene label + domain summary context on the left; right-aligned drill-in
 //!     navigation stack / breadcrumbs (`‹  thread › subagent  ›`) with
@@ -69,6 +70,11 @@ pub(crate) const MAX_TAB_TITLE_WIDTH: usize = 20;
 pub struct ViewHints<'a> {
     /// Which scene the row describes — decides the leading scene label.
     pub kind: ViewKind,
+    /// Optional staffed role token for non-thread scenes that carry an agent
+    /// role (e.g. `SceneKind::Subagent`), painted in brand bold via the same
+    /// capability-adaptive rule as `Thread` (`EXPLORE` chromatic / `[EXPLORE]`
+    /// framed — ADR-0268 `[INV-HEAD-11]`).
+    pub role: Option<&'a str>,
     /// Scene context shown: the thread's authentic chat title, a subagent's
     /// task label, the dashboard's fleet summary, or the settings breadcrumb.
     pub context: Option<&'a str>,
@@ -88,6 +94,7 @@ impl<'a> ViewHints<'a> {
     pub fn simple(kind: ViewKind) -> Self {
         Self {
             kind,
+            role: None,
             context: None,
             context_warn: false,
             breadcrumbs: None,
@@ -337,6 +344,5 @@ pub use self::scene_bar::{SceneNavRects, draw_scene_bar};
 #[cfg(test)]
 pub(crate) use self::tab_bar::compute_tab_window;
 pub use self::tab_bar::draw_tab_bar;
-pub use self::thread_bar::id_tail as thread_id_tail;
 #[cfg(test)]
 pub(crate) use self::thread_bar::{PostureToken, workspace_spans};

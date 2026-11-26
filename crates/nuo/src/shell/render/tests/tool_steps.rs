@@ -76,7 +76,6 @@ fn subagent_view_groups_children_into_turn_bands() {
                 }),
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -184,7 +183,6 @@ fn subagent_step_and_view_render_without_panicking() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -237,14 +235,14 @@ fn subagent_step_and_view_render_without_panicking() {
                 // `event_loop/render.rs` does for the Subagent scene.
                 page_hints: Some(ViewHints {
                     kind: ViewKind::Subagent,
-                    context: Some("[EXPLORE] the codebase (1/2)"),
+                    role: Some("explore"),
+                    context: Some("the codebase (1/2)"),
                     context_warn: false,
                     breadcrumbs: None,
                     can_back: false,
                     can_forward: false,
                 }),
                 tab_bar: Some(TabBarProps::default()),
-                thread_id: Some("sess-01a2b3c4"),
                 thread_context: Some(ThreadContext {
                     workspace: "~/projects/nuo",
                     role: None,
@@ -286,8 +284,8 @@ fn subagent_step_and_view_render_without_panicking() {
         "scene name leads row 2: {scene_row:?}"
     );
     assert!(
-        scene_row.contains("[EXPLORE] the codebase (1/2)"),
-        "role tag, title and sibling index on the scene row: {scene_row:?}"
+        scene_row.contains("EXPLORE  the codebase (1/2)"),
+        "chromatic bare role token, title and sibling index on the scene row: {scene_row:?}"
     );
     assert!(
         !scene_row.contains("C-x menu") && !scene_row.contains("C-x"),
@@ -366,7 +364,6 @@ fn height_cache_skip_path_matches_full_layout() {
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
-                    thread_id: None,
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,
@@ -477,7 +474,6 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
-                    thread_id: None,
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,
@@ -577,7 +573,6 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
-                thread_id: None,
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
@@ -656,7 +651,8 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
 fn subagent_scene_row_draws_the_scene_name_and_namespace() {
     let hints = ViewHints {
         kind: ViewKind::Subagent,
-        context: Some("[EXPLORE] inspect the renderer (1/2)"),
+        role: Some("explore"),
+        context: Some("inspect the renderer (1/2)"),
         context_warn: false,
         breadcrumbs: None,
         can_back: false,
@@ -674,8 +670,8 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
         "scene name leads row 1: {row1:?}"
     );
     assert!(
-        row1.contains("[EXPLORE] inspect the renderer (1/2)"),
-        "task context follows on row 1: {row1:?}"
+        row1.contains("EXPLORE  inspect the renderer (1/2)"),
+        "chromatic bare role token and task context follow on row 1: {row1:?}"
     );
     assert!(
         !row1.contains("C-x menu") && !row1.contains("C-x"),
@@ -847,7 +843,6 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
-                    thread_id: None,
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,

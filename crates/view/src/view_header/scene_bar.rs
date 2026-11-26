@@ -2,7 +2,7 @@
 
 use super::*;
 
-use super::thread_bar::{draw_thread_scene_bar, truncate_with};
+use super::thread_bar::{draw_thread_scene_bar, truncate_role_token, truncate_with};
 use crate::view_header::SceneKind;
 
 /// Interactive bounding boxes for Tier 2 SceneBar navigation elements (ADR-0092 [INV-INTERACT-01]).
@@ -16,11 +16,14 @@ pub struct SceneNavRects {
     pub crumbs: Vec<(usize, Rect)>,
 }
 
-/// Draw Tier 2: Polymorphic SceneBar (ADR-0062 [INV-SCENE-02], ADR-0092 [INV-SCENE-03, INV-INTERACT-01], ADR-0261 [INV-HEAD-09, INV-HEAD-10]).
+/// Draw Tier 2: Polymorphic SceneBar (ADR-0062 `[INV-SCENE-02]`, ADR-0092
+/// `[INV-SCENE-03, INV-INTERACT-01]`, ADR-0261 `[INV-HEAD-09, INV-HEAD-10]`,
+/// ADR-0268 `[INV-HEAD-11, INV-HEAD-12]`).
 ///
 /// Universal to all scenes.
 /// - For `SceneKind::Thread`: delegates to the single-row Thread SceneBar
-///   (`[ROLE]  posture  thread <id_tail>|<title>` on the left; right-anchored
+///   (`ROLE  posture  <title>` on chromatic surfaces / `[ROLE]` on framed
+///   surfaces, with the title slot silent while untitled; right-anchored
 ///   workspace path on the right).
 /// - For non-thread scenes (`Subagent`, `Dashboard`, `Settings`, `CommandLog`,
 ///   `Diff`): scene label + domain context on the left; drill-in navigation
@@ -28,7 +31,6 @@ pub struct SceneNavRects {
 pub fn draw_scene_bar(
     frame: &mut Frame,
     rect: Rect,
-    thread_id: Option<&str>,
     hints: &ViewHints<'_>,
     thread_context: Option<&ThreadContext<'_>>,
     theme: &Theme,
@@ -38,7 +40,7 @@ pub fn draw_scene_bar(
     }
 
     if hints.kind == SceneKind::Thread {
-        draw_thread_scene_bar(frame, rect, thread_id, hints.context, thread_context, theme);
+        draw_thread_scene_bar(frame, rect, hints.context, thread_context, theme);
         return SceneNavRects::default();
     }
 
@@ -141,7 +143,7 @@ pub fn draw_scene_bar(
             (Vec::new(), 0, Vec::new())
         };
 
-    // Left side (non-thread scenes): scene_label + (optional context)
+    // Left side (non-thread scenes): scene_label + (optional role) + (optional context)
     let mut left_spans = Vec::new();
     let mut left_width = 0usize;
 
@@ -156,14 +158,41 @@ pub fn draw_scene_bar(
         left_width += lbl.width();
     }
 
+    if let Some(role) = hints.role.map(str::trim).filter(|r| !r.is_empty()) {
+        let sep_w = if left_width > 0 {
+            JOIN_ENUMERATE_COLS
+        } else {
+            0
+        };
+        let budget = text_width.saturating_sub(left_width + sep_w + right_width);
+        let token = truncate_role_token(
+            role,
+            budget,
+            theme.elevation.is_chromatic(),
+            theme.glyphs.ellipsis,
+        );
+        if !token.is_empty() {
+            if left_width > 0 {
+                left_spans.push(Span::styled(" ".repeat(JOIN_ENUMERATE_COLS), fill));
+                left_width += JOIN_ENUMERATE_COLS;
+            }
+            left_width += token.width();
+            left_spans.push(Span::styled(token, label_style));
+        }
+    }
+
     if let Some(ctx) = hints.context.filter(|c| !c.is_empty()) {
-        let sep_w = if left_width > 0 { 2 } else { 0 };
+        let sep_w = if left_width > 0 {
+            JOIN_ENUMERATE_COLS
+        } else {
+            0
+        };
         let budget = text_width.saturating_sub(left_width + sep_w + right_width);
         let truncated = truncate_with(ctx, budget, theme.glyphs.ellipsis);
         if !truncated.is_empty() {
             if left_width > 0 {
-                left_spans.push(Span::styled("  ", fill));
-                left_width += 2;
+                left_spans.push(Span::styled(" ".repeat(JOIN_ENUMERATE_COLS), fill));
+                left_width += JOIN_ENUMERATE_COLS;
             }
             left_width += truncated.width();
             left_spans.push(Span::styled(truncated, context_style));

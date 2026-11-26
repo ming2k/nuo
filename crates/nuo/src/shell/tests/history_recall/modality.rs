@@ -396,6 +396,8 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
 async fn history_search_opening_preserves_thread_scene_bar() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-test".to_string();
+    app.threads.current_role = Some("developer".to_string());
+    app.threads.current_workspace = "~/projects/nuo".to_string();
     app.record_input_history("existing entry".to_string(), Vec::new(), Vec::new());
 
     // 1. Render normal frame
@@ -408,8 +410,8 @@ async fn history_search_opening_preserves_thread_scene_bar() {
         .map(|x| buffer_normal.get(x, 1).unwrap().symbol.as_str())
         .collect();
     assert!(
-        row1_normal.contains("thread test"),
-        "Row 1 must be the single-row Thread SceneBar carrying untitled thread tag: {row1_normal:?}"
+        row1_normal.contains("DEVELOPER") && row1_normal.contains("~/projects/nuo"),
+        "Row 1 must be the single-row Thread SceneBar carrying role and workspace: {row1_normal:?}"
     );
 
     // 2. Open HistorySearch
@@ -429,7 +431,7 @@ async fn history_search_opening_preserves_thread_scene_bar() {
         .map(|x| buffer_hist.get(x, 1).unwrap().symbol.as_str())
         .collect();
     assert!(
-        row1_hist.contains("thread test"),
+        row1_hist.contains("DEVELOPER") && row1_hist.contains("~/projects/nuo"),
         "Row 1 Thread SceneBar must NOT be hidden when HistorySearch is opened: {row1_hist:?}"
     );
     assert_eq!(

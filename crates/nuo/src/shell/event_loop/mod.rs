@@ -370,6 +370,19 @@ fn next_poll_interval(
         if elapsed < hysteresis {
             next_timeout =
                 next_timeout.min((hysteresis - elapsed).max(std::time::Duration::from_millis(10)));
+        } else if let protocol::ServerPhase::Initializing {
+            started_at_ms: Some(started),
+            ..
+        } = app.session.server_phase
+        {
+            // Tick on 1-second boundaries so the `(Ns)` elapsed suffix advances
+            // smoothly during long migrations without spinning CPU.
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64);
+            let elapsed_ms = now_ms.saturating_sub(started);
+            let rem_ms = 1000u64.saturating_sub(elapsed_ms % 1000);
+            next_timeout = next_timeout.min(std::time::Duration::from_millis(rem_ms.max(50)));
         }
     }
 
@@ -383,6 +396,61 @@ fn next_poll_interval(
     }
 
     next_timeout
+}
+
+#[derive(Default)]
+struct TransientWaitTracker {
+    visible: bool,
+    init_elapsed_sec: Option<u64>,
+}
+
+impl TransientWaitTracker {
+    /// Returns `true` when a transient wait crossed the 120ms hysteresis floor
+    /// or a long `ServerPhase::Initializing` step's displayed elapsed second
+    /// advanced (zero 30Hz animation spin).
+    fn poll(&mut self, app: &App) -> bool {
+        let mut dirty = false;
+        let visible_now = match &app.link.phase {
+            crate::shell::app::state::ClientLinkPhase::Connecting { .. } => {
+                app.link.phase_since.elapsed() >= render::TRANSIENT_WAIT_HYSTERESIS
+            }
+            crate::shell::app::state::ClientLinkPhase::Connected { .. } => {
+                if app.session.server_phase.is_initializing() {
+                    app.session.server_phase_since.elapsed() >= render::TRANSIENT_WAIT_HYSTERESIS
+                } else if matches!(
+                    app.threads.session_phase,
+                    protocol::ThreadPhase::Preparing { .. }
+                ) {
+                    app.session.thread_phase_since.elapsed() >= render::TRANSIENT_WAIT_HYSTERESIS
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        };
+        if visible_now != self.visible {
+            self.visible = visible_now;
+            dirty = true;
+        }
+        let elapsed_sec = match app.session.server_phase {
+            protocol::ServerPhase::Initializing {
+                started_at_ms: Some(started),
+                ..
+            } if visible_now => {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64);
+                let secs = now_ms.saturating_sub(started) / 1000;
+                (secs >= 2).then_some(secs)
+            }
+            _ => None,
+        };
+        if elapsed_sec != self.init_elapsed_sec {
+            self.init_elapsed_sec = elapsed_sec;
+            dirty = true;
+        }
+        dirty
+    }
 }
 
 pub(crate) async fn run_app_loop(
@@ -402,6 +470,7 @@ pub(crate) async fn run_app_loop(
     let mut input_redraw_pending = true;
     let mut was_animating = true;
     let mut last_carousel_index = 0usize;
+    let mut transient_wait = TransientWaitTracker::default();
     let mut mutation_rx = mutation_rx;
     let mut terminal_resized = false;
     let mut last_composer_height: Option<u16> = None;
@@ -561,6 +630,8 @@ pub(crate) async fn run_app_loop(
                 frame_dirty = true;
             }
         }
+
+        frame_dirty |= transient_wait.poll(app);
 
         let viewed_animating = app.viewed_chrome().responding;
         // The Models dialog is live in two cases: a catalog refresh is in

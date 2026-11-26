@@ -47,7 +47,12 @@ impl ThreadRegistry {
     #[allow(clippy::unwrap_used)] // A poisoned snapshot mutex is an unrecoverable registry invariant.
     pub fn start_persistence_health_monitor(self: &Arc<Self>) {
         let registry = Arc::downgrade(self);
-        let mut rx = persistence::db::get_persistence_handle().subscribe_health();
+        let handle = persistence::db::get_persistence_handle();
+        let initial = handle.health().to_wire();
+        if !initial.is_healthy() {
+            *self.persistence_health.lock().unwrap() = Some(initial);
+        }
+        let mut rx = handle.subscribe_health();
         tokio::spawn(async move {
             loop {
                 if rx.changed().await.is_err() {
@@ -392,14 +397,15 @@ impl ThreadRegistry {
     /// Read the storage plane's live pressure signals (ADR-0248).
     ///
     /// Returns `None` while the server is still in `ServerInitStage::Storage`
-    /// so handshake snapshots never block on an uninitialized storage handle
-    /// (ADR-0260 `[INV-SRVPHASE-02]`).
+    /// or `ServerPhase::Failed` so handshake snapshots never block on an
+    /// uninitialized or failed storage handle (ADR-0260 `[INV-SRVPHASE-02]`).
     fn storage_pressure(&self) -> Option<protocol::monitor::StoragePressure> {
         if matches!(
             self.server_phase(),
             protocol::ServerPhase::Initializing {
-                stage: protocol::ServerInitStage::Storage
-            }
+                stage: protocol::ServerInitStage::Storage,
+                ..
+            } | protocol::ServerPhase::Failed { .. }
         ) {
             return None;
         }

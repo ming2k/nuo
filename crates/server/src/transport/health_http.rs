@@ -1,12 +1,11 @@
-//! The lightweight HTTP API and health-probe side of the server's TCP port.
+//! The lightweight HTTP health and readiness probe side of the server's TCP port.
 //!
 //! The server's TCP listener speaks two protocols, split by peeking at the
 //! request head (`classify` in `serve.rs`): WebSocket upgrades go to the
 //! control plane; plain HTTP lands here.
 //!
 //! Deliberately lightweight and zero-dependency: operates directly on
-//! `AsyncRead + AsyncWrite`, supports `/healthz`, `/api/v1/*`, CORS, and
-//! token authorization.
+//! `AsyncRead + AsyncWrite`, supports `/healthz`, `/readyz`, and CORS.
 
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
@@ -19,6 +18,7 @@ pub async fn serve<S>(
     server_version: &str,
     server_id: &str,
     phase: &protocol::ServerPhase,
+    persistence_health: Option<&protocol::PersistenceHealth>,
     expected_token: Option<&str>,
 ) -> std::io::Result<()>
 where
@@ -50,6 +50,16 @@ where
 
     // Parse headers
     let auth_required = expected_token.is_some();
+    let effective_health = persistence_health
+        .cloned()
+        .unwrap_or(protocol::PersistenceHealth::Healthy);
+    let elapsed_ms = match phase {
+        protocol::ServerPhase::Initializing {
+            started_at_ms: Some(started),
+            ..
+        } => Some(crate::runtime::shutdown::unix_now_ms().saturating_sub(*started)),
+        _ => None,
+    };
 
     let response = match (method, path) {
         ("OPTIONS", _) => build_response(
@@ -67,13 +77,17 @@ where
             ],
         ),
         ("GET" | "HEAD", "/healthz") => {
-            let body = serde_json::json!({
+            let mut body = serde_json::json!({
                 "version": server_version,
                 "auth": auth_required,
                 "server_id": server_id,
                 "phase": phase,
-            })
-            .to_string();
+                "persistence_health": effective_health,
+            });
+            if let Some(ms) = elapsed_ms {
+                body["elapsed_ms"] = serde_json::json!(ms);
+            }
+            let body = body.to_string();
             build_response(
                 "200 OK",
                 "application/json",
@@ -83,18 +97,26 @@ where
             )
         }
         ("GET" | "HEAD", "/readyz") => {
-            let ready = phase.admits_work();
+            // ADR-0266 `[INV-SRVPHASE-08]`: `/readyz` reflects both global
+            // lifecycle phase and durability writer health.
+            let persistence_down =
+                matches!(effective_health, protocol::PersistenceHealth::Down { .. });
+            let ready = phase.admits_work() && !persistence_down;
             let status = if ready {
                 "200 OK"
             } else {
                 "503 Service Unavailable"
             };
-            let body = serde_json::json!({
+            let mut body = serde_json::json!({
                 "ready": ready,
                 "server_id": server_id,
                 "phase": phase,
-            })
-            .to_string();
+                "persistence_health": effective_health,
+            });
+            if let Some(ms) = elapsed_ms {
+                body["elapsed_ms"] = serde_json::json!(ms);
+            }
+            let body = body.to_string();
             build_response(
                 status,
                 "application/json",
@@ -153,6 +175,7 @@ mod tests {
         request: &str,
         token: Option<&str>,
         phase: protocol::ServerPhase,
+        persistence_health: Option<protocol::PersistenceHealth>,
     ) -> String {
         let (client, server) = tokio::io::duplex(64 * 1024);
         let token_owned = token.map(|s| s.to_string());
@@ -162,6 +185,7 @@ mod tests {
                 "0.0.0-test",
                 "srv-test-1",
                 &phase,
+                persistence_health.as_ref(),
                 token_owned.as_deref(),
             )
             .await
@@ -176,7 +200,7 @@ mod tests {
     }
 
     async fn roundtrip_with_token(request: &str, token: Option<&str>) -> String {
-        roundtrip_with_state(request, token, protocol::ServerPhase::Ready).await
+        roundtrip_with_state(request, token, protocol::ServerPhase::Ready, None).await
     }
 
     async fn roundtrip(request: &str) -> String {
@@ -184,27 +208,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn readyz_returns_200_when_ready_and_503_when_initializing_or_draining() {
+    async fn readyz_returns_200_when_ready_and_503_when_initializing_draining_or_persistence_down()
+    {
         let ready = roundtrip_with_state(
             "GET /readyz HTTP/1.1\r\n\r\n",
             None,
             protocol::ServerPhase::Ready,
+            None,
         )
         .await;
         assert!(ready.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(ready.contains("\"ready\":true"));
+        assert!(ready.contains("\"kind\":\"healthy\""));
 
         let init = roundtrip_with_state(
             "GET /readyz HTTP/1.1\r\n\r\n",
             None,
-            protocol::ServerPhase::Initializing {
-                stage: protocol::ServerInitStage::Storage,
-            },
+            protocol::ServerPhase::initializing_with(
+                protocol::ServerInitStage::Storage,
+                Some(protocol::StorageInitDetail::Migrating {
+                    step: 1,
+                    total: 2,
+                    name: "0009_pure_catalog".into(),
+                }),
+                Some(1_700_000_000_000),
+            ),
+            None,
         )
         .await;
         assert!(init.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
         assert!(init.contains("\"ready\":false"));
         assert!(init.contains("\"stage\":\"storage\""));
+        assert!(init.contains("\"kind\":\"migrating\""));
+        assert!(init.contains("\"elapsed_ms\":"));
 
         let draining = roundtrip_with_state(
             "GET /readyz HTTP/1.1\r\n\r\n",
@@ -212,10 +248,26 @@ mod tests {
             protocol::ServerPhase::Draining {
                 reason: Some("SIGTERM".into()),
             },
+            None,
         )
         .await;
         assert!(draining.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
         assert!(draining.contains("\"ready\":false"));
+
+        let down = roundtrip_with_state(
+            "GET /readyz HTTP/1.1\r\n\r\n",
+            None,
+            protocol::ServerPhase::Ready,
+            Some(protocol::PersistenceHealth::Down {
+                attempt: 5,
+                since_ms: 1_700_000_000_000,
+                error: "disk full".into(),
+            }),
+        )
+        .await;
+        assert!(down.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+        assert!(down.contains("\"ready\":false"));
+        assert!(down.contains("\"kind\":\"down\""));
     }
 
     #[tokio::test]

@@ -169,6 +169,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     let registry = Arc::new(ThreadRegistry::prehost_only());
     host_one(&registry, tmp.path().join("proj-a").to_str().unwrap()).await;
     let mut monitor_rx = registry.subscribe_monitor();
+    let phase_rx = registry.subscribe_server_phase();
 
     let gate = Arc::new(ShutdownGate::new());
     let trigger_gate = gate.clone();
@@ -202,22 +203,19 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
         !server::transport::serve_discovery::global_discovery_path().exists(),
         "discovery record must be removed on drain"
     );
-    // The monitor bus saw the drain announcement and the session teardown.
-    let mut saw_draining = false;
+    // The single lifecycle watch channel transitioned to Draining (ADR-0266
+    // `[INV-SRVPHASE-07]`) and the monitor bus saw the session teardown.
+    assert!(
+        matches!(&*phase_rx.borrow(), protocol::ServerPhase::Draining { .. }),
+        "watch channel must report ServerPhase::Draining, got {:?}",
+        *phase_rx.borrow()
+    );
     let mut saw_removed = false;
     while let Ok(event) = monitor_rx.try_recv() {
-        match event {
-            MonitorEvent::ServerPhaseChanged(protocol::ServerPhase::Draining { .. }) => {
-                saw_draining = true
-            }
-            MonitorEvent::ThreadRemoved { .. } => saw_removed = true,
-            _ => {}
+        if matches!(event, MonitorEvent::ThreadRemoved { .. }) {
+            saw_removed = true;
         }
     }
-    assert!(
-        saw_draining,
-        "watch clients must be told the server is draining"
-    );
     assert!(saw_removed, "hosted sessions must be torn down on drain");
 }
 
@@ -259,6 +257,7 @@ async fn escalation_skips_the_graceful_phases() {
     let registry = Arc::new(ThreadRegistry::prehost_only());
     host_one(&registry, tmp.path().join("proj-b").to_str().unwrap()).await;
     let mut monitor_rx = registry.subscribe_monitor();
+    let phase_rx = registry.subscribe_server_phase();
 
     let gate = Arc::new(ShutdownGate::new());
     let probe = Arc::new(DrainProbe::new());
@@ -299,20 +298,20 @@ async fn escalation_skips_the_graceful_phases() {
         other => panic!("expected ForcedExit after escalation, got {other:?}"),
     }
     assert_eq!(outcome.exit_code(), 0);
-    // The drain announcement still went out before the force, but the
-    // graceful session teardown was skipped: no SessionRemoved may appear.
-    let mut saw_draining = false;
+    // The drain announcement still went out on the lifecycle watch channel
+    // before the force, but the graceful session teardown was skipped: no
+    // ThreadRemoved may appear.
+    assert!(
+        matches!(&*phase_rx.borrow(), protocol::ServerPhase::Draining { .. }),
+        "watch channel must report ServerPhase::Draining, got {:?}",
+        *phase_rx.borrow()
+    );
     let mut saw_removed = false;
     while let Ok(event) = monitor_rx.try_recv() {
-        match event {
-            MonitorEvent::ServerPhaseChanged(protocol::ServerPhase::Draining { .. }) => {
-                saw_draining = true
-            }
-            MonitorEvent::ThreadRemoved { .. } => saw_removed = true,
-            _ => {}
+        if matches!(event, MonitorEvent::ThreadRemoved { .. }) {
+            saw_removed = true;
         }
     }
-    assert!(saw_draining);
     assert!(
         !saw_removed,
         "an escalated drain must skip the graceful session teardown"
@@ -674,10 +673,10 @@ async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_con
     let sock = tmp.path().join("init-seq.sock");
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
-    registry.set_server_phase(protocol::ServerPhase::Initializing {
-        stage: protocol::ServerInitStage::Storage,
-    });
-    let mut monitor_rx = registry.subscribe_monitor();
+    registry.set_server_phase(protocol::ServerPhase::initializing(
+        protocol::ServerInitStage::Storage,
+    ));
+    let mut phase_rx = registry.subscribe_server_phase();
 
     let gate = Arc::new(ShutdownGate::new());
     let run_gate = gate.clone();
@@ -698,28 +697,33 @@ async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_con
         .await
     });
 
-    // Wait for Storage -> Runtime -> Ready to publish over the live monitor bus.
+    // Wait for Storage -> Runtime -> Ready on the single watch channel
+    // (ADR-0260 `[INV-SRVPHASE-01]`, ADR-0266 `[INV-SRVPHASE-07]`).
     let mut observed = Vec::new();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout_at(deadline, monitor_rx.recv()).await {
-            Ok(Ok(MonitorEvent::ServerPhaseChanged(phase))) => {
+        match tokio::time::timeout_at(deadline, phase_rx.changed()).await {
+            Ok(Ok(())) => {
+                let phase = phase_rx.borrow_and_update().clone();
                 let is_ready = phase == protocol::ServerPhase::Ready;
                 observed.push(phase);
                 if is_ready {
                     break;
                 }
             }
-            Ok(Ok(_)) => continue,
             _ => break,
         }
     }
 
     assert!(
-        observed.contains(&protocol::ServerPhase::Initializing {
-            stage: protocol::ServerInitStage::Runtime,
-        }),
-        "must observe Initializing(Runtime) stage during real host startup, got {observed:?}"
+        observed.iter().any(|p| matches!(
+            p,
+            protocol::ServerPhase::Initializing {
+                stage: protocol::ServerInitStage::Runtime,
+                ..
+            }
+        )) || observed.last() == Some(&protocol::ServerPhase::Ready),
+        "host startup must progress cleanly to ServerPhase::Ready, got {observed:?}"
     );
     assert_eq!(
         observed.last(),

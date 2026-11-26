@@ -724,6 +724,18 @@ pub struct ServerDiagnostics {
     pub local_endpoint_connectable: bool,
     pub tcp_port: u16,
     pub tcp_listening: bool,
+    /// `true` when diagnostics attempted a bounded `Wire::Hello` probe against
+    /// a compatible live endpoint. If `live_probe_attempted && live_phase.is_none()`,
+    /// the socket accepted a connection but failed to answer `Hello`.
+    #[serde(default)]
+    pub live_probe_attempted: bool,
+    /// Live server lifecycle phase reported by a bounded `Wire::Hello` probe
+    /// (ADR-0266 `[INV-SRVPHASE-08]`). `None` if no live server answered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_phase: Option<ServerPhase>,
+    /// Live durability-health state reported by the `Wire::Hello` probe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_persistence_health: Option<protocol::PersistenceHealth>,
     pub startup_log_path: PathBuf,
     pub last_startup_log: Option<String>,
     pub installed_image: Option<PathBuf>,
@@ -733,10 +745,33 @@ pub struct ServerDiagnostics {
     pub recent_events: Vec<host::diagnostics::DiagnosticEvent>,
 }
 
+/// Bounded `Wire::Hello` probe used by [`diagnose_server`] so diagnostics
+/// report the server's actual [`ServerPhase`] and [`protocol::PersistenceHealth`]
+/// instead of inferring health from socket reachability alone
+/// (ADR-0266 `[INV-SRVPHASE-08]`).
+async fn probe_live_hello(
+    info: &ServerInfo,
+) -> Option<(ServerPhase, Option<protocol::PersistenceHealth>)> {
+    const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+    let fut = async {
+        let (mut sink, mut source) = super::attach::dial_local_wire(info).await.ok()?;
+        let hello = super::attach::exchange_hello(&mut sink, &mut source, None)
+            .await
+            .ok()?;
+        Some((hello.phase, hello.persistence_health))
+    };
+    tokio::time::timeout(PROBE_TIMEOUT, fut)
+        .await
+        .ok()
+        .flatten()
+}
+
 pub async fn diagnose_server() -> ServerDiagnostics {
     let discovery_path = discovery::global_discovery_path();
-    let discovery_record = discover_at(&discovery_path).await;
-    let raw_record: Option<ServerInfo> = std::fs::read(&discovery_path)
+    let validated_record = discover_at(&discovery_path).await;
+    let discovery_valid = validated_record.is_some();
+    let raw_record: Option<ServerInfo> = tokio::fs::read(&discovery_path)
+        .await
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
     let lock_path = discovery::global_lock_path();
@@ -748,24 +783,42 @@ pub async fn diagnose_server() -> ServerDiagnostics {
         .as_ref()
         .and_then(discovery::Discovery::effective_local_endpoint)
         .or_else(|| discovery::default_local_endpoint().ok());
-    let local_probe = local_endpoint
-        .as_ref()
-        .map(host::ipc::probe)
-        .unwrap_or_default();
+    let local_probe = match local_endpoint.as_ref() {
+        Some(endpoint) => host::ipc::probe_async(endpoint).await,
+        None => Default::default(),
+    };
 
     let default_port = env_default_port();
-    let port = discovery_record
+    let port = validated_record
         .as_ref()
         .map(|d| d.port)
         .or_else(|| raw_record.as_ref().map(|d| d.port))
         .unwrap_or(default_port);
 
-    let tcp_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let tcp_listening =
-        std::net::TcpStream::connect_timeout(&tcp_addr, Duration::from_millis(200)).is_ok();
+    let tcp_listening = if port > 0 {
+        let tcp_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        tokio::time::timeout(
+            Duration::from_millis(200),
+            tokio::net::TcpStream::connect(tcp_addr),
+        )
+        .await
+        .is_ok_and(|res| res.is_ok())
+    } else {
+        false
+    };
+
+    let (live_probe_attempted, live_phase, live_persistence_health) =
+        match validated_record.as_ref() {
+            Some(info) if versions_compatible(info) => match probe_live_hello(info).await {
+                Some((phase, health)) => (true, Some(phase), health),
+                None => (true, None, None),
+            },
+            _ => (false, None, None),
+        };
 
     let startup_log = startup_log_path();
-    let last_startup_log = std::fs::read_to_string(&startup_log)
+    let last_startup_log = tokio::fs::read_to_string(&startup_log)
+        .await
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
@@ -775,7 +828,7 @@ pub async fn diagnose_server() -> ServerDiagnostics {
     let installed_image_digest = installed_image
         .as_ref()
         .and_then(|p| host::process::image_digest_len(p).map(|(_, d)| d));
-    let discovery_record = discovery_record.or(raw_record);
+    let discovery_record = validated_record.or(raw_record);
     let server_image_digest = discovery_record
         .as_ref()
         .and_then(|r| r.image_digest.clone());
@@ -788,9 +841,7 @@ pub async fn diagnose_server() -> ServerDiagnostics {
         default_port,
         discovery_path,
         discovery_record,
-        discovery_valid: discover_at(&discovery::global_discovery_path())
-            .await
-            .is_some(),
+        discovery_valid,
         lock_path,
         lock_held,
         lock_holder_pid,
@@ -800,6 +851,9 @@ pub async fn diagnose_server() -> ServerDiagnostics {
         local_endpoint_connectable: local_probe.connectable,
         tcp_port: port,
         tcp_listening,
+        live_probe_attempted,
+        live_phase,
+        live_persistence_health,
         startup_log_path: startup_log,
         last_startup_log,
         installed_image,

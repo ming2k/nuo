@@ -2,4 +2,4 @@
 source: crates/nuo/src/shell/snapshot_tests/thread_scene_bar.rs
 expression: row
 ---
-  [SECURITY-AU…]  auto  open
+  SECURITY-AUDI…  auto  open

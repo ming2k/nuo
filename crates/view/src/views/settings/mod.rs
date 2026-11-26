@@ -258,13 +258,14 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     // 2. Tier 2: Polymorphic SceneBar (ADR-0062)
     let view_hints = ViewHints {
         kind: ViewKind::Settings,
+        role: None,
         context: props.breadcrumbs.map(str::trim),
         context_warn: false,
         breadcrumbs: None,
         can_back: false,
         can_forward: false,
     };
-    draw_scene_bar(frame, scene_rect, None, &view_hints, None, props.theme);
+    draw_scene_bar(frame, scene_rect, &view_hints, None, props.theme);
 
     // 3. Center Body. The two panes each carry a 1-row / 2-column inner padding,
     // and the two panes are colour-differentiated from each other: the left nav

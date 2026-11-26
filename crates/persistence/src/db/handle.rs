@@ -28,6 +28,25 @@ impl fmt::Debug for PersistenceHandle {
 
 /// Get or initialize the global shared [`PersistenceHandle`].
 pub fn get_persistence_handle() -> PersistenceHandle {
+    get_or_init_global_persistence(None)
+}
+
+/// Initialize the global shared [`PersistenceHandle`] with an optional
+/// migration progress observer and enforce [`PersistenceHandle::ensure_ready`]
+/// (ADR-0191, ADR-0266 `[INV-SRVPHASE-06]`).
+///
+/// Server startup MUST use this entry point so database open or migration
+/// failures fail fast into `ServerPhase::Failed` rather than advancing to
+/// `ServerPhase::Ready`.
+pub fn init_global_persistence(
+    observer: Option<MigrationObserver>,
+) -> std::result::Result<PersistenceHandle, String> {
+    let handle = get_or_init_global_persistence(observer);
+    handle.ensure_ready()?;
+    Ok(handle)
+}
+
+fn get_or_init_global_persistence(observer: Option<MigrationObserver>) -> PersistenceHandle {
     let dirs = host::paths::get();
     let db_path = dirs.db_file();
     let mut guard = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
@@ -38,7 +57,7 @@ pub fn get_persistence_handle() -> PersistenceHandle {
         return handle.clone();
     }
     let blobs = Some(BlobStore::new(dirs.blobs_dir()));
-    let handle = PersistenceHandle::spawn(db_path, blobs);
+    let handle = PersistenceHandle::spawn_with_observer(db_path, blobs, observer);
     if handle.startup_error.is_none() {
         *guard = Some(handle.clone());
     }
@@ -69,6 +88,17 @@ impl PersistenceHandle {
     /// tests).
     #[allow(clippy::expect_used)]
     pub fn spawn(db_path: PathBuf, blob_store: Option<BlobStore>) -> Self {
+        Self::spawn_with_observer(db_path, blob_store, None)
+    }
+
+    /// Start the supervised persistence actor, emitting [`MigrationProgress`]
+    /// transitions to `observer` whenever pending migrations execute (ADR-0266).
+    #[allow(clippy::expect_used)]
+    pub fn spawn_with_observer(
+        db_path: PathBuf,
+        blob_store: Option<BlobStore>,
+        observer: Option<MigrationObserver>,
+    ) -> Self {
         let identity = database_identity(&db_path);
         let db_path = identity.as_ref().cloned().unwrap_or(db_path);
         let mut registry = OWNERS
@@ -110,7 +140,8 @@ impl PersistenceHandle {
                 &path.with_extension("db.owner.lock"),
                 Duration::from_millis(2000),
             )?);
-            let engine = DatabaseEngine::open(&path).map_err(|e| e.to_string())?;
+            let engine = DatabaseEngine::open_with_observer(&path, observer.as_ref())
+                .map_err(|e| e.to_string())?;
             Ok::<_, String>((engine, lease))
         })
         .join()

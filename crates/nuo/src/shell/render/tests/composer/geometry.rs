@@ -156,6 +156,7 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                     subagent_bar: None,
                     page_hints: Some(ViewHints {
                         kind: ViewKind::Thread,
+                        role: None,
                         context: None,
                         context_warn: false,
                         breadcrumbs: None,
@@ -163,7 +164,6 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                         can_forward: false,
                     }),
                     tab_bar: Some(TabBarProps::default()),
-                    thread_id: Some("test-id"),
                     thread_context: Some(ThreadContext {
                         workspace: "~/test",
                         role: None,

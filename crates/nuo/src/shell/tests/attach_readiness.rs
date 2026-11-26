@@ -198,9 +198,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
         delay_ms: Some(500),
     };
     let ready_server = protocol::ServerPhase::Ready;
-    let init_server = protocol::ServerPhase::Initializing {
-        stage: protocol::ServerInitStage::Storage,
-    };
+    let init_server = protocol::ServerPhase::initializing(protocol::ServerInitStage::Storage);
     let draining_server = protocol::ServerPhase::Draining {
         reason: Some("SIGTERM".into()),
     };
@@ -436,21 +434,46 @@ fn server_phase_ready_flushes_deferred_initial_subscribe() {
     let mut app = new_app_for_relay_tests();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     app.link.tx = tx;
-    app.session.server_phase = protocol::ServerPhase::Initializing {
-        stage: protocol::ServerInitStage::Storage,
-    };
+    app.session.server_phase =
+        protocol::ServerPhase::initializing(protocol::ServerInitStage::Storage);
+    let initial_since = std::time::Instant::now() - std::time::Duration::from_millis(200);
+    app.session.server_phase_since = initial_since;
     app.session.pending_initial_subscribe = Some((
         protocol::ThreadTarget::New { options: None },
         Some(std::path::PathBuf::from("/tmp/proj")),
     ));
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
+    // Progressing through migration details inside `Initializing` MUST NOT
+    // reset `server_phase_since` (ADR-0266 `[INV-SRVPHASE-07]`).
     let _ = crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        M::ServerPhase(protocol::ServerPhase::Initializing {
-            stage: protocol::ServerInitStage::Runtime,
-        }),
+        M::ServerPhase(protocol::ServerPhase::initializing_with(
+            protocol::ServerInitStage::Storage,
+            Some(protocol::StorageInitDetail::Migrating {
+                step: 1,
+                total: 2,
+                name: "0009_pure_catalog".into(),
+            }),
+            Some(1_700_000_000_000),
+        )),
+    );
+    assert_eq!(
+        app.session.server_phase_since, initial_since,
+        "sub-step updates within Initializing must preserve hysteresis clock"
+    );
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::initializing(
+            protocol::ServerInitStage::Runtime,
+        )),
+    );
+    assert_eq!(
+        app.session.server_phase_since, initial_since,
+        "Storage -> Runtime transition within Initializing must preserve hysteresis clock"
     );
     assert!(
         rx.try_recv().is_err(),
@@ -463,7 +486,7 @@ fn server_phase_ready_flushes_deferred_initial_subscribe() {
         M::ServerPhase(protocol::ServerPhase::Ready),
     );
     assert_eq!(app.session.server_phase, protocol::ServerPhase::Ready);
-    assert!(app.session.pending_initial_subscribe.is_none());
+    assert!(app.session.initial_subscribe_in_flight);
     assert!(
         matches!(
             app.threads.session_phase,
@@ -480,6 +503,25 @@ fn server_phase_ready_flushes_deferred_initial_subscribe() {
             ..
         })
     ));
+    // Re-receiving ServerPhase(Ready) while in flight must not double-send.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::Ready),
+    );
+    assert!(rx.try_recv().is_err());
+
+    // Once the server confirms ThreadSubscribed, pending_initial_subscribe clears.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ThreadSubscribed {
+            thread_id: "thr-new".to_string(),
+            phase: protocol::ThreadPhase::Ready,
+        },
+    );
+    assert!(app.session.pending_initial_subscribe.is_none());
+    assert!(!app.session.initial_subscribe_in_flight);
 }
 
 #[test]
@@ -636,4 +678,189 @@ async fn submitting_chat_while_thread_phase_failed_preserves_draft_and_discloses
             .any(|n| n.text.contains("will be sent when it is ready")),
         "must not lie that the prompt will be sent when ready"
     );
+}
+
+#[test]
+fn server_phase_before_link_established_does_not_drop_initial_subscribe() {
+    // ADR-0267 `[INV-SRVPHASE-09]`: a `ServerPhase(Ready)` mutation arriving
+    // while the supervised client is still `Connecting` (before `LinkEstablished`
+    // installs the live `req_tx`) must neither consume `pending_initial_subscribe`
+    // nor falsely latch `link_down`. When `LinkEstablished` lands next, it must
+    // flush `pending_initial_subscribe` onto the real channel.
+    let mut app = new_app_for_relay_tests();
+    let (placeholder_tx, _) = tokio::sync::mpsc::unbounded_channel();
+    app.link.tx = placeholder_tx;
+    app.link.supervised = true;
+    app.link.phase = crate::shell::app::state::ClientLinkPhase::Connecting {
+        label: "Starting Nuo server…".to_string(),
+    };
+    app.session.pending_initial_subscribe = Some((
+        protocol::ThreadTarget::New { options: None },
+        Some(std::path::PathBuf::from("/tmp/proj")),
+    ));
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    // Early ServerPhase(Ready) before LinkEstablished must be a no-op for reconciliation.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::Ready),
+    );
+    assert!(
+        app.session.pending_initial_subscribe.is_some(),
+        "pending_initial_subscribe must remain intact until LinkEstablished"
+    );
+    assert!(
+        !app.link.link_down,
+        "pre-connect supervised phase must not latch link_down"
+    );
+    assert!(
+        !app.subscribe_thread(protocol::ThreadTarget::New { options: None }, None),
+        "supervised send_outbound must refuse frames while still Connecting"
+    );
+    assert!(!app.link.link_down);
+
+    // Now LinkEstablished installs the live channel and flushes the subscription.
+    let (live_tx, mut live_rx) = tokio::sync::mpsc::unbounded_channel();
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::LinkEstablished {
+            server_id: "srv-warm".to_string(),
+            server_phase: protocol::ServerPhase::Ready,
+            persistence_health: None,
+            req_tx: live_tx,
+        },
+    );
+    assert!(app.session.initial_subscribe_in_flight);
+    assert!(matches!(
+        live_rx.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe {
+            target: protocol::ThreadTarget::New { .. },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn initial_subscribe_survives_server_not_ready_and_pre_subscribed_reconnect() {
+    // ADR-0267 `[INV-SRVPHASE-09]`: `pending_initial_subscribe` is cleared only
+    // when the server acknowledges `ThreadSubscribed` (or terminal refusal).
+    // Both a retryable `ERR_SERVER_NOT_READY` and a mid-flight disconnect before
+    // `Subscribed` must automatically re-send on recovery.
+    let mut app = new_app_for_relay_tests();
+    let (tx1, mut rx1) = tokio::sync::mpsc::unbounded_channel();
+    app.link.tx = tx1;
+    app.link.phase = crate::shell::app::state::ClientLinkPhase::Connected {
+        server_id: "srv-1".to_string(),
+    };
+    app.session.pending_initial_subscribe = Some((
+        protocol::ThreadTarget::New { options: None },
+        Some(std::path::PathBuf::from("/tmp/proj")),
+    ));
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    // 1. Initial dispatch marks in-flight.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::Ready),
+    );
+    assert!(app.session.initial_subscribe_in_flight);
+    assert!(matches!(
+        rx1.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe { .. })
+    ));
+
+    // 2. Retryable ERR_SERVER_NOT_READY clears in-flight without losing intent.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::SubscribeRefused(crate::shell::client::AttachError::from_server_refusal(
+            Some(protocol::ERR_SERVER_NOT_READY.to_string()),
+            "server initializing",
+        )),
+    );
+    assert!(app.session.pending_initial_subscribe.is_some());
+    assert!(!app.session.initial_subscribe_in_flight);
+
+    // Next ServerPhase(Ready) re-sends automatically.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::Ready),
+    );
+    assert!(app.session.initial_subscribe_in_flight);
+    assert!(matches!(
+        rx1.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe { .. })
+    ));
+
+    // 3. Server dies/restarts BEFORE ThreadSubscribed arrives: new LinkEstablished
+    // resets in-flight and re-sends on the fresh socket.
+    let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::LinkEstablished {
+            server_id: "srv-2".to_string(),
+            server_phase: protocol::ServerPhase::Ready,
+            persistence_health: None,
+            req_tx: tx2,
+        },
+    );
+    assert!(app.session.initial_subscribe_in_flight);
+    assert!(matches!(
+        rx2.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe { .. })
+    ));
+}
+
+#[test]
+fn reconcile_subscriptions_preserves_pending_initial_subscribe_when_channel_closed() {
+    // ADR-0267 `[INV-SRVPHASE-09]`: if the live `req_tx` closes mid-flush,
+    // `pending_initial_subscribe` must be restored so the next `LinkEstablished`
+    // can deliver it rather than stranding the client in `Preparing(Thread)`.
+    let mut app = new_app_for_relay_tests();
+    let (dead_tx, _) = tokio::sync::mpsc::unbounded_channel();
+    app.link.tx = dead_tx;
+    app.link.phase = crate::shell::app::state::ClientLinkPhase::Connected {
+        server_id: "srv-1".to_string(),
+    };
+    app.session.pending_initial_subscribe = Some((
+        protocol::ThreadTarget::New { options: None },
+        Some(std::path::PathBuf::from("/tmp/proj")),
+    ));
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::ServerPhase(protocol::ServerPhase::Ready),
+    );
+    assert!(
+        app.session.pending_initial_subscribe.is_some(),
+        "failed send must restore pending_initial_subscribe for reconnect"
+    );
+    assert!(app.link.link_down);
+
+    let (fresh_tx, mut fresh_rx) = tokio::sync::mpsc::unbounded_channel();
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        M::LinkEstablished {
+            server_id: "srv-2".to_string(),
+            server_phase: protocol::ServerPhase::Ready,
+            persistence_health: None,
+            req_tx: fresh_tx,
+        },
+    );
+    assert!(app.session.initial_subscribe_in_flight);
+    assert!(matches!(
+        fresh_rx.try_recv(),
+        Ok(crate::shell::client::ClientOutbound::Subscribe {
+            target: protocol::ThreadTarget::New { .. },
+            ..
+        })
+    ));
 }

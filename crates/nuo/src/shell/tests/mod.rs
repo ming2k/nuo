@@ -118,6 +118,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             server_phase_since: std::time::Instant::now(),
             thread_phase_since: std::time::Instant::now(),
             pending_initial_subscribe: None,
+            initial_subscribe_in_flight: false,
             initial_init_options: protocol::ThreadInitOptions::default(),
             project_scope: None,
             live_session_id: "session-test".to_string(),

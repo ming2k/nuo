@@ -28,10 +28,11 @@ pub(crate) mod shards;
 pub mod thread_session;
 pub mod usage_projection;
 
-pub use handle::{StorageMaintenanceReport, get_persistence_handle};
+pub use handle::{StorageMaintenanceReport, get_persistence_handle, init_global_persistence};
 pub(crate) use migrations::*;
 pub use migrations::{
-    CURRENT_DB_VERSION, ThreadRecord, ThreadTranscriptView, open_in_memory_for_tests,
+    CURRENT_DB_VERSION, MigrationObserver, MigrationProgress, ThreadRecord, ThreadTranscriptView,
+    open_in_memory_for_tests,
 };
 
 #[cfg(test)]

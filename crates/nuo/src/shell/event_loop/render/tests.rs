@@ -120,7 +120,7 @@ fn scene_projection_produces_titles_and_prioritizes_status_without_stale_host_ru
             TabBarItem::with_status("BG Done", TabStatus::Idle),
             TabBarItem::with_status("BG Ok", TabStatus::Succeeded),
             TabBarItem::with_status("BG Fail", TabStatus::Failed),
-            TabBarItem::with_status("thread#b3c4", TabStatus::Running),
+            TabBarItem::with_status("new thread", TabStatus::Running),
             TabBarItem::with_status("Monitor Derived Title", TabStatus::Idle),
             TabBarItem::with_status("Cold Fail", TabStatus::Failed),
             TabBarItem::with_status("dashboard", TabStatus::Idle),
@@ -323,4 +323,140 @@ fn subagent_scene_projects_focused_subagent_description_as_tab_title() {
 
     let items = project_tab_items(&app, "t-fg");
     assert_eq!(items[0].title, "Audit SQL indexes");
+}
+
+#[test]
+fn untitled_thread_tabs_use_human_labels_without_uuid_fragments() {
+    // ADR-0268 `[INV-HEAD-12]`: untitled thread tabs project `new thread` (and
+    // `new thread 2`, `new thread 3`, … only when multiple untitled tabs are
+    // open simultaneously), never random UUID hex tails.
+    let mut app = new_app_for_relay_tests();
+    app.open_tab(ClientTab::thread(
+        "0196a1b2-0000-7000-8000-deadbeef7db7",
+        None::<String>,
+    ));
+    app.open_tab(ClientTab::thread(
+        "0196a1b2-0000-7000-8000-cafebabe1234",
+        Some("Fix auth"),
+    ));
+    app.open_tab(ClientTab::thread(
+        "0196a1b2-0000-7000-8000-feedface5678",
+        None::<String>,
+    ));
+    app.open_tab(ClientTab::dashboard());
+    app.open_tab(ClientTab::thread(
+        "0196a1b2-0000-7000-8000-1122334499aa",
+        None::<String>,
+    ));
+
+    let items = project_tab_items(&app, "0196a1b2-0000-7000-8000-deadbeef7db7");
+    let titles: Vec<&str> = items.iter().map(|i| i.title.as_ref()).collect();
+    assert_eq!(
+        titles,
+        vec![
+            "new thread",
+            "Fix auth",
+            "new thread 2",
+            "dashboard",
+            "new thread 3",
+        ]
+    );
+    for t in &titles {
+        assert!(
+            !t.contains("thread#") && !t.contains("7db7") && !t.contains("5678"),
+            "tab titles must not leak UUID hex tails: {titles:?}"
+        );
+    }
+
+    // Once the first untitled thread receives an authentic title, remaining
+    // untitled tabs renumber cleanly so the first untitled one is `new thread`.
+    app.update_tab_title(
+        "0196a1b2-0000-7000-8000-deadbeef7db7",
+        "Investigate startup race",
+    );
+    let updated: Vec<String> = project_tab_items(&app, "0196a1b2-0000-7000-8000-deadbeef7db7")
+        .into_iter()
+        .map(|i| i.title.into_owned())
+        .collect();
+    assert_eq!(
+        updated,
+        vec![
+            "Investigate startup race",
+            "Fix auth",
+            "new thread",
+            "dashboard",
+            "new thread 2",
+        ]
+    );
+
+    // Command Palette / `[▾]` Tab Overview shares the exact same UUID-free projection.
+    let palette_ctx = crate::shell::palette::PaletteContext::capture(&app);
+    let palette_labels: Vec<&str> = palette_ctx.tabs.iter().map(|t| t.label.as_str()).collect();
+    assert_eq!(
+        palette_labels,
+        vec![
+            "Investigate startup race",
+            "Fix auth",
+            "new thread",
+            "Dashboard",
+            "new thread 2",
+        ]
+    );
+}
+
+#[test]
+fn subagent_scene_renders_role_token_in_brand_bold_end_to_end() {
+    let mut app = new_app_for_relay_tests();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    app.link.tx = tx;
+    app.open_tab(ClientTab::thread("t-fg", Some("Parent Thread")));
+    app.activate_thread_workspace("t-fg");
+
+    let mut subagent_msg = view::model::document::TranscriptMessage::tool_step(
+        "call-sub-1",
+        "spawn_agent",
+        r#"{"description":"Audit SQL indexes","role":"reviewer"}"#,
+    );
+    subagent_msg.push_subagent_event(
+        &tool::SubagentEvent::Started {
+            profile: "reviewer".to_string(),
+        },
+        &app.session.tui_config,
+    );
+    app.threads.fg_mut().messages.push(subagent_msg);
+    app.threads
+        .fg_mut()
+        .focus_stack
+        .push(crate::shell::app::ZoomFrame {
+            call_id: "call-sub-1".to_string(),
+            saved_scroll: crate::shell::app::ScrollSnapshot {
+                offset: 0,
+                follow_bottom: true,
+            },
+        });
+    app.surfaces.surfaces.switch_scene(SceneKind::Subagent);
+
+    let mut terminal = graticule::TestTerminal::new(80, 24);
+    terminal.draw(|f| {
+        crate::shell::event_loop::render_frame(&mut app, f, "t-fg");
+    });
+    let row1_cells = &terminal.buffer().cells()[80..160];
+    let row1: String = row1_cells.iter().map(|c| c.symbol.as_str()).collect();
+    assert!(
+        row1.contains("REVIEWER  Audit SQL indexes") && !row1.contains("[REVIEWER]"),
+        "chromatic Subagent SceneBar renders bare role token: {row1:?}"
+    );
+    let role_col = row1.find("REVIEWER").unwrap();
+    assert_eq!(
+        row1_cells[role_col].style.fg,
+        app.surfaces.theme.brand(),
+        "Subagent role token must paint in brand tone"
+    );
+    assert!(
+        row1_cells[role_col]
+            .style
+            .add
+            .contains(graticule::Modifier::BOLD),
+        "Subagent role token must be bold"
+    );
 }

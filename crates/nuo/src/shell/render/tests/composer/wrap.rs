@@ -72,7 +72,6 @@ fn input_box_grows_with_wrapped_content() {
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
-                    thread_id: None,
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,

@@ -45,10 +45,13 @@ pub fn start_server(
     let cancel = CancellationToken::new();
     let conns = Arc::new(ConnTable::new());
     let tasks = Arc::new(crate::runtime::shutdown::TaskBook::new());
-    // The serve gate carries the server's version from the start so the
-    // handshake refusal names it even when the serve layer runs standalone
-    // (host::run attaches its own run-loop gate on top of this one).
-    let gate = Arc::new(ShutdownGate::new().with_version(server_version()));
+    // Use the caller's ShutdownGate when provided (`host::run_inner`) so
+    // signals, idle exit, and `ControlRequest::Shutdown` share one gate with
+    // zero forwarding tasks. Standalone tests fall back to a fresh gate.
+    let gate = opts
+        .gate
+        .clone()
+        .unwrap_or_else(|| Arc::new(ShutdownGate::new().with_version(server_version())));
     let token = opts.token.clone().or_else(|| match opts.expose {
         ServeExpose::Public => Some(generate_token()),
         // Loopback auth: generated per start, published owner-only

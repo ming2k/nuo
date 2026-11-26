@@ -14,6 +14,9 @@ pub(super) fn apply_thread_subscribed(
     phase: protocol::ThreadPhase,
 ) -> bool {
     let first_thread = app.session.live_session_id.is_empty();
+    // Server confirmed subscription: initial startup target is fulfilled.
+    app.session.pending_initial_subscribe = None;
+    app.session.initial_subscribe_in_flight = false;
     app.session.subscribed_threads.insert(thread_id.clone());
     app.threads.register(thread_id.clone(), 1, phase.clone());
     let has_tab = app
@@ -53,19 +56,29 @@ pub(super) fn apply_thread_subscribed(
     true
 }
 
-/// Declarative thread reconciliation (ADR-0260): whenever the server admits
-/// work (`Ready` / `Reloading`), flush any pending initial subscription and
-/// ensure every open thread tab is subscribed on the current connection.
+/// Declarative thread reconciliation (ADR-0260, ADR-0267 `[INV-SRVPHASE-09]`):
+/// whenever the transport link is live (`Connected` and not `link_down`) AND
+/// the server admits work (`Ready` / `Reloading`), flush any pending initial
+/// subscription and ensure every open thread tab is subscribed on the current
+/// connection.
 pub(super) fn reconcile_subscriptions(app: &mut App) {
-    if !app.session.server_phase.admits_work() {
+    if app.link.link_down
+        || !matches!(app.link.phase, ClientLinkPhase::Connected { .. })
+        || !app.session.server_phase.admits_work()
+    {
         return;
     }
-    if let Some((target, project)) = app.session.pending_initial_subscribe.take() {
-        app.threads.session_phase = protocol::ThreadPhase::Preparing {
-            stage: protocol::PrepareStage::Thread,
-        };
-        app.session.thread_phase_since = std::time::Instant::now();
-        app.subscribe_thread(target, project);
+    if let Some((target, project)) = app.session.pending_initial_subscribe.clone() {
+        if app.session.initial_subscribe_in_flight {
+            return;
+        }
+        if app.subscribe_thread(target, project) {
+            app.session.initial_subscribe_in_flight = true;
+            app.threads.session_phase = protocol::ThreadPhase::Preparing {
+                stage: protocol::PrepareStage::Thread,
+            };
+            app.session.thread_phase_since = std::time::Instant::now();
+        }
         return;
     }
     // Re-subscribe all open thread tabs after a reconnect or server restart.
@@ -87,24 +100,38 @@ pub(super) fn reconcile_subscriptions(app: &mut App) {
         }
     }
     if !to_subscribe.is_empty() {
-        if active_tid.is_some() {
+        let mut sent_any = false;
+        for tid in to_subscribe {
+            if app.subscribe_thread(
+                protocol::ThreadTarget::Attach {
+                    id: Some(tid.clone()),
+                },
+                None,
+            ) {
+                app.session.subscribed_threads.insert(tid);
+                sent_any = true;
+            }
+        }
+        if sent_any && active_tid.is_some() {
             app.threads.session_phase = protocol::ThreadPhase::Preparing {
                 stage: protocol::PrepareStage::Thread,
             };
             app.session.thread_phase_since = std::time::Instant::now();
-        }
-        for tid in to_subscribe {
-            app.session.subscribed_threads.insert(tid.clone());
-            app.subscribe_thread(protocol::ThreadTarget::Attach { id: Some(tid) }, None);
         }
     }
 }
 
 pub(super) fn apply_server_phase(app: &mut App, phase: protocol::ServerPhase) -> bool {
     let draining = matches!(phase, protocol::ServerPhase::Draining { .. });
+    // ADR-0266 `[INV-SRVPHASE-07]`: preserve `server_phase_since` while
+    // progressing across sub-steps inside `ServerPhase::Initializing` so
+    // rapid stage/migration transitions never reset the 120ms hysteresis clock.
+    let stayed_initializing = app.session.server_phase.is_initializing() && phase.is_initializing();
     if app.session.server_phase != phase {
         app.session.server_phase = phase;
-        app.session.server_phase_since = std::time::Instant::now();
+        if !stayed_initializing {
+            app.session.server_phase_since = std::time::Instant::now();
+        }
     }
     if draining {
         app.session.switching_session = None;
@@ -132,10 +159,30 @@ pub(super) fn apply_link_established(
     app.link.phase = ClientLinkPhase::Connected { server_id };
     app.link.phase_since = std::time::Instant::now();
     app.session.persistence_health = persistence_health;
+    // If joining mid-initialization, anchor `server_phase_since` to the
+    // server's `started_at_ms` so late-joining clients immediately see ongoing
+    // migrations without a redundant 120ms QuietWait delay.
+    let phase_since = match server_phase {
+        protocol::ServerPhase::Initializing {
+            started_at_ms: Some(started),
+            ..
+        } => {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64);
+            let elapsed = std::time::Duration::from_millis(now_ms.saturating_sub(started));
+            std::time::Instant::now()
+                .checked_sub(elapsed)
+                .unwrap_or_else(std::time::Instant::now)
+        }
+        _ => std::time::Instant::now(),
+    };
     app.session.server_phase = server_phase;
-    app.session.server_phase_since = std::time::Instant::now();
-    // Fresh wire connection starts with zero subscribed threads.
+    app.session.server_phase_since = phase_since;
+    // Fresh wire connection starts with zero subscribed threads and no
+    // in-flight initial subscribe from the previous socket.
     app.session.subscribed_threads.clear();
+    app.session.initial_subscribe_in_flight = false;
 
     if restarted {
         tracing::info!("reconnected to a restarted Nuo server; reconciling open tabs");
@@ -149,8 +196,13 @@ pub(super) fn apply_subscribe_refused(
     error: crate::shell::client::AttachError,
 ) -> bool {
     if error.is_server_not_ready() {
+        // Retryable refusal: allow `reconcile_subscriptions` to re-send once
+        // the server transitions to `Ready`.
+        app.session.initial_subscribe_in_flight = false;
         return true;
     }
+    app.session.pending_initial_subscribe = None;
+    app.session.initial_subscribe_in_flight = false;
     if error.is_session_gone() {
         let gone_id = app.session.current_session_id.clone();
         if !gone_id.is_empty() {
@@ -215,6 +267,8 @@ pub(super) fn apply_subscribe_refused(
 }
 
 pub(super) fn apply_pick_required(app: &mut App, threads: Vec<protocol::ThreadOverview>) -> bool {
+    app.session.pending_initial_subscribe = None;
+    app.session.initial_subscribe_in_flight = false;
     app.session.sessions_overview = threads;
     let options = app.session.initial_init_options.clone();
     let project = app.session.project_scope.clone();

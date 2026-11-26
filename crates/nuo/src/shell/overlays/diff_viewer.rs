@@ -181,7 +181,6 @@ pub struct DiffSceneRects {
 /// Props for [`draw_diff_scene`].
 pub struct DiffSceneProps<'a> {
     pub state: Option<&'a mut DiffViewerState>,
-    pub thread_id: Option<&'a str>,
     pub tab_bar: Option<TabBarProps<'a>>,
 }
 
@@ -240,9 +239,9 @@ pub fn draw_diff_scene(
             height: 1,
             ..head
         },
-        props.thread_id,
         &ViewHints {
             kind: crate::shell::surfaces::SceneKind::Diff,
+            role: None,
             context: Some(context.as_str()),
             context_warn: false,
             breadcrumbs: None,

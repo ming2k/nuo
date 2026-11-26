@@ -48,7 +48,6 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
             crate::shell::overlays::LogSceneProps {
                 log: Some(&log),
                 scroll: &mut scroll,
-                thread_id: Some("s1"),
                 tab_bar: Some(crate::shell::render::TabBarProps {
                     items: &tab_items,
                     active_tab: 0,
@@ -108,7 +107,6 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
                 crate::shell::overlays::LogSceneProps {
                     log: Some(log),
                     scroll: &mut scroll,
-                    thread_id: Some("s1"),
                     tab_bar: Some(crate::shell::render::TabBarProps {
                         items: &tab_items,
                         active_tab: 0,

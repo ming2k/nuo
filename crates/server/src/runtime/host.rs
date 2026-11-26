@@ -157,7 +157,8 @@ pub async fn run_with_outcome(identity: HostIdentity, opts: HostOptions) -> RunO
 }
 
 /// Run bounded local server initialization stages (`Storage` → `Runtime` →
-/// `Ready`) after listeners and discovery are live (ADR-0260 `[INV-SRVPHASE-01]`).
+/// `Ready`) after listeners and discovery are live (ADR-0260 `[INV-SRVPHASE-01]`,
+/// ADR-0266 `[INV-SRVPHASE-06]`).
 async fn run_server_init_stages(
     registry: &Arc<ThreadRegistry>,
     cancel: &tokio_util::sync::CancellationToken,
@@ -169,26 +170,32 @@ async fn run_server_init_stages(
         registry.spawn_idle_reaper(cancel.clone());
         return Ok(());
     }
-    registry.set_server_phase(protocol::ServerPhase::Initializing {
-        stage: protocol::ServerInitStage::Storage,
-    });
+    registry.set_server_phase(protocol::ServerPhase::initializing_with(
+        protocol::ServerInitStage::Storage,
+        None,
+        Some(crate::runtime::shutdown::unix_now_ms()),
+    ));
     if let Err(error) = registry.initialize_storage().await {
         registry.set_server_phase(protocol::ServerPhase::Failed {
             code: Some("storage_init_failed".to_string()),
             message: error.clone(),
         });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        host::diagnostics::record_event("server", "startup_failed", &error, None);
+        eprintln!("nuo: server storage initialization failed: {error}");
         return Err(error);
     }
-    registry.set_server_phase(protocol::ServerPhase::Initializing {
-        stage: protocol::ServerInitStage::Runtime,
-    });
+    registry.set_server_phase(protocol::ServerPhase::initializing_with(
+        protocol::ServerInitStage::Runtime,
+        None,
+        Some(crate::runtime::shutdown::unix_now_ms()),
+    ));
     if let Err(error) = registry.initialize_runtime().await {
         registry.set_server_phase(protocol::ServerPhase::Failed {
             code: Some("runtime_init_failed".to_string()),
             message: error.clone(),
         });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        host::diagnostics::record_event("server", "startup_failed", &error, None);
+        eprintln!("nuo: server runtime initialization failed: {error}");
         return Err(error);
     }
     registry.spawn_idle_reaper(cancel.clone());
@@ -322,12 +329,10 @@ async fn run_inner(
             port_fallback: opts.port_fallback,
             local_endpoint: opts.local_endpoint.clone(),
             disable_tcp: opts.disable_tcp,
+            gate: Some(Arc::clone(&gate)),
         },
         Arc::clone(&registry),
     );
-    // The server's gate is the serve gate (the Shutdown control verb funnels
-    // into the same trigger as signals).
-    let gate: Arc<ShutdownGate> = handle_gate(handle.gate.clone(), &gate);
     // Destructure the startup receivers into locals: awaiting through the
     // struct would partially move `handle`, which the drain phases still
     // need (conns / tasks / cancel).
@@ -421,12 +426,30 @@ async fn run_inner(
         record.process_birth_token,
     );
 
-    // Bounded local initialization stages (ADR-0260 `[INV-SRVPHASE-01]`):
-    // Listeners and discovery are already live, so clients connected during
-    // startup observe `Storage -> Runtime -> Ready` rather than blind polling.
+    // Bounded local initialization stages (ADR-0260 `[INV-SRVPHASE-01]`,
+    // ADR-0266 `[INV-SRVPHASE-06]`): listeners and discovery are already live,
+    // so clients connected during startup observe `Storage (with migration
+    // progress if applicable) -> Runtime -> Ready` rather than blind polling.
     if let Err(error) = run_server_init_stages(&registry, &handle.cancel, needs_init).await {
+        discovery_lease.release();
         handle.cancel.cancel();
+        // Let connected clients flush `ServerPhaseChanged(Failed)` cleanly
+        // (zero wait when 0 clients are connected; bounded at 250 ms).
+        handle
+            .conns
+            .wait_empty_or_cancel(Duration::from_millis(250))
+            .await;
         return RunOutcome::StartupFailed(error);
+    }
+
+    // Whole-server derived projection catch-up (ADR-0255, ADR-0266):
+    // runs asynchronously after `Ready` rather than hijacking the first
+    // thread's `assemble_with_store`. Single-thread opens during catch-up
+    // self-heal on demand via `catch_up_single_session`.
+    if needs_init {
+        tokio::spawn(async {
+            persistence::thread::catch_up_projections_once().await;
+        });
     }
 
     // Foreground banner: where the server listens and how to reach it, on
@@ -594,24 +617,6 @@ async fn run_inner(
     } else {
         RunOutcome::Stopped { reason }
     }
-}
-
-/// Bridge the serve-side gate (which the `Shutdown` control verb funnels
-/// into) onto the run-loop gate. Serve's gate starts unarmed; arming it from
-/// the run-loop's gate (which the signals feed) keeps one source of truth:
-/// every request made on *either* gate lands in the run-loop's latch.
-fn handle_gate(serve_gate: Arc<ShutdownGate>, run_gate: &Arc<ShutdownGate>) -> Arc<ShutdownGate> {
-    let forwarding = Arc::clone(run_gate);
-    tokio::spawn(async move {
-        serve_gate.triggered().await;
-        // Whatever triggered the serve gate (the control verb) forwards into
-        // the run-loop's gate, preserving the reason if it latched one.
-        let reason = serve_gate.reason().unwrap_or(ShutdownReason::ControlVerb);
-        forwarding.request(reason, false);
-    });
-    // The run-loop keeps its own gate (signals + idle timer + forwarded
-    // control verb); serve's gate exists only to receive the verb.
-    Arc::clone(run_gate)
 }
 
 #[cfg(unix)]

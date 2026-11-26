@@ -1,5 +1,6 @@
-//! Single-row Thread SceneBar renderer: governance, identity/title, workspace
-//! (ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`).
+//! Single-row Thread SceneBar renderer: governance, authentic title, workspace
+//! (ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`; revised by ADR-0268
+//! `[INV-HEAD-11]`, `[INV-HEAD-12]`).
 
 use std::borrow::Cow;
 
@@ -29,8 +30,8 @@ pub(crate) enum PostureToken {
 
 impl PostureToken {
     /// The token's display text. Deliberately lowercase: the uppercase form
-    /// reads as a second badge competing with `[ROLE]`, and `[N queued]`-style
-    /// bracketed caps already mean *count* in the footer stack.
+    /// competes with the uppercase role token (`DEVELOPER`), and `[N queued]`-style
+    /// bracketed forms belong to counts and framed-surface chrome.
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::Auto => "auto",
@@ -73,51 +74,66 @@ fn fit_posture_tokens(candidates: Vec<PostureToken>, budget: usize) -> (Vec<Post
     (admitted, used)
 }
 
-/// Truncate a role badge to fit `budget`, keeping the bracket pair intact.
+/// Truncate a role token to fit `budget` (ADR-0268 `[INV-HEAD-11]`).
 ///
-/// The brackets are structural — they mark the badge slot, and `visual-language`
-/// reserves that shape for it — so a shortened role still reads as a badge
-/// (`[SECURITY-AU…]`) instead of degrading into a bare fragment. Below a
-/// readable floor the badge is dropped entirely rather than emitted as `[D…]`:
-/// a one-letter role identifies nobody, so the columns are better spent on the
-/// identity or path. Constants are ASCII-explicit so the math does not depend
-/// on the theme.
-fn truncate_badge(badge: &str, budget: usize, ellipsis: &str) -> String {
-    /// `[]` plus at least three legible inner characters before the ellipsis
-    /// (`[DEV…]`). Anything shorter — `[D…]` — names nobody.
-    const BADGE_MIN_COLS: usize = 2 + 3;
+/// On chromatic surfaces, roles render bare (`DEVELOPER` → `SECURITY-AU…`) with
+/// a 4-column legible floor (`DEV…`). On framed surfaces, intact brackets
+/// preserve structural demarcation (`[DEVELOPER]` → `[SECURITY-AU…]`) with a
+/// 5-column floor (`[DEV…]`). Below the legible floor the token is dropped
+/// completely rather than emitting a single-letter fragment that names nobody.
+pub(super) fn truncate_role_token(
+    role: &str,
+    budget: usize,
+    chromatic: bool,
+    ellipsis: &str,
+) -> String {
+    /// Minimum legible inner prefix before the ellipsis (`DEV…` / `[DEV…]`).
+    const INNER_MIN_COLS: usize = 3;
     const BRACKETS: usize = 2;
-    if badge.width() <= budget {
-        return badge.to_string();
+
+    let upper = role.to_uppercase();
+    if chromatic {
+        let min_cols = INNER_MIN_COLS + 1;
+        if upper.width() <= budget {
+            return upper;
+        }
+        if budget < min_cols {
+            return String::new();
+        }
+        truncate_with(&upper, budget, ellipsis)
+    } else {
+        let min_cols = BRACKETS + INNER_MIN_COLS;
+        let full = format!("[{upper}]");
+        if full.width() <= budget {
+            return full;
+        }
+        if budget < min_cols {
+            return String::new();
+        }
+        format!("[{}]", truncate_with(&upper, budget - BRACKETS, ellipsis))
     }
-    if budget < BADGE_MIN_COLS {
-        return String::new();
-    }
-    let inner = badge
-        .strip_prefix('[')
-        .and_then(|b| b.strip_suffix(']'))
-        .unwrap_or(badge);
-    format!("[{}]", truncate_with(inner, budget - BRACKETS, ellipsis))
 }
 
 /// Draw the single-row Tier 2 SceneBar for `SceneKind::Thread`
-/// (ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`).
+/// (ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`; revised by ADR-0268
+/// `[INV-HEAD-11]`, `[INV-HEAD-12]`).
 ///
 /// Row grammar, left to right:
-/// - `[ROLE]` staffing badge, brand bold (absent when no role is staffed).
+/// - Staffed role token: bare uppercase brand bold (`DEVELOPER`) on chromatic
+///   surfaces, bracketed (`[DEVELOPER]`) on non-chromatic framed surfaces
+///   (absent when no role is staffed).
 /// - Silent-by-default posture tokens (`auto`, `open`), warning bold, joined by
 ///   `JOIN_ENUMERATE_COLS`.
-/// - Anchor-stable identity slot: `thread <id_tail>` (dimmed; or `thread` if
-///   no ID is available) while untitled, replaced strictly in place by the bold
-///   authentic task title once one exists.
+/// - Silent-when-untitled authentic task title slot: empty until an authentic
+///   title exists, then painted bold heading in place with zero displacement of
+///   the left governance cluster or right-anchored workspace.
 /// - Right-anchored bound workspace path (`PathView` ancestor-first shortening).
 ///
-/// Priority on the row is **posture (whole tokens only) > role (intact brackets
-/// or omitted) > fair-share identity/workspace with slack redistribution**.
+/// Priority on the row is **posture (whole tokens only) > role (legible floor
+/// or omitted) > fair-share title/workspace with slack redistribution**.
 pub(super) fn draw_thread_scene_bar(
     frame: &mut Frame,
     rect: Rect,
-    thread_id: Option<&str>,
     title: Option<&str>,
     context: Option<&ThreadContext<'_>>,
     theme: &Theme,
@@ -131,36 +147,36 @@ pub(super) fn draw_thread_scene_bar(
     let fill = Style::default().bg(bg);
     let pad = TRANSCRIPT_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
+    let chromatic = theme.elevation.is_chromatic();
 
-    let badge_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
+    let role_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
     let posture_style = fill.fg(theme.warn()).add_modifier(Modifier::BOLD);
     let title_style = fill.fg(theme.heading()).add_modifier(Modifier::BOLD);
-    let untitled_style = fill.fg(theme.dim());
 
     // ---- 1. Governance cluster: posture (safety) > role (identity) ----
     let raw_tokens = context.map(posture_tokens).unwrap_or_default();
     let (tokens, posture_w) = fit_posture_tokens(raw_tokens, text_width);
-    let badge_gap = if tokens.is_empty() {
+    let role_gap = if tokens.is_empty() {
         0
     } else {
         JOIN_ENUMERATE_COLS
     };
-    let badge = context
+    let role_token = context
         .and_then(|c| c.role)
         .map_or_else(String::new, |role| {
-            let full = format!("[{}]", role.to_uppercase());
-            truncate_badge(
-                &full,
-                text_width.saturating_sub(posture_w + badge_gap),
+            truncate_role_token(
+                role,
+                text_width.saturating_sub(posture_w + role_gap),
+                chromatic,
                 theme.glyphs.ellipsis,
             )
         });
 
     let mut left_spans: Vec<Span<'static>> = Vec::new();
     let mut left_width = 0usize;
-    if !badge.is_empty() {
-        left_width += badge.width();
-        left_spans.push(Span::styled(badge, badge_style));
+    if !role_token.is_empty() {
+        left_width += role_token.width();
+        left_spans.push(Span::styled(role_token, role_style));
     }
     for token in &tokens {
         let label = token.label();
@@ -172,20 +188,8 @@ pub(super) fn draw_thread_scene_bar(
         left_spans.push(Span::styled(label, posture_style));
     }
 
-    // ---- 2. Identity / title slot + right-anchored workspace ----
+    // ---- 2. Silent-until-titled task title + right-anchored workspace ----
     let authentic_title = title.map(str::trim).filter(|t| !t.is_empty());
-    let (identity_text, identity_style): (Cow<'_, str>, Style) = match authentic_title {
-        Some(t) => (Cow::Borrowed(t), title_style),
-        None => {
-            let tag = thread_id.map(id_tail).filter(|t| !t.is_empty());
-            let fallback = match tag {
-                Some(t) => Cow::Owned(format!("thread {t}")),
-                None => Cow::Borrowed("thread"),
-            };
-            (fallback, untitled_style)
-        }
-    };
-    let identity_full_w = identity_text.width();
 
     let workspace = context.map_or("", |c| c.workspace);
     let has_ws = !workspace.is_empty();
@@ -198,9 +202,8 @@ pub(super) fn draw_thread_scene_bar(
     };
     let shared = text_width.saturating_sub(left_width + gov_sep);
 
-    let (drawn_identity, ws_spans) = allocate_identity_and_workspace(
-        &identity_text,
-        identity_full_w,
+    let (drawn_title, ws_spans) = allocate_title_and_workspace(
+        authentic_title,
         workspace,
         has_ws,
         ws_full_w,
@@ -209,13 +212,13 @@ pub(super) fn draw_thread_scene_bar(
         theme,
     );
 
-    if let Some(id_str) = drawn_identity {
+    if let Some(title_str) = drawn_title {
         if left_width > 0 {
             left_spans.push(Span::styled(" ".repeat(JOIN_ENUMERATE_COLS), fill));
             left_width += JOIN_ENUMERATE_COLS;
         }
-        left_width += id_str.width();
-        left_spans.push(Span::styled(id_str, identity_style));
+        left_width += title_str.width();
+        left_spans.push(Span::styled(title_str, title_style));
     }
 
     let ws_width: usize = ws_spans.iter().map(Span::width).sum();
@@ -230,13 +233,14 @@ pub(super) fn draw_thread_scene_bar(
     frame.render_widget(&mut Paragraph::new(Line::from(spans)), rect);
 }
 
-/// Distribute `shared` columns between the identity/title slot and the
+/// Distribute `shared` columns between the optional authentic title and the
 /// right-anchored workspace path using fair-share with slack redistribution
-/// (ADR-0261 `[INV-HEAD-10]`).
-#[allow(clippy::too_many_arguments)]
-fn allocate_identity_and_workspace(
-    identity_text: &str,
-    identity_full_w: usize,
+/// (ADR-0261 `[INV-HEAD-10]`, ADR-0268 `[INV-HEAD-12]`).
+///
+/// When `title` is `None` (untitled thread), the title slot spends zero columns
+/// and the entire `shared` budget flows directly to `workspace`.
+fn allocate_title_and_workspace(
+    title: Option<&str>,
     workspace: &str,
     has_ws: bool,
     ws_full_w: usize,
@@ -248,13 +252,19 @@ fn allocate_identity_and_workspace(
         return (None, Vec::new());
     }
 
+    let Some(title_text) = title else {
+        let ws_spans = if has_ws {
+            workspace_spans(workspace, shared, fill, theme)
+        } else {
+            Vec::new()
+        };
+        return (None, ws_spans);
+    };
+
+    let title_full_w = title_text.width();
+
     if !has_ws {
-        let drawn = fit_identity(
-            identity_text,
-            identity_full_w,
-            shared,
-            theme.glyphs.ellipsis,
-        );
+        let drawn = fit_title(title_text, title_full_w, shared, theme.glyphs.ellipsis);
         return (drawn, Vec::new());
     }
 
@@ -262,22 +272,22 @@ fn allocate_identity_and_workspace(
 
     // Relaxed fit: both elements fit completely with room for the inter-cluster gap.
     // Workspace stays pinned to the right edge so posture toggles never shift it.
-    if identity_full_w + mid_sep + ws_full_w <= shared {
-        let ws_budget = shared - identity_full_w - mid_sep;
+    if title_full_w + mid_sep + ws_full_w <= shared {
+        let ws_budget = shared - title_full_w - mid_sep;
         let ws_spans = workspace_spans(workspace, ws_budget, fill, theme);
-        return (Some(identity_text.to_string()), ws_spans);
+        return (Some(title_text.to_string()), ws_spans);
     }
 
     // Shared pressure: both can coexist above their honesty floors.
     let usable = shared.saturating_sub(mid_sep);
     if usable >= SCENE_BAR_WORKSPACE_MIN_COLS + SCENE_BAR_IDENTITY_MIN_COLS {
         let ws_share = (usable / 3).max(SCENE_BAR_WORKSPACE_MIN_COLS);
-        let id_share = usable - ws_share;
-        let ws_budget = if identity_full_w < id_share {
-            // Identity does not use its full share: flow slack to workspace.
-            usable - identity_full_w
+        let title_share = usable - ws_share;
+        let ws_budget = if title_full_w < title_share {
+            // Title does not use its full share: flow slack to workspace.
+            usable - title_full_w
         } else if ws_full_w < ws_share {
-            // Workspace fits inside its share; flow its remaining slack to identity.
+            // Workspace fits inside its share; flow its remaining slack to title.
             ws_full_w
         } else {
             ws_share
@@ -285,15 +295,15 @@ fn allocate_identity_and_workspace(
 
         let ws_spans = workspace_spans(workspace, ws_budget, fill, theme);
         let ws_actual_w: usize = ws_spans.iter().map(Span::width).sum();
-        let id_budget = if ws_actual_w > 0 {
+        let title_budget = if ws_actual_w > 0 {
             usable.saturating_sub(ws_actual_w)
         } else {
             shared
         };
-        let drawn = fit_identity(
-            identity_text,
-            identity_full_w,
-            id_budget,
+        let drawn = fit_title(
+            title_text,
+            title_full_w,
+            title_budget,
             theme.glyphs.ellipsis,
         );
         return (drawn, ws_spans);
@@ -305,25 +315,20 @@ fn allocate_identity_and_workspace(
     if !ws_spans.is_empty() {
         return (None, ws_spans);
     }
-    let drawn = fit_identity(
-        identity_text,
-        identity_full_w,
-        shared,
-        theme.glyphs.ellipsis,
-    );
+    let drawn = fit_title(title_text, title_full_w, shared, theme.glyphs.ellipsis);
     (drawn, Vec::new())
 }
 
-fn fit_identity(
-    identity_text: &str,
-    identity_full_w: usize,
+fn fit_title(
+    title_text: &str,
+    title_full_w: usize,
     budget: usize,
     ellipsis: &str,
 ) -> Option<String> {
-    if budget == 0 || (identity_full_w > budget && budget < SCENE_BAR_IDENTITY_MIN_COLS) {
+    if budget == 0 || (title_full_w > budget && budget < SCENE_BAR_IDENTITY_MIN_COLS) {
         return None;
     }
-    let truncated = truncate_with(identity_text, budget, ellipsis);
+    let truncated = truncate_with(title_text, budget, ellipsis);
     (!truncated.is_empty()).then_some(truncated)
 }
 
@@ -378,15 +383,6 @@ pub(crate) fn workspace_spans(
             Span::styled(content, span.style.bg(fill.bg))
         })
         .collect()
-}
-
-/// Disambiguate thread ids by taking their last four Unicode scalar values
-/// (UTF-8 boundary safe).
-pub fn id_tail(id: &str) -> &str {
-    match id.char_indices().rev().nth(3) {
-        Some((byte_idx, _)) => &id[byte_idx..],
-        None => id,
-    }
 }
 
 /// Truncate `s` to `max_width` columns, appending `ellipsis` when cut.

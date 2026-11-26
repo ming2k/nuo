@@ -36,6 +36,9 @@ pub struct ServeOptions {
     /// [INV-SERVER-03] Zero TCP on Client-Bound Posture:
     /// When true, pure UDS/Local IPC mode — no TCP socket listener spawned.
     pub disable_tcp: bool,
+    /// Optional shared [`ShutdownGate`] owned by the caller (`host::run_inner`).
+    /// When `None` (standalone transport tests), `start_server` allocates one.
+    pub gate: Option<Arc<ShutdownGate>>,
 }
 
 impl Default for ServeOptions {
@@ -48,6 +51,7 @@ impl Default for ServeOptions {
             port_fallback: false,
             local_endpoint: None,
             disable_tcp: false,
+            gate: None,
         }
     }
 }

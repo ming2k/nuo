@@ -81,8 +81,6 @@ pub struct LogSceneProps<'a> {
     /// Body scroll offset, clamped here so the app's copy never has to know the
     /// painted height.
     pub scroll: &'a mut usize,
-    /// Session id whose transcript this log came from (scene-bar context).
-    pub thread_id: Option<&'a str>,
     /// TabBar projection (client-global chrome tier 1).
     ///
     /// The unread-fault count rides inside it (`TabBarProps::unread_faults`), so
@@ -101,7 +99,6 @@ pub fn draw_command_log_scene(
     let LogSceneProps {
         log,
         scroll,
-        thread_id,
         tab_bar,
     } = props;
 
@@ -153,9 +150,9 @@ pub fn draw_command_log_scene(
             height: 1,
             ..head
         },
-        thread_id,
         &ViewHints {
             kind: crate::shell::surfaces::SceneKind::CommandLog,
+            role: None,
             context: Some(context.as_str()),
             context_warn: log.is_some_and(|log| log.outcome_line().is_some()),
             breadcrumbs: None,

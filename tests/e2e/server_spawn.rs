@@ -573,3 +573,126 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
         "rm must delete durable history"
     );
 }
+
+/// ADR-0266 `[INV-SRVPHASE-06]`: booting the real `nuo server start --fg`
+/// binary against a tampered-checksum `nuo.db` MUST fail fast with non-zero
+/// exit, report the storage failure on stderr, and never leave a live
+/// discovery record claiming readiness.
+#[tokio::test]
+async fn real_server_fails_fast_on_tampered_database_checksum() {
+    let own = tempfile::tempdir().unwrap();
+    let own_root = own.path().to_path_buf();
+    let db_path = own_root.join("nuo").join("data").join("nuo.db");
+    std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+    persistence::db::migrations::test_fixtures::create_nuo_db_at_version(&db_path, 1, None)
+        .unwrap();
+    persistence::db::migrations::test_fixtures::tamper_migration_checksum(
+        &db_path,
+        1,
+        "bad-checksum",
+    )
+    .unwrap();
+
+    let cli = nuo_binary();
+    let output = Command::new(&cli)
+        .args(["server", "start", "--fg"])
+        .env("NUO_HOME", &own_root)
+        .env("NUO_PORT", "0")
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawn nuo server start --fg");
+
+    assert!(
+        !output.status.success(),
+        "tampered DB must fail fast with non-zero exit"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("checksum mismatch"),
+        "stderr must carry the ADR-0191 checksum error, got:\n{stderr}"
+    );
+    assert!(
+        !discovery_path(&own_root).exists(),
+        "failed startup must release its discovery record"
+    );
+}
+
+/// ADR-0266 `[INV-SRVPHASE-06]`, `[INV-SRVPHASE-07]`, ADR-0191: booting the
+/// real `nuo server start --fg` binary against a historical v1 `nuo.db`
+/// snapshots `.pre-v2.*.bak`, runs all pending migrations to
+/// `CURRENT_DB_VERSION`, reaches `ServerPhase::Ready`, and stops cleanly.
+#[tokio::test]
+async fn real_server_migrates_v1_database_with_backup_and_reaches_ready() {
+    let own = tempfile::tempdir().unwrap();
+    let own_root = own.path().to_path_buf();
+    let db_path = own_root.join("nuo").join("data").join("nuo.db");
+    std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+    persistence::db::migrations::test_fixtures::create_nuo_db_at_version(&db_path, 1, None)
+        .unwrap();
+
+    let cli = nuo_binary();
+    let mut command = Command::new(&cli);
+    command.args(["server", "start", "--fg"]);
+    command
+        .env("NUO_HOME", &own_root)
+        .env("NUO_PORT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    host::process::configure_server_std(&mut command);
+
+    let mut child = command.spawn().expect("spawn real server on v1 db");
+    let pid = child.id();
+    let reaper = std::thread::spawn(move || child.wait());
+    let mut cleanup = ServerCleanup {
+        cli: cli.clone(),
+        root: own_root.clone(),
+        pid,
+        reaper: Some(reaper),
+    };
+
+    // Wait for discovery record to appear, then query `nuo status --json`
+    // (which connects via Hello -> ServerHello) until the server is Ready.
+    let disc = discovery_path(&own_root);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut saw_ready = false;
+    while Instant::now() < deadline {
+        if disc.exists() {
+            let status = Command::new(&cli)
+                .args(["status", "--json"])
+                .env("NUO_HOME", &own_root)
+                .stdin(Stdio::null())
+                .output()
+                .expect("run nuo status --json");
+            if status.status.success() {
+                let stdout = String::from_utf8_lossy(&status.stdout);
+                if stdout.contains(r#""phase":"ready""#) {
+                    saw_ready = true;
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        saw_ready,
+        "server must finish migrating v1 DB and reach Ready"
+    );
+
+    // Mandatory pre-migration backup (ADR-0191) must exist beside nuo.db.
+    let backups =
+        persistence::db::migrations::test_fixtures::find_pre_migration_backups(&db_path, 2)
+            .unwrap();
+    assert!(
+        !backups.is_empty(),
+        "expected pre-v2 VACUUM INTO backup beside {}",
+        db_path.display()
+    );
+
+    let stop = cleanup.stop();
+    assert!(
+        stop.status.success(),
+        "server stop failed: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+}

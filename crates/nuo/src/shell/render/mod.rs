@@ -217,9 +217,7 @@ pub struct TranscriptProps<'a> {
     /// Client-global TabBar projection (ADR-0039, ADR-0060, ADR-0062).
     /// Tier 1 of the head band, carrying open tabs and active tab selection.
     pub tab_bar: Option<TabBarProps<'a>>,
-    /// Authentic thread persistent id for disambiguation on Tier 2 SceneBar.
-    pub thread_id: Option<&'a str>,
-    /// Thread execution governance context (ADR-0261 `[INV-HEAD-09]`).
+    /// Thread execution governance context (ADR-0261 `[INV-HEAD-09]`, ADR-0268).
     /// Projected onto Tier 2 `SceneBar` on thread viewports (role, safety
     /// posture, and right-anchored workspace) and used by the transcript stream
     /// to resolve workspace-relative paths.
@@ -523,7 +521,6 @@ fn draw_head_band(
     rects: &HeadBandRects,
     tab_bar: Option<&TabBarProps<'_>>,
     page_hints: Option<&ViewHints<'_>>,
-    thread_id: Option<&str>,
     thread_context: Option<&ThreadContext<'_>>,
     theme: &Theme,
 ) -> HeadBandNavRects {
@@ -533,7 +530,7 @@ fn draw_head_band(
         TabBarNavRects::default()
     };
     let scene = if let (Some(hints), Some(rect)) = (page_hints, rects.scene) {
-        draw_scene_bar(frame, rect, thread_id, hints, thread_context, theme)
+        draw_scene_bar(frame, rect, hints, thread_context, theme)
     } else {
         SceneNavRects::default()
     };
@@ -874,7 +871,6 @@ pub fn draw_transcript(
         subagent_bar,
         page_hints,
         tab_bar,
-        thread_id,
         thread_context,
         round_started_at,
         hovered_step,
@@ -968,7 +964,6 @@ pub fn draw_transcript(
         &head_band,
         tab_bar.as_ref(),
         page_hints.as_ref(),
-        thread_id,
         thread_context.as_ref(),
         theme,
     );

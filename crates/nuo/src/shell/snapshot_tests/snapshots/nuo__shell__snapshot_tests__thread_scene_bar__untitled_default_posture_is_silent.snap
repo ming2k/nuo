@@ -1,5 +1,5 @@
 ---
 source: crates/nuo/src/shell/snapshot_tests/thread_scene_bar.rs
-expression: "render_bar(72, Some(\"sess-01a2b3c4\"), None, &h)"
+expression: "render_bar(72, None, &h)"
 ---
-  [DEVELOPER]  thread b3c4                              ~/projects/nuo
+  DEVELOPER                                             ~/projects/nuo

@@ -352,9 +352,9 @@ pub fn draw_dashboard(
     crate::shell::render::draw_scene_bar(
         frame,
         scene_rect,
-        None,
         &crate::shell::render::ViewHints {
             kind: crate::shell::surfaces::SceneKind::Dashboard,
+            role: None,
             context: Some(summary.trim_end()),
             context_warn: needs_attention,
             breadcrumbs: None,

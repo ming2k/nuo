@@ -152,6 +152,21 @@ pub(crate) fn spawn_connection_supervisor(config: SupervisorConfig) -> tokio::ta
                     let server_phase = link.hello.phase.clone();
                     let persistence_health = link.hello.persistence_health.clone();
 
+                    // ADR-0267 `[INV-SRVPHASE-09]`: enqueue `LinkEstablished`
+                    // onto the FIFO mutation channel BEFORE spawning any
+                    // connection translator so a pre-buffered `MonitorEvent::Snapshot`
+                    // or fast server frame can never overtake `req_tx` installation.
+                    emit(
+                        &runtime,
+                        AppMutation::LinkEstablished {
+                            server_id,
+                            server_phase,
+                            persistence_health,
+                            req_tx: link.req_tx,
+                        },
+                    )
+                    .await;
+
                     event_loop::translators::spawn_monitor_translator(&runtime, link.monitor_rx);
                     event_loop::translators::spawn_link_event_translator(
                         &runtime,
@@ -169,17 +184,6 @@ pub(crate) fn spawn_connection_supervisor(config: SupervisorConfig) -> tokio::ta
                             live_session: String::new(),
                         },
                     );
-
-                    emit(
-                        &runtime,
-                        AppMutation::LinkEstablished {
-                            server_id,
-                            server_phase,
-                            persistence_health,
-                            req_tx: link.req_tx,
-                        },
-                    )
-                    .await;
 
                     let closed_reason = tokio::select! {
                         res = link.closed_rx => res.unwrap_or(Some("server connection closed".to_string())),

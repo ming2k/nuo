@@ -17,6 +17,7 @@ negative_knowledge: true
 - Informed: System Architects, Release Engineering
 - Amends: [ADR-0024](0024-two-row-head-band-session-identity-and-scene-row.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0050](0050-authentic-thread-title-lifecycle-clean-scene-head-and-semantic-tab-projection.md)
 - Amended by: [ADR-0235](0235-tabbar-carries-its-own-lifecycle-hover-reveal-visible-close-and-reserved-add.md) — Tier 1 gains the strip's own creation affordance; the clean-label rule is unchanged.
+- Amended by: [ADR-0268](0268-zen-thread-scenebar-chromatic-role-token-and-uuid-free-untitled-chrome.md) — `[INV-TAB-09]`'s untitled fallback changes from `thread#<tail>` to `new thread` / `new thread N` (`[INV-HEAD-12]`).
 
 > **Superseded in part (2026-10-23)**: this ADR's Row 2 *layout* — thread governance (`[ROLE]`, workspace, posture) sharing the scene row — was superseded by [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md) `[INV-HEAD-05]`, which made the header two universal tiers plus a thread-only `ThreadContextBar`. The posture pair shown in the diagram below was further replaced by the `auto` / `open` posture tokens under `[INV-HEAD-07]` and `[INV-HEAD-08]`. The diagrams below are preserved as the record of what was decided here; **do not implement from them** — see ADR-0062 for the live topology. `[INV-TAB-09]` (no ordinal prefixes in tab titles) is unaffected and remains in force.
 

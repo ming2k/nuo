@@ -103,12 +103,25 @@ impl ConnTable {
             .unwrap_or_else(|e| e.into_inner())
             .conns
             .remove(&id);
+        self.notify.notify_waiters();
     }
 
-    /// Signal every live connection to close, and wait (bounded) for the
-    /// connection tasks to observe it. Best-effort: a client that ignores
-    /// the close frame is dropped when the process exits.
-    pub async fn drain(&self) {
+    /// Wait up to `budget` for live connections to flush and exit cleanly on
+    /// their own (e.g., after `ServerPhase::Failed` closes each session loop),
+    /// then cancel any remaining stragglers. Returns immediately when 0
+    /// connections are active.
+    pub async fn wait_empty_or_cancel(&self, budget: std::time::Duration) {
+        let deadline = tokio::time::Instant::now() + budget;
+        loop {
+            if self.is_empty() {
+                return;
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let _ = tokio::time::timeout(remaining, self.notify.notified()).await;
+        }
         let tokens: Vec<CancellationToken> = {
             let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             inner.conns.values().cloned().collect()
@@ -116,7 +129,25 @@ impl ConnTable {
         for token in &tokens {
             token.cancel();
         }
-        let deadline = tokio::time::Instant::now() + DRAIN_CLOSE_TIMEOUT;
+    }
+
+    /// Signal every live connection to close, and wait (up to
+    /// [`DRAIN_CLOSE_TIMEOUT`]) for the connection tasks to observe it.
+    pub async fn drain(&self) {
+        self.drain_with_budget(DRAIN_CLOSE_TIMEOUT).await;
+    }
+
+    /// Signal every live connection to close and wait up to `budget` for all
+    /// connection tasks to flush and unregister cleanly.
+    pub async fn drain_with_budget(&self, budget: std::time::Duration) {
+        let tokens: Vec<CancellationToken> = {
+            let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            inner.conns.values().cloned().collect()
+        };
+        for token in &tokens {
+            token.cancel();
+        }
+        let deadline = tokio::time::Instant::now() + budget;
         while tokio::time::Instant::now() < deadline {
             let remaining = {
                 let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -125,7 +156,7 @@ impl ConnTable {
             if remaining == 0 {
                 return;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         tracing::warn!(
             connections = self

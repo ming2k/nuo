@@ -16,9 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::events::ThreadOrigin;
 
-/// Handshake action selecting a server-observability stream instead of a
-/// session attach. Sent as the first frame:
-/// `{"type":"Select","action":{"monitor":{"watch":…,"include_idle":…}}}`.
+/// Handshake option selecting a server-observability stream on `Wire::Hello`:
+/// `{"type":"Hello","protocol":…,"monitor":{"watch":…,"include_idle":…}}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorAction {
     /// Keep the connection open and stream `MonitorEvent::Diff`s after the
@@ -96,7 +95,33 @@ impl ServerInitStage {
     }
 }
 
-/// Global lifecycle phase of the Nuo server process (ADR-0260 `[INV-SRVPHASE-01]`).
+/// Observable storage initialization detail emitted exclusively when pending
+/// database migrations run during [`ServerInitStage::Storage`] (ADR-0266
+/// `[INV-SRVPHASE-07]`).
+///
+/// Always `None` on fast warm/up-to-date boots (zero fast-path overhead).
+/// Every variant has a live production producer in `persistence::db::migrations`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StorageInitDetail {
+    /// Creating the mandatory pre-migration `VACUUM INTO` snapshot (ADR-0191).
+    BackingUp { target_version: u32 },
+    /// Applying one pending numbered migration inside the upgrade transaction.
+    Migrating {
+        /// 1-based index of the migration currently executing.
+        step: u32,
+        /// Total number of pending migrations in this upgrade batch.
+        total: u32,
+        /// Migration name from the compiled catalog.
+        name: String,
+    },
+    /// Running post-migration `foreign_key_check`, `quick_check`, and structural
+    /// schema verification (ADR-0190).
+    Verifying,
+}
+
+/// Global lifecycle phase of the Nuo server process (ADR-0260 `[INV-SRVPHASE-01]`,
+/// ADR-0266 `[INV-SRVPHASE-07]`).
 ///
 /// Strictly orthogonal to [`PersistenceHealth`] (durability degradation while
 /// serving) and [`crate::ThreadPhase`] (per-thread harness assembly).
@@ -105,7 +130,15 @@ impl ServerInitStage {
 pub enum ServerPhase {
     /// Listeners are bound and serving handshakes; bounded local initialization
     /// is in progress.
-    Initializing { stage: ServerInitStage },
+    Initializing {
+        stage: ServerInitStage,
+        /// Present only while pending database migrations are running.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<StorageInitDetail>,
+        /// Unix epoch milliseconds when the current initialization step began.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        started_at_ms: Option<u64>,
+    },
     /// All local subsystems are ready; thread subscriptions and requests are admitted.
     Ready,
     /// Applying a non-disruptive configuration/catalog reload (`Reload`).
@@ -126,6 +159,34 @@ pub enum ServerPhase {
 }
 
 impl ServerPhase {
+    /// Construct a plain `Initializing` phase with no migration detail.
+    pub const fn initializing(stage: ServerInitStage) -> Self {
+        Self::Initializing {
+            stage,
+            detail: None,
+            started_at_ms: None,
+        }
+    }
+
+    /// Construct an `Initializing` phase carrying a timestamp and optional
+    /// migration detail.
+    pub const fn initializing_with(
+        stage: ServerInitStage,
+        detail: Option<StorageInitDetail>,
+        started_at_ms: Option<u64>,
+    ) -> Self {
+        Self::Initializing {
+            stage,
+            detail,
+            started_at_ms,
+        }
+    }
+
+    /// Whether the server is still executing startup initialization.
+    pub fn is_initializing(&self) -> bool {
+        matches!(self, Self::Initializing { .. })
+    }
+
     /// Whether the server currently admits thread subscriptions and domain work.
     pub fn admits_work(&self) -> bool {
         matches!(self, Self::Ready | Self::Reloading)
@@ -506,12 +567,27 @@ mod tests {
     #[test]
     fn server_phase_changed_roundtrips_all_variants() {
         let cases = [
-            ServerPhase::Initializing {
-                stage: ServerInitStage::Storage,
-            },
-            ServerPhase::Initializing {
-                stage: ServerInitStage::Runtime,
-            },
+            ServerPhase::initializing(ServerInitStage::Storage),
+            ServerPhase::initializing_with(
+                ServerInitStage::Storage,
+                Some(StorageInitDetail::BackingUp { target_version: 9 }),
+                Some(1_700_000_000_000),
+            ),
+            ServerPhase::initializing_with(
+                ServerInitStage::Storage,
+                Some(StorageInitDetail::Migrating {
+                    step: 1,
+                    total: 2,
+                    name: "0009_pure_catalog".into(),
+                }),
+                Some(1_700_000_001_000),
+            ),
+            ServerPhase::initializing_with(
+                ServerInitStage::Storage,
+                Some(StorageInitDetail::Verifying),
+                Some(1_700_000_002_000),
+            ),
+            ServerPhase::initializing(ServerInitStage::Runtime),
             ServerPhase::Ready,
             ServerPhase::Reloading,
             ServerPhase::Draining {

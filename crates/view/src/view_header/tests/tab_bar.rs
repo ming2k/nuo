@@ -7,7 +7,7 @@ use ui_primitives::design::{BAR_LEGEND_GAP_MIN, TABBAR_H_INSET};
 
 #[test]
 fn row1_renders_tabs_without_ordinal_prefixes() {
-    let items = vec![TabBarItem::new("thread#b3c4"), TabBarItem::new("dashboard")];
+    let items = vec![TabBarItem::new("new thread"), TabBarItem::new("dashboard")];
     let tab_bar = TabBarProps {
         items: &items,
         active_tab: 0,
@@ -15,9 +15,9 @@ fn row1_renders_tabs_without_ordinal_prefixes() {
         ..TabBarProps::default()
     };
     let row = render_row1(80, tab_bar);
-    assert!(row.contains("thread#b3c4"), "{row}");
+    assert!(row.contains("new thread"), "{row}");
     assert!(
-        !row.contains("1:thread#b3c4"),
+        !row.contains("1:new thread"),
         "tabs must not use ordinal prefix: {row}"
     );
     assert!(row.contains("dashboard"), "{row}");
@@ -36,7 +36,7 @@ fn row1_renders_tabs_without_ordinal_prefixes() {
 /// vertically with Tier 2 (`SceneBar`) and the transcript stream.
 #[test]
 fn row1_status_cluster_pins_the_notice_badge_to_the_inset_edge() {
-    let items = vec![TabBarItem::new("thread#b3c4"), TabBarItem::new("dashboard")];
+    let items = vec![TabBarItem::new("new thread"), TabBarItem::new("dashboard")];
     let tab_bar = TabBarProps {
         items: &items,
         active_tab: 0,
@@ -68,7 +68,7 @@ fn row1_status_cluster_pins_the_notice_badge_to_the_inset_edge() {
 #[test]
 fn row1_bleeds_to_both_terminal_edges() {
     for width in [44u16, 80, 120] {
-        let items = vec![TabBarItem::new("thread#b3c4"), TabBarItem::new("dashboard")];
+        let items = vec![TabBarItem::new("new thread"), TabBarItem::new("dashboard")];
         let tab_bar = TabBarProps {
             items: &items,
             active_tab: 0,
@@ -110,7 +110,7 @@ fn row1_bleeds_to_both_terminal_edges() {
 /// 2-column horizontal inset plus its own single-column internal pill padding.
 #[test]
 fn row1_tab_labels_keep_internal_padding_at_the_edges() {
-    let items = vec![TabBarItem::new("thread#b3c4"), TabBarItem::new("dashboard")];
+    let items = vec![TabBarItem::new("new thread"), TabBarItem::new("dashboard")];
     let tab_bar = TabBarProps {
         items: &items,
         active_tab: 0,
@@ -119,7 +119,7 @@ fn row1_tab_labels_keep_internal_padding_at_the_edges() {
     };
     let row = render_row1(80, tab_bar);
     assert!(
-        row.starts_with("   thread#b3c4"),
+        row.starts_with("   new thread"),
         "leading label keeps 2-col edge margin and 1-col internal padding: {row:?}"
     );
 }
@@ -129,7 +129,7 @@ fn row1_tab_labels_keep_internal_padding_at_the_edges() {
 #[test]
 fn row1_status_cluster_keeps_the_legend_gap_when_tabs_overflow() {
     let items: Vec<_> = (0..8)
-        .map(|i| TabBarItem::new(format!("thread#000{i}")))
+        .map(|i| TabBarItem::new(format!("new thread {}", i + 1)))
         .collect();
     let tab_bar = TabBarProps {
         items: &items,
@@ -150,7 +150,7 @@ fn row1_status_cluster_keeps_the_legend_gap_when_tabs_overflow() {
 fn row1_renders_semantic_tab_titles_with_wider_budget() {
     let items = vec![
         TabBarItem::new("Refactor Database Connection"),
-        TabBarItem::new("thread#e7f8"),
+        TabBarItem::new("new thread"),
         TabBarItem::new("dashboard"),
     ];
     let tab_bar = TabBarProps {
@@ -170,7 +170,7 @@ fn row1_renders_semantic_tab_titles_with_wider_budget() {
     );
     assert!(!row.contains("1:Refactor"), "no ordinal prefix: {row}");
     assert!(
-        row.contains("thread#e7f8"),
+        row.contains("new thread"),
         "untitled fallback label projected by scene renders cleanly: {row}"
     );
     assert!(row.contains("dashboard"), "{row}");
@@ -179,7 +179,7 @@ fn row1_renders_semantic_tab_titles_with_wider_budget() {
 #[test]
 fn row1_tab_rects_and_styling() {
     let items = vec![
-        TabBarItem::new("thread#b3c4"),
+        TabBarItem::new("new thread"),
         TabBarItem::new("dashboard"),
         TabBarItem::new("settings"),
     ];
@@ -1099,7 +1099,7 @@ fn row1_cjk_overflowing_title_fades_without_splitting_or_ellipsis() {
 /// any tab overflow ([INV-TAB-19]).
 #[test]
 fn row1_help_portal_expands_in_idle_slack_and_never_triggers_overflow() {
-    let items = vec![TabBarItem::new("thread#b3c4"), TabBarItem::new("dashboard")];
+    let items = vec![TabBarItem::new("new thread"), TabBarItem::new("dashboard")];
     let mut nav = TabBarNavRects::default();
     let mut terminal = graticule_canvas::TestTerminal::new(80, 1);
     terminal.draw(|frame| {

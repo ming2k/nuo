@@ -1,4 +1,4 @@
-//! Header chrome tests, split by tier (ADR-0261 two-tier head band).
+//! Header chrome tests, split by tier (ADR-0261 two-tier head band, ADR-0268).
 
 pub(crate) use super::*;
 
@@ -19,60 +19,44 @@ fn render_row1_cells(
     terminal.buffer().cells().to_vec()
 }
 
-fn render_row2(width: u16, thread_id: Option<&str>, hints: ViewHints<'_>) -> String {
-    render_row2_with_context(width, thread_id, hints, None)
+fn render_row2(width: u16, hints: ViewHints<'_>) -> String {
+    render_row2_with_context(width, hints, None)
 }
 
 fn render_row2_with_context(
     width: u16,
-    thread_id: Option<&str>,
     hints: ViewHints<'_>,
     context: Option<ThreadContext<'_>>,
 ) -> String {
-    let cells = render_row2_cells(width, thread_id, hints, context, &Theme::default());
+    let cells = render_row2_cells(width, hints, context, &Theme::default());
     cells.iter().map(|c| c.symbol.as_str()).collect()
 }
 
 fn render_row2_cells(
     width: u16,
-    thread_id: Option<&str>,
     hints: ViewHints<'_>,
     context: Option<ThreadContext<'_>>,
     theme: &Theme,
 ) -> Vec<graticule_canvas::Cell> {
     let mut terminal = graticule_canvas::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
-        draw_scene_bar(
-            frame,
-            frame.area(),
-            thread_id,
-            &hints,
-            context.as_ref(),
-            theme,
-        );
+        draw_scene_bar(frame, frame.area(), &hints, context.as_ref(), theme);
     });
     terminal.buffer().cells().to_vec()
 }
 
-fn render_thread_row(
-    width: u16,
-    thread_id: Option<&str>,
-    title: Option<&str>,
-    context: ThreadContext<'_>,
-) -> String {
-    render_thread_row_with_theme(width, thread_id, title, context, &Theme::default())
+fn render_thread_row(width: u16, title: Option<&str>, context: ThreadContext<'_>) -> String {
+    render_thread_row_with_theme(width, title, context, &Theme::default())
 }
 
 fn render_thread_row_with_theme(
     width: u16,
-    thread_id: Option<&str>,
     title: Option<&str>,
     context: ThreadContext<'_>,
     theme: &Theme,
 ) -> String {
     render_row2_cells(
         width,
-        thread_id,
         ViewHints {
             kind: SceneKind::Thread,
             context: title,

@@ -208,9 +208,7 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
     let (_dir, session) = fresh_empty_store("srv-phase");
     let (registry, _req_rx, _bc) = prehosted(session.clone()).await;
     let id = session.id().await;
-    registry.set_server_phase(ServerPhase::Initializing {
-        stage: ServerInitStage::Storage,
-    });
+    registry.set_server_phase(ServerPhase::initializing(ServerInitStage::Storage));
 
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry.clone());
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
@@ -250,7 +248,8 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
             frame,
             Wire::ServerHello {
                 phase: ServerPhase::Initializing {
-                    stage: ServerInitStage::Storage
+                    stage: ServerInitStage::Storage,
+                    ..
                 },
                 ..
             }
@@ -294,10 +293,43 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
         "expected ERR_SERVER_NOT_READY, got {refused:?}"
     );
 
-    // 3. Server transitions Storage -> Runtime -> Ready; client observes both.
-    registry.set_server_phase(ServerPhase::Initializing {
-        stage: ServerInitStage::Runtime,
-    });
+    // 3. Server transitions Storage(Migrating) -> Runtime -> Ready; client
+    // observes every transition cleanly over the watch-only phase stream.
+    registry.set_server_phase(ServerPhase::initializing_with(
+        ServerInitStage::Storage,
+        Some(protocol::StorageInitDetail::Migrating {
+            step: 1,
+            total: 2,
+            name: "0009_pure_catalog".into(),
+        }),
+        Some(1_700_000_000_000),
+    ));
+    let ev_mig: Wire = serde_json::from_str(
+        tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .to_text()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        ev_mig,
+        Wire::Monitor {
+            event: MonitorEvent::ServerPhaseChanged(ServerPhase::Initializing {
+                stage: ServerInitStage::Storage,
+                detail: Some(protocol::StorageInitDetail::Migrating {
+                    step: 1,
+                    total: 2,
+                    ..
+                }),
+                ..
+            })
+        }
+    ));
+
+    registry.set_server_phase(ServerPhase::initializing(ServerInitStage::Runtime));
     let ev1: Wire = serde_json::from_str(
         tokio::time::timeout(Duration::from_secs(2), ws.next())
             .await
@@ -312,7 +344,9 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
         ev1,
         Wire::Monitor {
             event: MonitorEvent::ServerPhaseChanged(ServerPhase::Initializing {
-                stage: ServerInitStage::Runtime
+                stage: ServerInitStage::Runtime,
+                detail: None,
+                ..
             })
         }
     ));
@@ -468,15 +502,11 @@ async fn failed_phase_refuses_subscribe_and_control_waits_for_initializing_serve
     };
 
     // 1. Server is Initializing -> control() waits for Ready and succeeds.
-    registry.set_server_phase(ServerPhase::Initializing {
-        stage: ServerInitStage::Storage,
-    });
+    registry.set_server_phase(ServerPhase::initializing(ServerInitStage::Storage));
     let reg_bg = registry.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(60)).await;
-        reg_bg.set_server_phase(ServerPhase::Initializing {
-            stage: ServerInitStage::Runtime,
-        });
+        reg_bg.set_server_phase(ServerPhase::initializing(ServerInitStage::Runtime));
         tokio::time::sleep(Duration::from_millis(40)).await;
         reg_bg.set_server_phase(ServerPhase::Ready);
     });
@@ -553,6 +583,102 @@ async fn failed_phase_refuses_subscribe_and_control_waits_for_initializing_serve
             } if c == protocol::ERR_SERVER_FAILED
         ),
         "expected ERR_SERVER_FAILED, got {refused:?}"
+    );
+    handle.cancel.cancel();
+}
+
+/// ADR-0266 `[INV-SRVPHASE-06]`, `[INV-SRVPHASE-07]`: when initialization
+/// transitions to `ServerPhase::Failed`, every connected peer receives
+/// `ServerPhaseChanged(Failed)` cleanly over the watch-only phase stream and
+/// the server closes its side so `conns.wait_empty_or_cancel` settles without
+/// wall-clock sleeps.
+#[tokio::test]
+async fn server_phase_failed_flushes_connected_peers_and_drains_cleanly() {
+    let (_dir, session) = fresh_empty_store("srv-fail-flush");
+    let (registry, _req_rx, _bc) = prehosted(session).await;
+    registry.set_server_phase(ServerPhase::initializing_with(
+        ServerInitStage::Storage,
+        Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+        Some(1_700_000_000_000),
+    ));
+
+    let mut handle = serve::start_server(serve::ServeOptions::default(), registry.clone());
+    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
+        .await
+        .unwrap();
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Hello {
+            protocol: protocol::PROTOCOL_VERSION,
+            version: None,
+            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            monitor: Some(MonitorAction {
+                watch: true,
+                include_idle: true,
+            }),
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+
+    let hello: Wire = serde_json::from_str(
+        tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .to_text()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        hello,
+        Wire::ServerHello {
+            phase: ServerPhase::Initializing {
+                stage: ServerInitStage::Storage,
+                detail: Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+                ..
+            },
+            ..
+        }
+    ));
+
+    // Trigger fatal storage initialization failure; connection flushes Failed
+    // and exits cleanly so `wait_empty_or_cancel` completes immediately.
+    registry.set_server_phase(ServerPhase::Failed {
+        code: Some("storage_init_failed".into()),
+        message: "pre-migration backup failed".into(),
+    });
+    let ev: Wire = serde_json::from_str(
+        tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .to_text()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        ev,
+        Wire::Monitor {
+            event: MonitorEvent::ServerPhaseChanged(ServerPhase::Failed {
+                code: Some(ref c),
+                ref message,
+            })
+        } if c == "storage_init_failed" && message == "pre-migration backup failed"
+    ));
+
+    handle
+        .conns
+        .wait_empty_or_cancel(Duration::from_millis(250))
+        .await;
+    assert!(
+        handle.conns.is_empty(),
+        "connection table must drain cleanly after ServerPhase::Failed flush"
     );
     handle.cancel.cancel();
 }

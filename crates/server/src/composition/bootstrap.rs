@@ -166,10 +166,11 @@ pub fn ensure_app_roots() {
 /// frame.
 #[allow(clippy::too_many_lines)]
 pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std::error::Error>> {
-    // In-process/one-shot entry point: claim the store exactly as the hosted
-    // path does, then assemble. The hosted path (`registry::claim`) creates
-    // the store *before* the handshake and passes it to
-    // [`assemble_with_store`], so the store open is not on the Welcome path.
+    // In-process/one-shot entry point: ensure roots and claim the store
+    // exactly as the hosted path does, then assemble. The hosted path
+    // (`host::run_inner` + `registry::claim`) already ensures roots and
+    // creates the store before calling [`assemble_with_store`].
+    ensure_app_roots();
     let workspace = params
         .project_root
         .as_ref()
@@ -180,17 +181,16 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
 
 /// Assemble a session harness over an already-claimed store.
 ///
-/// `[INV-ATTACH-03]` (ADR-0133): this runs *after* `Wire::Welcome` on the
+/// `[INV-ATTACH-03]` (ADR-0133): this runs *after* `Wire::Subscribed` on the
 /// hosted path. Nothing here may be a prerequisite of the handshake. The
 /// `phase_sink` publishes bounded local preparation stages; network work is
 /// either lazy (credentials) or backgrounded (remote skills, MCP, catalog).
+/// Whole-server projection catch-up runs post-`Ready` in `host::run_inner`
+/// (ADR-0266), never disguised as single-thread assembly.
 pub async fn assemble_with_store(
     session: Arc<ThreadSession>,
     params: BootstrapParams,
 ) -> Result<Bootstrap, Box<dyn std::error::Error>> {
-    // Repair a derived view left behind by a crash before anything reads it.
-    // The first assembly in the process pays for the scan; later ones no-op.
-    persistence::thread::catch_up_projections_once().await;
     let mut assembler = Assembler::new(session, params).await?;
     let skills_registry = assembler.wire_skills().await;
     let stores = assembler.open_stores(&skills_registry);
@@ -302,27 +302,6 @@ impl Assembler {
             ),
             "assemble only handles Fresh/FreshWithPrompt/Resume/Picker; other modes must short-circuit in the caller"
         );
-
-        // First-run friendliness: this harness opens stores eagerly (the session
-        // store and embedding index under data_dir) and does not create their
-        // parent dirs first — on a developer's machine those dirs usually already
-        // exist from prior runs, but any binary may be started into a fresh XDG
-        // root (wrappers, CI, sandboxes, a spawned session server). Create the
-        // four app roots up front, BEFORE any store opens; best-effort,
-        // everything deeper stays lazy as in production.
-        {
-            let dirs = paths::get();
-            for dir in [
-                &dirs.config_dir,
-                &dirs.data_dir,
-                &dirs.state_dir,
-                &dirs.cache_dir,
-            ] {
-                if let Err(error) = std::fs::create_dir_all(dir) {
-                    tracing::warn!(?error, dir = %dir.display(), "bootstrap: could not create app dir");
-                }
-            }
-        }
 
         /// Bound capacity for inbound session requests to prevent unbounded memory growth.
         const SESSION_REQUEST_CAPACITY: usize = 512;

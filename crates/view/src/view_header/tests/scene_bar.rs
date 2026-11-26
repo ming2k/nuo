@@ -8,7 +8,6 @@ use crate::view_header::SceneKind;
 fn row2_renders_titled_thread_with_governance_and_workspace() {
     let row = render_row2_with_context(
         80,
-        Some("sess-01a2b3c4"),
         ViewHints {
             kind: SceneKind::Thread,
             context: Some("Fix the retry loop"),
@@ -21,22 +20,18 @@ fn row2_renders_titled_thread_with_governance_and_workspace() {
             confined: true,
         }),
     );
+    assert!(row.starts_with("  DEVELOPER  Fix the retry loop"), "{row}");
     assert!(
-        row.starts_with("  [DEVELOPER]  Fix the retry loop"),
-        "{row}"
-    );
-    assert!(
-        !row.contains("b3c4") && !row.contains("THREAD"),
-        "titled thread drops redundant thread/id prefix: {row}"
+        !row.contains("[DEVELOPER]") && !row.contains("THREAD"),
+        "chromatic titled thread uses bare role token and no thread prefix: {row}"
     );
     assert!(row.trim_end().ends_with("~/projects/nuo"), "{row}");
 }
 
 #[test]
-fn row2_renders_untitled_thread_fallback() {
+fn row2_untitled_thread_keeps_title_slot_silent() {
     let row = render_row2_with_context(
         80,
-        Some("sess-01a2b3c4"),
         hints(SceneKind::Thread),
         Some(ThreadContext {
             role: Some("developer"),
@@ -45,10 +40,10 @@ fn row2_renders_untitled_thread_fallback() {
             confined: true,
         }),
     );
-    assert!(row.starts_with("  [DEVELOPER]  thread b3c4"), "{row}");
+    assert!(row.starts_with("  DEVELOPER  "), "{row}");
     assert!(
-        !row.contains("thread#"),
-        "clean untitled thread identifier without hash prefix: {row}"
+        !row.contains("thread"),
+        "untitled thread SceneBar must stay silent rather than printing a thread/UUID fallback: {row}"
     );
     assert!(row.trim_end().ends_with("~/projects/nuo"), "{row}");
 }
@@ -61,7 +56,7 @@ fn row2_renders_non_thread_scene_labels() {
         (SceneKind::Dashboard, "dashboard"),
     ] {
         assert_eq!(kind.scene_label(), label);
-        let row = render_row2(80, None, hints(kind));
+        let row = render_row2(80, hints(kind));
         assert!(row.starts_with(&format!("  {label}")), "{kind:?}: {row}");
     }
 }
@@ -78,7 +73,6 @@ fn row2_context_tone_escalates_when_flagged() {
     };
     let quiet = render_row2_cells(
         80,
-        None,
         ViewHints {
             context: Some("main running"),
             ..hints(SceneKind::Dashboard)
@@ -88,7 +82,6 @@ fn row2_context_tone_escalates_when_flagged() {
     );
     let urgent = render_row2_cells(
         80,
-        None,
         ViewHints {
             context: Some("needs approval"),
             context_warn: true,
@@ -112,21 +105,67 @@ fn row2_context_tone_escalates_when_flagged() {
 #[test]
 fn row2_renders_right_aligned_drill_in_stack() {
     let crumbs = [SceneKind::Thread, SceneKind::Subagent];
-    let row = render_row2(
+    let theme = Theme::default();
+    let cells = render_row2_cells(
         80,
-        None,
         ViewHints {
             kind: SceneKind::Subagent,
-            context: Some("[EXPLORE] inspect codebase"),
+            role: Some("explore"),
+            context: Some("inspect codebase"),
             context_warn: false,
             breadcrumbs: Some(&crumbs),
             can_back: true,
             can_forward: false,
         },
+        None,
+        &theme,
+    );
+    let row: String = cells.iter().map(|c| c.symbol.as_str()).collect();
+    assert!(
+        row.contains("EXPLORE  inspect codebase"),
+        "shows chromatic bare role token and scene context: {row}"
+    );
+    let role_col = row.find("EXPLORE").unwrap();
+    assert_eq!(
+        cells[role_col].style.fg,
+        theme.brand(),
+        "subagent role token must paint in brand tone"
     );
     assert!(
-        row.contains("[EXPLORE] inspect codebase"),
-        "shows scene context: {row}"
+        cells[role_col].style.add.contains(Modifier::BOLD),
+        "subagent role token must be bold"
+    );
+    let ctx_col = row.find("inspect codebase").unwrap();
+    assert_eq!(
+        cells[ctx_col].style.fg,
+        theme.fg(),
+        "subagent task description stays in foreground tone"
+    );
+    // Framed fallback preserves brackets around the role token.
+    let framed_theme = Theme {
+        elevation: ui_primitives::elevation::ElevationArchetype::Structured,
+        ..Theme::default()
+    };
+    let framed_row: String = render_row2_cells(
+        80,
+        ViewHints {
+            kind: SceneKind::Subagent,
+            role: Some("explore"),
+            context: Some("inspect codebase"),
+            context_warn: false,
+            breadcrumbs: Some(&crumbs),
+            can_back: true,
+            can_forward: false,
+        },
+        None,
+        &framed_theme,
+    )
+    .iter()
+    .map(|c| c.symbol.as_str())
+    .collect();
+    assert!(
+        framed_row.contains("[EXPLORE]  inspect codebase"),
+        "framed subagent SceneBar retains structural brackets: {framed_row}"
     );
     // The affordances are navigation controls, not keycaps: the chord text
     // belongs to the Help dialog, which resolves it from the live keymap
@@ -145,17 +184,17 @@ fn row2_renders_right_aligned_drill_in_stack() {
         !row.contains("< thread >"),
         "no pseudo-tag delimiter artifact: {row}"
     );
-    let ctx_pos = row.find("[EXPLORE]").unwrap();
+    let ctx_pos = row.find("EXPLORE").unwrap();
     let stack_pos = row.find('‹').unwrap();
     assert!(ctx_pos < stack_pos, "context left, stack right: {row}");
 
     // With can_forward = true
     let row_fwd = render_row2(
         80,
-        None,
         ViewHints {
             kind: SceneKind::Subagent,
-            context: Some("[EXPLORE] inspect codebase"),
+            role: Some("explore"),
+            context: Some("inspect codebase"),
             context_warn: false,
             breadcrumbs: Some(&crumbs),
             can_back: true,
@@ -179,9 +218,9 @@ fn row2_computes_nav_hit_rects_accurately() {
         nav_rects = draw_scene_bar(
             frame,
             frame.area(),
-            None,
             &ViewHints {
                 kind: SceneKind::Subagent,
+                role: None,
                 context: Some("task 1"),
                 context_warn: false,
                 breadcrumbs: Some(&crumbs),
@@ -214,7 +253,6 @@ fn row2_band_paints_the_full_row_width() {
         draw_scene_bar(
             frame,
             frame.area(),
-            None,
             &hints(SceneKind::Settings),
             None,
             &theme,
@@ -233,7 +271,6 @@ fn row2_non_thread_context_degrades_ellipsis_under_ascii_glyphs() {
     };
     let cells = render_row2_cells(
         40,
-        None,
         ViewHints {
             kind: SceneKind::Dashboard,
             context: Some("a very long dashboard fleet summary that must truncate"),

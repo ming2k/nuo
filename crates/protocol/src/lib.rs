@@ -252,8 +252,8 @@ pub use model::{
 };
 pub use monitor::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredTask, MonitoredThread,
-    PersistenceHealth, ServerInitStage, ServerPhase, StoragePressure, ThreadActivity,
-    ThreadHosting,
+    PersistenceHealth, ServerInitStage, ServerPhase, StorageInitDetail, StoragePressure,
+    ThreadActivity, ThreadHosting,
 };
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
@@ -374,7 +374,11 @@ pub use policy_schema::{
 /// `ThreadPhase` retires `Binding` and unproduced `Loading`; `Subscribe`,
 /// `Subscribed`, `Pick`, `Control`, `ControlReply`, and `Error` carry
 /// `request_id` for unified single-connection multiplexing. Clean break.
-pub const PROTOCOL_VERSION: u32 = 36;
+/// 37: Observable storage migration progress (ADR-0266).
+/// `ServerPhase::Initializing` gains optional `detail: Option<StorageInitDetail>`
+/// (`BackingUp`, `Migrating`, `Verifying`) and `started_at_ms: Option<u64>`.
+/// Clean break.
+pub const PROTOCOL_VERSION: u32 = 37;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -962,9 +966,7 @@ mod readiness_protocol_tests {
             protocol: PROTOCOL_VERSION,
             version: "1.0.0".to_string(),
             started_at: 1_700_000_000,
-            phase: ServerPhase::Initializing {
-                stage: ServerInitStage::Storage,
-            },
+            phase: ServerPhase::initializing(ServerInitStage::Storage),
             persistence_health: None,
             monitor: None,
         };

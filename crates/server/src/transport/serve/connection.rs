@@ -55,11 +55,13 @@ pub(crate) fn spawn_tcp_connection(
                 // Health responses are momentary and stateless; they stay out
                 // of the drain-tracked connection table by design.
                 let phase = registry.server_phase();
+                let persistence_health = registry.persistence_health_snapshot();
                 if let Err(e) = crate::transport::health_http::serve(
                     stream,
                     gate.version_of_server(),
                     registry.server_id(),
                     &phase,
+                    persistence_health.as_ref(),
                     expected_token,
                 )
                 .await
@@ -191,10 +193,24 @@ impl Drop for ConnGuard {
 fn non_ready_refusal(phase: &ServerPhase) -> Option<(&'static str, String)> {
     match phase {
         ServerPhase::Ready | ServerPhase::Reloading => None,
-        ServerPhase::Initializing { stage } => Some((
-            ERR_SERVER_NOT_READY,
-            format!("server is initializing ({})", stage.as_str()),
-        )),
+        ServerPhase::Initializing { stage, detail, .. } => {
+            let suffix = match detail {
+                Some(protocol::StorageInitDetail::BackingUp { target_version }) => {
+                    format!("backing up database before v{target_version}")
+                }
+                Some(protocol::StorageInitDetail::Migrating { step, total, name }) => {
+                    format!("migrating database {step}/{total}: {name}")
+                }
+                Some(protocol::StorageInitDetail::Verifying) => {
+                    "verifying database integrity".to_string()
+                }
+                None => stage.as_str().to_string(),
+            };
+            Some((
+                ERR_SERVER_NOT_READY,
+                format!("server is initializing ({suffix})"),
+            ))
+        }
         ServerPhase::Draining { reason } => Some((
             ERR_SERVER_DRAINING,
             match reason {
@@ -267,10 +283,20 @@ async fn execute_control(
 
     let (ok, session_id, error, payload) = match request {
         ControlRequest::Shutdown => unreachable!("handled above"),
-        ControlRequest::Reload => match registry.reload_runtime().await {
-            Ok(()) => (true, None, None, None),
-            Err(error) => (false, None, Some(error), None),
-        },
+        ControlRequest::Reload => {
+            // Surface `Reloading` immediately to the calling connection before
+            // awaiting `reload_runtime()` inline (which transitions
+            // `Reloading -> Ready` before `run_session_loop` polls `phase_rx`).
+            send_monitor(
+                wire_sink,
+                MonitorEvent::ServerPhaseChanged(ServerPhase::Reloading),
+            )
+            .await?;
+            match registry.reload_runtime().await {
+                Ok(()) => (true, None, None, None),
+                Err(error) => (false, None, Some(error), None),
+            }
+        }
         ControlRequest::CreateThread {
             project,
             prompt,
@@ -1433,7 +1459,6 @@ async fn run_session_loop(params: SessionLoopParams) -> Result<(), String> {
     let mut flush_deadline: Option<tokio::time::Instant> = None;
     let mut drain_latched = false;
 
-    let mut last_sent_phase = phase_rx.borrow().clone();
     let drain = gate.triggered();
     tokio::pin!(drain);
 
@@ -1460,42 +1485,28 @@ async fn run_session_loop(params: SessionLoopParams) -> Result<(), String> {
                     break Ok(());
                 }
                 let phase = phase_rx.borrow_and_update().clone();
-                if phase == last_sent_phase {
-                    continue;
-                }
-                last_sent_phase = phase.clone();
                 if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
                     break Err(e);
                 }
                 flush_deadline = None;
+                let is_failed = matches!(phase, ServerPhase::Failed { .. });
                 let is_draining = matches!(phase, ServerPhase::Draining { .. });
                 if let Err(e) = send_monitor(&mut wire_sink, MonitorEvent::ServerPhaseChanged(phase)).await {
                     break Err(e);
                 }
-                if is_draining && subs.is_empty() && monitor_action.is_some_and(|m| m.watch) {
+                // On fatal startup failure, flush and close deterministically
+                // so `conns.drain_with_budget` exits immediately without racing
+                // socket teardown (ADR-0266 `[INV-SRVPHASE-06]`).
+                if is_failed || (is_draining && subs.is_empty() && monitor_action.is_some_and(|m| m.watch)) {
                     let _ = wire_sink.close().await;
                     break Ok(());
                 }
             }
             Some(mon) = recv_monitor_opt(&mut monitor_rx) => {
                 match mon {
-                    Ok(MonitorEvent::ServerPhaseChanged(phase)) => {
-                        if phase == last_sent_phase {
-                            continue;
-                        }
-                        last_sent_phase = phase.clone();
-                        if let Err(e) = flush_delta(&mut wire_sink, &mut pending_delta).await {
-                            break Err(e);
-                        }
-                        flush_deadline = None;
-                        let is_draining = matches!(phase, ServerPhase::Draining { .. });
-                        if let Err(e) = send_monitor(&mut wire_sink, MonitorEvent::ServerPhaseChanged(phase)).await {
-                            break Err(e);
-                        }
-                        if is_draining && subs.is_empty() && monitor_action.is_some_and(|m| m.watch) {
-                            let _ = wire_sink.close().await;
-                            break Ok(());
-                        }
+                    Ok(MonitorEvent::ServerPhaseChanged(_)) => {
+                        // ADR-0266 `[INV-SRVPHASE-07]`: ServerPhaseChanged streams
+                        // exclusively from `phase_rx` (watch channel).
                     }
                     Ok(event) => {
                         let include_idle = monitor_action.is_some_and(|m| m.include_idle);

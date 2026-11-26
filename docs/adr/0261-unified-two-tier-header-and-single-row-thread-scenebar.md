@@ -17,7 +17,10 @@ negative_knowledge: true
 - **Date**: 2026-11-28
 - **Deciders**: Nuo Architecture Working Group
 - **Amends**: [ADR-0050](0050-authentic-thread-title-lifecycle-clean-scene-head-and-semantic-tab-projection.md), [ADR-0062](0062-polymorphic-scenebar-projection-sovereign-thread-context-and-consolidated-activity-strip.md)
+- **Amended by**: [ADR-0268](0268-zen-thread-scenebar-chromatic-role-token-and-uuid-free-untitled-chrome.md) (`[INV-HEAD-11]`, `[INV-HEAD-12]` — chromatic surfaces render bare uppercase `ROLE` with framed `[ROLE]` fallback; untitled Thread SceneBar keeps the title slot silent and retires `thread <id_tail>` / `thread_id_tail`)
 - **Related**: [ADR-0060](0060-three-tier-spatial-header-topology-governance-band-and-clean-tab-stack.md), [ADR-0092](0092-uncompromising-scenebar-breadcrumb-topology-bidirectional-navigation-and-symmetric-keybindings.md), [ADR-0152](0152-universal-text-overflow-column-budget-and-focus-reveal-topology.md)
+
+> **Amended in part (2026-11-30)**: [ADR-0268](0268-zen-thread-scenebar-chromatic-role-token-and-uuid-free-untitled-chrome.md) refines the single-row Thread `SceneBar` introduced here: chromatic surfaces render the staffed role bare (`DEVELOPER`) while framed surfaces retain `[DEVELOPER]` (`[INV-HEAD-11]`), and untitled threads leave the title slot silent rather than painting `thread <id_tail>` (`[INV-HEAD-12]`). The uniform two-row head band, retirement of Tier 3 `ThreadContextBar`, zero-displacement title arrival, and fair-share width budgeting remain unchanged.
 
 ---
 

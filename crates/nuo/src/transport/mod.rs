@@ -27,7 +27,7 @@ pub use protocol::version::{
 };
 pub use protocol::{
     ControlRequest, NativeWireCodec, PROTOCOL_VERSION, ServerEndpointsReport, ServerInitStage,
-    ServerPhase, ThreadInitOptions, ThreadTarget, Wire,
+    ServerPhase, StorageInitDetail, ThreadInitOptions, ThreadTarget, Wire,
 };
 #[cfg(unix)]
 pub use server::api::serve_discovery::default_uds_path;
@@ -291,6 +291,7 @@ mod attach;
 mod control;
 mod lifecycle;
 mod monitor;
+mod ready;
 mod remote;
 mod rows;
 
@@ -305,6 +306,8 @@ pub use self::control::*;
 pub use self::lifecycle::*;
 #[allow(unused_imports)]
 pub use self::monitor::*;
+#[allow(unused_imports)]
+pub use self::ready::format_init_phase;
 #[allow(unused_imports)]
 pub use self::remote::*;
 #[allow(unused_imports)]

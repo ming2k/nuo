@@ -304,34 +304,27 @@ fn draw_transcript_surface(
             total: tasks.len(),
         })
     });
-    let (scene_kind, scene_context, scene_context_warn): (
+    let (scene_kind, scene_role, scene_context, scene_context_warn): (
         crate::shell::surfaces::SceneKind,
+        Option<String>,
         Option<String>,
         bool,
     ) = if let Some(bar) = subagent_bar.as_ref() {
-        let role = bar
-            .role
-            .as_deref()
-            .map(|role| format!("[{}]", role.to_uppercase()))
-            .unwrap_or_default();
         let count = if bar.total > 1 {
             format!(" ({}/{})", bar.index, bar.total)
         } else {
             String::new()
         };
-        let context = if role.is_empty() {
-            format!("{}{count}", bar.label)
-        } else {
-            format!("{role} {}{count}", bar.label)
-        };
         (
             crate::shell::surfaces::SceneKind::Subagent,
-            Some(context),
+            bar.role.clone(),
+            Some(format!("{}{count}", bar.label)),
             false,
         )
     } else {
         (
             crate::shell::surfaces::SceneKind::Thread,
+            None,
             app.viewed_thread_title(),
             false,
         )
@@ -344,6 +337,7 @@ fn draw_transcript_surface(
     };
     let page_hints = render::ViewHints {
         kind: scene_kind,
+        role: scene_role.as_deref(),
         context: scene_context.as_deref(),
         context_warn: scene_context_warn,
         breadcrumbs,
@@ -468,7 +462,6 @@ fn draw_transcript_surface(
                     },
                     ..tab_hover
                 }),
-                thread_id: Some(viewed_session_id),
                 thread_context: Some(render::ThreadContext {
                     role: app.threads.current_role.as_deref(),
                     workspace: &app.threads.current_workspace,
@@ -1599,7 +1592,6 @@ fn draw_scene(
                 render::LogSceneProps {
                     log: app.threads.command_log.as_ref(),
                     scroll: &mut app.surfaces.command_log_scroll,
-                    thread_id: Some(viewed_session_id),
                     tab_bar: Some(render::TabBarProps {
                         items: &tab_items,
                         active_tab: app.surfaces.surfaces.active_tab_index(),
@@ -1644,7 +1636,6 @@ fn draw_scene(
                 f,
                 render::DiffSceneProps {
                     state: app.threads.diff_viewer.as_mut(),
-                    thread_id: Some(viewed_session_id),
                     tab_bar: Some(render::TabBarProps {
                         items: &tab_items,
                         active_tab: app.surfaces.surfaces.active_tab_index(),

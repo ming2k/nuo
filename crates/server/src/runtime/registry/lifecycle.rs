@@ -440,6 +440,15 @@ impl ThreadRegistry {
             return Err("server is not ready to reload".to_string());
         }
         self.set_server_phase(protocol::ServerPhase::Reloading);
+        struct ReloadGuard<'a>(&'a ThreadRegistry);
+        impl Drop for ReloadGuard<'_> {
+            fn drop(&mut self) {
+                if matches!(self.0.server_phase(), protocol::ServerPhase::Reloading) {
+                    self.0.set_server_phase(protocol::ServerPhase::Ready);
+                }
+            }
+        }
+        let _guard = ReloadGuard(self);
         let config = tokio::task::spawn_blocking(persistence::config::Config::load)
             .await
             .map_err(|error| format!("reload config task failed: {error}"))?;
@@ -453,9 +462,6 @@ impl ThreadRegistry {
                 .req_tx
                 .send(protocol::AgentRequest::ReloadRuntime)
                 .await;
-        }
-        if matches!(self.server_phase(), protocol::ServerPhase::Reloading) {
-            self.set_server_phase(protocol::ServerPhase::Ready);
         }
         Ok(())
     }

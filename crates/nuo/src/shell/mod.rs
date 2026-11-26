@@ -542,6 +542,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             server_phase_since: std::time::Instant::now(),
             thread_phase_since: std::time::Instant::now(),
             pending_initial_subscribe: boot.pending_initial_subscribe,
+            initial_subscribe_in_flight: false,
             initial_init_options: protocol::ThreadInitOptions::default(),
             project_scope: None,
             sessions_overview: Vec::new(),
@@ -1055,8 +1056,11 @@ pub(crate) async fn run_supervised_tui(
         mutations,
     };
 
-    // Placeholder channel until `ConnectionSupervisor` installs the live `ServerLink.req_tx`.
-    let (placeholder_tx, _placeholder_rx) = mpsc::unbounded_channel();
+    // Closed placeholder channel until `ConnectionSupervisor` installs the live
+    // `ServerLink.req_tx` via `AppMutation::LinkEstablished` (ADR-0267
+    // `[INV-SRVPHASE-09]`): dropping the receiver immediately ensures no
+    // pre-connect frame can ever vanish silently into an unread buffer.
+    let (placeholder_tx, _) = mpsc::unbounded_channel();
     let live_session_init = String::new();
     let initial_thread_phase = if initial_subscribe.is_some() {
         protocol::ThreadPhase::Preparing {

@@ -3,6 +3,7 @@
 
 use super::current_posture;
 use super::lifecycle::CONTROL_REPLY_TIMEOUT;
+use super::ready;
 use super::*;
 use std::time::Duration;
 
@@ -51,18 +52,19 @@ async fn control_outcome_with_timeout(
     request: ControlRequest,
     timeout: Duration,
 ) -> Result<ControlOutcome, String> {
-    let deadline = tokio::time::Instant::now() + timeout;
+    let connect_deadline = tokio::time::Instant::now() + timeout;
 
     if let Some(endpoint) = info.effective_local_endpoint()
         && let Ok(Ok(stream)) =
-            tokio::time::timeout_at(deadline, host::ipc::connect(&endpoint)).await
+            tokio::time::timeout_at(connect_deadline, host::ipc::connect(&endpoint)).await
     {
         let (sink, source) = native_framed_split(stream);
-        return finish_control_until((sink, source), request, deadline).await;
+        return finish_control_with_budgets((sink, source), request, ready::INIT_HARD_CAP, timeout)
+            .await;
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
     let (sink, source) = tokio::time::timeout_at(
-        deadline,
+        connect_deadline,
         connect_ws_wire(
             &url,
             info.token.as_deref(),
@@ -71,7 +73,7 @@ async fn control_outcome_with_timeout(
     )
     .await
     .map_err(|_| "timed out connecting control channel to server".to_string())??;
-    finish_control_until((sink, source), request, deadline).await
+    finish_control_with_budgets((sink, source), request, ready::INIT_HARD_CAP, timeout).await
 }
 
 #[cfg(test)]
@@ -80,33 +82,36 @@ pub(super) async fn finish_control(
     request: ControlRequest,
     timeout: Duration,
 ) -> Result<ControlOutcome, String> {
-    finish_control_until(parts, request, tokio::time::Instant::now() + timeout).await
+    finish_control_with_budgets(parts, request, timeout, timeout).await
 }
 
-async fn finish_control_until(
+async fn finish_control_with_budgets(
     parts: (BoxWireSink, BoxWireStream),
     request: ControlRequest,
-    deadline: tokio::time::Instant,
+    init_cap: Duration,
+    reply_timeout: Duration,
 ) -> Result<ControlOutcome, String> {
     let (mut wire_sink, mut wire_source) = parts;
+    let hello_deadline = tokio::time::Instant::now() + reply_timeout;
     let hello = Wire::Hello {
         protocol: PROTOCOL_VERSION,
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         posture: current_posture(),
         monitor: None,
     };
-    tokio::time::timeout_at(deadline, wire_sink.send(hello))
+    tokio::time::timeout_at(hello_deadline, wire_sink.send(hello))
         .await
         .map_err(|_| "timed out sending control hello to server".to_string())?
         .map_err(|e| format!("wire send control hello: {e}"))?;
 
     // Wait for `ServerHello`; if the server is still initializing and the verb
-    // requires a ready server, wait on `ServerPhaseChanged` until `admits_work`.
+    // requires a ready server, wait via the shared progress-aware watchdog
+    // before applying the verb's reply timeout (ADR-0266).
     let needs_ready = !matches!(
         request,
         ControlRequest::Shutdown | ControlRequest::GetServerEndpoints
     );
-    let mut server_phase = tokio::time::timeout_at(deadline, async {
+    let mut server_phase = tokio::time::timeout_at(hello_deadline, async {
         match wire_source.next().await {
             Some(Ok(WireFrame::Wire(Wire::ServerHello { phase, .. }))) => Ok(phase),
             Some(Ok(WireFrame::Wire(Wire::Error { message, .. }))) => Err(message),
@@ -125,24 +130,11 @@ async fn finish_control_until(
     .map_err(|_| "timed out waiting for server hello".to_string())??;
 
     if needs_ready {
-        while matches!(server_phase, ServerPhase::Initializing { .. }) {
-            server_phase = tokio::time::timeout_at(deadline, async {
-                loop {
-                    match wire_source.next().await {
-                        Some(Ok(WireFrame::Wire(Wire::Monitor {
-                            event: MonitorEvent::ServerPhaseChanged(next),
-                        }))) => return Ok(next),
-                        Some(Ok(WireFrame::Wire(Wire::Error { message, .. }))) => {
-                            return Err(message);
-                        }
-                        Some(Ok(_)) => continue,
-                        Some(Err(error)) => return Err(format!("wire recv server phase: {error}")),
-                        None => return Err("server closed connection while initializing".into()),
-                    }
-                }
-            })
-            .await
-            .map_err(|_| "timed out waiting for server to finish initializing".to_string())??;
+        if server_phase.is_initializing() {
+            server_phase =
+                ready::await_server_ready(&mut wire_source, server_phase, None, init_cap)
+                    .await
+                    .map_err(|e| e.message)?;
         }
         match &server_phase {
             ServerPhase::Failed { message, .. } => {
@@ -157,6 +149,8 @@ async fn finish_control_until(
             _ => {}
         }
     }
+
+    let deadline = tokio::time::Instant::now() + reply_timeout;
 
     let request_id = 1;
     tokio::time::timeout_at(

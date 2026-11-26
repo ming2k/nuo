@@ -15,7 +15,16 @@ use super::*;
 impl DatabaseEngine {
     /// Open or create the writer's database connection on a file path.
     pub(crate) fn open(db_path: &Path) -> Result<Self> {
-        let conn = initialize_db(db_path)?;
+        Self::open_with_observer(db_path, None)
+    }
+
+    /// Open or create the writer's database connection, forwarding migration
+    /// progress to `observer` when pending migrations execute (ADR-0266).
+    pub(crate) fn open_with_observer(
+        db_path: &Path,
+        observer: Option<&MigrationObserver>,
+    ) -> Result<Self> {
+        let conn = initialize_db_with_observer(db_path, observer)?;
         Ok(Self { conn })
     }
 

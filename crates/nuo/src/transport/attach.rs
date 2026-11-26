@@ -5,6 +5,7 @@
 use super::control::ControlOutcome;
 use super::current_posture;
 use super::lifecycle::{ATTACH_ACK_TIMEOUT, CONTROL_REPLY_TIMEOUT};
+use super::ready;
 use super::*;
 use protocol::{
     ControlRequest, MonitorAction, MonitorEvent, PersistenceHealth, ServerPhase, ThreadOverview,
@@ -13,11 +14,6 @@ use protocol::{
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::oneshot;
-
-/// Maximum wait for a freshly spawned server to finish bounded local
-/// initialization (`ServerPhase::Initializing` -> `Ready`) on blocking
-/// `connect()` helpers (headless CLI, integration tests).
-const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A failed attach, subscription, or control verb.
 ///
@@ -361,52 +357,16 @@ pub(super) async fn finish_handshake_with_options(
     }
 
     // If the server is still completing bounded local initialization, wait on
-    // its live `ServerPhaseChanged` stream before subscribing (`[INV-SRVPHASE-03]`).
-    if matches!(hello_info.phase, ServerPhase::Initializing { .. }) {
-        let ready_phase = tokio::time::timeout(SERVER_READY_TIMEOUT, async {
-            loop {
-                match wire_source.next().await {
-                    Some(Ok(WireFrame::Wire(Wire::Monitor { event }))) => {
-                        if let MonitorEvent::ServerPhaseChanged(ref next) = event {
-                            let phase_clone = next.clone();
-                            buffered_monitor.push(event);
-                            if !matches!(phase_clone, ServerPhase::Initializing { .. }) {
-                                return Ok(phase_clone);
-                            }
-                        } else {
-                            buffered_monitor.push(event);
-                        }
-                    }
-                    Some(Ok(WireFrame::Wire(Wire::Error { message, code, .. }))) => {
-                        return Err(AttachError::server_refusal(code, message));
-                    }
-                    Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
-                        return Err(AttachError::transport(format!(
-                            "server sent a frame this client cannot decode{}: {detail}",
-                            envelope
-                                .map(|tag| format!(" (envelope `{tag}`)"))
-                                .unwrap_or_default()
-                        )));
-                    }
-                    Some(Ok(_)) => continue,
-                    Some(Err(error)) => {
-                        return Err(AttachError::transport(format!(
-                            "wire recv while waiting for server ready: {error}"
-                        )));
-                    }
-                    None => {
-                        return Err(AttachError::transport(
-                            "server closed connection while initializing",
-                        ));
-                    }
-                }
-            }
-        })
-        .await
-        .map_err(|_| {
-            AttachError::transport("timed out waiting for server to finish initialization")
-        })??;
-        hello_info.phase = ready_phase;
+    // its live `ServerPhaseChanged` stream via the shared progress-aware
+    // watchdog before subscribing (ADR-0260 `[INV-SRVPHASE-03]`, ADR-0266).
+    if hello_info.phase.is_initializing() {
+        hello_info.phase = ready::await_server_ready(
+            &mut wire_source,
+            hello_info.phase,
+            Some(&mut buffered_monitor),
+            ready::INIT_HARD_CAP,
+        )
+        .await?;
     }
 
     match &hello_info.phase {
@@ -558,7 +518,7 @@ pub(super) async fn finish_handshake_with_options(
     })
 }
 
-async fn exchange_hello(
+pub(super) async fn exchange_hello(
     wire_sink: &mut BoxWireSink,
     wire_source: &mut BoxWireStream,
     monitor: Option<MonitorAction>,

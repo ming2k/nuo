@@ -130,15 +130,39 @@ fn empty_state_renders_honest_server_and_thread_phases_and_matches_line_count() 
 
     let server_cases = [
         (
-            protocol::ServerPhase::Initializing {
-                stage: protocol::ServerInitStage::Storage,
-            },
+            protocol::ServerPhase::initializing(protocol::ServerInitStage::Storage),
             "Initializing Nuo server · storage…",
         ),
         (
-            protocol::ServerPhase::Initializing {
-                stage: protocol::ServerInitStage::Runtime,
-            },
+            protocol::ServerPhase::initializing_with(
+                protocol::ServerInitStage::Storage,
+                Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+                None,
+            ),
+            "Initializing Nuo server · backing up database before v9…",
+        ),
+        (
+            protocol::ServerPhase::initializing_with(
+                protocol::ServerInitStage::Storage,
+                Some(protocol::StorageInitDetail::Migrating {
+                    step: 2,
+                    total: 3,
+                    name: "0009_pure_catalog".into(),
+                }),
+                None,
+            ),
+            "Initializing Nuo server · migrating database (2/3 · 0009_pure_catalog)…",
+        ),
+        (
+            protocol::ServerPhase::initializing_with(
+                protocol::ServerInitStage::Storage,
+                Some(protocol::StorageInitDetail::Verifying),
+                None,
+            ),
+            "Initializing Nuo server · verifying database integrity…",
+        ),
+        (
+            protocol::ServerPhase::initializing(protocol::ServerInitStage::Runtime),
             "Initializing Nuo server · runtime…",
         ),
         (protocol::ServerPhase::Reloading, "Reloading Nuo server…"),
@@ -265,31 +289,71 @@ fn failed_detail_truncates_with_ellipsis_in_narrow_viewport() {
 #[test]
 fn server_and_thread_phase_status_map_every_phase_honestly() {
     assert_eq!(
-        server_phase_status(&protocol::ServerPhase::Initializing {
-            stage: protocol::ServerInitStage::Storage
-        }),
+        server_phase_status(&protocol::ServerPhase::initializing(
+            protocol::ServerInitStage::Storage
+        ))
+        .as_deref(),
         Some("initializing server · storage…")
     );
     assert_eq!(
-        server_phase_status(&protocol::ServerPhase::Initializing {
-            stage: protocol::ServerInitStage::Runtime
-        }),
+        server_phase_status_at(
+            &protocol::ServerPhase::initializing_with(
+                protocol::ServerInitStage::Storage,
+                Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+                Some(1_000),
+            ),
+            5_500,
+        )
+        .as_deref(),
+        Some("backing up database before v9… (4s)")
+    );
+    assert_eq!(
+        server_phase_status_at(
+            &protocol::ServerPhase::initializing_with(
+                protocol::ServerInitStage::Storage,
+                Some(protocol::StorageInitDetail::Migrating {
+                    step: 1,
+                    total: 2,
+                    name: "0009_pure_catalog".into(),
+                }),
+                Some(1_000),
+            ),
+            2_500,
+        )
+        .as_deref(),
+        Some("migrating database (1/2 · 0009_pure_catalog)…")
+    );
+    assert_eq!(
+        server_phase_status(&protocol::ServerPhase::initializing_with(
+            protocol::ServerInitStage::Storage,
+            Some(protocol::StorageInitDetail::Verifying),
+            None,
+        ))
+        .as_deref(),
+        Some("verifying database integrity…")
+    );
+    assert_eq!(
+        server_phase_status(&protocol::ServerPhase::initializing(
+            protocol::ServerInitStage::Runtime
+        ))
+        .as_deref(),
         Some("initializing server · runtime…")
     );
     assert_eq!(server_phase_status(&protocol::ServerPhase::Ready), None);
     assert_eq!(
-        server_phase_status(&protocol::ServerPhase::Reloading),
+        server_phase_status(&protocol::ServerPhase::Reloading).as_deref(),
         Some("reloading server…")
     );
     assert_eq!(
-        server_phase_status(&protocol::ServerPhase::Draining { reason: None }),
+        server_phase_status(&protocol::ServerPhase::Draining { reason: None }).as_deref(),
         Some("server shutting down…")
     );
     assert_eq!(
         server_phase_status(&protocol::ServerPhase::Failed {
             code: None,
             message: "boom".into(),
-        }),
+        })
+        .as_deref(),
         Some("server startup failed")
     );
 

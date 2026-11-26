@@ -18,7 +18,8 @@ negative_knowledge: true
 - **Date**: 2026-11-27
 - **Deciders**: Nuo Architecture Working Group
 - **Amends**: [ADR-0034](0034-deterministic-lifecycle-governance-phased-draining-and-tiered-restart.md), [ADR-0133](0133-attach-readiness-boundary-network-free-handshake-typed-session-phases-and-authoritative-late-hydration.md), [ADR-0251](0251-multiplexed-thread-sessions-and-resident-per-thread-workspaces.md)
-- **Related**: [ADR-0123](0123-attach-failure-typing-stale-tab-retirement-and-identity-addressed-session-rebasing.md), [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md), [ADR-0224](0224-bounded-reachability-failure-keepalive-and-owned-client-websocket.md), [ADR-0253](0253-one-owner-per-field-thread-instance-and-viewport.md)
+- **Amended by**: [ADR-0266](0266-observable-migration-progress-watch-only-lifecycle-and-honest-readiness.md), [ADR-0267](0267-causal-link-establishment-and-connected-subscription-reconciliation.md)
+- **Related**: [ADR-0123](0123-attach-failure-typing-stale-tab-retirement-and-identity-addressed-session-rebasing.md), [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md), [ADR-0224](0224-bounded-reachability-failure-keepalive-and-owned-client-websocket.md), [ADR-0253](0253-one-owner-per-field-thread-instance-and-viewport.md), [ADR-0266](0266-observable-migration-progress-watch-only-lifecycle-and-honest-readiness.md)
 
 ---
 

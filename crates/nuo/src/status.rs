@@ -91,10 +91,22 @@ pub async fn run(
             }
             MonitorEvent::ServerPhaseChanged(phase) => {
                 let is_draining = matches!(phase, protocol::ServerPhase::Draining { .. });
+                let failed_msg = match &phase {
+                    protocol::ServerPhase::Failed { message, .. } => Some(message.clone()),
+                    _ => None,
+                };
                 state.server_phase = phase;
                 if is_draining {
                     if !opts.json {
                         eprintln!("nuo: server is shutting down; watch ended.");
+                    } else {
+                        render(&info, &state, opts);
+                    }
+                    return Ok(());
+                }
+                if let Some(message) = failed_msg {
+                    if !opts.json {
+                        eprintln!("nuo: server startup failed: {message}; watch ended.");
                     } else {
                         render(&info, &state, opts);
                     }
@@ -257,7 +269,9 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
         }
     }
 
-    // High level diagnosis
+    // High level diagnosis (ADR-0266 `[INV-SRVPHASE-08]`):
+    // Reflect live `ServerPhase` and `PersistenceHealth` from the `Hello`
+    // probe before claiming the server is healthy.
     out.push_str("  Diagnosis:        ");
     if diag.discovery_record.is_some() && !diag.server_image_current {
         // ADR-0021: the executable drifted under a live server. This takes
@@ -267,6 +281,29 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
             "Rebuilt-binary drift: the running server's executable differs from the installed image.\n",
         );
         out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo server stop`.\n");
+    } else if let Some(protocol::ServerPhase::Failed { message, .. }) = &diag.live_phase {
+        out.push_str(&format!("Server startup failed: {message}\n"));
+    } else if let Some(protocol::ServerPhase::Draining { reason }) = &diag.live_phase {
+        match reason.as_deref().filter(|r| !r.is_empty()) {
+            Some(r) => out.push_str(&format!("Server is shutting down ({r}).\n")),
+            None => out.push_str("Server is shutting down.\n"),
+        }
+    } else if let Some(phase @ protocol::ServerPhase::Initializing { .. }) = &diag.live_phase {
+        let detail = client::format_init_phase(phase).unwrap_or_else(|| "initializing".into());
+        out.push_str(&format!(
+            "Server is initializing ({detail}). (Observe with `nuo status --watch`)\n"
+        ));
+    } else if let Some(health) = &diag.live_persistence_health
+        && !health.is_healthy()
+    {
+        let detail = health.detail().unwrap_or("unknown error");
+        out.push_str(&format!(
+            "Server is running with degraded persistence: {detail}\n"
+        ));
+    } else if diag.live_probe_attempted && diag.live_phase.is_none() {
+        out.push_str(
+            "Server endpoint is open but did not answer Wire::Hello within 500 ms (unresponsive or wedged).\n",
+        );
     } else if diag.discovery_valid && diag.tcp_listening {
         out.push_str("Server is running and healthy (hosted standalone posture). (Observe with `nuo status --watch`)\n");
     } else if diag.discovery_valid && diag.local_endpoint_connectable {
@@ -327,13 +364,21 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     };
 
     let phase_badge = match &snapshot.server_phase {
-        protocol::ServerPhase::Initializing { stage } => {
-            format!("Initializing: {}", stage.as_str())
+        phase @ protocol::ServerPhase::Initializing { .. } => {
+            let desc = client::format_init_phase(phase).unwrap_or_else(|| "initializing".into());
+            format!("Initializing: {desc}")
         }
         protocol::ServerPhase::Ready => "Ready".to_string(),
         protocol::ServerPhase::Reloading => "Reloading".to_string(),
         protocol::ServerPhase::Draining { .. } => "Draining".to_string(),
-        protocol::ServerPhase::Failed { .. } => "Failed".to_string(),
+        protocol::ServerPhase::Failed { message, .. } => {
+            let detail = message.lines().next().unwrap_or("").trim();
+            if detail.is_empty() {
+                "Failed".to_string()
+            } else {
+                format!("Failed: {detail}")
+            }
+        }
     };
     println!(
         "● Nuo [{phase_badge}] | Server PID {} (uptime {})",
@@ -342,11 +387,32 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     println!("  Transport: {transport} | Project: {root}");
 
     let db_path = host::paths::get().db_file();
-    let db_status = match (&snapshot.persistence_health, snapshot.storage) {
-        (Some(health), _) if !health.is_healthy() => {
+    let db_status = format_db_status(snapshot);
+    println!("  Database:  {} ({})", db_path.display(), db_status);
+    println!();
+
+    println!("{}", table(snapshot));
+}
+
+pub(crate) fn format_db_status(snapshot: &MonitorSnapshot) -> String {
+    match (
+        &snapshot.server_phase,
+        &snapshot.persistence_health,
+        snapshot.storage,
+    ) {
+        (
+            protocol::ServerPhase::Initializing {
+                stage: protocol::ServerInitStage::Storage,
+                ..
+            },
+            _,
+            _,
+        ) => "initializing…".to_string(),
+        (protocol::ServerPhase::Failed { .. }, _, _) => "unavailable".to_string(),
+        (_, Some(health), _) if !health.is_healthy() => {
             format!("Degraded: {}", health.detail().unwrap_or_default())
         }
-        (_, Some(storage)) if storage.is_elevated() => {
+        (_, _, Some(storage)) if storage.is_elevated() => {
             // A healthy writer with an unreclaimable WAL: the writer is fine,
             // the *storage* is not, and the cause is a reader holding a
             // snapshot older than the checkpoint can pass (ADR-0248).
@@ -362,11 +428,7 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
             )
         }
         _ => "WAL healthy".to_string(),
-    };
-    println!("  Database:  {} ({})", db_path.display(), db_status);
-    println!();
-
-    println!("{}", table(snapshot));
+    }
 }
 
 fn format_timestamp_ms(timestamp_ms: u64) -> String {

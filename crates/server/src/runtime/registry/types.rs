@@ -446,11 +446,13 @@ impl ThreadRegistry {
         self.lifecycle.subscribe()
     }
 
-    /// Transition the server's global phase and notify monitor subscribers.
+    /// Transition the server's global phase on the single `ServerLifecycle`
+    /// watch channel (ADR-0260 `[INV-SRVPHASE-01]`, ADR-0266 `[INV-SRVPHASE-07]`).
+    ///
+    /// Phase transitions stream exclusively from `watch` — never duplicated
+    /// onto the lossy `MonitorBus` broadcast channel.
     pub fn set_server_phase(&self, phase: protocol::ServerPhase) {
-        if self.lifecycle.set_phase(phase.clone()) {
-            self.publish_host_event(MonitorEvent::ServerPhaseChanged(phase));
-        }
+        self.lifecycle.set_phase(phase);
     }
 
     /// Latest cached durability-health state (if degraded or observed).
@@ -465,14 +467,42 @@ impl ThreadRegistry {
     }
 
     /// Execute the bounded `Storage` startup stage off the async worker pool:
-    /// open persistence supervision and load durable connection usage.
+    /// open/migrate durable storage (reporting live migration steps via
+    /// `ServerPhase::Initializing`), enforce `ensure_ready()` (ADR-0191,
+    /// ADR-0266 `[INV-SRVPHASE-06]`), and load durable connection usage.
     pub async fn initialize_storage(self: &Arc<Self>) -> Result<(), String> {
-        let usage = tokio::task::spawn_blocking(|| {
-            let _ = persistence::db::get_persistence_handle();
-            persistence::connection_usage::ConnectionUsage::load()
+        let registry_for_obs = Arc::downgrade(self);
+        let observer: persistence::db::MigrationObserver = Arc::new(move |progress| {
+            let Some(reg) = registry_for_obs.upgrade() else {
+                return;
+            };
+            let detail = match progress {
+                persistence::db::MigrationProgress::BackingUp { target_version } => {
+                    protocol::StorageInitDetail::BackingUp { target_version }
+                }
+                persistence::db::MigrationProgress::Migrating { step, total, name } => {
+                    protocol::StorageInitDetail::Migrating {
+                        step,
+                        total,
+                        name: name.to_string(),
+                    }
+                }
+                persistence::db::MigrationProgress::Verifying => {
+                    protocol::StorageInitDetail::Verifying
+                }
+            };
+            reg.set_server_phase(protocol::ServerPhase::initializing_with(
+                protocol::ServerInitStage::Storage,
+                Some(detail),
+                Some(crate::runtime::shutdown::unix_now_ms()),
+            ));
+        });
+        let usage = tokio::task::spawn_blocking(move || {
+            persistence::db::init_global_persistence(Some(observer))?;
+            Ok::<_, String>(persistence::connection_usage::ConnectionUsage::load())
         })
         .await
-        .map_err(|error| format!("storage initialization task failed: {error}"))?;
+        .map_err(|error| format!("storage initialization task failed: {error}"))??;
         *self.shared_provider_usage.write().await = usage;
         self.start_persistence_health_monitor();
         Ok(())

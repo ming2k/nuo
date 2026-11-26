@@ -241,14 +241,15 @@ fn project_thread_tab_status(app: &App, thread_id: &str, viewed_session_id: &str
     TabStatus::Idle
 }
 
-/// Resolve a thread tab's semantic title using the full authority ladder:
+/// Resolve a thread tab's authentic title using the full authority ladder:
 /// 1. Tab's cached authentic title (`tab.display_title()`),
 /// 2. Live monitor snapshot (`app.session.host_sessions`),
-/// 3. Active thread detail (`app.session.session_detail`),
-/// 4. Compact untitled fallback (`thread#<id_tail>`).
-fn resolve_thread_tab_title(app: &App, tab: &ClientTab, thread_id: &str) -> String {
+/// 3. Active thread detail (`app.session.session_detail`).
+///
+/// Returns `None` while the thread is still untitled.
+fn resolve_authentic_thread_title(app: &App, tab: &ClientTab, thread_id: &str) -> Option<String> {
     if let Some(title) = tab.display_title() {
-        return title.to_string();
+        return Some(title.to_string());
     }
     if let Some(row) = app
         .session
@@ -259,7 +260,7 @@ fn resolve_thread_tab_title(app: &App, tab: &ClientTab, thread_id: &str) -> Stri
     {
         let trimmed = title.trim();
         if !trimmed.is_empty() {
-            return trimmed.to_string();
+            return Some(trimmed.to_string());
         }
     }
     if let Some(ref detail) = app.session.session_detail
@@ -268,10 +269,35 @@ fn resolve_thread_tab_title(app: &App, tab: &ClientTab, thread_id: &str) -> Stri
     {
         let trimmed = title.trim();
         if !trimmed.is_empty() {
-            return trimmed.to_string();
+            return Some(trimmed.to_string());
         }
     }
-    format!("thread#{}", view::view_header::thread_id_tail(thread_id))
+    None
+}
+
+/// Format an untitled thread tab label without exposing raw or tail-sliced UUIDs
+/// (ADR-0268 `[INV-HEAD-12]`):
+/// - First untitled thread tab: `"new thread"`
+/// - Subsequent concurrent untitled thread tabs: `"new thread 2"`, `"new thread 3"`, …
+fn untitled_thread_tab_label(ordinal: usize) -> String {
+    if ordinal == 0 {
+        "new thread".to_string()
+    } else {
+        format!("new thread {}", ordinal + 1)
+    }
+}
+
+/// Resolve a thread tab's display title, falling back to a human-readable
+/// untitled label (`new thread` / `new thread N`) instead of a random UUID tail
+/// (ADR-0268 `[INV-HEAD-12]`).
+fn resolve_thread_tab_title(
+    app: &App,
+    tab: &ClientTab,
+    thread_id: &str,
+    untitled_ordinal: usize,
+) -> String {
+    resolve_authentic_thread_title(app, tab, thread_id)
+        .unwrap_or_else(|| untitled_thread_tab_label(untitled_ordinal))
 }
 
 /// Thread scene projector: decides the semantic title and live/outcome status
@@ -280,11 +306,12 @@ fn project_thread_scene_tab(
     app: &App,
     tab: &ClientTab,
     viewed_session_id: &str,
+    untitled_ordinal: usize,
 ) -> TabBarItem<'static> {
     let Some(thread_id) = tab.thread_id() else {
-        return TabBarItem::new("thread");
+        return TabBarItem::new(untitled_thread_tab_label(untitled_ordinal));
     };
-    let title = resolve_thread_tab_title(app, tab, thread_id);
+    let title = resolve_thread_tab_title(app, tab, thread_id, untitled_ordinal);
     let status = project_thread_tab_status(app, thread_id, viewed_session_id);
     TabBarItem::with_status(title, status)
 }
@@ -297,6 +324,7 @@ fn project_subagent_scene_tab(
     app: &App,
     tab: &ClientTab,
     viewed_session_id: &str,
+    untitled_ordinal: usize,
 ) -> TabBarItem<'static> {
     let Some(thread_id) = tab.thread_id() else {
         return TabBarItem::new("subagent");
@@ -310,7 +338,8 @@ fn project_subagent_scene_tab(
         let trimmed = desc.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     });
-    let title = subagent_title.unwrap_or_else(|| resolve_thread_tab_title(app, tab, thread_id));
+    let title = subagent_title
+        .unwrap_or_else(|| resolve_thread_tab_title(app, tab, thread_id, untitled_ordinal));
     let status = project_thread_tab_status(app, thread_id, viewed_session_id);
     TabBarItem::with_status(title, status)
 }
@@ -321,8 +350,9 @@ fn project_command_log_scene_tab(
     app: &App,
     tab: &ClientTab,
     viewed_session_id: &str,
+    untitled_ordinal: usize,
 ) -> TabBarItem<'static> {
-    project_thread_scene_tab(app, tab, viewed_session_id)
+    project_thread_scene_tab(app, tab, viewed_session_id, untitled_ordinal)
 }
 
 /// Diff drill-in scene projector: retains the owning thread container's
@@ -331,8 +361,9 @@ fn project_diff_scene_tab(
     app: &App,
     tab: &ClientTab,
     viewed_session_id: &str,
+    untitled_ordinal: usize,
 ) -> TabBarItem<'static> {
-    project_thread_scene_tab(app, tab, viewed_session_id)
+    project_thread_scene_tab(app, tab, viewed_session_id, untitled_ordinal)
 }
 
 /// Dashboard scene projector: owns its own TabBar slot representation.
@@ -345,34 +376,75 @@ fn project_settings_scene_tab() -> TabBarItem<'static> {
     TabBarItem::with_status("settings", TabStatus::Idle)
 }
 
-/// Project one open tab container's active scene into a domain-agnostic
-/// [`TabBarItem`] (DIP boundary between scenes and the TabBar renderer).
-///
-/// Pure per-frame projection — never persisted and never computed inside
-/// `draw_tab_bar`. Each [`SceneKind`] owns its own title and transient status.
-pub(crate) fn project_tab_item(
+fn project_tab_item_with_ordinal(
     app: &App,
     tab: &ClientTab,
     viewed_session_id: &str,
+    untitled_ordinal: usize,
 ) -> TabBarItem<'static> {
     match tab.current_scene() {
-        SceneKind::Thread => project_thread_scene_tab(app, tab, viewed_session_id),
-        SceneKind::Subagent => project_subagent_scene_tab(app, tab, viewed_session_id),
-        SceneKind::CommandLog => project_command_log_scene_tab(app, tab, viewed_session_id),
-        SceneKind::Diff => project_diff_scene_tab(app, tab, viewed_session_id),
+        SceneKind::Thread => {
+            project_thread_scene_tab(app, tab, viewed_session_id, untitled_ordinal)
+        }
+        SceneKind::Subagent => {
+            project_subagent_scene_tab(app, tab, viewed_session_id, untitled_ordinal)
+        }
+        SceneKind::CommandLog => {
+            project_command_log_scene_tab(app, tab, viewed_session_id, untitled_ordinal)
+        }
+        SceneKind::Diff => project_diff_scene_tab(app, tab, viewed_session_id, untitled_ordinal),
         SceneKind::Dashboard => project_dashboard_scene_tab(),
         SceneKind::Settings => project_settings_scene_tab(),
     }
 }
 
+/// Project one open tab container's active scene into a domain-agnostic
+/// [`TabBarItem`] (DIP boundary between scenes and the TabBar renderer).
+///
+/// Pure per-frame projection — never persisted and never computed inside
+/// `draw_tab_bar`. Each [`SceneKind`] owns its own title and transient status.
+#[cfg(test)]
+pub(crate) fn project_tab_item(
+    app: &App,
+    tab: &ClientTab,
+    viewed_session_id: &str,
+) -> TabBarItem<'static> {
+    let mut untitled_ordinal = 0usize;
+    for candidate in app.surfaces.surfaces.tabs() {
+        if std::ptr::eq(candidate, tab)
+            || (candidate.thread_id().is_some() && candidate.thread_id() == tab.thread_id())
+        {
+            break;
+        }
+        if let Some(tid) = candidate.thread_id()
+            && resolve_authentic_thread_title(app, candidate, tid).is_none()
+        {
+            untitled_ordinal += 1;
+        }
+    }
+    project_tab_item_with_ordinal(app, tab, viewed_session_id, untitled_ordinal)
+}
+
 /// Project all open tab containers into ordered [`TabBarItem`] slots aligned
 /// 1:1 with `app.surfaces.surfaces.tabs()`.
 pub(crate) fn project_tab_items(app: &App, viewed_session_id: &str) -> Vec<TabBarItem<'static>> {
+    let mut untitled_count = 0usize;
     app.surfaces
         .surfaces
         .tabs()
         .iter()
-        .map(|tab| project_tab_item(app, tab, viewed_session_id))
+        .map(|tab| {
+            let ordinal = if let Some(tid) = tab.thread_id()
+                && resolve_authentic_thread_title(app, tab, tid).is_none()
+            {
+                let ord = untitled_count;
+                untitled_count += 1;
+                ord
+            } else {
+                0
+            };
+            project_tab_item_with_ordinal(app, tab, viewed_session_id, ordinal)
+        })
         .collect()
 }
 

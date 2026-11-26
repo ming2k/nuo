@@ -8,8 +8,17 @@ use crate::shell::client::ClientOutbound;
 
 impl App {
     /// Send one outbound frame over the single FIFO client link (ADR-0251
-    /// `[INV-MUX-04]`, ADR-0260).
+    /// `[INV-MUX-04]`, ADR-0260, ADR-0267 `[INV-SRVPHASE-09]`).
     pub fn send_outbound(&mut self, outbound: ClientOutbound) -> bool {
+        if self.link.supervised
+            && !matches!(
+                self.link.phase,
+                crate::shell::app::state::ClientLinkPhase::Connected { .. }
+            )
+        {
+            tracing::debug!("deferring outbound frame: supervised link is not connected");
+            return false;
+        }
         match self.link.tx.send(outbound) {
             Ok(()) => true,
             Err(_) => {
