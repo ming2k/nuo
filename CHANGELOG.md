@@ -6,6 +6,65 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.101] - 2026-11-26
+
+### Added
+
+- **Live TabBar activity indicators without strip reflow (`[INV-TAB-16]`).**
+  Added pure per-frame tab activity projection (`TabStatus::Idle`, `Running`,
+  `Attention`) in `nuo::shell::event_loop::render::projection` so active thread
+  tabs show a pulsing spinner and human-gated threads show an attention glyph
+  in place without changing pill geometry. Permission, question, and stdin
+  prompts now emit `ChromeEdit::ActivityFolded(Phase::AwaitingUser)` so
+  background tabs surface human attention immediately.
+- **Honest attach/prepare lifecycle UX and draft preservation on setup failure.**
+  The empty-state hero and status bar now project every server-attested
+  `protocol::ThreadPhase` (`Binding`, `Loading`, `Preparing { stage }`,
+  `Failed`) honestly — including while resuming a thread — and submitting a
+  message while a thread is in `ThreadPhase::Failed` restores the user's draft
+  and records a `SessionPrepFailed` notice rather than queuing into a dead
+  inbox.
+- **Single source of truth for built-in provider defaults.**
+  Introduced `protocol::model_providers::BuiltinProviderDefaults` and canonical
+  gateway User-Agent constants (`CODEX_USER_AGENT`, `CODEBUDDY_USER_AGENT`,
+  `ZCODE_USER_AGENT`, `OPENCODE_USER_AGENT`, `ANTIGRAVITY_USER_AGENT`) shared
+  by every `crates/provider-*` spec and `view::providers::PROVIDER_PRESETS`,
+  mechanically enforced by
+  `governance::architecture_convergence::provider_presets_match_authoritative_model_provider_specs`.
+- **CI unused-dependency gate (`cargo machete`).**
+  Added `cargo machete` to `.github/workflows/ci.yml` to prevent unused
+  dependencies from accumulating in shipped crates.
+
+### Changed
+
+- **Workspace dependency consolidation and lean binary surface.**
+  Consolidated `dirs` into `directories` via `host::paths::home_dir()`, pruned
+  unused dependencies across workspace crates, and gated `nuo::dev` behind the
+  optional `dev-tools` feature so shipped `nuo` binaries do not link `regex` or
+  `walkdir`.
+- **TUI render & test architecture compliance (`[INV-SIZE-01]`, `[INV-TEST-07]`).**
+  Extracted pure per-frame projections into
+  `crates/nuo/src/shell/event_loop/render/projection.rs`, externalized
+  `render/tests.rs` and `crates/view/src/empty_state/tests.rs`, unified notice
+  fault classification under `NoticeSeverity::is_fault`, and renamed shell CLI
+  types to `TuiCliArgs` / `TuiMode`.
+- **Documentation alignment.**
+  Synced Quick Start `nuo thread open` usage across `README.md` and
+  `README-zh.md`, updated `docs/dev/subsystems.md` and OpenAPI references to
+  current `crates/provider-*` crate names, and extended
+  `living_docs_use_current_crate_names` to scan `.yml`/`.yaml` specs.
+
+### Removed
+
+- **Unreferenced library surfaces (breaking for external library consumers; wire protocol remains v35).**
+  Removed `protocol::MIN_PROTOCOL_VERSION` (exact `PROTOCOL_VERSION` matching
+  only), privatized `protocol::version::compare_versions`, replaced wildcard
+  re-exports in `protocol::lib` with explicit exports, removed `Model.protocol`
+  and `FittedModel.protocol` (routing belongs solely to `ModelProviderSpec` and
+  `Channel`), removed the unreferenced `inference_wire::generative::types` IR
+  and `TokenClass`, removed the deprecated `persistence::instances` shim, and
+  retired `server::composition::provider_baseline_fidelity_tests`.
+
 ## [0.0.100] - 2026-11-26
 
 ### Added
