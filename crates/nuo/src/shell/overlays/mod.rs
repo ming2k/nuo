@@ -38,7 +38,6 @@ pub mod tools;
 pub mod tree;
 pub mod usage_stats;
 
-#[allow(unused_imports)]
 pub use crate::shell::views::settings::{
     ConfigCategory, ConfigFocus, SettingsProps, build_websearch_provider_dropdown,
     build_websearch_reader_dropdown, draw_settings_view,
@@ -49,7 +48,6 @@ pub use dashboard::{
 };
 // `DashboardRects` is used by the event loop via `draw_dashboard`'s return; it
 // is part of the module's public API surface.
-#[allow(unused_imports)]
 pub use command_log::{
     LOG_SCENE_CHROME_ROWS, LogSceneProps, LogSceneRects, draw_command_log_scene,
 };
@@ -64,7 +62,6 @@ pub use help::{HelpActionKind, draw_help_modal};
 pub use history::draw_history_panel;
 pub use mcp::draw_mcp_modal;
 pub use notices::draw_notices_modal;
-#[allow(unused_imports)]
 pub use permission::{
     draw_input_injection, draw_permission_sheet, draw_question_modal, permission_action_count,
 };

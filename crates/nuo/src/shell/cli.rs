@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 /// What the user asked the terminal application to do.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Mode {
+pub enum TuiMode {
     /// Bare `nuo` / `nuo "prompt"`: open an interactive session.
     Fresh,
     /// `nuo run <prompt>`: execute a headless one-shot.
@@ -21,7 +21,7 @@ pub enum Mode {
     /// Open the full-screen settings view (optional category).
     Settings { category: Option<String> },
     /// `nuo completions <shell>`.
-    Completions(Shell),
+    Completions(TuiShell),
     /// `--version` / `-V`.
     Version,
     /// `--help` / `-h` / `help [topic]`.
@@ -30,13 +30,13 @@ pub enum Mode {
 
 /// A shell whose completion script `nuo completions` can print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Shell {
+pub enum TuiShell {
     Bash,
     Zsh,
     Fish,
 }
 
-impl Shell {
+impl TuiShell {
     fn from_name(name: &str) -> Option<Self> {
         match name {
             "bash" => Some(Self::Bash),
@@ -47,10 +47,10 @@ impl Shell {
     }
 }
 
-/// The parsed command line: the [`Mode`] plus terminal-app global options.
+/// The parsed terminal-app command line: the [`TuiMode`] plus global TUI options.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CliArgs {
-    pub mode: Mode,
+pub struct TuiCliArgs {
+    pub mode: TuiMode,
     /// `--project <path>`: operate on the project at `<path>`.
     pub project: Option<PathBuf>,
     /// `--auto-approve` (alias `--unattended`): auto-approve tool permissions without confirmation.
@@ -78,6 +78,29 @@ pub struct CliArgs {
     pub headless: bool,
     /// `-t` / `--thread [id]`: attach to existing thread (picker if ID omitted).
     pub thread: Option<Option<String>>,
+}
+
+impl TuiCliArgs {
+    /// Construct default terminal-app options for a concrete [`TuiMode`].
+    pub fn new(mode: TuiMode) -> Self {
+        Self {
+            mode,
+            project: None,
+            unattended: false,
+            role: None,
+            resume: false,
+            no_confinement: false,
+            interactive: false,
+            prompt: None,
+            prompt_from_flag: false,
+            json: false,
+            remote: None,
+            token: None,
+            port: None,
+            headless: false,
+            thread: None,
+        }
+    }
 }
 
 struct Spec {
@@ -155,7 +178,7 @@ fn flag_value<'a, I: Iterator<Item = &'a String>>(
 }
 
 /// Parse the command line. The caller owns error rendering and exit policy.
-pub fn parse(args: &[String]) -> Result<CliArgs, String> {
+pub fn parse(args: &[String]) -> Result<TuiCliArgs, String> {
     let mut project = None;
     let mut unattended = false;
     let mut role = None;
@@ -242,7 +265,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         }
     }
 
-    let base = |mode| CliArgs {
+    let base = |mode| TuiCliArgs {
         mode,
         project: project.clone(),
         unattended,
@@ -262,17 +285,17 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let ok = |mode| Ok(base(mode));
 
     if version {
-        return ok(Mode::Version);
+        return ok(TuiMode::Version);
     }
 
     if let Some(first) = rest.first().map(String::as_str) {
         if first == "-h" || first == "--help" || (first == "help" && rest.len() == 1) {
-            return ok(Mode::Help(None));
+            return ok(TuiMode::Help(None));
         }
         if first == "help" {
             let topic = &rest[1];
             return if command_index().contains_key(topic.as_str()) {
-                ok(Mode::Help(Some(topic.clone())))
+                ok(TuiMode::Help(Some(topic.clone())))
             } else {
                 Err(format!("unknown help topic '{topic}'"))
             };
@@ -280,15 +303,15 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         if command_index().contains_key(first)
             && rest[1..].iter().any(|arg| arg == "-h" || arg == "--help")
         {
-            return ok(Mode::Help(Some(first.to_string())));
+            return ok(TuiMode::Help(Some(first.to_string())));
         }
     }
 
     let Some(cmd) = rest.first().cloned() else {
         if let Some(ref t) = thread {
-            return ok(Mode::Attach { id: t.clone() });
+            return ok(TuiMode::Attach { id: t.clone() });
         }
-        return ok(Mode::Fresh);
+        return ok(TuiMode::Fresh);
     };
     let extra = &rest[1..];
     let unexpected = |arg: &str| Err(format!("unexpected argument '{arg}' found for 'nuo {cmd}'"));
@@ -315,7 +338,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         };
         match positional_prompt.or_else(|| prompt.clone()) {
             Some(text) if rest.len() > 1 || cmd.contains(' ') || prompt_from_flag => {
-                return ok(Mode::Fresh).map(|mut args| {
+                return ok(TuiMode::Fresh).map(|mut args| {
                     if args.prompt.is_none() {
                         args.prompt = Some(text);
                     }
@@ -336,26 +359,26 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     };
     let mode = match spec.name {
         "attach" => match extra {
-            [] => Mode::Attach { id: None },
-            [id] if !id.starts_with('-') => Mode::Attach {
+            [] => TuiMode::Attach { id: None },
+            [id] if !id.starts_with('-') => TuiMode::Attach {
                 id: Some(id.clone()),
             },
             [bad, ..] => return unexpected(bad),
         },
         "dashboard" => match extra {
-            [] => Mode::Dashboard,
+            [] => TuiMode::Dashboard,
             [bad, ..] => return unexpected(bad),
         },
         "settings" => match extra {
-            [] => Mode::Settings { category: None },
-            [category] => Mode::Settings {
+            [] => TuiMode::Settings { category: None },
+            [category] => TuiMode::Settings {
                 category: Some(category.clone()),
             },
             [bad, ..] => return unexpected(bad),
         },
         "completions" => match extra {
-            [shell] => match Shell::from_name(shell) {
-                Some(shell) => Mode::Completions(shell),
+            [shell] => match TuiShell::from_name(shell) {
+                Some(shell) => TuiMode::Completions(shell),
                 None => {
                     return Err(format!(
                         "unknown shell '{shell}' (expected bash, zsh, or fish)"
@@ -365,7 +388,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             [] => return Err("missing shell name (expected bash, zsh, or fish)".into()),
             [bad, ..] => return unexpected(bad),
         },
-        "help" => Mode::Help(None),
+        "help" => TuiMode::Help(None),
         _ => unreachable!("closed command set"),
     };
 
@@ -476,14 +499,14 @@ pub fn help_text(topic: Option<&str>) -> Option<String> {
 }
 
 /// A static completion script generated from the same command table.
-pub fn completion_script(shell: Shell) -> String {
+pub fn completion_script(shell: TuiShell) -> String {
     let commands = COMMANDS
         .iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>()
         .join(" ");
     match shell {
-        Shell::Bash => format!(
+        TuiShell::Bash => format!(
             "# bash completion for nuo — eval \"$(nuo completions bash)\"\n\
              _nuo() {{\n\
              \x20   local cur\n\
@@ -494,7 +517,7 @@ pub fn completion_script(shell: Shell) -> String {
              }}\n\
              complete -F _nuo nuo\n"
         ),
-        Shell::Zsh => {
+        TuiShell::Zsh => {
             let entries = COMMANDS
                 .iter()
                 .map(|spec| format!("        '{}:{}'", spec.name, spec.about))
@@ -505,7 +528,7 @@ pub fn completion_script(shell: Shell) -> String {
                  _arguments '1:command:(({entries}))' '*::argument:->args'\n"
             )
         }
-        Shell::Fish => format!(
+        TuiShell::Fish => format!(
             "# fish completion for nuo\n\
              set -l cmds {commands}\n\
              complete -c nuo -n '__fish_use_subcommand' -f -a \"$cmds\"\n"
@@ -517,7 +540,7 @@ pub fn completion_script(shell: Shell) -> String {
 mod tests {
     use super::*;
 
-    fn parse(tokens: &[&str]) -> Result<CliArgs, String> {
+    fn parse(tokens: &[&str]) -> Result<TuiCliArgs, String> {
         super::parse(
             &tokens
                 .iter()
@@ -528,14 +551,14 @@ mod tests {
 
     #[test]
     fn bare_invocation_starts_a_fresh_tui_session() {
-        assert!(matches!(parse(&[]).unwrap().mode, Mode::Fresh));
+        assert!(matches!(parse(&[]).unwrap().mode, TuiMode::Fresh));
     }
 
     #[test]
     fn client_commands_remain_on_the_nuo_surface() {
         assert!(matches!(
             parse(&["attach"]).unwrap().mode,
-            Mode::Attach { id: None }
+            TuiMode::Attach { id: None }
         ));
         let run_err = parse(&["run", "hello"]).unwrap_err();
         assert!(run_err.contains("'run' was removed in favor of '--headless'"));
@@ -545,11 +568,11 @@ mod tests {
     fn thread_flag_parses_cleanly() {
         let parsed = parse(&["-t"]).unwrap();
         assert_eq!(parsed.thread, Some(None));
-        assert!(matches!(parsed.mode, Mode::Attach { id: None }));
+        assert!(matches!(parsed.mode, TuiMode::Attach { id: None }));
 
         let parsed = parse(&["--thread", "thr-42"]).unwrap();
         assert_eq!(parsed.thread, Some(Some("thr-42".into())));
-        assert!(matches!(parsed.mode, Mode::Attach { id: Some(ref id) } if id == "thr-42"));
+        assert!(matches!(parsed.mode, TuiMode::Attach { id: Some(ref id) } if id == "thr-42"));
 
         let parsed = parse(&["--headless", "-p", "fix it"]).unwrap();
         assert!(parsed.headless);
@@ -573,19 +596,19 @@ mod tests {
     #[test]
     fn positional_prompt_is_preserved() {
         let parsed = parse(&["fix", "the", "build"]).unwrap();
-        assert!(matches!(parsed.mode, Mode::Fresh));
+        assert!(matches!(parsed.mode, TuiMode::Fresh));
         assert_eq!(parsed.prompt.as_deref(), Some("fix the build"));
     }
 
     #[test]
     fn settings_subcommand_parses_category() {
         let parsed = parse(&["settings"]).unwrap();
-        assert_eq!(parsed.mode, Mode::Settings { category: None });
+        assert_eq!(parsed.mode, TuiMode::Settings { category: None });
 
         let parsed = parse(&["settings", "web"]).unwrap();
         assert_eq!(
             parsed.mode,
-            Mode::Settings {
+            TuiMode::Settings {
                 category: Some("web".into())
             }
         );
@@ -593,7 +616,7 @@ mod tests {
         let parsed = parse(&["settings", "appearance"]).unwrap();
         assert_eq!(
             parsed.mode,
-            Mode::Settings {
+            TuiMode::Settings {
                 category: Some("appearance".into())
             }
         );

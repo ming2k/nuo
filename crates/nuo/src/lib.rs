@@ -15,6 +15,7 @@
 pub use engine;
 
 pub use server::*;
+#[cfg(any(test, feature = "dev-tools"))]
 pub mod dev;
 pub mod transport;
 

@@ -31,7 +31,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -43,7 +42,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -55,7 +53,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -67,7 +64,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -79,7 +75,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -91,7 +86,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -103,7 +97,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -115,7 +108,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -127,7 +119,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -139,7 +130,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -152,7 +142,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -164,7 +153,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -176,7 +164,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_BUDGET,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -188,7 +175,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_BUDGET,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -200,7 +186,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::None,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -212,7 +197,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::None,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -251,13 +235,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     ]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
-    id: std::borrow::Cow::Borrowed("google"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_GOOGLE.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://generativelanguage.googleapis.com/v1beta"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_GOOGLE.root_url),
+    user_agent: protocol::model_providers::PROVIDER_GOOGLE.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::GoogleGenerateContent,
-    models: GOOGLE_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_GOOGLE.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_GOOGLE.models,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Google),
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,
@@ -293,7 +278,10 @@ mod tests {
         let argon = protocol::model::resolve("gemini-4-argon");
         assert_eq!(argon.id, "gemini-4-argon");
         assert_eq!(argon.context_window, 1_000_000);
-        assert_eq!(argon.protocol, WireProtocol::GoogleGenerateContent);
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.model_protocol("gemini-4-argon"),
+            WireProtocol::GoogleGenerateContent
+        );
         assert!(argon.tool_call);
         assert!(argon.thinking.reasons());
         assert_eq!(argon.effort_levels, effort_ladders::GEMINI_LEVEL);
@@ -301,7 +289,10 @@ mod tests {
         let flash38 = protocol::model::resolve("gemini-3.8-flash");
         assert_eq!(flash38.id, "gemini-3.8-flash");
         assert_eq!(flash38.context_window, 1_000_000);
-        assert_eq!(flash38.protocol, WireProtocol::GoogleGenerateContent);
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.model_protocol("gemini-3.8-flash"),
+            WireProtocol::GoogleGenerateContent
+        );
         assert!(flash38.tool_call);
         assert!(flash38.thinking.reasons());
     }

@@ -13,7 +13,6 @@
 //! catalog discovery rather than a hard contract.
 
 use ::provider::*;
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 use protocol::surface::RemoteCatalogSource;
@@ -33,7 +32,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -45,7 +43,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -75,22 +72,26 @@ pub const INTL_MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
-    id: std::borrow::Cow::Borrowed("codebuddy-intl"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_CODEBUDDY_INTL.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://www.codebuddy.ai/v2"),
-    user_agent: Some(std::borrow::Cow::Borrowed(crate::CODEBUDDY_USER_AGENT)),
+    root_url: std::borrow::Cow::Borrowed(
+        protocol::model_providers::PROVIDER_CODEBUDDY_INTL.root_url,
+    ),
+    user_agent: protocol::model_providers::PROVIDER_CODEBUDDY_INTL.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(crate::CODEBUDDY_CLIENT_HEADERS),
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: protocol::model_providers::PROVIDER_CODEBUDDY_INTL.protocol,
+    model_protocols: &[],
     catalog_source: RemoteCatalogSource::None,
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,
-    models: CODEBUDDY_INTL_BUILTIN_MODELS,
+    models: protocol::model_providers::PROVIDER_CODEBUDDY_INTL.models,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use inference_wire::WireProtocol;
 
     #[test]
     fn spec_is_bound_to_the_international_realm() {

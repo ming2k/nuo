@@ -37,7 +37,7 @@ pub(in crate::shell::event_loop) fn split_command_word(cmd: &str) -> (&str, &str
 }
 
 /// Loop stage (input dispatch): the `SendChat` arm of the action match.
-pub(super) async fn handle_send_chat(
+pub(crate) async fn handle_send_chat(
     app: &mut App,
     runtime: &UiRuntime,
     viewed_session_id: &str,
@@ -71,8 +71,21 @@ pub(super) async fn handle_send_chat(
 
     if !text.is_empty() || has_images {
         // `[INV-ATTACH-04]` (ADR-0133): a turn must not be submitted before the
-        // server attests `Ready`. Queue it locally (the server also buffers
-        // defensively) and flush on the transition.
+        // server attests `Ready`. If assembly already failed, restore the user's
+        // draft and disclose the failure instead of queuing into a dead inbox;
+        // otherwise queue locally (the server also buffers defensively) and
+        // flush on `Ready`.
+        if let protocol::ThreadPhase::Failed { ref message, .. } = app.threads.session_phase {
+            let detail = message.clone();
+            app.composer.input = text;
+            app.composer.cursor_position = app.composer.input.len();
+            app.composer.pending_images = images;
+            app.composer.pending_text_pastes = text_pastes;
+            app.record_client_notice(
+                crate::shell::app::notice_catalog::ClientNotice::SessionPrepFailed { detail },
+            );
+            return;
+        }
         if app.threads.session_phase != protocol::ThreadPhase::Ready {
             let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
             let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());

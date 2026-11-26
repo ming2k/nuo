@@ -21,7 +21,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::AnthropicMessages,
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -37,7 +36,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -49,7 +47,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -61,7 +58,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -73,7 +69,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -91,7 +86,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -103,7 +97,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -112,7 +105,7 @@ pub const MODELS: &[Model] = &[
 
 inventory::submit!(protocol::model::BaselineModels(MODELS));
 
-pub const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
+pub use protocol::model_providers::OPENCODE_USER_AGENT;
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: protocol::ProviderDialect::Standard,
@@ -128,20 +121,21 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     ]),
     catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1")),
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("opencode-zen"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_OPENCODE_ZEN.id),
     baselines: MODELS,
-    // Endpoints are per-model by wire format (see `route_for_model`); the
+    // Endpoints are per-model by wire format (see `ModelProviderSpec::model_protocol` / `endpoint`); the
     // instance-level default is the OpenAI chat-completions surface.
-    root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1"),
-    user_agent: Some(std::borrow::Cow::Borrowed(OPENCODE_USER_AGENT)),
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_OPENCODE_ZEN.root_url),
+    user_agent: protocol::model_providers::PROVIDER_OPENCODE_ZEN.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: protocol::model_providers::PROVIDER_OPENCODE_ZEN.protocol,
+    model_protocols: &[("claude-sonnet-4-6", WireProtocol::AnthropicMessages)],
     // Served models come from the live /zen/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: ::provider::DisplayPolicy::Structural,
     responses_state: protocol::ResponsesState::Stateless,
-    models: OPENCODE_ZEN_MODELS,
+    models: protocol::model_providers::PROVIDER_OPENCODE_ZEN.models,
 };
 
 #[cfg(test)]

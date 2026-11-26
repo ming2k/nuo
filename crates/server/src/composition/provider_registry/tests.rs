@@ -1,8 +1,27 @@
 //! Tests for the provider composition root: spec uniqueness, route
 //! derivation, factory dispatch, and typed quota-port resolution.
 
+use std::borrow::Cow;
+
 use super::*;
 use protocol::RemoteCatalogSource;
+
+fn route_for_model(
+    provider_id: &str,
+    model_id: &str,
+) -> Option<(
+    inference_wire::WireProtocol,
+    String,
+    Option<Cow<'static, str>>,
+)> {
+    let spec = model_provider_spec(provider_id)?;
+    let protocol = spec.model_protocol(model_id);
+    Some((
+        protocol,
+        spec.endpoint(protocol).ok()?,
+        spec.user_agent.clone(),
+    ))
+}
 
 #[test]
 fn model_provider_specs_have_unique_nonempty_ids() {
@@ -41,6 +60,7 @@ fn user_declared_provider_can_be_registered_and_resolved() {
         root_url: Cow::Borrowed("https://relay.example.com/v1"),
         user_agent: None,
         protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+        model_protocols: &[],
         models: &[],
         catalog_source: RemoteCatalogSource::None,
         default_headers: Cow::Borrowed(&[]),
@@ -70,6 +90,7 @@ fn user_declared_provider_uses_the_shared_registry() {
         user_agent: None,
         baselines: &[],
         protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+        model_protocols: &[],
         dialect: protocol::ProviderDialect::Standard,
         models: &[],
         catalog_source: RemoteCatalogSource::None,
@@ -121,8 +142,15 @@ fn shared_baseline_ids_are_identical_across_provider_tables() {
 
     fn signature(m: &protocol::Model) -> String {
         format!(
-            "{:?}|{:?}|{}|{}|{:?}",
-            m.context_window, m.thinking, m.tool_call, m.vision, m.effort_levels,
+            "{}|{:?}|{:?}|{}|{}|{:?}|{:?}|{:?}",
+            m.family,
+            m.context_window,
+            m.thinking,
+            m.tool_call,
+            m.vision,
+            m.effort_levels,
+            m.default_effort,
+            m.wire_entities.map(|wf| wf.entities.len()),
         )
     }
 

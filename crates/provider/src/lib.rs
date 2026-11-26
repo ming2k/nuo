@@ -9,7 +9,7 @@
 //! ([ADR-0180](../../docs/adr/0180-single-ownership-of-shared-vocabulary.md)).
 //!
 //! Consumers are the composition root (`server`), the cognitive runtime
-//! (`engine`), and the concrete `providers/nuo-provider-*` leaves.
+//! (`engine`), and the concrete `crates/provider-*` leaves.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -35,14 +35,10 @@ pub use endpoint::*;
 pub use pipeline::{
     BodyCodecPhase, EnvelopePhase, OutboundPlan, PassThroughHeaders, PassThroughStreamTransformer,
     ProviderFault, ProviderPipeline, ProviderPipelineBuilder, RequestSignerPhase, ReshapedEnvelope,
-    StreamMetrics, StreamTransformer, TransformedFrame, TransportPipeline,
-    TransportPipelineBuilder,
+    StreamMetrics, StreamTransformer, TransformedFrame,
 };
 pub use prompt_cache::PromptCacheConfig;
-pub use response::{
-    classify_http_error, decode_response_json, ensure_success, is_context_overflow_payload,
-    is_payload_too_large_payload,
-};
+pub use response::{decode_response_json, ensure_success};
 pub use vision::project_images_for_route;
 
 // Capability & Core Traits — the contract crate owns the `Provider` cognitive contract
@@ -60,9 +56,8 @@ pub use factory::{
 };
 pub use spec::{
     DisplayPolicy, ModelProviderSpec, PromptCachePolicy, QuotaPort, endpoint_for,
-    model_provider_spec, register_provider_spec, register_provider_specs,
-    register_user_declared_provider, route_for_model, sync_user_declared_providers,
-    unsupported_prompt_cache, user_declared_provider_spec,
+    model_provider_spec, register_provider_specs, register_user_declared_provider,
+    sync_user_declared_providers, unsupported_prompt_cache, user_declared_provider_spec,
 };
 
 pub use auth::*;

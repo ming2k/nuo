@@ -35,7 +35,6 @@
 //! DeepSeek ids therefore ride their home platform's vocabulary — the narrower
 //! `DEEPSEEK_V4_PLAN` floor on this surface is documented, not enforceable
 //! here, exactly like GLM-5.3's `xhigh` rejection above.
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -60,7 +59,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::QWEN_MIXED,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -72,7 +70,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::QWEN_MIXED,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -84,7 +81,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::QWEN_MIXED,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -112,15 +108,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("qianwen"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_QIANWEN.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed(
-        "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1",
-    ),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_QIANWEN.root_url),
+    user_agent: protocol::model_providers::PROVIDER_QIANWEN.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
-    models: QIANWEN_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_QIANWEN.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_QIANWEN.models,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,
@@ -131,6 +126,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 mod tests {
     use super::*;
     use ::provider::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
+    use inference_wire::WireProtocol;
     use protocol::effort::Effort;
     use protocol::model::resolve;
 

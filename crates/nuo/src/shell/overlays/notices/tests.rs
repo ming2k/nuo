@@ -284,15 +284,17 @@ fn notice_content_registers_selectable_regions_and_paints_selection() {
 }
 
 #[test]
-fn wrapping_respects_the_column_budget() {
-    let rows = wrap_row("aaa bbb ccc ddd", 7);
-    assert_eq!(rows, vec!["aaa bbb", "ccc ddd"]);
-    assert!(rows.iter().all(|r| r.width() <= 7));
+fn wrapping_respects_the_column_budget_including_cjk() {
+    let rows = ui_primitives::text_layout::wrap_text("aaa bbb ccc ddd", 7);
+    assert!(rows.iter().all(|r| r.text.trim_end().width() <= 7));
+    let cjk = ui_primitives::text_layout::wrap_text("后端连接失败，请检查网络配置", 8);
+    assert!(cjk.len() > 1, "CJK prose must wrap across lines: {cjk:?}");
+    assert!(cjk.iter().all(|r| r.text.width() <= 8), "{cjk:?}");
 }
 
 #[test]
 fn truncation_is_width_aware_not_byte_aware() {
-    let out = truncate_ellipsis("后端连接失败，请检查网络配置", 8);
+    let out = crate::shell::overlays::common::truncate_ellipsis("后端连接失败，请检查网络配置", 8);
     assert!(out.width() <= 8, "{out:?}");
     assert!(out.ends_with('…'));
 }

@@ -1,7 +1,6 @@
 //! The `kimi-code` provider template and its legacy registry preset:
 //! Moonshot AI's Kimi Code coding platform (`api.kimi.com/coding/v1`).
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -46,7 +45,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -58,7 +56,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -70,7 +67,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -82,7 +78,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -107,24 +102,23 @@ fn prompt_cache_for_model(_: &str) -> protocol::PromptCacheSpec {
     }
 }
 
-const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
-
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: protocol::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
-    id: std::borrow::Cow::Borrowed("kimi-code"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_KIMI_CODE.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://api.kimi.com/coding/v1"),
-    user_agent: Some(std::borrow::Cow::Borrowed(OPENCODE_USER_AGENT)),
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_KIMI_CODE.root_url),
+    user_agent: protocol::model_providers::PROVIDER_KIMI_CODE.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: protocol::model_providers::PROVIDER_KIMI_CODE.protocol,
+    model_protocols: &[],
     // The Kimi Code platform exposes a live /models endpoint, so instances
     // created from this preset track the platform's actual model list.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: Some(::provider::QuotaPort::KimiBalance),
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,
-    models: KIMI_CODE_MODELS,
+    models: protocol::model_providers::PROVIDER_KIMI_CODE.models,
 };

@@ -71,23 +71,3 @@ pub fn edit_fields(curated: bool, auth: ConnectionAuth) -> Vec<CustomField> {
 pub fn protocol_model_set_closed(protocol_wire: &str) -> bool {
     protocol_wire == WireProtocol::GoogleGenerateContent.as_str()
 }
-
-/// The registry model ids matching a wire protocol. Kept as a test helper for
-/// registry and template consistency; the custom connection editor
-/// intentionally does not use this list.
-#[cfg(test)]
-pub(crate) fn protocol_model_candidates(protocol_wire: &str) -> Vec<&'static str> {
-    let Ok(protocol) = protocol_wire.parse::<WireProtocol>() else {
-        return Vec::new();
-    };
-    let mut seen = std::collections::HashSet::new();
-    protocol::baseline_models()
-        .filter(|m| m.protocol == protocol)
-        .map(|m| m.id)
-        // Deduplicate: a model id can appear in multiple provider tables (e.g.
-        // gpt-4o-mini in both `openai` and `copilot`), and inventory iteration
-        // order is not guaranteed, so without dedup the candidate list — and
-        // thus the first-match the picker commits — would be non-deterministic.
-        .filter(|id| seen.insert(*id))
-        .collect()
-}

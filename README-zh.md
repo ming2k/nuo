@@ -48,8 +48,9 @@ cargo build --release -p nuo
 # 启动交互式 TUI（无感知自动连接或自启服务）
 ./target/release/nuo
 
-# 打开交互式线程选择器，或按 ID 直接恢复线程
-./target/release/nuo -t
+# 打开交互式线程选择器，或按 ID 附加到指定线程（`-t` 为简写）
+./target/release/nuo thread open
+./target/release/nuo thread open <thread_id>
 ./target/release/nuo -t <thread_id>
 
 # 在非交互 Headless 模式下直接执行任务并流式输出

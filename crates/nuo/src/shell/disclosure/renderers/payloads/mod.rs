@@ -17,27 +17,21 @@ mod tests;
 pub(crate) use checklist::draw_checklist_content;
 pub(crate) use code::{draw_code_content, normalize_code_content};
 pub(crate) use command::{command_for, draw_command_content, emit_command_lines};
+pub(crate) use diff::{draw_diff_content, extract_diff_strings_for_tool, find_start_line_in_file};
 #[cfg(test)]
-pub(crate) use diff::project_frags_to_wrapped;
-#[allow(unused_imports)]
-pub(crate) use diff::{
-    draw_diff_content, extract_diff_strings_for_tool, find_start_line_in_file,
-    project_syntax_diff_frags, project_syntax_slice,
-};
+pub(crate) use diff::{project_frags_to_wrapped, project_syntax_diff_frags, project_syntax_slice};
 pub(crate) use image::draw_image_content;
 pub(crate) use listing::draw_listing_content;
 pub(crate) use matches::draw_matches_content;
 pub(crate) use question::draw_questions_content;
-#[allow(unused_imports)]
+#[cfg(test)]
+pub(crate) use summary::semantic_tool_summary_line;
 pub(crate) use summary::{
-    draw_blank_rows, draw_semantic_step_summary, draw_step_summary, semantic_tool_summary_line,
-    tool_summary_line,
+    draw_blank_rows, draw_semantic_step_summary, draw_step_summary, tool_summary_line,
 };
-#[allow(unused_imports)]
-pub(crate) use web::{
-    draw_web_article_content, draw_web_search_content, parse_fallback_web_article,
-    parse_fallback_web_search,
-};
+pub(crate) use web::{draw_web_article_content, draw_web_search_content};
+#[cfg(test)]
+pub(crate) use web::{parse_fallback_web_article, parse_fallback_web_search};
 
 #[cfg(test)]
 pub(crate) use command::{

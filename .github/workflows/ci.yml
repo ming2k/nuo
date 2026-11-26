@@ -33,7 +33,11 @@ jobs:
 
       - uses: taiki-e/install-action@v2
         with:
-          tool: nextest
+          tool: nextest, cargo-machete
+
+      # Unused dependencies must not accumulate in shipped crates.
+      - name: unused dependencies
+        run: cargo machete
 
       # Formatting is a hard gate: the repo has no rustfmt.toml, so the default
       # thresholds and import ordering are the contract.

@@ -1,6 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-use crate::shell::cli::{self, CliArgs, Mode};
+use crate::shell::cli::{self, TuiCliArgs, TuiMode};
 use crate::shell::client;
 use crate::shell::headless;
 use std::path::PathBuf;
@@ -207,7 +207,7 @@ pub async fn run_cli_args(raw_args: &[String]) -> Result<(), Box<dyn std::error:
     run_with_options(parsed).await
 }
 
-pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_with_options(mut parsed: TuiCliArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Stdin pipeline detection: piped input becomes (or joins) the prompt.
     // Only the prompt-bearing modes take it — piping into a non-prompt
     // command is a shell mistake, not a headless run.
@@ -225,7 +225,7 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
     };
     if let Some(piped) = stdin_input {
         match &mut parsed.mode {
-            Mode::Fresh | Mode::Run { .. } => {
+            TuiMode::Fresh | TuiMode::Run { .. } => {
                 let joined = match parsed.prompt.take() {
                     Some(existing) => format!("{existing}\n\n--- Standard Input ---\n{piped}"),
                     None => piped,
@@ -239,20 +239,20 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
     // Resolve the Fresh/Run/headless intent once, here, where the terminal
     // shape is known: an explicit `-p` or a non-terminal stdout means
     // headless; `-i` forces the TUI; `run` is headless by definition.
-    if matches!(parsed.mode, Mode::Fresh) && !parsed.interactive {
+    if matches!(parsed.mode, TuiMode::Fresh) && !parsed.interactive {
         let stdout_is_tty = io::stdout().is_terminal();
         if parsed.headless
             || parsed.prompt_from_flag
             || parsed.json
             || (parsed.prompt.is_some() && !stdout_is_tty)
         {
-            parsed.mode = Mode::Run {
+            parsed.mode = TuiMode::Run {
                 prompt: parsed.prompt.clone().unwrap_or_default(),
             };
         }
     }
 
-    let CliArgs {
+    let TuiCliArgs {
         mode,
         project: project_override,
         unattended: unattended_at_start,
@@ -270,24 +270,24 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
     let confined_at_start = !no_confinement;
 
     match mode {
-        Mode::Version => {
+        TuiMode::Version => {
             println!("nuo {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-        Mode::Help(topic) => {
+        TuiMode::Help(topic) => {
             if let Some(text) = cli::help_text(topic.as_deref()) {
                 print!("{text}");
             }
             Ok(())
         }
-        Mode::Completions(shell) => {
+        TuiMode::Completions(shell) => {
             print!("{}", cli::completion_script(shell));
             Ok(())
         }
-        Mode::Dashboard => {
+        TuiMode::Dashboard => {
             run_dashboard(project_override, unattended_at_start, confined_at_start).await
         }
-        Mode::Settings { category } => {
+        TuiMode::Settings { category } => {
             let cat_str = category.or_else(|| {
                 std::env::var("NUO_SETTINGS_NAV")
                     .or_else(|_| std::env::var("NUO_SETTINGS_CATEGORY"))
@@ -314,7 +314,7 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
             )
             .await
         }
-        Mode::Attach { id } => {
+        TuiMode::Attach { id } => {
             let overlay = if id.is_none() {
                 crate::shell::StartupOverlay::SessionsPicker
             } else {
@@ -337,7 +337,7 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
             )
             .await
         }
-        Mode::Run { prompt } => {
+        TuiMode::Run { prompt } => {
             if interactive {
                 let overlay = crate::shell::StartupOverlay::resolve_from_env()
                     .unwrap_or(crate::shell::StartupOverlay::None);
@@ -371,7 +371,7 @@ pub async fn run_with_options(mut parsed: CliArgs) -> Result<(), Box<dyn std::er
                 .await
             }
         }
-        Mode::Fresh => {
+        TuiMode::Fresh => {
             let overlay = crate::shell::StartupOverlay::resolve_from_env()
                 .unwrap_or(crate::shell::StartupOverlay::None);
             run_attached(

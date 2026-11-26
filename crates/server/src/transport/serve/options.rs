@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::conn_table::ConnTable;
 use crate::runtime::shutdown::ShutdownGate;
-use protocol::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use protocol::PROTOCOL_VERSION;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServeExpose {
@@ -124,16 +124,16 @@ pub fn server_version() -> &'static str {
 /// before any session work. Directional: a too-old client hears "update",
 /// a too-new client hears "restart the server".
 pub fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String {
-    let window = format!("{}..={}", MIN_PROTOCOL_VERSION, PROTOCOL_VERSION);
     let builds = match client_version {
         Some(v) => format!(" (client build {v}, server build {})", server_version()),
         None => format!(" (server build {})", server_version()),
     };
-    if client < MIN_PROTOCOL_VERSION {
+    if client < PROTOCOL_VERSION {
         format!(
             "client/server wire protocol mismatch: client protocol {client} is older \
-             than the oldest this server serves ({window}). \
+             than this server's protocol {current}. \
              Please update your nuo client to build {server} or newer{builds}.",
+            current = PROTOCOL_VERSION,
             server = server_version()
         )
     } else {

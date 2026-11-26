@@ -6,24 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Semantic classification of tokens crossing provider wire protocols.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TokenClass {
-    /// Uncached standard prompt input text tokens.
-    UncachedInput,
-    /// Prompt tokens served from cache (read discount tier).
-    CacheRead,
-    /// Prompt tokens written to context cache (creation surcharge tier).
-    CacheWrite,
-    /// Standard generated assistant completion tokens.
-    StandardOutput,
-    /// Extended thinking / deep reasoning generation tokens.
-    ReasoningOutput,
-    /// Audio modality input tokens.
-    AudioInput,
-}
-
 /// Canonical, de-duplicated distribution of billable token counts across standardized classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TokenBreakdown {

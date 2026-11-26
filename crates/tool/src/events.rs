@@ -107,6 +107,18 @@ pub enum NoticeSeverity {
     Error,
 }
 
+impl NoticeSeverity {
+    /// Whether this severity is a fault: something the user must know about
+    /// even if they were not looking. An `Info` disclosure confirms an action
+    /// the user just took and can repeat, so it is retained but not escalated.
+    ///
+    /// One predicate, read by the bubble shape, its duration and its hint, so
+    /// "what counts as a fault" cannot drift between them (ADR-0121).
+    pub const fn is_fault(self) -> bool {
+        matches!(self, Self::Warning | Self::Error)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeSource {

@@ -22,12 +22,12 @@ use tokio_util::codec::Framed;
 
 pub use protocol::discovery::{Discovery, ServerInfo};
 pub use protocol::version::{
-    ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, VersionRelation, compare_versions,
-    protocol_accepts, protocol_mismatch, version_mismatch,
+    ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, protocol_accepts, protocol_mismatch,
+    version_mismatch,
 };
 pub use protocol::{
-    AttachAction, ControlRequest, MIN_PROTOCOL_VERSION, NativeWireCodec, PROTOCOL_VERSION,
-    ServerEndpointsReport, ThreadInitOptions, Wire,
+    AttachAction, ControlRequest, NativeWireCodec, PROTOCOL_VERSION, ServerEndpointsReport,
+    ThreadInitOptions, Wire,
 };
 #[cfg(unix)]
 pub use server::transport::serve_discovery::default_uds_path;

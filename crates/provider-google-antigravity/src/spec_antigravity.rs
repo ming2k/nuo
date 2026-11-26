@@ -1,7 +1,6 @@
 //! The `antigravity-oauth` provider preset: Google-native models served
 //! via Google Antigravity OAuth subscription.
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -26,7 +25,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -38,7 +36,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -50,7 +47,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -62,7 +58,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -74,7 +69,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -86,7 +80,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -98,7 +91,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -110,7 +102,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -122,7 +113,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -134,7 +124,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::OPENAI_GPT,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -146,7 +135,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -158,7 +146,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -170,7 +157,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -182,7 +168,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -200,8 +185,7 @@ pub const ANTIGRAVITY_VERSION: &str = "1.5.12";
 /// `%s/%s (%s)` + `os_type=%s; arch=%s; cl=%d; auth_method=%s`, so the
 /// counter only exists as this build id in the image.
 pub const ANTIGRAVITY_BUILD_NUMBER: &str = "1024904911";
-pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.5.12 \
-     (aidev_client; os_type=linux; arch=amd64; cl=1024904911; auth_method=consumer)";
+pub use protocol::model_providers::ANTIGRAVITY_USER_AGENT;
 
 /// The header `User-Agent` the `agy` **h2 telemetry lane** carries
 /// (live decrypted capture of `agy` 1.5.12, 2026-11-19): Clearcut posts to
@@ -258,15 +242,18 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("google-antigravity"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_GOOGLE_ANTIGRAVITY.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://daily-cloudcode-pa.googleapis.com"),
-    user_agent: Some(std::borrow::Cow::Borrowed(ANTIGRAVITY_USER_AGENT)),
+    root_url: std::borrow::Cow::Borrowed(
+        protocol::model_providers::PROVIDER_GOOGLE_ANTIGRAVITY.root_url,
+    ),
+    user_agent: protocol::model_providers::PROVIDER_GOOGLE_ANTIGRAVITY.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::GoogleGenerateContent,
+    protocol: protocol::model_providers::PROVIDER_GOOGLE_ANTIGRAVITY.protocol,
+    model_protocols: &[],
     catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: Some(::provider::QuotaPort::Antigravity),
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,
-    models: ANTIGRAVITY_OAUTH_MODELS,
+    models: protocol::model_providers::PROVIDER_GOOGLE_ANTIGRAVITY.models,
 };

@@ -3,6 +3,7 @@
 use super::*;
 
 use crate::shell::BAR_LEGEND_GAP_MIN;
+use crate::shell::surfaces::ClientTab;
 
 #[test]
 fn row1_renders_tabs_without_ordinal_prefixes() {
@@ -1441,4 +1442,212 @@ fn row1_help_portal_hit_rect_matches_painted_state() {
         theme.raised()
     );
     assert_eq!(TabBarHover::Help.anchor(), TabBarHover::Help);
+}
+
+/// Live tab status (`Running` / `Attention`) paints a 1-column lead mark inside
+/// the pill's existing width without reflowing the strip; idle and non-thread
+/// tabs (`Dashboard`, `Settings`) paint nothing and keep 100% of their title
+/// budget.
+#[test]
+fn row1_tab_status_renders_in_place_without_reflow() {
+    let tabs = vec![
+        ClientTab::thread("t-1", Some("Refactor DB")),
+        ClientTab::thread("t-2", Some("Fix Auth")),
+        ClientTab::dashboard(),
+        ClientTab::settings(),
+    ];
+    let theme = Theme::default();
+
+    // Baseline: all Idle (None statuses)
+    let mut idle_nav = TabBarNavRects::default();
+    let mut idle_term = graticule::TestTerminal::new(100, 1);
+    idle_term.draw(|frame| {
+        idle_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                statuses: None,
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+
+    // Live: tab 0 Running, tab 1 Attention, Dashboard & Settings Idle.
+    let statuses = [
+        TabStatus::Running,
+        TabStatus::Attention,
+        TabStatus::Idle,
+        TabStatus::Idle,
+    ];
+    let mut live_nav = TabBarNavRects::default();
+    let mut live_term = graticule::TestTerminal::new(100, 1);
+    live_term.draw(|frame| {
+        live_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                statuses: Some(&statuses),
+                spinner_phase: 6, // peak of breathing wave
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+
+    // Zero reflow: every pill keeps its exact bounding rect.
+    assert_eq!(
+        idle_nav.tab_rects, live_nav.tab_rects,
+        "status changes must never shift or resize tab pills"
+    );
+    assert_eq!(idle_nav.add_rect, live_nav.add_rect);
+
+    let cells = live_term.buffer().cells();
+    let r0 = live_nav.tab_rects[0].1;
+    let r1 = live_nav.tab_rects[1].1;
+    let r2 = live_nav.tab_rects[2].1;
+    let r3 = live_nav.tab_rects[3].1;
+
+    // Tab 0 (Running): lead cell is the breathing dot (`●`) in `theme.running()`.
+    let run_cell = &cells[(r0.x + 1) as usize];
+    assert_eq!(run_cell.symbol, theme.glyphs.dot);
+    assert_eq!(run_cell.style.fg, theme.running());
+    assert_eq!(cells[(r0.x + 2) as usize].symbol, " ");
+
+    // Even at spinner_phase 0 the breathing dot stays visibly distinct from pill bg.
+    let mut phase0_term = graticule::TestTerminal::new(100, 1);
+    phase0_term.draw(|frame| {
+        draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                statuses: Some(&statuses),
+                spinner_phase: 0,
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+    let phase0_cell = &phase0_term.buffer().cells()[(r0.x + 1) as usize];
+    assert_eq!(phase0_cell.symbol, theme.glyphs.dot);
+    assert_ne!(
+        phase0_cell.style.fg, phase0_cell.style.bg,
+        "running dot must remain visible even at phase 0"
+    );
+
+    // Tab 1 (Attention): lead cell is bold `!` in `theme.warn()`.
+    let attn_cell = &cells[(r1.x + 1) as usize];
+    assert_eq!(attn_cell.symbol, "!");
+    assert_eq!(attn_cell.style.fg, theme.warn());
+    assert!(attn_cell.style.add.contains(Modifier::BOLD));
+
+    // Non-thread tabs (Dashboard, Settings) stay completely untouched.
+    let slice_str = |rect: Rect| -> String {
+        cells[rect.x as usize..(rect.x + rect.width) as usize]
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect()
+    };
+    assert_eq!(slice_str(r2), " dashboard ");
+    assert_eq!(slice_str(r3), " settings ");
+}
+
+/// On framed / monochrome terminals (`!elevation.is_chromatic()`), `Running`
+/// rotates through 1-column ASCII spinner frames (`|`, `/`, `-`, `\`) and
+/// `Attention` paints `!`, both preserving exact pill geometry.
+#[test]
+fn row1_tab_status_framed_uses_ascii_spinner_and_attention_mark() {
+    let tabs = vec![
+        ClientTab::thread("t-1", Some("Build")),
+        ClientTab::thread("t-2", Some("Deploy")),
+    ];
+    let statuses = [TabStatus::Running, TabStatus::Attention];
+    let mut theme = Theme::monochrome();
+    theme.glyphs = graticule::ASCII_GLYPHS;
+
+    let mut seen_frames = Vec::new();
+    for phase in 0..4 {
+        let mut nav = TabBarNavRects::default();
+        let mut term = graticule::TestTerminal::new(60, 1);
+        term.draw(|frame| {
+            nav = draw_tab_bar(
+                frame,
+                frame.area(),
+                &TabBarProps {
+                    tabs: Some(&tabs),
+                    active_tab: 0,
+                    statuses: Some(&statuses),
+                    spinner_phase: phase,
+                    ..TabBarProps::default()
+                },
+                &theme,
+            );
+        });
+        let cells = term.buffer().cells();
+        let r0 = nav.tab_rects[0].1;
+        let r1 = nav.tab_rects[1].1;
+        seen_frames.push(cells[(r0.x + 1) as usize].symbol.clone());
+        assert_eq!(cells[(r1.x + 1) as usize].symbol, "!");
+    }
+    assert_eq!(seen_frames, vec!["|", "/", "-", "\\"]);
+}
+
+/// A live status mark and a hovered close button (`✕`) coexist cleanly even on
+/// a minimum-width pill (`TAB_PILL_MIN_WIDTH = 8`), with zero reflow and an
+/// intact close hit rect.
+#[test]
+fn row1_tab_status_coexists_with_hover_close_at_min_pill_width() {
+    let tabs = vec![ClientTab::thread("t-1", Some("Ab"))];
+    let statuses = [TabStatus::Attention];
+    let theme = Theme::default();
+
+    let mut rest_nav = TabBarNavRects::default();
+    let mut rest_term = graticule::TestTerminal::new(44, 1);
+    rest_term.draw(|frame| {
+        rest_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                statuses: Some(&statuses),
+                hover: None,
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+
+    let mut hover_nav = TabBarNavRects::default();
+    let mut hover_term = graticule::TestTerminal::new(44, 1);
+    hover_term.draw(|frame| {
+        hover_nav = draw_tab_bar(
+            frame,
+            frame.area(),
+            &TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                statuses: Some(&statuses),
+                hover: Some(TabBarHover::Tab(0)),
+                ..TabBarProps::default()
+            },
+            &theme,
+        );
+    });
+
+    assert_eq!(rest_nav.tab_rects, hover_nav.tab_rects);
+    assert_eq!(rest_nav.tab_rects[0].1.width, 8);
+    assert_eq!(hover_nav.close_rects.len(), 1);
+
+    let r0 = hover_nav.tab_rects[0].1;
+    let cells = hover_term.buffer().cells();
+    assert_eq!(cells[(r0.x + 1) as usize].symbol, "!");
+    assert_eq!(cells[(r0.x + r0.width - 2) as usize].symbol, "✕");
+    assert_eq!(hover_nav.close_rects[0].1.x, r0.x + r0.width - 2);
 }

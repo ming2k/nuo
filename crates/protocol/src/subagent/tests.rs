@@ -149,7 +149,6 @@ fn test_model() -> Model {
         thinking: crate::reasoning::ReasoningSupport::None,
         tool_call: true,
         vision: true,
-        protocol: crate::WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(crate::Effort::High),
         wire_entities: None,

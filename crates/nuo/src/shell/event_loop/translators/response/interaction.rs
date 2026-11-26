@@ -26,6 +26,13 @@ impl TranslatorState {
                             })
                             .await;
 
+                        self.chrome(
+                            &session_id,
+                            crate::shell::event_loop::mutations::ChromeEdit::ActivityFolded(
+                                Phase::AwaitingUser,
+                            ),
+                        )
+                        .await;
                         self.mutations
                             .send(M::SetPhase(Some(Phase::AwaitingUser)))
                             .await;
@@ -39,6 +46,13 @@ impl TranslatorState {
                             })
                             .await;
 
+                        self.chrome(
+                            &session_id,
+                            crate::shell::event_loop::mutations::ChromeEdit::ActivityFolded(
+                                Phase::AwaitingUser,
+                            ),
+                        )
+                        .await;
                         self.mutations
                             .send(M::SetPhase(Some(Phase::AwaitingUser)))
                             .await;
@@ -65,6 +79,13 @@ impl TranslatorState {
                     })
                     .await;
 
+                self.chrome(
+                    &session_id,
+                    crate::shell::event_loop::mutations::ChromeEdit::ActivityFolded(
+                        Phase::AwaitingUser,
+                    ),
+                )
+                .await;
                 self.mutations
                     .send(M::SetPhase(Some(Phase::AwaitingUser)))
                     .await;
@@ -78,6 +99,13 @@ impl TranslatorState {
                     })
                     .await;
 
+                self.chrome(
+                    &session_id,
+                    crate::shell::event_loop::mutations::ChromeEdit::ActivityFolded(
+                        Phase::AwaitingUser,
+                    ),
+                )
+                .await;
                 self.mutations
                     .send(M::SetPhase(Some(Phase::AwaitingUser)))
                     .await;
@@ -86,6 +114,13 @@ impl TranslatorState {
             RoundEvent::StdinRequest(request) => {
                 self.mutations.send(M::QueueInput(request)).await;
 
+                self.chrome(
+                    &session_id,
+                    crate::shell::event_loop::mutations::ChromeEdit::ActivityFolded(
+                        Phase::AwaitingUser,
+                    ),
+                )
+                .await;
                 self.mutations
                     .send(M::SetPhase(Some(Phase::AwaitingUser)))
                     .await;

@@ -273,10 +273,9 @@ fn global_record_carries_the_server_version() {
 }
 
 /// Protocol negotiation. `[INV-WIRE-04]`: the protocol number is the **only**
-/// admission authority — the server serves any number in
-/// [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] *whatever the product version says*,
-/// and refuses anything outside the window with `code: protocol_mismatch` before
-/// any session work. The product version never enters the decision; it only
+/// admission authority — the server serves `PROTOCOL_VERSION` *whatever the
+/// product version says*, and refuses any other number with `code: protocol_mismatch`
+/// before any session work. The product version never enters the decision; it only
 /// makes a refusal name both builds.
 ///
 /// There is no "client that declares no number" lane any more: `Select.protocol`
@@ -284,7 +283,7 @@ fn global_record_carries_the_server_version() {
 /// taxonomy — the second case below.
 #[tokio::test]
 async fn protocol_window_is_the_only_admission_authority() {
-    use protocol::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
+    use protocol::PROTOCOL_VERSION;
 
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(ThreadSession::for_path(tmp.path().join("session.json")));
@@ -342,10 +341,9 @@ async fn protocol_window_is_the_only_admission_authority() {
         other => panic!("expected Error for a too-new protocol, got {other:?}"),
     }
 
-    // Too old (only meaningful once MIN rises above 1; the guard keeps the
-    // test correct whenever that happens).
-    if MIN_PROTOCOL_VERSION > 1 {
-        match first_frame(port, None, MIN_PROTOCOL_VERSION - 1).await {
+    // Too old: refused with the protocol message and the update fix.
+    if PROTOCOL_VERSION > 1 {
+        match first_frame(port, None, PROTOCOL_VERSION - 1).await {
             Wire::Error { message, code } => {
                 assert_eq!(code.as_deref(), Some("protocol_mismatch"));
                 assert!(
@@ -389,12 +387,12 @@ async fn protocol_window_is_the_only_admission_authority() {
         }
     }
 
-    // Window edge: MIN itself is served, whatever the product version.
-    match first_frame(port, Some("0.0.1-skew"), MIN_PROTOCOL_VERSION).await {
+    // Exact match: PROTOCOL_VERSION is served whatever the product version.
+    match first_frame(port, Some("0.0.1-skew"), PROTOCOL_VERSION).await {
         Wire::Error { message, .. } => {
             assert!(
                 !message.contains("mismatch"),
-                "MIN is inside the window: {message}"
+                "exact protocol version must be accepted: {message}"
             );
         }
         other => panic!("expected the normal unknown-session error, got {other:?}"),

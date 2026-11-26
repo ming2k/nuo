@@ -39,7 +39,7 @@ pub mod handoff;
 pub const CODEBUDDY_VERSION: &str = "2.172.1";
 
 /// User-Agent header value sent for Tencent AI CodeBuddy client profile.
-pub const CODEBUDDY_USER_AGENT: &str = "CLI/2.172.1 CodeBuddy/2.172.1";
+pub use protocol::model_providers::CODEBUDDY_USER_AGENT;
 
 /// The realm-agnostic share of the CodeBuddy client-identity block.
 pub const CODEBUDDY_CLIENT_HEADERS: &[(&str, &str)] = &[

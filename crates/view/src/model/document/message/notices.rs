@@ -386,11 +386,7 @@ impl TranscriptMessage {
                 .filter(|body| !body.trim().is_empty())
                 .map(|body| sanitize_text(body).into_owned()),
         };
-        Self::notice(
-            notice_severity_from_core(notice.severity),
-            notice.render_text(),
-        )
-        .with_notice_parts(parts)
+        Self::notice(notice.severity, notice.render_text()).with_notice_parts(parts)
     }
 
     /// Attach the structured topic/detail split to a notice. No-op on

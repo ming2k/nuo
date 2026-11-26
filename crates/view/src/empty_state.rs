@@ -39,8 +39,7 @@ use graticule_canvas::{
 };
 
 use ui_primitives::Theme;
-#[cfg(test)]
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Hard width cap (in terminal columns) for any logo line. A wider line is
 /// truncated at a character boundary. 60 keeps comfortable side margins inside
@@ -318,6 +317,11 @@ pub fn plan_hero(logo: &[&str], area: Rect, guidance: &EmptyStateGuidance) -> He
 /// The app shell selects the variant; the view layer owns the copy and
 /// styling. This keeps the policy (when to nudge) in the shell and the
 /// presentation (what the nudge looks like) in the renderer.
+/// Guidance shown beneath the logo in the empty-state hero.
+///
+/// The app shell selects the variant; the view layer owns the copy and
+/// styling. This keeps the policy (when to nudge) in the shell and the
+/// presentation (what the nudge looks like) in the renderer.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum EmptyStateGuidance {
     /// The rotating tour: the capability carousel alone. The default — a calm
@@ -330,8 +334,66 @@ pub enum EmptyStateGuidance {
     /// nowhere. This is a real setup blocker, not onboarding — it clears the
     /// moment a keyed provider exists.
     NeedsProvider,
-    /// A prior session is currently being loaded / resumed.
-    LoadingSession(String),
+    /// The user explicitly initiated switching to or resuming an existing
+    /// thread (holds its short ID) alongside the server-attested phase so real
+    /// assembly stages stay visible instead of being masked.
+    ResumingThread {
+        short_id: String,
+        phase: protocol::ThreadPhase,
+    },
+    /// The foreground thread is not yet `Ready` — render the exact
+    /// server-attested lifecycle phase or assembly failure (ADR-0133).
+    ThreadPhase(protocol::ThreadPhase),
+}
+
+fn prepare_stage_label(stage: protocol::PrepareStage) -> &'static str {
+    match stage {
+        protocol::PrepareStage::Thread => "thread store",
+        protocol::PrepareStage::Provider => "provider",
+        protocol::PrepareStage::Skills => "skills",
+        protocol::PrepareStage::Hooks => "hooks",
+    }
+}
+
+/// Concise, lowercase status-bar label for a non-`Ready` [`protocol::ThreadPhase`].
+///
+/// Returns `None` once the thread is [`protocol::ThreadPhase::Ready`].
+/// Every non-ready state reports the exact local assembly step the server is
+/// performing (ADR-0133) — never a generic "loading session" placeholder.
+pub fn thread_phase_status(phase: &protocol::ThreadPhase) -> Option<&'static str> {
+    match phase {
+        protocol::ThreadPhase::Binding => Some("binding thread…"),
+        protocol::ThreadPhase::Loading => Some("opening thread store…"),
+        protocol::ThreadPhase::Preparing { stage } => Some(match stage {
+            protocol::PrepareStage::Thread => "preparing · thread store…",
+            protocol::PrepareStage::Provider => "preparing · provider…",
+            protocol::PrepareStage::Skills => "preparing · skills…",
+            protocol::PrepareStage::Hooks => "preparing · hooks…",
+        }),
+        protocol::ThreadPhase::Ready => None,
+        protocol::ThreadPhase::Failed { .. } => Some("thread setup failed"),
+    }
+}
+
+/// Concise, lowercase status-bar label when the user is explicitly resuming or
+/// switching to `short_id`, composed with the server-attested [`protocol::ThreadPhase`]
+/// so real preparation stages remain visible.
+pub fn resuming_thread_status(short_id: &str, phase: &protocol::ThreadPhase) -> String {
+    match phase {
+        protocol::ThreadPhase::Loading => {
+            format!("resuming {short_id} · opening thread store…")
+        }
+        protocol::ThreadPhase::Preparing { stage } => {
+            format!(
+                "resuming {short_id} · preparing {}…",
+                prepare_stage_label(*stage)
+            )
+        }
+        protocol::ThreadPhase::Failed { .. } => "thread setup failed".to_string(),
+        protocol::ThreadPhase::Binding | protocol::ThreadPhase::Ready => {
+            format!("resuming thread {short_id}…")
+        }
+    }
 }
 
 impl EmptyStateGuidance {
@@ -354,7 +416,18 @@ fn guidance_line_count(guidance: &EmptyStateGuidance) -> usize {
         // already teaches "send a message or /")
         EmptyStateGuidance::Tour => CAROUSEL_LINES,
         EmptyStateGuidance::NeedsProvider => 2, // blocker + action
-        EmptyStateGuidance::LoadingSession(_) => 1,
+        EmptyStateGuidance::ResumingThread {
+            phase: protocol::ThreadPhase::Failed { message, .. },
+            ..
+        }
+        | EmptyStateGuidance::ThreadPhase(protocol::ThreadPhase::Failed { message, .. }) => {
+            if message.trim().is_empty() {
+                1
+            } else {
+                2
+            }
+        }
+        EmptyStateGuidance::ResumingThread { .. } | EmptyStateGuidance::ThreadPhase(_) => 1,
     }
 }
 
@@ -385,6 +458,48 @@ fn carousel_lines(index: usize, theme: &Theme) -> Vec<Line<'static>> {
     vec![pages[index].line(theme)]
 }
 
+/// Truncate `text` to at most `max_cols` terminal display columns, appending
+/// `…` when characters are dropped so long server diagnostics never silently
+/// clip at the viewport edge.
+fn truncate_display_width(text: &str, max_cols: usize) -> String {
+    if max_cols == 0 || text.width() <= max_cols {
+        return text.to_string();
+    }
+    if max_cols == 1 {
+        return "…".to_string();
+    }
+    let budget = max_cols - 1;
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let w = ch.width().unwrap_or(0);
+        if used + w > budget {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    let trimmed = out.trim_end();
+    format!("{trimmed}…")
+}
+
+fn failed_phase_lines(
+    message: &str,
+    max_width: usize,
+    err: Style,
+    muted: Style,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(vec![Span::styled("Thread setup failed.", err)])];
+    let detail = message.lines().next().unwrap_or("").trim();
+    if !detail.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            truncate_display_width(detail, max_width),
+            muted,
+        )]));
+    }
+    lines
+}
+
 /// Build the styled text lines for the guidance section. The logo + blank gap
 /// are rendered by [`draw_empty_state`]; this owns only the copy beneath. The
 /// `info` tone highlights actionable tokens (`/connections`, keycaps, …) so the
@@ -396,11 +511,13 @@ fn carousel_lines(index: usize, theme: &Theme) -> Vec<Line<'static>> {
 fn guidance_section(
     guidance: EmptyStateGuidance,
     carousel_index: usize,
+    max_width: usize,
     theme: &Theme,
 ) -> Vec<Line<'static>> {
     let muted = Style::default().fg(theme.muted());
     let info = Style::default().fg(theme.info());
     let warn = Style::default().fg(theme.warn());
+    let err = Style::default().fg(theme.err());
     match guidance {
         // The tour is the carousel alone: page 0 already answers "how do I
         // start" ("Send a message, or type / for commands"), so the old
@@ -417,11 +534,53 @@ fn guidance_section(
                 Span::styled(" to set one up.", muted),
             ]),
         ],
-        EmptyStateGuidance::LoadingSession(ref id) => vec![Line::from(vec![
-            Span::styled("Loading session ", muted),
-            Span::styled(id.clone(), info),
-            Span::styled("…", muted),
-        ])],
+        EmptyStateGuidance::ResumingThread {
+            ref short_id,
+            ref phase,
+        } => match phase {
+            protocol::ThreadPhase::Loading => vec![Line::from(vec![
+                Span::styled("Resuming ", muted),
+                Span::styled(short_id.clone(), info),
+                Span::styled(" · opening thread store…", muted),
+            ])],
+            protocol::ThreadPhase::Preparing { stage } => vec![Line::from(vec![
+                Span::styled("Resuming ", muted),
+                Span::styled(short_id.clone(), info),
+                Span::styled(" · preparing ", muted),
+                Span::styled(prepare_stage_label(*stage), info),
+                Span::styled("…", muted),
+            ])],
+            protocol::ThreadPhase::Failed { message, .. } => {
+                failed_phase_lines(message, max_width, err, muted)
+            }
+            protocol::ThreadPhase::Binding | protocol::ThreadPhase::Ready => {
+                vec![Line::from(vec![
+                    Span::styled("Resuming thread ", muted),
+                    Span::styled(short_id.clone(), info),
+                    Span::styled("…", muted),
+                ])]
+            }
+        },
+        EmptyStateGuidance::ThreadPhase(ref phase) => match phase {
+            protocol::ThreadPhase::Binding => {
+                vec![Line::from(vec![Span::styled("Binding thread…", muted)])]
+            }
+            protocol::ThreadPhase::Loading => {
+                vec![Line::from(vec![Span::styled(
+                    "Opening thread store…",
+                    muted,
+                )])]
+            }
+            protocol::ThreadPhase::Preparing { stage } => vec![Line::from(vec![
+                Span::styled("Preparing ", muted),
+                Span::styled(prepare_stage_label(*stage), info),
+                Span::styled("…", muted),
+            ])],
+            protocol::ThreadPhase::Failed { message, .. } => {
+                failed_phase_lines(message, max_width, err, muted)
+            }
+            protocol::ThreadPhase::Ready => carousel_lines(carousel_index, theme),
+        },
     }
 }
 
@@ -469,7 +628,8 @@ pub fn draw_empty_state(
     let logo_style = Style::default().fg(logo_fg).add_modifier(Modifier::BOLD);
 
     let plan = plan_hero(&logo_refs, area, &guidance);
-    let section = guidance_section(guidance, carousel_index, theme);
+    let max_guidance_width = area.width.saturating_sub(2) as usize;
+    let section = guidance_section(guidance, carousel_index, max_guidance_width, theme);
 
     let mut lines: Vec<Line> = Vec::with_capacity(plan.total_rows());
     if plan.show_logo {
@@ -496,281 +656,4 @@ pub fn draw_empty_state(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_state_renders_builtin_without_panicking() {
-        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
-        let theme = Theme::default();
-        terminal.draw(|f| {
-            draw_empty_state(f, f.area(), None, EmptyStateGuidance::Tour, 0, &theme);
-        });
-    }
-
-    #[test]
-    fn empty_state_renders_user_logo_without_panicking() {
-        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
-        let theme = Theme::default();
-        // A logo at or above the floor so this exercises the logo path, not
-        // the drop-to-guidance fallback.
-        let logo = vec![
-            " X X X X ".to_string(),
-            "  X   X  ".to_string(),
-            " X X X X ".to_string(),
-        ];
-        terminal.draw(|f| {
-            draw_empty_state(
-                f,
-                f.area(),
-                Some(&logo),
-                EmptyStateGuidance::Tour,
-                3,
-                &theme,
-            );
-        });
-    }
-
-    #[test]
-    fn empty_state_renders_needs_provider_guidance_without_panicking() {
-        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
-        let theme = Theme::default();
-        terminal.draw(|f| {
-            draw_empty_state(
-                f,
-                f.area(),
-                None,
-                EmptyStateGuidance::NeedsProvider,
-                0,
-                &theme,
-            );
-        });
-    }
-
-    #[test]
-    fn empty_state_renders_loading_session_guidance() {
-        let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
-        let theme = Theme::default();
-        terminal.draw(|f| {
-            draw_empty_state(
-                f,
-                f.area(),
-                None,
-                EmptyStateGuidance::LoadingSession("7c405d7e".to_string()),
-                0,
-                &theme,
-            );
-        });
-        let buffer = terminal.buffer();
-        let (w, h) = buffer.size();
-        let mut output = String::new();
-        for y in 0..h {
-            for x in 0..w {
-                output.push_str(buffer.get(x, y).unwrap().symbol.as_str());
-            }
-            output.push('\n');
-        }
-        assert!(
-            output.contains("Loading session 7c405d7e…"),
-            "must render loading session indicator: {output}"
-        );
-    }
-
-    #[test]
-    fn carousel_rotates_on_a_wall_clock_cadence() {
-        let pages = carousel_pages().len();
-        assert!(pages >= 4, "the tour must teach several capabilities");
-        // Slide boundaries: within one slide the page holds, then advances.
-        assert_eq!(carousel_page_for(0), 0);
-        assert_eq!(carousel_page_for(CAROUSEL_SLIDE_SECS as u128 * 1000 - 1), 0);
-        assert_eq!(carousel_page_for(CAROUSEL_SLIDE_SECS as u128 * 1000), 1);
-        // Full-cycle wrap.
-        let cycle = CAROUSEL_SLIDE_SECS as u128 * 1000 * pages as u128;
-        assert_eq!(carousel_page_for(cycle), 0);
-        assert_eq!(carousel_page_for(cycle + 1), 0);
-    }
-
-    #[test]
-    fn carousel_pages_fit_the_minimum_terminal_width() {
-        // Every page must stay on one centered line even at the narrowest
-        // supported terminal, or the copy would wrap and break the
-        // wrap-independent height accounting (`guidance_line_count`).
-        for page in carousel_pages() {
-            assert!(
-                page.width() <= ui_primitives::design::MIN_TERMINAL_COLS as usize,
-                "carousel page too wide ({} cols): {:?}",
-                page.width(),
-                page.lead
-            );
-        }
-    }
-
-    #[test]
-    fn tour_carousel_renders_only_the_current_page_line() {
-        let theme = Theme::default();
-        let lines = guidance_section(EmptyStateGuidance::Tour, 1, &theme);
-        // Just the page line — no static tagline above it, no indicator row.
-        assert_eq!(lines.len(), CAROUSEL_LINES);
-        let page_line: String = lines[0]
-            .spans
-            .iter()
-            .map(|s| s.content.clone().into_owned())
-            .collect();
-        assert!(
-            page_line.contains(carousel_pages()[1].lead),
-            "page 1 shows its lead: {page_line}"
-        );
-        // No dot indicator anywhere: the rotation is
-        // self-explaining, so no chrome restates it.
-        let joined = lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.clone().into_owned())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(!joined.contains('●'), "no dot indicator: {joined}");
-    }
-
-    #[test]
-    fn tour_advertises_the_help_dialog_chords() {
-        // ADR-0219: the TabBar's standing `F1 help` keycap is retired, so the
-        // tour is the only surface that names the chords before a session has
-        // content. Assert both activation chords are advertised and the page
-        // stays within the minimum terminal width.
-        let theme = Theme::default();
-        let pages = carousel_pages();
-        let help_page = (0..pages.len())
-            .map(|index| {
-                guidance_section(EmptyStateGuidance::Tour, index, &theme)
-                    .iter()
-                    .flat_map(|line| line.spans.iter())
-                    .map(|span| span.content.clone().into_owned())
-                    .collect::<String>()
-            })
-            .find(|line| line.contains(ui_primitives::chord::Key::F1.display()))
-            .expect("the tour must advertise the help dialog");
-        assert!(
-            help_page.contains(ui_primitives::chord::Key::ALT_H.display()),
-            "the help page names both activation chords: {help_page}"
-        );
-        assert!(
-            help_page.width() <= ui_primitives::design::MIN_TERMINAL_COLS as usize,
-            "the help page fits the minimum terminal width: {help_page}"
-        );
-    }
-
-    #[test]
-    fn needs_provider_does_not_rotate() {
-        assert!(!EmptyStateGuidance::NeedsProvider.is_carousel());
-        let theme = Theme::default();
-        let lines = guidance_section(EmptyStateGuidance::NeedsProvider, 5, &theme);
-        assert_eq!(lines.len(), 2, "blocker + action only: {lines:?}");
-    }
-
-    #[test]
-    fn parse_logo_truncates_wide_lines() {
-        let wide = "a".repeat(200);
-        let out = parse_logo(&wide).unwrap();
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].chars().count(), MAX_LOGO_COLS);
-    }
-
-    #[test]
-    fn parse_logo_truncates_tall_blocks() {
-        let tall = (0..MAX_LOGO_ROWS + 50)
-            .map(|i| format!("line {i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let out = parse_logo(&tall).unwrap();
-        assert_eq!(out.len(), MAX_LOGO_ROWS);
-    }
-
-    #[test]
-    fn parse_logo_strips_crlf_and_trailing_blanks() {
-        let raw = "\r\nhello\r\nworld\r\n\r\n";
-        let out = parse_logo(raw).unwrap();
-        assert_eq!(out, vec!["hello", "world"]);
-    }
-
-    #[test]
-    fn parse_logo_returns_none_for_empty_input() {
-        assert!(parse_logo("").is_none());
-        assert!(parse_logo("\n\n\n").is_none());
-        assert!(parse_logo("   \n  \n").is_none());
-    }
-
-    #[test]
-    fn plan_hero_shows_builtin_when_the_viewport_is_tall_enough() {
-        let area = Rect::new(0, 0, 80, 24);
-        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
-        let plan = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
-        assert!(plan.show_logo, "80×24 fits the built-in wordmark");
-        assert_eq!(plan.logo_rows, BUILTIN_LOGO.len());
-        assert_eq!(
-            plan.total_rows(),
-            BUILTIN_LOGO.len() + HERO_LOGO_GAP_ROWS + CAROUSEL_LINES
-        );
-    }
-
-    #[test]
-    fn plan_hero_drops_the_logo_when_the_viewport_is_too_short() {
-        // The full hero needs logo + gap + carousel; one row short must drop
-        // the art rather than clip it, leaving only the guidance line.
-        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
-        let needed = BUILTIN_LOGO.len() + HERO_LOGO_GAP_ROWS + CAROUSEL_LINES;
-        let short = Rect::new(0, 0, 80, (needed - 1) as u16);
-        let plan = plan_hero(&logo, short, &EmptyStateGuidance::Tour);
-        assert!(!plan.show_logo, "too few rows → guidance only");
-        assert_eq!(plan.logo_rows, 0);
-        assert_eq!(plan.total_rows(), CAROUSEL_LINES);
-
-        let exact = Rect::new(0, 0, 80, needed as u16);
-        assert!(
-            plan_hero(&logo, exact, &EmptyStateGuidance::Tour).show_logo,
-            "exactly enough rows shows the logo"
-        );
-    }
-
-    #[test]
-    fn plan_hero_drops_the_logo_when_the_viewport_is_too_narrow() {
-        // One column narrower than the art would wrap (deform) the wordmark.
-        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
-        let area = Rect::new(0, 0, (BUILTIN_LOGO[0].len() - 1) as u16, 40);
-        let plan = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
-        assert!(!plan.show_logo, "narrower than the art → guidance only");
-        assert_eq!(plan.total_rows(), CAROUSEL_LINES);
-    }
-
-    #[test]
-    fn plan_hero_enforces_the_minimum_logo_floor() {
-        // A mark below the floor (too narrow or too short) is dropped even on
-        // a roomy viewport — a speck is worse than no logo.
-        let area = Rect::new(0, 0, 80, 24);
-        let too_narrow: Vec<&str> = vec!["x", "x", "x"];
-        assert!(!plan_hero(&too_narrow, area, &EmptyStateGuidance::Tour).show_logo);
-
-        let too_short: Vec<&str> = vec!["xxxxxxxx", "xxxxxxxx"];
-        assert!(!plan_hero(&too_short, area, &EmptyStateGuidance::Tour).show_logo);
-
-        let just_enough: Vec<&str> = vec!["xxxxxxxx", "xxxxxxxx", "xxxxxxxx"];
-        assert!(plan_hero(&just_enough, area, &EmptyStateGuidance::Tour).show_logo);
-    }
-
-    #[test]
-    fn plan_hero_counts_the_blocker_as_two_rows() {
-        let area = Rect::new(0, 0, 80, 24);
-        let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
-        let tour = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
-        let needs = plan_hero(&logo, area, &EmptyStateGuidance::NeedsProvider);
-        assert_eq!(
-            guidance_line_count(&EmptyStateGuidance::Tour),
-            CAROUSEL_LINES
-        );
-        assert_eq!(guidance_line_count(&EmptyStateGuidance::NeedsProvider), 2);
-        assert_eq!(needs.total_rows(), tour.total_rows() + 1);
-    }
-}
+mod tests;

@@ -37,13 +37,6 @@ pub fn keycap_style(theme: &Theme) -> Style {
     theme.keycap_style()
 }
 
-#[allow(dead_code)]
-pub fn keycap_accent_style(theme: &Theme) -> Style {
-    Style::default()
-        .fg(theme.keycap_accent())
-        .add_modifier(Modifier::BOLD)
-}
-
 pub fn keycap_warn_style(theme: &Theme) -> Style {
     Style::default()
         .fg(theme.keycap_warn())
@@ -109,31 +102,26 @@ impl KeyAffordance {
     }
 
     /// Construct a primary action affordance (Accent tone + BOLD, rank 80).
-    #[allow(dead_code)]
     pub const fn primary(key: &'static str, label: &'static str) -> Self {
         Self::with_intent_and_rank(key, label, AffordanceIntent::Primary, 80)
     }
 
     /// Construct an essential affordance (Esc / dismiss, rank 100).
-    #[allow(dead_code)]
     pub const fn always(key: &'static str, label: &'static str) -> Self {
         Self::with_intent_and_rank(key, label, AffordanceIntent::Neutral, 100)
     }
 
     /// Construct a list/item navigation affordance (↑↓, rank 60).
-    #[allow(dead_code)]
     pub const fn navigation(key: &'static str, label: &'static str) -> Self {
         Self::with_intent_and_rank(key, label, AffordanceIntent::Neutral, 60)
     }
 
     /// Construct a secondary or low-frequency affordance (rank 40).
-    #[allow(dead_code)]
     pub const fn secondary(key: &'static str, label: &'static str) -> Self {
         Self::with_intent_and_rank(key, label, AffordanceIntent::Neutral, 40)
     }
 
     /// Construct a warning or interrupt affordance (Warn tone + BOLD, rank 90).
-    #[allow(dead_code)]
     pub const fn warn(key: &'static str, label: &'static str) -> Self {
         Self::with_intent_and_rank(key, label, AffordanceIntent::Warn, 90)
     }
@@ -145,7 +133,6 @@ impl KeyAffordance {
 
     /// Render this affordance as a pair of styled spans:
     /// keycap (intent fg + bold) + space + label (keycap_label).
-    #[allow(dead_code)]
     pub fn render_spans(&self, theme: &Theme, bg: Color) -> [Span<'static>; 2] {
         let key_fg = match self.intent {
             AffordanceIntent::Primary => theme.keycap_accent(),
@@ -165,28 +152,23 @@ impl KeyAffordance {
 }
 
 /// Result of laying out an affordance group under width constraints (ADR-0054).
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AffordanceLayout {
     /// Materialized styled spans ready for rendering into a Paragraph/Line.
     pub spans: Vec<Span<'static>>,
     /// Total visual column width of the visible spans.
-    #[allow(dead_code)]
     pub visual_width: usize,
     /// Whether any lower-priority items were relegated to overflow.
     pub has_overflow: bool,
     /// The indices of items relegated to overflow (in caller's original slice).
     pub overflow_indices: Vec<usize>,
     /// The actual items relegated to overflow.
-    #[allow(dead_code)]
     pub overflow_items: Vec<KeyAffordance>,
 }
 
 /// Inter-affordance spacing string (matches design::JOIN_ENUMERATE_COLS).
-#[allow(dead_code)]
 pub(crate) const AFFORDANCE_GAP_STR: &str = "  ";
 /// Inter-affordance spacing column width.
-#[allow(dead_code)]
 pub(crate) const AFFORDANCE_GAP_WIDTH: usize = 2;
 
 /// Lay out a slice of affordances within `available_width` using the Floor-1 rule (ADR-0054 [INV-AFFORDANCE-02]).
@@ -195,7 +177,6 @@ pub(crate) const AFFORDANCE_GAP_WIDTH: usize = 2;
 /// If items exceed `available_width`, the layout finds the maximum items `M` that fit
 /// unconditionally, takes `K = floor(M) - 1` items (ranked by priority), and reserves
 /// the remaining space for `F1 {overflow_label}` (default `"more"`).
-#[allow(dead_code)]
 pub fn layout_affordances(
     items: &[KeyAffordance],
     available_width: usize,

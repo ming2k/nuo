@@ -109,3 +109,125 @@ fn ready_re_reads_the_authoritative_queue() {
         "arriving on a thread must ask the driver what it already holds: {sent:?}"
     );
 }
+
+#[test]
+fn build_app_with_non_ready_boot_phase_never_spoofs_switching_session() {
+    let live_session_id = "32aa8e10-183d-4b41-835e-04fb8e64b0dd".to_string();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = crate::shell::build_app(crate::shell::AppBoot {
+        live_session_init: &live_session_id,
+        initial_provider: "openai".to_string(),
+        initial_model: "gpt-5".to_string(),
+        session_phase_init: protocol::ThreadPhase::Binding,
+        restored: Vec::new(),
+        tui_config: std::sync::Arc::new(crate::config::TuiConfig::default()),
+        command_catalog: tool::CommandCatalog::default(),
+        initial_pending_prompts: Vec::new(),
+        input_history: Vec::new(),
+        input_history_config: crate::config::InputHistoryConfig::default(),
+        startup_overlay: crate::shell::StartupOverlay::None,
+        profile: graticule::TerminalProfile::default(),
+        token_ledger: None,
+        tx,
+        should_quit: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    });
+
+    assert!(
+        app.session.switching_session.is_none(),
+        "build_app must never put the raw boot UUID into switching_session"
+    );
+    assert_eq!(app.threads.session_phase, protocol::ThreadPhase::Binding);
+    assert_eq!(
+        crate::shell::event_loop::render::select_empty_state_guidance(
+            app.session.switching_session.as_deref(),
+            &app.threads.session_phase,
+            true,
+        ),
+        crate::shell::render::EmptyStateGuidance::ThreadPhase(protocol::ThreadPhase::Binding),
+    );
+    assert_eq!(
+        crate::shell::event_loop::render::select_lifecycle_status(
+            false,
+            app.session.switching_session.as_deref(),
+            &app.threads.session_phase,
+        ),
+        Some("binding thread…".to_string()),
+    );
+}
+
+#[test]
+fn render_projection_composes_resuming_with_live_phase_and_prioritizes_link_down() {
+    use crate::shell::event_loop::render::{select_empty_state_guidance, select_lifecycle_status};
+    use crate::shell::render::EmptyStateGuidance;
+
+    let skills_phase = protocol::ThreadPhase::Preparing {
+        stage: protocol::PrepareStage::Skills,
+    };
+    assert_eq!(
+        select_empty_state_guidance(Some("7c405d7e"), &skills_phase, true),
+        EmptyStateGuidance::ResumingThread {
+            short_id: "7c405d7e".to_string(),
+            phase: skills_phase.clone(),
+        }
+    );
+    assert_eq!(
+        select_lifecycle_status(false, Some("7c405d7e"), &skills_phase),
+        Some("resuming 7c405d7e · preparing skills…".to_string())
+    );
+    assert_eq!(
+        select_lifecycle_status(true, Some("7c405d7e"), &skills_phase),
+        Some("server link lost".to_string()),
+        "dead server link must override any in-flight phase"
+    );
+    assert_eq!(
+        select_empty_state_guidance(None, &protocol::ThreadPhase::Ready, true),
+        EmptyStateGuidance::Tour
+    );
+    assert_eq!(
+        select_empty_state_guidance(None, &protocol::ThreadPhase::Ready, false),
+        EmptyStateGuidance::NeedsProvider
+    );
+    assert_eq!(
+        select_lifecycle_status(false, None, &protocol::ThreadPhase::Ready),
+        None
+    );
+}
+
+#[tokio::test]
+async fn submitting_chat_while_thread_phase_failed_preserves_draft_and_discloses_failure() {
+    let mut app = new_app_for_relay_tests();
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    app.threads.session_phase = protocol::ThreadPhase::Failed {
+        code: Some(protocol::ERR_SESSION_UNRESUMABLE.to_string()),
+        message: "corrupt store".to_string(),
+    };
+
+    crate::shell::event_loop::actions::commands::handle_send_chat(
+        &mut app,
+        &runtime,
+        "s1",
+        "keep my draft".to_string(),
+    )
+    .await;
+
+    assert!(
+        app.composer.pending_prompts.is_empty(),
+        "failed thread must never queue prompts into a dead pending_prompts buffer"
+    );
+    assert_eq!(app.composer.input, "keep my draft");
+    assert_eq!(app.composer.cursor_position, "keep my draft".len());
+    assert!(
+        app.notice_log()
+            .lines()
+            .iter()
+            .any(|n| n.text.contains("corrupt store")),
+        "must disclose the real preparation failure instead of QueuedWhilePreparing"
+    );
+    assert!(
+        !app.notice_log()
+            .lines()
+            .iter()
+            .any(|n| n.text.contains("will be sent when it is ready")),
+        "must not lie that the prompt will be sent when ready"
+    );
+}

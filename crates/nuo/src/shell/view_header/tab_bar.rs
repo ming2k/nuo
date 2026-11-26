@@ -26,8 +26,8 @@ use crate::shell::{BAR_LEGEND_GAP_MIN, TABBAR_H_INSET};
 use graticule::Color;
 use ui_primitives::components::overflow::{marquee_reveal_len, marquee_reveal_offset};
 use ui_primitives::design::{
-    TAB_ADD_WIDTH, TAB_CLOSE_WIDTH, TAB_HELP_GAP_MIN, TAB_PILL_MIN_WIDTH, TAB_TITLE_FADE_WIDTH,
-    TAB_TITLE_MARQUEE_CADENCE, TAB_TITLE_REVEAL_MAX_TRAVEL, tab_close_glyph,
+    TAB_ADD_WIDTH, TAB_CLOSE_WIDTH, TAB_HELP_GAP_MIN, TAB_PILL_MIN_WIDTH, TAB_STATUS_WIDTH,
+    TAB_TITLE_FADE_WIDTH, TAB_TITLE_MARQUEE_CADENCE, TAB_TITLE_REVEAL_MAX_TRAVEL, tab_close_glyph,
 };
 
 /// Width-adaptive form of the TabBar's right-edge help portal (ADR-0245
@@ -398,6 +398,68 @@ fn tab_add_style(theme: &Theme, hovered: bool) -> Style {
     }
 }
 
+/// Resolve the 1-column glyph and style for a live [`TabStatus`] mark painted
+/// inside a pill's leading title columns.
+///
+/// Speaks the same visual language as `ActivityStrip` (`[INV-TUI-RUNNING-04]`):
+/// - `Running`: calm breathing dot (`theme.glyphs.dot`) in `theme.running()` on
+///   chromatic terminals (with a 35% luminance floor so it remains legible even
+///   at phase 0), degrading to the 1-column rotating ASCII spinner on framed
+///   surfaces.
+/// - `Attention`: bold `!` in `theme.warn()` (distinct in both shape and hue
+///   from `Running`, and equally unambiguous on monochrome / ASCII terminals).
+fn tab_status_glyph_and_style(
+    status: TabStatus,
+    theme: &Theme,
+    pill: Style,
+    spinner_phase: usize,
+) -> (&'static str, Style) {
+    match status {
+        TabStatus::Idle => ("", pill),
+        TabStatus::Running => {
+            let glyph = crate::shell::chrome::spinner_glyph(
+                &theme.glyphs,
+                theme.elevation,
+                crate::shell::chrome::Liveness::Breathing,
+                spinner_phase,
+            );
+            let style = if theme.elevation.is_chromatic() {
+                let n = crate::shell::chrome::SPINNER_PHASES as f32;
+                let wave = 0.5
+                    - 0.5
+                        * (2.0
+                            * std::f32::consts::PI
+                            * (spinner_phase % crate::shell::chrome::SPINNER_PHASES) as f32
+                            / n)
+                            .cos();
+                let blend = 0.35 + 0.65 * wave;
+                let pill_bg = match pill.bg {
+                    Color::Reset => theme.tabbar_bg(),
+                    bg => bg,
+                };
+                let fg = match (pill_bg, theme.running()) {
+                    (Color::Rgb(..), Color::Rgb(..)) => {
+                        ui_primitives::theme::mix(pill_bg, theme.running(), blend)
+                    }
+                    _ => theme.running(),
+                };
+                pill.fg(fg)
+            } else {
+                pill.add_modifier(Modifier::BOLD)
+            };
+            (glyph, style)
+        }
+        TabStatus::Attention => {
+            let style = if theme.elevation.is_chromatic() {
+                pill.fg(theme.warn()).add_modifier(Modifier::BOLD)
+            } else {
+                pill.add_modifier(Modifier::BOLD)
+            };
+            ("!", style)
+        }
+    }
+}
+
 /// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09],
 /// ADR-0062, ADR-0235, ADR-0245).
 ///
@@ -583,24 +645,37 @@ pub(crate) fn draw_tab_bar(
             let hovered = hover.is_some_and(|hover| hover.tab() == Some(i));
             let close_hovered = close_hovered_tab == Some(i);
             let style = tab_pill_style(theme, active, hovered, i);
-            // At rest the title owns every interior column. On hover the close
-            // mark replaces the rightmost `TAB_CLOSE_WIDTH` columns in place,
-            // keeping pill geometry identical so the strip never reflows.
+            let status = tab_bar
+                .statuses
+                .and_then(|s| s.get(i).copied())
+                .unwrap_or(TabStatus::Idle);
+            // At rest an idle pill gives every interior column to its title.
+            // A live status (`Running` / `Attention`) borrows `TAB_STATUS_WIDTH`
+            // columns from the left of the title slot in place, and hover
+            // borrows `TAB_CLOSE_WIDTH` from the right — pill geometry stays
+            // fixed so status transitions and hover never reflow the strip
+            // (`[INV-TAB-16]`).
             let resting_title_w = width - TAB_PILL_CHROME_COLS;
-            let close = hovered && width >= TAB_PILL_CHROME_COLS + TAB_CLOSE_WIDTH;
-            let title_w = if close {
-                resting_title_w - TAB_CLOSE_WIDTH
+            let status_w = if status != TabStatus::Idle && resting_title_w > TAB_STATUS_WIDTH {
+                TAB_STATUS_WIDTH
             } else {
-                resting_title_w
+                0
+            };
+            let unhovered_title_w = resting_title_w.saturating_sub(status_w);
+            let close = hovered && unhovered_title_w >= TAB_CLOSE_WIDTH;
+            let title_w = if close {
+                unhovered_title_w - TAB_CLOSE_WIDTH
+            } else {
+                unhovered_title_w
             };
 
             // Hover is the only state that moves a title, and only for titles
-            // that actually overflowed at rest (`label_w > resting_title_w`): a
+            // that actually overflowed at rest (`label_w > unhovered_title_w`): a
             // fitting title simply yields its rightmost columns to the close
             // mark (fading the clipped edge) without jittering. For overflowing
             // titles it slides one bounded pass toward the tail (`[INV-TAB-15]`)
             // and rests there rather than snapping back to the head.
-            let offset = if hovered && label_w > resting_title_w {
+            let offset = if hovered && label_w > unhovered_title_w {
                 let max_offset = label_w
                     .saturating_sub(title_w)
                     .min(TAB_TITLE_REVEAL_MAX_TRAVEL);
@@ -639,6 +714,12 @@ pub(crate) fn draw_tab_bar(
             let close_glyph = tab_close_glyph(ascii);
             let (lead_chrome, trail_chrome) = if framed { ("[", "]") } else { (" ", " ") };
             spans.push(Span::styled(lead_chrome, style));
+            if status_w > 0 {
+                let (status_glyph, status_style) =
+                    tab_status_glyph_and_style(status, theme, style, tab_bar.spinner_phase);
+                spans.push(Span::styled(status_glyph, status_style));
+                spans.push(Span::styled(" ", style));
+            }
             push_faded_title_spans(&mut spans, units, title_w, offset, style);
             if close {
                 spans.push(Span::styled(" ", style));

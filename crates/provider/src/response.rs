@@ -43,7 +43,7 @@ pub async fn ensure_success(
     }
 }
 
-pub fn classify_http_error(status: http::StatusCode, body: &str) -> ProviderErrorKind {
+pub(crate) fn classify_http_error(status: http::StatusCode, body: &str) -> ProviderErrorKind {
     match status.as_u16() {
         401 | 403 => ProviderErrorKind::Authentication,
         408 => ProviderErrorKind::Timeout,
@@ -69,7 +69,7 @@ pub fn classify_http_error(status: http::StatusCode, body: &str) -> ProviderErro
 /// [`is_context_overflow_payload`] is conservative: vendor prose drifts, and a
 /// classifier that guesses from it flips a recovery into the wrong subsystem.
 /// A plain `413` needs no body at all — the status already says it.
-pub fn is_payload_too_large_payload(body: &str) -> bool {
+pub(crate) fn is_payload_too_large_payload(body: &str) -> bool {
     body.to_ascii_lowercase()
         .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .any(|token| matches!(token, "request_too_large" | "payload_too_large"))
@@ -77,7 +77,7 @@ pub fn is_payload_too_large_payload(body: &str) -> bool {
 
 /// Conservatively recognize the untyped context-overflow errors returned by
 /// OpenAI-compatible, Anthropic-compatible, and Google-compatible endpoints.
-pub fn is_context_overflow_payload(body: &str) -> bool {
+pub(crate) fn is_context_overflow_payload(body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
     let has_known_code = lower
         .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')

@@ -11,7 +11,6 @@ description = "Qoder provider dialect, COSY signature pipeline, and RSA/AES cryp
 provider = { workspace = true }
 protocol = { workspace = true }
 inference-wire = { workspace = true }
-tool = { workspace = true }
 host = { workspace = true }
 netune = { workspace = true }
 async-trait = { workspace = true }

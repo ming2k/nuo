@@ -549,12 +549,12 @@ fn opencode_go_routes_models_by_wire_format() {
         matches!(&qwen.transport, Transport::AnthropicMessages { base_url, .. } if base_url == "https://opencode.ai/inference/go/anthropic/v1/messages"),
         "qwen3.6-plus must route to the Anthropic /messages surface on zen/go relay"
     );
+    let spec = provider::model_provider_spec("opencode-go").expect("opencode-go spec must exist");
+    let wire = spec.model_protocol("qwen3.6-plus");
+    assert_eq!(wire, WireProtocol::AnthropicMessages);
     assert_eq!(
-        route_for_model("opencode-go", "qwen3.6-plus").map(|(p, b, _)| (p, b)),
-        Some((
-            WireProtocol::AnthropicMessages,
-            "https://opencode.ai/inference/go/anthropic/v1/messages".to_string()
-        ))
+        spec.endpoint(wire).unwrap(),
+        "https://opencode.ai/inference/go/anthropic/v1/messages"
     );
 }
 
@@ -564,8 +564,9 @@ fn openai_route_uses_official_api_not_opencode_go_relay() {
     // OpenAI uses its official endpoint as its remote catalog source, and
     // its inference routes MUST target https://api.openai.com, never
     // the opencode.ai relay endpoint.
-    let (protocol, base_url, _) =
-        route_for_model("openai", "gpt-4o").expect("openai gpt-4o route must exist");
+    let spec = provider::model_provider_spec("openai").expect("openai spec must exist");
+    let protocol = spec.model_protocol("gpt-4o");
+    let base_url = spec.endpoint(protocol).expect("openai endpoint");
     assert_eq!(protocol, WireProtocol::OpenAiChatCompletions);
     assert_eq!(base_url, "https://api.openai.com/v1/chat/completions");
 

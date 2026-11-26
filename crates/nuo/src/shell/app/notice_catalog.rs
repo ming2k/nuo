@@ -386,7 +386,7 @@ impl RenderedNotice {
         let title = notice.render_text();
         let (title, detail) = split_title_detail(title, notice.body.as_deref());
         Self {
-            severity: view::model::document::notice_severity_from_core(notice.severity),
+            severity: notice.severity,
             topic: notice_topic_label(notice.kind),
             title,
             detail,

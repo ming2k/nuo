@@ -20,22 +20,16 @@ pub mod tasks_bar;
 #[cfg(test)]
 mod tests;
 
-#[allow(unused_imports)]
 pub use activity_strip::{ActivityStripProps, draw_activity_strip};
-#[allow(unused_imports)]
 pub use common::{
     Liveness, SPINNER_PHASES, breathing_color, classify_liveness, dot_color, format_elapsed,
     spinner_glyph, tilde_home,
 };
 pub use completion_menu::draw_completion_menu;
-#[allow(unused_imports)]
 pub use model_bar::{
     CONTEXT_USAGE_CRIT_THRESHOLD, CONTEXT_USAGE_WARN_THRESHOLD, ModelBarProps, ModelBarRects,
     draw_model_bar, format_token_count,
 };
-#[allow(unused_imports)]
 pub use persistence_health::draw_persistence_health_bar;
-#[allow(unused_imports)]
 pub use queue_bar::{QueueBarProps, QueueItemProps};
-#[allow(unused_imports)]
 pub use tasks_bar::{BackgroundTaskItem, TasksBarProps, draw_tasks_bar};

@@ -55,7 +55,6 @@
 //! reads identically on plain, accented, and open summaries without ever
 //! changing their brightness ordering.
 pub(crate) mod renderers;
-#[allow(unused_imports)]
 pub use renderers::{
     StickyAnchor, draw_command_result, draw_compacted_card, draw_reasoning_trace,
     draw_sticky_anchor_if_needed, draw_subagent_inline_step, draw_tool_step,

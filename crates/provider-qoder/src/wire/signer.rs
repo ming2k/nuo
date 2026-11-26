@@ -18,7 +18,6 @@ use super::super::surface::{
 const QODER_RSA_PUBLIC_KEY_B64: &str = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDA8iMH5c02LilrsERw9t6Pv5Nc4k6Pz1EaDicBMpdpxKduSZu5OANqUq8er4GM95omAGIOPOh+Nx0spthYA2BqGz+l6HRkPJ7S236FZz73In/KVuLnwI8JJ2CbuJap8kvheCCZpmAWpb/cPx/3Vr/J6I17XcW+ML9FoCI6AOvOzwIDAQAB";
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 
-#[allow(dead_code)]
 pub fn inference_url(base: &str) -> String {
     let query = INFERENCE_QUERY
         .iter()
@@ -26,17 +25,6 @@ pub fn inference_url(base: &str) -> String {
         .collect::<Vec<_>>()
         .join("&");
     format!("{}{INFERENCE_PATH}?{query}", base.trim_end_matches('/'))
-}
-
-#[allow(dead_code)]
-pub fn signed_path_for(url: &str) -> String {
-    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
-    let path_query = rest.split_once('/').map(|(_, p)| p).unwrap_or("");
-    let path = path_query.split(['?', '#']).next().unwrap_or("");
-    let path = format!("/{path}");
-    path.strip_prefix("/algo")
-        .map(str::to_string)
-        .unwrap_or(path)
 }
 
 /// Per-machine COSY identity: the AES key/IV and its RSA-wrapped form.
@@ -47,13 +35,6 @@ pub struct CosyIdentity {
 }
 
 impl CosyIdentity {
-    /// Mint a fresh identity. `None` only if key wrapping fails — the generated
-    /// hex is 32 lowercase digits by construction (`fill_hex`).
-    #[allow(dead_code)]
-    pub fn generate() -> Option<Self> {
-        Self::from_machine_key_hex(generate_machine_key_hex())
-    }
-
     pub fn from_machine_key_hex(machine_key_hex: String) -> Option<Self> {
         if machine_key_hex.len() != 32
             || !machine_key_hex
@@ -72,16 +53,6 @@ impl CosyIdentity {
 
     pub fn parse(machine_key_hex: &str) -> Option<Self> {
         Self::from_machine_key_hex(machine_key_hex.to_string())
-    }
-
-    #[allow(dead_code)]
-    pub fn key_hex(&self) -> &str {
-        &self.machine_key_hex
-    }
-
-    #[allow(dead_code)]
-    pub fn key_hex_arr(&self) -> [u8; 16] {
-        key_bytes(&self.machine_key_hex)
     }
 
     /// AES-CBC wrap of the identity payload. `None` means the cipher could not be
@@ -155,7 +126,6 @@ fn fastrand_entropy() -> u64 {
     (now as u64) ^ random
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PreparedCosy {
     pub authorization: String,
@@ -166,7 +136,6 @@ pub struct PreparedCosy {
     pub signature_hex: String,
 }
 
-#[allow(dead_code)]
 pub fn prepare_request(
     identity: &CosyIdentity,
     identity_json: &str,

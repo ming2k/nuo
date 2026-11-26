@@ -440,7 +440,11 @@ fn living_docs_use_current_crate_names() {
             .filter(|entry| entry.file_type().is_file())
         {
             let path = entry.into_path();
-            if path.extension().is_some_and(|ext| ext == "md") {
+            if path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| matches!(ext, "md" | "yml" | "yaml"))
+            {
                 living.push(path);
             }
         }
@@ -475,6 +479,10 @@ fn living_docs_use_current_crate_names() {
         "nuo-oauth",
         "nuo-contracts",
         "nuo-agent",
+        "nous-model-wire",
+        "codebuddy-auth",
+        "provider-siliconflow",
+        "providers/nuo-provider",
         // The workspace removed the `nuo-` prefix from every library crate
         // (ADR-0181); naming the old form is naming a crate that is not there.
         "nuo-acp",
@@ -1086,5 +1094,89 @@ fn inv_instance_02_no_retired_reconciliation_or_teardown_symbols() {
         violations.is_empty(),
         "retired duplicate state / reconciliation / teardown symbols returned \
          ([INV-INSTANCE-02], [INV-VERB-02]): {violations:#?}"
+    );
+}
+
+/// Every curated preset in `view::providers::PROVIDER_PRESETS` must agree 1:1
+/// with its authoritative `ModelProviderSpec` in `server::composition::provider_registry`
+/// on provider id, default protocol, resolved endpoint URL, user-agent, and seed models.
+/// Prevents silent drift between the UI template catalog and the runtime spec table.
+#[test]
+fn provider_presets_match_authoritative_model_provider_specs() {
+    use server::composition::provider_registry::MODEL_PROVIDER_SPECS;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let specs: BTreeMap<&str, &provider::ModelProviderSpec> = MODEL_PROVIDER_SPECS
+        .iter()
+        .map(|spec| (spec.id.as_ref(), spec))
+        .collect();
+    let preset_ids: BTreeSet<&str> = view::providers::PROVIDER_PRESETS
+        .iter()
+        .map(|preset| preset.id)
+        .collect();
+
+    let mut violations = Vec::new();
+
+    for spec in MODEL_PROVIDER_SPECS {
+        if !preset_ids.contains(spec.id.as_ref()) {
+            violations.push(format!(
+                "spec `{}` in MODEL_PROVIDER_SPECS has no entry in view::providers::PROVIDER_PRESETS",
+                spec.id
+            ));
+        }
+    }
+
+    for preset in view::providers::PROVIDER_PRESETS {
+        let Some(spec) = specs.get(preset.id) else {
+            violations.push(format!(
+                "preset `{}` in PROVIDER_PRESETS does not exist in MODEL_PROVIDER_SPECS",
+                preset.id
+            ));
+            continue;
+        };
+
+        if preset.protocol != spec.protocol {
+            violations.push(format!(
+                "preset `{}` protocol ({:?}) != spec protocol ({:?})",
+                preset.id, preset.protocol, spec.protocol
+            ));
+        }
+
+        match spec.endpoint(spec.protocol) {
+            Ok(expected_url) => {
+                if preset.default_url != Some(expected_url.as_str()) {
+                    violations.push(format!(
+                        "preset `{}` default_url ({:?}) != spec.endpoint({:?}) ({:?})",
+                        preset.id, preset.default_url, spec.protocol, expected_url
+                    ));
+                }
+            }
+            Err(err) => {
+                violations.push(format!(
+                    "spec `{}` failed to derive endpoint for {:?}: {err}",
+                    spec.id, spec.protocol
+                ));
+            }
+        }
+
+        if preset.user_agent != spec.user_agent.as_deref() {
+            violations.push(format!(
+                "preset `{}` user_agent ({:?}) != spec user_agent ({:?})",
+                preset.id, preset.user_agent, spec.user_agent
+            ));
+        }
+
+        if preset.models != spec.models {
+            violations.push(format!(
+                "preset `{}` models ({:?}) != spec models ({:?})",
+                preset.id, preset.models, spec.models
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "view::providers::PROVIDER_PRESETS drifted from MODEL_PROVIDER_SPECS:\n{}",
+        violations.join("\n")
     );
 }

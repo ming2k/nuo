@@ -1,7 +1,6 @@
 //! Baselines for case-sensitive model ids used by custom OpenAI-compatible
 //! routes. Custom connections are declarations, not provider presets.
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -15,7 +14,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -27,7 +25,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,

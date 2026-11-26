@@ -15,16 +15,26 @@ pub use crate::shell::composer::{
 // Design tokens are re-exported crate-visibility so the drawing leaves that
 // used to reach them via the old `paint` parent's namespace still resolve.
 use crate::shell::disclosure::draw_sticky_anchor_if_needed;
-#[allow(unused_imports)]
-pub use crate::shell::overlays::*;
-use crate::shell::view_header;
-#[allow(unused_imports)]
-pub(crate) use crate::shell::view_header::{
-    SceneNavRects, TabBarNavRects, TabBarProps, ThreadContext, ViewHints, ViewKind, draw_scene_bar,
-    draw_tab_bar, draw_thread_context_bar,
+pub(crate) use crate::shell::overlays::draw_dialog_keys;
+pub use crate::shell::overlays::{
+    ContextUsageProps, CustomEditorProps, DiffSceneProps, LogSceneProps, QueueModalProps,
+    draw_armed_toast, draw_command_log_scene, draw_connections_modal, draw_copy_toast,
+    draw_custom_provider_editor, draw_dashboard, draw_diff_scene, draw_history_panel,
+    draw_input_injection, draw_model_editor, draw_models_modal, draw_notice_toast,
+    draw_oauth_pending, draw_permission_sheet, draw_preset_chooser, draw_provider_delete_confirm,
+    draw_question_modal, draw_session_preview, draw_sessions_modal, draw_web_value_editor,
+    telemetry_attempt_key, telemetry_round_count,
 };
-#[allow(unused_imports)]
-pub use crate::shell::views::settings::*;
+use crate::shell::view_header;
+#[cfg(test)]
+pub(crate) use crate::shell::view_header::ViewKind;
+pub(crate) use crate::shell::view_header::{
+    SceneNavRects, TabBarNavRects, TabBarProps, TabStatus, ThreadContext, ViewHints,
+    draw_scene_bar, draw_tab_bar, draw_thread_context_bar,
+};
+pub use crate::shell::views::settings::{
+    ConfigCategory, ConfigFocus, SettingsProps, draw_settings_view,
+};
 #[cfg(test)]
 use graticule::{prohibited_line_end, prohibited_line_start};
 pub(crate) use ui_primitives::design::{
@@ -37,14 +47,13 @@ pub(crate) use ui_primitives::design::{
 };
 pub use ui_primitives::primitives::recess_backdrop;
 use ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
-#[allow(unused_imports)]
-pub use ui_primitives::theme::{COLOR_SCHEMES, Theme};
-/// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057 → ADR-0104).
-/// Re-exported so the app shell selects the variant and the renderer paints it.
-pub use view::empty_state::EmptyStateGuidance;
+pub use ui_primitives::theme::Theme;
 /// Parse a raw logo file into clamped display lines for the empty-state hero.
 /// Re-exported so the startup loader and the renderer share one clamp rule.
 pub use view::empty_state::parse_logo;
+/// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057 → ADR-0104).
+/// Re-exported so the app shell selects the variant and the renderer paints it.
+pub use view::empty_state::{EmptyStateGuidance, resuming_thread_status, thread_phase_status};
 /// Which peer plane owns the keyboard (ADR-0145). Re-exported so the shell
 /// projects its own `Focus` onto the renderer's paint-time enum at the props
 /// boundary instead of the presentation crate depending on the shell's
@@ -277,7 +286,6 @@ pub struct TranscriptProps<'a> {
 /// Caches each transcript message's fully-laid-out height (in rows), keyed by
 pub use view::layout::{HeightCache, StickyAnchor};
 
-#[allow(unused_imports)]
 pub use view::text_layout::{BlockWrapCache, PreparedCode};
 
 /// Page-header context for the TaskInspection scene (shown when zoomed into a task).

@@ -26,7 +26,6 @@
 
 mod dialogs;
 
-#[allow(unused_imports)]
 pub use dialogs::{
     ConnectionsDialog, ContextPlanDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs,
     HelpDialog, HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PaletteDialog,

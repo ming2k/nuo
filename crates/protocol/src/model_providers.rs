@@ -281,7 +281,7 @@ pub const MODEL_PROVIDER_IDS: &[&str] = &[
 
 /// Whether `id` names a registered model provider.
 pub fn is_known_model_provider(id: &str) -> bool {
-    MODEL_PROVIDER_IDS.contains(&id)
+    BUILTIN_PROVIDER_DEFAULTS.iter().any(|p| p.id == id)
 }
 
 /// Map a provider id from any era to its canonical id, or `None` when the
@@ -308,32 +308,267 @@ pub fn canonical_provider_id(id: &str) -> Option<String> {
     is_known_model_provider(canonical).then(|| canonical.to_string())
 }
 
+/// Canonical User-Agent strings for providers whose gateways require a
+/// specific client header. Single source of truth shared by provider specs and
+/// UI connection presets.
+pub const CODEX_USER_AGENT: &str = "codex_cli_rs/0.153.4";
+pub const CODEBUDDY_USER_AGENT: &str = "CLI/2.172.1 CodeBuddy/2.172.1";
+pub const ZCODE_USER_AGENT: &str = "ZCode/3.5.3";
+pub const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
+pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.5.12 \
+(aidev_client; os_type=linux; arch=amd64; cl=1024904911; auth_method=consumer)";
+
+/// Single source of truth for a built-in provider's static identity, default
+/// protocol, endpoints, User-Agent, and seed model list.
+///
+/// Both `crates/provider-*` specs and `crates/view/src/providers/presets.rs`
+/// project these fields directly from here so adding or updating a provider
+/// never requires hand-copying URLs, User-Agents, labels, or protocols across
+/// layers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinProviderDefaults {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub protocol: inference_wire::WireProtocol,
+    pub root_url: &'static str,
+    pub default_endpoint: &'static str,
+    pub user_agent: Option<&'static str>,
+    pub models: &'static [&'static str],
+}
+
+impl BuiltinProviderDefaults {
+    /// Borrow `user_agent` as a static `Cow` for `const` `ModelProviderSpec`
+    /// definitions.
+    pub const fn user_agent_cow(&self) -> Option<std::borrow::Cow<'static, str>> {
+        match self.user_agent {
+            Some(ua) => Some(std::borrow::Cow::Borrowed(ua)),
+            None => None,
+        }
+    }
+}
+
+pub const PROVIDER_ANTHROPIC: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "anthropic",
+    label: "Anthropic",
+    protocol: inference_wire::WireProtocol::AnthropicMessages,
+    root_url: "https://api.anthropic.com/v1",
+    default_endpoint: "https://api.anthropic.com/v1/messages",
+    user_agent: None,
+    models: ANTHROPIC_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_CHATGPT_PLAN: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "chatgpt-plan",
+    label: "ChatGPT Plan",
+    protocol: inference_wire::WireProtocol::OpenAiResponses,
+    root_url: "https://chatgpt.com/backend-api/codex",
+    default_endpoint: "https://chatgpt.com/backend-api/codex/responses",
+    user_agent: Some(CODEX_USER_AGENT),
+    models: CHATGPT_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_CODEBUDDY_CN: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "codebuddy-cn",
+    label: "Tencent CodeBuddy CN",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://copilot.tencent.com/v2",
+    default_endpoint: "https://copilot.tencent.com/v2/chat/completions",
+    user_agent: Some(CODEBUDDY_USER_AGENT),
+    models: CODEBUDDY_CN_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_CODEBUDDY_INTL: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "codebuddy-intl",
+    label: "Tencent CodeBuddy Global",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://www.codebuddy.ai/v2",
+    default_endpoint: "https://www.codebuddy.ai/v2/chat/completions",
+    user_agent: Some(CODEBUDDY_USER_AGENT),
+    models: CODEBUDDY_INTL_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_COMMANDCODE_GOAT: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "commandcode-goat",
+    label: "CommandCode GOAT",
+    protocol: inference_wire::WireProtocol::OpenAiResponses,
+    root_url: "https://api.commandcode.ai/provider/v1",
+    default_endpoint: "https://api.commandcode.ai/provider/v1/responses",
+    user_agent: None,
+    models: COMMANDCODE_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_DEEPSEEK: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "deepseek",
+    label: "DeepSeek",
+    protocol: inference_wire::WireProtocol::OpenAiResponses,
+    root_url: "https://api.deepseek.com/v1",
+    default_endpoint: "https://api.deepseek.com/v1/responses",
+    user_agent: None,
+    models: DEEPSEEK_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_GLM_CN: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "glm-cn",
+    label: "GLM Coding Plan CN",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://open.bigmodel.cn/api/coding/paas/v4",
+    default_endpoint: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+    user_agent: Some(ZCODE_USER_AGENT),
+    models: GLM_CN_MODELS,
+};
+
+pub const PROVIDER_GITHUB_COPILOT: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "github-copilot",
+    label: "GitHub Copilot",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://api.githubcopilot.com",
+    default_endpoint: "https://api.githubcopilot.com/chat/completions",
+    user_agent: None,
+    models: COPILOT_SEED_MODELS,
+};
+
+pub const PROVIDER_GOOGLE: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "google",
+    label: "Google AI Studio",
+    protocol: inference_wire::WireProtocol::GoogleGenerateContent,
+    root_url: "https://generativelanguage.googleapis.com/v1beta",
+    default_endpoint: "https://generativelanguage.googleapis.com/v1beta",
+    user_agent: None,
+    models: GOOGLE_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_GOOGLE_ANTIGRAVITY: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "google-antigravity",
+    label: "Google Antigravity",
+    protocol: inference_wire::WireProtocol::GoogleGenerateContent,
+    root_url: "https://daily-cloudcode-pa.googleapis.com",
+    default_endpoint: "https://daily-cloudcode-pa.googleapis.com",
+    user_agent: Some(ANTIGRAVITY_USER_AGENT),
+    models: ANTIGRAVITY_OAUTH_MODELS,
+};
+
+pub const PROVIDER_KIMI_CODE: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "kimi-code",
+    label: "Kimi Code",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://api.kimi.com/coding/v1",
+    default_endpoint: "https://api.kimi.com/coding/v1/chat/completions",
+    user_agent: Some(OPENCODE_USER_AGENT),
+    models: KIMI_CODE_MODELS,
+};
+
+pub const PROVIDER_OPENAI: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "openai",
+    label: "OpenAI Platform",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://api.openai.com/v1",
+    default_endpoint: "https://api.openai.com/v1/chat/completions",
+    user_agent: None,
+    models: OPENAI_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_OPENCODE_GO: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "opencode-go",
+    label: "OpenCode Go",
+    protocol: inference_wire::WireProtocol::OpenAiResponses,
+    root_url: "https://opencode.ai/zen/go/v1",
+    default_endpoint: "https://opencode.ai/zen/go/v1/responses",
+    user_agent: Some(OPENCODE_USER_AGENT),
+    models: OPENCODE_GO_MODELS,
+};
+
+pub const PROVIDER_OPENCODE_ZEN: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "opencode-zen",
+    label: "OpenCode Zen",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://opencode.ai/zen/v1",
+    default_endpoint: "https://opencode.ai/zen/v1/chat/completions",
+    user_agent: Some(OPENCODE_USER_AGENT),
+    models: OPENCODE_ZEN_MODELS,
+};
+
+pub const PROVIDER_OPENDESIGN_GO: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "opendesign-go",
+    label: "OpenDesign Go",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://amr-link.open-design.ai/v1",
+    default_endpoint: "https://amr-link.open-design.ai/v1/chat/completions",
+    user_agent: None,
+    models: OPENDESIGN_GO_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_OPENROUTER: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "openrouter",
+    label: "OpenRouter",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://openrouter.ai/api/v1",
+    default_endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    user_agent: None,
+    models: OPENROUTER_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_QIANWEN: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "qianwen",
+    label: "QianwenAI Token Plan",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1",
+    default_endpoint: "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions",
+    user_agent: None,
+    models: QIANWEN_BUILTIN_MODELS,
+};
+
+pub const PROVIDER_QODER: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "qoder",
+    label: "Qoder",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://api3.qoder.sh",
+    default_endpoint: "https://api3.qoder.sh",
+    user_agent: None,
+    models: QODER_MODELS,
+};
+
+pub const PROVIDER_XAI: BuiltinProviderDefaults = BuiltinProviderDefaults {
+    id: "xai",
+    label: "xAI",
+    protocol: inference_wire::WireProtocol::OpenAiChatCompletions,
+    root_url: "https://api.x.ai/v1",
+    default_endpoint: "https://api.x.ai/v1/chat/completions",
+    user_agent: None,
+    models: XAI_BUILTIN_MODELS,
+};
+
+/// All shipped built-in provider defaults.
+pub const BUILTIN_PROVIDER_DEFAULTS: &[&BuiltinProviderDefaults] = &[
+    &PROVIDER_OPENAI,
+    &PROVIDER_CHATGPT_PLAN,
+    &PROVIDER_ANTHROPIC,
+    &PROVIDER_GOOGLE,
+    &PROVIDER_GOOGLE_ANTIGRAVITY,
+    &PROVIDER_GITHUB_COPILOT,
+    &PROVIDER_XAI,
+    &PROVIDER_DEEPSEEK,
+    &PROVIDER_GLM_CN,
+    &PROVIDER_KIMI_CODE,
+    &PROVIDER_OPENROUTER,
+    &PROVIDER_OPENDESIGN_GO,
+    &PROVIDER_OPENCODE_ZEN,
+    &PROVIDER_OPENCODE_GO,
+    &PROVIDER_QODER,
+    &PROVIDER_QIANWEN,
+    &PROVIDER_COMMANDCODE_GOAT,
+    &PROVIDER_CODEBUDDY_CN,
+    &PROVIDER_CODEBUDDY_INTL,
+];
+
 /// Canonical human-readable display label for a model provider ID.
 pub fn model_provider_label(id: &str) -> &'static str {
     let canonical = canonical_provider_id(id);
     let effective = canonical.as_deref().unwrap_or(id);
-    match effective {
-        "anthropic" => "Anthropic",
-        "chatgpt-plan" => "ChatGPT Plan",
-        "codebuddy-cn" => "Tencent CodeBuddy CN",
-        "codebuddy-intl" => "Tencent CodeBuddy Global",
-        "commandcode-goat" => "CommandCode GOAT",
-        "deepseek" => "DeepSeek",
-        "github-copilot" => "GitHub Copilot",
-        "google" => "Google AI Studio",
-        "google-antigravity" => "Google Antigravity",
-        "kimi-code" => "Kimi Code",
-        "openai" => "OpenAI Platform",
-        "opencode-zen" => "OpenCode Zen",
-        "opencode-go" => "OpenCode Go",
-        "openrouter" => "OpenRouter",
-        "opendesign-go" => "OpenDesign Go",
-        "glm-cn" => "GLM Coding Plan CN",
-        "qoder" => "Qoder",
-        "qianwen" => "QianwenAI Token Plan",
-        "xai" => "xAI",
-        _ => "Custom Provider",
-    }
+    BUILTIN_PROVIDER_DEFAULTS
+        .iter()
+        .find(|p| p.id == effective)
+        .map(|p| p.label)
+        .unwrap_or("Custom Provider")
 }
 
 #[cfg(test)]
@@ -408,5 +643,21 @@ mod provider_id_tests {
         assert_eq!(model_provider_label("chatgpt-plan"), "ChatGPT Plan");
         assert_eq!(model_provider_label("commandcode-goat"), "CommandCode GOAT");
         assert_eq!(model_provider_label("opencode-go"), "OpenCode Go");
+    }
+
+    #[test]
+    fn model_provider_ids_match_builtin_defaults() {
+        let default_ids: Vec<&str> = BUILTIN_PROVIDER_DEFAULTS.iter().map(|p| p.id).collect();
+        assert_eq!(
+            default_ids.as_slice(),
+            MODEL_PROVIDER_IDS,
+            "MODEL_PROVIDER_IDS and BUILTIN_PROVIDER_DEFAULTS must stay 1:1 identical"
+        );
+        for defaults in BUILTIN_PROVIDER_DEFAULTS {
+            assert!(!defaults.id.is_empty());
+            assert!(!defaults.label.is_empty());
+            assert!(!defaults.root_url.is_empty());
+            assert!(!defaults.default_endpoint.is_empty());
+        }
     }
 }

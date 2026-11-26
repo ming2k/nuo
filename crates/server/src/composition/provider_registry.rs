@@ -6,14 +6,13 @@
 //! dispatches quota queries through the typed [`QuotaPort`] declared on each
 //! spec (`[INV-PROV-08]`) — no provider-id or base-URL string sniffing.
 //!
-//! `[INV-PROV-09]`: because this crate links every `providers/nuo-provider-*`
+//! `[INV-PROV-09]`: because this crate links every `crates/provider-*`
 //! crate, the shipped binary links them all.
 //!
 //! Moved from `nuo-provider-adapters`' `registry/mod.rs` + `lib.rs::init()`;
 //! the per-provider spec modules there were duplicates of the `providers/`
 //! crates' own `spec.rs` and are deleted.
 use provider::catalog::{Channel, Transport};
-use std::borrow::Cow;
 use std::sync::Arc;
 
 pub use provider::spec::{
@@ -29,7 +28,7 @@ use provider_qoder as qoder;
 /// The single registry of built-in model providers.
 ///
 /// Each entry's `id` MUST be unique (`[INV-PROV-06]`). Every entry is the
-/// authoritative definition owned by its `providers/nuo-provider-*` crate.
+/// authoritative definition owned by its `crates/provider-*` crate.
 pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     provider_openai::MODEL_PROVIDER_SPEC,
     provider_openrouter::MODEL_PROVIDER_SPEC,
@@ -61,39 +60,18 @@ pub use provider::spec::{
     register_user_declared_provider, sync_user_declared_providers, user_declared_provider_spec,
 };
 
-/// The spec for a provider id: built-in first, then whatever the host last
-/// declared.
-///
-/// The built-in table is this crate's own const, so resolution works before
-/// [`init`] populates the `provider` registry (unit tests, early boot).
+/// The spec for a provider id: delegates to the canonical [`provider::model_provider_spec`]
+/// registry first, falling back to this crate's const built-in table so resolution
+/// also works before [`init`] runs (unit tests, early boot).
 pub fn model_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
-    let canonical =
-        protocol::model_providers::canonical_provider_id(id).unwrap_or_else(|| id.to_string());
-    if let Some(spec) = MODEL_PROVIDER_SPECS
-        .iter()
-        .find(|spec| spec.id == id || spec.id == canonical.as_str())
-    {
-        return Some(Arc::new(spec.clone()));
-    }
-    user_declared_provider_spec(id).or_else(|| user_declared_provider_spec(&canonical))
-}
-
-/// Resolve the transport endpoint for **one model** of a model provider.
-pub fn route_for_model(
-    provider_id: &str,
-    model_id: &str,
-) -> Option<(
-    inference_wire::WireProtocol,
-    String,
-    Option<Cow<'static, str>>,
-)> {
-    let spec = model_provider_spec(provider_id)?;
-    let protocol = spec.model_protocol(model_id);
-    Some((
-        protocol,
-        spec.endpoint(protocol).ok()?,
-        spec.user_agent.clone(),
-    ))
+    provider::model_provider_spec(id).or_else(|| {
+        let canonical =
+            protocol::model_providers::canonical_provider_id(id).unwrap_or_else(|| id.to_string());
+        MODEL_PROVIDER_SPECS
+            .iter()
+            .find(|spec| spec.id == id || spec.id == canonical.as_str())
+            .map(|spec| Arc::new(spec.clone()))
+    })
 }
 
 /// Construct the concrete `Provider` for a [`Channel`].

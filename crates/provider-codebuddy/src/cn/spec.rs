@@ -8,7 +8,6 @@
 //! never share a const ([ADR-0097]).
 
 use ::provider::*;
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 use protocol::surface::RemoteCatalogSource;
@@ -33,7 +32,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -45,7 +43,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -57,7 +54,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -69,7 +65,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -81,7 +76,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -93,7 +87,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -105,7 +98,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -117,7 +109,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -147,22 +138,24 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
-    id: std::borrow::Cow::Borrowed("codebuddy-cn"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_CODEBUDDY_CN.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://copilot.tencent.com/v2"),
-    user_agent: Some(std::borrow::Cow::Borrowed(crate::CODEBUDDY_USER_AGENT)),
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_CODEBUDDY_CN.root_url),
+    user_agent: protocol::model_providers::PROVIDER_CODEBUDDY_CN.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(crate::CODEBUDDY_CLIENT_HEADERS),
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: protocol::model_providers::PROVIDER_CODEBUDDY_CN.protocol,
+    model_protocols: &[],
     catalog_source: RemoteCatalogSource::None,
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,
-    models: CODEBUDDY_CN_BUILTIN_MODELS,
+    models: protocol::model_providers::PROVIDER_CODEBUDDY_CN.models,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use inference_wire::WireProtocol;
 
     #[test]
     fn spec_is_bound_to_the_domestic_realm() {

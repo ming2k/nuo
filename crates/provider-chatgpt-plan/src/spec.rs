@@ -1,6 +1,5 @@
 //! The `chatgpt-oauth` provider preset: GPT-5.x over the ChatGPT
 //! Subscription backend (the Codex Responses API).
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -34,7 +33,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::OPENAI_GPT_6,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -46,7 +44,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -58,7 +55,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -70,7 +66,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -84,7 +79,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::OPENAI_GPT,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -96,7 +90,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningSummary,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::OPENAI_GPT,
         default_effort: Some(protocol::Effort::Medium),
         wire_entities: None,
@@ -129,7 +122,7 @@ const fn prompt_cache_for_model(_: &str) -> protocol::PromptCacheSpec {
 }
 
 pub const CODEX_VERSION: &str = "0.153.4";
-pub const CODEX_USER_AGENT: &str = "codex_cli_rs/0.153.4";
+pub use protocol::model_providers::CODEX_USER_AGENT;
 pub const CODEX_CLIENT_HEADERS: &[(&str, &str)] = &[
     ("Openai-Intent", "conversation-edits"),
     ("x-initiator", "user"),
@@ -140,17 +133,18 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
-    id: std::borrow::Cow::Borrowed("chatgpt-plan"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_CHATGPT_PLAN.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://chatgpt.com/backend-api/codex"),
-    user_agent: Some(std::borrow::Cow::Borrowed(CODEX_USER_AGENT)),
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_CHATGPT_PLAN.root_url),
+    user_agent: protocol::model_providers::PROVIDER_CHATGPT_PLAN.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(CODEX_CLIENT_HEADERS),
     // The Responses transport is the OpenAI wire family. Catalog fetch uses the
     // subscription-only `/backend-api/codex/models` catalog rather than the
     // public OpenAI `{data:[...]}` shape; the remote catalog is authoritative
     // for each account and its capability metadata is trusted.
-    protocol: WireProtocol::OpenAiResponses,
-    models: CHATGPT_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_CHATGPT_PLAN.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_CHATGPT_PLAN.models,
     catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: None,
     display_policy: provider::DisplayPolicy::Native,
@@ -160,6 +154,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use inference_wire::WireProtocol;
     use protocol::PromptCacheMode;
 
     #[test]

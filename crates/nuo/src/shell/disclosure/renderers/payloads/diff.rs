@@ -399,4 +399,5 @@ pub(crate) fn project_frags_to_wrapped<'a>(
 }
 
 /// Project syntax tokens onto a wrapped slice of text covering `start_byte..end_byte`.
+#[cfg(test)]
 pub(crate) use ui_primitives::syntax::project_syntax_slice;

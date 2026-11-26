@@ -9,7 +9,6 @@ description = "Moonshot AI Kimi Code platform provider (K3, always-on reasoning,
 
 [dependencies]
 provider = { workspace = true }
-inference-wire = { workspace = true }
 protocol = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

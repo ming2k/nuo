@@ -10,28 +10,26 @@ pub(crate) mod sync;
 pub(crate) mod transcript;
 pub(crate) mod translators;
 
-#[allow(unused_imports)]
-pub(crate) use actions::{effective_reasoning_effort, modal_page_step};
+#[cfg(test)]
+pub(crate) use actions::modal_page_step;
 /// The transcript edit vocabulary is re-exported for the shell's event loop and
 /// for the test harness that drives it.
-#[cfg_attr(not(test), allow(unused_imports))]
+#[cfg(test)]
 pub(crate) use mutations::TranscriptEdit;
 pub(crate) use mutations::{AppMutation, CompletionSignal};
 #[cfg(test)]
 pub(crate) use render::render_frame;
 pub(crate) use runtime::{UiRuntime, now_epoch_ms};
+pub(crate) use transcript::resolve_focused_mut;
 #[cfg(test)]
-pub(crate) use transcript::focused_messages_mut;
-#[allow(unused_imports)]
-pub(crate) use transcript::{display_status, resolve_focused_mut};
+pub(crate) use transcript::{display_status, focused_messages_mut};
 
 #[cfg(test)]
 pub(crate) use actions::host_test_shims;
 #[cfg(test)]
-#[allow(unused_imports)]
 pub(crate) use actions::{
     InterruptTarget, handle_close_modal, handle_ctrl_c, handle_esc_interrupt, handle_modal_down,
-    handle_modal_up, handle_send_slash, open_active_connection_detail,
+    handle_send_slash, open_active_connection_detail,
 };
 
 use std::io;
@@ -520,10 +518,14 @@ pub(crate) async fn run_app_loop(
                     .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
                 d.refreshing || d.reveal_active
             };
-        // A hover title reveal in the TabBar is the second draw-reported live
-        // state: the strip keeps its animation heartbeat only while a pass is
-        // actually in flight, so an idle row costs nothing (ADR-0235).
-        let tab_live = app.surfaces.tab_reveal_active;
+        // A hover title reveal or a live Running tab status in the TabBar keeps
+        // the animation heartbeat alive only while motion is actually visible:
+        // idle and attention-only strips cost zero repaints (ADR-0235).
+        let any_tab_running = app.surfaces.surfaces.tabs().iter().any(|tab| {
+            render::project_tab_status(app, tab, &viewed_session_id)
+                == crate::shell::render::TabStatus::Running
+        });
+        let tab_live = app.surfaces.tab_reveal_active || any_tab_running;
         let animating = viewed_animating
             || app.has_live_transport_setback()
             || !app.composer.pending_images.is_empty()

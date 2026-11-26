@@ -1,7 +1,6 @@
 //! The built-in `openrouter` provider: OpenRouter's normalized multi-model
 //! gateway over Chat Completions, authenticated with one API key.
 
-use inference_wire::WireProtocol;
 use protocol::reasoning::ReasoningSupport;
 use protocol::{Effort, Model};
 
@@ -22,7 +21,6 @@ pub const MODELS: &[Model] = &[Model {
     thinking: ReasoningSupport::ReasoningContent,
     tool_call: true,
     vision: true,
-    protocol: WireProtocol::OpenAiChatCompletions,
     effort_levels: NEX_N25_EFFORTS,
     default_effort: Some(protocol::Effort::High),
     wire_entities: None,
@@ -35,13 +33,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("openrouter"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_OPENROUTER.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://openrouter.ai/api/v1"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_OPENROUTER.root_url),
+    user_agent: protocol::model_providers::PROVIDER_OPENROUTER.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
-    models: OPENROUTER_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_OPENROUTER.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_OPENROUTER.models,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: Some(::provider::QuotaPort::OpenRouterKey),
     display_policy: ::provider::DisplayPolicy::Structural,

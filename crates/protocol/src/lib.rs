@@ -38,8 +38,8 @@ pub use discovery::{Discovery, ServerInfo};
 pub mod version;
 pub use version::{
     ERR_PROTOCOL_MISMATCH, ERR_SESSION_GONE, ERR_SESSION_UNRESUMABLE, ERR_VERSION_MISMATCH,
-    VersionRelation, compare_versions, incompatibility_error, protocol_accepts, protocol_mismatch,
-    version_mismatch, versions_compatible,
+    incompatibility_error, protocol_accepts, protocol_mismatch, version_mismatch,
+    versions_compatible,
 };
 pub mod cache;
 pub use cache::{
@@ -88,7 +88,10 @@ pub use instructions::{
 
 pub mod action;
 pub mod command;
-pub use command::*;
+pub use command::{
+    ChangedFile, CommandRecord, CommandResult, CommandStatus, ReviewStatus, ReviewVerdict,
+    SearchHit, UndoRefusal,
+};
 pub use observation::{
     InvalidationReason, ObservationLifecycle, ObservationMetrics, TerminationReason, Trust,
 };
@@ -130,7 +133,19 @@ pub mod reasoning;
 pub use reasoning::{ReasoningMode, ReasoningSupport};
 pub mod dynamic;
 pub mod events;
-pub use events::*;
+pub use events::{
+    AgentEvent, AgentNotice, AgentOp, AgentRequest, AgentResponse, CatalogSyncFailure,
+    ConnectStatus, ConnectionPickerRow, ConnectionPickerSnapshot, ContextTokenSnapshot,
+    ContextTokenSource, EventClass, HarnessSnapshot, InputReply, InputRequest, LoopStatus,
+    McpServerInfo, ModelInfo, NoticeSeverity, NoticeSource, PermissionDecision, PermissionRequest,
+    PermissionRuleInfo, PrepareStage, ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot,
+    QueueMode, QueuedMessage, RetryPoint, RoundEvent, RoundInterrupt, RoundInterruptReason,
+    RoundScope, RoundSummary, SkillInfo, StateDelta, StdinReply, StdinRequest, SubagentEvent,
+    ThreadContextSnapshot, ThreadDetail, ThreadOrigin, ThreadOverview, ThreadPhase,
+    ThreadPhaseUpdate, ThreadSnapshot, ToolInfo, TrustDecision, TurnContext, UserQuestion,
+    UserQuestionOption, UserQuestionReply, UserQuestionRequest, WebConfigUpdate, WebConfigView,
+    WebCredentialUpdate, WebSearchConfigUpdate, WebSearchConfigView,
+};
 pub mod agent_kind;
 pub mod agent_role;
 pub mod cognitive;
@@ -153,9 +168,12 @@ pub use cognitive::{
 };
 pub use execution_policy::{ContextLifecycle, ExecutionPolicy, PolicyViolation};
 pub mod history;
-pub use history::*;
+pub use history::{HISTORY_CAP, HistoryEntry, HistorySearchHit, merge_history};
 pub mod human_request;
-pub use human_request::*;
+pub use human_request::{
+    AutonomousFallbackPolicy, HumanChannelAccountant, HumanChannelPosture, HumanReply,
+    HumanRequestKind, ReplyProvenance,
+};
 pub mod identity;
 pub mod pressure;
 pub mod token_ledger;
@@ -240,7 +258,10 @@ pub use model::{
     baseline_models, model_by_id, register_fitted_models, resolve as resolve_model,
     sanitize_model_id, simple_glob_matches,
 };
-pub use monitor::*;
+pub use monitor::{
+    MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredTask, MonitoredThread,
+    PersistenceHealth, StoragePressure, ThreadActivity, ThreadHosting,
+};
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
     ContextBudget, DEFAULT_REQUEST_BODY_LIMIT_BYTES, LayeredRequestWeights, MediaOffload,
@@ -275,10 +296,15 @@ pub mod surface;
 pub use surface::{ApiRoot, CatalogShape, RemoteCatalogSource};
 
 pub mod context_projection;
-pub use context_projection::*;
+pub use context_projection::{
+    ContextProjectionCheckpoint, ContextProjectionKind, ContextProjectionResult,
+};
 pub mod policy_config;
 pub mod policy_schema;
-pub use policy_schema::*;
+pub use policy_schema::{
+    BashPolicyActionConfig, BashPolicyConfig, BashPolicyMatcherConfig, BashPolicyRuleConfig,
+    CustomRole, PermissionRuleConfig,
+};
 
 /// Current protocol version.
 ///
@@ -347,8 +373,6 @@ pub use policy_schema::*;
 /// `AgentRequest` gains `CheckThreadsExist`; `AgentResponse` gains
 /// `ThreadsExistence` and `ThreadDeleted`. Floor moves with the ceiling.
 pub const PROTOCOL_VERSION: u32 = 35;
-/// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 35;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1020,7 +1044,7 @@ mod readiness_protocol_tests {
         let snapshot = ThreadSnapshot {
             thread_id: "t".into(),
             round_counter: 3,
-            messages: vec![Message::new(Role::User, "hello")],
+            messages: vec![tool::Message::new(Role::User, "hello")],
             provider: "p".into(),
             model: "m".into(),
             todos: Vec::new(),

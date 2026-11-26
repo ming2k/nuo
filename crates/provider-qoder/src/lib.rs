@@ -25,7 +25,6 @@ pub use region::{REGION_ENDPOINTS_URL, elect_infer_endpoint};
 pub use usage::*;
 pub use wire::*;
 
-use inference_wire::WireProtocol;
 use protocol::model::Model;
 use protocol::reasoning::ReasoningSupport;
 use provider::spec::{ModelProviderSpec, RemoteCatalogSource};
@@ -50,7 +49,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -62,7 +60,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -76,17 +73,18 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: provider::PromptCachePolicy::Compiled(provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("qoder"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_QODER.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://api3.qoder.sh"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_QODER.root_url),
+    user_agent: protocol::model_providers::PROVIDER_QODER.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: protocol::model_providers::PROVIDER_QODER.protocol,
+    model_protocols: &[],
     catalog_source: RemoteCatalogSource::Custom(CATALOG_SOURCE_ID),
     quota: Some(provider::QuotaPort::Qoder),
     display_policy: provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,
-    models: QODER_MODELS,
+    models: protocol::model_providers::PROVIDER_QODER.models,
 };
 
 /// Sign a catalog request with the connection's COSY identity.

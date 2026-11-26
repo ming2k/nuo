@@ -10,7 +10,6 @@ description = "xAI Grok provider channel for Nuo"
 [dependencies]
 protocol = { workspace = true }
 provider = { workspace = true }
-inference-wire = { workspace = true }
 async-trait = { workspace = true }
 inventory = { workspace = true }
 

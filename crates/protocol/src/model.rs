@@ -1,5 +1,5 @@
-//! Canonical model registry — baseline metadata for models whose provider does
-//! not publish a complete live model catalogue.
+//! Canonical model registry — baseline capability metadata for models whose
+//! provider does not publish a complete live model catalogue.
 //!
 //! A [`ProviderEntry`](crate::dialects::ProviderEntry) references a model by its
 //! wire id (e.g. `"glm-5.2"`); this module supplies conservative defaults for
@@ -8,9 +8,9 @@
 //! endpoint, account entitlement, and serving runtime can change a model's
 //! available API surface and capabilities.
 //!
-//! The [`WireProtocol`] on each model is the baseline wire protocol when no live
-//! provider metadata supplies a more specific endpoint. A remote catalogue can
-//! legitimately route the same model id through a different surface.
+//! Wire protocol selection is a **provider routing** fact owned by
+//! `ModelProviderSpec` (`protocol` + per-model `model_protocols` overrides) and
+//! `Channel`, never a property of the model baseline itself.
 use crate::effort::Effort;
 use crate::reasoning::ReasoningSupport;
 pub use inference_wire::WireProtocol;
@@ -44,8 +44,6 @@ pub struct Model {
     /// `inline_data`). When `false`, images attached to messages are
     /// silently stripped before the request hits the wire.
     pub vision: bool,
-    /// Baseline wire protocol used to reach this model.
-    pub protocol: WireProtocol,
     /// The reasoning-effort levels this model honors, ascending.
     ///
     /// This is the model's depth **ladder** and the single declaration of it —
@@ -983,7 +981,7 @@ mod capability_tests {
 /// **Mechanism lives here; data lives with the providers.** This crate owns
 /// only the lookup machinery ([`resolve`], [`model_by_id`], [`fallback_model`],
 /// the [`FittedModel`] overlay). The per-provider baseline tables live beside
-/// each provider's other registry data (the `providers/nuo-provider-*` spec tables, aggregated by the composition root
+/// each provider's other registry data (the `crates/provider-*` spec tables, aggregated by the composition root
 /// modules), and each table is submitted once at link time:
 ///
 /// ```ignore
@@ -1052,7 +1050,6 @@ pub fn fallback_model(_id: &str) -> Model {
         thinking: ReasoningSupport::None,
         tool_call: false,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(crate::effort::Effort::High),
         wire_entities: None,
@@ -1115,8 +1112,6 @@ pub struct FittedModel {
     /// The endpoint advertises image inputs. `None` = it said nothing, which
     /// stays undeclared rather than becoming a text-only claim.
     pub vision: Option<bool>,
-    /// Wire protocol the feeding provider speaks for this model.
-    pub protocol: WireProtocol,
     /// Advertised reasoning-effort levels (any order; stored ascending via
     /// [`Effort::ORDER`](crate::effort::Effort::ORDER)).
     pub effort_levels: Vec<crate::effort::Effort>,
@@ -1223,7 +1218,6 @@ pub fn register_fitted_models(models: impl IntoIterator<Item = FittedModel>) {
                     // vision field must not be read as text-only.
                     // `declared_vision` below keeps what was actually said.
                     vision: fitted.vision.unwrap_or(true),
-                    protocol: fitted.protocol,
                     effort_levels: Box::leak(levels.into_boxed_slice()),
                     default_effort: Some(crate::effort::Effort::High),
                     wire_entities: None,

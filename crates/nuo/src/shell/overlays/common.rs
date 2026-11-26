@@ -30,17 +30,17 @@ pub fn relative_time_at(ts: u64, now: u64) -> String {
     }
 }
 
-/// Flatten a string to a single visual line: every control character
-/// (newline, carriage return, tab, …) becomes a space. Without this, a `\n` or
-/// `\r` embedded in row text (e.g. a session overview built from a multi-line
-/// first user message) is painted verbatim by the terminal as a carriage
-/// return, dumping the rest of the row at column 0 of the *screen* — so the row
-/// spills out the left edge of the modal. Collapsing to spaces keeps the row
-/// inside its column budget.
+/// Flatten a string to a single visual line: control characters become spaces
+/// and consecutive whitespace runs collapse to a single space. Without this, a
+/// `\n` or `\r` embedded in row text (e.g. a session overview or multi-line
+/// notice headline) would break terminal positioning or leave wide blank gaps
+/// inside tight column budgets.
 pub fn one_line(s: &str) -> String {
-    s.chars()
+    let cleaned: String = s
+        .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
-        .collect()
+        .collect();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Truncate prose to fit `max` display columns, keeping its head.

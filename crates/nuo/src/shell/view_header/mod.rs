@@ -86,15 +86,42 @@ impl<'a> ViewHints<'a> {
     }
 }
 
+/// Transient live activity projected onto a single TabBar pill.
+///
+/// Owned strictly by the per-frame projection (`TabBarProps`), never stored on
+/// [`ClientTab`](crate::shell::surfaces::ClientTab): non-thread tabs
+/// (`Dashboard`, `Settings`) and idle threads project [`Self::Idle`] (zero
+/// columns, zero visual noise). Only states that matter while the user looks
+/// elsewhere — an active background round or a thread blocked on human input —
+/// borrow a 1-column lead mark inside the pill's existing width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TabStatus {
+    /// Resting / no live activity (`Dashboard`, `Settings`, idle `Thread`).
+    #[default]
+    Idle,
+    /// A round is actively executing on this thread.
+    Running,
+    /// Blocked waiting on human input (tool permission, question, or stdin).
+    Attention,
+}
+
 /// Canonical client tabbar projection props (ADR-0039, ADR-0060, ADR-0062 [INV-TAB-09]).
 ///
 /// Tier 1: Client Global TabBar is owned purely by the Client container.
-/// It strictly carries open tabs and active tab index — no thread-specific
-/// governance metadata (role, workspace, safety posture).
+/// It strictly carries open tabs, active tab index, and optional per-tab live
+/// status projections — no thread-specific governance metadata (role,
+/// workspace, safety posture).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct TabBarProps<'a> {
     pub tabs: Option<&'a [crate::shell::surfaces::ClientTab]>,
     pub active_tab: usize,
+    /// Optional per-tab live activity aligned 1:1 with [`Self::tabs`].
+    /// `None` (or indices beyond the slice) default to [`TabStatus::Idle`].
+    pub statuses: Option<&'a [TabStatus]>,
+    /// Spinner phase tick (`spinner_epoch / 100ms`), driving the calm breathing
+    /// dot on chromatic terminals and ASCII frame rotation on framed terminals
+    /// whenever a painted pill has [`TabStatus::Running`].
+    pub spinner_phase: usize,
     /// Unread fault notices requiring persistent attention (ADR-0131).
     pub unread_faults: usize,
     /// The resolved chord for `CommandId::OpenHelp`, supplied by the caller

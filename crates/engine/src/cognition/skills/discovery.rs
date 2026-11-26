@@ -376,7 +376,7 @@ fn find_project_root(start: &Path) -> PathBuf {
 
 fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
-        dirs::home_dir()
+        paths::home_dir()
             .map(|h| h.join(rest))
             .unwrap_or_else(|| PathBuf::from(path))
     } else {

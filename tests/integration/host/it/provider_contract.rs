@@ -78,11 +78,12 @@ fn provider_specs_are_unique_and_well_formed() {
                 "provider `{id}` repeats baseline model `{}`",
                 baseline.id
             );
+            let wire = spec.model_protocol(baseline.id);
             assert!(
-                spec.dialect.supports(baseline.protocol),
+                spec.dialect.supports(wire),
                 "provider `{id}` baseline `{}` speaks {:?}, which its {:?} dialect does not support",
                 baseline.id,
-                baseline.protocol,
+                wire,
                 spec.dialect
             );
         }

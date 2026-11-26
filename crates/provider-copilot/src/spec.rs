@@ -27,7 +27,6 @@ pub const MODELS: &[Model] = &[Model {
     thinking: ReasoningSupport::None,
     tool_call: true,
     vision: true,
-    protocol: WireProtocol::OpenAiChatCompletions,
     effort_levels: &[],
     default_effort: Some(protocol::Effort::Medium),
     wire_entities: None,
@@ -49,10 +48,12 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     )]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("github-copilot"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_GITHUB_COPILOT.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://api.githubcopilot.com"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(
+        protocol::model_providers::PROVIDER_GITHUB_COPILOT.root_url,
+    ),
+    user_agent: protocol::model_providers::PROVIDER_GITHUB_COPILOT.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(COPILOT_CLIENT_HEADERS),
     // Copilot speaks the OpenAI chat-completions wire family against
     // api.githubcopilot.com. The endpoint is the preset's remote-catalog
@@ -61,7 +62,8 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // family, Pro+ unlocks GPT-5) without a hardcoded model list — every
     // advertised id the client registry does not know is overlaid with its
     // advertised capability metadata, mirroring the kimi-code flow.
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: protocol::model_providers::PROVIDER_GITHUB_COPILOT.protocol,
+    model_protocols: &[],
     catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,
@@ -69,5 +71,5 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // Minimal seed: the id a fresh Copilot instance activates before the
     // first live catalog sync completes. `gpt-4o-mini` is universally
     // available across every Copilot plan, so the seed never 400s.
-    models: COPILOT_SEED_MODELS,
+    models: protocol::model_providers::PROVIDER_GITHUB_COPILOT.models,
 };

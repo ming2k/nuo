@@ -233,6 +233,13 @@ pub const TAB_ADD_WIDTH: usize = 3;
 /// reflows and resting pills spend every column on the title.
 pub const TAB_CLOSE_WIDTH: usize = 2;
 
+/// Columns a live tab pill borrows at the leading end of its title slot for
+/// its transient status mark (`Running` or `Attention`): one glyph column plus
+/// one separating space. Idle pills and non-thread tabs (`Dashboard`,
+/// `Settings`) pay zero columns, and pill width never changes when a tab's
+/// status changes so the strip never reflows.
+pub const TAB_STATUS_WIDTH: usize = 2;
+
 /// Columns over which an overflowing TabBar title fades toward the pill's
 /// background color instead of terminating in an ellipsis (`…`).
 pub const TAB_TITLE_FADE_WIDTH: usize = 4;

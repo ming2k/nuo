@@ -50,7 +50,6 @@ libc = "0.2"
 glob = "0.3"
 ignore = "0.4"
 walkdir = "2"
-dirs = "6"
 directories = "6.0"
 # Text clipboard only: the TUI never calls `get_image`/`set_image`, so arboard's
 # default `image-data` feature would drag platform image/codec dependencies in
@@ -185,7 +184,7 @@ tool-ast = { version = "0.0.100", path = "crates/tool-ast" }
 # The root test host links every crate whose public surface the integration
 # and E2E suites exercise. All edges are dev-only; `nuo-tests` is not shipped.
 [dev-dependencies]
-nuo = { workspace = true }
+nuo = { workspace = true, features = ["dev-tools"] }
 acp = { workspace = true }
 engine = { workspace = true }
 host = { workspace = true }

@@ -18,9 +18,8 @@ symbol.
 | `WireProtocol` | every provider spec, route derivation, capability registry |
 | `find_balanced_object` | harness tool-call router; two provider stream parsers |
 | `loop_detector::{StreamLoopDetector, DegeneratePattern}` | harness stream governance |
-| `token_classification::{TokenBreakdown, TokenClass}` | provider pricing |
-| `protocol::google_interactions::{parse_response, parse_chunk}` | `nuo-provider-google-antigravity` |
-| `types::*` | the payload structs the above return |
+| `token_classification::TokenBreakdown` | provider pricing |
+| `protocol::google_interactions::{parse_response, parse_chunk}` | `provider-google-antigravity` |
 | `json`, `wire_protocol` | module paths the above are reached through |
 
 `parse_response` and `parse_chunk` are **total**: they never fail, degrading to

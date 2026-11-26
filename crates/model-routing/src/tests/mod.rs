@@ -22,7 +22,6 @@ use protocol::{
     WireProtocol,
 };
 use provider::catalog::Transport;
-use provider::route_for_model;
 use provider::{CredentialStore, TokenSet};
 
 use std::sync::Mutex;

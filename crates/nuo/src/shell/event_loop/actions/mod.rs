@@ -43,12 +43,9 @@ mod test_shims;
 mod tests;
 
 pub(crate) use config::{handle_config_activate, open_active_connection_detail};
-#[allow(unused_imports)]
-pub(crate) use modals::{
-    activate_picked_model, apply_pre_attach_decision, effective_reasoning_effort,
-    handle_open_model_detail, handle_permission_submit, handle_submit_model_editor,
-    modal_page_step, question_effects,
-};
+#[cfg(test)]
+pub(crate) use modals::handle_open_model_detail;
+pub(crate) use modals::{activate_picked_model, effective_reasoning_effort, modal_page_step};
 pub(crate) use navigation::{enter_panel, enter_scene};
 pub(crate) use scroll::{
     handle_wheel, scroll_tick, scroll_transcript_page, scroll_transcript_to_edge,
@@ -57,12 +54,9 @@ pub(crate) use tabs::{
     activate_tab_at_index, handle_add_tab, handle_close_tab, handle_close_tab_at,
 };
 
-#[allow(unused_imports)]
-pub(super) use commands::split_command_word;
-#[allow(unused_imports)]
-pub(crate) use commands::{
-    InterruptTarget, handle_esc_interrupt, handle_esc_interrupt_with_runtime,
-};
+pub(crate) use commands::handle_esc_interrupt_with_runtime;
+#[cfg(test)]
+pub(crate) use commands::{InterruptTarget, handle_esc_interrupt};
 
 #[cfg(test)]
 pub(crate) use commands::{handle_ctrl_c, handle_send_slash};

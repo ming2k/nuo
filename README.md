@@ -48,8 +48,9 @@ cargo build --release -p nuo
 # Launch interactive TUI (auto-starts/attaches to server)
 ./target/release/nuo
 
-# Open the interactive thread picker, or resume a thread by id
-./target/release/nuo -t
+# Open the interactive thread picker, or attach to a thread by id (`-t` is the shorthand)
+./target/release/nuo thread open
+./target/release/nuo thread open <thread_id>
 ./target/release/nuo -t <thread_id>
 
 # Run a headless one-shot prompt

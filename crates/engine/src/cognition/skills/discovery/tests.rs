@@ -140,7 +140,7 @@ async fn role_scoped_skills_discovered_with_role_scope() {
 
 #[test]
 fn expand_tilde_resolves_home() {
-    let home = dirs::home_dir().unwrap();
+    let home = paths::home_dir().unwrap();
     assert_eq!(expand_tilde("~/foo"), home.join("foo"));
 }
 

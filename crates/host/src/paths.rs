@@ -88,11 +88,16 @@ impl StandardLayout {
     }
 }
 
+/// Resolve the current user's home directory via `directories::BaseDirs`.
+pub fn home_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf())
+}
+
 fn resolve_config_dir(app: &str) -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        if let Some(base) = dirs::config_dir() {
-            return base.join(app);
+        if let Some(base) = directories::BaseDirs::new() {
+            return base.config_dir().join(app);
         }
     }
     #[cfg(target_os = "macos")]
@@ -103,7 +108,7 @@ fn resolve_config_dir(app: &str) -> PathBuf {
                 return PathBuf::from(xdg).join(app);
             }
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".config").join(app);
         }
     }
@@ -114,11 +119,12 @@ fn resolve_config_dir(app: &str) -> PathBuf {
         {
             return PathBuf::from(xdg).join(app);
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".config").join(app);
         }
     }
-    dirs::config_dir()
+    directories::BaseDirs::new()
+        .map(|b| b.config_dir().to_path_buf())
         .unwrap_or_else(std::env::temp_dir)
         .join(app)
 }
@@ -126,8 +132,8 @@ fn resolve_config_dir(app: &str) -> PathBuf {
 fn resolve_data_dir(app: &str) -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        if let Some(base) = dirs::data_local_dir() {
-            return base.join(app);
+        if let Some(base) = directories::BaseDirs::new() {
+            return base.data_local_dir().join(app);
         }
     }
     #[cfg(target_os = "macos")]
@@ -137,7 +143,7 @@ fn resolve_data_dir(app: &str) -> PathBuf {
                 return PathBuf::from(xdg).join(app);
             }
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".local").join("share").join(app);
         }
     }
@@ -148,11 +154,12 @@ fn resolve_data_dir(app: &str) -> PathBuf {
         {
             return PathBuf::from(xdg).join(app);
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".local").join("share").join(app);
         }
     }
-    dirs::data_dir()
+    directories::BaseDirs::new()
+        .map(|b| b.data_dir().to_path_buf())
         .unwrap_or_else(std::env::temp_dir)
         .join(app)
 }
@@ -160,8 +167,8 @@ fn resolve_data_dir(app: &str) -> PathBuf {
 fn resolve_state_dir(app: &str) -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        if let Some(base) = dirs::data_local_dir() {
-            return base.join(app).join("state");
+        if let Some(base) = directories::BaseDirs::new() {
+            return base.data_local_dir().join(app).join("state");
         }
     }
     #[cfg(target_os = "macos")]
@@ -171,7 +178,7 @@ fn resolve_state_dir(app: &str) -> PathBuf {
                 return PathBuf::from(xdg).join(app);
             }
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".local").join("state").join(app);
         }
     }
@@ -182,11 +189,12 @@ fn resolve_state_dir(app: &str) -> PathBuf {
         {
             return PathBuf::from(xdg).join(app);
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".local").join("state").join(app);
         }
     }
-    dirs::state_dir()
+    directories::BaseDirs::new()
+        .and_then(|b| b.state_dir().map(Path::to_path_buf))
         .unwrap_or_else(std::env::temp_dir)
         .join(app)
 }
@@ -194,8 +202,8 @@ fn resolve_state_dir(app: &str) -> PathBuf {
 fn resolve_cache_dir(app: &str) -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        if let Some(base) = dirs::cache_dir() {
-            return base.join(app);
+        if let Some(base) = directories::BaseDirs::new() {
+            return base.cache_dir().join(app);
         }
     }
     #[cfg(target_os = "macos")]
@@ -205,7 +213,7 @@ fn resolve_cache_dir(app: &str) -> PathBuf {
                 return PathBuf::from(xdg).join(app);
             }
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".cache").join(app);
         }
     }
@@ -216,11 +224,12 @@ fn resolve_cache_dir(app: &str) -> PathBuf {
         {
             return PathBuf::from(xdg).join(app);
         }
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(".cache").join(app);
         }
     }
-    dirs::cache_dir()
+    directories::BaseDirs::new()
+        .map(|b| b.cache_dir().to_path_buf())
         .unwrap_or_else(std::env::temp_dir)
         .join(app)
 }

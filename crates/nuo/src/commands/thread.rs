@@ -19,10 +19,9 @@ async fn open_thread(
     role: Option<String>,
     project_override: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut tui_args = nuo::shell::cli::parse(&[])?;
+    let mut tui_args = nuo::shell::cli::TuiCliArgs::new(nuo::shell::cli::TuiMode::Attach { id });
     tui_args.project = project_override;
     tui_args.role = role;
-    tui_args.mode = nuo::shell::cli::Mode::Attach { id };
     nuo::shell::runner::run_with_options(tui_args).await
 }
 

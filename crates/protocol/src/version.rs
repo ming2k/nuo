@@ -1,7 +1,7 @@
 //! Protocol and product version negotiation, compatibility checks, and mismatch diagnostics.
 
+use crate::PROTOCOL_VERSION;
 use crate::discovery::Discovery;
-use crate::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 /// Stable machine-readable error codes.
 pub const ERR_PROTOCOL_MISMATCH: &str = "protocol_mismatch";
@@ -17,14 +17,14 @@ pub const ERR_SESSION_GONE: &str = "session_gone";
 /// work, and the client should surface the failure without discarding the tab.
 pub const ERR_SESSION_UNRESUMABLE: &str = "session_unresumable";
 
-/// Check whether the server's declared wire protocol number is within this client's supported window.
+/// Check whether the peer's declared wire protocol number matches [`PROTOCOL_VERSION`].
 pub const fn protocol_accepts(client: u32) -> bool {
-    matches!(client, MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION)
+    client == PROTOCOL_VERSION
 }
 
 /// Directional relation between client version and server version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VersionRelation {
+enum VersionRelation {
     Equal,
     ClientNewer,
     ClientOlder,
@@ -32,7 +32,7 @@ pub enum VersionRelation {
 }
 
 /// Compare client and server version strings using SemVer.
-pub fn compare_versions(client: &str, server: &str) -> VersionRelation {
+fn compare_versions(client: &str, server: &str) -> VersionRelation {
     if client == server {
         return VersionRelation::Equal;
     }
@@ -117,7 +117,6 @@ pub fn version_mismatch(info: &Discovery) -> String {
 /// The actionable protocol-mismatch error.
 pub fn protocol_mismatch(info: &Discovery) -> String {
     let client_proto = PROTOCOL_VERSION;
-    let min_proto = MIN_PROTOCOL_VERSION;
     let Some(server_proto) = info.protocol else {
         return format!(
             "protocol mismatch: this client speaks protocol {client_proto} but the running server (pid {}) declares no protocol. \
@@ -126,9 +125,9 @@ pub fn protocol_mismatch(info: &Discovery) -> String {
         );
     };
 
-    if server_proto < min_proto {
+    if server_proto < client_proto {
         format!(
-            "protocol mismatch: running server (pid {}, protocol {server_proto}) is older than the minimum supported by this client ({min_proto}..={client_proto}). \
+            "protocol mismatch: running server (pid {}, protocol {server_proto}) is older than this client (protocol {client_proto}). \
              Stop it with `nuo server stop` and rerun — the server restarts on demand.",
             info.pid
         )
@@ -229,23 +228,17 @@ mod tests {
             Some("0.0.1-much-older"),
             false,
         ));
-        assert!(!local_pair_compatible(
-            Some(MIN_PROTOCOL_VERSION),
-            Some("99.0.0"),
-            false,
-        ));
         assert!(!local_pair_compatible(None, Some(me), false));
 
-        // In-window protocol + current image: compatible regardless of the
-        // product version, which is what lets a pinned client keep talking to a
-        // newer server across additive changes.
+        // Exact protocol + current image: compatible regardless of the
+        // product version.
         assert!(local_pair_compatible(
             Some(PROTOCOL_VERSION),
             Some("0.0.1-much-older"),
             true,
         ));
         assert!(local_pair_compatible(
-            Some(MIN_PROTOCOL_VERSION),
+            Some(PROTOCOL_VERSION),
             Some("99.0.0"),
             true,
         ));

@@ -16,7 +16,6 @@ provider = { workspace = true }
 # Http transport, NUO_USER_AGENT, Request builder, netune Method.
 inference-wire = { workspace = true }
 
-http = { workspace = true }
 serde_json = { workspace = true }
 netune = { workspace = true }
 

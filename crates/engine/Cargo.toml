@@ -16,7 +16,6 @@ protocol = { workspace = true }
 persistence = { workspace = true }
 host = { workspace = true }
 serde_yaml = { workspace = true }
-dirs = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }

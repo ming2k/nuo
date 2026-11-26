@@ -140,10 +140,6 @@ pub struct ProviderPipeline {
     pass_through_headers: PassThroughHeaders,
 }
 
-/// Backward compatibility alias during transition.
-pub type TransportPipeline = ProviderPipeline;
-pub type TransportPipelineBuilder = ProviderPipelineBuilder;
-
 impl Default for ProviderPipeline {
     fn default() -> Self {
         Self {

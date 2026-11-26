@@ -9,8 +9,6 @@ pub mod agent_setup;
 pub mod bootstrap;
 pub mod credentials_host;
 pub mod kernel_host;
-#[cfg(test)]
-mod provider_baseline_fidelity_tests;
 pub mod provider_baselines;
 pub mod provider_registry;
 pub mod skills_host;

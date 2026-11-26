@@ -24,6 +24,7 @@
 use graticule::{Frame, Modifier, Rect, Style};
 use unicode_width::UnicodeWidthStr;
 
+use super::common::one_line;
 use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
 use crate::shell::surfaces::NoticesDialog;
@@ -36,15 +37,6 @@ use view::components::selectable_body::{RowSegment, SelectableRow, render_select
 use view::model::layout::LayoutMap;
 use view::model::log::{LineStatus, SurfaceLine};
 use view::model::selection::SelectionState;
-
-/// How many rows `text` occupies when wrapped to `width` columns.
-pub fn wrapped_row_count(text: &str, width: usize) -> usize {
-    let width = width.max(1);
-    text.lines()
-        .map(|line| wrap_row(line, width).len())
-        .sum::<usize>()
-        .max(1)
-}
 
 /// Draw the sovereign notice center modal dialog with an authentic card-stack layout.
 pub fn draw_notices_modal(
@@ -279,50 +271,6 @@ pub fn draw_notices_modal(
     }
 
     bounds
-}
-
-/// Collapse every line break and run of whitespace into single spaces.
-pub fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Truncate to `max` display columns using the substrate's overflow
-/// vocabulary (ADR-0152 `[INV-TEXT-OVERFLOW-01]`).
-///
-/// Notice text is prose, so it keeps its head; there is deliberately no second
-/// truncation implementation in this module — a local copy is how two surfaces
-/// come to disagree about how a string is shortened.
-pub fn truncate_ellipsis(text: &str, max: usize) -> String {
-    ui_primitives::components::overflow::fit(
-        text,
-        max,
-        ui_primitives::components::overflow::Overflow::End,
-    )
-    .text
-}
-
-/// Greedy word wrap to `width` display columns, for the expanded detail body.
-pub fn wrap_row(text: &str, width: usize) -> Vec<String> {
-    let mut rows: Vec<String> = Vec::new();
-    let mut current = String::new();
-    for word in text.split_whitespace() {
-        let candidate_w = if current.is_empty() {
-            word.width()
-        } else {
-            current.width() + 1 + word.width()
-        };
-        if candidate_w > width && !current.is_empty() {
-            rows.push(std::mem::take(&mut current));
-        }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(word);
-    }
-    if !current.is_empty() {
-        rows.push(current);
-    }
-    rows
 }
 
 #[cfg(test)]

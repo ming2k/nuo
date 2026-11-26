@@ -390,23 +390,14 @@ fn flat_fuzzy_filters_by_model_id() {
 }
 
 #[test]
-fn protocol_candidates_filter_by_wire_format() {
-    let openai = protocol_model_candidates(WireProtocol::OpenAiChatCompletions.as_str());
-    assert!(openai.contains(&"gpt-4o"));
-    // Anthropic-format models are excluded from the OpenAI candidate list.
-    assert!(!openai.contains(&"claude-opus-4-8"));
-    let anthropic = protocol_model_candidates(WireProtocol::AnthropicMessages.as_str());
-    assert!(anthropic.contains(&"claude-opus-4-8"));
-    assert!(!anthropic.contains(&"gpt-4o"));
-}
-
-#[test]
-fn google_candidate_set_is_the_canonical_family() {
-    // The native-Google candidate list mirrors the ids Google plus common
-    // relays/中转站 serve — so a Custom Google provider offers real models,
-    // not hallucinated preview ids. Image/embedding/video-only models are
-    // excluded (an agent only consumes the text generateContent surface).
-    let google = protocol_model_candidates(WireProtocol::GoogleGenerateContent.as_str());
+fn google_baseline_set_is_the_canonical_family() {
+    // The native-Google baseline list covers the canonical Gemini text models
+    // Google plus relays serve; image-only models are excluded.
+    let google: Vec<&str> = provider_google_antigravity::GOOGLE_MODEL_PROVIDER_SPEC
+        .baselines
+        .iter()
+        .map(|m| m.id)
+        .collect();
     for id in [
         "gemini-4-argon",
         "gemini-3.8-flash",
@@ -420,29 +411,29 @@ fn google_candidate_set_is_the_canonical_family() {
         "gemini-2.5-pro",
         "gemini-2.0-flash",
     ] {
-        assert!(google.contains(&id), "google candidate set missing {id}");
+        assert!(google.contains(&id), "google baseline set missing {id}");
     }
-    // Image-generation variants must NOT be in the text agent's candidate set.
     assert!(
         !google.contains(&"gemini-2.5-flash-image"),
-        "image-only model leaked into google candidates"
+        "image-only model leaked into google baselines"
     );
 }
 
 #[test]
-fn google_candidate_set_includes_antigravity_relay_models() {
-    // The Antigravity (sub2api) relay ids are registered as native-Google
-    // baselines, so the add-model overlay for a Google provider offers
-    // them (the closed-set policy has real candidates to pick from).
-    let google = protocol_model_candidates(WireProtocol::GoogleGenerateContent.as_str());
+fn antigravity_baseline_set_includes_relay_models() {
+    let antigravity: Vec<&str> = provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC
+        .baselines
+        .iter()
+        .map(|m| m.id)
+        .collect();
     for id in [
         "gemini-3.1-pro-high",
         "gemini-3.1-pro-low",
         "gemini-3-flash",
     ] {
         assert!(
-            google.contains(&id),
-            "antigravity relay model {id} missing from google candidates"
+            antigravity.contains(&id),
+            "antigravity relay model {id} missing from antigravity baselines"
         );
     }
 }
@@ -491,10 +482,15 @@ fn openai_template_seeds_openai_text_models() {
         "model list is seeded; add-model handles custom ids"
     );
     assert_eq!(tmpl.fields(), vec![CustomField::Name, CustomField::Token]);
+    let openai_baselines: Vec<&str> = provider_openai::MODEL_PROVIDER_SPEC
+        .baselines
+        .iter()
+        .map(|m| m.id)
+        .collect();
     for id in ["gpt-5.5", "gpt-5.4", "gpt-5.6-sol"] {
         assert!(
-            protocol_model_candidates(WireProtocol::OpenAiChatCompletions.as_str()).contains(&id),
-            "OpenAI candidate set missing {id}"
+            openai_baselines.contains(&id),
+            "OpenAI baseline set missing {id}"
         );
     }
 }
@@ -876,10 +872,10 @@ fn opencode_go_template_uses_go_relay_and_seeds() {
         .find(|template| template.id == "opencode-go")
         .unwrap();
     assert_eq!(go.label, "OpenCode Go");
-    assert_eq!(go.protocol, WireProtocol::OpenAiChatCompletions);
+    assert_eq!(go.protocol, WireProtocol::OpenAiResponses);
     assert_eq!(
         go.default_url,
-        Some("https://opencode.ai/zen/go/v1/chat/completions")
+        Some("https://opencode.ai/zen/go/v1/responses")
     );
     assert_eq!(go.models, protocol::model_providers::OPENCODE_GO_MODELS);
 }

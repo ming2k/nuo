@@ -3,7 +3,6 @@
 //! plus the per-model `max_tokens` table every Anthropic-format build
 //! consults.
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -68,7 +67,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::AnthropicMessages,
         // Opus 4.8 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
         default_effort: Some(protocol::Effort::High),
@@ -81,7 +79,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::AnthropicMessages,
         // Sonnet 4.6 honors `max` but NOT `xhigh` (xhigh is Opus 4.8/4.7 only).
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(protocol::Effort::High),
@@ -99,7 +96,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::AdaptiveAlwaysOn,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::AnthropicMessages,
         // Fable 5 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
         default_effort: Some(protocol::Effort::High),
@@ -117,7 +113,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::AdaptiveOnByDefault,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::AnthropicMessages,
         // Sonnet 5 honors the full range INCLUDING `xhigh` — the key difference
         // from Sonnet 4.6, which rejects `xhigh` (see CLAUDE_NO_XHIGH).
         effort_levels: effort_ladders::CLAUDE_FULL,
@@ -134,7 +129,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::Manual,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::AnthropicMessages,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -170,13 +164,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: PromptCachePolicy::Compiled(prompt_cache_for_model),
-    id: std::borrow::Cow::Borrowed("anthropic"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_ANTHROPIC.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://api.anthropic.com/v1"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_ANTHROPIC.root_url),
+    user_agent: protocol::model_providers::PROVIDER_ANTHROPIC.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::AnthropicMessages,
-    models: ANTHROPIC_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_ANTHROPIC.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_ANTHROPIC.models,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
     quota: None,
     display_policy: provider::DisplayPolicy::Native,

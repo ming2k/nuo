@@ -40,7 +40,6 @@
 //! See `docs/reference/openapi/deepseek.yml` for the full OpenAPI 3.1
 //! specification.
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -69,7 +68,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -83,7 +81,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -98,7 +95,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -111,7 +107,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -141,13 +136,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
-    id: std::borrow::Cow::Borrowed("deepseek"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_DEEPSEEK.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://api.deepseek.com/v1"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_DEEPSEEK.root_url),
+    user_agent: protocol::model_providers::PROVIDER_DEEPSEEK.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiResponses,
-    models: DEEPSEEK_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_DEEPSEEK.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_DEEPSEEK.models,
     catalog_source: RemoteCatalogSource::Custom(crate::CATALOG_SOURCE_ID),
     quota: Some(::provider::QuotaPort::DeepSeekBalance),
     display_policy: ::provider::DisplayPolicy::Native,
@@ -156,7 +152,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEEPSEEK_BUILTIN_MODELS, MODELS};
+    use super::{DEEPSEEK_BUILTIN_MODELS, MODEL_PROVIDER_SPEC, MODELS};
     use ::provider::effort_ladders;
 
     fn model(id: &str) -> &'static protocol::Model {
@@ -192,7 +188,7 @@ mod tests {
         assert!(model.tool_call);
         assert_eq!(model.context_window, 1_000_000);
         assert_eq!(
-            model.protocol,
+            MODEL_PROVIDER_SPEC.model_protocol("deepseek-flash"),
             inference_wire::WireProtocol::OpenAiResponses
         );
     }

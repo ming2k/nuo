@@ -25,7 +25,7 @@ use std::sync::Mutex;
 
 use provider::transport::{Client, HttpResponse, RequestBuilder};
 use provider::transport::{decode_response_json, ensure_success};
-use provider::{Endpoint, NUO_USER_AGENT, PromptCacheConfig, TransportPipeline};
+use provider::{Endpoint, NUO_USER_AGENT, PromptCacheConfig, ProviderPipeline};
 
 pub mod echo;
 pub mod request;
@@ -55,7 +55,7 @@ pub struct OpenAiChatCompletionsProvider {
     /// Pooled HTTP client reused across every request this provider makes.
     pub client: Client,
     /// Transport pipeline for request and stream transformation.
-    pub pipeline: Arc<TransportPipeline>,
+    pub pipeline: Arc<ProviderPipeline>,
 }
 
 /// Canonical alias for the Chat Completions protocol provider.
@@ -85,7 +85,7 @@ impl OpenAiChatCompletionsProvider {
             prompt_cache: PromptCacheConfig::default(),
             capabilities,
             dialect: protocol::OpenAiChatDialect::Standard,
-            pipeline: Arc::new(TransportPipeline::default()),
+            pipeline: Arc::new(ProviderPipeline::default()),
         }
     }
 
@@ -103,7 +103,7 @@ impl OpenAiChatCompletionsProvider {
             prompt_cache: PromptCacheConfig::default(),
             capabilities,
             dialect: protocol::OpenAiChatDialect::Standard,
-            pipeline: Arc::new(TransportPipeline::default()),
+            pipeline: Arc::new(ProviderPipeline::default()),
         }
     }
 
@@ -156,7 +156,7 @@ impl OpenAiChatCompletionsProvider {
         // `request::headers` remains the single declaration site and is
         // consulted per-request with the resolved bearer. A pipeline attached
         // later via `with_pipeline` replaces this one wholesale.
-        self.pipeline = Arc::new(TransportPipeline::default().with_pass_through_headers(
+        self.pipeline = Arc::new(ProviderPipeline::default().with_pass_through_headers(
             move |token| {
                 request::headers(token, dialect)
                     .into_iter()
@@ -244,7 +244,7 @@ impl OpenAiChatCompletionsProvider {
     }
 
     /// Attach an external phased transport pipeline to this provider.
-    pub fn with_pipeline(mut self, pipeline: TransportPipeline) -> Self {
+    pub fn with_pipeline(mut self, pipeline: ProviderPipeline) -> Self {
         self.pipeline = std::sync::Arc::new(pipeline);
         self
     }
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn opencode_go_request_carries_session_and_client_headers() {
-        const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
+        const OPENCODE_USER_AGENT: &str = protocol::model_providers::OPENCODE_USER_AGENT;
         let provider = OpenAiChatCompletionsProvider::with_base_url_and_user_agent(
             "test-key".to_string(),
             "glm-5.2".to_string(),

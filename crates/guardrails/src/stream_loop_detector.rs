@@ -1,4 +1,4 @@
-//! In-flight streaming loop detector re-exported from `nous-model-wire`.
+//! In-flight streaming loop detector re-exported from `inference-wire`.
 
 pub use inference_wire::loop_detector::{
     DegeneratePattern, MAX_DEGENERATE_BUDGET_CHARS, MIN_DWELL_CHARS, StreamLoopDetector,

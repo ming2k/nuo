@@ -394,39 +394,9 @@ pub fn command_ack_split(result: Option<&protocol::CommandResult>) -> Option<(&s
     Some((title, detail))
 }
 
-/// Severity of a [`MessageKind::Notice`]. Drives the color and the leading
-/// icon through the central severity→presentation map in
-/// `render/notice.rs`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoticeSeverity {
-    /// Neutral status (compaction summary, provider switch, …). Replaces the
-    /// old `Role::System` + `system_text()` rendering.
-    Info,
-    /// A non-terminal condition that needs attention.
-    Warning,
-    /// A terminal failure surfaced from the harness or a tool.
-    Error,
-}
-
-impl NoticeSeverity {
-    /// Whether this severity is a fault: something the user must know about
-    /// even if they were not looking. An `Info` disclosure confirms an action
-    /// the user just took and can repeat, so it is retained but not escalated.
-    ///
-    /// One predicate, read by the bubble shape, its duration and its hint, so
-    /// "what counts as a fault" cannot drift between them.
-    pub fn is_fault(self) -> bool {
-        matches!(self, Self::Warning | Self::Error)
-    }
-}
-
-pub fn notice_severity_from_core(severity: tool::NoticeSeverity) -> NoticeSeverity {
-    match severity {
-        tool::NoticeSeverity::Info => NoticeSeverity::Info,
-        tool::NoticeSeverity::Warning => NoticeSeverity::Warning,
-        tool::NoticeSeverity::Error => NoticeSeverity::Error,
-    }
-}
+/// Severity of a [`MessageKind::Notice`]. Re-exported from [`tool::NoticeSeverity`]
+/// so the wire contract and presentation document share one canonical enum.
+pub use tool::NoticeSeverity;
 
 /// The two-part, architecture-agreed content of a notice entry.
 ///

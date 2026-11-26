@@ -47,11 +47,8 @@ pub mod generative;
 // `inference_wire::protocol::google_interactions::{..}`. Flattening them to
 // root items only would be a cosmetic break with no structural gain, so the
 // modules are re-exported alongside the types they own.
-pub use generative::{json, loop_detector, protocol, token_classification, types, wire_protocol};
+pub use generative::{json, loop_detector, protocol, token_classification, wire_protocol};
 
 pub use generative::{
-    CacheControl, ContentBlock, DegeneratePattern, StreamAccumulator, StreamLoopDetector,
-    TokenBreakdown, TokenClass, WireChunk, WireMessage, WireProtocol, WireRequest, WireResponse,
-    WireRole, WireTool, WireToolCall, WireToolCallChunk, WireToolResult, WireUsage,
-    find_balanced_object,
+    DegeneratePattern, StreamLoopDetector, TokenBreakdown, WireProtocol, find_balanced_object,
 };

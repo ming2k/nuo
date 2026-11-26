@@ -1,7 +1,7 @@
 //! The `OAuthProvider` port and its process-wide registry.
 //!
 //! Each subscription surface implements [`OAuthProvider`] in its own
-//! `providers/nuo-provider-*` crate and registers it at the composition root
+//! `crates/provider-*` crate and registers it at the composition root
 //! ([`register_oauth_provider`]). The engine holds only `Arc<dyn OAuthProvider>`
 //! and therefore never depends on a vendor crate.
 

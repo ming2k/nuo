@@ -473,22 +473,22 @@ async fn start_ui_runtime(
 ///
 /// Grouped so [`build_app`] stays a pure constructor: the orchestrator decides
 /// what the boot *is*, the helper decides how it is wired into sub-states.
-struct AppBoot<'a> {
-    live_session_init: &'a String,
-    initial_provider: String,
-    initial_model: String,
-    session_phase_init: protocol::ThreadPhase,
-    restored: Vec<TranscriptMessage>,
-    tui_config: Arc<config::TuiConfig>,
-    command_catalog: tool::CommandCatalog,
-    initial_pending_prompts: Vec<protocol::AgentRequest>,
-    input_history: Vec<protocol::HistoryEntry>,
-    input_history_config: config::InputHistoryConfig,
-    startup_overlay: StartupOverlay,
-    profile: graticule::TerminalProfile,
-    token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
-    tx: mpsc::UnboundedSender<client::ClientOutbound>,
-    should_quit: Arc<AtomicBool>,
+pub(crate) struct AppBoot<'a> {
+    pub(crate) live_session_init: &'a String,
+    pub(crate) initial_provider: String,
+    pub(crate) initial_model: String,
+    pub(crate) session_phase_init: protocol::ThreadPhase,
+    pub(crate) restored: Vec<TranscriptMessage>,
+    pub(crate) tui_config: Arc<config::TuiConfig>,
+    pub(crate) command_catalog: tool::CommandCatalog,
+    pub(crate) initial_pending_prompts: Vec<protocol::AgentRequest>,
+    pub(crate) input_history: Vec<protocol::HistoryEntry>,
+    pub(crate) input_history_config: config::InputHistoryConfig,
+    pub(crate) startup_overlay: StartupOverlay,
+    pub(crate) profile: graticule::TerminalProfile,
+    pub(crate) token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
+    pub(crate) tx: mpsc::UnboundedSender<client::ClientOutbound>,
+    pub(crate) should_quit: Arc<AtomicBool>,
 }
 
 /// Build the initial [`App`] from a captured [`AppBoot`].
@@ -496,7 +496,7 @@ struct AppBoot<'a> {
 /// The literal is kept whole (rather than spread across per-sub-state
 /// constructors) so the initial values and their order stay auditable in one
 /// place; [`run_tui_with_input`] remains startup/teardown orchestration.
-fn build_app(boot: AppBoot<'_>) -> App {
+pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
     let mut initial_thread = crate::shell::app::workspaces::ThreadInstance::new(
         boot.live_session_init.clone(),
         1,
@@ -523,8 +523,10 @@ fn build_app(boot: AppBoot<'_>) -> App {
             session_detail: None,
             cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             current_session_id: boot.live_session_init.clone(),
-            switching_session: (boot.session_phase_init != protocol::ThreadPhase::Ready)
-                .then(|| boot.live_session_init.clone()),
+            // Only set when the user explicitly switches/resumes another thread;
+            // initial thread readiness is projected directly from `session_phase`
+            // (ADR-0133) rather than pretending a cold boot is switching sessions.
+            switching_session: None,
             persistence_health: None,
             sessions_overview: Vec::new(),
             host_sessions: Vec::new(),

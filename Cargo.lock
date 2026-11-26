@@ -652,15 +652,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dirs"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
-dependencies = [
- "dirs-sys",
-]
-
-[[package]]
 name = "dirs-sys"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -744,7 +735,6 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
- "dirs",
  "fastrand",
  "futures",
  "guardrails",
@@ -1217,10 +1207,8 @@ name = "host"
 version = "0.0.100"
 dependencies = [
  "arboard",
- "async-trait",
  "base64",
  "directories",
- "dirs",
  "image",
  "libc",
  "notify",
@@ -2145,7 +2133,6 @@ version = "0.0.100"
 dependencies = [
  "async-trait",
  "chrono",
- "dirs",
  "engine",
  "fastrand",
  "futures",
@@ -2382,7 +2369,6 @@ name = "persistence"
 version = "0.0.100"
 dependencies = [
  "async-trait",
- "base64",
  "crc32c",
  "futures",
  "hex",
@@ -2564,7 +2550,6 @@ dependencies = [
 name = "provider-catalog"
 version = "0.0.100"
 dependencies = [
- "http",
  "inference-wire",
  "netune",
  "protocol",
@@ -2678,7 +2663,6 @@ dependencies = [
 name = "provider-kimi"
 version = "0.0.100"
 dependencies = [
- "inference-wire",
  "inventory",
  "protocol",
  "provider",
@@ -2743,7 +2727,6 @@ dependencies = [
 name = "provider-openrouter"
 version = "0.0.100"
 dependencies = [
- "inference-wire",
  "inventory",
  "protocol",
  "provider",
@@ -2785,7 +2768,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
- "tool",
  "tracing",
  "uuid",
 ]
@@ -2795,7 +2777,6 @@ name = "provider-xai"
 version = "0.0.100"
 dependencies = [
  "async-trait",
- "inference-wire",
  "inventory",
  "protocol",
  "provider",
@@ -3269,7 +3250,6 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
- "dirs",
  "engine",
  "futures",
  "host",

@@ -41,7 +41,6 @@ pub use host::lock;
 pub use host::paths;
 
 pub mod asset_attestation;
-pub mod instances;
 pub mod model_providers;
 pub mod provider_usage;
 pub mod role_memory;

@@ -119,7 +119,7 @@ fn activity_strip_keeps_the_interrupt_affordance_and_truncates_a_long_status() {
 
 #[test]
 fn tilde_home_shortens_a_home_rooted_path() {
-    let home = dirs::home_dir()
+    let home = host::paths::home_dir()
         .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
         .expect("test requires a discoverable home directory");
     let under = home.join("projects").join("xx");

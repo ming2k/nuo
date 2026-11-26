@@ -682,7 +682,7 @@ fn is_explicit_path_prefix(query: &str) -> bool {
 
 fn resolve_explicit_dir(query: &str, cwd: &Path) -> Option<(PathBuf, String)> {
     let normalized = query.replace('\\', "/");
-    let home = || dirs::home_dir().or_else(|| std::env::var_os("HOME").map(PathBuf::from));
+    let home = || host::paths::home_dir().or_else(|| std::env::var_os("HOME").map(PathBuf::from));
     let (expanded, names_directory) = if normalized == "~" {
         (home()?, true)
     } else if let Some(rest) = normalized.strip_prefix("~/") {

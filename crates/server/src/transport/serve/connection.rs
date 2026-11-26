@@ -657,7 +657,7 @@ async fn handle_wire_stream(
     // Protocol negotiation, enforced before any session work.
     //
     // `[INV-WIRE-04]` — the protocol number is the **only** admission authority.
-    // The server serves any number in `[MIN_PROTOCOL_VERSION, PROTOCOL_VERSION]`
+    // The server serves exact `PROTOCOL_VERSION` matches only.
     // regardless of the product build, which is what lets a pinned client keep
     // talking to a newer server across additive changes. There is no second
     // lane: the field is required, so a peer that omits it fails to decode

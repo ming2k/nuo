@@ -94,6 +94,37 @@ pub struct ConnectionTemplate {
 }
 
 impl ConnectionTemplate {
+    /// Project a curated connection template directly from its canonical
+    /// [`protocol::model_providers::BuiltinProviderDefaults`], keeping only
+    /// UI-owned presentation fields (`description`, `auth`, optional `url_hint`)
+    /// in the view crate.
+    pub const fn curated(
+        defaults: &protocol::model_providers::BuiltinProviderDefaults,
+        description: &'static str,
+        auth: protocol::ConnectionAuth,
+    ) -> Self {
+        Self {
+            id: defaults.id,
+            label: defaults.label,
+            description,
+            protocol: defaults.protocol,
+            models: defaults.models,
+            needs_url: false,
+            url_hint: defaults.default_endpoint,
+            needs_model: false,
+            default_url: Some(defaults.default_endpoint),
+            user_agent: defaults.user_agent,
+            auth,
+        }
+    }
+
+    /// Override the display placeholder URL hint when it differs from the
+    /// connection's `default_url` (e.g. Qoder's gateway root vs SSE path hint).
+    pub const fn with_url_hint(mut self, url_hint: &'static str) -> Self {
+        self.url_hint = url_hint;
+        self
+    }
+
     /// The title the template chooser sorts and keys rows by. Every template
     /// renders its [`Self::label`] alone as the row title — any suffix is part
     /// of the label, so this accessor exists to name that rule and give the
@@ -154,8 +185,6 @@ mod tests;
 #[cfg(test)]
 pub(crate) use self::filtering::BONUS_CROSS_FIELD;
 pub use self::filtering::*;
-#[cfg(test)]
-pub(crate) use self::lookup::protocol_model_candidates;
 pub use self::lookup::*;
 pub use self::presets::*;
 pub use self::ranking::*;

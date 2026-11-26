@@ -14,29 +14,14 @@ use view::model::layout::LayoutMap;
 use super::actions::effective_reasoning_effort;
 use super::transcript::display_status;
 
-/// The TabBar's client-global projection for this frame (ADR-0223, ADR-0245).
-///
-/// Every page renderer that draws Tier 1 fills its own tab list and fault count
-/// but shares this one hover + live help-key fact, so the strip behaves
-/// identically on the transcript, dashboard, settings, command log, and diff
-/// pages. Elapsed time is measured against the *anchor* the pointer arrived on
-/// — the app owns that instant, not the renderer, so a repaint never restarts
-/// the reveal clock.
-fn tab_hover_projection(app: &App) -> render::TabBarProps<'static> {
-    render::TabBarProps {
-        help_key: app
-            .surfaces
-            .key_overrides
-            .effective_binding(crate::shell::keymap::CommandId::OpenHelp),
-        hover: app.surfaces.tab_hover,
-        hover_elapsed_ms: app
-            .surfaces
-            .tab_hover_since
-            .map(|since| since.elapsed().as_millis().min(u64::MAX as u128) as u64)
-            .unwrap_or(0),
-        ..render::TabBarProps::default()
-    }
-}
+mod projection;
+#[cfg(test)]
+mod tests;
+
+use projection::{mcp_connecting_status, tab_hover_projection};
+pub(crate) use projection::{
+    project_tab_status, project_tab_statuses, select_empty_state_guidance, select_lifecycle_status,
+};
 
 /// Loop stage: the per-frame draw. Paints the chrome (startup picker,
 /// transcript, hint bar, composer, completion popup), recesses the live
@@ -239,14 +224,12 @@ fn draw_transcript_surface(
         .pending_permission
         .is_some()
         .then_some(view::phase::Phase::AwaitingUser);
-    let status = if let Some(ref target) = app.session.switching_session {
-        format!("loading session {target}…")
-    } else if app.link.link_down {
-        // Dead-link chrome state (D6): the server link is gone, so
-        // user intents cannot be delivered. The live-status bar is the
-        // visible anchor; it stays until the process exits, because nothing
-        // can acknowledge recovery.
-        "server link lost".to_string()
+    let status = if let Some(lifecycle) = select_lifecycle_status(
+        app.link.link_down,
+        app.session.switching_session.as_deref(),
+        &app.threads.session_phase,
+    ) {
+        lifecycle
     } else {
         let base_status = display_status(
             app.threads.loop_status,
@@ -381,13 +364,11 @@ fn draw_transcript_surface(
                 .copied()
                 .unwrap_or(true)
     }) || app.surfaces.provider_picker.rows.is_empty();
-    let guidance = if let Some(ref target) = app.session.switching_session {
-        render::EmptyStateGuidance::LoadingSession(target.clone())
-    } else if has_keyed_provider {
-        render::EmptyStateGuidance::Tour
-    } else {
-        render::EmptyStateGuidance::NeedsProvider
-    };
+    let guidance = select_empty_state_guidance(
+        app.session.switching_session.as_deref(),
+        &app.threads.session_phase,
+        has_keyed_provider,
+    );
     // Suppress the hover affordance whenever a full-overlay modal is
     // open so no stale highlight bleeds through. The foreground
     // permission sheet keeps the transcript interactive, so it is
@@ -420,6 +401,7 @@ fn draw_transcript_surface(
     // borrow of `app` for `view_messages`, and the TabBar hover fact is a
     // single frame-stable value rather than something to re-read per widget.
     let tab_hover = tab_hover_projection(app);
+    let tab_statuses = project_tab_statuses(app, viewed_session_id);
     let transcript_render = ui.paint(f, UiKey::Root, |f| {
         render::draw_transcript(
             f,
@@ -467,6 +449,7 @@ fn draw_transcript_surface(
                 tab_bar: Some(render::TabBarProps {
                     tabs: Some(app.surfaces.surfaces.tabs()),
                     active_tab: app.surfaces.surfaces.active_tab_index(),
+                    statuses: Some(&tab_statuses),
                     unread_faults: if app.has_unread_notice_fault() {
                         app.unread_notices()
                     } else {
@@ -1416,6 +1399,7 @@ fn draw_scene(
     // borrow of `app` (the diff viewer's state, the composer), and the hover
     // fact is one frame-stable value shared by every page renderer.
     let tab_hover = tab_hover_projection(app);
+    let tab_statuses = project_tab_statuses(app, viewed_session_id);
     let scene_prompt_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Scene;
     let mut dashboard_list_body_height: Option<u16> = None;
@@ -1443,6 +1427,7 @@ fn draw_scene(
                     tab_bar: Some(render::TabBarProps {
                         tabs: Some(app.surfaces.surfaces.tabs()),
                         active_tab: app.surfaces.surfaces.active_tab_index(),
+                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1520,6 +1505,7 @@ fn draw_scene(
                     tab_bar: Some(render::TabBarProps {
                         tabs: Some(app.surfaces.surfaces.tabs()),
                         active_tab: app.surfaces.surfaces.active_tab_index(),
+                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1596,6 +1582,7 @@ fn draw_scene(
                     tab_bar: Some(render::TabBarProps {
                         tabs: Some(app.surfaces.surfaces.tabs()),
                         active_tab: app.surfaces.surfaces.active_tab_index(),
+                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1640,6 +1627,7 @@ fn draw_scene(
                     tab_bar: Some(render::TabBarProps {
                         tabs: Some(app.surfaces.surfaces.tabs()),
                         active_tab: app.surfaces.surfaces.active_tab_index(),
+                        statuses: Some(&tab_statuses),
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
@@ -1789,25 +1777,4 @@ fn finish_frame(
     {
         ui.mount(UiKey::Overlay(overlay), rect);
     }
-}
-
-/// [INV-MCP-04]: Extract in-flight MCP connection status during system bootstrapping.
-fn mcp_connecting_status(app: &App) -> Option<String> {
-    let snapshot = app.threads.session_context.as_ref()?;
-    if snapshot.mcp.is_empty() {
-        return None;
-    }
-    let connecting: Vec<&str> = snapshot
-        .mcp
-        .iter()
-        .filter(|s| !s.connected && !s.disabled && s.failure.is_none())
-        .map(|s| s.name.as_str())
-        .collect();
-    if connecting.is_empty() {
-        return None;
-    }
-    let total = snapshot.mcp.iter().filter(|s| !s.disabled).count();
-    let connected = snapshot.mcp.iter().filter(|s| s.connected).count();
-    let names = connecting.join(", ");
-    Some(format!("connecting MCP ({connected}/{total}: {names})…"))
 }

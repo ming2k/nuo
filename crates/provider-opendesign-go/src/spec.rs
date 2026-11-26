@@ -35,7 +35,6 @@
 //!
 //! See `docs/reference/openapi/opendesign.yml` for the gateway contract.
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -61,7 +60,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -76,7 +74,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::ALL_EFFORTS_EXCEPT_ULTRA,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -90,7 +87,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -102,7 +98,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::Low),
         wire_entities: None,
@@ -114,7 +109,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -128,7 +122,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::ALL_EFFORTS_EXCEPT_ULTRA,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -142,7 +135,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::ALL_EFFORTS,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -156,7 +148,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -170,7 +161,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -185,7 +175,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -198,7 +187,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -210,7 +198,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -224,7 +211,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::MINIMAL_TO_MAX,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -237,7 +223,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -251,13 +236,16 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("opendesign-go"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_OPENDESIGN_GO.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://amr-link.open-design.ai/v1"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(
+        protocol::model_providers::PROVIDER_OPENDESIGN_GO.root_url,
+    ),
+    user_agent: protocol::model_providers::PROVIDER_OPENDESIGN_GO.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
-    models: OPENDESIGN_GO_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_OPENDESIGN_GO.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_OPENDESIGN_GO.models,
     // The gateway publishes bare ids and coarse account-scoped metadata, so
     // labels are lifted structurally (`deepseek-v4.1-flash` → "DeepSeek V4.1
     // Flash") rather than trusting a vendor display name.
@@ -270,6 +258,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use inference_wire::WireProtocol;
     use protocol::model::resolve;
 
     fn model(id: &str) -> &'static Model {
@@ -283,7 +272,10 @@ mod tests {
     fn every_seed_is_registered_with_a_chat_route() {
         for id in OPENDESIGN_GO_BUILTIN_MODELS {
             let baseline = model(id);
-            assert_eq!(baseline.protocol, WireProtocol::OpenAiChatCompletions);
+            assert_eq!(
+                MODEL_PROVIDER_SPEC.model_protocol(id),
+                WireProtocol::OpenAiChatCompletions
+            );
             assert!(baseline.tool_call, "{id}: tool calls are supported");
             assert_eq!(
                 resolve(id).id,

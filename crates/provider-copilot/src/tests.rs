@@ -51,12 +51,13 @@ fn seed_model_is_available_on_every_plan_and_speaks_chat_completions() {
         .find(|model| model.id == "gpt-4o-mini")
         .expect("the universal seed must carry baseline capabilities");
 
-    assert_eq!(baseline.protocol, WireProtocol::OpenAiChatCompletions);
+    let wire = MODEL_PROVIDER_SPEC.model_protocol(baseline.id);
+    assert_eq!(wire, WireProtocol::OpenAiChatCompletions);
     assert!(baseline.tool_call);
     assert!(baseline.vision);
     assert_eq!(baseline.context_window, 128_000);
     assert!(
-        MODEL_PROVIDER_SPEC.dialect.supports(baseline.protocol),
+        MODEL_PROVIDER_SPEC.dialect.supports(wire),
         "the Copilot dialect must accept the seed's wire protocol"
     );
 }

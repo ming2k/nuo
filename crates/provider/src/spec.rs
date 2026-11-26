@@ -25,6 +25,10 @@ pub struct ModelProviderSpec {
     pub baselines: &'static [Model],
     /// Exact inference protocol spoken by the preset's default route.
     pub protocol: WireProtocol,
+    /// Per-model wire protocol overrides for multi-protocol surfaces (e.g.
+    /// relays that route Claude models over `AnthropicMessages` while defaulting
+    /// to `OpenAiResponses`). Empty for single-protocol surfaces.
+    pub model_protocols: &'static [(&'static str, WireProtocol)],
     /// Service behavior inherited independently of model protocol selection.
     pub dialect: ProviderDialect,
     /// Explicit transport endpoints for services whose protocol families use different paths.
@@ -152,6 +156,14 @@ impl ModelProviderSpec {
                 self.id
             ));
         }
+        for (model_id, wire) in self.model_protocols {
+            if !self.dialect.supports(*wire) {
+                return Err(format!(
+                    "provider `{}` has an incompatible protocol override for model `{model_id}`",
+                    self.id
+                ));
+            }
+        }
         let mut seen = std::collections::HashSet::new();
         for (wire, root) in self.protocol_roots.iter() {
             if !seen.insert(*wire) {
@@ -166,10 +178,10 @@ impl ModelProviderSpec {
     }
 
     pub fn model_protocol(&self, model_id: &str) -> WireProtocol {
-        self.baselines
+        self.model_protocols
             .iter()
-            .find(|model| model.id == model_id)
-            .map(|model| model.protocol)
+            .find(|(id, _)| *id == model_id)
+            .map(|(_, protocol)| *protocol)
             .unwrap_or(self.protocol)
     }
 
@@ -213,14 +225,6 @@ static SPECS: RwLock<std::collections::BTreeMap<String, Arc<ModelProviderSpec>>>
 /// resolving — without ever dropping a shipped provider.
 static USER_SPECS: RwLock<std::collections::BTreeMap<String, Arc<ModelProviderSpec>>> =
     RwLock::new(std::collections::BTreeMap::new());
-
-/// Register a provider specification.
-pub fn register_provider_spec(spec: ModelProviderSpec) {
-    SPECS
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(spec.id.to_string(), Arc::new(spec));
-}
 
 /// Register multiple provider specifications.
 pub fn register_provider_specs(specs: impl IntoIterator<Item = ModelProviderSpec>) {
@@ -275,20 +279,6 @@ pub fn register_user_declared_provider(
     Ok(spec)
 }
 
-/// Resolve route configuration for a given provider and model id.
-pub fn route_for_model(
-    provider_id: &str,
-    model_id: &str,
-) -> Option<(WireProtocol, String, Option<Cow<'static, str>>)> {
-    let spec = model_provider_spec(provider_id)?;
-    let protocol = spec.model_protocol(model_id);
-    Some((
-        protocol,
-        spec.endpoint(protocol).ok()?,
-        spec.user_agent.clone(),
-    ))
-}
-
 /// Synchronize user-declared provider definitions into the provider specifications registry.
 pub fn sync_user_declared_providers(
     declared: &impl AsRef<std::collections::BTreeMap<String, UserDeclaredProvider>>,
@@ -311,6 +301,7 @@ pub fn sync_user_declared_providers(
             root_url: Cow::Owned(provider.root_url.clone()),
             user_agent: provider.user_agent.clone().map(Cow::Owned),
             protocol: wire,
+            model_protocols: &[],
             dialect,
             protocol_roots: Cow::Owned(
                 provider

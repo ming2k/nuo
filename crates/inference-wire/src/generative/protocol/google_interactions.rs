@@ -10,10 +10,59 @@
 //! `providers/provider-google-antigravity` genuinely calls them — that
 //! provider streams Google's Interactions frames and needs the delta decoding.
 
-use crate::generative::types::{
-    WireChunk, WireResponse, WireToolCall, WireToolCallChunk, WireUsage,
-};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+/// A decoded tool invocation returned by [`parse_response`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+/// Token usage counters decoded from a Google Interactions response or chunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct WireUsage {
+    pub prompt_tokens: usize,
+    pub completion_tokens: usize,
+    pub total_tokens: usize,
+    pub cached_tokens: usize,
+}
+
+/// Decoded unary response payload returned by [`parse_response`].
+#[derive(Debug, Clone, Default)]
+pub struct WireResponse {
+    pub content: Option<String>,
+    pub thinking: Option<String>,
+    pub tool_calls: Vec<WireToolCall>,
+    pub usage: WireUsage,
+    pub continuation_id: Option<String>,
+}
+
+/// Incremental tool-call delta carried inside a [`WireChunk`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireToolCallChunk {
+    pub index: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments_delta: Option<String>,
+}
+
+/// Decoded SSE streaming delta frame returned by [`parse_chunk`].
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WireChunk {
+    pub delta_content: Option<String>,
+    pub delta_thinking: Option<String>,
+    pub delta_tool_calls: Vec<WireToolCallChunk>,
+    pub usage: Option<WireUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_id: Option<String>,
+    pub is_done: bool,
+}
 
 pub fn parse_response(json_val: &serde_json::Value) -> WireResponse {
     let interaction_id = json_val

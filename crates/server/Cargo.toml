@@ -57,7 +57,6 @@ tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
 chrono = { workspace = true }
-dirs = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

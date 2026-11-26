@@ -13,7 +13,6 @@ use super::derive::resolve_credential;
 use futures::stream::{self, StreamExt};
 use persistence::config::{FittedModelInfo, ModelListCacheState, RemoteCatalogCache};
 use persistence::connections::Connections;
-use protocol::WireProtocol;
 use protocol::{ModelListError, RemoteCatalogSource};
 use provider::ModelProviderSpec;
 use provider::{
@@ -676,12 +675,9 @@ pub fn sync_fitted_model_registry() {
             let spec = model_provider_spec(&connection.provider);
             let fitted_map = cache.fitted_models.get(&connection.name);
             fitted_map.map(|map| {
-                let (format, family) = match spec {
-                    Some(spec) => (spec.protocol, spec.id.to_string()),
-                    None => (
-                        WireProtocol::OpenAiChatCompletions,
-                        connection.provider.clone(),
-                    ),
+                let family = match spec {
+                    Some(spec) => spec.id.to_string(),
+                    None => connection.provider.clone(),
                 };
                 map.iter()
                     .map(move |(id, info)| protocol::model::FittedModel {
@@ -690,7 +686,6 @@ pub fn sync_fitted_model_registry() {
                         context_window: info.context_window,
                         reasoning: info.reasoning,
                         vision: info.vision,
-                        protocol: format,
                         effort_levels: info
                             .efforts
                             .iter()

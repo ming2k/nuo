@@ -1,7 +1,6 @@
 //! The `xai-oauth` provider preset: xAI Grok over OpenAI-compatible chat
 //! completions (SuperGrok OAuth or `XAI_API_KEY`).
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -24,7 +23,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -36,7 +34,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -48,7 +45,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -60,7 +56,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::XAI_GROK,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -74,13 +69,14 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("xai"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_XAI.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://api.x.ai/v1"),
-    user_agent: None,
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_XAI.root_url),
+    user_agent: protocol::model_providers::PROVIDER_XAI.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
-    models: XAI_BUILTIN_MODELS,
+    protocol: protocol::model_providers::PROVIDER_XAI.protocol,
+    model_protocols: &[],
+    models: protocol::model_providers::PROVIDER_XAI.models,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,

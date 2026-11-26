@@ -93,7 +93,7 @@ pub fn detect_device_fingerprint() -> String {
         hasher.update(user.as_bytes());
     }
     hasher.update(b":");
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = crate::paths::home_dir() {
         hasher.update(home.to_string_lossy().as_bytes());
     }
 

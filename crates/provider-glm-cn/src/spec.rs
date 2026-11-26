@@ -8,7 +8,6 @@
 //! `ModelProviderSpec` counterpart yet (`docs/dev/provider-extension-design.md`
 //! §5), so folding it into the label is honest about what it is.
 
-use inference_wire::WireProtocol;
 use protocol::Model;
 use protocol::reasoning::ReasoningSupport;
 
@@ -40,7 +39,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -58,7 +56,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -70,7 +67,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -82,7 +78,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -94,7 +89,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -106,7 +100,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -118,7 +111,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -130,7 +122,6 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: &[],
         default_effort: Some(protocol::Effort::High),
         wire_entities: None,
@@ -139,7 +130,7 @@ pub const MODELS: &[Model] = &[
 
 inventory::submit!(protocol::model::BaselineModels(MODELS));
 
-pub const ZCODE_USER_AGENT: &str = "ZCode/3.5.3";
+pub use protocol::model_providers::ZCODE_USER_AGENT;
 pub const ZCODE_CLIENT_HEADERS: &[(&str, &str)] =
     &[("X-Title", "Z Code"), ("X-ZCode-Agent", "glm")];
 
@@ -148,12 +139,13 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: ::provider::PromptCachePolicy::Compiled(::provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("glm-cn"),
+    id: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_GLM_CN.id),
     baselines: MODELS,
-    root_url: std::borrow::Cow::Borrowed("https://open.bigmodel.cn/api/coding/paas/v4"),
-    user_agent: Some(std::borrow::Cow::Borrowed(ZCODE_USER_AGENT)),
+    root_url: std::borrow::Cow::Borrowed(protocol::model_providers::PROVIDER_GLM_CN.root_url),
+    user_agent: protocol::model_providers::PROVIDER_GLM_CN.user_agent_cow(),
     default_headers: std::borrow::Cow::Borrowed(ZCODE_CLIENT_HEADERS),
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: protocol::model_providers::PROVIDER_GLM_CN.protocol,
+    model_protocols: &[],
     // Live-verified (2026-08): the coding endpoint serves GET /models and
     // returns the plan's current model ids (OpenAI list shape, ids only — no
     // capability metadata). The first-party list stays authoritative for what
@@ -165,12 +157,13 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     quota: None,
     display_policy: ::provider::DisplayPolicy::Native,
     responses_state: protocol::ResponsesState::Stateless,
-    models: GLM_CN_MODELS,
+    models: protocol::model_providers::PROVIDER_GLM_CN.models,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use inference_wire::WireProtocol;
     use protocol::model::resolve;
 
     #[test]

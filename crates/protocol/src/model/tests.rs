@@ -106,7 +106,6 @@ const FIXTURE_A: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: crate::effort::COMMON_LADDER,
         default_effort: Some(crate::effort::Effort::High),
         wire_entities: None,
@@ -118,7 +117,6 @@ const FIXTURE_A: &[Model] = &[
         thinking: ReasoningSupport::None,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::AnthropicMessages,
         effort_levels: &[],
         default_effort: Some(crate::effort::Effort::High),
         wire_entities: None,
@@ -131,7 +129,6 @@ const FIXTURE_B: &[Model] = &[Model {
     thinking: ReasoningSupport::None,
     tool_call: false,
     vision: false,
-    protocol: WireProtocol::GoogleGenerateContent,
     effort_levels: &[],
     default_effort: Some(crate::effort::Effort::High),
     wire_entities: None,
@@ -146,7 +143,6 @@ fn registered_baselines_resolve_by_id() {
     assert_eq!(m.context_window, 111_000);
     assert!(m.reasoning());
     assert!(m.vision);
-    assert_eq!(m.protocol, WireProtocol::OpenAiChatCompletions);
     // `fitted_overlay_never_overrides_a_registered_baseline` may have
     // already run in this process and refreshed the ladder (overlay
     // writes are process-global), so assert the baseline value only when
@@ -159,7 +155,7 @@ fn registered_baselines_resolve_by_id() {
     );
 
     let g = resolve("fixture-gamma");
-    assert_eq!(g.protocol, WireProtocol::GoogleGenerateContent);
+    assert_eq!(g.context_window, 333_000);
     assert!(!g.tool_call);
 }
 
@@ -217,7 +213,6 @@ fn fitted_overlay_supplies_metadata_for_unregistered_ids() {
         context_window: 2_000_000,
         reasoning: true,
         vision: Some(true),
-        protocol: WireProtocol::OpenAiChatCompletions,
         // Unsorted input with a duplicate: stored ascending, deduped.
         effort_levels: vec![
             crate::effort::Effort::Max,
@@ -244,7 +239,6 @@ fn fitted_overlay_never_overrides_a_registered_baseline() {
         context_window: 1,
         reasoning: false,
         vision: Some(false),
-        protocol: WireProtocol::GoogleGenerateContent,
         effort_levels: vec![crate::effort::Effort::Max],
     }]);
     // The vetted baseline entry wins on every field except the effort
@@ -253,7 +247,6 @@ fn fitted_overlay_never_overrides_a_registered_baseline() {
     // identity, context, format, and vision stay vetted.
     let m = resolve("fixture-alpha");
     assert_eq!(m.context_window, 111_000);
-    assert_eq!(m.protocol, WireProtocol::OpenAiChatCompletions);
     assert!(m.vision);
     assert_eq!(m.effort_levels, [crate::effort::Effort::Max].as_slice());
 }
@@ -269,7 +262,6 @@ fn fitted_overlay_with_no_advertised_tiers_keeps_the_baseline_ladder() {
         context_window: 0,
         reasoning: false,
         vision: Some(false),
-        protocol: WireProtocol::OpenAiChatCompletions,
         effort_levels: Vec::new(),
     }]);
     // fixture-beta's baseline ladder is empty already, so check through
@@ -281,10 +273,7 @@ fn fitted_overlay_with_no_advertised_tiers_keeps_the_baseline_ladder() {
 
 #[test]
 fn fallback_format_is_openai_compat() {
-    assert_eq!(
-        fallback_model("anything").protocol,
-        WireProtocol::OpenAiChatCompletions
-    );
+    assert_eq!(fallback_model("anything").context_window, 128_000);
 }
 
 #[test]
