@@ -6,6 +6,29 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.104] - 2026-11-27
+
+### Fixed
+
+- **Clipboard fault routing and notice bubble hygiene.**
+  Routed clipboard write failures (preserving untruncated multi-line diagnostic
+  detail), vision-blocked image paste rejections, and skipped non-image file
+  paste warnings through typed `ClientNotice` variants (`ClipboardWriteFailed`,
+  `ImagePasteRejected`, `NonImageFilesSkipped`), added `App::retain_local_ack`
+  so `show_local_toast` logs acknowledgements without arming a duplicate 4 s
+  notice bubble or clobbering active fault bubbles, unified ephemeral clipboard
+  receipts without mutating the notice log from the notice viewer, and stopped
+  `tick_toast_timers` and the animation loop from repeatedly firing toasts while
+  images are staged in the composer.
+- **Retryable initial subscription recovery on server initialization.**
+  Cleared optimistic `subscribed_threads` alongside `initial_subscribe_in_flight`
+  when an initial subscribe is refused with `ERR_SERVER_NOT_READY`, ensuring
+  `reconcile_subscriptions` re-sends once the server transitions to `Ready`.
+- **Subagent `SceneBar` breadcrumb spacing under narrow widths.**
+  Reserved a 2-column `JOIN_ENUMERATE_COLS` gap before right-side breadcrumbs in
+  `draw_scene_bar` so truncated role/context text never collides with breadcrumb
+  navigation.
+
 ## [0.0.103] - 2026-11-27
 
 ### Added
