@@ -6,7 +6,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use crate::shell::{STREAM_FRAME_INTERVAL, event_loop, is_coalescible_stream_update};
-use protocol::{AgentResponse, LoopStatus, ProviderPickerSnapshot};
+use nuo_protocol::{AgentResponse, LoopStatus, ProviderPickerSnapshot};
 
 /// Translator-side alias for the mutation type (formerly a `use` inside the
 /// event loop).
@@ -26,7 +26,7 @@ pub struct ResponseTranslatorConfig {
     pub rx: mpsc::UnboundedReceiver<AgentResponse>,
     pub runtime: event_loop::UiRuntime,
     pub link_lost: crate::shell::client::LinkLostMarker,
-    pub tui_config: Arc<view::tui_config::TuiConfig>,
+    pub tui_config: Arc<nuo_view::tui_config::TuiConfig>,
     pub initial_provider: String,
     pub initial_model: String,
     pub initial_round_count: u64,
@@ -40,8 +40,8 @@ struct ThreadTranslatorState {
     needs_round_rebase: bool,
     provider: String,
     model: String,
-    harness: protocol::HarnessSnapshot,
-    retry_progress: Option<view::retry::RetryProgress>,
+    harness: nuo_protocol::HarnessSnapshot,
+    retry_progress: Option<nuo_view::retry::RetryProgress>,
     reasoning_start: Option<std::time::Instant>,
 }
 
@@ -51,12 +51,12 @@ impl ThreadTranslatorState {
             needs_round_rebase: false,
             provider,
             model,
-            harness: protocol::HarnessSnapshot {
+            harness: nuo_protocol::HarnessSnapshot {
                 loop_status: LoopStatus::Idle,
                 round_counter,
                 unattended: false,
                 confined: true,
-                workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
+                workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
                 retry_pending: false,
                 role: None,
                 workspace: None,
@@ -83,7 +83,7 @@ struct TranslatorState {
     /// by an in-place re-key, `>= 1` = active). Replaces `SessionGate`.
     thread_generations: std::collections::HashMap<String, u64>,
     mutations: event_loop::mutations::MutationSink,
-    tui_config: Arc<view::tui_config::TuiConfig>,
+    tui_config: Arc<nuo_view::tui_config::TuiConfig>,
     trust_gate_dismissed: Arc<std::sync::atomic::AtomicBool>,
     awaiting_oauth_add: Arc<std::sync::atomic::AtomicBool>,
     viewed_session_id: Arc<tokio::sync::Mutex<Option<String>>>,
@@ -92,7 +92,7 @@ struct TranslatorState {
 /// Turn position and send time carried by a turn-scoped round event.
 #[derive(Clone, Copy)]
 struct TurnCtx {
-    turn_context: Option<protocol::TurnContext>,
+    turn_context: Option<nuo_protocol::TurnContext>,
     turn_position: Option<(u64, u64)>,
     turn_sent_at: Option<u64>,
 }

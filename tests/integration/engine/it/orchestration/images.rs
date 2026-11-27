@@ -26,33 +26,36 @@ struct ImageRejectingProvider {
 impl Provider for ImageRejectingProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Err(protocol::ProviderError::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            protocol::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<
+            'static,
+            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
+        >,
+        nuo_protocol::ProviderError,
     > {
         let images = request
             .messages
@@ -68,9 +71,9 @@ impl Provider for ImageRejectingProvider {
             log.len()
         };
         if attempt <= self.rejections {
-            let error = protocol::ProviderError::new(
+            let error = nuo_protocol::ProviderError::new(
                 "mock",
-                protocol::ProviderErrorKind::InvalidRequest,
+                nuo_protocol::ProviderErrorKind::InvalidRequest,
                 self.rejection,
             )
             .with_status(400);
@@ -79,7 +82,7 @@ impl Provider for ImageRejectingProvider {
         Ok(Box::pin(stream::iter(vec![
             Ok(ProviderStreamEvent::TextDelta("read it".to_string())),
             Ok(ProviderStreamEvent::Completed(
-                protocol::ProviderCompletionMeta::default(),
+                nuo_protocol::ProviderCompletionMeta::default(),
             )),
         ])))
     }
@@ -105,11 +108,11 @@ async fn image_refusal_is_learned_and_the_round_continues_without_images() {
             rejections: 1,
         }),
         Vec::new(),
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
-    let images = vec![tool::ImagePart {
+    let images = vec![nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "aGk=".to_string(),
     }];
@@ -148,7 +151,7 @@ async fn image_refusal_is_learned_and_the_round_continues_without_images() {
             },
             _ => None,
         })
-        .filter(|notice| notice.kind == tool::NoticeKind::ImageInputWithheld)
+        .filter(|notice| notice.kind == nuo_tool::NoticeKind::ImageInputWithheld)
         .collect::<Vec<_>>();
     assert_eq!(notices.len(), 1, "exactly one withholding notice");
     assert!(
@@ -196,7 +199,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
             rejections: 1,
         }),
         Vec::new(),
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -205,7 +208,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
         image_round_context(&agent, tx, &session, &session_id),
         image_round_input(
             "describe it",
-            vec![tool::ImagePart {
+            vec![nuo_tool::ImagePart {
                 mime: "image/png".to_string(),
                 data: "aGk=".to_string(),
             }],
@@ -234,7 +237,7 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
             },
             _ => None,
         })
-        .filter(|notice| notice.kind == tool::NoticeKind::ImageInputWithheld)
+        .filter(|notice| notice.kind == nuo_tool::NoticeKind::ImageInputWithheld)
         .collect::<Vec<_>>();
     assert_eq!(notices.len(), 1);
     assert!(
@@ -271,7 +274,7 @@ async fn an_unrelated_refusal_is_not_blamed_on_images() {
             rejections: usize::MAX,
         }),
         Vec::new(),
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -280,7 +283,7 @@ async fn an_unrelated_refusal_is_not_blamed_on_images() {
         image_round_context(&agent, tx, &session, &session_id),
         image_round_input(
             "describe it",
-            vec![tool::ImagePart {
+            vec![nuo_tool::ImagePart {
                 mime: "image/png".to_string(),
                 data: "aGk=".to_string(),
             }],
@@ -322,7 +325,7 @@ fn image_round_context(
         session: Arc::clone(session),
         projection: ContextProjectionSettings {
             request_overhead_tokens: 0,
-            budget: protocol::CompactionPolicy::default().resolve(100_000),
+            budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
             preserve_rounds: 6,
             summarize: false,
             prune: false,
@@ -339,14 +342,14 @@ fn image_round_context(
 
 /// The `RoundInput` every test runs with: a fresh round carrying
 /// `images`.
-fn image_round_input(prompt: &str, images: Vec<tool::ImagePart>) -> RoundInput {
+fn image_round_input(prompt: &str, images: Vec<nuo_tool::ImagePart>) -> RoundInput {
     RoundInput {
         prompt: prompt.to_string(),
         hidden: false,
         display_prompt: None,
         sent_at_ms: None,
         images,
-        driver: engine::orchestration::RoundDriver::Fresh,
+        driver: nuo_engine::orchestration::RoundDriver::Fresh,
     }
 }
 
@@ -365,33 +368,36 @@ struct ProbeAcrossTurnsProvider {
 impl Provider for ProbeAcrossTurnsProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Err(protocol::ProviderError::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            protocol::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<
+            'static,
+            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
+        >,
+        nuo_protocol::ProviderError,
     > {
         let images = request
             .messages
@@ -407,9 +413,9 @@ impl Provider for ProbeAcrossTurnsProvider {
             // The route refuses attachments, in a format the harness has no
             // knowledge of.
             return Ok(Box::pin(stream::iter(vec![Err(
-                protocol::ProviderError::new(
+                nuo_protocol::ProviderError::new(
                     "mock",
-                    protocol::ProviderErrorKind::InvalidRequest,
+                    nuo_protocol::ProviderErrorKind::InvalidRequest,
                     "relay: content part not accepted",
                 )
                 .with_status(400),
@@ -427,14 +433,14 @@ impl Provider for ProbeAcrossTurnsProvider {
                     arguments: "{}".to_string(),
                 }),
                 Ok(ProviderStreamEvent::Completed(
-                    protocol::ProviderCompletionMeta::default(),
+                    nuo_protocol::ProviderCompletionMeta::default(),
                 )),
             ])));
         }
         Ok(Box::pin(stream::iter(vec![
             Ok(ProviderStreamEvent::TextDelta("done".to_string())),
             Ok(ProviderStreamEvent::Completed(
-                protocol::ProviderCompletionMeta::default(),
+                nuo_protocol::ProviderCompletionMeta::default(),
             )),
         ])))
     }
@@ -453,7 +459,7 @@ async fn a_confirmed_probe_keeps_withholding_across_the_rounds_next_turn() {
         vec![Arc::new(super::retry::RetryReadTool(Arc::new(
             AtomicUsize::new(0),
         )))],
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, _rx) = mpsc::unbounded_channel();
     let session_id = session.id().await;
@@ -462,7 +468,7 @@ async fn a_confirmed_probe_keeps_withholding_across_the_rounds_next_turn() {
         image_round_context(&agent, tx, &session, &session_id),
         image_round_input(
             "what is this?",
-            vec![tool::ImagePart {
+            vec![nuo_tool::ImagePart {
                 mime: "image/png".to_string(),
                 data: "aGk=".to_string(),
             }],

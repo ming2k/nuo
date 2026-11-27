@@ -134,19 +134,19 @@ fn frozen_event_passthrough(event: &Event) -> bool {
     }
 }
 
-pub(crate) fn tool_verb_for(name: &str) -> view::phase::ToolVerb {
+pub(crate) fn tool_verb_for(name: &str) -> nuo_view::phase::ToolVerb {
     match name {
-        "find_files" | "read" | "read_url" => view::phase::ToolVerb::Exploring,
-        "search_text" => view::phase::ToolVerb::Searching,
-        "search_web" => view::phase::ToolVerb::WebSearching,
-        "write_file" | "edit_text" => view::phase::ToolVerb::Editing,
-        "execute_command" => view::phase::ToolVerb::Running,
+        "find_files" | "read" | "read_url" => nuo_view::phase::ToolVerb::Exploring,
+        "search_text" => nuo_view::phase::ToolVerb::Searching,
+        "search_web" => nuo_view::phase::ToolVerb::WebSearching,
+        "write_file" | "edit_text" => nuo_view::phase::ToolVerb::Editing,
+        "execute_command" => nuo_view::phase::ToolVerb::Running,
         "write_todos" | "update_todo" | "todo" | "todo_update" => {
-            view::phase::ToolVerb::UpdatingTasks
+            nuo_view::phase::ToolVerb::UpdatingTasks
         }
-        "spawn_agent" | "delegate_code" => view::phase::ToolVerb::Delegating,
-        n if n.starts_with("mcp__") => view::phase::ToolVerb::Mcp,
-        _ => view::phase::ToolVerb::Generic,
+        "spawn_agent" | "delegate_code" => nuo_view::phase::ToolVerb::Delegating,
+        n if n.starts_with("mcp__") => nuo_view::phase::ToolVerb::Mcp,
+        _ => nuo_view::phase::ToolVerb::Generic,
     }
 }
 
@@ -349,12 +349,12 @@ fn next_poll_interval(
         crate::shell::app::state::ClientLinkPhase::Connected { .. } => {
             if matches!(
                 app.session.server_phase,
-                protocol::ServerPhase::Initializing { .. }
+                nuo_protocol::ServerPhase::Initializing { .. }
             ) {
                 Some(app.session.server_phase_since)
             } else if matches!(
                 app.threads.session_phase,
-                protocol::ThreadPhase::Preparing { .. }
+                nuo_protocol::ThreadPhase::Preparing { .. }
             ) {
                 Some(app.session.thread_phase_since)
             } else {
@@ -368,7 +368,7 @@ fn next_poll_interval(
         if elapsed < hysteresis {
             next_timeout =
                 next_timeout.min((hysteresis - elapsed).max(std::time::Duration::from_millis(10)));
-        } else if let protocol::ServerPhase::Initializing {
+        } else if let nuo_protocol::ServerPhase::Initializing {
             started_at_ms: Some(started),
             ..
         } = app.session.server_phase
@@ -387,7 +387,7 @@ fn next_poll_interval(
     // Empty-state carousel: sleep until the next slide boundary (up to
     // CAROUSEL_SLIDE_SECS).
     if empty_state_showing {
-        let slide_ms = (view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
+        let slide_ms = (nuo_view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
         let elapsed_ms = app.viewport.carousel_epoch.elapsed().as_millis();
         let rem_ms = slide_ms.saturating_sub(elapsed_ms % slide_ms);
         next_timeout = next_timeout.min(std::time::Duration::from_millis((rem_ms as u64).max(50)));
@@ -417,7 +417,7 @@ impl TransientWaitTracker {
                     app.session.server_phase_since.elapsed() >= render::TRANSIENT_WAIT_HYSTERESIS
                 } else if matches!(
                     app.threads.session_phase,
-                    protocol::ThreadPhase::Preparing { .. }
+                    nuo_protocol::ThreadPhase::Preparing { .. }
                 ) {
                     app.session.thread_phase_since.elapsed() >= render::TRANSIENT_WAIT_HYSTERESIS
                 } else {
@@ -431,7 +431,7 @@ impl TransientWaitTracker {
             dirty = true;
         }
         let elapsed_sec = match app.session.server_phase {
-            protocol::ServerPhase::Initializing {
+            nuo_protocol::ServerPhase::Initializing {
                 started_at_ms: Some(started),
                 ..
             } if visible_now => {
@@ -499,7 +499,7 @@ pub(crate) async fn run_app_loop(
         // centered notice; `FrozenFrame` owns that pass so the normal path
         // below only ever runs with visible chrome.
         let (frozen_w, frozen_h) = terminal.size();
-        if ui_primitives::design::below_minimum(frozen_w, frozen_h) {
+        if nuo_ui_primitives::design::below_minimum(frozen_w, frozen_h) {
             let flow = FrozenFrame {
                 app,
                 terminal,
@@ -571,7 +571,7 @@ pub(crate) async fn run_app_loop(
             0,
             0,
             term_w,
-            term_h.saturating_sub(ui_primitives::design::PAGE_HEADER_ROWS),
+            term_h.saturating_sub(nuo_ui_primitives::design::PAGE_HEADER_ROWS),
         );
         let in_subagent = !app.threads.focus_stack.is_empty();
         // A full-screen scene replaces the chat pane entirely. The log scene
@@ -620,7 +620,7 @@ pub(crate) async fn run_app_loop(
         let empty_state_showing =
             app.focused_messages().is_empty() && app.threads.focus_stack.is_empty();
         if empty_state_showing {
-            let current_carousel_index = view::empty_state::carousel_page_for(
+            let current_carousel_index = nuo_view::empty_state::carousel_page_for(
                 app.viewport.carousel_epoch.elapsed().as_millis(),
             );
             if current_carousel_index != last_carousel_index {
@@ -805,7 +805,7 @@ pub(crate) async fn run_app_loop(
                     if matches!(event, Event::Resize(..)) {
                         terminal_resized = true;
                         let (w, h) = terminal.size();
-                        frozen_now = ui_primitives::design::below_minimum(w, h);
+                        frozen_now = nuo_ui_primitives::design::below_minimum(w, h);
                     }
                     if frozen_now && !frozen_event_passthrough(&event) {
                         continue;
@@ -1382,7 +1382,7 @@ async fn process_one_event<W: io::Write>(
 
     // No client-side "unknown command" downgrade: a `/`-prefixed draft is a
     // slash command, full stop. The client cannot know the server's whole
-    // vocabulary (built-ins are compiled into `server`; an embedding adds
+    // vocabulary (built-ins are compiled into `nuo-server`; an embedding adds
     // more through `SlashCommandRegistry`), so judging it here would both
     // swallow typos into the transcript as if they were prompts **and** deny
     // registered commands it has never heard of. `AgentRequest::SlashCommand` is
@@ -1506,19 +1506,19 @@ mod freeze_guard_tests {
 
     #[test]
     fn below_minimum_is_the_geometric_authority() {
-        assert!(ui_primitives::design::below_minimum(
-            ui_primitives::design::MIN_TERMINAL_COLS - 1,
-            ui_primitives::design::MIN_TERMINAL_ROWS
+        assert!(nuo_ui_primitives::design::below_minimum(
+            nuo_ui_primitives::design::MIN_TERMINAL_COLS - 1,
+            nuo_ui_primitives::design::MIN_TERMINAL_ROWS
         ));
-        assert!(ui_primitives::design::below_minimum(
-            ui_primitives::design::MIN_TERMINAL_COLS,
-            ui_primitives::design::MIN_TERMINAL_ROWS - 1
+        assert!(nuo_ui_primitives::design::below_minimum(
+            nuo_ui_primitives::design::MIN_TERMINAL_COLS,
+            nuo_ui_primitives::design::MIN_TERMINAL_ROWS - 1
         ));
-        assert!(!ui_primitives::design::below_minimum(
-            ui_primitives::design::MIN_TERMINAL_COLS,
-            ui_primitives::design::MIN_TERMINAL_ROWS
+        assert!(!nuo_ui_primitives::design::below_minimum(
+            nuo_ui_primitives::design::MIN_TERMINAL_COLS,
+            nuo_ui_primitives::design::MIN_TERMINAL_ROWS
         ));
-        assert!(!ui_primitives::design::below_minimum(120, 40));
+        assert!(!nuo_ui_primitives::design::below_minimum(120, 40));
     }
 
     #[test]

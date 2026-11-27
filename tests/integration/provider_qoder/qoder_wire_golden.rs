@@ -5,7 +5,7 @@
 //! 0.50.5→0.50.7 pipeline refactor left the phases unwired and every
 //! phase-level test stayed green while production 404'd. This crate hosts the
 //! tests because it is the only one that can reference both the executor
-//! (`provider-openai`) and the Qoder wire implementation without inverting the
+//! (`nuo-provider-openai`) and the Qoder wire implementation without inverting the
 //! dependency graph.
 
 // Integration test target: assertions fail by panicking, so the production
@@ -14,11 +14,11 @@
 // Golden-wire tests assert on parsed JSON; an `expect` that names the missing
 // field is the most useful failure mode here.
 
-use host::SecretString;
-use protocol::{ResolvedAuth, TransportTelemetry};
+use nuo_host::SecretString;
+use nuo_protocol::{ResolvedAuth, TransportTelemetry};
 
-use provider_openai::OpenAiChatCompletionsProvider;
-use provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
+use nuo_provider_openai::OpenAiChatCompletionsProvider;
+use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 
 /// A static OAuth-like credential source: token + typed Qoder identity.
 #[derive(Debug)]
@@ -27,7 +27,7 @@ struct StaticOAuthSource {
     identity: QoderRequestIdentity,
 }
 
-impl protocol::CredentialSource for StaticOAuthSource {
+impl nuo_protocol::CredentialSource for StaticOAuthSource {
     fn resolve_auth(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         Box::pin(
             async move { Ok(ResolvedAuth::new(self.token).with_extension(self.identity.clone())) },
@@ -61,7 +61,7 @@ fn qoder_wire_provider() -> OpenAiChatCompletionsProvider {
         "qfmodel".to_string(),
         "https://api2.qoder.sh",
     )
-    .with_dialect(protocol::OpenAiChatDialect::Qoder)
+    .with_dialect(nuo_protocol::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline())
 }
 
@@ -76,11 +76,11 @@ fn qoder_body() -> serde_json::Value {
 fn planned_request(
     provider: &OpenAiChatCompletionsProvider,
     auth: &ResolvedAuth,
-) -> provider::transport::RequestBuilder {
+) -> nuo_provider::transport::RequestBuilder {
     provider
         .execute_plan(
-            &provider::WireRequest::new(
-                protocol::WireProtocol::OpenAiChatCompletions,
+            &nuo_provider::WireRequest::new(
+                nuo_protocol::WireProtocol::OpenAiChatCompletions,
                 qoder_body(),
             ),
             auth,
@@ -192,7 +192,7 @@ fn qoder_golden_wire_body_is_the_qoderencoded_agent_chat_envelope() {
 
     // Round-trip through the codec, then assert the envelope structurally.
     let decoded =
-        provider_qoder::wire_decode(body_text).expect("body decodes through the Qoder codec");
+        nuo_provider_qoder::wire_decode(body_text).expect("body decodes through the Qoder codec");
     let envelope: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
     assert_eq!(envelope["chat_task"], "FREE_INPUT");
     assert_eq!(envelope["agent_id"], "agent_common");
@@ -242,17 +242,17 @@ fn qoder_golden_wire_body_is_the_qoderencoded_agent_chat_envelope() {
 /// `low`/`medium`/`xhigh` on `qfmodel`). This mirrors that so the tests below
 /// exercise the *production* chain — catalog metadata → flat body →
 /// envelope — rather than a hand-written body that skips the gate.
-fn catalog_capabilities(model: &str) -> protocol::ModelCapabilities {
-    let remote = protocol::RemoteModelMetadata {
+fn catalog_capabilities(model: &str) -> nuo_protocol::ModelCapabilities {
+    let remote = nuo_protocol::RemoteModelMetadata {
         effort_levels: Some(
             ["low", "medium", "xhigh"]
                 .iter()
-                .map(|level| protocol::EffortLevel::parse(level))
+                .map(|level| nuo_protocol::EffortLevel::parse(level))
                 .collect(),
         ),
         ..Default::default()
     };
-    protocol::ModelCapabilities::for_channel(model, Some(&remote))
+    nuo_protocol::ModelCapabilities::for_channel(model, Some(&remote))
 }
 
 /// Build the flat chat-completions body the way production does, then plan it
@@ -261,8 +261,8 @@ fn envelope_for(body: &serde_json::Value) -> serde_json::Value {
     let auth = ResolvedAuth::new("exchange-token-1").with_extension(qoder_test_identity());
     let req = qoder_wire_provider()
         .execute_plan(
-            &provider::WireRequest::new(
-                protocol::WireProtocol::OpenAiChatCompletions,
+            &nuo_provider::WireRequest::new(
+                nuo_protocol::WireProtocol::OpenAiChatCompletions,
                 body.clone(),
             ),
             &auth,
@@ -272,7 +272,7 @@ fn envelope_for(body: &serde_json::Value) -> serde_json::Value {
         .build("QoderGoldenWire")
         .expect("build");
     let decoded =
-        provider_qoder::wire_decode(std::str::from_utf8(&req.body.expect("body")).unwrap())
+        nuo_provider_qoder::wire_decode(std::str::from_utf8(&req.body.expect("body")).unwrap())
             .expect("body decodes through the Qoder codec");
     serde_json::from_slice(&decoded).expect("envelope is JSON")
 }
@@ -285,16 +285,16 @@ fn envelope_for(body: &serde_json::Value) -> serde_json::Value {
 /// ask for.
 #[test]
 fn qoder_golden_wire_projects_the_requested_effort_into_parameters() {
-    let body = provider_openai::chat_completions::request::body_with_capabilities(
-        &[tool::Message::new(tool::Role::User, "Say OK only.")],
-        provider_openai::chat_completions::request::BodyInput {
+    let body = nuo_provider_openai::chat_completions::request::body_with_capabilities(
+        &[nuo_tool::Message::new(nuo_tool::Role::User, "Say OK only.")],
+        nuo_provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,
             instructions: None,
             tool_specs: None,
-            reasoning_effort: Some(protocol::Effort::Xhigh),
-            dialect: protocol::OpenAiChatDialect::Qoder,
-            cache_plan: &protocol::ResolvedCachePolicy::Unsupported,
+            reasoning_effort: Some(nuo_protocol::Effort::Xhigh),
+            dialect: nuo_protocol::OpenAiChatDialect::Qoder,
+            cache_plan: &nuo_protocol::ResolvedCachePolicy::Unsupported,
         },
         &catalog_capabilities("qfmodel"),
     );
@@ -331,21 +331,21 @@ fn qoder_golden_wire_projects_effort_none_as_reasoning_off() {
 /// states `max_tokens`.
 #[test]
 fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
-    let offline = protocol::ModelCapabilities::for_channel("qfmodel", None);
+    let offline = nuo_protocol::ModelCapabilities::for_channel("qfmodel", None);
     assert!(
         offline.effort_levels.is_empty(),
         "the baseline declares no ladder; this test is about the offline path"
     );
-    let body = provider_openai::chat_completions::request::body_with_capabilities(
-        &[tool::Message::new(tool::Role::User, "Say OK only.")],
-        provider_openai::chat_completions::request::BodyInput {
+    let body = nuo_provider_openai::chat_completions::request::body_with_capabilities(
+        &[nuo_tool::Message::new(nuo_tool::Role::User, "Say OK only.")],
+        nuo_provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,
             instructions: None,
             tool_specs: None,
-            reasoning_effort: Some(protocol::Effort::Xhigh),
-            dialect: protocol::OpenAiChatDialect::Qoder,
-            cache_plan: &protocol::ResolvedCachePolicy::Unsupported,
+            reasoning_effort: Some(nuo_protocol::Effort::Xhigh),
+            dialect: nuo_protocol::OpenAiChatDialect::Qoder,
+            cache_plan: &nuo_protocol::ResolvedCachePolicy::Unsupported,
         },
         &offline,
     );
@@ -367,8 +367,8 @@ fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
 /// local cause.
 #[test]
 fn qoder_envelope_refuses_a_body_with_no_model() {
-    use provider::EnvelopePhase;
-    let result = provider_qoder::QoderAgentEnvelope
+    use nuo_provider::EnvelopePhase;
+    let result = nuo_provider_qoder::QoderAgentEnvelope
         .reshape_body(&serde_json::json!({"messages": [], "stream": true}));
     let error = result.expect_err("a modelless body must not build an envelope");
     assert!(
@@ -378,7 +378,7 @@ fn qoder_envelope_refuses_a_body_with_no_model() {
     );
 
     // A blank model id is the same bug wearing a different shape.
-    let blank = provider_qoder::QoderAgentEnvelope
+    let blank = nuo_provider_qoder::QoderAgentEnvelope
         .reshape_body(&serde_json::json!({"model": "  ", "messages": []}));
     assert!(blank.is_err(), "a blank model id must also be refused");
 }
@@ -395,7 +395,10 @@ fn standard_dialect_golden_wire_is_the_plain_chat_completions_wire() {
 
     let req = provider
         .execute_plan(
-            &provider::WireRequest::new(protocol::WireProtocol::OpenAiChatCompletions, body),
+            &nuo_provider::WireRequest::new(
+                nuo_protocol::WireProtocol::OpenAiChatCompletions,
+                body,
+            ),
             &auth,
             &TransportTelemetry::default(),
         )

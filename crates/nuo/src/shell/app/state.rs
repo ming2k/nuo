@@ -17,9 +17,9 @@ pub struct SessionState {
     /// The id of the session the TUI is currently viewing.
     pub current_session_id: String,
     /// Durability-health banner state (D4).
-    pub persistence_health: Option<protocol::monitor::PersistenceHealth>,
+    pub persistence_health: Option<nuo_protocol::monitor::PersistenceHealth>,
     /// Server-attested global lifecycle phase (ADR-0260 `[INV-SRVPHASE-01]`).
-    pub server_phase: protocol::ServerPhase,
+    pub server_phase: nuo_protocol::ServerPhase,
     /// Instant when `server_phase` last transitioned (used for 120ms anti-flicker hysteresis).
     pub server_phase_since: std::time::Instant,
     /// Instant when foreground `session_phase` last transitioned (120ms hysteresis).
@@ -28,14 +28,14 @@ pub struct SessionState {
     /// server is still in `ServerPhase::Initializing` (ADR-0260 `[INV-SRVPHASE-02]`,
     /// ADR-0267 `[INV-SRVPHASE-09]`). Cleared only once the server confirms
     /// `Wire::Subscribed` / `Wire::Pick` or issues a terminal refusal.
-    pub pending_initial_subscribe: Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
+    pub pending_initial_subscribe: Option<(nuo_protocol::ThreadTarget, Option<std::path::PathBuf>)>,
     /// Whether `pending_initial_subscribe` has already been dispatched on the
     /// current connection and is awaiting server acknowledgement. Reset on
     /// `LinkEstablished` and on retryable `ERR_SERVER_NOT_READY` refusals so
     /// mid-flight server restarts never strand the client in `Preparing`.
     pub initial_subscribe_in_flight: bool,
     /// Launch options preserved for picker fallback (`PickRequired` / `ERR_SESSION_GONE`).
-    pub initial_init_options: protocol::ThreadInitOptions,
+    pub initial_init_options: nuo_protocol::ThreadInitOptions,
     /// Caller project scope remembered across reconnects and picker fallbacks.
     pub project_scope: Option<std::path::PathBuf>,
     /// When switching threads, holds the short id of the target thread being loaded.
@@ -52,17 +52,17 @@ pub struct SessionState {
     /// Sessions whose outbox pause is on.
     pub queue_blocked_sessions: std::collections::HashSet<String>,
     /// The latest harness workspace-security snapshot (trust-gate state).
-    pub workspace_security: protocol::WorkspaceSecuritySnapshot,
+    pub workspace_security: nuo_protocol::WorkspaceSecuritySnapshot,
     /// Rows shown in the threads picker (`/threads` or `nuo attach`).
-    pub sessions_overview: Vec<protocol::ThreadOverview>,
+    pub sessions_overview: Vec<nuo_protocol::ThreadOverview>,
     /// Live monitor snapshot for the thread fleet orchestrator dashboard.
-    pub host_sessions: Vec<protocol::MonitoredThread>,
+    pub host_sessions: Vec<nuo_protocol::MonitoredThread>,
     /// The session whose outbox the Queue view auto-paused on entry.
     pub(crate) queue_exit_session: Option<(String, QueuePauseOrigin)>,
     /// Full detail for the thread under the info sub-view cursor.
-    pub session_detail: Option<protocol::ThreadDetail>,
+    pub session_detail: Option<nuo_protocol::ThreadDetail>,
     /// The effective TUI config.
-    pub tui_config: view::tui_config::TuiConfig,
+    pub tui_config: nuo_view::tui_config::TuiConfig,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -102,7 +102,7 @@ pub struct Viewport {
     /// Effective default-expand state for a reasoning trace.
     pub reasoning_default_expanded: bool,
     /// Per-surface receipt logs (ADR-0116 / ADR-0121).
-    pub logs: view::model::log::SurfaceLogs,
+    pub logs: nuo_view::model::log::SurfaceLogs,
     /// The dashboard console's receipt transcript.
     pub host_console_log: Vec<crate::shell::overlays::ConsoleLine>,
 }
@@ -139,9 +139,9 @@ pub struct ComposerState {
     pub completion_dismissed: bool,
     pub suggestion_index: Option<usize>,
     /// Backend-owned slash-command vocabulary published by the server.
-    pub command_catalog: tool::CommandCatalog,
+    pub command_catalog: nuo_tool::CommandCatalog,
     /// Latest race-checked completion rows returned by the server.
-    pub backend_completions: Vec<tool::InputCompletion>,
+    pub backend_completions: Vec<nuo_tool::InputCompletion>,
     /// Backend completion round-trip awaiting consumption by the loop.
     pub(crate) backend_completion_signal: Option<crate::shell::event_loop::CompletionSignal>,
     pub completion_response_input: Option<String>,
@@ -161,11 +161,11 @@ pub struct ComposerState {
     /// Atomic draft snapshot held while a transient sub-mode borrows the
     /// composer line (ADR-0051 `[INV-COMP-03]`, ADR-0247).
     ///
-    /// Same value type as a parked draft ([`view::composer_draft::ComposerDraft`]),
+    /// Same value type as a parked draft ([`nuo_view::composer_draft::ComposerDraft`]),
     /// because "the composer's text plus its caret plus its staged attachments"
     /// is one concept with two lifetimes: a *stash* that lives as long as a
     /// sub-mode, and a *park* that lives as long as the thread.
-    pub stashed_draft: view::composer_draft::ComposerDraft,
+    pub stashed_draft: nuo_view::composer_draft::ComposerDraft,
     /// In-memory attachment cache for recorded history entries, keyed by
     /// `(text, session_id)` — see [`HistoryAttachments`]. Seeded by
     /// `Self::record_input_history`, consumed by the ↑/↓ and Ctrl+R recall
@@ -175,7 +175,7 @@ pub struct ComposerState {
     /// FIFO insertion order of `Self::history_attachments` keys, so the
     /// cache can be pruned oldest-first when it outgrows its cap.
     pub history_attachments_order: VecDeque<(String, Option<String>)>,
-    pub input_history: Vec<protocol::HistoryEntry>,
+    pub input_history: Vec<nuo_protocol::HistoryEntry>,
     /// **Derived** prompt rows for the viewed session, reconstructed from the
     /// transcript (see `Self::backfill_session_history`). Never persisted:
     /// the session file is the durable source of truth for thread
@@ -185,7 +185,7 @@ pub struct ComposerState {
     /// `Self::current_session_history` — see `Self::history_entry`.
     /// Ordered oldest-first (transcript append order) so growth never shifts
     /// existing indices.
-    pub session_history_backfill: Vec<protocol::HistoryEntry>,
+    pub session_history_backfill: Vec<nuo_protocol::HistoryEntry>,
     /// How many transcript messages `Self::backfill_session_history` has
     /// already consumed for the current session, so a long streaming session
     /// rescans only its tail. Reset to `0` on every viewed-session change.
@@ -255,7 +255,7 @@ pub struct ComposerState {
     /// Requests the operator submitted before the thread reached `Ready`.
     /// Flushed in order on the `Ready` transition; the server also buffers
     /// defensively, but the client-side queue keeps the UI honest.
-    pub pending_prompts: Vec<protocol::AgentRequest>,
+    pub pending_prompts: Vec<nuo_protocol::AgentRequest>,
     /// When the live composer was last mirrored into the parked-draft ledger
     /// (ADR-0247). Drives the autosave cadence so a crash loses at most one
     /// second of typing, without fsyncing on every keystroke.
@@ -280,7 +280,7 @@ pub struct HumanState {
     /// remain the *mounted front* projections the sheets render.
     pub pending_permissions: std::collections::VecDeque<PermissionRequest>,
     pub pending_questions: std::collections::VecDeque<UserQuestionRequest>,
-    pub pending_inputs: std::collections::VecDeque<protocol::InputRequest>,
+    pub pending_inputs: std::collections::VecDeque<nuo_protocol::InputRequest>,
     /// Full-duplex (ADR-0029): which subagent (by parent tool-call id)
     /// surfaced a given permission / ask_user request, so the modal's reply
     /// can be tagged for down-routing.
@@ -303,7 +303,7 @@ pub struct HumanState {
     /// The pending interactive-input request (L3.5 β) from an interactive
     /// `bash` command, or `None`. Set when a `RoundEvent::InputRequest` arrives;
     /// the input-injection modal reads it for its prompt/command/secret.
-    pub pending_input: Option<protocol::InputRequest>,
+    pub pending_input: Option<nuo_protocol::InputRequest>,
     /// The open question (ask_user) modal's self-contained MVU state, or
     /// `None` when no question modal is open. Replaces the four separate
     /// `question_*` fields that previously scattered the modal's state across
@@ -355,14 +355,14 @@ pub struct SurfacesState {
     /// Cached workspace + user theme files loaded on startup and refreshed
     /// when opening `/settings`. Keeps Settings rendering and Up/Down
     /// navigation 100% free of filesystem I/O (`[INV-ARCH-VIEW-ZERO-IO]`).
-    pub theme_files: Vec<ui_primitives::ThemeFile>,
+    pub theme_files: Vec<nuo_ui_primitives::ThemeFile>,
     /// What the pointer currently rests on inside the Tier 1 TabBar (ADR-0223, ADR-0152).
     ///
     /// Kept on the app rather than derived from the pointer position at draw
     /// time because the *committed* scene is the authority for what is under the
     /// pointer: the pill that painted the close mark is the pill that answers
     /// the click on it.
-    pub tab_hover: Option<view::view_header::TabBarHover>,
+    pub tab_hover: Option<nuo_view::view_header::TabBarHover>,
     /// When the pointer arrived on [`Self::tab_hover`]'s **anchor** (a pill, the
     /// add affordance, or the rail).
     ///
@@ -384,12 +384,12 @@ pub struct SurfacesState {
     /// Latest authoritative `[web]` selection/readiness snapshot from the harness.
     /// Refreshed when the Settings view opens (`QueryWebSearchConfig`) and
     /// on every `WebSearchConfigUpdated` ack.
-    pub websearch_config: Option<protocol::WebSearchConfigView>,
+    pub websearch_config: Option<nuo_protocol::WebSearchConfigView>,
     /// Floating dropdown state and anchor for settings popup selectors (e.g.
     /// Web Search provider and Web Fetch reader selectors).
     pub config_dropdown: Option<(
-        ui_primitives::components::dropdown::DropdownState<String>,
-        ui_primitives::components::dropdown::DropdownAnchor,
+        nuo_ui_primitives::components::dropdown::DropdownState<String>,
+        nuo_ui_primitives::components::dropdown::DropdownAnchor,
     )>,
     /// Authoritative screen rectangle of the active settings detail row,
     /// updated during settings render to anchor popovers precisely.
@@ -492,7 +492,7 @@ pub struct SurfacesState {
     pub color_scheme: String,
     /// Last persisted custom semantic palette. Retained while a preset is
     /// active so switching schemes never discards the user's colors.
-    pub custom_color_scheme: ui_primitives::ColorSchemeConfig,
+    pub custom_color_scheme: nuo_ui_primitives::ColorSchemeConfig,
 
     /// Whether clicking outside a dismissable modal closes it (mirroring Esc).
     /// From `[tui] click_outside_dismiss` (default `true`): when true, an
@@ -512,7 +512,7 @@ pub struct SurfacesState {
     pub copy_toast_message: String,
     pub copy_toast_failed: bool,
     /// A transient notice toast (command acknowledgments such as
-    /// `/delegate on`, routed to the toast layer by `view::model::layer`). Unlike the
+    /// `/delegate on`, routed to the toast layer by `nuo_view::model::layer`). Unlike the
     /// inline `MessageKind::Notice`, this never enters the transcript: it
     /// renders as a top-right bubble that fades on its own, mirroring the copy
     /// toast. Severity drives the bubble's accent color. Held until
@@ -567,7 +567,7 @@ pub struct SurfacesState {
     /// Full detail and usage for the connection under the detail sub-view. Populated by
     /// an on-demand `QueryConnectionDetail` round-trip when the sub-view opens (Enter).
     /// `None` while the round-trip is in flight.
-    pub connection_detail: Option<protocol::ConnectionDetail>,
+    pub connection_detail: Option<nuo_protocol::ConnectionDetail>,
 }
 
 /// `provider_editor` state.
@@ -638,7 +638,7 @@ pub struct ProviderEditorState {
     /// selector.
     pub custom_protocol_wire: String,
     /// Connection budget policy configured in create/edit modal (ADR-0065).
-    pub custom_budget: protocol::ConnectionBudget,
+    pub custom_budget: nuo_protocol::ConnectionBudget,
     /// Models seeded by the active template (create mode). Submitted as the
     /// provider's model list unless the editor exposes a free-text Model field
     /// (then the single typed model is submitted instead). Empty in edit mode.
@@ -648,7 +648,7 @@ pub struct ProviderEditorState {
     /// Template-specific user agent carried into newly-created channels.
     pub custom_user_agent: Option<String>,
     /// How newly-created connections authenticate (from the selected template).
-    pub custom_auth: protocol::ConnectionAuth,
+    pub custom_auth: nuo_protocol::ConnectionAuth,
     /// The **model provider id** the active create flow was seeded from, or
     /// `None` in edit mode / when no template is active. Sent as
     /// `AddConnection::provider` (the wire field): it is the
@@ -692,25 +692,25 @@ pub struct ProviderEditorState {
 pub struct TelemetryState {
     /// Shared token-source ledger (reported vs. estimated token accounting),
     /// read by the Telemetry modal.
-    pub token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
     /// Latest session-scoped AI context snapshot from the harness.
-    pub context_tokens: Option<protocol::ContextTokenSnapshot>,
+    pub context_tokens: Option<nuo_protocol::ContextTokenSnapshot>,
     /// Per-session context snapshots (M1): the applier keys them by
     /// session; the render loop projects the *viewed* session's value into
     /// `context_tokens` each frame.
-    pub context_tokens_by_session: HashMap<String, protocol::ContextTokenSnapshot>,
+    pub context_tokens_by_session: HashMap<String, nuo_protocol::ContextTokenSnapshot>,
     /// Cross-session usage-statistics report (ADR-0129 [INV-USAGE-01]).
     /// Session-independent: it aggregates the durable store under `data/usage/`,
     /// which survives session cleanup.
-    pub usage_stats: Option<protocol::usage_stats::UsageStatsReport>,
+    pub usage_stats: Option<nuo_protocol::usage_stats::UsageStatsReport>,
     /// Whether an on-demand usage report fetch is currently in flight.
     pub usage_loading: bool,
     /// Scroll offset for the model usage statistics report view.
     pub usage_scroll: usize,
     /// Provider quota pool snapshot (`QueryProviderQuotas`, ADR-0036).
-    pub provider_quotas: Option<protocol::ProviderQuotaSnapshot>,
+    pub provider_quotas: Option<nuo_protocol::ProviderQuotaSnapshot>,
     /// Cached connection usage states for ambient indicators.
-    pub connection_usages: std::collections::HashMap<String, protocol::ConnectionUsageState>,
+    pub connection_usages: std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>,
 }
 
 /// Client-side transport connection lifecycle (ADR-0260 `[INV-SRVPHASE-05]`).

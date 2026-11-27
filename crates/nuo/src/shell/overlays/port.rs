@@ -6,7 +6,7 @@
 
 use crate::shell::render::Theme;
 use graticule::{Frame, Line, Rect, Span, Style};
-use ui_primitives::primitives::{
+use nuo_ui_primitives::primitives::{
     ContentModalSpec, FooterHint, content_modal_area, keyvocab, modal_chrome_rows, modal_frame,
     modal_header, render_body, render_modal_footer,
 };
@@ -119,7 +119,7 @@ pub fn draw_port_modal(
         f.body,
         body,
         &mut scroll,
-        ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
+        nuo_ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
         theme,
     );
 

@@ -3,24 +3,6 @@
 version = 4
 
 [[package]]
-name = "acp"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "hex",
- "hmac 0.12.1",
- "jiff",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tool",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -706,43 +688,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "engine"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "base64",
- "fastrand",
- "futures",
- "guardrails",
- "host",
- "inference-wire",
- "inventory",
- "jiff",
- "model-routing",
- "netune",
- "persistence",
- "protocol",
- "provider",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tokio-util",
- "toml",
- "tool",
- "tool-ast",
- "tool-exec",
- "tool-fs",
- "tool-web",
- "tracing",
- "uuid",
- "walkdir",
- "yaml_serde",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1096,20 +1041,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "guardrails"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "protocol",
- "regex",
- "serde",
- "serde_json",
- "tokio",
- "tool",
- "tracing",
-]
-
-[[package]]
 name = "h2"
 version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1176,30 +1107,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
 dependencies = [
  "digest 0.11.3",
-]
-
-[[package]]
-name = "host"
-version = "0.0.104"
-dependencies = [
- "arboard",
- "base64",
- "directories",
- "image",
- "libc",
- "notify",
- "pdf-extract",
- "protocol",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "toml",
- "tool",
- "tracing",
- "uuid",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1434,15 +1341,6 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown",
-]
-
-[[package]]
-name = "inference-wire"
-version = "0.0.104"
-dependencies = [
- "serde",
- "serde_json",
- "uuid",
 ]
 
 [[package]]
@@ -1874,25 +1772,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "model-routing"
-version = "0.0.104"
-dependencies = [
- "futures",
- "glob",
- "host",
- "mockito",
- "persistence",
- "protocol",
- "provider",
- "serde_json",
- "server",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2135,82 +2014,735 @@ name = "nuo"
 version = "0.0.104"
 dependencies = [
  "async-trait",
- "engine",
  "fastrand",
  "futures",
  "graticule",
- "host",
  "insta",
  "jiff",
  "libc",
  "netune",
- "persistence",
- "protocol",
+ "nuo-engine",
+ "nuo-host",
+ "nuo-persistence",
+ "nuo-protocol",
+ "nuo-server",
+ "nuo-tool",
+ "nuo-ui-primitives",
+ "nuo-view",
  "serde",
  "serde_json",
- "server",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tokio-util",
  "toml",
- "tool",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "ui-primitives",
  "unicode-segmentation",
  "unicode-width",
  "uuid",
- "view",
+]
+
+[[package]]
+name = "nuo-acp"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "hex",
+ "hmac 0.12.1",
+ "jiff",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-engine"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "base64",
+ "fastrand",
+ "futures",
+ "inventory",
+ "jiff",
+ "netune",
+ "nuo-guardrails",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-model-routing",
+ "nuo-persistence",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-tool",
+ "nuo-tool-ast",
+ "nuo-tool-exec",
+ "nuo-tool-fs",
+ "nuo-tool-web",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "uuid",
+ "walkdir",
+ "yaml_serde",
+]
+
+[[package]]
+name = "nuo-guardrails"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "nuo-protocol",
+ "nuo-tool",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-host"
+version = "0.0.104"
+dependencies = [
+ "arboard",
+ "base64",
+ "directories",
+ "image",
+ "libc",
+ "notify",
+ "nuo-protocol",
+ "nuo-tool",
+ "pdf-extract",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nuo-inference-wire"
+version = "0.0.104"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-model-routing"
+version = "0.0.104"
+dependencies = [
+ "futures",
+ "glob",
+ "mockito",
+ "nuo-host",
+ "nuo-persistence",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-server",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-persistence"
+version = "0.0.104"
+dependencies = [
+ "crc32c",
+ "futures",
+ "hex",
+ "nuo-host",
+ "nuo-protocol",
+ "nuo-tool",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-protocol"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "futures",
+ "glob",
+ "hex",
+ "inventory",
+ "jiff",
+ "nuo-inference-wire",
+ "nuo-tool",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "futures",
+ "http",
+ "httpdate",
+ "netune",
+ "netune-trace",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-anthropic"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "futures",
+ "http",
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-tool",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-catalog"
+version = "0.0.104"
+dependencies = [
+ "netune",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-chatgpt-plan"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures",
+ "inventory",
+ "netune",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "nuo-provider-codebuddy"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "futures",
+ "inventory",
+ "netune",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "nuo-provider-commandcode-goat"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-copilot"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-deepseek"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-glm-cn"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+]
+
+[[package]]
+name = "nuo-provider-google-antigravity"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "futures",
+ "http",
+ "inventory",
+ "jiff",
+ "netune",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-kimi"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-openai"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "futures",
+ "http",
+ "inventory",
+ "mockito",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-tool",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-opencode-go"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "jiff",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-provider-deepseek",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-opencode-zen"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+]
+
+[[package]]
+name = "nuo-provider-opendesign-go"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+]
+
+[[package]]
+name = "nuo-provider-openrouter"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-protocol",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nuo-provider-qianwen"
+version = "0.0.104"
+dependencies = [
+ "inventory",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+]
+
+[[package]]
+name = "nuo-provider-qoder"
+version = "0.0.104"
+dependencies = [
+ "aes",
+ "async-trait",
+ "base64",
+ "cbc",
+ "fastrand",
+ "futures",
+ "getrandom 0.4.3",
+ "http",
+ "inventory",
+ "md-5",
+ "netune",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-protocol",
+ "nuo-provider",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-provider-xai"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "nuo-protocol",
+ "nuo-provider",
+]
+
+[[package]]
+name = "nuo-server"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures",
+ "http",
+ "ignore",
+ "inventory",
+ "jiff",
+ "libc",
+ "netune",
+ "nuo-acp",
+ "nuo-engine",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-model-routing",
+ "nuo-persistence",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-provider-anthropic",
+ "nuo-provider-catalog",
+ "nuo-provider-chatgpt-plan",
+ "nuo-provider-codebuddy",
+ "nuo-provider-commandcode-goat",
+ "nuo-provider-copilot",
+ "nuo-provider-deepseek",
+ "nuo-provider-glm-cn",
+ "nuo-provider-google-antigravity",
+ "nuo-provider-kimi",
+ "nuo-provider-openai",
+ "nuo-provider-opencode-go",
+ "nuo-provider-opencode-zen",
+ "nuo-provider-opendesign-go",
+ "nuo-provider-openrouter",
+ "nuo-provider-qianwen",
+ "nuo-provider-qoder",
+ "nuo-provider-xai",
+ "nuo-tool",
+ "nuo-tool-ast",
+ "nuo-tool-exec",
+ "nuo-tool-fs",
+ "nuo-tool-web",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+ "yaml_serde",
+]
+
+[[package]]
+name = "nuo-test-support"
+version = "0.0.104"
+dependencies = [
+ "libc",
+ "nuo-protocol",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "toml",
+ "walkdir",
 ]
 
 [[package]]
 name = "nuo-tests"
 version = "0.0.104"
 dependencies = [
- "acp",
  "async-trait",
  "base64",
- "engine",
  "futures",
- "guardrails",
- "host",
- "inference-wire",
  "insta",
  "libc",
  "mockito",
- "model-routing",
  "nuo",
- "persistence",
+ "nuo-acp",
+ "nuo-engine",
+ "nuo-guardrails",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-model-routing",
+ "nuo-persistence",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-provider-anthropic",
+ "nuo-provider-catalog",
+ "nuo-provider-chatgpt-plan",
+ "nuo-provider-google-antigravity",
+ "nuo-provider-openai",
+ "nuo-provider-qoder",
+ "nuo-server",
+ "nuo-test-support",
+ "nuo-tool",
+ "nuo-tool-ast",
+ "nuo-tool-exec",
+ "nuo-tool-fs",
+ "nuo-tool-web",
+ "nuo-view",
  "proc-macro2",
- "protocol",
- "provider",
- "provider-anthropic",
- "provider-catalog",
- "provider-chatgpt-plan",
- "provider-google-antigravity",
- "provider-openai",
- "provider-qoder",
  "regex",
  "serde",
  "serde_json",
- "server",
  "syn 2.0.119",
  "tempfile",
- "test-support",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
- "tool",
- "tool-ast",
- "tool-exec",
- "tool-fs",
- "tool-web",
  "uuid",
- "view",
  "walkdir",
+]
+
+[[package]]
+name = "nuo-tool"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "hex",
+ "jsonschema",
+ "nuo-tool-derive",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "uuid",
+]
+
+[[package]]
+name = "nuo-tool-ast"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "ignore",
+ "inventory",
+ "nuo-protocol",
+ "nuo-tool",
+ "nuo-tool-fs",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-cpp",
+ "tree-sitter-go",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+]
+
+[[package]]
+name = "nuo-tool-derive"
+version = "0.0.104"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "nuo-tool-exec"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "libc",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "nuo-tool-fs"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "base64",
+ "ignore",
+ "nuo-tool",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "nuo-tool-web"
+version = "0.0.104"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "http",
+ "inventory",
+ "jiff",
+ "netune",
+ "nuo-protocol",
+ "nuo-tool",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "nuo-ui-primitives"
+version = "0.0.104"
+dependencies = [
+ "graticule-canvas",
+ "jiff",
+ "serde",
+ "toml",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "nuo-view"
+version = "0.0.104"
+dependencies = [
+ "graticule-canvas",
+ "jiff",
+ "nuo-protocol",
+ "nuo-provider",
+ "nuo-provider-anthropic",
+ "nuo-provider-google-antigravity",
+ "nuo-provider-openai",
+ "nuo-tool",
+ "nuo-ui-primitives",
+ "serde",
+ "serde_json",
+ "similar",
+ "tempfile",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]
@@ -2366,27 +2898,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "persistence"
-version = "0.0.104"
-dependencies = [
- "crc32c",
- "futures",
- "hex",
- "host",
- "protocol",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "toml",
- "tool",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2489,312 +3000,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "protocol"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "base64",
- "bytes",
- "futures",
- "glob",
- "hex",
- "inference-wire",
- "inventory",
- "jiff",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "toml",
- "tool",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "provider"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "base64",
- "bytes",
- "futures",
- "host",
- "http",
- "httpdate",
- "inference-wire",
- "netune",
- "netune-trace",
- "protocol",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "toml",
- "tool",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "provider-anthropic"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "futures",
- "http",
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
- "serde_json",
- "tokio",
- "tool",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "provider-catalog"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "netune",
- "protocol",
- "provider",
- "serde_json",
-]
-
-[[package]]
-name = "provider-chatgpt-plan"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "base64",
- "futures",
- "host",
- "inference-wire",
- "inventory",
- "netune",
- "protocol",
- "provider",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "provider-codebuddy"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "futures",
- "host",
- "inference-wire",
- "inventory",
- "netune",
- "protocol",
- "provider",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "provider-commandcode-goat"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "provider-copilot"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
- "serde_json",
-]
-
-[[package]]
-name = "provider-deepseek"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "provider-glm-cn"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
-]
-
-[[package]]
-name = "provider-google-antigravity"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "futures",
- "http",
- "inference-wire",
- "inventory",
- "jiff",
- "netune",
- "protocol",
- "provider",
- "serde",
- "serde_json",
- "tokio",
- "tool",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "provider-kimi"
-version = "0.0.104"
-dependencies = [
- "inventory",
- "protocol",
- "provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "provider-openai"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "futures",
- "http",
- "inference-wire",
- "inventory",
- "mockito",
- "protocol",
- "provider",
- "serde_json",
- "tokio",
- "tool",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "provider-opencode-go"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "inventory",
- "jiff",
- "protocol",
- "provider",
- "provider-deepseek",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "provider-opencode-zen"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
-]
-
-[[package]]
-name = "provider-opendesign-go"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
-]
-
-[[package]]
-name = "provider-openrouter"
-version = "0.0.104"
-dependencies = [
- "inventory",
- "protocol",
- "provider",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "provider-qianwen"
-version = "0.0.104"
-dependencies = [
- "inference-wire",
- "inventory",
- "protocol",
- "provider",
-]
-
-[[package]]
-name = "provider-qoder"
-version = "0.0.104"
-dependencies = [
- "aes",
- "async-trait",
- "base64",
- "cbc",
- "fastrand",
- "futures",
- "getrandom 0.4.3",
- "host",
- "http",
- "inference-wire",
- "inventory",
- "md-5",
- "netune",
- "protocol",
- "provider",
- "rsa",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "provider-xai"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "inventory",
- "protocol",
- "provider",
 ]
 
 [[package]]
@@ -3258,63 +3463,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "server"
-version = "0.0.104"
-dependencies = [
- "acp",
- "async-trait",
- "base64",
- "engine",
- "futures",
- "host",
- "http",
- "ignore",
- "inference-wire",
- "inventory",
- "jiff",
- "libc",
- "model-routing",
- "netune",
- "persistence",
- "protocol",
- "provider",
- "provider-anthropic",
- "provider-catalog",
- "provider-chatgpt-plan",
- "provider-codebuddy",
- "provider-commandcode-goat",
- "provider-copilot",
- "provider-deepseek",
- "provider-glm-cn",
- "provider-google-antigravity",
- "provider-kimi",
- "provider-openai",
- "provider-opencode-go",
- "provider-opencode-zen",
- "provider-opendesign-go",
- "provider-openrouter",
- "provider-qianwen",
- "provider-qoder",
- "provider-xai",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "tool",
- "tool-ast",
- "tool-exec",
- "tool-fs",
- "tool-web",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
- "yaml_serde",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3559,21 +3707,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-support"
-version = "0.0.104"
-dependencies = [
- "libc",
- "protocol",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "toml",
- "walkdir",
-]
-
-[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3776,106 +3909,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
-name = "tool"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "hex",
- "jsonschema",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "toml",
- "tool-derive",
- "uuid",
-]
-
-[[package]]
-name = "tool-ast"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "ignore",
- "inventory",
- "protocol",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tool",
- "tool-fs",
- "tree-sitter",
- "tree-sitter-c",
- "tree-sitter-cpp",
- "tree-sitter-go",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
-]
-
-[[package]]
-name = "tool-derive"
-version = "0.0.104"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "tool-exec"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "libc",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tool",
-]
-
-[[package]]
-name = "tool-fs"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "base64",
- "ignore",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tool",
-]
-
-[[package]]
-name = "tool-web"
-version = "0.0.104"
-dependencies = [
- "async-trait",
- "bytes",
- "http",
- "inventory",
- "jiff",
- "netune",
- "protocol",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "toml",
- "tool",
-]
-
-[[package]]
 name = "tracing"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4070,18 +4103,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
-name = "ui-primitives"
-version = "0.0.104"
-dependencies = [
- "graticule-canvas",
- "jiff",
- "serde",
- "toml",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
 name = "unicode-bidi"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4201,27 +4222,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "view"
-version = "0.0.104"
-dependencies = [
- "graticule-canvas",
- "jiff",
- "protocol",
- "provider",
- "provider-anthropic",
- "provider-google-antigravity",
- "provider-openai",
- "serde",
- "serde_json",
- "similar",
- "tempfile",
- "tool",
- "ui-primitives",
- "unicode-segmentation",
- "unicode-width",
-]
 
 [[package]]
 name = "vsimd"

@@ -9,8 +9,8 @@
 # production endpoints on 2026-10-23. Confirmed against a live logged-in
 # `Tencent-Cloud.coding-copilot.info` credential file the same day.
 #
-# Consumers: implementers of `crates/provider-codebuddy` (`cn` module) /
-# `crates/provider-codebuddy` (`intl` module) in Nuo (ADR-0094; ADR-0097 realm bifurcation;
+# Consumers: implementers of `crates/nuo-provider-codebuddy` (`cn` module) /
+# `crates/nuo-provider-codebuddy` (`intl` module) in Nuo (ADR-0094; ADR-0097 realm bifurcation;
 # ADR-0027 provider-definition single source).
 #
 # Authentication & Storage:

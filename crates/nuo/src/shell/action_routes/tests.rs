@@ -5,7 +5,7 @@
 //! wire half is checked for not having become a list.
 
 use super::*;
-use server::composition::thread_actions;
+use nuo_server::composition::thread_actions;
 
 /// No spelling is claimed by two rows.
 ///

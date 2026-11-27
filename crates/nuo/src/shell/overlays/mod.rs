@@ -8,7 +8,7 @@
 //! - [`mcp`] — MCP manager modal (per-server enable/reconnect surface)
 //! - [`permission`] — permission sheet + question modal
 //! - [`history`] — history search modal
-//! - [`view::views::settings`] — full-screen dual-pane settings view
+//! - [`nuo_view::views::settings`] — full-screen dual-pane settings view
 //! - [`toast`] — copy / armed-action notice bubbles
 //! - [`common`] — shared helpers (time formatting, truncation, caret, glyphs)
 
@@ -42,7 +42,7 @@ pub use dashboard::{
     ConsoleCommand, ConsoleLine, ConsoleVerb, DashboardFocus, creation_order, draw_dashboard,
     draw_session_preview, parse_console_command,
 };
-pub use view::views::settings::{
+pub use nuo_view::views::settings::{
     ConfigCategory, ConfigFocus, SettingsProps, build_websearch_provider_dropdown,
     build_websearch_reader_dropdown, draw_settings_view,
 };

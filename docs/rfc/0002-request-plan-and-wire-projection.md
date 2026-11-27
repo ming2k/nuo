@@ -7,7 +7,7 @@
   ADR-0130 (model guidance), ADR-0165 (user instructions)
 - **Supersedes in part:** the four-tier `Base / Session / Task / Ephemeral`
   taxonomy, the flat `ContentKind` model, and the `system.*` ID namespace
-- **Implementation note:** `RequestPlan::into_request` produces the provider-neutral `ModelRequest`; provider projectors produce `WireRequest`, and `WireRequest::encode` produces `EncodedRequest` (`provider::wire`). The transport consumes `EncodedRequest` through `RequestBuilder::encoded`.
+- **Implementation note:** `RequestPlan::into_request` produces the provider-neutral `ModelRequest`; provider projectors produce `WireRequest`, and `WireRequest::encode` produces `EncodedRequest` (`nuo_provider::wire`). The transport consumes `EncodedRequest` through `RequestBuilder::encoded`.
 
 
 ## 0. Recommendation (TL;DR)
@@ -15,7 +15,7 @@
 Collapse prompt assembly to one logical structure and one projection step.
 
 1. `RequestPlan` is the provider-neutral request content. It lives in
-   `protocol` so the live registry and the `SessionIR` compiler produce the
+   `nuo-protocol` so the live registry and the `SessionIR` compiler produce the
    same shape:
    ```rust
    struct RequestPlan {

@@ -5,18 +5,22 @@ use super::*;
 #[test]
 fn adr0044_composer_owns_caret_and_direct_typing_filters_history() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.composer.input_history.push(protocol::HistoryEntry::new(
-        "cargo test --package nuo-ui".to_string(),
-        Some("s1".to_string()),
-        None,
-        100,
-    ));
-    app.composer.input_history.push(protocol::HistoryEntry::new(
-        "git status --short".to_string(),
-        Some("s1".to_string()),
-        None,
-        200,
-    ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "cargo test --package nuo-ui".to_string(),
+            Some("s1".to_string()),
+            None,
+            100,
+        ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "git status --short".to_string(),
+            Some("s1".to_string()),
+            None,
+            200,
+        ));
 
     // [INV-HIST-07]: Opening HistorySearch keeps CaretOwner::Composer
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
@@ -47,12 +51,14 @@ fn adr0044_composer_owns_caret_and_direct_typing_filters_history() {
 #[test]
 fn adr0044_atomic_draft_stashing_and_esc_rollback() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.composer.input_history.push(protocol::HistoryEntry::new(
-        "historical command".to_string(),
-        Some("s1".to_string()),
-        None,
-        100,
-    ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "historical command".to_string(),
+            Some("s1".to_string()),
+            None,
+            100,
+        ));
 
     // Pre-populate an in-progress draft with text and attachments
     app.composer.input = "uncommitted work in progress".to_string();
@@ -114,9 +120,9 @@ fn adr0044_ghost_preview_rendering() {
                 frame: f,
                 input_rect: rect,
                 theme: &theme,
-                layout_map: &mut view::model::layout::LayoutMap::new(),
+                layout_map: &mut nuo_view::model::layout::LayoutMap::new(),
                 input_scroll: &mut scroll,
-                selection: &view::model::selection::SelectionState::None,
+                selection: &nuo_view::model::selection::SelectionState::None,
             },
             crate::shell::composer::ComposerText {
                 input: "",
@@ -246,7 +252,7 @@ async fn test_history_search_stashes_and_restores_attachments_with_empty_text() 
 
     // Draft with only staged images/pastes and empty text
     app.composer.input.clear();
-    let img = tool::ImagePart {
+    let img = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };

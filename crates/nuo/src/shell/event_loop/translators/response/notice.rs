@@ -1,7 +1,7 @@
 //! Notice, retry, background job and client operation handling.
 
-use protocol::{AgentResponse, RoundEvent};
-use view::model::document::{NoticeSeverity, TranscriptMessage};
+use nuo_protocol::{AgentResponse, RoundEvent};
+use nuo_view::model::document::{NoticeSeverity, TranscriptMessage};
 
 use crate::shell::event_loop;
 
@@ -71,7 +71,7 @@ impl TranslatorState {
                 // `TrustChanged` *condition* is what opened the gate in
                 // the first place; feeding it here would render the
                 // workspace's own state as if it were an error.
-                if notice.kind == tool::NoticeKind::TrustFailure {
+                if notice.kind == nuo_tool::NoticeKind::TrustFailure {
                     self.mutations
                         .send(M::PreAttachAttestationError(notice.render_text()))
                         .await;
@@ -87,8 +87,9 @@ impl TranslatorState {
                 // an acknowledgement does not. That inversion is
                 // the point: the log is the home, the bubble is a
                 // pointer to it.
-                let layer = view::model::layer::layer_for(&notice, view::model::layer::SHELL);
-                if layer != view::model::layer::ContentLayer::Absorbed {
+                let layer =
+                    nuo_view::model::layer::layer_for(&notice, nuo_view::model::layer::SHELL);
+                if layer != nuo_view::model::layer::ContentLayer::Absorbed {
                     // `RetryScheduled` owns the retry disclosure;
                     // an absorbed receipt is dropped rather than
                     // written into the conversation. The catalog
@@ -107,7 +108,7 @@ impl TranslatorState {
                     .thread_mut(&session_id)
                     .retry_progress
                     .as_ref()
-                    .map_or(0, view::retry::RetryProgress::retries);
+                    .map_or(0, nuo_view::retry::RetryProgress::retries);
                 self.thread_mut(&session_id).retry_progress = None;
                 let message = if attempts > 1 {
                     if e.starts_with("Failed after") || e.starts_with("Exhausted") {
@@ -125,7 +126,7 @@ impl TranslatorState {
                 self.transcript(
                     &session_id,
                     E::Append {
-                        class: protocol::EventClass::TurnOutcome,
+                        class: nuo_protocol::EventClass::TurnOutcome,
                         message: notice,
                     },
                 )
@@ -156,14 +157,14 @@ impl TranslatorState {
                     Some(progress) => {
                         progress.with_next_attempt(attempt, max_attempts, retry_at, message.clone())
                     }
-                    None => view::retry::RetryProgress::scheduled(
+                    None => nuo_view::retry::RetryProgress::scheduled(
                         attempt,
                         max_attempts,
                         retry_at,
                         message.clone(),
                     ),
                 };
-                let fault = view::model::notice_text::display_text(&message);
+                let fault = nuo_view::model::notice_text::display_text(&message);
                 let receipt = progress.receipt_label();
                 let published = progress.clone();
                 self.thread_mut(&session_id).retry_progress = Some(progress);
@@ -199,7 +200,7 @@ impl TranslatorState {
                             // readable and pasteable in the viewer
                             // now that the transcript no longer
                             // carries it.
-                            detail: view::model::notice_text::display_text(&message),
+                            detail: nuo_view::model::notice_text::display_text(&message),
                         }
                         .render(),
                     ))
@@ -218,13 +219,13 @@ impl TranslatorState {
         match event {
             RoundEvent::BackgroundJobStarted(info) => {
                 let label = match &info.spec {
-                    protocol::JobSpec::Process { command, label, .. } => {
+                    nuo_protocol::JobSpec::Process { command, label, .. } => {
                         label.as_deref().unwrap_or(command)
                     }
-                    protocol::JobSpec::Timer { label, prompt, .. } => {
+                    nuo_protocol::JobSpec::Timer { label, prompt, .. } => {
                         label.as_deref().unwrap_or(prompt.as_str())
                     }
-                    protocol::JobSpec::Subagent {
+                    nuo_protocol::JobSpec::Subagent {
                         description, label, ..
                     } => label.as_deref().unwrap_or(description.as_str()),
                 };
@@ -244,7 +245,7 @@ impl TranslatorState {
                 self.transcript(
                     &session_id,
                     E::Append {
-                        class: protocol::EventClass::TurnOutcome,
+                        class: nuo_protocol::EventClass::TurnOutcome,
                         message,
                     },
                 )
@@ -261,7 +262,7 @@ impl TranslatorState {
                 self.transcript(
                     &session_id,
                     E::Append {
-                        class: protocol::EventClass::TurnOutcome,
+                        class: nuo_protocol::EventClass::TurnOutcome,
                         message,
                     },
                 )
@@ -269,7 +270,7 @@ impl TranslatorState {
             }
             RoundEvent::BackgroundJobCompleted(outcome) => {
                 let (label, is_success, exit_code, duration_secs) = match &outcome.state {
-                    protocol::JobState::Succeeded { duration_ms, .. } => (
+                    nuo_protocol::JobState::Succeeded { duration_ms, .. } => (
                         format!(
                             "Background job `{}` completed ({}s)",
                             outcome.job_id.0,
@@ -279,7 +280,7 @@ impl TranslatorState {
                         Some(0),
                         duration_ms / 1000,
                     ),
-                    protocol::JobState::Failed {
+                    nuo_protocol::JobState::Failed {
                         duration_ms,
                         exit_code,
                         ..
@@ -293,7 +294,7 @@ impl TranslatorState {
                         Some(*exit_code),
                         duration_ms / 1000,
                     ),
-                    protocol::JobState::Killed { duration_ms } => (
+                    nuo_protocol::JobState::Killed { duration_ms } => (
                         format!(
                             "Background job `{}` terminated ({}s)",
                             outcome.job_id.0,
@@ -303,7 +304,7 @@ impl TranslatorState {
                         None,
                         duration_ms / 1000,
                     ),
-                    protocol::JobState::TimedOut { duration_ms } => (
+                    nuo_protocol::JobState::TimedOut { duration_ms } => (
                         format!(
                             "Background job `{}` timed out ({}s)",
                             outcome.job_id.0,
@@ -338,7 +339,7 @@ impl TranslatorState {
                 self.transcript(
                     &session_id,
                     E::Append {
-                        class: protocol::EventClass::TurnOutcome,
+                        class: nuo_protocol::EventClass::TurnOutcome,
                         message,
                     },
                 )

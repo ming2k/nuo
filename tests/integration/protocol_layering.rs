@@ -1,4 +1,4 @@
-//! Layer-0 dependency invariant for `protocol`.
+//! Layer-0 dependency invariant for `nuo-protocol`.
 //!
 //! The protocol crate is the bottom of the graph: wire contracts and pure
 //! domain vocabulary only. Anything with OS I/O, network transports, or an
@@ -6,22 +6,27 @@
 
 #[test]
 fn protocol_manifest_stays_at_layer_zero() {
-    let manifest = crate::common::read_repo_file("crates/protocol/Cargo.toml");
+    let dependencies = crate::common::manifest_dependencies("crates/nuo-protocol/Cargo.toml");
+    assert!(
+        dependencies.contains("nuo-tool"),
+        "the layering scan read no `nuo-tool` edge from nuo-protocol; a scan that sees nothing \
+         certifies nothing: {dependencies:?}"
+    );
     for forbidden in [
-        "host",
-        "provider",
+        "nuo-host",
+        "nuo-provider",
         "mcp",
-        "server",
-        "engine",
-        "persistence",
+        "nuo-server",
+        "nuo-engine",
+        "nuo-persistence",
         "netune",
         "dirs",
         "arboard",
         "notify",
     ] {
         assert!(
-            !manifest.contains(forbidden),
-            "protocol must not depend on `{forbidden}`; that edge points upward and \
+            !dependencies.contains(forbidden),
+            "nuo-protocol must not depend on `{forbidden}`; that edge points upward and \
              forces every Layer-0 consumer to compile OS/network/runtime stacks"
         );
     }

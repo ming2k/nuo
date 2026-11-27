@@ -93,8 +93,8 @@ The marker is **not** `selected_bg`: "the keyboard is on this entry" must never 
 
 Clicks resolve through a geometry registry rather than ad-hoc rect comparisons:
 
-- **Footer rows** are recorded as `(FooterRowId, Rect)` by the declarative footer stack (`crates/view/src/footer_stack.rs`); the event loop resolves a click by looking the id up (`rect_of`).
-- **Transcript content** is recorded in a `LayoutMap` (`crates/view/src/model/layout.rs`) built during render.
+- **Footer rows** are recorded as `(FooterRowId, Rect)` by the declarative footer stack (`crates/nuo-view/src/footer_stack.rs`); the event loop resolves a click by looking the id up (`rect_of`).
+- **Transcript content** is recorded in a `LayoutMap` (`crates/nuo-view/src/model/layout.rs`) built during render.
 - **Every interactive target** is mounted as a `UiKey` (from `crates/nuo/src/shell/ui.rs`) into the `ComponentTree`, then hit-tested on click.
 
 Because the same render pass both paints and registers hit rects, a click and the pixels it lands on can never disagree.

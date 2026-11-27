@@ -8,13 +8,13 @@ the review obligation, refusal semantics, and lifecycle in
 [ADR-0127](../../adr/0127-workspace-trust-review-obligation-request-lifecycle-and-consistent-refusal.md).
 
 This page is cited by `crates/nuo/src/shell/pre_attach.rs` and
-`crates/view/src/trust_gate.rs`.
+`crates/nuo-view/src/trust_gate.rs`.
 
 ---
 
 ## 1. When It Mounts
 
-`view::trust_gate::gate_request(snapshot)` returns `Some` when any domain reports
+`nuo_view::trust_gate::gate_request(snapshot)` returns `Some` when any domain reports
 a `WorkspaceTrustState::needs_review()` value — `Quarantined`, `Changed`, or
 `Expired` — and `None` for the three settled states (`Absent`, `Trusted`,
 `Denied`). `PreAttachState::from_snapshot` wraps that; the event loop mounts the

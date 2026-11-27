@@ -413,7 +413,7 @@ fn antigravity_template_prefills_url_and_seeds_relay_models() {
     );
     assert_eq!(
         app.provider_editor.custom_models,
-        protocol::model_providers::ANTIGRAVITY_OAUTH_MODELS
+        nuo_protocol::model_providers::ANTIGRAVITY_OAUTH_MODELS
     );
     // No free-text Model field — the closed Gemini family is the seed.
     assert!(
@@ -429,7 +429,7 @@ fn antigravity_template_prefills_url_and_seeds_relay_models() {
 #[test]
 fn custom_provider_field_cycle_wraps_and_swaps_buffers() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let custom_template = &view::providers::CUSTOM_TEMPLATE;
+    let custom_template = &nuo_view::providers::CUSTOM_TEMPLATE;
     app.open_custom_provider_editor(custom_template);
     // Fields: Name / Base URL / Token / Model / Protocol / Identity.
     let n = app.provider_editor.custom_fields.len() as u8;
@@ -456,7 +456,7 @@ fn custom_provider_model_is_an_unmodified_text_field() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     // The real generic template: it exposes the Model field and seeds no
     // models, so the flow under test is exactly what ships.
-    let free_model_template = &view::providers::CUSTOM_TEMPLATE;
+    let free_model_template = &nuo_view::providers::CUSTOM_TEMPLATE;
     app.open_custom_provider_editor(free_model_template);
     assert!(app.provider_editor.custom_model.is_empty());
     // Focus Model and type an arbitrary, case-sensitive id. No registry-backed
@@ -472,7 +472,7 @@ fn custom_provider_model_is_an_unmodified_text_field() {
 #[test]
 fn custom_provider_cycles_protocol_and_request_identity() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.open_custom_provider_editor(&view::providers::CUSTOM_TEMPLATE);
+    app.open_custom_provider_editor(&nuo_view::providers::CUSTOM_TEMPLATE);
 
     app.provider_editor.custom_field = 4;
     assert_eq!(
@@ -491,7 +491,7 @@ fn custom_provider_edit_restores_protocol_and_budget() {
         "Relay".to_string(),
         "anthropic-messages".to_string(),
         "https://relay.example/v1/messages".to_string(),
-        protocol::ConnectionAuth::Static,
+        nuo_protocol::ConnectionAuth::Static,
         false,
         Default::default(),
     );
@@ -517,7 +517,7 @@ fn custom_connection_submits_with_the_typed_model_and_url() {
     // URL/Token/Model, and the submitted `AddConnection` carries the typed
     // model id (not a seeded list) plus the relay endpoint.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let template = &view::providers::CUSTOM_TEMPLATE;
+    let template = &nuo_view::providers::CUSTOM_TEMPLATE;
     // The editor exposes the four basic strings plus API and identity selectors.
     assert_eq!(
         template.fields(),
@@ -816,7 +816,7 @@ fn model_editor_esc_pops_back_to_its_picker() {
 #[test]
 fn custom_connection_submits_with_multiple_comma_separated_models() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let template = &view::providers::CUSTOM_TEMPLATE;
+    let template = &nuo_view::providers::CUSTOM_TEMPLATE;
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.open_custom_provider_editor(template);
     assert_eq!(
@@ -841,7 +841,7 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
         .into_request()
         .expect("domain request");
     match req1 {
-        protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
+        nuo_protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom-wechat-multi");
             assert_eq!(
                 root_url,
@@ -857,7 +857,7 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
         .into_request()
         .expect("domain request");
     match req2 {
-        protocol::AgentRequest::AddConnection {
+        nuo_protocol::AgentRequest::AddConnection {
             name,
             provider,
             models,
@@ -893,7 +893,7 @@ fn curated_template_submits_the_provider_id_without_a_protocol_override() {
         .into_request()
         .expect("domain request");
     match req {
-        protocol::AgentRequest::AddConnection {
+        nuo_protocol::AgentRequest::AddConnection {
             name,
             provider,
             models,
@@ -917,7 +917,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     app.surfaces
         .provider_picker
         .rows
-        .push(protocol::ProviderPickerRow {
+        .push(nuo_protocol::ProviderPickerRow {
             id: "my-relay".to_string(),
             name: "My Relay".to_string(),
             model: "glm-5.2".to_string(),
@@ -930,14 +930,14 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
             provider: "custom".to_string(),
             headers: Default::default(),
             last_used_ms: None,
-            auth: protocol::ConnectionAuth::Static,
+            auth: nuo_protocol::ConnectionAuth::Static,
         });
     app.open_edit_provider_editor(
         "my-relay".to_string(),
         "My Relay".to_string(),
         "openai-chat-completions".to_string(),
         "https://relay.example.com/v1".to_string(),
-        protocol::ConnectionAuth::Static,
+        nuo_protocol::ConnectionAuth::Static,
         false,
         Default::default(),
     );
@@ -956,7 +956,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         .into_request()
         .expect("domain request");
     match rename {
-        protocol::AgentRequest::RenameConnection { from, to } => {
+        nuo_protocol::AgentRequest::RenameConnection { from, to } => {
             assert_eq!(from, "my-relay");
             assert_eq!(to, "My Relay Renamed");
         }
@@ -968,7 +968,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         .into_request()
         .expect("domain request");
     match reg {
-        protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
+        nuo_protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom");
             assert_eq!(root_url, "https://relay.example.com/v1");
         }
@@ -980,7 +980,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         .into_request()
         .expect("domain request");
     match edit {
-        protocol::AgentRequest::EditConnection { name, provider, .. } => {
+        nuo_protocol::AgentRequest::EditConnection { name, provider, .. } => {
             assert_eq!(name, "My Relay Renamed", "the edit follows the rename");
             assert_eq!(provider, "custom");
         }
@@ -1023,7 +1023,7 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
         .into_request()
         .expect("domain request");
     match req {
-        protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
+        nuo_protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "anthropic-prod");
         }
         _ => panic!("Expected QueryConnectionDetail request"),
@@ -1052,7 +1052,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // Initial phase 1 detail arrives with Fetching usage
-    let detail_phase1 = protocol::ConnectionDetail {
+    let detail_phase1 = nuo_protocol::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -1068,7 +1068,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
         active_model: Some("gemini-2.5-pro".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: protocol::ConnectionUsageState::Fetching,
+        usage: nuo_protocol::ConnectionUsageState::Fetching,
         budget: Default::default(),
     };
 
@@ -1098,7 +1098,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
 
     // Phase 2 quotas arrive for the same connection
     let mut detail_phase2 = detail_phase1.clone();
-    detail_phase2.usage = protocol::ConnectionUsageState::Available(Box::default());
+    detail_phase2.usage = nuo_protocol::ConnectionUsageState::Available(Box::default());
 
     crate::shell::event_loop::apply::apply(
         &mut app,
@@ -1129,7 +1129,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_detail = true;
-    app.surfaces.connection_detail = Some(protocol::ConnectionDetail {
+    app.surfaces.connection_detail = Some(nuo_protocol::ConnectionDetail {
         name: "custom-relay".to_string(),
         provider: "custom".to_string(),
         provider_label: "Custom connection".to_string(),
@@ -1145,7 +1145,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         active_model: None,
         active_model_effort: None,
         active_model_thinking: None,
-        usage: protocol::ConnectionUsageState::Unsupported,
+        usage: nuo_protocol::ConnectionUsageState::Unsupported,
         budget: Default::default(),
     });
 
@@ -1160,7 +1160,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
     assert_eq!(
         app.surfaces.connection_detail.as_ref().map(|d| &d.usage),
-        Some(&protocol::ConnectionUsageState::Fetching)
+        Some(&nuo_protocol::ConnectionUsageState::Fetching)
     );
 
     let req = rx
@@ -1169,7 +1169,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         .into_request()
         .expect("domain request");
     match req {
-        protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
+        nuo_protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "custom-relay");
         }
         _ => panic!("Expected QueryConnectionDetail request"),
@@ -1215,7 +1215,10 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
         .expect("should send refresh request")
         .into_request()
         .expect("domain request");
-    assert!(matches!(req, protocol::AgentRequest::RefreshProviderModels));
+    assert!(matches!(
+        req,
+        nuo_protocol::AgentRequest::RefreshProviderModels
+    ));
 
     // Second press while refreshing: warns already in progress, does not send duplicate request
     let flow2 = crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -1247,7 +1250,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
         &mut app,
         &runtime,
         crate::shell::event_loop::AppMutation::ProviderPicker(
-            protocol::ProviderPickerSnapshot::default(),
+            nuo_protocol::ProviderPickerSnapshot::default(),
         ),
     );
     assert!(
@@ -1298,24 +1301,24 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
         "Gemini Work".to_string(),
         "google".to_string(),
         "https://generativelanguage.googleapis.com".to_string(),
-        protocol::ConnectionAuth::Static,
+        nuo_protocol::ConnectionAuth::Static,
         true,
-        protocol::ConnectionBudget::Remote,
+        nuo_protocol::ConnectionBudget::Remote,
     );
 
     // Initial budget is Remote
     assert_eq!(
         app.provider_editor.custom_budget,
-        protocol::ConnectionBudget::Remote
+        nuo_protocol::ConnectionBudget::Remote
     );
 
     // Focus on Budget field (index 2 for curated API key: Name=0, Token=1, Budget=2)
     assert_eq!(
         app.provider_editor.custom_fields,
         vec![
-            view::providers::CustomField::Name,
-            view::providers::CustomField::Token,
-            view::providers::CustomField::Budget,
+            nuo_view::providers::CustomField::Name,
+            nuo_view::providers::CustomField::Token,
+            nuo_view::providers::CustomField::Budget,
         ]
     );
     app.provider_editor.custom_field = 2;
@@ -1324,18 +1327,18 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
     app.cycle_custom_choice(true);
     assert_eq!(
         app.provider_editor.custom_budget,
-        protocol::ConnectionBudget::local(1.0, protocol::BudgetPeriod::Session)
+        nuo_protocol::ConnectionBudget::local(1.0, nuo_protocol::BudgetPeriod::Session)
     );
 
     // Cycle forward again
     app.cycle_custom_choice(true);
     assert_eq!(
         app.provider_editor.custom_budget,
-        protocol::ConnectionBudget::local(5.0, protocol::BudgetPeriod::Daily)
+        nuo_protocol::ConnectionBudget::local(5.0, nuo_protocol::BudgetPeriod::Daily)
     );
 
     // Test rendering detail rows includes budget line
-    let detail = protocol::ConnectionDetail {
+    let detail = nuo_protocol::ConnectionDetail {
         name: "gemini-work".to_string(),
         provider: "google".to_string(),
         provider_label: "Google Gemini".to_string(),
@@ -1367,7 +1370,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         .expect("antigravity preset exists");
 
     app.open_preset_chooser();
-    app.begin_oauth_add(antigravity, protocol::LoginMethod::Browser);
+    app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
     assert_eq!(
         app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::OAuthPending)
@@ -1375,14 +1378,14 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
 
     // Simulate mouse interaction during verification:
     // 1. User sets an active selection range (e.g. dragging over verification URL or code)
-    app.threads.selection = view::model::selection::SelectionState::Range {
-        anchor: view::model::layout::SemanticCursor::new(
-            view::model::layout::MODAL_DOC_MSG_IDX,
+    app.threads.selection = nuo_view::model::selection::SelectionState::Range {
+        anchor: nuo_view::model::layout::SemanticCursor::new(
+            nuo_view::model::layout::MODAL_DOC_MSG_IDX,
             0,
             5,
         ),
-        head: view::model::layout::SemanticCursor::new(
-            view::model::layout::MODAL_DOC_MSG_IDX,
+        head: nuo_view::model::layout::SemanticCursor::new(
+            nuo_view::model::layout::MODAL_DOC_MSG_IDX,
             0,
             15,
         ),
@@ -1409,7 +1412,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
     );
     assert_eq!(
         app.threads.selection,
-        view::model::selection::SelectionState::None,
+        nuo_view::model::selection::SelectionState::None,
         "Selection must be cleared on transition to name editor"
     );
     assert!(
@@ -1484,7 +1487,7 @@ fn oauth_cancel_pops_cleanly_without_bouncing_loop() {
     );
 
     // 3. Begin OAuth
-    app.begin_oauth_add(antigravity, protocol::LoginMethod::Browser);
+    app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
     assert_eq!(
         app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::OAuthPending)
@@ -1545,7 +1548,7 @@ fn oauth_success_name_editor_cancel_pops_cleanly() {
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.open_preset_chooser();
-    app.begin_oauth_add(antigravity, protocol::LoginMethod::Browser);
+    app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
 
     // Simulate OAuth Done signal -> opens name editor
     app.open_oauth_instance_name_editor();
@@ -1599,9 +1602,9 @@ async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availab
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // 1. Initial picker with a Claude model
-    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "antigravity".to_string(),
-        rows: vec![protocol::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "antigravity".to_string(),
             name: "Google Antigravity".to_string(),
             model: "claude-3-7-sonnet".to_string(),
@@ -1614,11 +1617,11 @@ async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availab
             last_used_ms: None,
             auth: Default::default(),
             models: vec!["claude-3-7-sonnet".to_string()],
-            model_info: vec![protocol::ProviderModelInfo {
+            model_info: vec![nuo_protocol::ProviderModelInfo {
                 model: "claude-3-7-sonnet".to_string(),
                 name: Some("Claude 3.7 Sonnet".to_string()),
                 context_window: 200_000,
-                availability: Some(protocol::Availability::usable()),
+                availability: Some(nuo_protocol::Availability::usable()),
                 ..Default::default()
             }],
         }],
@@ -1648,7 +1651,7 @@ async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availab
         .into_request()
         .expect("domain request");
     match req {
-        protocol::AgentRequest::QueryProviderQuotas {
+        nuo_protocol::AgentRequest::QueryProviderQuotas {
             provider,
             force_refresh,
         } => {
@@ -1659,25 +1662,27 @@ async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availab
     }
 
     // 3. Quota snapshot arrives asynchronously: 5h limit reached for claude-*
-    let quotas = protocol::ProviderQuotaSnapshot {
+    let quotas = nuo_protocol::ProviderQuotaSnapshot {
         provider_filter: None,
-        entries: vec![protocol::ConnectionQuotaEntry {
+        entries: vec![nuo_protocol::ConnectionQuotaEntry {
             name: "antigravity".to_string(),
             provider: "google-antigravity".to_string(),
             provider_label: "Google Antigravity".to_string(),
             account_id: None,
             is_default: true,
-            state: protocol::ConnectionUsageState::Available(Box::new(protocol::ProviderUsage {
-                model_rules: vec![protocol::ModelAvailabilityRule {
-                    pattern: "claude-*".to_string(),
-                    availability: protocol::Availability::disabled(
-                        "disabled: 5h limit",
-                        Some("5h rolling quota limit reached for Claude".to_string()),
-                        Some(1999999999000),
-                    ),
-                }],
-                ..Default::default()
-            })),
+            state: nuo_protocol::ConnectionUsageState::Available(Box::new(
+                nuo_protocol::ProviderUsage {
+                    model_rules: vec![nuo_protocol::ModelAvailabilityRule {
+                        pattern: "claude-*".to_string(),
+                        availability: nuo_protocol::Availability::disabled(
+                            "disabled: 5h limit",
+                            Some("5h rolling quota limit reached for Claude".to_string()),
+                            Some(1999999999000),
+                        ),
+                    }],
+                    ..Default::default()
+                },
+            )),
             primary_balance: Some("0% Quota".to_string()),
             quota: None,
             plan: None,

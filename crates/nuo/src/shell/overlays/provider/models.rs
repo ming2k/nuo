@@ -10,22 +10,22 @@ use super::common::{
     search_empty_body, split_search_bottom,
 };
 use crate::shell::render::Theme;
-use ui_primitives::components::columns::{Column, ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
-use ui_primitives::components::detail::DetailLayout;
-use ui_primitives::components::options::{ChoiceTone, choice_style};
-use ui_primitives::components::overflow::{
+use nuo_ui_primitives::components::columns::{Column, ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
+use nuo_ui_primitives::components::detail::DetailLayout;
+use nuo_ui_primitives::components::options::{ChoiceTone, choice_style};
+use nuo_ui_primitives::components::overflow::{
     MarqueeCadence, Overflow, TextCell, WidthAware, marquee_offset, window_max_offset,
 };
-use ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
-use ui_primitives::primitives::{
+use nuo_ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
+use nuo_ui_primitives::primitives::{
     BodyRenderOptions, FixedModalSpec, FooterHint, FooterHintWithBand, SCROLL_EDGE_MARGIN,
     keyvocab, modal_area, modal_frame, modal_header, render_body, render_centered_body,
     render_modal_footer_with_extra,
 };
-use view::components::selectable_body::{SelectableRow, render_selectable_body};
-use view::model::layout::LayoutMap;
-use view::model::selection::SelectionState;
-use view::providers::{ModelBodyLine, RankedModel, models_body_lines};
+use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::selection::SelectionState;
+use nuo_view::providers::{ModelBodyLine, RankedModel, models_body_lines};
 
 /// Properties for rendering the Models modal.
 pub struct ModelsModalProps<'a> {
@@ -85,8 +85,8 @@ pub fn draw_models_modal(
 
     if info_detail && let Some(rm) = models.get(modal_index.min(models.len().saturating_sub(1))) {
         let display = rm.display_label();
-        let breadcrumbs = ui_primitives::primitives::breadcrumb_parts("Models", display);
-        ui_primitives::elevation::modal_header_parts(frame, header_rect, &breadcrumbs, theme);
+        let breadcrumbs = nuo_ui_primitives::primitives::breadcrumb_parts("Models", display);
+        nuo_ui_primitives::elevation::modal_header_parts(frame, header_rect, &breadcrumbs, theme);
 
         let rows = model_detail_body(rm, f.body.width as usize, theme);
 
@@ -164,18 +164,18 @@ pub fn draw_models_modal(
     if refreshing {
         let spin = theme.glyphs.spinner_frame(spinner_phase);
         let header = [
-            ui_primitives::elevation::HeaderPart::title("Models"),
-            ui_primitives::elevation::HeaderPart::Text {
+            nuo_ui_primitives::elevation::HeaderPart::title("Models"),
+            nuo_ui_primitives::elevation::HeaderPart::Text {
                 text: "  ",
                 accent: false,
             },
-            ui_primitives::elevation::HeaderPart::running(spin),
-            ui_primitives::elevation::HeaderPart::Text {
+            nuo_ui_primitives::elevation::HeaderPart::running(spin),
+            nuo_ui_primitives::elevation::HeaderPart::Text {
                 text: " refreshing…",
                 accent: false,
             },
         ];
-        ui_primitives::elevation::modal_header_parts(frame, header_rect, &header, theme);
+        nuo_ui_primitives::elevation::modal_header_parts(frame, header_rect, &header, theme);
     } else if search && !query.is_empty() {
         let title = format!("Models ({})", models.len());
         modal_header(frame, header_rect, &title, theme);
@@ -329,13 +329,13 @@ fn model_effort_tag(rm: &RankedModel) -> &str {
 }
 
 /// Build the **Models** flat model list body via the shared
-/// [`ui_primitives::components::row::ListRow`] standard, **sectioned into
+/// [`nuo_ui_primitives::components::row::ListRow`] standard, **sectioned into
 /// three labeled groups** — Favorites, Recent, All models.
 ///
 /// # Column budget (ADR-0152 `[INV-ROW-GRID-01]`)
 ///
 /// The five fields are resolved once per frame by
-/// [`ui_primitives::components::columns`], *before* a single cell is fitted.
+/// [`nuo_ui_primitives::components::columns`], *before* a single cell is fitted.
 /// Each field declares what its data actually needs, the floor below which it
 /// stops being readable, and its own relative maximum width; the solver then
 /// reconciles the sum against the body and emits every column's start by one

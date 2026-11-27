@@ -56,7 +56,7 @@ async fn control_outcome_with_timeout(
 
     if let Some(endpoint) = info.effective_local_endpoint()
         && let Ok(Ok(stream)) =
-            tokio::time::timeout_at(connect_deadline, host::ipc::connect(&endpoint)).await
+            tokio::time::timeout_at(connect_deadline, nuo_host::ipc::connect(&endpoint)).await
     {
         let (sink, source) = native_framed_split(stream);
         return finish_control_with_budgets((sink, source), request, ready::INIT_HARD_CAP, timeout)

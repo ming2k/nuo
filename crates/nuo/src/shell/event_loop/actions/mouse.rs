@@ -5,8 +5,8 @@ use crate::shell::input;
 use crate::shell::interaction::{self, ClickTarget};
 use crate::shell::step_interaction::StepKind;
 use crate::shell::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
-use view::model::layout::{InteractiveTarget, SemanticCursor};
-use view::model::selection::{CellDragInfo, SelectionState, floor_grapheme_boundary};
+use nuo_view::model::layout::{InteractiveTarget, SemanticCursor};
+use nuo_view::model::selection::{CellDragInfo, SelectionState, floor_grapheme_boundary};
 
 use super::super::runtime::UiRuntime;
 use super::super::transcript::resolve_focused_mut;
@@ -215,12 +215,10 @@ pub(super) async fn handle_selection_start(
             handle_permission_submit(app, runtime).await;
         }
         Some(UiKey::Sheet(crate::shell::sheet::SheetKind::Permission)) => {
-            if let Some(cursor) = app
-                .viewport
-                .ui
-                .document
-                .cursor_at(x, y)
-                .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
+            if let Some(cursor) =
+                app.viewport.ui.document.cursor_at(x, y).filter(|cursor| {
+                    cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
+                })
             {
                 app.viewport
                     .drag
@@ -261,8 +259,8 @@ pub(super) async fn handle_selection_start(
                                             (revision, payload.parse())
                                         {
                                             app.send_intent(
-                                                protocol::AgentRequest::UpdateWebSearchConfig(
-                                                    Box::new(protocol::WebSearchConfigUpdate {
+                                                nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(nuo_protocol::WebSearchConfigUpdate {
                                                         expected_revision: revision,
                                                         provider: Some(provider),
                                                         ..Default::default()
@@ -276,8 +274,8 @@ pub(super) async fn handle_selection_start(
                                             (revision, payload.parse())
                                         {
                                             app.send_intent(
-                                                protocol::AgentRequest::UpdateWebSearchConfig(
-                                                    Box::new(protocol::WebSearchConfigUpdate {
+                                                nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(nuo_protocol::WebSearchConfigUpdate {
                                                         expected_revision: revision,
                                                         reader: Some(reader),
                                                         ..Default::default()
@@ -320,12 +318,10 @@ pub(super) async fn handle_selection_start(
             }
         }
         Some(UiKey::Overlay(_overlay)) => {
-            if let Some(cursor) = app
-                .viewport
-                .ui
-                .document
-                .cursor_at(x, y)
-                .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
+            if let Some(cursor) =
+                app.viewport.ui.document.cursor_at(x, y).filter(|cursor| {
+                    cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
+                })
             {
                 app.viewport
                     .drag
@@ -365,12 +361,10 @@ pub(super) async fn handle_selection_start(
             }
         }
         Some(UiKey::OauthUrl | UiKey::OauthCode) => {
-            if let Some(cursor) = app
-                .viewport
-                .ui
-                .document
-                .cursor_at(x, y)
-                .filter(|cursor| cursor.message_idx == view::model::layout::MODAL_DOC_MSG_IDX)
+            if let Some(cursor) =
+                app.viewport.ui.document.cursor_at(x, y).filter(|cursor| {
+                    cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
+                })
             {
                 app.viewport
                     .drag
@@ -805,21 +799,21 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     // text under the user's pointer.
     let tab_hover = match app.viewport.ui.target(x, y) {
         Some(crate::shell::ui::UiKey::TabBarClose(index)) => {
-            Some(view::view_header::TabBarHover::Close(index))
+            Some(nuo_view::view_header::TabBarHover::Close(index))
         }
         Some(crate::shell::ui::UiKey::TabBarItem(index)) => {
-            Some(view::view_header::TabBarHover::Tab(index))
+            Some(nuo_view::view_header::TabBarHover::Tab(index))
         }
-        Some(crate::shell::ui::UiKey::TabBarAdd) => Some(view::view_header::TabBarHover::Add),
-        Some(crate::shell::ui::UiKey::TabBarHelp) => Some(view::view_header::TabBarHover::Help),
-        Some(crate::shell::ui::UiKey::TabBar) => Some(view::view_header::TabBarHover::Rail),
+        Some(crate::shell::ui::UiKey::TabBarAdd) => Some(nuo_view::view_header::TabBarHover::Add),
+        Some(crate::shell::ui::UiKey::TabBarHelp) => Some(nuo_view::view_header::TabBarHover::Help),
+        Some(crate::shell::ui::UiKey::TabBar) => Some(nuo_view::view_header::TabBarHover::Rail),
         _ => None,
     };
     let previous_anchor = app
         .surfaces
         .tab_hover
-        .map(view::view_header::TabBarHover::anchor);
-    let next_anchor = tab_hover.map(view::view_header::TabBarHover::anchor);
+        .map(nuo_view::view_header::TabBarHover::anchor);
+    let next_anchor = tab_hover.map(nuo_view::view_header::TabBarHover::anchor);
     app.surfaces.tab_hover = tab_hover;
     app.surfaces.tab_hover_since = match (tab_hover, next_anchor) {
         (None, _) => None,

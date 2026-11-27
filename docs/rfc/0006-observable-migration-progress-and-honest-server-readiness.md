@@ -22,7 +22,7 @@ Apply Occam's Razor to [ADR-0260](../adr/0260-server-lifecycle-contract-session-
 listen-first server lifecycle:
 
 1. **Enforce fail-fast storage startup**: `ThreadRegistry::initialize_storage` calls
-   `persistence::db::init_global_persistence`, enforcing `PersistenceHandle::ensure_ready()` so
+   `nuo_persistence::db::init_global_persistence`, enforcing `PersistenceHandle::ensure_ready()` so
    database open or migration failures terminate immediately in `ServerPhase::Failed` rather than
    promoting to `ServerPhase::Ready`.
 2. **Surface real migration work with zero fast-path overhead**: `ServerPhase::Initializing` gains
@@ -31,7 +31,7 @@ listen-first server lifecycle:
    migrations. Up-to-date boots emit zero extra events and stay silent under the 120 ms hysteresis.
 3. **Delete split-brain lifecycle plumbing**: Deliver `ServerPhaseChanged` exclusively through
    `ServerLifecycle`'s `watch` channel (removing duplicate `MonitorBus` broadcast and `last_sent_phase`
-   dedup); share one `ShutdownGate` directly with `start_server` (deleting `host::handle_gate()`);
+   dedup); share one `ShutdownGate` directly with `start_server` (deleting `nuo_host::handle_gate()`);
    replace `sleep(50ms)` startup-failure waits with deterministic connection drain
    (`ConnTable::wait_empty_or_cancel`); and move whole-server `catch_up_projections_once()` out of
    first-thread `assemble_with_store` to post-`Ready` background execution.
@@ -49,7 +49,7 @@ listen-first server lifecycle:
 | D1 | Silent storage failure promotion | `initialize_storage()` discarded `get_persistence_handle()` without calling `ensure_ready()` | Corrupt or incompatible DB advanced to `ServerPhase::Ready` and failed later as `ThreadPhase::Failed`. |
 | D2 | Opaque multi-second migrations | `apply_pending()` ran `VACUUM INTO` backup, N migrations, and `foreign_key_check`/`quick_check` behind static `"storage…"` | Upgrades looked hung and tripped fixed 10 s / 30 s client timeouts. |
 | D3 | Server-wide catch-up trapped in first thread | `assemble_with_store` called `catch_up_projections_once().await` before `PrepareStage::Thread` | First user thread paid for server-wide shard repair under `"Preparing thread store…"`; Dashboard-only boot skipped it. |
-| D4 | Duplicate phase delivery & gate forwarding | `set_server_phase` wrote both `watch` and `MonitorBus`; `host::handle_gate()` bridged two `ShutdownGate`s; startup failure used `sleep(50ms)` | Double wakeups, ad-hoc dedup, extra background task, and socket EOF races on startup failure. |
+| D4 | Duplicate phase delivery & gate forwarding | `set_server_phase` wrote both `watch` and `MonitorBus`; `nuo_host::handle_gate()` bridged two `ShutdownGate`s; startup failure used `sleep(50ms)` | Double wakeups, ad-hoc dedup, extra background task, and socket EOF races on startup failure. |
 | D5 | Dishonest health probes | `/readyz` ignored `PersistenceHealth::Down`; `diagnose_server()` never sent `Hello` and used blocking I/O inside `async fn` | `nuo status --diagnostic` declared `"Server is running and healthy"` for `Initializing`, `Failed`, or `Down` servers. |
 | D6 | Duplicated client init wait loops | `attach.rs` and `control.rs` duplicated `ServerPhase::Initializing` wait loops with blind wall-clock deadlines | Large legitimate `VACUUM INTO` backups aborted CLI commands prematurely. |
 
@@ -67,18 +67,18 @@ listen-first server lifecycle:
 
 ### 2.2 Persistence Observer Seam
 
-`persistence::db` exposes `MigrationProgress` and `MigrationObserver = Arc<dyn Fn(MigrationProgress) + Send + Sync>`
-with zero dependency on `protocol` or `server`. `init_global_persistence(observer)` spawns the
+`nuo_persistence::db` exposes `MigrationProgress` and `MigrationObserver = Arc<dyn Fn(MigrationProgress) + Send + Sync>`
+with zero dependency on `nuo-protocol` or `nuo-server`. `init_global_persistence(observer)` spawns the
 supervised writer with the observer and enforces `handle.ensure_ready()?`.
 
 ### 2.3 Server Lifecycle Simplification
 
 - `ThreadRegistry::set_server_phase` writes exclusively to `ServerLifecycle`'s `watch::Sender`.
-- `ServeOptions::gate` accepts the host's `Arc<ShutdownGate>` directly, retiring `host::handle_gate()`.
+- `ServeOptions::gate` accepts the host's `Arc<ShutdownGate>` directly, retiring `nuo_host::handle_gate()`.
 - On startup failure, `run_session_loop` flushes `ServerPhaseChanged(Failed)` and closes cleanly;
-  `host::run_inner` releases discovery and awaits `ConnTable::wait_empty_or_cancel(250ms)` instead of
+  `nuo_host::run_inner` releases discovery and awaits `ConnTable::wait_empty_or_cancel(250ms)` instead of
   sleeping 50 ms.
-- `host::run_inner` spawns `persistence::thread::catch_up_projections_once()` asynchronously right
+- `nuo_host::run_inner` spawns `nuo_persistence::thread::catch_up_projections_once()` asynchronously right
   after `ServerPhase::Ready`; `bootstrap::assemble_with_store` removes both that call and its
   duplicated `ensure_app_roots` loop.
 
@@ -89,6 +89,6 @@ supervised writer with the observer and enforces `handle.ensure_ready()?`.
   every `ServerPhaseChanged` and printing single-line stderr progress after 300 ms.
 - `diagnose_server()` uses pure async I/O and performs one bounded 500 ms `Wire::Hello` probe to
   capture `live_phase` and `live_persistence_health`.
-- `view::empty_state::server_phase_status` renders exact migration steps and `(Ns)` elapsed once
+- `nuo_view::empty_state::server_phase_status` renders exact migration steps and `(Ns)` elapsed once
   `>= 2s`. `apply_server_phase` preserves `server_phase_since` across sub-step transitions inside
   `ServerPhase::Initializing` so the 120 ms anti-flicker hysteresis never resets mid-boot.

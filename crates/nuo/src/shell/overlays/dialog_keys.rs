@@ -16,15 +16,15 @@ use crate::shell::keymap::Availability;
 use crate::shell::palette::PaletteContext;
 use crate::shell::render::Theme;
 use crate::shell::surfaces::DialogKind;
-use ui_primitives::components::footer::{FooterHint, render_modal_footer};
-use ui_primitives::elevation::{modal_frame, modal_header_parts};
-use ui_primitives::primitives::{
+use nuo_ui_primitives::components::footer::{FooterHint, render_modal_footer};
+use nuo_ui_primitives::elevation::{modal_frame, modal_header_parts};
+use nuo_ui_primitives::primitives::{
     ContentModalSpec, FixedModalSpec, breadcrumb_parts, content_modal_area, modal_area,
     modal_chrome_rows,
 };
-use view::components::selectable_body::{SelectableRow, render_selectable_body};
-use view::model::layout::LayoutMap;
-use view::model::selection::SelectionState;
+use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::selection::SelectionState;
 
 /// Compute the modal rect matching the parent dialog's layout specification.
 fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16) -> Rect {

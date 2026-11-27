@@ -4,15 +4,15 @@
 //! matching `` `Calling \`<tool>\`` `` formatter used when no display content
 //! is available for a restored assistant turn.
 //!
-//! [`Message`]: tool::Message
+//! [`Message`]: nuo_tool::Message
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-use tool::{Message, Role};
+use nuo_tool::{Message, Role};
 
 use crate::shell::step_interaction;
-use view::disclosure_config::DisclosureSource;
-use view::model::document::{TranscriptMessage, UserMessageOrigin};
+use nuo_view::disclosure_config::DisclosureSource;
+use nuo_view::model::document::{TranscriptMessage, UserMessageOrigin};
 
 pub(super) fn transcript_message_from_core(message: Message) -> Option<TranscriptMessage> {
     // A compaction checkpoint is classified by its provenance and read through
@@ -22,9 +22,9 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
     if message
         .origin
         .as_ref()
-        .is_some_and(|origin| origin.kind == tool::InjectionKind::CompactionCheckpoint)
-        && let Some((envelope, body)) = tool::parse_envelope_with_body(&message.content)
-        && envelope.tag == tool::Tag::Checkpoint
+        .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::CompactionCheckpoint)
+        && let Some((envelope, body)) = nuo_tool::parse_envelope_with_body(&message.content)
+        && envelope.tag == nuo_tool::Tag::Checkpoint
     {
         let mut card =
             TranscriptMessage::compacted_card(0, 0, 0, Some(body.trim().to_string()), Vec::new());
@@ -53,7 +53,7 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
     let is_insert = message
         .origin
         .as_ref()
-        .is_some_and(|origin| origin.kind == tool::InjectionKind::UserSteer);
+        .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::UserSteer);
     let content = if let Some(display_content) = message.display_content {
         display_content
     } else if message.content.is_empty() {
@@ -88,7 +88,7 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
             // every restored steer is an in-round interjection. The render tag is
             // rebuilt here so any consumer of the restored document sees the
             // one-body-row form.
-            msg.origin_tags = vec![view::model::document::SteerOriginTag::InRound];
+            msg.origin_tags = vec![nuo_view::model::document::SteerOriginTag::InRound];
         }
         Some(msg)
     }
@@ -108,7 +108,7 @@ pub(super) fn transcript_messages_from_core(
 /// message stream is pure dialogue — and each row is stamped with the
 /// record's `at_ms` (via `sent_at_ms`) as its seam anchor.
 pub(super) fn transcript_interrupts_from_records(
-    records: Vec<protocol::RoundInterrupt>,
+    records: Vec<nuo_protocol::RoundInterrupt>,
 ) -> Vec<TranscriptMessage> {
     records
         .into_iter()
@@ -120,7 +120,7 @@ pub(super) fn transcript_interrupts_from_records(
 }
 
 /// Whether `message` is an assistant turn component (mirrors
-/// `view::layout::is_turn_component`), used so timeline merging never splits
+/// `nuo_view::layout::is_turn_component`), used so timeline merging never splits
 /// the components of a single `(round, turn)` band.
 fn is_turn_component(message: &TranscriptMessage) -> bool {
     message.is_tool_step()
@@ -229,7 +229,7 @@ pub(super) fn merge_round_interrupt_rows(
 /// `sent_at_ms`) so [`merge_command_rows`] can place it at its turn seam; the
 /// stamp is projection-only state and never reaches the ledger or the model.
 pub(super) fn transcript_commands_from_ledger(
-    commands: Vec<protocol::CommandRecord>,
+    commands: Vec<nuo_protocol::CommandRecord>,
 ) -> Vec<TranscriptMessage> {
     commands
         .into_iter()
@@ -302,7 +302,7 @@ fn transcript_from_core_inner(
         if message
             .origin
             .as_ref()
-            .is_some_and(|origin| origin.kind == tool::InjectionKind::CompactionCheckpoint)
+            .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::CompactionCheckpoint)
         {
             if let Some(card) = transcript_message_from_core(message) {
                 restored.push(card);
@@ -316,7 +316,7 @@ fn transcript_from_core_inner(
             let is_insert = message
                 .origin
                 .as_ref()
-                .is_some_and(|origin| origin.kind == tool::InjectionKind::UserSteer);
+                .is_some_and(|origin| origin.kind == nuo_tool::InjectionKind::UserSteer);
             let opens_round = message.role == Role::User && !is_insert;
             if opens_round {
                 restored_round = restored_round.saturating_add(1);
@@ -365,7 +365,7 @@ fn transcript_from_core_inner(
             // gated.
             let chain_disclosed = model
                 .as_deref()
-                .and_then(protocol::model_by_id)
+                .and_then(nuo_protocol::model_by_id)
                 .map(|m| m.thinking.chain_disclosed())
                 .unwrap_or(true);
             if chain_disclosed && let Some(reasoning) = message.reasoning_content.take() {
@@ -386,7 +386,7 @@ fn transcript_from_core_inner(
                 thinking.set_reasoning_duration(0);
                 // Honor the configured default expand state for reasoning
                 // traces so resumed sessions match live behavior.
-                if view::disclosure_config::reasoning_expanded(config) {
+                if nuo_view::disclosure_config::reasoning_expanded(config) {
                     thinking.set_reasoning_expanded(true);
                 }
                 restored.push(thinking);
@@ -464,17 +464,17 @@ fn transcript_from_core_inner(
                 // resume.
                 let (structured, duration_ms) = match &meta {
                     Some(meta) => (
-                        ::tool::ToolOutput::Subagent {
+                        nuo_tool::ToolOutput::Subagent {
                             summary: output.to_string(),
                             messages: Vec::new(),
-                            usage: tool::TokenUsage::default(),
+                            usage: nuo_tool::TokenUsage::default(),
                             generation_ms: 0,
                             failed: meta.failed,
                             interrupted: meta.interrupted,
                         },
                         meta.duration_ms.unwrap_or(0),
                     ),
-                    None => (::tool::ToolOutput::text(output), 0),
+                    None => (nuo_tool::ToolOutput::text(output), 0),
                 };
                 if item.finish_tool_step(&step_id, output, structured, duration_ms) {
                     // Restore the subagent's nested transcript so its partial /
@@ -523,7 +523,7 @@ fn transcript_from_core_inner(
                     && transcript_message.origin == UserMessageOrigin::Steer
                 {
                     transcript_message.origin_tags =
-                        vec![view::model::document::SteerOriginTag::InRound];
+                        vec![nuo_view::model::document::SteerOriginTag::InRound];
                 }
             }
             restored.push(transcript_message);
@@ -580,7 +580,7 @@ pub fn finalize_streaming_reasoning(messages: &mut [TranscriptMessage], duration
 }
 
 fn parse_tool_result(content: &str) -> Option<(&str, &str)> {
-    tool::tool_result_header::parse(content)
+    nuo_tool::tool_result_header::parse(content)
 }
 
 pub(super) fn format_tool_call(name: &str, arguments: &str) -> String {

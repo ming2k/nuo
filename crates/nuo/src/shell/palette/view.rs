@@ -6,14 +6,14 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::shell::keymap::{Availability, DangerLevel};
 use crate::shell::render::Theme;
-use ui_primitives::components::list::row_style;
-use ui_primitives::design::INPUT_PROMPT_PREFIX;
-use ui_primitives::primitives::{
+use nuo_ui_primitives::components::list::row_style;
+use nuo_ui_primitives::design::INPUT_PROMPT_PREFIX;
+use nuo_ui_primitives::primitives::{
     FixedModalSpec, FooterHint, modal_area, modal_frame, modal_header, render_modal_footer,
 };
-use view::components::selectable_body::{SelectableRow, render_selectable_body};
-use view::model::layout::LayoutMap;
-use view::model::selection::SelectionState;
+use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::selection::SelectionState;
 
 use super::query::Facet;
 use super::rank::{Projection, Ranked, Row};

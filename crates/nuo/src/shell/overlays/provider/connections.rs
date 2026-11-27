@@ -8,24 +8,24 @@ use super::common::{
     search_empty_body, split_search_body,
 };
 use crate::shell::render::Theme;
-use ui_primitives::components::columns::{ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
-use ui_primitives::components::detail::{
+use nuo_ui_primitives::components::columns::{ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
+use nuo_ui_primitives::components::detail::{
     DetailLayout, format_detail_label, render_progress_bar_spans,
 };
-use ui_primitives::components::options::{ChoiceTone, choice_style};
-use ui_primitives::components::overflow::{Overflow, TextCell, WidthAware};
-use ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
-use ui_primitives::design::JOIN_ENUMERATE_COLS;
-use ui_primitives::primitives::{
+use nuo_ui_primitives::components::options::{ChoiceTone, choice_style};
+use nuo_ui_primitives::components::overflow::{Overflow, TextCell, WidthAware};
+use nuo_ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
+use nuo_ui_primitives::design::JOIN_ENUMERATE_COLS;
+use nuo_ui_primitives::primitives::{
     BodyRenderOptions, FixedModalSpec, FooterHint, FooterHintWithBand, SCROLL_EDGE_MARGIN,
     breadcrumb_parts, keyvocab, modal_area, modal_frame, modal_header, modal_header_parts,
     render_body, render_centered_body, render_modal_footer, render_modal_footer_with_extra,
 };
+use nuo_view::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::selection::SelectionState;
+use nuo_view::providers::RankedProvider;
 use unicode_width::UnicodeWidthStr;
-use view::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
-use view::model::layout::LayoutMap;
-use view::model::selection::SelectionState;
-use view::providers::RankedProvider;
 
 /// The floor below which a connection name is a fragment rather than a name.
 const CONNECTION_NAME_MIN_WIDTH: usize = 12;
@@ -50,14 +50,14 @@ pub struct ConnectionsModalProps<'a> {
     /// arbiter decides that, and this flag is its verdict threaded down.
     pub show_caret: bool,
     pub connection_info_detail: bool,
-    pub connection_detail: Option<&'a protocol::ConnectionDetail>,
+    pub connection_detail: Option<&'a nuo_protocol::ConnectionDetail>,
     pub connection_info_scroll: &'a mut usize,
     pub spinner_phase: usize,
     pub connection_info_standalone: bool,
     pub refreshing: bool,
     /// Ambient quota balances keyed by connection id (ADR-0036).
     pub connection_usages:
-        Option<&'a std::collections::HashMap<String, protocol::ConnectionUsageState>>,
+        Option<&'a std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>>,
 }
 
 /// Draw the **Connections** modal — the provider-instance management surface (`/connections`).
@@ -181,13 +181,13 @@ pub fn draw_connections_modal(
     if refreshing {
         let spin = theme.glyphs.spinner_frame(spinner_phase);
         let header = [
-            ui_primitives::elevation::HeaderPart::title("Connections"),
-            ui_primitives::elevation::HeaderPart::Text {
+            nuo_ui_primitives::elevation::HeaderPart::title("Connections"),
+            nuo_ui_primitives::elevation::HeaderPart::Text {
                 text: "  ",
                 accent: false,
             },
-            ui_primitives::elevation::HeaderPart::running(spin),
-            ui_primitives::elevation::HeaderPart::Text {
+            nuo_ui_primitives::elevation::HeaderPart::running(spin),
+            nuo_ui_primitives::elevation::HeaderPart::Text {
                 text: " refreshing…",
                 accent: false,
             },
@@ -258,7 +258,7 @@ pub fn draw_connections_modal(
 }
 
 /// Build the **Connections** provider list body via the shared
-/// [`ui_primitives::components::row::ListRow`] standard.
+/// [`nuo_ui_primitives::components::row::ListRow`] standard.
 ///
 /// # Column budget (ADR-0152 `[INV-ROW-GRID-01]`)
 ///
@@ -271,7 +271,9 @@ pub fn draw_connections_modal(
 /// budget the Models list uses, so no field is funded out of another's loss.
 pub(crate) fn provider_list_body(
     providers: &[RankedProvider],
-    connection_usages: Option<&std::collections::HashMap<String, protocol::ConnectionUsageState>>,
+    connection_usages: Option<
+        &std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>,
+    >,
     modal_index: usize,
     theme: &Theme,
     body_width: usize,
@@ -280,14 +282,14 @@ pub(crate) fn provider_list_body(
         connection_usages
             .and_then(|usages| usages.get(&rp.id))
             .and_then(|state| match state {
-                protocol::ConnectionUsageState::Available(usage) => {
+                nuo_protocol::ConnectionUsageState::Available(usage) => {
                     usage.primary_balance.as_deref()
                 }
                 _ => None,
             })
     };
 
-    let type_of = |rp: &RankedProvider| view::providers::provider_type_label(&rp.provider);
+    let type_of = |rp: &RankedProvider| nuo_view::providers::provider_type_label(&rp.provider);
 
     let name_demand = providers
         .iter()
@@ -508,7 +510,7 @@ pub(crate) fn format_fetching_dots(spinner_phase: usize) -> &'static str {
 
 /// Render the detail body rows for one connection (configuration + caller identity + models + provider usage).
 pub(crate) fn connection_detail_body(
-    detail: &protocol::ConnectionDetail,
+    detail: &nuo_protocol::ConnectionDetail,
     spinner_phase: usize,
     theme: &Theme,
 ) -> Vec<SelectableRow> {
@@ -521,7 +523,7 @@ pub(crate) fn connection_detail_body(
     let provider_display = if !detail.provider_label.is_empty() {
         detail.provider_label.as_str()
     } else {
-        protocol::model_providers::model_provider_label(&detail.provider)
+        nuo_protocol::model_providers::model_provider_label(&detail.provider)
     };
 
     let mut layout = DetailLayout::new(theme)
@@ -533,10 +535,10 @@ pub(crate) fn connection_detail_body(
         .kv("Auth Type", &detail.auth_type);
 
     match &detail.budget {
-        protocol::ConnectionBudget::Remote => {
+        nuo_protocol::ConnectionBudget::Remote => {
             layout = layout.kv("Budget Policy", "Remote (Upstream Managed)");
         }
-        protocol::ConnectionBudget::Local { limit, period, .. } => {
+        nuo_protocol::ConnectionBudget::Local { limit, period, .. } => {
             let budget_str = format!("Local ({}, {} cap)", limit.format_usd(), period.label());
             layout = layout.kv_styled("Budget Policy", &budget_str, warning);
         }
@@ -610,7 +612,7 @@ pub(crate) fn connection_detail_body(
     layout = layout.section("Provider Usage & Quota");
 
     match &detail.usage {
-        protocol::ConnectionUsageState::Available(usage) => {
+        nuo_protocol::ConnectionUsageState::Available(usage) => {
             if let Some(plan) = &usage.plan
                 && plan.len() <= 40
                 && !plan.contains('\n')
@@ -628,7 +630,7 @@ pub(crate) fn connection_detail_body(
 
             if let Some(quota_data) = &usage.quota {
                 match quota_data {
-                    protocol::ProviderQuotaData::Periodic(periodic) => {
+                    nuo_protocol::ProviderQuotaData::Periodic(periodic) => {
                         rendered_quota = true;
                         layout = render_periodic_quota_buckets(
                             &periodic.buckets,
@@ -639,12 +641,12 @@ pub(crate) fn connection_detail_body(
                             theme,
                         );
                     }
-                    protocol::ProviderQuotaData::Balance(balance) => {
+                    nuo_protocol::ProviderQuotaData::Balance(balance) => {
                         rendered_quota = true;
                         layout =
                             render_balance_quota_block(balance, layout, value, highlight, theme);
                     }
-                    protocol::ProviderQuotaData::Composite {
+                    nuo_protocol::ProviderQuotaData::Composite {
                         balance,
                         periodic,
                         rate_limits,
@@ -697,19 +699,19 @@ pub(crate) fn connection_detail_body(
                     .raw_row(SelectableRow::styled(desc.clone(), muted));
             }
         }
-        protocol::ConnectionUsageState::Unsupported => {
+        nuo_protocol::ConnectionUsageState::Unsupported => {
             layout = layout.raw_row(SelectableRow::styled(
                 "Usage and quota query is not supported for this provider endpoint.",
                 muted,
             ));
         }
-        protocol::ConnectionUsageState::Error(err) => {
+        nuo_protocol::ConnectionUsageState::Error(err) => {
             layout = layout.raw_row(SelectableRow::from_segments(vec![
                 RowSegment::styled("⚠ Usage query failed: ", warning),
                 RowSegment::styled(err.clone(), value),
             ]));
         }
-        protocol::ConnectionUsageState::Fetching => {
+        nuo_protocol::ConnectionUsageState::Fetching => {
             layout = layout.raw_row(SelectableRow::styled(
                 format_fetching_dots(spinner_phase),
                 muted,
@@ -736,7 +738,7 @@ pub(crate) fn connection_detail_body(
 }
 
 pub(crate) fn render_balance_quota_block<'a>(
-    balance: &protocol::BalanceQuota,
+    balance: &nuo_protocol::BalanceQuota,
     mut layout: DetailLayout<'a>,
     value: Style,
     highlight: Style,
@@ -813,13 +815,13 @@ pub(crate) fn render_balance_quota_block<'a>(
 }
 
 /// Helper to rank windows by duration (shorter window first, e.g. 5h before daily before weekly).
-fn quota_window_rank(bucket: &protocol::QuotaWindowBucket) -> (u8, u64) {
+fn quota_window_rank(bucket: &nuo_protocol::QuotaWindowBucket) -> (u8, u64) {
     let rank = match bucket.window {
-        Some(protocol::QuotaWindowKind::Rolling5Hour) => 1,
-        Some(protocol::QuotaWindowKind::Daily) => 2,
-        Some(protocol::QuotaWindowKind::Weekly) => 3,
-        Some(protocol::QuotaWindowKind::Monthly) => 4,
-        Some(protocol::QuotaWindowKind::Custom) => 5,
+        Some(nuo_protocol::QuotaWindowKind::Rolling5Hour) => 1,
+        Some(nuo_protocol::QuotaWindowKind::Daily) => 2,
+        Some(nuo_protocol::QuotaWindowKind::Weekly) => 3,
+        Some(nuo_protocol::QuotaWindowKind::Monthly) => 4,
+        Some(nuo_protocol::QuotaWindowKind::Custom) => 5,
         None => {
             let lower = bucket.label.to_ascii_lowercase();
             if lower.contains("5h") || lower.contains("5-hour") || lower.contains("five hour") {
@@ -848,7 +850,7 @@ fn quota_window_rank(bucket: &protocol::QuotaWindowBucket) -> (u8, u64) {
 pub(crate) fn normalize_quota_bucket_label_parts(
     label: &str,
     group: Option<&str>,
-    window: Option<protocol::QuotaWindowKind>,
+    window: Option<nuo_protocol::QuotaWindowKind>,
 ) -> (String, Option<String>) {
     let mut clean = label.trim().to_string();
 
@@ -889,22 +891,22 @@ pub(crate) fn normalize_quota_bucket_label_parts(
     // 3. Append window tag only if not already specified in the clean label
     let lower = clean.to_ascii_lowercase();
     let contains_window = match window {
-        Some(protocol::QuotaWindowKind::Rolling5Hour) => {
+        Some(nuo_protocol::QuotaWindowKind::Rolling5Hour) => {
             lower.contains("5h")
                 || lower.contains("5-hour")
                 || lower.contains("5 hour")
                 || lower.contains("five hour")
         }
-        Some(protocol::QuotaWindowKind::Daily) => {
+        Some(nuo_protocol::QuotaWindowKind::Daily) => {
             lower.contains("daily") || lower.contains("24h") || lower.contains("day")
         }
-        Some(protocol::QuotaWindowKind::Weekly) => {
+        Some(nuo_protocol::QuotaWindowKind::Weekly) => {
             lower.contains("weekly") || lower.contains("week") || lower.contains("7d")
         }
-        Some(protocol::QuotaWindowKind::Monthly) => {
+        Some(nuo_protocol::QuotaWindowKind::Monthly) => {
             lower.contains("monthly") || lower.contains("month") || lower.contains("30d")
         }
-        Some(protocol::QuotaWindowKind::Custom) => lower.contains("custom"),
+        Some(nuo_protocol::QuotaWindowKind::Custom) => lower.contains("custom"),
         None => true,
     };
 
@@ -921,7 +923,7 @@ pub(crate) fn normalize_quota_bucket_label_parts(
 pub(crate) fn normalize_quota_bucket_label(
     label: &str,
     group: Option<&str>,
-    window: Option<protocol::QuotaWindowKind>,
+    window: Option<nuo_protocol::QuotaWindowKind>,
 ) -> String {
     let (clean, window_tag) = normalize_quota_bucket_label_parts(label, group, window);
     match window_tag {
@@ -931,7 +933,7 @@ pub(crate) fn normalize_quota_bucket_label(
 }
 
 pub(crate) fn render_periodic_quota_buckets<'a>(
-    buckets: &[protocol::QuotaWindowBucket],
+    buckets: &[nuo_protocol::QuotaWindowBucket],
     mut layout: DetailLayout<'a>,
     value: Style,
     muted: Style,
@@ -954,7 +956,7 @@ pub(crate) fn render_periodic_quota_buckets<'a>(
         }
     }
 
-    let mut sorted_buckets: Vec<&protocol::QuotaWindowBucket> = buckets.iter().collect();
+    let mut sorted_buckets: Vec<&nuo_protocol::QuotaWindowBucket> = buckets.iter().collect();
     sorted_buckets.sort_by_key(|b| {
         let grp_idx = group_order
             .iter()

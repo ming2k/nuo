@@ -13,13 +13,13 @@
 //! the integration behaviour — header attachment, error classification, and
 //! echo suppression over a real stream — is covered.
 use futures::StreamExt;
-use host::SecretString;
 use mockito::{Matcher, Server};
-use protocol::capability::{Provider, ProviderStreamEvent};
-use provider_anthropic::AnthropicMessagesProvider;
-use provider_openai::{OpenAiChatCompletionsProvider, OpenAiResponsesProvider};
+use nuo_host::SecretString;
+use nuo_protocol::capability::{Provider, ProviderStreamEvent};
+use nuo_provider_anthropic::AnthropicMessagesProvider;
+use nuo_provider_openai::{OpenAiChatCompletionsProvider, OpenAiResponsesProvider};
+use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
-use tool::{Message, Role};
 
 /// Join SSE `data:` events into a single response body. Each event becomes one
 /// `data: <payload>\n\n` frame — the shape `sse::data_payloads` decodes.
@@ -35,7 +35,7 @@ fn sse_body(events: &[&str]) -> String {
 async fn collect_events(
     stream: futures::stream::BoxStream<
         'static,
-        Result<ProviderStreamEvent, protocol::ProviderError>,
+        Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
     >,
 ) -> Vec<ProviderStreamEvent> {
     let mut out = Vec::new();
@@ -73,7 +73,7 @@ async fn openai_chat_completions_parses_content_reasoning_tool_calls_and_headers
         "nuo-test/1",
     );
     let message = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -99,19 +99,19 @@ async fn openai_chat_completions_parses_content_reasoning_tool_calls_and_headers
 
 #[derive(Debug)]
 struct MockOAuthSource {
-    auth: protocol::ResolvedAuth,
+    auth: nuo_protocol::ResolvedAuth,
 }
 
-impl protocol::CredentialSource for MockOAuthSource {
+impl nuo_protocol::CredentialSource for MockOAuthSource {
     fn resolve_auth<'a>(
         &'a self,
-    ) -> futures::future::BoxFuture<'a, Result<protocol::ResolvedAuth, String>> {
+    ) -> futures::future::BoxFuture<'a, Result<nuo_protocol::ResolvedAuth, String>> {
         Box::pin(futures::future::ready(Ok(self.auth.clone())))
     }
 
     fn force_refresh<'a>(
         &'a self,
-    ) -> futures::future::BoxFuture<'a, Result<protocol::ResolvedAuth, String>> {
+    ) -> futures::future::BoxFuture<'a, Result<nuo_protocol::ResolvedAuth, String>> {
         Box::pin(futures::future::ready(Ok(self.auth.clone())))
     }
 
@@ -145,8 +145,8 @@ async fn chatgpt_responses_chat_uses_streaming_transport_and_dynamic_credentials
         .create_async()
         .await;
 
-    let auth = protocol::ResolvedAuth::new("live-oauth-token").with_extension(
-        protocol::auth::ChatGptAuthMetadata {
+    let auth = nuo_protocol::ResolvedAuth::new("live-oauth-token").with_extension(
+        nuo_protocol::auth::ChatGptAuthMetadata {
             account_id: "acct-test".to_string(),
         },
     );
@@ -155,9 +155,9 @@ async fn chatgpt_responses_chat_uses_streaming_transport_and_dynamic_credentials
         "gpt-5.6-sol".to_string(),
         &url,
     )
-    .with_dialect(protocol::OpenAiResponsesDialect::ChatGpt);
+    .with_dialect(nuo_protocol::OpenAiResponsesDialect::ChatGpt);
     let message = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -188,7 +188,7 @@ async fn openai_chat_completions_strips_tool_call_echo_when_native_calls_present
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let message = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -221,7 +221,7 @@ async fn openai_chat_completions_classifies_server_error_as_retryable() {
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let error = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -232,7 +232,7 @@ async fn openai_chat_completions_classifies_server_error_as_retryable() {
     assert!(
         matches!(
             error.retry_disposition(),
-            protocol::RetryDisposition::Retry { .. }
+            nuo_protocol::RetryDisposition::Retry { .. }
         ),
         "5xx must be classified retryable: {error}"
     );
@@ -262,7 +262,7 @@ async fn openai_chat_completions_omits_auth_header_when_api_key_is_empty() {
         "ua",
     );
     let message = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -290,7 +290,7 @@ async fn openai_chat_completions_decode_failure_embeds_raw_body() {
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let error = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -332,8 +332,8 @@ async fn openai_stream_parses_text_reasoning_and_tool_call_deltas() {
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let stream = provider
         .stream_chat_events(
-            &protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
-            protocol::TransportTelemetry::default(),
+            &nuo_protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .expect("stream should open");
@@ -387,19 +387,19 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
         .create_async()
         .await;
 
-    let capabilities = protocol::ModelCapabilities {
+    let capabilities = nuo_protocol::ModelCapabilities {
         family: "nex".into(),
         context_window: 262_144,
         max_output_tokens: Some(235_929),
-        thinking: protocol::ReasoningSupport::ReasoningContent,
+        thinking: nuo_protocol::ReasoningSupport::ReasoningContent,
         tool_call: true,
         // `vision` is three-valued; this fixture declares support
         // explicitly rather than leaving it undeclared.
         vision: Some(true),
         effort_levels: vec![
-            protocol::Effort::None.into(),
-            protocol::Effort::Medium.into(),
-            protocol::Effort::High.into(),
+            nuo_protocol::Effort::None.into(),
+            nuo_protocol::Effort::Medium.into(),
+            nuo_protocol::Effort::High.into(),
         ],
         effort_entities: Vec::new(),
         default_effort: None,
@@ -409,15 +409,15 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
         "nex-agi/nex-n2.5-pro:free".into(),
         &url,
     )
-    .with_dialect(protocol::OpenAiChatDialect::OpenRouter)
-    .with_reasoning_effort(Some(protocol::Effort::High))
+    .with_dialect(nuo_protocol::OpenAiChatDialect::OpenRouter)
+    .with_reasoning_effort(Some(nuo_protocol::Effort::High))
     .with_model_capabilities(capabilities);
 
     let events = collect_events(
         provider
             .stream_chat_events(
-                &protocol::ModelRequest::new(vec![Message::new(Role::User, "inspect")]),
-                protocol::TransportTelemetry::default(),
+                &nuo_protocol::ModelRequest::new(vec![Message::new(Role::User, "inspect")]),
+                nuo_protocol::TransportTelemetry::default(),
             )
             .await
             .expect("OpenRouter stream should open"),
@@ -472,8 +472,8 @@ async fn openai_stream_strips_echo_text_when_native_tool_calls_stream_in() {
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let stream = provider
         .stream_chat_events(
-            &protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
-            protocol::TransportTelemetry::default(),
+            &nuo_protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .expect("stream should open");
@@ -523,7 +523,7 @@ async fn anthropic_chat_assembles_text_thinking_and_tool_use() {
         "ua",
     );
     let message = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -575,8 +575,8 @@ async fn anthropic_stream_parses_tool_use_block_and_argument_fragments() {
     );
     let stream = provider
         .stream_chat_events(
-            &protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
-            protocol::TransportTelemetry::default(),
+            &nuo_protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .expect("stream should open");
@@ -624,8 +624,8 @@ async fn anthropic_stream_surfaces_in_band_error_event() {
     );
     let stream = provider
         .stream_chat_events(
-            &protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
-            protocol::TransportTelemetry::default(),
+            &nuo_protocol::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_protocol::TransportTelemetry::default(),
         )
         .await
         .expect("stream should open");
@@ -648,10 +648,10 @@ async fn anthropic_stream_surfaces_in_band_error_event() {
 // wire body a configured channel actually publishes.
 // ═════════════════════════════════════════════════════════════════════════════
 
-use protocol::Effort;
-use provider::catalog::{Channel, Transport};
+use nuo_protocol::Effort;
+use nuo_provider::catalog::{Channel, Transport};
 
-use server::composition::provider_registry::build_provider_for_channel;
+use nuo_server::composition::provider_registry::build_provider_for_channel;
 
 /// Build a channel → factory provider, send one turn to a mockito server that
 /// asserts the request body matches `expected` (partial JSON), and confirm the
@@ -674,7 +674,7 @@ async fn assert_factory_body(mut channel: Channel, expected: Value) {
 
     let provider = build_provider_for_channel(&channel, "anthropic", None);
     let msg = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -697,22 +697,22 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
         id: "deepseek-flash".into(),
         transport: Transport::OpenAiResponses {
             base_url: format!("{}/v1/responses", server.url()),
-            dialect: protocol::OpenAiResponsesDialect::DeepSeek,
-            state: protocol::ResponsesState::Stateless,
+            dialect: nuo_protocol::OpenAiResponsesDialect::DeepSeek,
+            state: nuo_protocol::ResponsesState::Stateless,
             user_agent: "ua".into(),
             headers: Vec::new(),
         },
-        credentials: protocol::static_credential("k"),
+        credentials: nuo_protocol::static_credential("k"),
         model: "deepseek-flash".into(),
         remote: None,
         user_overrides: None,
         tunings: {
-            let mut tunings = protocol::TunableSettings::new();
+            let mut tunings = nuo_protocol::TunableSettings::new();
             tunings.set_effort(Some(Effort::None));
             tunings
         },
-        prompt_cache_preference: protocol::PromptCachePreference::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_protocol::PromptCachePreference::default(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
     };
     let expected = json!({
         "model": "deepseek-flash",
@@ -738,7 +738,7 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
 
     let provider = build_provider_for_channel(&channel, "deepseek", None);
     let completion = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hi",
         )]))
@@ -769,17 +769,17 @@ async fn factory_publishes_explicit_high_effort() {
             user_agent: "ua".into(),
             headers: Vec::new(),
         },
-        credentials: protocol::static_credential("k"),
+        credentials: nuo_protocol::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
         tunings: {
-            let mut tunings = protocol::TunableSettings::new();
+            let mut tunings = nuo_protocol::TunableSettings::new();
             tunings.set_effort(Some(Effort::High));
             tunings
         },
-        prompt_cache_preference: protocol::PromptCachePreference::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_protocol::PromptCachePreference::default(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(channel, json!({ "output_config": { "effort": "high" } })).await;
 }
@@ -801,18 +801,18 @@ async fn factory_keeps_effort_decoupled_from_thinking_off() {
             user_agent: "ua".into(),
             headers: Vec::new(),
         },
-        credentials: protocol::static_credential("k"),
+        credentials: nuo_protocol::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
         tunings: {
-            let mut tunings = protocol::TunableSettings::new();
+            let mut tunings = nuo_protocol::TunableSettings::new();
             tunings.set_effort(Some(Effort::Medium));
             tunings.set_thinking(Some(false));
             tunings
         },
-        prompt_cache_preference: protocol::PromptCachePreference::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_protocol::PromptCachePreference::default(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
     };
     // The request publishes the effort override; the absence of a `thinking`
     // field is verified by the companion unit test.
@@ -831,17 +831,17 @@ async fn factory_publishes_thinking_without_output_config() {
             user_agent: "ua".into(),
             headers: Vec::new(),
         },
-        credentials: protocol::static_credential("k"),
+        credentials: nuo_protocol::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
         tunings: {
-            let mut tunings = protocol::TunableSettings::new();
+            let mut tunings = nuo_protocol::TunableSettings::new();
             tunings.set_thinking(Some(true));
             tunings
         },
-        prompt_cache_preference: protocol::PromptCachePreference::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_protocol::PromptCachePreference::default(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -865,18 +865,18 @@ async fn sonnet5_opt_out_emits_explicit_disabled() {
             user_agent: "ua".into(),
             headers: Vec::new(),
         },
-        credentials: protocol::static_credential("k"),
+        credentials: nuo_protocol::static_credential("k"),
         model: "claude-sonnet-5".into(),
         remote: None,
         user_overrides: None,
         tunings: {
-            let mut tunings = protocol::TunableSettings::new();
+            let mut tunings = nuo_protocol::TunableSettings::new();
             tunings.set_effort(Some(Effort::High));
             tunings.set_thinking(Some(false));
             tunings
         },
-        prompt_cache_preference: protocol::PromptCachePreference::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_protocol::PromptCachePreference::default(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -900,18 +900,18 @@ async fn sonnet5_opt_in_publishes_adaptive_and_full_effort_range() {
             user_agent: "ua".into(),
             headers: Vec::new(),
         },
-        credentials: protocol::static_credential("k"),
+        credentials: nuo_protocol::static_credential("k"),
         model: "claude-sonnet-5".into(),
         remote: None,
         user_overrides: None,
         tunings: {
-            let mut tunings = protocol::TunableSettings::new();
+            let mut tunings = nuo_protocol::TunableSettings::new();
             tunings.set_effort(Some(Effort::Xhigh));
             tunings.set_thinking(Some(true));
             tunings
         },
-        prompt_cache_preference: protocol::PromptCachePreference::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_protocol::PromptCachePreference::default(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -936,17 +936,17 @@ async fn fable5_always_on_thinking_ignores_off_override() {
             user_agent: "ua".into(),
             headers: Vec::new(),
         },
-        credentials: protocol::static_credential("k"),
+        credentials: nuo_protocol::static_credential("k"),
         model: "claude-fable-5".into(),
         remote: None,
         user_overrides: None,
         tunings: {
-            let mut tunings = protocol::TunableSettings::new();
+            let mut tunings = nuo_protocol::TunableSettings::new();
             tunings.set_thinking(Some(false));
             tunings
         },
-        prompt_cache_preference: protocol::PromptCachePreference::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_protocol::PromptCachePreference::default(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
     };
     assert_factory_body(
         channel,
@@ -964,7 +964,7 @@ async fn fable5_always_on_thinking_ignores_off_override() {
 // path per protocol, asserting the exact headers/auth a chat request would send
 // and that the returned ids are sorted + de-duplicated.
 
-use provider_catalog::{
+use nuo_provider_catalog::{
     CatalogShape, ModelListError, RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate,
     list_models,
 };
@@ -993,7 +993,7 @@ async fn openai_list_models_sends_bearer_and_returns_sorted_unique_ids() {
 
     let key = SecretString::from("sk-live");
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+        source: nuo_protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &root_url,
         api_key: &key,
         account_id: None,
@@ -1024,7 +1024,7 @@ async fn openai_list_models_keyless_relay_sends_no_bearer_header() {
 
     let key = SecretString::default();
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+        source: nuo_protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
@@ -1064,7 +1064,9 @@ async fn codex_list_models_sends_subscription_headers_and_preserves_priority() {
 
     let key = SecretString::from("chatgpt-access");
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Custom(provider_chatgpt_plan::CATALOG_SOURCE_ID),
+        source: nuo_protocol::RemoteCatalogSource::Custom(
+            nuo_provider_chatgpt_plan::CATALOG_SOURCE_ID,
+        ),
         base_url: &format!("{}/backend-api/codex", server.url()),
         api_key: &key,
         account_id: Some("acct-test"),
@@ -1073,7 +1075,7 @@ async fn codex_list_models_sends_subscription_headers_and_preserves_priority() {
         catalog_signing: None,
         dimensions: &[],
     };
-    let update = provider_chatgpt_plan::catalog::fetch_remote_catalog(
+    let update = nuo_provider_chatgpt_plan::catalog::fetch_remote_catalog(
         req,
         RemoteCatalogOptions { etag: None },
     )
@@ -1108,7 +1110,9 @@ async fn codex_list_models_supports_etag_revalidation() {
 
     let key = SecretString::from("chatgpt-access");
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Custom(provider_chatgpt_plan::CATALOG_SOURCE_ID),
+        source: nuo_protocol::RemoteCatalogSource::Custom(
+            nuo_provider_chatgpt_plan::CATALOG_SOURCE_ID,
+        ),
         base_url: &format!("{}/backend-api/codex", server.url()),
         api_key: &key,
         account_id: None,
@@ -1117,7 +1121,7 @@ async fn codex_list_models_supports_etag_revalidation() {
         catalog_signing: None,
         dimensions: &[],
     };
-    let update = provider_chatgpt_plan::catalog::fetch_remote_catalog(
+    let update = nuo_provider_chatgpt_plan::catalog::fetch_remote_catalog(
         req,
         RemoteCatalogOptions {
             etag: Some("\"catalog-v2\""),
@@ -1142,7 +1146,7 @@ async fn anthropic_list_models_sends_api_key_and_version_headers() {
         .match_header("x-api-key", "sk-ant")
         .match_header(
             "anthropic-version",
-            provider_anthropic::request::ANTHROPIC_VERSION,
+            nuo_provider_anthropic::request::ANTHROPIC_VERSION,
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -1157,7 +1161,7 @@ async fn anthropic_list_models_sends_api_key_and_version_headers() {
 
     let key = SecretString::from("sk-ant");
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
+        source: nuo_protocol::RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
@@ -1198,7 +1202,7 @@ async fn google_list_models_sends_api_key_header_and_filters_non_text() {
 
     let key = SecretString::from("gem-key");
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::Google),
+        source: nuo_protocol::RemoteCatalogSource::Endpoint(CatalogShape::Google),
         base_url: &format!("{}/v1beta", server.url()),
         api_key: &key,
         account_id: None,
@@ -1225,7 +1229,7 @@ async fn list_models_returns_status_error_on_non_2xx() {
 
     let key = SecretString::from("bad");
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+        source: nuo_protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
@@ -1258,7 +1262,7 @@ async fn list_models_accepts_authoritative_empty_data_array() {
 
     let key = SecretString::from("k");
     let req = RemoteCatalogRequest {
-        source: protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+        source: nuo_protocol::RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
         base_url: &format!("{}/v1", server.url()),
         api_key: &key,
         account_id: None,
@@ -1285,14 +1289,14 @@ async fn oauth_token_endpoint_with_empty_access_token_fails() {
         .create_async()
         .await;
 
-    let cfg = provider::auth::OAuthConfig::builder("test_empty")
+    let cfg = nuo_provider::auth::OAuthConfig::builder("test_empty")
         .token_url(format!("{}/token", server.url()))
         .build();
 
     // The owned transport, matching what the OAuth flows now use.
-    let client = provider::transport::Http::control_plane().expect("http client");
-    let pkce = provider::auth::PkceCodes::generate();
-    let res = provider::auth::exchange_code(
+    let client = nuo_provider::transport::Http::control_plane().expect("http client");
+    let pkce = nuo_provider::auth::PkceCodes::generate();
+    let res = nuo_provider::auth::exchange_code(
         &client,
         &cfg,
         "test_code",
@@ -1302,7 +1306,7 @@ async fn oauth_token_endpoint_with_empty_access_token_fails() {
     .await;
 
     assert!(
-        matches!(res, Err(provider::auth::AuthError::Decode(msg)) if msg.contains("empty access_token")),
+        matches!(res, Err(nuo_provider::auth::AuthError::Decode(msg)) if msg.contains("empty access_token")),
         "empty access token must fail decode validation"
     );
 }
@@ -1312,14 +1316,14 @@ async fn oauth_browser_login_validates_oidc_nonce() {
     use base64::Engine;
     let mut server = Server::new_async().await;
     // The owned transport, matching what the OAuth flows now use.
-    let client = provider::transport::Http::control_plane().expect("http client");
+    let client = nuo_provider::transport::Http::control_plane().expect("http client");
 
     // 1. Correct nonce succeeds
-    let cfg_good = provider::auth::OAuthConfig::builder("test_oidc_good")
+    let cfg_good = nuo_provider::auth::OAuthConfig::builder("test_oidc_good")
         .token_url(format!("{}/token_good", server.url()))
         .send_nonce(true)
         .build();
-    let login_good = provider::auth::OAuth::new(cfg_good, provider::CredentialHost::none())
+    let login_good = nuo_provider::auth::OAuth::new(cfg_good, nuo_provider::CredentialHost::none())
         .begin_browser_login()
         .await
         .unwrap();
@@ -1351,11 +1355,11 @@ async fn oauth_browser_login_validates_oidc_nonce() {
     assert!(tok_good.is_ok());
 
     // 2. Mismatched nonce fails
-    let cfg_bad = provider::auth::OAuthConfig::builder("test_oidc_bad")
+    let cfg_bad = nuo_provider::auth::OAuthConfig::builder("test_oidc_bad")
         .token_url(format!("{}/token_bad", server.url()))
         .send_nonce(true)
         .build();
-    let login_bad = provider::auth::OAuth::new(cfg_bad, provider::CredentialHost::none())
+    let login_bad = nuo_provider::auth::OAuth::new(cfg_bad, nuo_provider::CredentialHost::none())
         .begin_browser_login()
         .await
         .unwrap();
@@ -1385,7 +1389,7 @@ async fn oauth_browser_login_validates_oidc_nonce() {
         .unwrap();
     let tok_bad = login_bad.complete(&client).await;
     assert!(
-        matches!(tok_bad, Err(provider::auth::AuthError::Authorization(msg)) if msg.contains("OIDC nonce mismatch"))
+        matches!(tok_bad, Err(nuo_provider::auth::AuthError::Authorization(msg)) if msg.contains("OIDC nonce mismatch"))
     );
 }
 
@@ -1413,19 +1417,19 @@ async fn opencode_go_wire_request_carries_session_and_client_headers() {
             user_agent: "opencode/2.0.32".into(),
             headers: vec![("x-opencode-client".into(), "cli".into())],
         },
-        credentials: protocol::static_credential("opencode-token"),
+        credentials: nuo_protocol::static_credential("opencode-token"),
         model: "glm-5.2".into(),
         remote: None,
         user_overrides: None,
         tunings: Default::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: Default::default(),
     };
 
     let provider =
         build_provider_for_channel(&channel, "opencode-go", Some("ses_wire_affinity_999"));
     let msg = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hello",
         )]))
@@ -1459,19 +1463,19 @@ async fn opencode_go_anthropic_wire_request_carries_session_headers() {
             user_agent: "opencode/2.0.32".into(),
             headers: vec![("x-opencode-client".into(), "cli".into())],
         },
-        credentials: protocol::static_credential("opencode-token"),
+        credentials: nuo_protocol::static_credential("opencode-token"),
         model: "qwen3.6-plus".into(),
         remote: None,
         user_overrides: None,
         tunings: Default::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: Default::default(),
     };
 
     let provider =
         build_provider_for_channel(&channel, "opencode-go", Some("ses_anthropic_wire_777"));
     let msg = provider
-        .chat(&protocol::ModelRequest::new(vec![Message::new(
+        .chat(&nuo_protocol::ModelRequest::new(vec![Message::new(
             Role::User,
             "hello",
         )]))
@@ -1497,27 +1501,27 @@ async fn opencode_go_portable_responses_lane_sends_flat_tools_and_session() {
         id: "deepseek-v4.1-flash".into(),
         transport: Transport::OpenAiResponses {
             base_url: format!("{}/v1/responses", server.url()),
-            dialect: protocol::OpenAiResponsesDialect::Portable,
-            state: protocol::ResponsesState::Stateless,
+            dialect: nuo_protocol::OpenAiResponsesDialect::Portable,
+            state: nuo_protocol::ResponsesState::Stateless,
             user_agent: "opencode/2.0.32".into(),
             headers: vec![("x-opencode-client".into(), "cli".into())],
         },
-        credentials: protocol::static_credential("opencode-token"),
+        credentials: nuo_protocol::static_credential("opencode-token"),
         model: "deepseek-v4.1-flash".into(),
         remote: None,
         user_overrides: None,
         tunings: Default::default(),
-        prompt_cache: protocol::PromptCacheCapabilities::unsupported(),
+        prompt_cache: nuo_protocol::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: Default::default(),
     };
 
-    let tool = protocol::capability::ToolSpec {
+    let tool = nuo_protocol::capability::ToolSpec {
         name: "get_weather".into(),
         description: "weather".into(),
         parameters: json!({"type": "object", "properties": {"city": {"type": "string"}}}),
     };
     let mut request =
-        protocol::capability::ModelRequest::new(vec![Message::new(Role::User, "weather?")]);
+        nuo_protocol::capability::ModelRequest::new(vec![Message::new(Role::User, "weather?")]);
     request.tool_specs = vec![tool];
 
     // Assertions ride on a request predicate rather than a post-hoc read of the

@@ -10,7 +10,7 @@
 //!   matches are a penalised fallback with no highlight. Runnable entries come
 //!   first, then score, then a recency and a context bonus.
 
-use ui_primitives::fuzzy::fuzzy_match;
+use nuo_ui_primitives::fuzzy::fuzzy_match;
 
 use super::entry::{Entry, Section};
 use super::query::Query;

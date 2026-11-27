@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn adr0051_canonical_quadrant_modality_transitions() {
-    use view::composer_mode::{CompleteKind, ComposerMode};
+    use nuo_view::composer_mode::{CompleteKind, ComposerMode};
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-test".to_string();
@@ -14,12 +14,14 @@ fn adr0051_canonical_quadrant_modality_transitions() {
     assert_eq!(app.composer_mode().label(), "Edit");
 
     // 2. In-place history stepping enters Recall mode ([INV-COMP-02])
-    app.composer.input_history.push(protocol::HistoryEntry::new(
-        "entry 1".to_string(),
-        Some("session-test".to_string()),
-        None,
-        100,
-    ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "entry 1".to_string(),
+            Some("session-test".to_string()),
+            None,
+            100,
+        ));
     let rows = app.current_session_history();
     assert!(app.history_prev(&rows));
     assert!(matches!(
@@ -191,7 +193,7 @@ fn adr0051_stashed_draft_atomic_stashing_and_restoration() {
     // Draft with text and pending attachments
     app.composer.input = "in-flight prompt".to_string();
     app.composer.cursor_position = 8;
-    let img = tool::ImagePart {
+    let img = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "base64data".to_string(),
     };
@@ -323,7 +325,7 @@ async fn test_history_search_up_down_arrow_navigation_through_event_loop() {
 #[tokio::test]
 async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
     use graticule::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    use view::model::layout::InteractiveTarget;
+    use nuo_view::model::layout::InteractiveTarget;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "session-test".to_string();

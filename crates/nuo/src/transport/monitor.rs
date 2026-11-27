@@ -4,14 +4,14 @@
 use super::current_posture;
 use super::lifecycle::MONITOR_FIRST_FRAME_TIMEOUT;
 use super::*;
-use protocol::MonitorAction;
+use nuo_protocol::MonitorAction;
 
 pub async fn monitor_stream(
     info: &ServerInfo,
     action: MonitorAction,
 ) -> Result<tokio::sync::mpsc::UnboundedReceiver<MonitorEvent>, String> {
     if let Some(endpoint) = info.effective_local_endpoint()
-        && let Ok(stream) = host::ipc::connect(&endpoint).await
+        && let Ok(stream) = nuo_host::ipc::connect(&endpoint).await
     {
         let (sink, source) = native_framed_split(stream);
         return finish_monitor((sink, source), action, "local IPC").await;

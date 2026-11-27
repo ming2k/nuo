@@ -1,7 +1,7 @@
 use super::*;
 use crate::shell::render::Theme;
 use graticule::Rect;
-use view::model::layout::LayoutMap;
+use nuo_view::model::layout::LayoutMap;
 
 /// Paint the completion menu into a test buffer and return the rect the
 /// popup actually occupied (found by scanning for the popup background),

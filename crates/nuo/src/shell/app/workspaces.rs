@@ -8,9 +8,9 @@
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
-use protocol::{LoopStatus, ThreadTarget};
-use view::model::document::TranscriptMessage;
-use view::model::selection::{SelectionDrag, SelectionState};
+use nuo_protocol::{LoopStatus, ThreadTarget};
+use nuo_view::model::document::TranscriptMessage;
+use nuo_view::model::selection::{SelectionDrag, SelectionState};
 
 use crate::shell::app::state::TranscriptSearchState;
 use crate::shell::app::{App, ProviderRetryState, ZoomFrame};
@@ -53,12 +53,12 @@ pub enum UnseenOutcome {
 pub struct ThreadInstance {
     // ---- Identity & readiness ---------------------------------------------
     pub key: ThreadKey,
-    pub session_phase: protocol::ThreadPhase,
+    pub session_phase: nuo_protocol::ThreadPhase,
 
     // ---- Content & layout caches ------------------------------------------
     pub messages: Vec<TranscriptMessage>,
     pub layout_height_cache: crate::shell::render::HeightCache,
-    pub command_log: Option<view::model::command_log::CommandLog>,
+    pub command_log: Option<nuo_view::model::command_log::CommandLog>,
     pub diff_viewer: Option<crate::shell::overlays::DiffViewerState>,
 
     // ---- View pose of this thread (preserved across tab switches) ---------
@@ -83,31 +83,31 @@ pub struct ThreadInstance {
     pub current_role: Option<String>,
     pub loop_status: LoopStatus,
     pub harness_retry_pending: bool,
-    pub phase: Option<view::phase::Phase>,
+    pub phase: Option<nuo_view::phase::Phase>,
     pub provider_retry: Option<ProviderRetryState>,
     pub unattended: bool,
     pub confined: bool,
     pub round_count: u64,
     pub current_turn: u64,
     pub round_started_at: Option<std::time::Instant>,
-    pub last_turn_performance: Option<protocol::TurnPerformanceSnapshot>,
+    pub last_turn_performance: Option<nuo_protocol::TurnPerformanceSnapshot>,
     pub session_cost_nano_usd: u64,
-    pub background_tasks: Vec<view::chrome::tasks_bar::BackgroundTaskItem>,
-    pub session_tree: protocol::ThreadTree,
-    pub session_context: Option<protocol::ThreadContextSnapshot>,
-    pub token_report: Option<protocol::TokenSourceReport>,
+    pub background_tasks: Vec<nuo_view::chrome::tasks_bar::BackgroundTaskItem>,
+    pub session_tree: nuo_protocol::ThreadTree,
+    pub session_context: Option<nuo_protocol::ThreadContextSnapshot>,
+    pub token_report: Option<nuo_protocol::TokenSourceReport>,
     /// Per-round completion summaries received live during this client session,
     /// consumed by `/trace`'s L1 Round Inspector for exact wall/paused timing
     /// (ADR-0263 `[INV-TRACE-03]`).
-    pub round_summaries: HashMap<u64, protocol::RoundSummary>,
-    pub context_plan: Option<protocol::ContextPlanView>,
+    pub round_summaries: HashMap<u64, nuo_protocol::RoundSummary>,
+    pub context_plan: Option<nuo_protocol::ContextPlanView>,
     pub context_plan_loaded: bool,
 }
 
 impl ThreadInstance {
     /// Construct a fresh thread instance explicitly from an authority
     /// (`Welcome`, `Subscribed`, or startup binding).
-    pub fn new(id: impl Into<String>, generation: u64, phase: protocol::ThreadPhase) -> Self {
+    pub fn new(id: impl Into<String>, generation: u64, phase: nuo_protocol::ThreadPhase) -> Self {
         Self {
             key: ThreadKey::new(id, generation),
             session_phase: phase,
@@ -144,7 +144,7 @@ impl ThreadInstance {
             last_turn_performance: None,
             session_cost_nano_usd: 0,
             background_tasks: Vec::new(),
-            session_tree: protocol::ThreadTree::default(),
+            session_tree: nuo_protocol::ThreadTree::default(),
             session_context: None,
             token_report: None,
             round_summaries: HashMap::new(),
@@ -162,9 +162,9 @@ impl ThreadInstance {
     }
 
     /// Write this thread's activity phase, retiring its transport-setback
-    /// clause under [`view::phase::ends_transport_setback`].
-    pub fn set_phase(&mut self, phase: Option<view::phase::Phase>) {
-        if view::phase::ends_transport_setback(phase.as_ref()) {
+    /// clause under [`nuo_view::phase::ends_transport_setback`].
+    pub fn set_phase(&mut self, phase: Option<nuo_view::phase::Phase>) {
+        if nuo_view::phase::ends_transport_setback(phase.as_ref()) {
             self.provider_retry = None;
         }
         self.phase = phase;
@@ -202,7 +202,7 @@ impl ThreadInstance {
         self.last_turn_performance = None;
         self.session_cost_nano_usd = 0;
         self.background_tasks.clear();
-        self.session_tree = protocol::ThreadTree::default();
+        self.session_tree = nuo_protocol::ThreadTree::default();
         self.token_report = None;
         self.round_summaries.clear();
         self.context_plan = None;
@@ -216,7 +216,7 @@ impl ThreadInstance {
         edit: crate::shell::event_loop::mutations::ChromeEdit,
     ) {
         use crate::shell::event_loop::mutations::ChromeEdit;
-        use view::phase::Phase;
+        use nuo_view::phase::Phase;
 
         match edit {
             ChromeEdit::RoundLifecycle {
@@ -368,7 +368,7 @@ impl Threads {
         &mut self,
         id: impl Into<String>,
         generation: u64,
-        phase: protocol::ThreadPhase,
+        phase: nuo_protocol::ThreadPhase,
     ) -> &mut ThreadInstance {
         let id = id.into();
         if id == self.foreground.key.id {
@@ -403,8 +403,8 @@ impl Threads {
             ThreadInstance::new(
                 target_id,
                 0,
-                protocol::ThreadPhase::Preparing {
-                    stage: protocol::PrepareStage::Thread,
+                nuo_protocol::ThreadPhase::Preparing {
+                    stage: nuo_protocol::PrepareStage::Thread,
                 },
             )
         });
@@ -423,7 +423,7 @@ impl Threads {
         if id == self.foreground.key.id {
             let removed = std::mem::replace(
                 &mut self.foreground,
-                ThreadInstance::new("", 0, protocol::ThreadPhase::Ready),
+                ThreadInstance::new("", 0, nuo_protocol::ThreadPhase::Ready),
             );
             Some(removed)
         } else {
@@ -495,12 +495,12 @@ impl Threads {
     /// gate without disturbing threads in other active phases.
     pub fn clear_awaiting_user_phases(&mut self) -> bool {
         let mut fg_changed = false;
-        if self.foreground.phase == Some(view::phase::Phase::AwaitingUser) {
+        if self.foreground.phase == Some(nuo_view::phase::Phase::AwaitingUser) {
             self.foreground.set_phase(None);
             fg_changed = true;
         }
         for inst in self.background.values_mut() {
-            if inst.phase == Some(view::phase::Phase::AwaitingUser) {
+            if inst.phase == Some(nuo_view::phase::Phase::AwaitingUser) {
                 inst.set_phase(None);
             }
         }

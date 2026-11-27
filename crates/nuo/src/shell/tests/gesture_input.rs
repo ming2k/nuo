@@ -214,10 +214,10 @@ async fn help_dialog_mouse_row_click_executes_action() {
 async fn click_dismisses_an_open_dropdown_through_the_real_dispatch() {
     let (mut app, _tmp) = seeded_app();
     app.surfaces.surfaces.select_tab(2);
-    let dropdown = view::views::settings::build_websearch_provider_dropdown("exa", None);
+    let dropdown = nuo_view::views::settings::build_websearch_provider_dropdown("exa", None);
     app.surfaces.config_dropdown = Some((
         dropdown,
-        ui_primitives::components::dropdown::DropdownAnchor::center_screen(),
+        nuo_ui_primitives::components::dropdown::DropdownAnchor::center_screen(),
     ));
 
     let mut terminal = graticule::TestTerminal::new(80, 24);

@@ -1,9 +1,9 @@
 //! Behavioral coverage for the ACP collaboration tools (`create_acp_tools`),
-//! exercised **directly** through the `tool::Tool` contract — no agent
+//! exercised **directly** through the `nuo_tool::Tool` contract — no agent
 //! runtime involved.
 //!
 //! Ported from the former `nuo-agent/tests/channel_tools_test.rs` (ADR-0009):
-//! the tools' behavior must be covered where the tools live (`acp`), not
+//! the tools' behavior must be covered where the tools live (`nuo-acp`), not
 //! only in the runtime that happened to drive them. This keeps the production
 //! wiring (`nuo/src/registry.rs` `collaboration` feature) verified even after
 //! the orphaned `nuo-agent` runtime is retired.
@@ -12,14 +12,14 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use acp::{
+use nuo_acp::{
     AcpToolContext, AgentAddress, AgentManifest, ChannelId, Fabric, SubscriptionMode,
     create_acp_tools,
 };
+use nuo_tool::Tool;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
-use tool::Tool;
 
 fn manifest(uri: &str, name: &str, description: &str) -> AgentManifest {
     AgentManifest::new(AgentAddress::parse(uri).unwrap(), name, description)
@@ -160,7 +160,10 @@ async fn delegate_to_peer_resolves_against_a_live_peer() {
     // Peer answers the delegation.
     let responder = tokio::spawn(async move {
         let request = kanban_mailbox.recv().await.unwrap();
-        let reply = request.reply(kanban_addr, acp::MessageIntent::resolve("Created LIN-409"));
+        let reply = request.reply(
+            kanban_addr,
+            nuo_acp::MessageIntent::resolve("Created LIN-409"),
+        );
         kanban_mailbox.send(reply).await.unwrap();
     });
 

@@ -30,8 +30,8 @@
 //!    relationship between two fields the reader must then decode.
 //!
 //! 3. **Status is a column, not punctuation.** The asset name is left-aligned
-//!    and its [`TrustStatus`](view::trust_gate::TrustStatus) is right-aligned in
-//!    its own tone ([`view::trust_gate::TrustStatus::tone`]). The earlier
+//!    and its [`TrustStatus`](nuo_view::trust_gate::TrustStatus) is right-aligned in
+//!    its own tone ([`nuo_view::trust_gate::TrustStatus::tone`]). The earlier
 //!    `"Project instructions  |  [Changed]"` spent five columns on `  |  [` so
 //!    the eye had to parse a separator to find a word, and the brackets collided
 //!    with the two other things brackets mean in this product (`[ROLE]` badges
@@ -44,22 +44,22 @@
 //!    that actually end the decision as the quietest things on screen.
 //!
 //! The trust question wording, the domain rows, and the answer-to-command
-//! mapping remain owned by [`view::trust_gate`]; this module only owns the
+//! mapping remain owned by [`nuo_view::trust_gate`]; this module only owns the
 //! surface. [`crate::shell::question_model::QuestionModel`] is reused as the
 //! navigation/selection state machine, exactly as the Question sheet does for
 //! AI-initiated `ask_user` — its MVU purity keeps the input path testable
 //! without a terminal.
 //!
-//! [`WorkspaceSecuritySnapshot::domains_needing_review`]: protocol::WorkspaceSecuritySnapshot::domains_needing_review
+//! [`WorkspaceSecuritySnapshot::domains_needing_review`]: nuo_protocol::WorkspaceSecuritySnapshot::domains_needing_review
 use graticule::{Alignment, Block, Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
-use protocol::WorkspaceSecuritySnapshot;
-use ui_primitives::components::keycap::{AffordanceIntent, KeyAffordance, layout_affordances};
-use ui_primitives::components::options::{ChoiceMarker, ChoiceStyle, push_wrapped_styled};
-use ui_primitives::components::row::{ListRow, RowGroup, RowStyledAtom};
-use ui_primitives::design::{MODAL_INNER_H_PADDING, MODAL_INNER_V_PADDING};
-use ui_primitives::elevation::{ElevationArchetype, border_type_for_glyphs};
-use ui_primitives::primitives::contrast_fg;
-use view::trust_gate::{self, TrustDomainView};
+use nuo_protocol::WorkspaceSecuritySnapshot;
+use nuo_ui_primitives::components::keycap::{AffordanceIntent, KeyAffordance, layout_affordances};
+use nuo_ui_primitives::components::options::{ChoiceMarker, ChoiceStyle, push_wrapped_styled};
+use nuo_ui_primitives::components::row::{ListRow, RowGroup, RowStyledAtom};
+use nuo_ui_primitives::design::{MODAL_INNER_H_PADDING, MODAL_INNER_V_PADDING};
+use nuo_ui_primitives::elevation::{ElevationArchetype, border_type_for_glyphs};
+use nuo_ui_primitives::primitives::contrast_fg;
+use nuo_view::trust_gate::{self, TrustDomainView};
 
 use crate::shell::question_model::{QuestionAction, QuestionEffect, QuestionModel};
 use crate::shell::render::Theme;
@@ -151,7 +151,9 @@ pub struct PreAttachSignal {
 pub enum PreAttachDecision {
     /// User chose to trust the workspace. Direct control-plane admission
     /// request — does not route through slash commands or pollute the transcript.
-    Trust { domains: Vec<protocol::TrustDomain> },
+    Trust {
+        domains: Vec<nuo_protocol::TrustDomain>,
+    },
     /// User refused the offered domains (`Esc`, or confirming an empty
     /// selection). The refusal is recorded durably, so the workspace stops
     /// asking about *this* content, and the session continues untrusted.
@@ -164,7 +166,9 @@ pub enum PreAttachDecision {
     /// to say "no" to a diff. Quitting the terminal is not an answer to that
     /// question, so the refusal now records itself and yields to the chat
     /// surface with every affected domain still unloaded.
-    Decline { domains: Vec<protocol::TrustDomain> },
+    Decline {
+        domains: Vec<nuo_protocol::TrustDomain>,
+    },
 }
 
 impl PreAttachState {
@@ -187,19 +191,19 @@ impl PreAttachState {
     #[allow(clippy::expect_used)]
     pub fn acceptance_fixture() -> Self {
         let mut snapshot = WorkspaceSecuritySnapshot::new("/tmp/nuo-acceptance");
-        snapshot.mcp = protocol::WorkspaceTrustState::Quarantined;
-        snapshot.skills = protocol::WorkspaceTrustState::Quarantined;
-        snapshot.hooks = protocol::WorkspaceTrustState::Quarantined;
-        snapshot.instructions = protocol::WorkspaceTrustState::Quarantined;
-        snapshot.ex_workspace = protocol::WorkspaceTrustState::Quarantined;
-        snapshot.user_assets = protocol::WorkspaceTrustState::Quarantined;
+        snapshot.mcp = nuo_protocol::WorkspaceTrustState::Quarantined;
+        snapshot.skills = nuo_protocol::WorkspaceTrustState::Quarantined;
+        snapshot.hooks = nuo_protocol::WorkspaceTrustState::Quarantined;
+        snapshot.instructions = nuo_protocol::WorkspaceTrustState::Quarantined;
+        snapshot.ex_workspace = nuo_protocol::WorkspaceTrustState::Quarantined;
+        snapshot.user_assets = nuo_protocol::WorkspaceTrustState::Quarantined;
         let request = trust_gate::gate_request(&snapshot)
             .expect("a snapshot with every domain awaiting review must produce a gate request");
         Self::mount(request, &snapshot, true)
     }
 
     fn mount(
-        request: tool::UserQuestionRequest,
+        request: nuo_tool::UserQuestionRequest,
         snapshot: &WorkspaceSecuritySnapshot,
         acceptance: bool,
     ) -> Self {
@@ -218,7 +222,7 @@ impl PreAttachState {
             submitting: false,
             attestation_error: None,
             rows,
-            root: ui_primitives::components::path::tilde_shorten(std::path::Path::new(
+            root: nuo_ui_primitives::components::path::tilde_shorten(std::path::Path::new(
                 &snapshot.root,
             )),
         }
@@ -278,11 +282,11 @@ impl PreAttachState {
             && self
                 .rows
                 .iter()
-                .any(|row| matches!(row.domain, protocol::TrustDomain::UserAssets))
+                .any(|row| matches!(row.domain, nuo_protocol::TrustDomain::UserAssets))
     }
 
     /// The domains this gate offered, in display order.
-    pub fn offered_domains(&self) -> Vec<protocol::TrustDomain> {
+    pub fn offered_domains(&self) -> Vec<nuo_protocol::TrustDomain> {
         self.rows.iter().map(|row| row.domain).collect()
     }
 
@@ -692,7 +696,7 @@ struct RowPoint {
 /// rendered rows.
 fn row_points<'a>(
     state: &'a PreAttachState,
-    question: &'a tool::UserQuestion,
+    question: &'a nuo_tool::UserQuestion,
 ) -> impl Iterator<Item = RowPoint> + 'a {
     let highlighted = state.model().highlight();
     let selected = state
@@ -864,13 +868,13 @@ fn footer_lines(
     ));
     if count > 1 {
         affordances.push(KeyAffordance::with_intent_and_rank(
-            ui_primitives::keyvocab::ARROWS_UD,
+            nuo_ui_primitives::keyvocab::ARROWS_UD,
             "move",
             AffordanceIntent::Neutral,
             60,
         ));
         affordances.push(KeyAffordance::with_intent_and_rank(
-            ui_primitives::keyvocab::SPACE,
+            nuo_ui_primitives::keyvocab::SPACE,
             "toggle",
             AffordanceIntent::Neutral,
             50,

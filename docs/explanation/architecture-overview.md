@@ -27,7 +27,7 @@ Because the server is the single source of truth for thread state, any number of
 Two boundaries carry most of the architectural weight:
 
 - **The terminal substrate (`graticule`)**: split cleanly into `graticule-canvas` (a retained-mode 2D cell canvas with differential, double-buffered rendering and a Flexbox layout solver) and `graticule-tty` (timeout-disambiguated incremental VT input parser, mouse modes, and opt-in terminal session guard). It is deliberately decoupled from all AI domain concepts (see [ADR-0223](../adr/0223-graticule-substrate-vt-input-parser-and-all-motion-hover.md)) so the terminal engine can be reasoned about without knowing what an agent is.
-- **The cognitive engine (`engine`)**: it runs the streaming ReAct loop, assembles model requests, compacts context, and coordinates subagents. **`guardrails`** is the separate policy layer (permission brokering, bash policy, execution containment, loop guards); the model providers are the *transport* layer.
+- **The cognitive engine (`nuo-engine`)**: it runs the streaming ReAct loop, assembles model requests, compacts context, and coordinates subagents. **`nuo-guardrails`** is the separate policy layer (permission brokering, bash policy, execution containment, loop guards); the model providers are the *transport* layer.
 
 ---
 

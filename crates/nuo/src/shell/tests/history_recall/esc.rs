@@ -201,12 +201,14 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
         } else {
             format!("random prompt message line number {i}")
         };
-        app.composer.input_history.push(protocol::HistoryEntry::new(
-            text,
-            Some("session-scale".to_string()),
-            Some("~/work".to_string()),
-            i as u64,
-        ));
+        app.composer
+            .input_history
+            .push(nuo_protocol::HistoryEntry::new(
+                text,
+                Some("session-scale".to_string()),
+                Some("~/work".to_string()),
+                i as u64,
+            ));
     }
 
     assert_eq!(app.composer.input_history.len(), count);

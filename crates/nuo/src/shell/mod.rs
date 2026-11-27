@@ -6,8 +6,8 @@
 //! Layer structure:
 //! - The terminal substrate (`graticule`) — retained cell grid (`graticule-canvas`)
 //!   with dirty tracking and back/front diff, plus physical TTY input (`graticule-tty`).
-//! - The pure zero-IO presentation crates (`ui-primitives` for generic tokens/components,
-//!   `view` for agent-domain transcript models, tool presenters, layout, chrome, and views).
+//! - The pure zero-IO presentation crates (`nuo-ui-primitives` for generic tokens/components,
+//!   `nuo-view` for agent-domain transcript models, tool presenters, layout, chrome, and views).
 //! - This interactive shell runtime: application state ([`app`]), input mapping ([`input`]),
 //!   surface routing ([`surfaces`]), overlays ([`overlays`]), and the event/render loop
 //!   (`event_loop`). [`runner::run_with_options`] is the entry point wired by the `nuo` binary.
@@ -22,7 +22,7 @@
 // registry-lookup tests (model search, vision gate) resolve baselines through
 // it (`[INV-PROV-09]` linkage).
 #[cfg(test)]
-extern crate server;
+extern crate nuo_server;
 
 pub mod action_routes;
 pub mod app;
@@ -65,17 +65,17 @@ pub mod ui;
 pub use app::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
 pub use completion::CompletionKind;
 pub use focus::{Focus, FocusPlane, TranscriptFocus};
-pub use pre_attach::{PreAttachDecision, PreAttachSignal, PreAttachState};
-pub use ui_primitives::design::*;
-pub use ui_primitives::{
+pub use nuo_ui_primitives::design::*;
+pub use nuo_ui_primitives::{
     Theme, chord, design, elevation, fuzzy, key, keyvocab, primitives, syntax, theme, time,
 };
-pub use view::phase::Phase;
-pub use view::providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
-pub use view::{
+pub use nuo_view::phase::Phase;
+pub use nuo_view::providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
+pub use nuo_view::{
     disclosure_config, empty_state, footer_stack, layout, markdown_table, message_body, model,
     notice, phase, providers, text_layout, tools, trust_gate,
 };
+pub use pre_attach::{PreAttachDecision, PreAttachSignal, PreAttachState};
 
 /// Test support: flatten a rendered grid into one string per row.
 #[cfg(test)]
@@ -94,23 +94,23 @@ use crate::shell::app::state::{
     ComposerState, HumanState, LinkState, ProviderEditorState, SessionState, SurfacesState,
     TelemetryState, Viewport,
 };
-use protocol::{AgentRequest, AgentResponse, ProviderPickerSnapshot, RoundEvent};
+use nuo_protocol::{AgentRequest, AgentResponse, ProviderPickerSnapshot, RoundEvent};
 
-use tool::{Message, Role};
+use nuo_tool::{Message, Role};
 
 use graticule::{Backend, Terminal};
 use std::{collections::HashMap, error::Error, io, sync::Arc, sync::atomic::AtomicBool};
 use tokio::sync::{Mutex, mpsc};
 
+use nuo_view::model::document::{DeliveryStatus, MessageKind, TranscriptMessage};
+#[cfg(test)]
+use nuo_view::model::document::{NoticeSeverity, UserMessageOrigin};
+use nuo_view::model::selection::SelectionDrag;
 pub use transcript::{finalize_streaming_reasoning, rebase_transcript_rounds};
 use transcript::{
     merge_timeline_rows, transcript_commands_from_ledger, transcript_interrupts_from_records,
     transcript_messages_from_core,
 };
-use view::model::document::{DeliveryStatus, MessageKind, TranscriptMessage};
-#[cfg(test)]
-use view::model::document::{NoticeSeverity, UserMessageOrigin};
-use view::model::selection::SelectionDrag;
 
 /// Where the session this TUI drives lives. All sessions in the unified
 /// server model are remote (server-hosted).
@@ -184,12 +184,12 @@ impl StartupOverlay {
                 let suffix_cat = lower.split_once([':', '/', '.']).map(|(_, s)| s);
                 let cat = suffix_cat
                     .or(nav_val.as_deref())
-                    .and_then(view::views::ConfigCategory::from_name)
+                    .and_then(nuo_view::views::ConfigCategory::from_name)
                     .map(|c| c as usize);
                 return Some(StartupOverlay::Settings { category: cat });
             }
         } else if let Some(nav) = nav_val {
-            let cat = view::views::ConfigCategory::from_name(&nav).map(|c| c as usize);
+            let cat = nuo_view::views::ConfigCategory::from_name(&nav).map(|c| c as usize);
             return Some(StartupOverlay::Settings { category: cat });
         }
 
@@ -240,8 +240,8 @@ pub(crate) fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
                     | RoundEvent::ToolStream { .. }
                     | RoundEvent::ToolInputProgress { .. }
                     | RoundEvent::SubagentStep {
-                        event: tool::SubagentEvent::StreamDelta(_)
-                            | tool::SubagentEvent::StreamReasoningDelta(_),
+                        event: nuo_tool::SubagentEvent::StreamDelta(_)
+                            | nuo_tool::SubagentEvent::StreamReasoningDelta(_),
                         ..
                     }
             )
@@ -251,16 +251,16 @@ pub(crate) fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
 pub struct TuiLaunchConfig {
     pub initial_provider: String,
     pub initial_model: String,
-    pub input_history: Vec<protocol::HistoryEntry>,
+    pub input_history: Vec<nuo_protocol::HistoryEntry>,
     pub initial_messages: Vec<Message>,
-    pub initial_commands: Vec<protocol::CommandRecord>,
+    pub initial_commands: Vec<nuo_protocol::CommandRecord>,
     pub initial_round_count: u64,
-    pub command_catalog: tool::CommandCatalog,
-    pub initial_round_interrupts: Vec<protocol::RoundInterrupt>,
-    pub tui_config: view::tui_config::TuiConfig,
-    pub input_history_config: view::tui_config::InputHistoryConfig,
+    pub command_catalog: nuo_tool::CommandCatalog,
+    pub initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
+    pub tui_config: nuo_view::tui_config::TuiConfig,
+    pub input_history_config: nuo_view::tui_config::InputHistoryConfig,
     pub session: HookStartSource,
-    pub token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
     pub initial_tabs: Option<Vec<crate::shell::surfaces::ClientTab>>,
     pub initial_tab_history: Option<Vec<crate::shell::surfaces::TabKind>>,
@@ -277,12 +277,12 @@ pub struct TuiLaunchConfig {
     /// Server-attested readiness at attach time (ADR-0133). `Ready` is only
     /// authoritative when the snapshot has also been applied; the client gates
     /// input on the transition, not on this initial value.
-    pub initial_phase: protocol::ThreadPhase,
+    pub initial_phase: nuo_protocol::ThreadPhase,
     /// Server-attested global lifecycle phase from `Wire::ServerHello` (ADR-0260).
-    pub initial_server_phase: protocol::ServerPhase,
+    pub initial_server_phase: nuo_protocol::ServerPhase,
     /// Optional thread subscription deferred until `ServerPhase::Ready` arrives
     /// (ADR-0260 `[INV-SRVPHASE-02]`).
-    pub pending_initial_subscribe: Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
+    pub pending_initial_subscribe: Option<(nuo_protocol::ThreadTarget, Option<std::path::PathBuf>)>,
     /// Opening prompt (`-p`) dispatched on the `Ready` transition rather than
     /// at handshake time (ADR-0133).
     pub initial_prompt: Option<String>,
@@ -314,7 +314,7 @@ pub fn ensure_panic_hook() {
 pub async fn run_tui(
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
-    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
+    monitor_rx: mpsc::UnboundedReceiver<nuo_protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
@@ -334,7 +334,7 @@ pub async fn run_tui_with_terminal(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
-    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
+    monitor_rx: mpsc::UnboundedReceiver<nuo_protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
@@ -370,10 +370,10 @@ pub(crate) fn stream_discard_edit(
     }
 }
 
-fn pending_prompts(initial_prompt: Option<String>) -> Vec<protocol::AgentRequest> {
+fn pending_prompts(initial_prompt: Option<String>) -> Vec<nuo_protocol::AgentRequest> {
     initial_prompt
         .map(|text| {
-            vec![protocol::AgentRequest::Prompt {
+            vec![nuo_protocol::AgentRequest::Prompt {
                 text,
                 images: Vec::new(),
                 sent_at_ms: None,
@@ -384,11 +384,11 @@ fn pending_prompts(initial_prompt: Option<String>) -> Vec<protocol::AgentRequest
 
 fn restore_transcript(
     initial_messages: Vec<Message>,
-    initial_commands: Vec<protocol::CommandRecord>,
-    initial_round_interrupts: Vec<protocol::RoundInterrupt>,
+    initial_commands: Vec<nuo_protocol::CommandRecord>,
+    initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
     initial_round_count: u64,
-    tui_config: &view::tui_config::TuiConfig,
-) -> Vec<view::model::document::TranscriptMessage> {
+    tui_config: &nuo_view::tui_config::TuiConfig,
+) -> Vec<nuo_view::model::document::TranscriptMessage> {
     let mut restored = transcript_messages_from_core(initial_messages, tui_config);
     restored = merge_timeline_rows(
         restored,
@@ -401,16 +401,16 @@ fn restore_transcript(
 
 #[allow(clippy::too_many_arguments)]
 async fn start_ui_runtime(
-    tui_config: view::tui_config::TuiConfig,
+    tui_config: nuo_view::tui_config::TuiConfig,
     session: &crate::shell::HookStartSource,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
-    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
+    monitor_rx: mpsc::UnboundedReceiver<nuo_protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     initial_provider: &str,
     initial_model: &str,
     initial_round_count: u64,
 ) -> (
-    Arc<view::tui_config::TuiConfig>,
+    Arc<nuo_view::tui_config::TuiConfig>,
     event_loop::UiRuntime,
     String,
     Arc<AtomicBool>,
@@ -482,19 +482,19 @@ pub(crate) struct AppBoot<'a> {
     pub(crate) live_session_init: &'a String,
     pub(crate) initial_provider: String,
     pub(crate) initial_model: String,
-    pub(crate) session_phase_init: protocol::ThreadPhase,
-    pub(crate) server_phase_init: protocol::ServerPhase,
+    pub(crate) session_phase_init: nuo_protocol::ThreadPhase,
+    pub(crate) server_phase_init: nuo_protocol::ServerPhase,
     pub(crate) pending_initial_subscribe:
-        Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
+        Option<(nuo_protocol::ThreadTarget, Option<std::path::PathBuf>)>,
     pub(crate) restored: Vec<TranscriptMessage>,
-    pub(crate) tui_config: Arc<view::tui_config::TuiConfig>,
-    pub(crate) command_catalog: tool::CommandCatalog,
-    pub(crate) initial_pending_prompts: Vec<protocol::AgentRequest>,
-    pub(crate) input_history: Vec<protocol::HistoryEntry>,
-    pub(crate) input_history_config: view::tui_config::InputHistoryConfig,
+    pub(crate) tui_config: Arc<nuo_view::tui_config::TuiConfig>,
+    pub(crate) command_catalog: nuo_tool::CommandCatalog,
+    pub(crate) initial_pending_prompts: Vec<nuo_protocol::AgentRequest>,
+    pub(crate) input_history: Vec<nuo_protocol::HistoryEntry>,
+    pub(crate) input_history_config: nuo_view::tui_config::InputHistoryConfig,
     pub(crate) startup_overlay: StartupOverlay,
     pub(crate) profile: graticule::TerminalProfile,
-    pub(crate) token_ledger: Option<Arc<protocol::TokenSourceLedger>>,
+    pub(crate) token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
     pub(crate) tx: mpsc::UnboundedSender<client::ClientOutbound>,
     pub(crate) should_quit: Arc<AtomicBool>,
 }
@@ -528,7 +528,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
                 set
             },
             live_session_id: boot.live_session_init.clone(),
-            workspace_security: protocol::WorkspaceSecuritySnapshot::default(),
+            workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
             tui_config: (*boot.tui_config).clone(),
             session_detail: None,
             cwd,
@@ -543,7 +543,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             thread_phase_since: std::time::Instant::now(),
             pending_initial_subscribe: boot.pending_initial_subscribe,
             initial_subscribe_in_flight: false,
-            initial_init_options: protocol::ThreadInitOptions::default(),
+            initial_init_options: nuo_protocol::ThreadInitOptions::default(),
             project_scope: None,
             sessions_overview: Vec::new(),
             host_sessions: Vec::new(),
@@ -562,10 +562,10 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             carousel_epoch: std::time::Instant::now(),
             transcript_layout: crate::shell::render::layout::Strategy::TurnBand,
             expand_auto_scroll: boot.tui_config.expand_auto_scroll,
-            reasoning_default_expanded: view::tui_config::reasoning_default_expanded(
+            reasoning_default_expanded: nuo_view::tui_config::reasoning_default_expanded(
                 &boot.tui_config,
             ),
-            logs: view::model::log::SurfaceLogs::new(),
+            logs: nuo_view::model::log::SurfaceLogs::new(),
             host_console_log: Vec::new(),
         },
         composer: ComposerState {
@@ -601,7 +601,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
                     .collect()
             },
             history_index: None,
-            stashed_draft: view::composer_draft::ComposerDraft::default(),
+            stashed_draft: nuo_view::composer_draft::ComposerDraft::default(),
             history_attachments: std::collections::HashMap::new(),
             history_attachments_order: std::collections::VecDeque::new(),
             session_history_backfill: Vec::new(),
@@ -640,8 +640,8 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             theme_files,
             surface_store: crate::shell::surfaces::SurfaceStore::new(),
             drafts: crate::shell::draft_store::DraftLedger::load_for_scope(
-                host::paths::get().drafts_dir(),
-                &host::paths::get().db_file().to_string_lossy(),
+                nuo_host::paths::get().drafts_dir(),
+                &nuo_host::paths::get().db_file().to_string_lossy(),
             ),
             dev_toast_pinned: std::env::var("NUO_DEV_TOAST")
                 .map(|v| !v.is_empty() && v != "0")
@@ -666,7 +666,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             config_category: match boot.startup_overlay {
                 StartupOverlay::Settings {
                     category: Some(cat),
-                } => cat.min(view::views::ConfigCategory::ALL.len().saturating_sub(1)),
+                } => cat.min(nuo_view::views::ConfigCategory::ALL.len().saturating_sub(1)),
                 _ => 0,
             },
             config_detail_index: 0,
@@ -709,7 +709,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             notice_toast_until: None,
             notice_toast_message: String::new(),
             notice_toast_topic: String::new(),
-            notice_toast_severity: view::model::document::NoticeSeverity::Info,
+            notice_toast_severity: nuo_view::model::document::NoticeSeverity::Info,
             ctrl_c_armed_until: None,
             esc_armed_until: None,
             pending_provider_delete: None,
@@ -741,11 +741,11 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             custom_field: 0,
             custom_fields: Vec::new(),
             custom_protocol_wire: String::new(),
-            custom_budget: protocol::ConnectionBudget::default(),
+            custom_budget: nuo_protocol::ConnectionBudget::default(),
             custom_models: Vec::new(),
             custom_url_hint: String::new(),
             custom_user_agent: None,
-            custom_auth: protocol::ConnectionAuth::Static,
+            custom_auth: nuo_protocol::ConnectionAuth::Static,
             custom_provider_id: None,
             awaiting_oauth_add: false,
             oauth_pending_message: String::new(),
@@ -797,7 +797,7 @@ pub(crate) async fn run_tui_with_input(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
-    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
+    monitor_rx: mpsc::UnboundedReceiver<nuo_protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
     input: &mut event_loop::input_reader::InputSource,
@@ -877,7 +877,7 @@ pub(crate) async fn run_tui_with_input(
             .filter(|id| id != &live_session_init)
             .collect();
         if !draft_ids.is_empty() {
-            app.send_intent(protocol::AgentRequest::CheckThreadsExist {
+            app.send_intent(nuo_protocol::AgentRequest::CheckThreadsExist {
                 thread_ids: draft_ids,
             });
         }
@@ -1008,12 +1008,12 @@ pub(crate) struct SupervisedTuiLaunch {
     pub token: Option<String>,
     pub project_override: Option<std::path::PathBuf>,
     pub explicit_port: Option<u16>,
-    pub initial_subscribe: Option<(protocol::ThreadTarget, Option<std::path::PathBuf>)>,
-    pub initial_init_options: protocol::ThreadInitOptions,
+    pub initial_subscribe: Option<(nuo_protocol::ThreadTarget, Option<std::path::PathBuf>)>,
+    pub initial_init_options: nuo_protocol::ThreadInitOptions,
     pub project_scope: Option<std::path::PathBuf>,
     pub startup_overlay: StartupOverlay,
     pub initial_prompt: Option<String>,
-    pub tui_config: view::tui_config::TuiConfig,
+    pub tui_config: nuo_view::tui_config::TuiConfig,
 }
 
 /// Run the interactive TUI with a single `App` lifetime and an in-process
@@ -1063,11 +1063,11 @@ pub(crate) async fn run_supervised_tui(
     let (placeholder_tx, _) = mpsc::unbounded_channel();
     let live_session_init = String::new();
     let initial_thread_phase = if initial_subscribe.is_some() {
-        protocol::ThreadPhase::Preparing {
-            stage: protocol::PrepareStage::Thread,
+        nuo_protocol::ThreadPhase::Preparing {
+            stage: nuo_protocol::PrepareStage::Thread,
         }
     } else {
-        protocol::ThreadPhase::Ready
+        nuo_protocol::ThreadPhase::Ready
     };
 
     let mut app = build_app(AppBoot {
@@ -1075,11 +1075,11 @@ pub(crate) async fn run_supervised_tui(
         initial_provider: String::new(),
         initial_model: String::new(),
         session_phase_init: initial_thread_phase,
-        server_phase_init: protocol::ServerPhase::Ready,
+        server_phase_init: nuo_protocol::ServerPhase::Ready,
         pending_initial_subscribe: initial_subscribe,
         restored: Vec::new(),
         tui_config: tui_config.clone(),
-        command_catalog: tool::CommandCatalog::default(),
+        command_catalog: nuo_tool::CommandCatalog::default(),
         initial_pending_prompts: pending_prompts(initial_prompt),
         input_history: Vec::new(),
         input_history_config,
@@ -1171,7 +1171,7 @@ pub(crate) async fn run_supervised_tui(
 /// What a TUI run produced: the input history to persist and the live active
 /// thread id / outbound link for exit-time flush.
 pub struct TuiOutcome {
-    pub history: Vec<protocol::HistoryEntry>,
+    pub history: Vec<nuo_protocol::HistoryEntry>,
     /// Actual live thread id at exit (populated even when subscribed lazily
     /// after `ServerPhase::Initializing` or from a 0-thread Dashboard).
     pub active_session_id: String,
@@ -1191,7 +1191,7 @@ pub struct TuiOutcome {
 pub async fn start_tui(
     tx: mpsc::UnboundedSender<client::ClientOutbound>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
-    monitor_rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
+    monitor_rx: mpsc::UnboundedReceiver<nuo_protocol::MonitorEvent>,
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
@@ -1275,7 +1275,7 @@ pub(crate) fn append_stream_text_delta(
 mod streaming_appends_tests {
     //! Identity-addressed streaming appends.
     use super::*;
-    use view::model::document::MessageKind;
+    use nuo_view::model::document::MessageKind;
 
     fn reasoning_entry(round: u64, turn: u64, content: &str) -> TranscriptMessage {
         let mut m = TranscriptMessage::reasoning(content);
@@ -1348,7 +1348,7 @@ mod streaming_appends_tests {
 
     #[test]
     fn text_delta_appends_across_an_intervening_command_entry() {
-        use tool::Role;
+        use nuo_tool::Role;
         let mut text = TranscriptMessage::new(Role::Assistant, "hello ");
         text.round = Some(3);
         text.turn = Some(1);
@@ -1371,7 +1371,7 @@ mod streaming_appends_tests {
 /// clamped to the empty-state bounding box. Best-effort: a missing or unreadable
 /// file returns `None`, leaving the built-in wordmark in place.
 fn load_user_logo() -> Option<Vec<String>> {
-    let path = host::paths::get().logo_file();
+    let path = nuo_host::paths::get().logo_file();
     let content = std::fs::read_to_string(&path).ok()?;
     // Re-use the renderer's parser so the clamp stays defined in one place.
     // The parser already strips CRLF/trailing blanks and truncates to the box.

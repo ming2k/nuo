@@ -18,8 +18,8 @@
   tool-name string branches in the prompt policy, and the unenforced prose
   `agent.precedence` as the repository's only precedence mechanism
 - **Implementation note:** all six phases landed. The vocabulary is
-  `protocol::context`; the compiler, default policy, and inspector are
-  `engine::cognition::context`; `ToolSurface` replaced `tool_names`; the request
+  `nuo_protocol::context`; the compiler, default policy, and inspector are
+  `nuo_engine::cognition::context`; `ToolSurface` replaced `tool_names`; the request
   path takes a compiled `Policy` and cannot fail on layout; `cognition/budget`
   and `InstructionSection::is_transient` are deleted; `/context` (with `--json`)
   renders the live plan and `RequestProjection` durably records it with the
@@ -82,7 +82,7 @@ Five channels reach the model today, and they are genuinely well-factored:
 The assembly is pure (`InstructionContext` has no `&Agent`), deterministic
 (`render_blocks` owns all presentation), and memoized. `RequestBuilder` is the
 single builder for live, replay, and branch switching
-(`crates/protocol/src/request_builder.rs:1-16`). That substrate is the reason
+(`crates/nuo-protocol/src/request_builder.rs:1-16`). That substrate is the reason
 this RFC is about *declaration* and not about *plumbing*.
 
 ### 1.2 Nine verified defects
@@ -90,10 +90,10 @@ this RFC is about *declaration* and not about *plumbing*.
 Every item below is reproducible from the tree at the time of writing.
 
 **D1 — Two spellings of one lifecycle moment.** `InstructionSection::is_transient`
-had no production implementation (the since-deleted `crates/engine/src/cognition/model_request/instruction.rs:84`;
+had no production implementation (the since-deleted `crates/nuo-engine/src/cognition/model_request/instruction.rs:84`;
 its only implementor was a test at `:425`).
 `HookOutcome::TemporaryContext` had no production producer either
-(`crates/protocol/src/extension.rs:137`, a test dummy in a file since deleted with
+(`crates/nuo-protocol/src/extension.rs:137`, a test dummy in a file since deleted with
 ADR-0231). Worse, both were invoked from the *same* moment — `build_regions` inside
 `assemble_prepared` (`model_request/mod.rs:70-73`) and the extension loop inside
 `model_request` (`cognition/agent/state.rs:657-671`). Two APIs, one moment, zero
@@ -133,7 +133,7 @@ mtime (`state.rs:452-457`), and nested project rules load on first read
 (ADR-0203). Nothing declares which blocks are stable, nothing orders by
 stability, and nothing reports that the provider's cached prefix was
 invalidated. `RequestProjection::prefix_fingerprint` is persisted per
-`(session, round, turn)` (`crates/protocol/src/request_projection.rs:22`,
+`(session, round, turn)` (`crates/nuo-protocol/src/request_projection.rs:22`,
 `model_request/mod.rs` → `fire_request_projection_persist`,
 `agent/rounds/lifecycle.rs:1316`) and **no code compares two consecutive
 fingerprints**. The evidence needed to see a cache loss is already stored and
@@ -262,8 +262,8 @@ field to read. That is the whole of this RFC.
   accessor has a production reader; every `context` submodule is reachable from
   a production path. Supersedes and extends `[INV-CONTEXT-06]`.
 - **`[INV-CTXSRC-07]` One Budget Vocabulary** — Context thresholds and
-  watermark fractions exist only in `protocol::CompactionPolicy` /
-  `protocol::ContextBudget`. A numeric watermark elsewhere is a governance
+  watermark fractions exist only in `nuo_protocol::CompactionPolicy` /
+  `nuo_protocol::ContextBudget`. A numeric watermark elsewhere is a governance
   failure.
 - **`[INV-CTXSRC-08]` Purity** — A `render` implementation is a function of
   `ContextInputs` alone: no clock, no filesystem, no network, no random, no
@@ -383,7 +383,7 @@ pub enum Topic {
 }
 ```
 
-Closed on purpose. Adding a topic is a one-line edit to `protocol`, which is the
+Closed on purpose. Adding a topic is a one-line edit to `nuo-protocol`, which is the
 review gate: an author who wants new prompt text must decide whether it belongs
 to an existing topic or is genuinely new. Open `&'static str` topics would let
 `ToolDiscipline` be spelled `tool.discipline` and `tool_discipline` in two
@@ -396,10 +396,10 @@ error: two active sources own Topic::ToolDiscipline: "agent.coding_baseline",
        "workspace.topology". Declare `supersedes` or narrow with `is_active`.
 ```
 
-Topics are declared in `protocol` because embedders register sources through
-the public builder API; the registry that enforces them stays in `engine`.
+Topics are declared in `nuo-protocol` because embedders register sources through
+the public builder API; the registry that enforces them stays in `nuo-engine`.
 That is the existing ownership split (`Block` and `ScopedInstruction` are already
-in `protocol`).
+in `nuo-protocol`).
 
 ### 5.4 `Rank` routes placement
 
@@ -467,7 +467,7 @@ instruction region as a whole**, derived from the model window exactly as the
 other thresholds are (ADR-0214), for example
 
 ```rust
-// protocol::ContextBudget
+// nuo_protocol::ContextBudget
 pub instructions_ceiling_tokens: usize, // min(8% of window, 24_000)
 ```
 
@@ -733,14 +733,14 @@ M1 is the only moment a transient block can be born.
 
 ### 5.12 Module layout
 
-`protocol` owns the vocabulary; `engine` owns the registry. No new crate.
+`nuo-protocol` owns the vocabulary; `nuo-engine` owns the registry. No new crate.
 
 ```
-crates/protocol/src/context/
+crates/nuo-protocol/src/context/
   mod.rs        // Stability, Topic, Rank, Budget, Overflow, Resume, ContextNotice
   plan.rs       // ContextPlan, PlannedBlock, PrefixDrift  (wire-neutral)
 
-crates/engine/src/cognition/context/
+crates/nuo-engine/src/cognition/context/
   mod.rs        // the one entry point: Policy, ContextPlan construction
   source.rs     // ContextSource, InputKey
   inputs.rs     // ContextInputs, Source<T>, ToolSurface, Provenance
@@ -797,7 +797,7 @@ reach dead fields and dead modules, and add the governance test that fails on a
 `pub` field with no reader and a `pub mod` with no consumer outside its crate.
 No behaviour change.
 
-**Phase 1 — vocabulary.** Add `protocol::context::{Stability, Topic, Rank,
+**Phase 1 — vocabulary.** Add `nuo_protocol::context::{Stability, Topic, Rank,
 Budget, Overflow, Resume, ContextNotice}` and `Topic::rank()`. No consumers yet;
 the compiler enforces nothing. Land the golden harness (`nuo context --json`
 rendering `InstructionText` for a fixture workspace) so every later phase shows a
@@ -852,7 +852,7 @@ there is no config surface to migrate.
 | Phase | Deliverable | Rough size |
 | :--- | :--- | :--- |
 | 0 | dead code deleted, `[INV-CTXSRC-06]` governance test | 1 day |
-| 1 | `protocol::context` vocabulary + golden harness | 2 days |
+| 1 | `nuo_protocol::context` vocabulary + golden harness | 2 days |
 | 2 | 11 sources declare topic/inputs/budget; D2 merged | 3 days |
 | 3 | `Policy::compile`, `ContextPlan`, infallible path | 4 days |
 | 4 | budgets, ceiling, rank assertions | 3 days |
@@ -936,7 +936,7 @@ structural work lands.
   request-time failure with a worse diagnostic.
 - **A new `context` crate.** The registry depends on `Agent` state
   (`is_active` reads turn state), so it belongs below `Agent` but inside
-  `engine`. A crate boundary would force a trait-object hop per block for no
+  `nuo-engine`. A crate boundary would force a trait-object hop per block for no
   isolation gain.
 - **Making the whole instruction region `Session`-stable by rebuilding only on
   route change.** Would require re-reading `AGENTS.md` on every route change and
@@ -963,9 +963,9 @@ structural work lands.
 4. **Closing-tag injection:** escape for trusted workspace documents, or use a
    per-request nonce for every XML envelope? Escaping is cheaper for the common
    case but changes `AGENTS.md` bytes, which some users will notice.
-5. **Does `Topic` belong in `protocol` or in `engine`?** In `protocol` today
+5. **Does `Topic` belong in `nuo-protocol` or in `nuo-engine`?** In `nuo-protocol` today
    because embedders construct sources. If the eventual embedding story turns out
-   to be server-side only, `engine` is the narrower home and the vocabulary
+   to be server-side only, `nuo-engine` is the narrower home and the vocabulary
    becomes private.
 6. **Should `supersedes` be directional per topic or a global priority number?**
    Directional is precise and needs review attention; a priority number is

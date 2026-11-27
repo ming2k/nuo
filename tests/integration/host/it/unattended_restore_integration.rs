@@ -10,26 +10,26 @@
 use std::sync::Arc;
 
 use super::sandbox_once;
-use persistence::thread::ThreadSession;
-use server::UiBridge;
-use server::composition::bootstrap::{self, BootstrapParams};
-use server::composition::startup::ThreadStart;
+use nuo_persistence::thread::ThreadSession;
+use nuo_server::UiBridge;
+use nuo_server::composition::bootstrap::{self, BootstrapParams};
+use nuo_server::composition::startup::ThreadStart;
 
 struct HeadlessProbe;
 
 #[async_trait::async_trait]
 impl UiBridge for HeadlessProbe {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::CopyOutcome, String> {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo_server::CopyOutcome, String> {
         Err("probe: headless".to_string())
     }
 }
 
 fn params(project_root: std::path::PathBuf, startup: ThreadStart) -> BootstrapParams {
-    let identity = protocol::AgentIdentity::new("probe", "unattended probe");
+    let identity = nuo_protocol::AgentIdentity::new("probe", "unattended probe");
     BootstrapParams {
         human_channel: None,
         identity: identity.clone(),
-        preset: protocol::AgentRoleProfile::with_identity("probe", identity),
+        preset: nuo_protocol::AgentRoleProfile::with_identity("probe", identity),
         ui: Arc::new(HeadlessProbe),
         startup,
         project_root: Some(project_root),
@@ -60,8 +60,8 @@ async fn unattended_posture_survives_process_death_and_reopen() {
 
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
-        .replace_messages(vec![tool::Message::new(
-            tool::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "mid-task when the server was killed",
         )])
         .await
@@ -88,8 +88,8 @@ async fn interactive_session_reopens_interactive() {
 
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
-        .replace_messages(vec![tool::Message::new(
-            tool::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "interactive session",
         )])
         .await
@@ -111,7 +111,10 @@ async fn unattended_off_after_on_persists_the_de_escalation() {
 
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
-        .replace_messages(vec![tool::Message::new(tool::Role::User, "toggle history")])
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
+            "toggle history",
+        )])
         .await
         .unwrap();
     store.set_unattended(true).await.unwrap();

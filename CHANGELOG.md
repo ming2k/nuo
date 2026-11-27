@@ -6,6 +6,36 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [Unreleased]
+
+### Changed
+
+- **Every library crate carries the `nuo-` prefix (ADR-0269, `[INV-NAME-01]`).**
+  The 37 library packages are renamed `nuo-<role>`, and their directories move
+  to `crates/nuo-<role>` with them (`engine` → `nuo-engine` at
+  `crates/nuo-engine`, `tool-web` → `nuo-tool-web`, …). Code paths follow the
+  Cargo-derived names (`use nuo_engine::…`). This is a clean break with no
+  alias, re-export, or `package =` rename for the old names. `nuo` and
+  `nuo-tests` are unchanged. Update `-p` flags (`cargo nextest run -p nuo-engine`)
+  and `RUST_LOG` directives (`nuo_engine=debug`; the explicit tracing targets
+  are now `nuo_inference_wire::provider` and `nuo_protocol::agent`). There is no
+  behaviour or wire change: `PROTOCOL_VERSION` stays at 37, and the wire census
+  is renewed only for the path-qualified `AgentResponse` / `RoundEvent`
+  declarations.
+- **Name-keyed governance gates match exactly and cannot pass vacuously.**
+  The presentation firewall reports `R0` when a crate it governs is missing.
+  The lean-CLI link gate compares `cargo tree` package names instead of
+  substrings. The living-doc and rustdoc retired-name scans (ADR-0187) match
+  whole tokens and retire every unprefixed `crates/<name>` path. Manifest edge
+  gates parse dependency tables instead of searching manifest text. A new
+  `crate naming` CI step enforces prefixed, directory-matched, unaliased crate
+  identity, and checks that every `nuo_<crate>::<name>` cited in a comment
+  exists in that crate.
+- **Crate paths are relative.** The ~520 leading-`::` paths
+  (`::tool::ToolOutput`) that worked around same-named local modules are now
+  plain `nuo_tool::ToolOutput`. Only `macro_rules!` bodies and derive output
+  keep the hygienic absolute form.
+
 ## [0.0.104] - 2026-11-27
 
 ### Fixed

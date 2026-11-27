@@ -1,6 +1,6 @@
 //! Session overview, thread switching, port palette, and view switcher actions.
 
-use protocol::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::clipboard_ops;

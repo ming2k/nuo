@@ -9,13 +9,13 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     app.session.running_sessions.insert(sid.to_string());
     app.threads
         .messages
-        .push(view::model::document::TranscriptMessage::new(
-            tool::Role::User,
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
             "Hello",
         ));
     app.threads.scroll = 42;
 
-    app.session.sessions_overview = vec![protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: sid.to_string(),
         title: Some("Running Task".into()),
         overview: "Running Task".into(),
@@ -24,7 +24,7 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
         message_count: 1,
         active: true,
         parent_id: None,
-        origin: protocol::ThreadOrigin::Trunk,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -60,7 +60,7 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
     let target_sid = "session-2";
     app.session.current_session_id = current_sid.to_string();
 
-    app.session.sessions_overview = vec![protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Task".into()),
         overview: "Target Task".into(),
@@ -69,7 +69,7 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
         message_count: 3,
         active: false,
         parent_id: None,
-        origin: protocol::ThreadOrigin::Trunk,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -333,7 +333,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
     assert_eq!(app.surfaces.surfaces.tabs()[0].thread_id(), Some(empty_sid));
     assert!(app.is_current_thread_empty());
 
-    app.session.sessions_overview = vec![protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Thread".into()),
         overview: "Target Thread".into(),
@@ -342,7 +342,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
         message_count: 5,
         active: false,
         parent_id: None,
-        origin: protocol::ThreadOrigin::Trunk,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -376,7 +376,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
         .into_request()
         .expect("domain request");
     match req {
-        protocol::AgentRequest::DeleteThread { id } => {
+        nuo_protocol::AgentRequest::DeleteThread { id } => {
             assert_eq!(id, empty_sid);
         }
         other => panic!("expected DeleteSession, got {other:?}"),
@@ -399,13 +399,13 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
     // Add a message to make it non-empty
     app.threads
         .messages
-        .push(view::model::document::TranscriptMessage::new(
-            tool::Role::User,
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
             "Hello",
         ));
     assert!(!app.is_current_thread_empty());
 
-    app.session.sessions_overview = vec![protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Thread".into()),
         overview: "Target Thread".into(),
@@ -414,7 +414,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         message_count: 5,
         active: false,
         parent_id: None,
-        origin: protocol::ThreadOrigin::Trunk,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -450,7 +450,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         matches!(
             outbound,
             crate::shell::client::ClientOutbound::Subscribe {
-                target: protocol::ThreadTarget::Attach { id: Some(ref tid) },
+                target: nuo_protocol::ThreadTarget::Attach { id: Some(ref tid) },
                 ..
             } if tid == target_sid
         ),
@@ -493,15 +493,15 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
         .into_request()
         .expect("domain request");
     match req {
-        protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
+        nuo_protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
         other => panic!("expected /new slash command, got {other:?}"),
     }
 
     // 2. In non-empty tab: pressing 'N' should subscribe a new thread in-place (ADR-0251)
     app.threads
         .messages
-        .push(view::model::document::TranscriptMessage::new(
-            tool::Role::User,
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
             "Existing message",
         ));
     assert!(!app.is_current_thread_empty());
@@ -524,7 +524,7 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
         matches!(
             outbound,
             crate::shell::client::ClientOutbound::Subscribe {
-                target: protocol::ThreadTarget::New { .. },
+                target: nuo_protocol::ThreadTarget::New { .. },
                 ..
             }
         ),
@@ -563,7 +563,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
         .into_request()
         .expect("domain request");
     match req {
-        protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
+        nuo_protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
         other => panic!("expected /new slash command, got {other:?}"),
     }
 
@@ -573,8 +573,8 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     app.threads.messages.clear();
     app.threads
         .messages
-        .push(view::model::document::TranscriptMessage::new(
-            tool::Role::User,
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
             "Crucial conversation",
         ));
     assert!(!app.is_current_thread_empty());
@@ -593,7 +593,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
         matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                target: protocol::ThreadTarget::New { .. },
+                target: nuo_protocol::ThreadTarget::New { .. },
                 ..
             })
         ),
@@ -624,8 +624,8 @@ async fn slash_new_with_prompt_queues_opening_prompt_on_resident_subscription_wh
 
     app.threads
         .messages
-        .push(view::model::document::TranscriptMessage::new(
-            tool::Role::User,
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
             "Prior turn",
         ));
     assert!(!app.is_current_thread_empty());
@@ -648,14 +648,14 @@ async fn slash_new_with_prompt_queues_opening_prompt_on_resident_subscription_wh
         matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                target: protocol::ThreadTarget::New { .. },
+                target: nuo_protocol::ThreadTarget::New { .. },
                 ..
             })
         ),
         "a resident subscription carries the new thread"
     );
     match app.composer.pending_prompts.as_slice() {
-        [protocol::AgentRequest::Prompt { text, .. }] => {
+        [nuo_protocol::AgentRequest::Prompt { text, .. }] => {
             assert_eq!(text, "optimize memory allocations")
         }
         other => panic!("expected the opening prompt to be queued, got {other:?}"),
@@ -680,8 +680,8 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
 
     app.threads
         .messages
-        .push(view::model::document::TranscriptMessage::new(
-            tool::Role::User,
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
             "Active dialogue",
         ));
     assert!(!app.is_current_thread_empty());
@@ -699,7 +699,7 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                target: protocol::ThreadTarget::New { .. },
+                target: nuo_protocol::ThreadTarget::New { .. },
                 ..
             })
         ),

@@ -3,7 +3,7 @@
 //! These are *module-graph and vocabulary* checks. The behavioural halves live
 //! where they can be tested directly:
 //!
-//! - `[INV-CTXSRC-01]` duplicate topic: `engine::cognition::context::tests`.
+//! - `[INV-CTXSRC-01]` duplicate topic: `nuo_engine::cognition::context::tests`.
 //! - `[INV-CTXSRC-02]` budget enforcement: the same module's overflow tests.
 //! - `[INV-CTXSRC-03]` derived stability: the same module's band tests.
 //! - `[INV-TOOLSURFACE-03]` prefix immutability: the same module's
@@ -21,7 +21,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn workspace_root() -> PathBuf {
-    test_support::dev::find_workspace_root()
+    nuo_test_support::dev::find_workspace_root()
 }
 
 fn read(path: &Path) -> String {
@@ -61,12 +61,12 @@ fn rust_files(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn inv_ctxsrc_07_one_budget_vocabulary() {
     let root = workspace_root();
-    let engine = root.join("crates/engine/src");
+    let engine = root.join("crates/nuo-engine/src");
     let mut violations = Vec::new();
 
     // The retired module must stay deleted.
     if engine.join("cognition/budget").exists() {
-        violations.push("crates/engine/src/cognition/budget was reintroduced".to_string());
+        violations.push("crates/nuo-engine/src/cognition/budget was reintroduced".to_string());
     }
 
     // A threshold derived from the window is `window * fraction`. A percentage
@@ -90,7 +90,7 @@ fn inv_ctxsrc_07_one_budget_vocabulary() {
         for (number, line) in production.lines().enumerate() {
             if THRESHOLD.is_match(line) {
                 violations.push(format!(
-                    "{rel}:{}: derives a threshold from the window outside protocol::pressure",
+                    "{rel}:{}: derives a threshold from the window outside nuo_protocol::pressure",
                     number + 1
                 ));
             }
@@ -112,7 +112,7 @@ fn inv_ctxsrc_07_one_budget_vocabulary() {
 #[test]
 fn inv_toolsurface_01_no_tool_name_branch_in_context_sources() {
     let root = workspace_root();
-    let context = root.join("crates/engine/src/cognition/context");
+    let context = root.join("crates/nuo-engine/src/cognition/context");
     let mut violations = Vec::new();
     for path in rust_files(&context) {
         // `tests.rs` is the module's own test suite: a test double resolves its
@@ -153,7 +153,7 @@ fn inv_toolsurface_01_no_tool_name_branch_in_context_sources() {
 #[test]
 fn inv_ctxsrc_06_every_context_input_has_a_reader() {
     let root = workspace_root();
-    let inputs = read(&root.join("crates/engine/src/cognition/context/inputs.rs"));
+    let inputs = read(&root.join("crates/nuo-engine/src/cognition/context/inputs.rs"));
 
     // The field names of `ContextInputs`, in declaration order.
     let mut fields = Vec::new();
@@ -180,7 +180,7 @@ fn inv_ctxsrc_06_every_context_input_has_a_reader() {
         "the ContextInputs field scan found only {fields:?}"
     );
 
-    let engine = root.join("crates/engine/src");
+    let engine = root.join("crates/nuo-engine/src");
     let mut readers = Vec::new();
     for path in rust_files(&engine) {
         if path.ends_with("inputs.rs") {
@@ -214,7 +214,7 @@ fn inv_ctxsrc_06_every_context_input_has_a_reader() {
 #[test]
 fn inv_ctxsrc_06_every_context_submodule_is_declared() {
     let root = workspace_root();
-    let context = root.join("crates/engine/src/cognition/context");
+    let context = root.join("crates/nuo-engine/src/cognition/context");
     let module = read(&context.join("mod.rs"));
     let mut violations = Vec::new();
     for path in rust_files(&context) {
@@ -225,7 +225,7 @@ fn inv_ctxsrc_06_every_context_submodule_is_declared() {
         let declared = module.contains(&format!("mod {stem};"));
         if !declared {
             violations.push(format!(
-                "crates/engine/src/cognition/context/{stem}.rs is not declared in mod.rs"
+                "crates/nuo-engine/src/cognition/context/{stem}.rs is not declared in mod.rs"
             ));
         }
     }
@@ -245,8 +245,8 @@ fn inv_ctxplan_03_persisted_projection_carries_no_volatile_hash() {
     let root = workspace_root();
     let mut violations = Vec::new();
     for file in [
-        "crates/protocol/src/request_projection.rs",
-        "crates/protocol/src/context/plan.rs",
+        "crates/nuo-protocol/src/request_projection.rs",
+        "crates/nuo-protocol/src/context/plan.rs",
     ] {
         let source = read(&root.join(file));
         if source.contains("DefaultHasher") {
@@ -269,7 +269,7 @@ fn inv_ctxplan_03_persisted_projection_carries_no_volatile_hash() {
 #[test]
 fn inv_ctxplan_01_the_assembler_builds_from_a_plan() {
     let root = workspace_root();
-    let assembler = read(&root.join("crates/engine/src/cognition/model_request/mod.rs"));
+    let assembler = read(&root.join("crates/nuo-engine/src/cognition/model_request/mod.rs"));
     assert!(
         assembler.contains("plan.fixed"),
         "the request must be built from the measured plan ([INV-CTXPLAN-01])"
@@ -278,7 +278,7 @@ fn inv_ctxplan_01_the_assembler_builds_from_a_plan() {
         !assembler.contains("policy.plan(") || assembler.contains("fn plan("),
         "the assembler measures once; a second measurement would be a second truth"
     );
-    let policy_file = read(&root.join("crates/engine/src/cognition/context/registry.rs"));
+    let policy_file = read(&root.join("crates/nuo-engine/src/cognition/context/registry.rs"));
     assert!(
         policy_file.contains("fn plan_with_ceiling"),
         "the policy owns measurement"
@@ -298,10 +298,10 @@ fn inv_ctxplan_06_the_rendered_body_is_never_durable() {
     let mut violations = Vec::new();
 
     for file in [
-        "crates/protocol/src/request_projection.rs",
-        "crates/protocol/src/transcript.rs",
-        "crates/protocol/src/context/plan.rs",
-        "crates/persistence/src/db/usage_projection.rs",
+        "crates/nuo-protocol/src/request_projection.rs",
+        "crates/nuo-protocol/src/transcript.rs",
+        "crates/nuo-protocol/src/context/plan.rs",
+        "crates/nuo-persistence/src/db/usage_projection.rs",
     ] {
         let source = read(&root.join(file));
         for needle in ["PlannedBlockView", "ContextPlanView"] {
@@ -314,7 +314,7 @@ fn inv_ctxplan_06_the_rendered_body_is_never_durable() {
     // The transport type may not assert a body field on the engine row either:
     // a `pub body: String` there is how the rendered prompt would find its way
     // into a record nobody re-reads.
-    let plan = read(&root.join("crates/protocol/src/context/plan.rs"));
+    let plan = read(&root.join("crates/nuo-protocol/src/context/plan.rs"));
     let block_struct = plan
         .split("pub struct PlannedBlock {")
         .nth(1)
@@ -345,9 +345,9 @@ fn inv_ctxplan_07_no_reader_re_measures_a_plan() {
     // Every reader that renders a plan out of process.
     for file in [
         "crates/nuo/src/shell/overlays/context_plan.rs",
-        "crates/engine/src/cognition/context/inspect.rs",
-        "crates/server/src/handlers/handlers_thread.rs",
-        "crates/server/src/handlers/handlers_slash/commands/misc.rs",
+        "crates/nuo-engine/src/cognition/context/inspect.rs",
+        "crates/nuo-server/src/handlers/handlers_thread.rs",
+        "crates/nuo-server/src/handlers/handlers_slash/commands/misc.rs",
     ] {
         let source = read(&root.join(file));
         let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
@@ -374,7 +374,7 @@ fn production_source(path: &Path) -> String {
         .to_owned()
 }
 
-/// `[INV-ENVELOPE-01]` (ADR-0226): no file outside `tool::envelope` writes
+/// `[INV-ENVELOPE-01]` (ADR-0226): no file outside `nuo_tool::envelope` writes
 /// message markup with `format!`.
 ///
 /// Six hand-written `format!` calls were how two readers drifted from their
@@ -393,7 +393,7 @@ fn inv_envelope_01_no_injection_site_writes_markup_by_hand() {
         if rel.contains("/tests/")
             || rel.ends_with("/tests.rs")
             || rel.ends_with("_tests.rs")
-            || rel.ends_with("crates/tool/src/envelope.rs")
+            || rel.ends_with("crates/nuo-tool/src/envelope.rs")
         {
             continue;
         }
@@ -435,7 +435,7 @@ fn inv_envelope_02_no_reader_searches_for_tag_literals() {
         if rel.contains("/tests/")
             || rel.ends_with("/tests.rs")
             || rel.ends_with("_tests.rs")
-            || rel.ends_with("crates/tool/src/envelope.rs")
+            || rel.ends_with("crates/nuo-tool/src/envelope.rs")
         {
             continue;
         }
@@ -468,9 +468,9 @@ fn inv_toolheader_01_the_header_is_produced_and_read_in_one_place() {
         if rel.contains("/tests/") || rel.ends_with("/tests.rs") || rel.ends_with("_tests.rs") {
             continue;
         }
-        if rel.ends_with("crates/tool/src/tool_result.rs")
-            || rel.ends_with("crates/tool/src/envelope.rs")
-            || rel.ends_with("crates/tool/src/untrusted.rs")
+        if rel.ends_with("crates/nuo-tool/src/tool_result.rs")
+            || rel.ends_with("crates/nuo-tool/src/envelope.rs")
+            || rel.ends_with("crates/nuo-tool/src/untrusted.rs")
         {
             continue;
         }
@@ -513,7 +513,7 @@ fn inv_untrusted_01_one_framing_and_no_prose_format() {
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            if rel.starts_with("docs/") || rel.ends_with("crates/tool/src/untrusted.rs") {
+            if rel.starts_with("docs/") || rel.ends_with("crates/nuo-tool/src/untrusted.rs") {
                 continue;
             }
             let production = production_source(&path);
@@ -527,7 +527,7 @@ fn inv_untrusted_01_one_framing_and_no_prose_format() {
 
     // A context source may name `<untrusted>` and its semantics; it may not
     // describe a bracket fence to the model.
-    let builtin = read(&root.join("crates/engine/src/cognition/context/builtin.rs"));
+    let builtin = read(&root.join("crates/nuo-engine/src/cognition/context/builtin.rs"));
     assert!(
         builtin.contains("<untrusted>"),
         "the security block must name the region the model will see"
@@ -544,7 +544,7 @@ fn inv_untrusted_01_one_framing_and_no_prose_format() {
 #[test]
 fn inv_ctxtopic_01_every_declared_topic_and_key_has_a_producer() {
     let root = workspace_root();
-    let context = root.join("crates/engine/src/cognition/context");
+    let context = root.join("crates/nuo-engine/src/cognition/context");
     let builtin = read(&context.join("builtin.rs"));
     let inputs = read(&context.join("inputs.rs"));
 
@@ -582,7 +582,7 @@ fn inv_ctxtopic_01_every_declared_topic_and_key_has_a_producer() {
 
     // Every `Topic` must be claimed. There is no exception list: ADR-0231
     // withdrew the one reservation this scan used to allow.
-    let protocol = read(&root.join("crates/protocol/src/context/mod.rs"));
+    let protocol = read(&root.join("crates/nuo-protocol/src/context/mod.rs"));
     let mut topics = Vec::new();
     let mut in_topic = false;
     for line in protocol.lines() {
@@ -639,18 +639,18 @@ fn inv_mcp_01_one_client_and_one_adapter() {
 
     // The parallel bridge must stay deleted.
     if root
-        .join("crates/server/src/runtime/mcp/substrate_bridge.rs")
+        .join("crates/nuo-server/src/runtime/mcp/substrate_bridge.rs")
         .exists()
     {
         violations.push(
-            "crates/server/src/runtime/mcp/substrate_bridge.rs: the parallel bridge is back"
+            "crates/nuo-server/src/runtime/mcp/substrate_bridge.rs: the parallel bridge is back"
                 .to_string(),
         );
     }
 
     // Exactly one `impl Tool for` an MCP adapter.
     let mut adapters = Vec::new();
-    for directory in ["crates/mcp/src", "crates/server/src/runtime/mcp"] {
+    for directory in ["crates/mcp/src", "crates/nuo-server/src/runtime/mcp"] {
         for path in rust_files(&root.join(directory)) {
             let source = read(&path);
             if source.contains("impl Tool for Mcp") {
@@ -678,9 +678,9 @@ fn inv_mcp_01_one_client_and_one_adapter() {
 #[test]
 fn inv_skilltool_01_every_resume_names_a_reachable_tool() {
     let root = workspace_root();
-    let builtin = read(&root.join("crates/engine/src/cognition/context/builtin.rs"));
-    let bootstrap = read(&root.join("crates/server/src/composition/bootstrap.rs"));
-    let declared = read(&root.join("crates/tool/src/builtin.rs"));
+    let builtin = read(&root.join("crates/nuo-engine/src/cognition/context/builtin.rs"));
+    let bootstrap = read(&root.join("crates/nuo-server/src/composition/bootstrap.rs"));
+    let declared = read(&root.join("crates/nuo-tool/src/builtin.rs"));
 
     // Every resume target the default policy names.
     let mut resume_targets = Vec::new();
@@ -706,10 +706,10 @@ fn inv_skilltool_01_every_resume_names_a_reachable_tool() {
     //   (b) a production `Tool` impl declares the matching `BuiltinTool` variant
     //       and the root wires that crate's factory.
     let tool_crates = [
-        "crates/tool-fs/src",
-        "crates/tool-exec/src",
-        "crates/tool-ast/src",
-        "crates/engine/src/cognition/skills",
+        "crates/nuo-tool-fs/src",
+        "crates/nuo-tool-exec/src",
+        "crates/nuo-tool-ast/src",
+        "crates/nuo-engine/src/cognition/skills",
     ]
     .iter()
     .flat_map(|directory| rust_files(&root.join(directory)))
@@ -766,7 +766,7 @@ fn inv_skilltool_01_every_resume_names_a_reachable_tool() {
 #[test]
 fn inv_inject_01_every_injection_kind_has_a_producer() {
     let root = workspace_root();
-    let declared = read(&root.join("crates/tool/src/message.rs"));
+    let declared = read(&root.join("crates/nuo-tool/src/message.rs"));
     let all = declared
         .split("pub const ALL: &'static [InjectionKind] = &[")
         .nth(1)
@@ -868,12 +868,12 @@ fn the_producer_scan_rejects_a_dead_variant() {
 ///
 /// `Tag::SystemReminder` and `Tag::Checkpoint` shipped with no door that could
 /// produce them; `Checkpoint` then kept a hand-written checkpoint format alive in
-/// `protocol` for a release. The tag vocabulary is the set of regions the harness
+/// `nuo-protocol` for a release. The tag vocabulary is the set of regions the harness
 /// can actually emit, and this scan says so.
 #[test]
 fn inv_envelope_07_every_tag_has_a_producer() {
     let root = workspace_root();
-    let envelope = read(&root.join("crates/tool/src/envelope.rs"));
+    let envelope = read(&root.join("crates/nuo-tool/src/envelope.rs"));
     let all = envelope
         .split("pub const ALL: &'static [Tag] = &[")
         .nth(1)
@@ -897,7 +897,7 @@ fn inv_envelope_07_every_tag_has_a_producer() {
         // declaration, the parser, and diagnostics; only `Envelope::new(…)`
         // proves a door can emit it.
         let direct = format!("Envelope::new(Tag::{tag})");
-        let qualified = format!("Envelope::new(tool::Tag::{tag})");
+        let qualified = format!("Envelope::new(nuo_tool::Tag::{tag})");
         if !corpus.contains(&direct) && !corpus.contains(&qualified) {
             violations.push(format!(
                 "`Tag::{tag}` has no production constructor (`Envelope::new` never opens it)"
@@ -917,16 +917,16 @@ fn inv_envelope_07_every_tag_has_a_producer() {
 /// definition, so leaving it in would let each member vouch for itself and the
 /// scan would pass on an empty codebase.
 fn production_corpus_without_all(root: &Path, extra: &[&str]) -> String {
-    // `crates/tool/src` is included on purpose: it *owns* the declarations and is
+    // `crates/nuo-tool/src` is included on purpose: it *owns* the declarations and is
     // also where some producers live (`untrusted::frame`). The `ALL` blocks are
     // stripped below, so the declaration cannot vouch for itself.
     let mut directories = vec![
-        "crates/tool/src",
-        "crates/engine/src",
-        "crates/protocol/src",
-        "crates/server/src",
+        "crates/nuo-tool/src",
+        "crates/nuo-engine/src",
+        "crates/nuo-protocol/src",
+        "crates/nuo-server/src",
         "crates/nuo/src",
-        "crates/persistence/src",
+        "crates/nuo-persistence/src",
     ];
     directories.extend_from_slice(extra);
 

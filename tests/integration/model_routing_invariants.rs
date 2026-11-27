@@ -1,6 +1,6 @@
 //! `[INV-ROUTING-01]` enforcement (ADR-0082, ADR-0102).
 //!
-//! "The model-routing pipeline exists in exactly one crate (`model-routing`);
+//! "The nuo-model-routing pipeline exists in exactly one crate (`nuo-model-routing`);
 //! consumers import it directly and MUST NOT host a duplicate module or re-export
 //! it as a local path shim."
 //!
@@ -57,7 +57,7 @@ fn pipeline_is_defined_in_exactly_one_crate() {
 
     assert_eq!(
         definers,
-        vec!["model-routing".to_string()],
+        vec!["nuo-model-routing".to_string()],
         "the routing pipeline (`{CANONICAL_ENTRYPOINT}`) must be defined in exactly one crate [INV-ROUTING-01]; found in: {definers:?}"
     );
 }

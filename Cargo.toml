@@ -133,81 +133,81 @@ mockito = "1"
 tempfile = "3"
 
 # ACP & Substrates
-acp = { version = "0.0.104", path = "crates/acp" }
-tool = { version = "0.0.104", path = "crates/tool" }
-tool-derive = { version = "0.0.104", path = "crates/tool-derive" }
-provider = { version = "0.0.104", path = "crates/provider" }
-provider-qoder = { version = "0.0.104", path = "crates/provider-qoder" }
-provider-catalog = { version = "0.0.104", path = "crates/provider-catalog" }
-provider-anthropic = { version = "0.0.104", path = "crates/provider-anthropic" }
-provider-google-antigravity = { version = "0.0.104", path = "crates/provider-google-antigravity" }
-provider-openai = { version = "0.0.104", path = "crates/provider-openai" }
-provider-chatgpt-plan = { version = "0.0.104", path = "crates/provider-chatgpt-plan" }
-provider-deepseek = { version = "0.0.104", path = "crates/provider-deepseek" }
-provider-kimi = { version = "0.0.104", path = "crates/provider-kimi" }
-provider-copilot = { version = "0.0.104", path = "crates/provider-copilot" }
-provider-commandcode-goat = { version = "0.0.104", path = "crates/provider-commandcode-goat" }
-provider-opencode-go = { version = "0.0.104", path = "crates/provider-opencode-go" }
-provider-opencode-zen = { version = "0.0.104", path = "crates/provider-opencode-zen" }
-provider-opendesign-go = { version = "0.0.104", path = "crates/provider-opendesign-go" }
-provider-openrouter = { version = "0.0.104", path = "crates/provider-openrouter" }
-provider-xai = { version = "0.0.104", path = "crates/provider-xai" }
-provider-qianwen = { version = "0.0.104", path = "crates/provider-qianwen" }
-provider-glm-cn = { version = "0.0.104", path = "crates/provider-glm-cn" }
-provider-codebuddy = { version = "0.0.104", path = "crates/provider-codebuddy" }
-inference-wire = { version = "0.0.104", path = "crates/inference-wire", default-features = false }
+nuo-acp = { version = "0.0.104", path = "crates/nuo-acp" }
+nuo-tool = { version = "0.0.104", path = "crates/nuo-tool" }
+nuo-tool-derive = { version = "0.0.104", path = "crates/nuo-tool-derive" }
+nuo-provider = { version = "0.0.104", path = "crates/nuo-provider" }
+nuo-provider-qoder = { version = "0.0.104", path = "crates/nuo-provider-qoder" }
+nuo-provider-catalog = { version = "0.0.104", path = "crates/nuo-provider-catalog" }
+nuo-provider-anthropic = { version = "0.0.104", path = "crates/nuo-provider-anthropic" }
+nuo-provider-google-antigravity = { version = "0.0.104", path = "crates/nuo-provider-google-antigravity" }
+nuo-provider-openai = { version = "0.0.104", path = "crates/nuo-provider-openai" }
+nuo-provider-chatgpt-plan = { version = "0.0.104", path = "crates/nuo-provider-chatgpt-plan" }
+nuo-provider-deepseek = { version = "0.0.104", path = "crates/nuo-provider-deepseek" }
+nuo-provider-kimi = { version = "0.0.104", path = "crates/nuo-provider-kimi" }
+nuo-provider-copilot = { version = "0.0.104", path = "crates/nuo-provider-copilot" }
+nuo-provider-commandcode-goat = { version = "0.0.104", path = "crates/nuo-provider-commandcode-goat" }
+nuo-provider-opencode-go = { version = "0.0.104", path = "crates/nuo-provider-opencode-go" }
+nuo-provider-opencode-zen = { version = "0.0.104", path = "crates/nuo-provider-opencode-zen" }
+nuo-provider-opendesign-go = { version = "0.0.104", path = "crates/nuo-provider-opendesign-go" }
+nuo-provider-openrouter = { version = "0.0.104", path = "crates/nuo-provider-openrouter" }
+nuo-provider-xai = { version = "0.0.104", path = "crates/nuo-provider-xai" }
+nuo-provider-qianwen = { version = "0.0.104", path = "crates/nuo-provider-qianwen" }
+nuo-provider-glm-cn = { version = "0.0.104", path = "crates/nuo-provider-glm-cn" }
+nuo-provider-codebuddy = { version = "0.0.104", path = "crates/nuo-provider-codebuddy" }
+nuo-inference-wire = { version = "0.0.104", path = "crates/nuo-inference-wire", default-features = false }
 # Dev-only: hermetic E2E harness (sandboxed NUO_HOME, mock provider, CLI
 # runner). Never a shipped dependency; `tests/integration/governance/test_architecture.rs`
 # enforces that it stays under `[dev-dependencies]`.
-test-support = { version = "0.0.104", path = "crates/test-support" }
+nuo-test-support = { version = "0.0.104", path = "crates/nuo-test-support" }
 
 # Terminal Substrate (Graticule)
 graticule = "0.0.2"
 graticule-canvas = "0.0.2"
 
 # In-house Nuo crates
-protocol = { version = "0.0.104", path = "crates/protocol" }
+nuo-protocol = { version = "0.0.104", path = "crates/nuo-protocol" }
 nuo = { version = "0.0.104", path = "crates/nuo" }
-server = { version = "0.0.104", path = "crates/server" }
-persistence = { version = "0.0.104", path = "crates/persistence" }
-ui-primitives = { version = "0.0.104", path = "crates/ui-primitives" }
-view = { version = "0.0.104", path = "crates/view" }
-host = { version = "0.0.104", path = "crates/host" }
-engine = { version = "0.0.104", path = "crates/engine" }
-guardrails = { version = "0.0.104", path = "crates/guardrails" }
-model-routing = { version = "0.0.104", path = "crates/model-routing" }
-tool-fs = { version = "0.0.104", path = "crates/tool-fs" }
-tool-exec = { version = "0.0.104", path = "crates/tool-exec" }
-tool-web = { version = "0.0.104", path = "crates/tool-web" }
-tool-ast = { version = "0.0.104", path = "crates/tool-ast" }
+nuo-server = { version = "0.0.104", path = "crates/nuo-server" }
+nuo-persistence = { version = "0.0.104", path = "crates/nuo-persistence" }
+nuo-ui-primitives = { version = "0.0.104", path = "crates/nuo-ui-primitives" }
+nuo-view = { version = "0.0.104", path = "crates/nuo-view" }
+nuo-host = { version = "0.0.104", path = "crates/nuo-host" }
+nuo-engine = { version = "0.0.104", path = "crates/nuo-engine" }
+nuo-guardrails = { version = "0.0.104", path = "crates/nuo-guardrails" }
+nuo-model-routing = { version = "0.0.104", path = "crates/nuo-model-routing" }
+nuo-tool-fs = { version = "0.0.104", path = "crates/nuo-tool-fs" }
+nuo-tool-exec = { version = "0.0.104", path = "crates/nuo-tool-exec" }
+nuo-tool-web = { version = "0.0.104", path = "crates/nuo-tool-web" }
+nuo-tool-ast = { version = "0.0.104", path = "crates/nuo-tool-ast" }
 
 # The root test host links every crate whose public surface the integration
 # and E2E suites exercise. All edges are dev-only; `nuo-tests` is not shipped.
 [dev-dependencies]
 nuo = { workspace = true }
-acp = { workspace = true }
-engine = { workspace = true }
-host = { workspace = true }
-inference-wire = { workspace = true }
-model-routing = { workspace = true }
-persistence = { workspace = true, features = ["test-path-override"] }
-protocol = { workspace = true }
-provider = { workspace = true }
-provider-anthropic = { workspace = true }
-provider-catalog = { workspace = true }
-provider-chatgpt-plan = { workspace = true }
-provider-google-antigravity = { workspace = true }
-provider-openai = { workspace = true }
-provider-qoder = { workspace = true }
-server = { workspace = true }
-test-support = { workspace = true }
-tool = { workspace = true }
-tool-exec = { workspace = true }
-tool-fs = { workspace = true }
-tool-ast = { workspace = true }
-tool-web = { workspace = true }
-guardrails = { workspace = true }
-view = { workspace = true }
+nuo-acp = { workspace = true }
+nuo-engine = { workspace = true }
+nuo-host = { workspace = true }
+nuo-inference-wire = { workspace = true }
+nuo-model-routing = { workspace = true }
+nuo-persistence = { workspace = true, features = ["test-path-override"] }
+nuo-protocol = { workspace = true }
+nuo-provider = { workspace = true }
+nuo-provider-anthropic = { workspace = true }
+nuo-provider-catalog = { workspace = true }
+nuo-provider-chatgpt-plan = { workspace = true }
+nuo-provider-google-antigravity = { workspace = true }
+nuo-provider-openai = { workspace = true }
+nuo-provider-qoder = { workspace = true }
+nuo-server = { workspace = true }
+nuo-test-support = { workspace = true }
+nuo-tool = { workspace = true }
+nuo-tool-exec = { workspace = true }
+nuo-tool-fs = { workspace = true }
+nuo-tool-ast = { workspace = true }
+nuo-tool-web = { workspace = true }
+nuo-guardrails = { workspace = true }
+nuo-view = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 futures = { workspace = true }

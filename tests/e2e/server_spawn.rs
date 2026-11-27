@@ -9,13 +9,13 @@ use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use persistence::thread::ThreadSession;
-use server::runtime::monitor::MonitorTracker;
-use server::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_persistence::thread::ThreadSession;
+use nuo_server::runtime::monitor::MonitorTracker;
+use nuo_server::runtime::registry::{HostedThread, ThreadRegistry};
 use tokio::sync::{Mutex, broadcast, mpsc};
 
 fn nuo_binary() -> PathBuf {
-    test_support::binary_path().expect("the nextest e2e profile setup must export NUO_TEST_BIN")
+    nuo_test_support::binary_path().expect("the nextest e2e profile setup must export NUO_TEST_BIN")
 }
 
 struct ServerCleanup {
@@ -113,7 +113,7 @@ async fn spawned_server_inherits_the_nuo_home_sandbox() {
     let record = loop {
         if let Ok(bytes) = std::fs::read(&own_record)
             && let Ok(record) =
-                serde_json::from_slice::<server::transport::serve_discovery::Discovery>(&bytes)
+                serde_json::from_slice::<nuo_server::transport::serve_discovery::Discovery>(&bytes)
         {
             break record;
         }
@@ -155,7 +155,7 @@ async fn spawned_server_inherits_the_nuo_home_sandbox() {
 
 async fn host_idle_thread(registry: &ThreadRegistry, project: &Path) -> String {
     let session = Arc::new(ThreadSession::for_workspace(
-        Some(protocol::WorkspaceBinding::new(project)),
+        Some(nuo_protocol::WorkspaceBinding::new(project)),
         Some("developer".to_string()),
     ));
     host_thread(registry, session, project, "developer").await
@@ -168,29 +168,31 @@ async fn host_thread(
     role: &str,
 ) -> String {
     let id = session.id().await;
-    let (req_tx, _req_rx) = mpsc::channel::<protocol::AgentRequest>(64);
-    let (events, _) = broadcast::channel::<protocol::AgentResponse>(16);
-    let mut base = protocol::MonitoredThread::empty(id.clone());
+    let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(64);
+    let (events, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
+    let mut base = nuo_protocol::MonitoredThread::empty(id.clone());
     base.project_root = project.display().to_string();
     base.role = role.to_string();
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         base,
-        protocol::ThreadActivity::Idle,
+        nuo_protocol::ThreadActivity::Idle,
     )));
     registry
         .host(HostedThread {
             workspace_root: Some(project.to_path_buf()),
-            human_channel: Arc::new(protocol::human_request::HumanChannelAccountant::new()),
-            security: Arc::new(persistence::workspace_security::WorkspaceSecurityStore::load()),
+            human_channel: Arc::new(nuo_protocol::human_request::HumanChannelAccountant::new()),
+            security: Arc::new(nuo_persistence::workspace_security::WorkspaceSecurityStore::load()),
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events,
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new())),
-            command_catalog: tool::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: Instant::now(),
@@ -243,8 +245,8 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     }
     assert_eq!(registry.session_count().await, 3);
 
-    let mut handle = server::transport::serve::start_server(
-        server::transport::serve::ServeOptions::default(),
+    let mut handle = nuo_server::transport::serve::start_server(
+        nuo_server::transport::serve::ServeOptions::default(),
         registry.clone(),
     );
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
@@ -254,14 +256,14 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     // it is the process actually serving `port` from the in-process server.
     let instance_dir = home.join("nuo").join("instance");
     std::fs::create_dir_all(&instance_dir).unwrap();
-    let record = server::transport::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: std::process::id(),
         port,
         token: None,
         project_root: project.display().to_string(),
         started_at: 0,
-        version: Some(server::transport::serve::server_version().to_string()),
-        protocol: Some(protocol::PROTOCOL_VERSION),
+        version: Some(nuo_server::transport::serve::server_version().to_string()),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         ..Default::default()
     };
     std::fs::write(
@@ -314,7 +316,7 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     );
     assert_eq!(registry.session_count().await, 0);
     let snapshot = registry
-        .monitor_snapshot(protocol::MonitorAction {
+        .monitor_snapshot(nuo_protocol::MonitorAction {
             watch: false,
             include_idle: true,
         })
@@ -356,31 +358,34 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     .unwrap();
 
     let dev_store = ThreadSession::for_workspace(
-        Some(protocol::WorkspaceBinding::new(&project)),
+        Some(nuo_protocol::WorkspaceBinding::new(&project)),
         Some("developer".to_string()),
     );
     let dev_id = dev_store.id().await;
     dev_store
-        .replace_messages(vec![tool::Message::new(
-            tool::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "developer history",
         )])
         .await
         .unwrap();
 
     let coder_store = ThreadSession::for_workspace(
-        Some(protocol::WorkspaceBinding::new(&project)),
+        Some(nuo_protocol::WorkspaceBinding::new(&project)),
         Some("coder".to_string()),
     );
     let coder_id = coder_store.id().await;
     coder_store
-        .replace_messages(vec![tool::Message::new(tool::Role::User, "coder history")])
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
+            "coder history",
+        )])
         .await
         .unwrap();
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
-    let mut handle = server::transport::serve::start_server(
-        server::transport::serve::ServeOptions::default(),
+    let mut handle = nuo_server::transport::serve::start_server(
+        nuo_server::transport::serve::ServeOptions::default(),
         registry,
     );
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
@@ -388,14 +393,14 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
 
     let instance_dir = home.join("nuo").join("instance");
     std::fs::create_dir_all(&instance_dir).unwrap();
-    let record = server::transport::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: std::process::id(),
         port,
         token: None,
         project_root: project.display().to_string(),
         started_at: 0,
-        version: Some(server::transport::serve::server_version().to_string()),
-        protocol: Some(protocol::PROTOCOL_VERSION),
+        version: Some(nuo_server::transport::serve::server_version().to_string()),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         ..Default::default()
     };
     std::fs::write(
@@ -418,7 +423,7 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     )
     .await;
     assert!(output.status.success());
-    let rows: Vec<protocol::MonitoredThread> = serde_json::from_slice(&output.stdout).unwrap();
+    let rows: Vec<nuo_protocol::MonitoredThread> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(rows.len(), 1, "rows: {rows:?}");
     assert_eq!(rows[0].id, dev_id);
     assert_eq!(rows[0].role, "developer");
@@ -434,7 +439,8 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
     )
     .await;
     assert!(output.status.success());
-    let all_roles: Vec<protocol::MonitoredThread> = serde_json::from_slice(&output.stdout).unwrap();
+    let all_roles: Vec<nuo_protocol::MonitoredThread> =
+        serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(all_roles.len(), 2, "rows: {all_roles:?}");
 
     // Developer purge must not touch the coder thread in the same workspace.
@@ -452,7 +458,7 @@ async fn thread_ls_and_rm_are_role_scoped_and_durable() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let handle = persistence::db::get_persistence_handle();
+    let handle = nuo_persistence::db::get_persistence_handle();
     let reader = handle.reader().unwrap();
     assert!(
         reader.get_session(&dev_id).unwrap().is_none(),
@@ -492,12 +498,12 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
     std::fs::create_dir_all(&project).unwrap();
 
     let store = Arc::new(ThreadSession::for_workspace(
-        Some(protocol::WorkspaceBinding::new(&project)),
+        Some(nuo_protocol::WorkspaceBinding::new(&project)),
         Some("developer".to_string()),
     ));
     store
-        .replace_messages(vec![tool::Message::new(
-            tool::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "keep me across stop",
         )])
         .await
@@ -507,8 +513,8 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
     let id = host_thread(&registry, store, &project, "developer").await;
     assert_eq!(registry.session_count().await, 1);
 
-    let mut handle = server::transport::serve::start_server(
-        server::transport::serve::ServeOptions::default(),
+    let mut handle = nuo_server::transport::serve::start_server(
+        nuo_server::transport::serve::ServeOptions::default(),
         registry.clone(),
     );
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
@@ -516,14 +522,14 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
 
     let instance_dir = home.join("nuo").join("instance");
     std::fs::create_dir_all(&instance_dir).unwrap();
-    let record = server::transport::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: std::process::id(),
         port,
         token: None,
         project_root: project.display().to_string(),
         started_at: 0,
-        version: Some(server::transport::serve::server_version().to_string()),
-        protocol: Some(protocol::PROTOCOL_VERSION),
+        version: Some(nuo_server::transport::serve::server_version().to_string()),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         ..Default::default()
     };
     std::fs::write(
@@ -550,7 +556,9 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(registry.session_count().await, 0, "driver must be stopped");
-    let reader = persistence::db::get_persistence_handle().reader().unwrap();
+    let reader = nuo_persistence::db::get_persistence_handle()
+        .reader()
+        .unwrap();
     assert!(
         reader.get_session(&id).unwrap().is_some(),
         "stop must retain durable history"
@@ -567,7 +575,9 @@ async fn thread_stop_keeps_history_but_rm_deletes_it() {
     )
     .await;
     assert!(output.status.success());
-    let reader = persistence::db::get_persistence_handle().reader().unwrap();
+    let reader = nuo_persistence::db::get_persistence_handle()
+        .reader()
+        .unwrap();
     assert!(
         reader.get_session(&id).unwrap().is_none(),
         "rm must delete durable history"
@@ -584,9 +594,9 @@ async fn real_server_fails_fast_on_tampered_database_checksum() {
     let own_root = own.path().to_path_buf();
     let db_path = own_root.join("nuo").join("data").join("nuo.db");
     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
-    persistence::db::migrations::test_fixtures::create_nuo_db_at_version(&db_path, 1, None)
+    nuo_persistence::db::migrations::test_fixtures::create_nuo_db_at_version(&db_path, 1, None)
         .unwrap();
-    persistence::db::migrations::test_fixtures::tamper_migration_checksum(
+    nuo_persistence::db::migrations::test_fixtures::tamper_migration_checksum(
         &db_path,
         1,
         "bad-checksum",
@@ -627,7 +637,7 @@ async fn real_server_migrates_v1_database_with_backup_and_reaches_ready() {
     let own_root = own.path().to_path_buf();
     let db_path = own_root.join("nuo").join("data").join("nuo.db");
     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
-    persistence::db::migrations::test_fixtures::create_nuo_db_at_version(&db_path, 1, None)
+    nuo_persistence::db::migrations::test_fixtures::create_nuo_db_at_version(&db_path, 1, None)
         .unwrap();
 
     let cli = nuo_binary();
@@ -639,7 +649,7 @@ async fn real_server_migrates_v1_database_with_backup_and_reaches_ready() {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    host::process::configure_server_std(&mut command);
+    nuo_host::process::configure_server_std(&mut command);
 
     let mut child = command.spawn().expect("spawn real server on v1 db");
     let pid = child.id();
@@ -681,7 +691,7 @@ async fn real_server_migrates_v1_database_with_backup_and_reaches_ready() {
 
     // Mandatory pre-migration backup (ADR-0191) must exist beside nuo.db.
     let backups =
-        persistence::db::migrations::test_fixtures::find_pre_migration_backups(&db_path, 2)
+        nuo_persistence::db::migrations::test_fixtures::find_pre_migration_backups(&db_path, 2)
             .unwrap();
     assert!(
         !backups.is_empty(),

@@ -3,8 +3,8 @@ use graticule::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
-use view::model::layout::{LayoutMap, SemanticCursor};
-use view::model::selection::SelectionDrag;
+use nuo_view::model::layout::{LayoutMap, SemanticCursor};
+use nuo_view::model::selection::SelectionDrag;
 
 use super::InputAction;
 use super::readline::{
@@ -1024,7 +1024,7 @@ fn text_input_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputActio
                 // on the returned `Backspace` action, which drops
                 // the orphaned entry from `pending_images` /
                 // `pending_text_pastes` and relabels survivors.
-                if let Some((start, end)) = view::composer_attachments::chip_range_for_backspace(
+                if let Some((start, end)) = nuo_view::composer_attachments::chip_range_for_backspace(
                     router.input,
                     *router.cursor_position,
                 ) {
@@ -1054,7 +1054,7 @@ fn text_input_action(router: &mut MotionRouter<'_>, key: KeyEvent) -> InputActio
             if edits_input_field(&router.dispatch, router.modal_keys)
                 && *router.cursor_position < router.input.len()
             {
-                if let Some((start, end)) = view::composer_attachments::chip_range_for_delete(
+                if let Some((start, end)) = nuo_view::composer_attachments::chip_range_for_delete(
                     router.input,
                     *router.cursor_position,
                 ) {
@@ -1290,7 +1290,7 @@ pub fn resolve_block(layout_map: &LayoutMap, x: u16, y: u16) -> Option<(usize, u
         && rect.y <= y
         && y < rect.y + rect.height
     {
-        return Some((view::model::layout::INPUT_MSG_IDX, 0));
+        return Some((nuo_view::model::layout::INPUT_MSG_IDX, 0));
     }
     None
 }

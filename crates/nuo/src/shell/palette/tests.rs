@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use graticule::event::{
     Event, KeyCode as CtCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers as CtMods,
 };
-use view::model::layout::{InteractiveTarget, InteractiveTargetKind};
-use view::model::selection::SelectionDrag;
+use nuo_view::model::layout::{InteractiveTarget, InteractiveTargetKind};
+use nuo_view::model::selection::SelectionDrag;
 
 use super::context::{PaletteContext, TabRef};
 use super::entry::{Effect, Section};

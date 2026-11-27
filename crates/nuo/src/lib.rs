@@ -1,10 +1,10 @@
 //! Unified application entrypoint and coordinator for Nuo.
 //!
-//! Consumes the application core through [`server::api`]. The interactive
+//! Consumes the application core through [`nuo_server::api`]. The interactive
 //! terminal shell is an internal module of this binary ([`shell`], ADR-0103 §3,
 //! ADR-0106, ADR-0107) behind the default-on `interactive` feature; the pure
-//! presentation substrates it renders through are the external `ui-primitives`
-//! and `view` crates, which the shell names absolutely so the dependency
+//! presentation substrates it renders through are the external `nuo-ui-primitives`
+//! and `nuo-view` crates, which the shell names absolutely so the dependency
 //! direction is visible at every use site.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the

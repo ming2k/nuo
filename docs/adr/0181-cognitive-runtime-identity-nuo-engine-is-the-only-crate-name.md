@@ -11,11 +11,21 @@ negative_knowledge: true
 
 # 0181. Cognitive Runtime Identity: nuo-engine Is the Only Crate Name
 
-- Status: Accepted; amended 2026-11-25 — the crate is named `engine`, not `nuo-engine`. See "Amendment (2026-11-25)".
+- Status: Accepted; amended 2026-11-25 (crate renamed `engine`) and again 2026-11-27 by [ADR-0269](0269-workspace-crate-identity-nuo-prefix-for-every-library-crate.md) — the crate is `nuo-engine`. See "Amendment (2026-11-27)".
 - Date: 2026-11-14
 - Amends: [ADR-0100](0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md), [ADR-0101](0101-runtime-internal-layering-and-governance-inner-layer.md)
 
-## Amendment (2026-11-25): The `nuo-` Prefix Is Gone
+## Amendment (2026-11-27): The `nuo-` Prefix Is Restored
+
+[ADR-0269](0269-workspace-crate-identity-nuo-prefix-for-every-library-crate.md) restores the prefix on every library crate and records
+the rationale that the 2026-11-25 amendment below lacked. The crate is
+**`nuo-engine`** again: package `nuo-engine`, directory `crates/nuo-engine`,
+path `nuo_engine::`. `guardrails` is `nuo-guardrails`. The decision of this ADR
+is unchanged: one name, no alias. `[INV-ENGINE-01]` and `[INV-ENGINE-02]`
+remain in force. `[INV-NAME-01]` (ADR-0269) extends the no-alias rule to
+dependency tables. The 2026-11-25 amendment below is kept as history.
+
+## Amendment (2026-11-25): The `nuo-` Prefix Is Gone (superseded 2026-11-27)
 
 A later layout change (commit `5c442a3`) removed the `nuo-` prefix from every
 library package, and no ADR records that rename. As a result this crate is

@@ -14,6 +14,7 @@ negative_knowledge: true
 - Status: Accepted
 - Date: 2026-11-14
 - Amends: [ADR-0111](0111-elimination-of-scripts-and-consolidation-of-workspace-governance-into-rust.md)
+- Amended by: [ADR-0269](0269-workspace-crate-identity-nuo-prefix-for-every-library-crate.md) — the retired-crate-name scan matches whole tokens and also retires the unprefixed `crates/<name>` paths.
 
 ## Context and Problem Statement
 

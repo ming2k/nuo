@@ -9,7 +9,7 @@ use crate::shell::render::Theme;
 
 pub(crate) fn build_rounds_table(
     rounds: &[TelemetryRound],
-    round_summaries: &std::collections::HashMap<u64, protocol::RoundSummary>,
+    round_summaries: &std::collections::HashMap<u64, nuo_protocol::RoundSummary>,
     selected_idx: usize,
     width: usize,
     theme: &Theme,
@@ -274,7 +274,7 @@ pub(crate) fn build_turns_table(
             Style::default()
         };
 
-        let turn_label = if !protocol::token_ledger::is_root_actor(&att.actor_id) {
+        let turn_label = if !nuo_protocol::token_ledger::is_root_actor(&att.actor_id) {
             if att.attempt > 1 {
                 format!("sub #{}.{}", att.turn, att.attempt)
             } else {

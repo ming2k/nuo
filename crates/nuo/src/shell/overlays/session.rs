@@ -8,8 +8,8 @@ use unicode_width::UnicodeWidthStr;
 
 use super::common::{one_line, relative_time_at, truncate_ellipsis};
 use crate::shell::render::Theme;
-use ui_primitives::components::options::{ChoiceStyle, ChoiceTone, choice_style};
-use ui_primitives::primitives::{
+use nuo_ui_primitives::components::options::{ChoiceStyle, ChoiceTone, choice_style};
+use nuo_ui_primitives::primitives::{
     FixedModalSpec, FooterHint, FooterHintWithBand, SCROLL_EDGE_MARGIN, breadcrumb_parts,
     draw_scrollbar, keyvocab, modal_area, modal_frame, modal_header, modal_header_parts,
     render_centered_body, render_modal_footer, render_modal_footer_with_extra, resolve_scroll,
@@ -50,7 +50,7 @@ fn absolute_time(ts: u64) -> String {
 /// opens); `session_info_scroll` is that sub-view's own scroll slot.
 /// Properties for rendering the Sessions modal.
 pub struct SessionsModalProps<'a> {
-    pub sessions: &'a [protocol::ThreadOverview],
+    pub sessions: &'a [nuo_protocol::ThreadOverview],
     pub expanded_sessions: Option<&'a std::collections::HashSet<String>>,
     pub selected: usize,
     pub scroll: &'a mut usize,
@@ -58,7 +58,7 @@ pub struct SessionsModalProps<'a> {
     pub startup_picker: bool,
     pub spinner_phase: usize,
     pub session_info_detail: bool,
-    pub session_detail: Option<&'a protocol::ThreadDetail>,
+    pub session_detail: Option<&'a nuo_protocol::ThreadDetail>,
     pub session_info_scroll: &'a mut usize,
     pub sessions_loading: bool,
     pub running_sessions: Option<&'a std::collections::HashSet<String>>,
@@ -74,7 +74,7 @@ pub struct SessionsModalProps<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionPickerItem<'a> {
     /// The thread this row shows.
-    pub session: &'a protocol::ThreadOverview,
+    pub session: &'a nuo_protocol::ThreadOverview,
     /// Nesting depth: `0` for a root, `1` for a direct child, and so on.
     pub depth: usize,
     /// Whether this row is the last of its sibling set in the emitted order —
@@ -98,7 +98,7 @@ pub struct SessionPickerItem<'a> {
 
 impl<'a> SessionPickerItem<'a> {
     /// The thread this row projects.
-    pub fn session(&self) -> &'a protocol::ThreadOverview {
+    pub fn session(&self) -> &'a nuo_protocol::ThreadOverview {
         self.session
     }
 
@@ -152,18 +152,18 @@ impl<'a> SessionPickerItem<'a> {
 /// `expanded_set` names the rows whose children are shown. Collapsed rows still
 /// report their `child_count` so the badge reads `[⑂ 3]` before expanding.
 pub fn project_session_rows<'a>(
-    sessions: &'a [protocol::ThreadOverview],
+    sessions: &'a [nuo_protocol::ThreadOverview],
     expanded_set: Option<&std::collections::HashSet<String>>,
 ) -> Vec<SessionPickerItem<'a>> {
     use std::collections::{HashMap, HashSet};
 
-    let by_id: HashMap<&str, &'a protocol::ThreadOverview> =
+    let by_id: HashMap<&str, &'a nuo_protocol::ThreadOverview> =
         sessions.iter().map(|s| (s.id.as_str(), s)).collect();
 
     // Children indexed by parent id. A row is a child only when its parent is
     // present; otherwise it is an *anchorless* root (handled below).
-    let mut children: HashMap<&str, Vec<&'a protocol::ThreadOverview>> = HashMap::new();
-    let mut roots: Vec<&'a protocol::ThreadOverview> = Vec::new();
+    let mut children: HashMap<&str, Vec<&'a nuo_protocol::ThreadOverview>> = HashMap::new();
+    let mut roots: Vec<&'a nuo_protocol::ThreadOverview> = Vec::new();
     let mut parent_missing: HashSet<&str> = HashSet::new();
 
     for session in sessions {
@@ -186,7 +186,7 @@ pub fn project_session_rows<'a>(
     // Deterministic order: newest creation first, id as the tiebreak so equal
     // timestamps still form a total order. Descending on `created_at` only —
     // `updated_at` is a liveness signal and must not move a row (`[INV-LINEAGE-03]`).
-    let order = |a: &&'a protocol::ThreadOverview, b: &&'a protocol::ThreadOverview| {
+    let order = |a: &&'a nuo_protocol::ThreadOverview, b: &&'a nuo_protocol::ThreadOverview| {
         (b.created_at, a.id.as_str()).cmp(&(a.created_at, b.id.as_str()))
     };
     roots.sort_by(order);
@@ -203,7 +203,7 @@ pub fn project_session_rows<'a>(
     // adversarially long chain must not be able to overflow the render stack).
     // Each frame carries the geometry its children inherit.
     struct Frame<'s> {
-        session: &'s protocol::ThreadOverview,
+        session: &'s nuo_protocol::ThreadOverview,
         depth: usize,
         is_last: bool,
         ancestry: Vec<bool>,
@@ -284,7 +284,7 @@ pub fn project_session_rows<'a>(
     // Walking up from an unvisited row distinguishes them: reaching an emitted
     // row means the chain is sound (just folded); returning to the walk's own
     // starting point means a cycle.
-    let stranded: Vec<&'a protocol::ThreadOverview> = sessions
+    let stranded: Vec<&'a nuo_protocol::ThreadOverview> = sessions
         .iter()
         .filter(|session| !visited.contains(session.id.as_str()))
         .filter(|session| {
@@ -330,8 +330,8 @@ pub fn draw_sessions_modal(
     frame: &mut Frame,
     props: SessionsModalProps<'_>,
     theme: &Theme,
-    selection: &view::model::selection::SelectionState,
-    layout_map: &mut view::model::layout::LayoutMap,
+    selection: &nuo_view::model::selection::SelectionState,
+    layout_map: &mut nuo_view::model::layout::LayoutMap,
 ) -> graticule::Rect {
     let SessionsModalProps {
         sessions,
@@ -394,11 +394,11 @@ pub fn draw_sessions_modal(
         // Selectable document: the detail read-out (session id, title,
         // timestamps, last prompt) is exactly the text a user would want to
         // copy out of this sub-view.
-        let rows: Vec<view::components::selectable_body::SelectableRow> = body
+        let rows: Vec<nuo_view::components::selectable_body::SelectableRow> = body
             .into_iter()
-            .map(view::components::selectable_body::SelectableRow::from_line)
+            .map(nuo_view::components::selectable_body::SelectableRow::from_line)
             .collect();
-        view::components::selectable_body::render_selectable_body(
+        nuo_view::components::selectable_body::render_selectable_body(
             frame,
             f.body,
             &rows,
@@ -589,7 +589,7 @@ fn short_id(id: &str) -> String {
 /// Build the session-info sub-view body: a label/value read-out (id, title,
 /// created/last-active timestamps, message count) followed by the full last
 /// effective user prompt, wrapped to the modal width.
-fn detail_body(detail: &protocol::ThreadDetail, theme: &Theme) -> Vec<Line<'static>> {
+fn detail_body(detail: &nuo_protocol::ThreadDetail, theme: &Theme) -> Vec<Line<'static>> {
     let label = Style::default().fg(theme.dim());
     let value = Style::default().fg(theme.fg());
     let kv = |k: &str, v: String| {

@@ -1,12 +1,12 @@
 //! Thread Stats overview: context window, thread token totals, streaming performance.
 
 use graticule::{Line, Modifier, Span, Style};
-use protocol::TokenSourceReport;
+use nuo_protocol::TokenSourceReport;
 
 use super::model::*;
 use crate::shell::render::Theme;
-use ui_primitives::components::detail::DetailLayout;
-use view::components::selectable_body::SelectableRow;
+use nuo_ui_primitives::components::detail::DetailLayout;
+use nuo_view::components::selectable_body::SelectableRow;
 
 pub(crate) fn build_overview_body(
     report: &TokenSourceReport,

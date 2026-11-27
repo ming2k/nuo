@@ -40,7 +40,7 @@ fn draw_composer_records_composer_rect_enabling_whole_component_focus() {
     assert_eq!(
         target_row0,
         crate::shell::interaction::ClickTarget::InputBox {
-            cursor: view::model::layout::SemanticCursor::new(INPUT_MSG_IDX, 0, 0)
+            cursor: nuo_view::model::layout::SemanticCursor::new(INPUT_MSG_IDX, 0, 0)
         }
     );
 
@@ -60,7 +60,7 @@ fn draw_composer_records_composer_rect_enabling_whole_component_focus() {
     assert_eq!(
         target_row2,
         crate::shell::interaction::ClickTarget::InputBox {
-            cursor: view::model::layout::SemanticCursor::new(INPUT_MSG_IDX, 0, 11)
+            cursor: nuo_view::model::layout::SemanticCursor::new(INPUT_MSG_IDX, 0, 11)
         }
     );
 
@@ -69,7 +69,7 @@ fn draw_composer_records_composer_rect_enabling_whole_component_focus() {
     assert_eq!(
         target_row3,
         crate::shell::interaction::ClickTarget::InputBox {
-            cursor: view::model::layout::SemanticCursor::new(INPUT_MSG_IDX, 0, 11)
+            cursor: nuo_view::model::layout::SemanticCursor::new(INPUT_MSG_IDX, 0, 11)
         }
     );
 
@@ -112,9 +112,9 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
         QueueBarProps, TabBarProps, ThreadContext, TranscriptProps, ViewHints, ViewKind,
         calculate_composer_height, draw_transcript,
     };
-    use view::empty_state::EmptyStateGuidance;
-    use view::model::layout::LayoutMap;
-    use view::model::selection::SelectionState;
+    use nuo_view::empty_state::EmptyStateGuidance;
+    use nuo_view::model::layout::LayoutMap;
+    use nuo_view::model::selection::SelectionState;
 
     let width = 80u16;
     let height = 24u16;
@@ -178,7 +178,7 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme: &theme,
-                    layout: view::layout::Strategy::default(),
+                    layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,
                 },
             );
@@ -190,7 +190,7 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                 0,
                 0,
                 width,
-                height.saturating_sub(ui_primitives::design::PAGE_HEADER_ROWS),
+                height.saturating_sub(nuo_ui_primitives::design::PAGE_HEADER_ROWS),
             ),
             input,
         );

@@ -17,8 +17,8 @@ use graticule::{Frame, Line, Modifier, Rect, Span, Style};
 use crate::shell::keymap::{CommandId, GlobalOverrides, SurfaceOverrides, SurfaceVerb};
 use crate::shell::render::Theme;
 use crate::shell::surfaces::SceneKind;
-use ui_primitives::elevation::modal_frame;
-use ui_primitives::primitives::{
+use nuo_ui_primitives::elevation::modal_frame;
+use nuo_ui_primitives::primitives::{
     ContentModalSpec, FooterHint, content_modal_area, modal_header, render_body,
     render_modal_footer,
 };
@@ -370,7 +370,7 @@ pub fn draw_help_modal(
         f.body,
         body_lines,
         scroll,
-        ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
+        nuo_ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
         theme,
     );
 

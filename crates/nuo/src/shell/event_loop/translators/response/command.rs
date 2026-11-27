@@ -1,7 +1,7 @@
 //! Typed slash-command result handling.
 
-use protocol::RoundEvent;
-use view::model::document::TranscriptMessage;
+use nuo_protocol::RoundEvent;
+use nuo_view::model::document::TranscriptMessage;
 
 use super::{E, M, TranslatorState, now_ms};
 
@@ -42,8 +42,8 @@ impl TranslatorState {
                 // top-right notice toast and restore the user's draft.
                 let is_failure = matches!(
                     result,
-                    protocol::CommandResult::Error { .. }
-                        | protocol::CommandResult::UnknownCommand { .. }
+                    nuo_protocol::CommandResult::Error { .. }
+                        | nuo_protocol::CommandResult::UnknownCommand { .. }
                 );
                 // The question is "does this occupy a row?", not "is it a reading?".
                 // A topology change answers no — its row would belong to a thread that did

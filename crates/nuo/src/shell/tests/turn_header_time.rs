@@ -19,7 +19,7 @@
 use super::*;
 use crate::shell::event_loop::TranscriptEdit;
 use crate::shell::event_loop::UiRuntime;
-use ui_primitives::time::sent_time_label;
+use nuo_ui_primitives::time::sent_time_label;
 
 const TURN_MS: u64 = 1_700_000_000_000;
 
@@ -60,7 +60,7 @@ async fn a_component_joining_a_stamped_turn_adopts_its_time() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: protocol::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: thinking,
         },
     );
@@ -104,7 +104,7 @@ async fn adoption_is_scoped_to_the_component_own_turn() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: protocol::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: first,
         },
     );
@@ -146,7 +146,7 @@ async fn an_explicit_stamp_is_never_overwritten() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: protocol::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: thinking,
         },
     );
@@ -186,7 +186,7 @@ async fn an_admitted_turn_band_paints_the_turn_time() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: protocol::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: thinking,
         },
     );
@@ -214,7 +214,7 @@ fn render_grid(messages: &[TranscriptMessage], width: u16, height: u16) -> Strin
     use crate::shell::render::{
         EmptyStateGuidance, QueueBarProps, Theme, TranscriptProps, draw_transcript,
     };
-    use view::model::layout::LayoutMap;
+    use nuo_view::model::layout::LayoutMap;
 
     let theme = Theme::default();
     let selection = SelectionState::default();
@@ -254,7 +254,7 @@ fn render_grid(messages: &[TranscriptMessage], width: u16, height: u16) -> Strin
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );

@@ -20,16 +20,16 @@
 //! Every row is a [`SelectableRow`] under `MODAL_DOC`, so the whole inspector is
 //! drag-selectable and copyable with `Ctrl+Shift+C`.
 use graticule::{Frame, Modifier, Span, Style};
-use protocol::{ContextPlanView, PlannedBlockView, Stability};
-use ui_primitives::components::detail::DetailLayout;
-use ui_primitives::design::MODAL_INNER_H_PADDING;
-use ui_primitives::primitives::{
+use nuo_protocol::{ContextPlanView, PlannedBlockView, Stability};
+use nuo_ui_primitives::components::detail::DetailLayout;
+use nuo_ui_primitives::design::MODAL_INNER_H_PADDING;
+use nuo_ui_primitives::primitives::{
     ContentModalSpec, FooterHint, HeaderPart, content_modal_area, content_modal_probe, keyvocab,
     modal_chrome_rows, modal_frame, modal_header_parts, render_modal_footer,
 };
-use view::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
-use view::model::layout::LayoutMap;
-use view::model::selection::SelectionState;
+use nuo_view::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::selection::SelectionState;
 
 use crate::shell::overlays::common::placeholder;
 use crate::shell::render::Theme;
@@ -343,7 +343,7 @@ fn body_rows(block: &PlannedBlockView, theme: &Theme) -> Vec<SelectableRow> {
 /// block moved with no route change, which is impossible by construction
 /// (`[INV-CTXPLAN-02]`).
 fn drift_row(plan: &ContextPlanView, theme: &Theme) -> SelectableRow {
-    use protocol::PrefixDrift;
+    use nuo_protocol::PrefixDrift;
     let (text, style) = match &plan.drift {
         PrefixDrift::None => (
             "none — the cacheable prefix is byte-identical".to_string(),

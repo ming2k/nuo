@@ -9,7 +9,7 @@
 
 use super::helpers::render_pre_attach_grid;
 use crate::shell::PreAttachState;
-use protocol::{WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_protocol::{WorkspaceSecuritySnapshot, WorkspaceTrustState};
 
 fn snapshot(instructions: WorkspaceTrustState) -> WorkspaceSecuritySnapshot {
     WorkspaceSecuritySnapshot {

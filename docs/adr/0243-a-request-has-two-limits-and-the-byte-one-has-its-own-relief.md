@@ -217,11 +217,11 @@ harness disprove its own confirmed hypothesis.
 
 ## Links
 
-- [`crates/protocol/src/pressure.rs`](../../crates/protocol/src/pressure.rs) —
+- [`crates/protocol/src/pressure.rs`](../../crates/nuo-protocol/src/pressure.rs) —
   `request_wire_size`, `plan_media_offload`, `payload_relief_target`
-- [`crates/protocol/src/error.rs`](../../crates/protocol/src/error.rs) —
+- [`crates/protocol/src/error.rs`](../../crates/nuo-protocol/src/error.rs) —
   `ProviderErrorKind::PayloadTooLarge`, `is_payload_too_large`
-- [`crates/engine/src/orchestration/payload.rs`](../../crates/engine/src/orchestration/payload.rs) —
+- [`crates/engine/src/orchestration/payload.rs`](../../crates/nuo-engine/src/orchestration/payload.rs) —
   artifact persistence and the relief budget
-- [`crates/engine/src/orchestration/context_gate.rs`](../../crates/engine/src/orchestration/context_gate.rs) —
+- [`crates/engine/src/orchestration/context_gate.rs`](../../crates/nuo-engine/src/orchestration/context_gate.rs) —
   `ContextProjectionGate::project_payload`

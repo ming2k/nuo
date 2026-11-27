@@ -14,7 +14,7 @@
 use std::path::Path;
 
 use nuo::transport::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
-use protocol::{
+use nuo_protocol::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredThread, ThreadActivity, ThreadHosting,
 };
 
@@ -90,9 +90,9 @@ pub async fn run(
                 state.persistence_health = Some(health);
             }
             MonitorEvent::ServerPhaseChanged(phase) => {
-                let is_draining = matches!(phase, protocol::ServerPhase::Draining { .. });
+                let is_draining = matches!(phase, nuo_protocol::ServerPhase::Draining { .. });
                 let failed_msg = match &phase {
-                    protocol::ServerPhase::Failed { message, .. } => Some(message.clone()),
+                    nuo_protocol::ServerPhase::Failed { message, .. } => Some(message.clone()),
                     _ => None,
                 };
                 state.server_phase = phase;
@@ -281,14 +281,14 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
             "Rebuilt-binary drift: the running server's executable differs from the installed image.\n",
         );
         out.push_str("                    `nuo` reclaims it automatically when idle; stop it now with `nuo server stop`.\n");
-    } else if let Some(protocol::ServerPhase::Failed { message, .. }) = &diag.live_phase {
+    } else if let Some(nuo_protocol::ServerPhase::Failed { message, .. }) = &diag.live_phase {
         out.push_str(&format!("Server startup failed: {message}\n"));
-    } else if let Some(protocol::ServerPhase::Draining { reason }) = &diag.live_phase {
+    } else if let Some(nuo_protocol::ServerPhase::Draining { reason }) = &diag.live_phase {
         match reason.as_deref().filter(|r| !r.is_empty()) {
             Some(r) => out.push_str(&format!("Server is shutting down ({r}).\n")),
             None => out.push_str("Server is shutting down.\n"),
         }
-    } else if let Some(phase @ protocol::ServerPhase::Initializing { .. }) = &diag.live_phase {
+    } else if let Some(phase @ nuo_protocol::ServerPhase::Initializing { .. }) = &diag.live_phase {
         let detail = client::format_init_phase(phase).unwrap_or_else(|| "initializing".into());
         out.push_str(&format!(
             "Server is initializing ({detail}). (Observe with `nuo status --watch`)\n"
@@ -364,14 +364,14 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     };
 
     let phase_badge = match &snapshot.server_phase {
-        phase @ protocol::ServerPhase::Initializing { .. } => {
+        phase @ nuo_protocol::ServerPhase::Initializing { .. } => {
             let desc = client::format_init_phase(phase).unwrap_or_else(|| "initializing".into());
             format!("Initializing: {desc}")
         }
-        protocol::ServerPhase::Ready => "Ready".to_string(),
-        protocol::ServerPhase::Reloading => "Reloading".to_string(),
-        protocol::ServerPhase::Draining { .. } => "Draining".to_string(),
-        protocol::ServerPhase::Failed { message, .. } => {
+        nuo_protocol::ServerPhase::Ready => "Ready".to_string(),
+        nuo_protocol::ServerPhase::Reloading => "Reloading".to_string(),
+        nuo_protocol::ServerPhase::Draining { .. } => "Draining".to_string(),
+        nuo_protocol::ServerPhase::Failed { message, .. } => {
             let detail = message.lines().next().unwrap_or("").trim();
             if detail.is_empty() {
                 "Failed".to_string()
@@ -386,7 +386,7 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     );
     println!("  Transport: {transport} | Project: {root}");
 
-    let db_path = host::paths::get().db_file();
+    let db_path = nuo_host::paths::get().db_file();
     let db_status = format_db_status(snapshot);
     println!("  Database:  {} ({})", db_path.display(), db_status);
     println!();
@@ -401,14 +401,14 @@ pub(crate) fn format_db_status(snapshot: &MonitorSnapshot) -> String {
         snapshot.storage,
     ) {
         (
-            protocol::ServerPhase::Initializing {
-                stage: protocol::ServerInitStage::Storage,
+            nuo_protocol::ServerPhase::Initializing {
+                stage: nuo_protocol::ServerInitStage::Storage,
                 ..
             },
             _,
             _,
         ) => "initializing…".to_string(),
-        (protocol::ServerPhase::Failed { .. }, _, _) => "unavailable".to_string(),
+        (nuo_protocol::ServerPhase::Failed { .. }, _, _) => "unavailable".to_string(),
         (_, Some(health), _) if !health.is_healthy() => {
             format!("Degraded: {}", health.detail().unwrap_or_default())
         }
@@ -496,9 +496,9 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         && !health.is_healthy()
     {
         let state = match health {
-            protocol::monitor::PersistenceHealth::Recovering { .. } => "recovering",
-            protocol::monitor::PersistenceHealth::Down { .. } => "down",
-            protocol::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
+            nuo_protocol::monitor::PersistenceHealth::Recovering { .. } => "recovering",
+            nuo_protocol::monitor::PersistenceHealth::Down { .. } => "down",
+            nuo_protocol::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
         };
         let detail = health.detail().unwrap_or_default();
         out.push_str(&format!(
@@ -513,13 +513,13 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         ));
         for t in &snapshot.tasks {
             let state = match &t.state {
-                protocol::JobState::Running { .. } => "running",
-                protocol::JobState::Ready { .. } => "ready",
-                protocol::JobState::Succeeded { .. } => "done",
-                protocol::JobState::Failed { .. } => "failed",
-                protocol::JobState::Killed { .. } => "killed",
-                protocol::JobState::TimedOut { .. } => "timed out",
-                protocol::JobState::Queued => "queued",
+                nuo_protocol::JobState::Running { .. } => "running",
+                nuo_protocol::JobState::Ready { .. } => "ready",
+                nuo_protocol::JobState::Succeeded { .. } => "done",
+                nuo_protocol::JobState::Failed { .. } => "failed",
+                nuo_protocol::JobState::Killed { .. } => "killed",
+                nuo_protocol::JobState::TimedOut { .. } => "timed out",
+                nuo_protocol::JobState::Queued => "queued",
             };
             let latest = t.latest_output.as_deref().unwrap_or("");
             let latest = if latest.chars().count() > 30 {
@@ -651,13 +651,13 @@ mod tests;
 #[cfg(test)]
 mod persistence_health_tests {
     use super::*;
-    use protocol::monitor::PersistenceHealth;
+    use nuo_protocol::monitor::PersistenceHealth;
 
     #[test]
     fn table_warns_when_the_persistence_writer_is_down() {
         let mut snap = MonitorSnapshot {
             server_id: "srv-test-1".into(),
-            server_phase: protocol::ServerPhase::Ready,
+            server_phase: nuo_protocol::ServerPhase::Ready,
             project_root: "/home/u/proj".into(),
             server_started_at: 50,
             threads: Vec::new(),

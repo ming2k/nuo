@@ -1,5 +1,5 @@
 use super::*;
-use protocol::ThreadOrigin;
+use nuo_protocol::ThreadOrigin;
 
 fn row(id: &str, status: ThreadActivity) -> MonitoredThread {
     MonitoredThread {
@@ -30,7 +30,7 @@ fn row(id: &str, status: ThreadActivity) -> MonitoredThread {
 fn snapshot(rows: Vec<MonitoredThread>) -> MonitorSnapshot {
     MonitorSnapshot {
         server_id: "srv-test-1".into(),
-        server_phase: protocol::ServerPhase::Ready,
+        server_phase: nuo_protocol::ServerPhase::Ready,
         project_root: "/home/u/proj".into(),
         server_started_at: 50,
         threads: rows,
@@ -43,11 +43,11 @@ fn snapshot(rows: Vec<MonitoredThread>) -> MonitorSnapshot {
 #[test]
 fn table_renders_server_tasks_section() {
     let mut snap = snapshot(Vec::new());
-    snap.tasks = vec![protocol::MonitoredTask {
+    snap.tasks = vec![nuo_protocol::MonitoredTask {
         id: "task_abc12345".into(),
         label: "rehost:svc_old".into(),
         spec: "npm run dev".into(),
-        state: protocol::JobState::Ready {
+        state: nuo_protocol::JobState::Ready {
             started_at_ms: 0,
             ready_at_ms: 0,
         },
@@ -130,7 +130,7 @@ fn base_diag() -> ServerDiagnostics {
         lock_held: false,
         lock_holder_pid: None,
         lock_holder_alive: false,
-        local_endpoint: Some(host::ipc::LocalEndpoint::UnixSocket(
+        local_endpoint: Some(nuo_host::ipc::LocalEndpoint::UnixSocket(
             std::path::PathBuf::from("/run/user/1000/nuo/server.sock"),
         )),
         local_endpoint_exists: false,
@@ -274,9 +274,9 @@ fn diagnostics_formatter_surfaces_initializing_failed_and_degraded_honestly() {
     };
 
     let init_diag = ServerDiagnostics {
-        live_phase: Some(protocol::ServerPhase::initializing_with(
-            protocol::ServerInitStage::Storage,
-            Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+        live_phase: Some(nuo_protocol::ServerPhase::initializing_with(
+            nuo_protocol::ServerInitStage::Storage,
+            Some(nuo_protocol::StorageInitDetail::BackingUp { target_version: 9 }),
             None,
         )),
         ..base_live()
@@ -289,7 +289,7 @@ fn diagnostics_formatter_surfaces_initializing_failed_and_degraded_honestly() {
     assert!(!init_text.contains("running and healthy"), "{init_text}");
 
     let failed_diag = ServerDiagnostics {
-        live_phase: Some(protocol::ServerPhase::Failed {
+        live_phase: Some(nuo_protocol::ServerPhase::Failed {
             code: Some("storage_init_failed".into()),
             message: "checksum mismatch".into(),
         }),
@@ -306,8 +306,8 @@ fn diagnostics_formatter_surfaces_initializing_failed_and_degraded_honestly() {
     );
 
     let degraded_diag = ServerDiagnostics {
-        live_phase: Some(protocol::ServerPhase::Ready),
-        live_persistence_health: Some(protocol::PersistenceHealth::Down {
+        live_phase: Some(nuo_protocol::ServerPhase::Ready),
+        live_persistence_health: Some(nuo_protocol::PersistenceHealth::Down {
             attempt: 5,
             since_ms: 1_700_000_000_000,
             error: "disk full".into(),
@@ -344,11 +344,11 @@ fn diagnostics_formatter_surfaces_initializing_failed_and_degraded_honestly() {
 fn db_status_never_claims_wal_healthy_while_initializing_or_failed() {
     let mut init_snap = snapshot(Vec::new());
     init_snap.server_phase =
-        protocol::ServerPhase::initializing(protocol::ServerInitStage::Storage);
+        nuo_protocol::ServerPhase::initializing(nuo_protocol::ServerInitStage::Storage);
     assert_eq!(format_db_status(&init_snap), "initializing…");
 
     let mut failed_snap = snapshot(Vec::new());
-    failed_snap.server_phase = protocol::ServerPhase::Failed {
+    failed_snap.server_phase = nuo_protocol::ServerPhase::Failed {
         code: Some("storage_init_failed".into()),
         message: "checksum mismatch".into(),
     };
@@ -394,7 +394,7 @@ fn diagnostics_formatter_names_the_sandbox_instance() {
 fn diagnostics_formatter_renders_runtime_events() {
     let diag = ServerDiagnostics {
         recent_events: vec![
-            host::diagnostics::DiagnosticEvent {
+            nuo_host::diagnostics::DiagnosticEvent {
                 timestamp_ms: 1730419200000,
                 pid: 913105,
                 process_kind: "server".to_string(),
@@ -402,7 +402,7 @@ fn diagnostics_formatter_renders_runtime_events() {
                 summary: "terminating existing PID 138253".to_string(),
                 details: None,
             },
-            host::diagnostics::DiagnosticEvent {
+            nuo_host::diagnostics::DiagnosticEvent {
                 timestamp_ms: 1730419201000,
                 pid: 913200,
                 process_kind: "client".to_string(),
@@ -428,7 +428,7 @@ fn diagnostics_formatter_renders_runtime_events() {
 #[test]
 fn table_warns_when_the_wal_is_pinned_even_though_the_writer_is_healthy() {
     let mut snap = snapshot(Vec::new());
-    snap.storage = Some(protocol::monitor::StoragePressure {
+    snap.storage = Some(nuo_protocol::monitor::StoragePressure {
         main_bytes: 8 * 1024 * 1024,
         wal_bytes: 64 * 1024 * 1024,
         active_readers: 31,
@@ -450,7 +450,7 @@ fn table_warns_when_the_wal_is_pinned_even_though_the_writer_is_healthy() {
     );
 
     // A small WAL with a live writer stays silent.
-    snap.storage = Some(protocol::monitor::StoragePressure {
+    snap.storage = Some(nuo_protocol::monitor::StoragePressure {
         main_bytes: 8 * 1024 * 1024,
         wal_bytes: 1024,
         active_readers: 1,
@@ -466,7 +466,7 @@ fn table_warns_when_the_wal_is_pinned_even_though_the_writer_is_healthy() {
 
 #[test]
 fn storage_pressure_elevation_tracks_the_checkpoint_trigger() {
-    use protocol::monitor::StoragePressure;
+    use nuo_protocol::monitor::StoragePressure;
     let base = StoragePressure {
         main_bytes: 0,
         wal_bytes: 0,

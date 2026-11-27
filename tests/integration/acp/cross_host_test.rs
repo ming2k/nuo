@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use acp::{
+use nuo_acp::{
     AgentAddress, AgentEnvelope, AgentRouter, Mailbox, MailboxHandle, MessageIntent,
     TransportBridge, attach_outbound, in_memory_pair,
 };
@@ -139,7 +139,7 @@ async fn unmatched_remote_target_is_reported_not_silently_dropped() {
 
     let err = host.router.route(envelope).await.unwrap_err();
     assert!(
-        matches!(err, acp::ProtocolError::Unreachable(_)),
+        matches!(err, nuo_acp::ProtocolError::Unreachable(_)),
         "expected Unreachable, got {err:?}"
     );
 }

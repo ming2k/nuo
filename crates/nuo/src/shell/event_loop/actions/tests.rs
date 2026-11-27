@@ -674,23 +674,23 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
-        app.surfaces.websearch_config = Some(protocol::WebSearchConfigView {
+        app.surfaces.websearch_config = Some(nuo_protocol::WebSearchConfigView {
             revision: 42,
-            provider: protocol::WebSearchProvider::Exa,
-            reader: protocol::WebReaderProvider::Disabled,
+            provider: nuo_protocol::WebSearchProvider::Exa,
+            reader: nuo_protocol::WebReaderProvider::Disabled,
             timeout_secs: 20,
             searxng_url: None,
-            search_credential: protocol::WebCredentialStatus::Stored,
-            reader_credential: protocol::WebCredentialStatus::NotRequired,
-            capabilities: protocol::web_provider_capabilities(),
+            search_credential: nuo_protocol::WebCredentialStatus::Stored,
+            reader_credential: nuo_protocol::WebCredentialStatus::NotRequired,
+            capabilities: nuo_protocol::web_provider_capabilities(),
         });
 
         // 1. Open dropdown
-        let dropdown = view::views::settings::build_websearch_provider_dropdown(
+        let dropdown = nuo_view::views::settings::build_websearch_provider_dropdown(
             "exa",
             app.surfaces.websearch_config.as_ref(),
         );
-        let anchor = ui_primitives::components::dropdown::DropdownAnchor::center_screen();
+        let anchor = nuo_ui_primitives::components::dropdown::DropdownAnchor::center_screen();
         app.surfaces.config_dropdown = Some((dropdown, anchor.clone()));
         assert!(app.surfaces.config_dropdown.is_some());
 
@@ -710,7 +710,7 @@ mod transcript_scroll_tests {
         );
 
         // 2. Open dropdown again and click item 1 (Tavily) at (25, 8)
-        let dropdown = view::views::settings::build_websearch_provider_dropdown(
+        let dropdown = nuo_view::views::settings::build_websearch_provider_dropdown(
             "exa",
             app.surfaces.websearch_config.as_ref(),
         );
@@ -820,7 +820,7 @@ mod transcript_scroll_tests {
             .expect("antigravity preset exists");
 
         app.open_preset_chooser();
-        app.begin_oauth_add(antigravity, protocol::LoginMethod::Browser);
+        app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
         assert!(app.threads.focus.is_composer());
 
         // Mount the OAuth overlay area in UI so pointer target falls within overlay
@@ -1005,8 +1005,8 @@ mod tab_lifecycle_tests {
         // A non-empty thread: a fresh tab means detaching into a new attach.
         app.threads
             .messages
-            .push(view::model::document::TranscriptMessage::new(
-                tool::Role::User,
+            .push(nuo_view::model::document::TranscriptMessage::new(
+                nuo_tool::Role::User,
                 "Existing message",
             ));
         assert!(!app.is_current_thread_empty());
@@ -1031,7 +1031,7 @@ mod tab_lifecycle_tests {
         assert!(matches!(
             rx.try_recv(),
             Ok(crate::shell::client::ClientOutbound::Subscribe {
-                target: protocol::ThreadTarget::New { .. },
+                target: nuo_protocol::ThreadTarget::New { .. },
                 ..
             })
         ));
@@ -1068,7 +1068,7 @@ mod tab_lifecycle_tests {
                 .load(std::sync::atomic::Ordering::SeqCst)
         );
         match rx.try_recv().ok().and_then(|o| o.into_request()) {
-            Some(protocol::AgentRequest::SlashCommand(command)) => assert_eq!(command, "/new"),
+            Some(nuo_protocol::AgentRequest::SlashCommand(command)) => assert_eq!(command, "/new"),
             other => panic!("expected `/new` for an empty thread, got {other:?}"),
         }
     }
@@ -1077,7 +1077,7 @@ mod tab_lifecycle_tests {
     /// stepping from a pill onto its own `✕` keeps the reveal clock running.
     #[tokio::test]
     async fn hover_tracks_the_pill_then_its_close_mark_as_one_visit() {
-        use view::view_header::TabBarHover;
+        use nuo_view::view_header::TabBarHover;
         let mut app = app_with_tabs();
         let runtime = UiRuntime::minimal_for_test();
 
@@ -1129,7 +1129,7 @@ mod tab_lifecycle_tests {
     #[tokio::test]
     async fn clicking_tabbar_help_toggles_help_dialog() {
         use crate::shell::surfaces::DialogKind;
-        use view::view_header::TabBarHover;
+        use nuo_view::view_header::TabBarHover;
 
         let mut app = app_with_tabs();
         let runtime = UiRuntime::minimal_for_test();

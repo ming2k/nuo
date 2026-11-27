@@ -10,7 +10,7 @@
 //! elided role, framed bracket fallback, and dropped optional elements.
 
 use crate::shell::render::Theme;
-use view::view_header::{SceneKind, ThreadContext, ViewHints, draw_scene_bar};
+use nuo_view::view_header::{SceneKind, ThreadContext, ViewHints, draw_scene_bar};
 
 fn render_bar_with_theme(
     width: u16,
@@ -131,7 +131,7 @@ fn narrow_row_drops_optional_elements_but_keeps_posture() {
 fn framed_surface_preserves_role_brackets() {
     let h = head("~/projects/nuo", Some("developer"), true, false);
     let framed = Theme {
-        elevation: ui_primitives::elevation::ElevationArchetype::Structured,
+        elevation: nuo_ui_primitives::elevation::ElevationArchetype::Structured,
         ..Theme::default()
     };
     insta::assert_snapshot!(render_bar_with_theme(

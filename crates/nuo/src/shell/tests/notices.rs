@@ -14,8 +14,8 @@ use super::*;
 
 use crate::shell::event_loop::apply::apply;
 use crate::shell::event_loop::{AppMutation, runtime::UiRuntime};
-use view::model::document::NoticeSeverity;
-use view::model::log::LineStatus;
+use nuo_view::model::document::NoticeSeverity;
+use nuo_view::model::log::LineStatus;
 
 fn runtime() -> UiRuntime {
     UiRuntime::minimal_for_test()
@@ -823,8 +823,8 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
     for i in 0..20 {
         app.threads
             .messages
-            .push(view::model::document::TranscriptMessage::new(
-                tool::Role::Assistant,
+            .push(nuo_view::model::document::TranscriptMessage::new(
+                nuo_tool::Role::Assistant,
                 format!("turn {i}"),
             ));
     }
@@ -904,8 +904,8 @@ fn the_conversation_stays_visible_when_notice_arrives() {
     for i in 0..20 {
         app.threads
             .messages
-            .push(view::model::document::TranscriptMessage::new(
-                tool::Role::Assistant,
+            .push(nuo_view::model::document::TranscriptMessage::new(
+                nuo_tool::Role::Assistant,
                 format!("visible-turn-{i}"),
             ));
     }
@@ -1076,7 +1076,7 @@ fn a_retry_receipt_records_the_retry_and_the_budget_but_never_a_countdown() {
         now + std::time::Duration::from_millis(800),
         "Google HTTP 503 Service Unavailable",
     );
-    let fault = view::model::notice_text::display_text("Google HTTP 503 Service Unavailable");
+    let fault = nuo_view::model::notice_text::display_text("Google HTTP 503 Service Unavailable");
     disclose(
         &mut app,
         NoticeSeverity::Warning,

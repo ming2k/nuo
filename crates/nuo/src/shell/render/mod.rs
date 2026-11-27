@@ -8,7 +8,7 @@ pub use crate::shell::composer::{
     ComposerDrawOptions, INPUT_MSG_IDX, draw_composer, draw_composer_highlighted,
     draw_composer_with_options,
 };
-pub use view::chrome::{
+pub use nuo_view::chrome::{
     ActivityStripProps, ModelBarKeys, ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps,
     draw_activity_strip, draw_model_bar,
 };
@@ -26,49 +26,53 @@ pub use crate::shell::overlays::{
 };
 #[cfg(test)]
 use graticule::{prohibited_line_end, prohibited_line_start};
-pub(crate) use ui_primitives::design::{
+pub(crate) use nuo_ui_primitives::design::{
     ACTIVITY_STRIP_ROWS, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
     FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS,
     PAGE_HEADER_ROWS, TRANSCRIPT_H_INSET,
 };
-pub use ui_primitives::primitives::recess_backdrop;
-use ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
-pub use ui_primitives::theme::Theme;
-pub use view::disclosure::StickyInfo;
-use view::disclosure::draw_sticky_anchor_if_needed;
+pub use nuo_ui_primitives::primitives::recess_backdrop;
+use nuo_ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
+pub use nuo_ui_primitives::theme::Theme;
+pub use nuo_view::disclosure::StickyInfo;
+use nuo_view::disclosure::draw_sticky_anchor_if_needed;
 /// Parse a raw logo file into clamped display lines for the empty-state hero.
 /// Re-exported so the startup loader and the renderer share one clamp rule.
-pub use view::empty_state::parse_logo;
+pub use nuo_view::empty_state::parse_logo;
 /// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057 → ADR-0104).
 /// Re-exported so the app shell selects the variant and the renderer paints it.
-pub use view::empty_state::{
+pub use nuo_view::empty_state::{
     EmptyStateGuidance, resuming_thread_status, server_phase_status, thread_phase_status,
 };
 /// Which peer plane owns the keyboard (ADR-0145). Re-exported so the shell
 /// projects its own `Focus` onto the renderer's paint-time enum at the props
 /// boundary instead of the presentation crate depending on the shell's
 /// interaction state machine.
-pub use view::focus_plane::FocusPlane;
-use view::footer_stack;
-pub(crate) use view::footer_stack::{FooterRow, FooterRowId, PlacedFooter, rect_of as footer_rect};
+pub use nuo_view::focus_plane::FocusPlane;
+use nuo_view::footer_stack;
+pub(crate) use nuo_view::footer_stack::{
+    FooterRow, FooterRowId, PlacedFooter, rect_of as footer_rect,
+};
 /// Transcript arrangement strategy (`turn_band`).
-pub(crate) use view::layout;
+pub(crate) use nuo_view::layout;
 #[cfg(test)]
-use view::text_layout::WrappedLine;
+use nuo_view::text_layout::WrappedLine;
 #[cfg(test)]
-use view::text_layout::{block_selection_range, line_selection};
-use view::view_header;
+use nuo_view::text_layout::{block_selection_range, line_selection};
+use nuo_view::view_header;
 #[cfg(test)]
-pub(crate) use view::view_header::ViewKind;
-pub(crate) use view::view_header::{
+pub(crate) use nuo_view::view_header::ViewKind;
+pub(crate) use nuo_view::view_header::{
     SceneNavRects, TabBarItem, TabBarNavRects, TabBarProps, TabStatus, ThreadContext, ViewHints,
     draw_scene_bar, draw_tab_bar,
 };
-pub use view::views::settings::{ConfigCategory, ConfigFocus, SettingsProps, draw_settings_view};
+pub use nuo_view::views::settings::{
+    ConfigCategory, ConfigFocus, SettingsProps, draw_settings_view,
+};
 // Modules referenced by their bare name within this file.
 use crate::shell::composer_grid::TextGrid;
-use view::empty_state;
+use nuo_view::empty_state;
 
 use graticule::{
     Alignment, Block as RtBlock, Constraint, Direction, Frame, Layout, Line, Paragraph, Rect, Span,
@@ -76,11 +80,11 @@ use graticule::{
 };
 
 #[cfg(test)]
-use tool::{PermissionRequest, UserQuestionRequest};
+use nuo_tool::{PermissionRequest, UserQuestionRequest};
 
-use view::model::document::TranscriptMessage;
-use view::model::layout::{InteractiveTarget, LayoutMap};
-use view::model::selection::{CellDragInfo, SelectionState};
+use nuo_view::model::document::TranscriptMessage;
+use nuo_view::model::layout::{InteractiveTarget, LayoutMap};
+use nuo_view::model::selection::{CellDragInfo, SelectionState};
 
 /// Inner rect of a transcript-area region after reserving the uniform
 /// [`TRANSCRIPT_H_INSET`] left+right `app_bg` gutters. This is the **single
@@ -178,7 +182,7 @@ pub struct TranscriptProps<'a> {
     /// status label — the typed state, so the renderer can choose the full
     /// `retry 1 in 4s` or the compact `retry 1` form without re-parsing a
     /// sentence. First casualty under width pressure.
-    pub backoff: Option<&'a view::retry::RetryProgress>,
+    pub backoff: Option<&'a nuo_view::retry::RetryProgress>,
     /// Whether a tool permission request is awaiting the user's decision. When
     /// true the activity bar is forced visible even if the loop has gone idle,
     /// and its label reads as a permission state so the live status surface
@@ -282,9 +286,9 @@ pub struct TranscriptProps<'a> {
 }
 
 /// Caches each transcript message's fully-laid-out height (in rows), keyed by
-pub use view::layout::{HeightCache, StickyAnchor};
+pub use nuo_view::layout::{HeightCache, StickyAnchor};
 
-pub use view::text_layout::{BlockWrapCache, PreparedCode};
+pub use nuo_view::text_layout::{BlockWrapCache, PreparedCode};
 
 /// Page-header context for the TaskInspection scene (shown when zoomed into a task).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -426,7 +430,7 @@ struct TranscriptWindow {
     content_lines: usize,
     skip_rows: usize,
     virtual_total_lines: Option<usize>,
-    anchor_lookup: Option<view::model::layout::ScrollAnchor>,
+    anchor_lookup: Option<nuo_view::model::layout::ScrollAnchor>,
 }
 
 /// Inputs for the height-cached, layout-strategy-driven transcript pass.
@@ -458,7 +462,7 @@ struct TranscriptStreamResult {
 struct ActivityStripRow<'a, 'p> {
     plan: &'a FooterPlan,
     activity: &'a str,
-    backoff: Option<&'a view::retry::RetryProgress>,
+    backoff: Option<&'a nuo_view::retry::RetryProgress>,
     awaiting_permission: bool,
     queue_bar: &'a QueueBarProps<'p>,
     tasks_bar: &'a TasksBarProps<'p>,
@@ -843,9 +847,15 @@ fn draw_pane_focus_cues(
     focused_entry: Option<InteractiveTarget>,
     base_theme: &Theme,
 ) {
-    view::focus_plane::draw_pane_focus(frame, transcript_area, band, focus_plane, base_theme);
+    nuo_view::focus_plane::draw_pane_focus(frame, transcript_area, band, focus_plane, base_theme);
     if let Some(header) = focused_entry.and_then(|target| layout_map.entry_header_rect(target)) {
-        view::focus_plane::draw_entry_marker(frame, transcript_area, band, header.y, base_theme);
+        nuo_view::focus_plane::draw_entry_marker(
+            frame,
+            transcript_area,
+            band,
+            header.y,
+            base_theme,
+        );
     }
 }
 
@@ -1009,7 +1019,7 @@ pub fn draw_transcript(
     // so the derivation would report no headroom and the pane would fall back to the
     // gutter cue on top of an already-lifted page. Two values, two distinct meanings.
     let base_theme: &Theme = theme;
-    let transcript_theme = view::focus_plane::transcript_theme(theme, focus_plane);
+    let transcript_theme = nuo_view::focus_plane::transcript_theme(theme, focus_plane);
     let theme: &Theme = &transcript_theme;
     // The frame-wide background above was painted with the *unlifted* page, so the
     // pane's own rect has to be repainted at the lifted tone before anything draws

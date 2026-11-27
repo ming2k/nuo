@@ -9,8 +9,8 @@
 //! - token & cost totals.
 
 use graticule::Style;
-use ui_primitives::components::detail::DetailLayout;
-use view::components::selectable_body::SelectableRow;
+use nuo_ui_primitives::components::detail::DetailLayout;
+use nuo_view::components::selectable_body::SelectableRow;
 
 use super::model::*;
 use crate::shell::render::Theme;
@@ -44,7 +44,7 @@ fn ellipsize_single_line(text: &str, max_cols: usize, ellipsis: &str) -> String 
 /// Build the L1 Round Inspector body for one round.
 pub(crate) fn build_round_inspector_body(
     round: &TelemetryRound,
-    summary: Option<&protocol::RoundSummary>,
+    summary: Option<&nuo_protocol::RoundSummary>,
     recap: &RoundTranscriptRecap,
     width: usize,
     theme: &Theme,

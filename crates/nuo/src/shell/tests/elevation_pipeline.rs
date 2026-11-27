@@ -7,9 +7,9 @@
 
 use graticule::{CellGrid, Damage, Frame, Modifier, Rect, TerminalProfile};
 
-use ui_primitives::elevation::ElevationArchetype;
-use ui_primitives::primitives::{ElevationContainer, LayoutTier, modal_frame};
-use ui_primitives::theme::Theme;
+use nuo_ui_primitives::elevation::ElevationArchetype;
+use nuo_ui_primitives::primitives::{ElevationContainer, LayoutTier, modal_frame};
+use nuo_ui_primitives::theme::Theme;
 
 #[test]
 fn test_profile_to_elevation_archetype_mapping() {

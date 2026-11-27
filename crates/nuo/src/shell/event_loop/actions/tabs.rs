@@ -3,8 +3,8 @@ use super::ActionFlow;
 use super::navigation::enter_scene;
 use crate::shell::App;
 use crate::shell::event_loop::runtime::UiRuntime;
+use nuo_view::model::selection::SelectionState;
 use std::sync::atomic::Ordering;
-use view::model::selection::SelectionState;
 
 pub(crate) fn activate_tab_at_index(
     app: &mut App,
@@ -150,10 +150,10 @@ pub(crate) fn start_fresh_thread_bare(app: &mut App) {
     app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
     app.dismiss_active_dialog();
     if app.is_current_thread_empty() {
-        app.send_intent(protocol::AgentRequest::SlashCommand("/new".to_string()));
+        app.send_intent(nuo_protocol::AgentRequest::SlashCommand("/new".to_string()));
     } else {
         let cwd = app.session.cwd.clone();
-        app.subscribe_thread(protocol::ThreadTarget::New { options: None }, Some(cwd));
+        app.subscribe_thread(nuo_protocol::ThreadTarget::New { options: None }, Some(cwd));
     }
 }
 

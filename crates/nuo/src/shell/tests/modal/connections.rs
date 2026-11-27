@@ -9,7 +9,7 @@ fn picker_connections_count_matches_provider_rows_no_add_row() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     // Seed a few snapshot rows so providers_filtered() renders the full list
     // (the picker is snapshot-driven).
-    let row = |id: &str| protocol::ProviderPickerRow {
+    let row = |id: &str| nuo_protocol::ProviderPickerRow {
         id: id.to_string(),
         name: id.to_string(),
         model: "m".to_string(),
@@ -24,7 +24,7 @@ fn picker_connections_count_matches_provider_rows_no_add_row() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "kimi-code".to_string(),
         rows: vec![row("kimi-code"), row("openai"), row("anthropic")],
     };

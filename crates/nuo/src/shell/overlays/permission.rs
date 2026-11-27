@@ -3,21 +3,21 @@ use graticule::{
     Frame, Rect, {Block as RtBlock, Paragraph}, {Line, Span}, {Modifier, Style},
 };
 
-use tool::{PermissionRequest, UserQuestionRequest};
+use nuo_tool::{PermissionRequest, UserQuestionRequest};
 
 use crate::shell::render::Theme;
 use crate::shell::ui::ComponentTree;
-use ui_primitives::components::options::{
+use nuo_ui_primitives::components::options::{
     ChoiceMarker, ChoiceOptionRow, ChoiceTone, push_wrapped_styled,
 };
-use ui_primitives::design::{INPUT_PROMPT_PREFIX, MODAL_INNER_H_PADDING};
-use ui_primitives::primitives::{
+use nuo_ui_primitives::design::{INPUT_PROMPT_PREFIX, MODAL_INNER_H_PADDING};
+use nuo_ui_primitives::primitives::{
     FooterHint, contrast_fg, keyvocab, modal_footer_text, modal_frame, panel_block, render_body,
     render_modal_footer,
 };
+use nuo_view::model::layout::{PermissionActionHit, QuestionOptionHit};
+use nuo_view::text_layout::wrap_text;
 use unicode_width::UnicodeWidthStr;
-use view::model::layout::{PermissionActionHit, QuestionOptionHit};
-use view::text_layout::wrap_text;
 
 // The permission sheet renders inline, replacing the composer (input box)
 // area. Collapsed it shows a one-line summary plus the action footer;
@@ -176,7 +176,7 @@ pub fn draw_question_modal(
     // the cap scrolls in the body. The slot's own height is the minimum (so
     // a short question still reads as the drop-in composer replacement it is
     // designed to be).
-    let available_above = ui_primitives::design::sheet_max_height(frame.area().height);
+    let available_above = nuo_ui_primitives::design::sheet_max_height(frame.area().height);
     let desired_h = desired.max(slot.height).min(available_above);
     let sheet_top = slot_bottom.saturating_sub(desired_h);
     let area = Rect::new(
@@ -434,7 +434,7 @@ pub fn draw_question_modal(
         f.body,
         body_lines,
         scroll,
-        ui_primitives::primitives::BodyRenderOptions::follow(follow),
+        nuo_ui_primitives::primitives::BodyRenderOptions::follow(follow),
         theme,
     );
     record_question_hits(hit_map, f.body, &option_rows, *scroll);
@@ -641,7 +641,7 @@ fn draw_question_modal_fallback(
         body_rect,
         body_lines,
         &mut scroll,
-        ui_primitives::primitives::BodyRenderOptions::follow(None),
+        nuo_ui_primitives::primitives::BodyRenderOptions::follow(None),
         theme,
     );
     record_question_hits(hit_map, body_rect, &option_rows, scroll);
@@ -877,7 +877,7 @@ fn build_permission_body_lines(
     }
 
     let preview_rows: Vec<String> = match &request.preview {
-        Some(preview) => view::tools::diff::unified_diff_rows(&preview.old, &preview.new, 3),
+        Some(preview) => nuo_view::tools::diff::unified_diff_rows(&preview.old, &preview.new, 3),
         None => Vec::new(),
     };
     match &request.preview {
@@ -969,8 +969,8 @@ pub fn draw_permission_sheet(
     queue_depth: usize,
     input_rect: Rect,
     theme: &Theme,
-    selection: &view::model::selection::SelectionState,
-    layout_map: &mut view::model::layout::LayoutMap,
+    selection: &nuo_view::model::selection::SelectionState,
+    layout_map: &mut nuo_view::model::layout::LayoutMap,
 ) -> usize {
     let area_bottom = input_rect.y + input_rect.height;
     let body_lines =
@@ -1027,12 +1027,12 @@ pub fn draw_permission_sheet(
     // above it) is exactly what a user wants to copy while deciding. The
     // body's line-level scroll (`body_scroll` counts wrapped visual rows,
     // same accounting `resolve_scroll` uses) is passed straight through.
-    let rows: Vec<view::components::selectable_body::SelectableRow> = body_lines
+    let rows: Vec<nuo_view::components::selectable_body::SelectableRow> = body_lines
         .into_iter()
-        .map(view::components::selectable_body::SelectableRow::from_line)
+        .map(nuo_view::components::selectable_body::SelectableRow::from_line)
         .collect();
     let mut body_scroll_usize = body_scroll;
-    view::components::selectable_body::render_selectable_body(
+    nuo_view::components::selectable_body::render_selectable_body(
         frame,
         body_area,
         &rows,
@@ -1179,7 +1179,7 @@ pub fn draw_permission_sheet(
 /// permission sheet. Returns the rect it drew into.
 pub fn draw_input_injection(
     frame: &mut Frame,
-    request: &protocol::InputRequest,
+    request: &nuo_protocol::InputRequest,
     input: &str,
     _cursor: usize,
     input_rect: Rect,

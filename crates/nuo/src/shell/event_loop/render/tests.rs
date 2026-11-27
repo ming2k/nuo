@@ -8,15 +8,15 @@ use crate::shell::render::{TabBarItem, TabStatus};
 use crate::shell::surfaces::{ClientTab, SceneKind};
 use crate::shell::tests::new_app_for_relay_tests;
 
-fn monitored_row(id: &str, status: protocol::ThreadActivity) -> protocol::MonitoredThread {
-    protocol::MonitoredThread {
+fn monitored_row(id: &str, status: nuo_protocol::ThreadActivity) -> nuo_protocol::MonitoredThread {
+    nuo_protocol::MonitoredThread {
         id: id.to_string(),
         title: None,
         overview: String::new(),
         created_at: 100,
         updated_at: 100,
         message_count: 1,
-        hosting: protocol::ThreadHosting::Hosted,
+        hosting: nuo_protocol::ThreadHosting::Hosted,
         status,
         round: 1,
         turn: None,
@@ -29,7 +29,7 @@ fn monitored_row(id: &str, status: protocol::ThreadActivity) -> protocol::Monito
         project_root: "/tmp/proj".to_string(),
         role: "developer".to_string(),
         parent_id: None,
-        origin: protocol::ThreadOrigin::Trunk,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }
 }
@@ -38,7 +38,7 @@ fn monitored_row(id: &str, status: protocol::ThreadActivity) -> protocol::Monito
 fn non_thread_tabs_always_project_idle() {
     let mut app = new_app_for_relay_tests();
     app.session.running_sessions.insert("t-1".to_string());
-    app.human.pending_permission = Some(tool::PermissionRequest::default());
+    app.human.pending_permission = Some(nuo_tool::PermissionRequest::default());
 
     assert_eq!(
         project_tab_status(&app, &ClientTab::dashboard(), "t-1"),
@@ -67,15 +67,15 @@ fn scene_projection_produces_titles_and_prioritizes_status_without_stale_host_ru
 
     // Foreground thread is running AND awaiting permission → Attention wins.
     app.session.running_sessions.insert("t-fg".to_string());
-    app.human.pending_permission = Some(tool::PermissionRequest::default());
+    app.human.pending_permission = Some(nuo_tool::PermissionRequest::default());
 
     // Background thread actively running.
     app.session.running_sessions.insert("t-bg-run".to_string());
 
     // Background thread awaiting user via its resident ThreadInstance phase.
     app.threads
-        .register("t-bg-attn", 1, protocol::ThreadPhase::Ready)
-        .set_phase(Some(view::phase::Phase::AwaitingUser));
+        .register("t-bg-attn", 1, nuo_protocol::ThreadPhase::Ready)
+        .set_phase(Some(nuo_view::phase::Phase::AwaitingUser));
     app.session
         .subscribed_threads
         .insert("t-bg-attn".to_string());
@@ -83,31 +83,31 @@ fn scene_projection_produces_titles_and_prioritizes_status_without_stale_host_ru
     // Subscribed thread that just finished locally (`is_responding() == false`),
     // while `host_sessions` still lags one tick behind with `Running`.
     app.threads
-        .register("t-bg-done", 1, protocol::ThreadPhase::Ready);
+        .register("t-bg-done", 1, nuo_protocol::ThreadPhase::Ready);
     app.session
         .subscribed_threads
         .insert("t-bg-done".to_string());
 
     // Subscribed background threads with unseen Succeeded / Failed outcomes.
     app.threads
-        .register("t-bg-ok", 1, protocol::ThreadPhase::Ready);
+        .register("t-bg-ok", 1, nuo_protocol::ThreadPhase::Ready);
     app.session
         .unseen_outcomes
         .insert("t-bg-ok".to_string(), UnseenOutcome::Succeeded);
     app.threads
-        .register("t-bg-fail", 1, protocol::ThreadPhase::Ready);
+        .register("t-bg-fail", 1, nuo_protocol::ThreadPhase::Ready);
     app.session
         .unseen_outcomes
         .insert("t-bg-fail".to_string(), UnseenOutcome::Failed);
 
-    let mut host_titled = monitored_row("t-host-titled", protocol::ThreadActivity::Idle);
+    let mut host_titled = monitored_row("t-host-titled", nuo_protocol::ThreadActivity::Idle);
     host_titled.title = Some("Monitor Derived Title".to_string());
 
     app.session.host_sessions = vec![
-        monitored_row("t-bg-done", protocol::ThreadActivity::Running),
-        monitored_row("sess-01a2b3c4", protocol::ThreadActivity::Running),
+        monitored_row("t-bg-done", nuo_protocol::ThreadActivity::Running),
+        monitored_row("sess-01a2b3c4", nuo_protocol::ThreadActivity::Running),
         host_titled,
-        monitored_row("t-cold-fail", protocol::ThreadActivity::Failed),
+        monitored_row("t-cold-fail", nuo_protocol::ThreadActivity::Failed),
     ];
 
     let items = project_tab_items(&app, "t-fg");
@@ -140,8 +140,10 @@ fn background_round_outcomes_record_unseen_status_and_clear_when_viewed_or_resta
     // Make t-a the viewed foreground tab.
     app.surfaces.surfaces.select_tab(0);
     app.activate_thread_workspace("t-a");
-    app.threads.register("t-b", 1, protocol::ThreadPhase::Ready);
-    app.threads.register("t-c", 1, protocol::ThreadPhase::Ready);
+    app.threads
+        .register("t-b", 1, nuo_protocol::ThreadPhase::Ready);
+    app.threads
+        .register("t-c", 1, nuo_protocol::ThreadPhase::Ready);
 
     // 1. Background thread t-b completes cleanly → Succeeded (and requests repaint).
     let dirty_b = crate::shell::event_loop::apply::apply(
@@ -149,7 +151,7 @@ fn background_round_outcomes_record_unseen_status_and_clear_when_viewed_or_resta
         &runtime,
         AppMutation::ChromeEdit {
             thread_id: Some("t-b".to_string()),
-            edit: ChromeEdit::RoundCompleted(protocol::RoundSummary::default()),
+            edit: ChromeEdit::RoundCompleted(nuo_protocol::RoundSummary::default()),
         },
     );
     assert!(
@@ -182,7 +184,7 @@ fn background_round_outcomes_record_unseen_status_and_clear_when_viewed_or_resta
         &runtime,
         AppMutation::ChromeEdit {
             thread_id: Some("t-a".to_string()),
-            edit: ChromeEdit::RoundCompleted(protocol::RoundSummary::default()),
+            edit: ChromeEdit::RoundCompleted(nuo_protocol::RoundSummary::default()),
         },
     );
     assert_eq!(project_tab_items(&app, "t-a")[0].status, TabStatus::Idle);
@@ -227,7 +229,7 @@ fn foreground_thread_finishing_or_failing_while_on_dashboard_records_unseen_and_
         &runtime,
         AppMutation::ChromeEdit {
             thread_id: Some("t-fg".to_string()),
-            edit: ChromeEdit::RoundCompleted(protocol::RoundSummary::default()),
+            edit: ChromeEdit::RoundCompleted(nuo_protocol::RoundSummary::default()),
         },
     );
     assert_eq!(
@@ -246,7 +248,7 @@ fn foreground_thread_finishing_or_failing_while_on_dashboard_records_unseen_and_
         &runtime,
         AppMutation::SessionPhase {
             thread_id: Some("t-fg".to_string()),
-            phase: protocol::ThreadPhase::Failed {
+            phase: nuo_protocol::ThreadPhase::Failed {
                 code: None,
                 message: "boom".to_string(),
             },
@@ -275,8 +277,8 @@ fn cold_unsubscribed_background_tab_records_succeeded_and_failed_from_host_sessi
         &mut app,
         &runtime,
         AppMutation::HostSessions(vec![
-            monitored_row("t-cold-ok", protocol::ThreadActivity::Running),
-            monitored_row("t-cold-err", protocol::ThreadActivity::Running),
+            monitored_row("t-cold-ok", nuo_protocol::ThreadActivity::Running),
+            monitored_row("t-cold-err", nuo_protocol::ThreadActivity::Running),
         ]),
     );
     let items1 = project_tab_items(&app, "t-fg");
@@ -288,8 +290,8 @@ fn cold_unsubscribed_background_tab_records_succeeded_and_failed_from_host_sessi
         &mut app,
         &runtime,
         AppMutation::HostSessions(vec![
-            monitored_row("t-cold-ok", protocol::ThreadActivity::Idle),
-            monitored_row("t-cold-err", protocol::ThreadActivity::Failed),
+            monitored_row("t-cold-ok", nuo_protocol::ThreadActivity::Idle),
+            monitored_row("t-cold-err", nuo_protocol::ThreadActivity::Failed),
         ]),
     );
     let items2 = project_tab_items(&app, "t-fg");
@@ -303,7 +305,7 @@ fn subagent_scene_projects_focused_subagent_description_as_tab_title() {
     app.open_tab(ClientTab::thread("t-fg", Some("Parent Thread")));
     app.activate_thread_workspace("t-fg");
 
-    let subagent_msg = view::model::document::TranscriptMessage::tool_step(
+    let subagent_msg = nuo_view::model::document::TranscriptMessage::tool_step(
         "call-sub-1",
         "spawn_agent",
         r#"{"description":"Audit SQL indexes","role":"reviewer"}"#,
@@ -412,13 +414,13 @@ fn subagent_scene_renders_role_token_in_brand_bold_end_to_end() {
     app.open_tab(ClientTab::thread("t-fg", Some("Parent Thread")));
     app.activate_thread_workspace("t-fg");
 
-    let mut subagent_msg = view::model::document::TranscriptMessage::tool_step(
+    let mut subagent_msg = nuo_view::model::document::TranscriptMessage::tool_step(
         "call-sub-1",
         "spawn_agent",
         r#"{"description":"Audit SQL indexes","role":"reviewer"}"#,
     );
     subagent_msg.push_subagent_event(
-        &tool::SubagentEvent::Started {
+        &nuo_tool::SubagentEvent::Started {
             profile: "reviewer".to_string(),
         },
         &app.session.tui_config,

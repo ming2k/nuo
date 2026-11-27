@@ -6,14 +6,14 @@
 
 use std::time::Duration;
 
-use test_support::{Cli, MockProvider, Sandbox};
+use nuo_test_support::{Cli, MockProvider, Sandbox};
 
 #[test]
-fn headless_turn_runs_against_a_hermetic_provider() -> test_support::Result<()> {
+fn headless_turn_runs_against_a_hermetic_provider() -> nuo_test_support::Result<()> {
     let mock = MockProvider::with_response("pong")?;
     let sandbox = Sandbox::new()?;
     sandbox.configure_openai_mock("mock-provider", "mock", "mock-1", &mock.base_url())?;
-    let bin = test_support::binary_path()?;
+    let bin = nuo_test_support::binary_path()?;
     let _cleanup = sandbox.server_cleanup(&bin);
 
     let output = Cli::new(&bin, &sandbox)

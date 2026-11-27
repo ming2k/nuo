@@ -1,9 +1,9 @@
 //! Round, stream and steer event handling.
 
-use protocol::RoundEvent;
-use tool::Role;
-use view::model::document::{TranscriptMessage, UserMessageOrigin};
-use view::phase::Phase;
+use nuo_protocol::RoundEvent;
+use nuo_tool::Role;
+use nuo_view::model::document::{TranscriptMessage, UserMessageOrigin};
+use nuo_view::phase::Phase;
 
 use crate::shell::{event_loop, stream_discard_edit, transcript_turn};
 
@@ -18,13 +18,17 @@ impl TranslatorState {
     /// transcript (a result with no matching row becomes a fallback insert).
     /// Drop every frame addressed to a session this buffer has switched away
     /// from.
-    pub(super) async fn handle_round(&mut self, session_id: String, scope: protocol::RoundScope) {
+    pub(super) async fn handle_round(
+        &mut self,
+        session_id: String,
+        scope: nuo_protocol::RoundScope,
+    ) {
         if self.thread_generations.get(&session_id).copied() == Some(0) {
             return;
         }
         let (event, turn_context) = match scope {
-            protocol::RoundScope::Turn { context, event } => (event, Some(context)),
-            protocol::RoundScope::Session { event } => (event, None),
+            nuo_protocol::RoundScope::Turn { context, event } => (event, Some(context)),
+            nuo_protocol::RoundScope::Session { event } => (event, None),
         };
         // A turn-scoped event always carries its context; a
         // session-scoped event cannot claim one. There is no
@@ -150,20 +154,20 @@ impl TranslatorState {
                     .as_ref()
                     .and_then(|progress| progress.faults().last().cloned());
                 let record = match (record.detail, last_fault) {
-                    (None, Some(fault)) => protocol::RoundInterrupt {
-                        detail: Some(view::model::notice_text::display_text(&fault)),
+                    (None, Some(fault)) => nuo_protocol::RoundInterrupt {
+                        detail: Some(nuo_view::model::notice_text::display_text(&fault)),
                         ..record
                     },
-                    (detail, _) => protocol::RoundInterrupt { detail, ..record },
+                    (detail, _) => nuo_protocol::RoundInterrupt { detail, ..record },
                 };
                 self.thread_mut(&session_id).retry_progress = None;
                 let chrome_edit = match record.reason {
-                    protocol::RoundInterruptReason::Error
-                    | protocol::RoundInterruptReason::Terminated => {
+                    nuo_protocol::RoundInterruptReason::Error
+                    | nuo_protocol::RoundInterruptReason::Terminated => {
                         event_loop::mutations::ChromeEdit::RoundFailed
                     }
-                    protocol::RoundInterruptReason::User
-                    | protocol::RoundInterruptReason::Superseded => {
+                    nuo_protocol::RoundInterruptReason::User
+                    | nuo_protocol::RoundInterruptReason::Superseded => {
                         event_loop::mutations::ChromeEdit::RoundEnded
                     }
                 };
@@ -189,7 +193,7 @@ impl TranslatorState {
                 self.transcript(
                     &session_id,
                     E::Append {
-                        class: protocol::EventClass::Dialogue,
+                        class: nuo_protocol::EventClass::Dialogue,
                         message,
                     },
                 )
@@ -341,7 +345,7 @@ impl TranslatorState {
                 )
                 .await;
                 let (provider, model) = self.attribution_for(&session_id);
-                let hidden_chain = !protocol::model_by_id(&model)
+                let hidden_chain = !nuo_protocol::model_by_id(&model)
                     .map(|m| m.thinking.chain_disclosed())
                     .unwrap_or(true);
                 if hidden_chain {
@@ -414,7 +418,7 @@ impl TranslatorState {
                 self.transcript(
                     &session_id,
                     E::Append {
-                        class: protocol::EventClass::TurnOutcome,
+                        class: nuo_protocol::EventClass::TurnOutcome,
                         message,
                     },
                 )
@@ -472,8 +476,8 @@ impl TranslatorState {
                 admitted.turn = Some(transcript_turn(context.turn));
                 // In-round provenance: the renderer draws it as
                 // a one-body-row interjection (ADR-0137).
-                admitted =
-                    admitted.with_origin_tags(vec![view::model::document::SteerOriginTag::InRound]);
+                admitted = admitted
+                    .with_origin_tags(vec![nuo_view::model::document::SteerOriginTag::InRound]);
                 self.transcript(&session_id, E::InsertAdmittedSeam { message: admitted })
                     .await;
                 self.mutations
@@ -561,8 +565,9 @@ impl TranslatorState {
                 admitted.origin = UserMessageOrigin::FollowUp;
                 // A follow-up opens its own round, so it keeps
                 // full round-panel weight.
-                admitted = admitted
-                    .with_origin_tags(vec![view::model::document::SteerOriginTag::RoundOpening]);
+                admitted = admitted.with_origin_tags(vec![
+                    nuo_view::model::document::SteerOriginTag::RoundOpening,
+                ]);
                 self.transcript(&session_id, E::InsertAdmittedSeam { message: admitted })
                     .await;
                 self.mutations

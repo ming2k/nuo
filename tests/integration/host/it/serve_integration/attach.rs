@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use persistence::thread::ThreadSession;
-use protocol::{AgentRequest, AgentResponse, RoundEvent};
-use server::runtime::registry::ThreadRegistry;
-use server::transport::serve::{self, ThreadTarget, Wire};
+use nuo_persistence::thread::ThreadSession;
+use nuo_protocol::{AgentRequest, AgentResponse, RoundEvent};
+use nuo_server::runtime::registry::ThreadRegistry;
+use nuo_server::transport::serve::{self, ThreadTarget, Wire};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::helpers::{host_with_project, prehosted, prehosted_with_catalog};
@@ -18,9 +18,9 @@ type WsStream =
 async fn ws_hello(ws: &mut WsStream) {
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: None,
         })
         .unwrap()
@@ -63,12 +63,12 @@ async fn ws_hello_and_subscribe(
 async fn completion_catalog_and_edits_round_trip_over_websocket() {
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(ThreadSession::for_path(tmp.path().join("session.json")));
-    let command = tool::CommandSpec {
+    let command = nuo_tool::CommandSpec {
         name: "/models".into(),
         summary: "Choose a model".into(),
         ..Default::default()
     };
-    let catalog = tool::CommandCatalog {
+    let catalog = nuo_tool::CommandCatalog {
         commands: vec![command.clone()],
         ..Default::default()
     };
@@ -118,7 +118,7 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
             response: AgentResponse::ThreadPhase(update),
             ..
         } = serde_json::from_str::<Wire>(frame.to_text().unwrap_or("")).unwrap()
-            && update.phase == protocol::ThreadPhase::Ready
+            && update.phase == nuo_protocol::ThreadPhase::Ready
         {
             break;
         }
@@ -152,13 +152,13 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
         } if text == "/mod"
     ));
 
-    let item = tool::ComposerCompletion {
+    let item = nuo_tool::ComposerCompletion {
         label: "/models".into(),
         description: "Choose a model".into(),
         insert_text: "/models ".into(),
         replace_start: 0,
         replace_end: 4,
-        kind: tool::ComposerCompletionKind::Slash,
+        kind: nuo_tool::ComposerCompletionKind::Slash,
         alias_of: None,
         command: Some(command),
     };
@@ -257,8 +257,8 @@ async fn test_hello_then_subscribe_round_trip() {
 
     let _ = bc_tx.send(AgentResponse::Round {
         thread_id: session_id.clone(),
-        scope: protocol::RoundScope::Turn {
-            context: protocol::TurnContext::new(1, 0, 1_700_000_000_000),
+        scope: nuo_protocol::RoundScope::Turn {
+            context: nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000),
             event: RoundEvent::Text("back".into()),
         },
     });
@@ -332,7 +332,7 @@ async fn subscribed_then_snapshot_then_ready_is_the_order() {
             ..
         } => {
             assert_eq!(id, session_id);
-            assert!(matches!(phase, protocol::ThreadPhase::Ready));
+            assert!(matches!(phase, nuo_protocol::ThreadPhase::Ready));
         }
         other => panic!("expected Subscribed first, got {other:?}"),
     }
@@ -347,7 +347,7 @@ async fn subscribed_then_snapshot_then_ready_is_the_order() {
         Wire::Response {
             response: AgentResponse::ThreadPhase(update),
             ..
-        } => assert_eq!(update.phase, protocol::ThreadPhase::Ready),
+        } => assert_eq!(update.phase, nuo_protocol::ThreadPhase::Ready),
         other => panic!("expected ThreadPhase(Ready) third, got {other:?}"),
     }
 }
@@ -359,14 +359,14 @@ async fn attach_receives_restored_todos_after_subscribe() {
     let session_id = session.id().await;
 
     session
-        .replace_messages(vec![tool::Message::new(tool::Role::User, "hello")])
+        .replace_messages(vec![nuo_tool::Message::new(nuo_tool::Role::User, "hello")])
         .await
         .unwrap();
-    let mut todos = tool::TodoList::new();
-    todos.items.push(tool::TodoItem {
-        id: tool::TodoId(1),
+    let mut todos = nuo_tool::TodoList::new();
+    todos.items.push(nuo_tool::TodoItem {
+        id: nuo_tool::TodoId(1),
         content: "restored task".to_string(),
-        status: tool::TodoStatus::InProgress,
+        status: nuo_tool::TodoStatus::InProgress,
         created_at: 1,
         updated_at: 1,
     });
@@ -521,7 +521,7 @@ async fn unknown_id_is_refused_with_session_gone_code() {
             assert!(message.contains("no-such-session-at-all"));
             assert_eq!(
                 code.as_deref(),
-                Some(protocol::ERR_SESSION_GONE),
+                Some(nuo_protocol::ERR_SESSION_GONE),
                 "a session with no durable binding must be refused as gone so the \
                  client can retire the tab that names it"
             );

@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use persistence::thread::ThreadSession;
-use protocol::{AgentRequest, AgentResponse, MonitorAction};
-use server::runtime::monitor::MonitorTracker;
-use server::runtime::registry::{HostedThread, ThreadRegistry};
-use server::transport::serve::{self, Wire};
+use nuo_persistence::thread::ThreadSession;
+use nuo_protocol::{AgentRequest, AgentResponse, MonitorAction};
+use nuo_server::runtime::monitor::MonitorTracker;
+use nuo_server::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_server::transport::serve::{self, Wire};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -29,9 +29,9 @@ async fn control_create_observe_kill_roundtrip() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: None,
         })
         .unwrap()
@@ -118,7 +118,7 @@ async fn control_create_observe_kill_roundtrip() {
 async fn native_local_ipc_serves_same_protocol_without_token() {
     let tmp = tempfile::tempdir().unwrap();
     let socket_path = tmp.path().join("server.sock");
-    let endpoint = host::ipc::endpoint_for_instance(
+    let endpoint = nuo_host::ipc::endpoint_for_instance(
         socket_path.clone(),
         &format!("serve-integration-{}", std::process::id()),
     )
@@ -153,13 +153,13 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
     }
 
     // Full handshake over the native endpoint: Hello with monitor snapshot (native framed).
-    let stream = host::ipc::connect(&endpoint).await.unwrap();
+    let stream = nuo_host::ipc::connect(&endpoint).await.unwrap();
     let (mut wire_sink, mut wire_source) =
-        server::transport::wire_channel::native_framed_split(stream);
+        nuo_server::transport::wire_channel::native_framed_split(stream);
     let hello = Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         monitor: Some(MonitorAction {
             watch: false,
             include_idle: true,
@@ -172,7 +172,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
         .unwrap()
         .unwrap();
     match msg {
-        protocol::WireFrame::Wire(Wire::ServerHello {
+        nuo_protocol::WireFrame::Wire(Wire::ServerHello {
             monitor: Some(_), ..
         }) => {}
         other => panic!(
@@ -193,7 +193,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
         hung.is_empty(),
         "accept tasks must stop on cancel: {hung:?}"
     );
-    let probe = host::ipc::probe(&endpoint);
+    let probe = nuo_host::ipc::probe(&endpoint);
     assert!(
         !probe.exists,
         "local endpoint removed on shutdown: {endpoint}"
@@ -202,12 +202,12 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
 #[tokio::test]
 async fn native_local_ipc_bind_failure_is_reported() {
     let tmp = tempfile::tempdir().unwrap();
-    let endpoint = host::ipc::endpoint_for_instance(
+    let endpoint = nuo_host::ipc::endpoint_for_instance(
         tmp.path().join("occupied.sock"),
         &format!("occupied-{}", std::process::id()),
     )
     .unwrap();
-    let _occupied = host::ipc::LocalListener::bind(&endpoint).unwrap();
+    let _occupied = nuo_host::ipc::LocalListener::bind(&endpoint).unwrap();
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let mut handle = serve::start_server(
         serve::ServeOptions {
@@ -241,9 +241,9 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: None,
         })
         .unwrap()
@@ -296,7 +296,7 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
 /// 4), so a client reading a stale record can refuse before speaking.
 #[test]
 fn global_record_carries_the_server_version() {
-    let record = server::transport::serve_discovery::Discovery {
+    let record = nuo_server::transport::serve_discovery::Discovery {
         pid: 1,
         process_birth_token: None,
         port: 2,
@@ -312,7 +312,8 @@ fn global_record_carries_the_server_version() {
     };
     let json = serde_json::to_string(&record).unwrap();
     assert!(json.contains(serve::server_version()));
-    let back: server::transport::serve_discovery::Discovery = serde_json::from_str(&json).unwrap();
+    let back: nuo_server::transport::serve_discovery::Discovery =
+        serde_json::from_str(&json).unwrap();
     assert_eq!(back.version.as_deref(), Some(serve::server_version()));
 }
 
@@ -327,7 +328,7 @@ fn global_record_carries_the_server_version() {
 /// taxonomy — the second case below.
 #[tokio::test]
 async fn protocol_window_is_the_only_admission_authority() {
-    use protocol::PROTOCOL_VERSION;
+    use nuo_protocol::PROTOCOL_VERSION;
 
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(ThreadSession::for_path(tmp.path().join("session.json")));
@@ -342,7 +343,7 @@ async fn protocol_window_is_the_only_admission_authority() {
         let hello = serde_json::to_string(&Wire::Hello {
             version: version.map(str::to_string),
             protocol,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: None,
         })
         .unwrap();
@@ -440,9 +441,9 @@ async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: None,
         })
         .unwrap()
@@ -541,7 +542,7 @@ async fn control_suspend_session_parks_a_contentful_session() {
     let id = session.id().await;
     // Real content → the session persists, so it is suspendable.
     session
-        .replace_messages(vec![tool::Message::new(tool::Role::User, "hello")])
+        .replace_messages(vec![nuo_tool::Message::new(nuo_tool::Role::User, "hello")])
         .await
         .unwrap();
 
@@ -549,26 +550,28 @@ async fn control_suspend_session_parks_a_contentful_session() {
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(id.clone()),
-        protocol::ThreadActivity::Idle,
+        nuo_protocol::ThreadActivity::Idle,
     )));
     registry
         .host(HostedThread {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                protocol::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
-                persistence::workspace_security::WorkspaceSecurityStore::load(),
+                nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new())),
-            command_catalog: tool::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),

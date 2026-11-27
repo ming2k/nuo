@@ -3,21 +3,21 @@
 
 use std::sync::Arc;
 
-use persistence::thread::ThreadSession;
-use protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
-use server::runtime::monitor::MonitorTracker;
-use server::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_persistence::thread::ThreadSession;
+use nuo_protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
+use nuo_server::runtime::monitor::MonitorTracker;
+use nuo_server::runtime::registry::{HostedThread, ThreadRegistry};
 use tokio::sync::{Mutex, broadcast, mpsc};
-pub(super) fn idle_base(id: String) -> protocol::MonitoredThread {
-    protocol::MonitoredThread {
+pub(super) fn idle_base(id: String) -> nuo_protocol::MonitoredThread {
+    nuo_protocol::MonitoredThread {
         id,
         title: None,
         overview: String::new(),
         created_at: 0,
         updated_at: 0,
         message_count: 0,
-        status: protocol::ThreadActivity::Idle,
-        hosting: protocol::ThreadHosting::Hosted,
+        status: nuo_protocol::ThreadActivity::Idle,
+        hosting: nuo_protocol::ThreadHosting::Hosted,
         round: 0,
         turn: None,
         output_tokens: 0,
@@ -29,7 +29,7 @@ pub(super) fn idle_base(id: String) -> protocol::MonitoredThread {
         project_root: String::new(),
         role: "developer".into(),
         parent_id: None,
-        origin: protocol::ThreadOrigin::default(),
+        origin: nuo_protocol::ThreadOrigin::default(),
         digest: None,
     }
 }
@@ -41,12 +41,12 @@ pub(super) async fn prehosted(
     mpsc::Receiver<AgentRequest>,
     broadcast::Sender<AgentResponse>,
 ) {
-    prehosted_with_catalog(session, tool::CommandCatalog::default()).await
+    prehosted_with_catalog(session, nuo_tool::CommandCatalog::default()).await
 }
 
 pub(super) async fn prehosted_with_catalog(
     session: Arc<ThreadSession>,
-    command_catalog: tool::CommandCatalog,
+    command_catalog: nuo_tool::CommandCatalog,
 ) -> (
     Arc<ThreadRegistry>,
     mpsc::Receiver<AgentRequest>,
@@ -63,7 +63,7 @@ pub(super) async fn prehosted_with_catalog(
     let state_dir = std::env::temp_dir().join(format!("nuo-serve-it-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&state_dir).unwrap();
     let security = Arc::new(
-        persistence::workspace_security::WorkspaceSecurityStore::load_from(
+        nuo_persistence::workspace_security::WorkspaceSecurityStore::load_from(
             state_dir.join("security.json"),
         ),
     );
@@ -71,7 +71,7 @@ pub(super) async fn prehosted_with_catalog(
 
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         base,
-        protocol::ThreadActivity::Idle,
+        nuo_protocol::ThreadActivity::Idle,
     )));
     // Mimic the registry's broadcast-tap: fold every emitted response into the
     // tracker, publish a monitor diff, and buffer the attach-sync events, so
@@ -79,7 +79,9 @@ pub(super) async fn prehosted_with_catalog(
     let tap_tracker = tracker.clone();
     let mut tap_rx = bc_tx.subscribe();
     let registry_for_tap = registry.clone();
-    let sync_buffer = Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new()));
+    let sync_buffer = Arc::new(Mutex::new(
+        nuo_server::transport::serve::AttachSyncBuffer::new(),
+    ));
     let sync_buffer_for_tap = sync_buffer.clone();
     tokio::spawn(async move {
         while let Ok(response) = tap_rx.recv().await {
@@ -103,11 +105,11 @@ pub(super) async fn prehosted_with_catalog(
         .host(HostedThread {
             workspace_root: Some(std::path::PathBuf::from("/tmp/nuo-test-project")),
             human_channel: std::sync::Arc::new(
-                protocol::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -147,26 +149,28 @@ pub(super) async fn host_with_project(
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(id.clone()),
-        protocol::ThreadActivity::Idle,
+        nuo_protocol::ThreadActivity::Idle,
     )));
     registry
         .host(HostedThread {
             workspace_root: Some(project),
             human_channel: std::sync::Arc::new(
-                protocol::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
-                persistence::workspace_security::WorkspaceSecurityStore::load(),
+                nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new())),
-            command_catalog: tool::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
@@ -195,27 +199,29 @@ pub(super) async fn host_bare(
     let base = idle_base(session.id().await);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         base,
-        protocol::ThreadActivity::Idle,
+        nuo_protocol::ThreadActivity::Idle,
     )));
     let id = session.id().await;
     registry
         .host(HostedThread {
             workspace_root: Some(std::env::temp_dir().join("nuo-reaper-project")),
             human_channel: std::sync::Arc::new(
-                protocol::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
-                persistence::workspace_security::WorkspaceSecurityStore::load(),
+                nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new())),
-            command_catalog: tool::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at,

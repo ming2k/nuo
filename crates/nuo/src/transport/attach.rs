@@ -7,7 +7,7 @@ use super::current_posture;
 use super::lifecycle::{ATTACH_ACK_TIMEOUT, CONTROL_REPLY_TIMEOUT};
 use super::ready;
 use super::*;
-use protocol::{
+use nuo_protocol::{
     ControlRequest, MonitorAction, MonitorEvent, PersistenceHealth, ServerPhase, ThreadOverview,
     ThreadTarget,
 };
@@ -71,28 +71,28 @@ impl AttachError {
 
     /// Whether the target session provably no longer exists (`ERR_SESSION_GONE`).
     pub fn is_session_gone(&self) -> bool {
-        self.code() == Some(protocol::ERR_SESSION_GONE)
+        self.code() == Some(nuo_protocol::ERR_SESSION_GONE)
     }
 
     /// Whether the target session exists durably but could not be assembled
     /// (`ERR_SESSION_UNRESUMABLE`).
     pub fn is_session_unresumable(&self) -> bool {
-        self.code() == Some(protocol::ERR_SESSION_UNRESUMABLE)
+        self.code() == Some(nuo_protocol::ERR_SESSION_UNRESUMABLE)
     }
 
     /// Whether the server refused because it is still initializing.
     pub fn is_server_not_ready(&self) -> bool {
-        self.code() == Some(protocol::ERR_SERVER_NOT_READY)
+        self.code() == Some(nuo_protocol::ERR_SERVER_NOT_READY)
     }
 
     /// Whether the server refused because it is shutting down.
     pub fn is_server_draining(&self) -> bool {
-        self.code() == Some(protocol::ERR_SERVER_DRAINING)
+        self.code() == Some(nuo_protocol::ERR_SERVER_DRAINING)
     }
 
     /// Whether the server refused because it entered a fatal failed state.
     pub fn is_server_failed(&self) -> bool {
-        self.code() == Some(protocol::ERR_SERVER_FAILED)
+        self.code() == Some(nuo_protocol::ERR_SERVER_FAILED)
     }
 }
 
@@ -120,7 +120,7 @@ pub struct ServerHelloInfo {
     pub started_at: u64,
     pub phase: ServerPhase,
     pub persistence_health: Option<PersistenceHealth>,
-    pub monitor: Option<protocol::MonitorSnapshot>,
+    pub monitor: Option<nuo_protocol::MonitorSnapshot>,
 }
 
 /// Where an attached reader records the *transport* or *drain* failure that ended it.
@@ -234,7 +234,7 @@ pub enum Handshake {
         /// Readiness at the moment of subscription acknowledgement.
         /// `[INV-ATTACH-04]` makes the post-snapshot `ThreadPhase::Ready`
         /// the gate for input.
-        phase: protocol::ThreadPhase,
+        phase: nuo_protocol::ThreadPhase,
     },
     Pick(Vec<ThreadOverview>),
 }
@@ -247,7 +247,7 @@ pub(super) async fn dial_local_wire(
     info: &ServerInfo,
 ) -> Result<(BoxWireSink, BoxWireStream), AttachError> {
     if let Some(endpoint) = info.effective_local_endpoint()
-        && let Ok(stream) = host::ipc::connect(&endpoint).await
+        && let Ok(stream) = nuo_host::ipc::connect(&endpoint).await
     {
         return Ok(native_framed_split(stream));
     }
@@ -373,7 +373,7 @@ pub(super) async fn finish_handshake_with_options(
         ServerPhase::Failed { code, message } => {
             return Err(AttachError::server_refusal(
                 code.clone()
-                    .or_else(|| Some(protocol::ERR_SERVER_FAILED.to_string())),
+                    .or_else(|| Some(nuo_protocol::ERR_SERVER_FAILED.to_string())),
                 format!("server startup failed: {message}"),
             ));
         }
@@ -383,7 +383,7 @@ pub(super) async fn finish_handshake_with_options(
                 None => "server is shutting down".to_string(),
             };
             return Err(AttachError::server_refusal(
-                Some(protocol::ERR_SERVER_DRAINING.to_string()),
+                Some(nuo_protocol::ERR_SERVER_DRAINING.to_string()),
                 msg,
             ));
         }
@@ -404,7 +404,7 @@ pub(super) async fn finish_handshake_with_options(
         Subscribed {
             session_id: String,
             generation: u64,
-            phase: protocol::ThreadPhase,
+            phase: nuo_protocol::ThreadPhase,
         },
         Pick(Vec<ThreadOverview>),
     }

@@ -5,29 +5,29 @@
 use std::sync::Arc;
 
 use super::sandbox_once;
-use persistence::thread::ThreadSession;
-use protocol::{AgentResponse, LoopStatus, RetryPoint, RoundEvent};
-use server::UiBridge;
-use server::composition::bootstrap::{self, BootstrapParams};
-use server::composition::startup::ThreadStart;
-use server::runtime::thread_driver::send_harness_state_for_session;
+use nuo_persistence::thread::ThreadSession;
+use nuo_protocol::{AgentResponse, LoopStatus, RetryPoint, RoundEvent};
+use nuo_server::UiBridge;
+use nuo_server::composition::bootstrap::{self, BootstrapParams};
+use nuo_server::composition::startup::ThreadStart;
+use nuo_server::runtime::thread_driver::send_harness_state_for_session;
 use tokio::sync::mpsc;
 
 struct HeadlessProbe;
 
 #[async_trait::async_trait]
 impl UiBridge for HeadlessProbe {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::CopyOutcome, String> {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo_server::CopyOutcome, String> {
         Err("probe: headless".to_string())
     }
 }
 
 fn params(project_root: std::path::PathBuf, startup: ThreadStart) -> BootstrapParams {
-    let identity = protocol::AgentIdentity::new("probe", "retry probe");
+    let identity = nuo_protocol::AgentIdentity::new("probe", "retry probe");
     BootstrapParams {
         human_channel: None,
         identity: identity.clone(),
-        preset: protocol::AgentRoleProfile::with_identity("probe", identity),
+        preset: nuo_protocol::AgentRoleProfile::with_identity("probe", identity),
         ui: Arc::new(HeadlessProbe),
         startup,
         project_root: Some(project_root),
@@ -59,8 +59,8 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     store
         .replace_messages(vec![
-            tool::Message::new(tool::Role::User, "run task"),
-            tool::Message::new(tool::Role::Assistant, "partial progress"),
+            nuo_tool::Message::new(nuo_tool::Role::User, "run task"),
+            nuo_tool::Message::new(nuo_tool::Role::Assistant, "partial progress"),
         ])
         .await
         .unwrap();
@@ -100,7 +100,7 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
     match received {
         AgentResponse::Round {
             scope:
-                protocol::RoundScope::Session {
+                nuo_protocol::RoundScope::Session {
                     event: RoundEvent::HarnessState(snapshot),
                 },
             ..
@@ -121,11 +121,11 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
 #[tokio::test]
 async fn workspace_free_scope_assembles_without_a_workspace() {
     sandbox_once();
-    let identity = protocol::AgentIdentity::new("practice", "a language practice partner");
+    let identity = nuo_protocol::AgentIdentity::new("practice", "a language practice partner");
     let boot = bootstrap::assemble(BootstrapParams {
         human_channel: None,
         identity: identity.clone(),
-        preset: protocol::AgentRoleProfile::with_identity("practice", identity),
+        preset: nuo_protocol::AgentRoleProfile::with_identity("practice", identity),
         ui: Arc::new(HeadlessProbe),
         startup: ThreadStart::Fresh,
         project_root: None,
@@ -160,7 +160,7 @@ async fn hermetic_manifest_restores_even_when_role_config_is_deleted() {
     std::fs::create_dir_all(&dot_nuo).unwrap();
 
     // 1. Author a custom role in the global roles.toml (ADR-0254).
-    let roles_file = host::paths::get().roles_file();
+    let roles_file = nuo_host::paths::get().roles_file();
     if let Some(parent) = roles_file.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
@@ -179,7 +179,7 @@ admit_mcp = ["security-scan"]
     let store = Arc::new(ThreadSession::load_for_project(project.clone()));
     let session_id = store
         .reset_with(
-            Some(protocol::WorkspaceBinding::new(project.clone())),
+            Some(nuo_protocol::WorkspaceBinding::new(project.clone())),
             Some("sec-auditor".to_string()),
         )
         .await
@@ -187,11 +187,11 @@ admit_mcp = ["security-scan"]
 
     // Persist a turn into SQLite so the session is written with its manifest
     let turn = vec![
-        tool::Message::new(tool::Role::User, "audit this codebase"),
-        tool::Message::new(tool::Role::Assistant, "auditing now"),
+        nuo_tool::Message::new(nuo_tool::Role::User, "audit this codebase"),
+        nuo_tool::Message::new(nuo_tool::Role::Assistant, "auditing now"),
     ];
     store
-        .commit_turn(persistence::CommitTurn::new(&turn))
+        .commit_turn(nuo_persistence::CommitTurn::new(&turn))
         .await
         .unwrap();
 

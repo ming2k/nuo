@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use protocol::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::input::InputAction;
@@ -422,7 +422,7 @@ pub(crate) fn refresh_usage(app: &mut App, runtime: &UiRuntime) {
             let payload = res
                 .payload
                 .ok_or_else(|| "usage stats reply carried no payload".to_string())?;
-            serde_json::from_str::<protocol::usage_stats::UsageStatsReport>(&payload)
+            serde_json::from_str::<nuo_protocol::usage_stats::UsageStatsReport>(&payload)
                 .map_err(|e| format!("decode usage stats: {e}"))
         });
         let mutation = match outcome {

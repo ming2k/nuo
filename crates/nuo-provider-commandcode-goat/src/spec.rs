@@ -1,0 +1,253 @@
+//! The built-in `commandcode` provider preset: Command Code Provider API
+//! (`api.commandcode.ai/provider/v1`), authenticated via a Command Code API key.
+
+use nuo_inference_wire::WireProtocol;
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
+
+use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
+
+pub use nuo_protocol::model_providers::COMMANDCODE_BUILTIN_MODELS;
+
+/// Seed models offered by the Command Code Provider preset before the first sync.
+pub const MODELS: &[Model] = &[
+    Model {
+        id: "claude-sonnet-5-5",
+        family: "claude",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::Adaptive,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+    Model {
+        id: "gpt-5.6-sol",
+        family: "gpt",
+        context_window: 1_050_000,
+        thinking: ReasoningSupport::ReasoningSummary,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_protocol::Effort::Medium),
+        wire_entities: None,
+    },
+    Model {
+        id: "deepseek/deepseek-v4-flash",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::Low),
+        wire_entities: None,
+    },
+    Model {
+        id: "deepseek/deepseek-v4-flash-fast",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::Low),
+        wire_entities: None,
+    },
+    // CommandCode names its models `vendor/model`, and the server resolves the
+    // upstream family per turn (ADR-0014): a declared `deepseek/deepseek-v4-flash`
+    // is served as `deepseek-v4.1-flash` (`x-cli-constants.featureLaneModels`
+    // lists both `deepseek-v4.1-flash` and `deepseek-v4-pro` as real ids).
+    // CommandCode's live /provider/v1/models endpoint advertises
+    // `supported_endpoints: ["/chat/completions", "/responses"]` for all
+    // DeepSeek and modern GPT models, and mounts /responses natively.
+    Model {
+        id: "deepseek/deepseek-v4.1-flash",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::Low),
+        wire_entities: None,
+    },
+    Model {
+        id: "deepseek/deepseek-v4.1-flash-fast",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::Low),
+        wire_entities: None,
+    },
+    Model {
+        id: "deepseek/deepseek-v4-pro",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: false,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+];
+
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
+
+pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
+    dialect: nuo_protocol::ProviderDialect::Standard,
+    protocol_roots: std::borrow::Cow::Borrowed(&[]),
+    catalog_root_url: None,
+    prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
+    id: std::borrow::Cow::Borrowed(nuo_protocol::model_providers::PROVIDER_COMMANDCODE_GOAT.id),
+    baselines: MODELS,
+    root_url: std::borrow::Cow::Borrowed(
+        nuo_protocol::model_providers::PROVIDER_COMMANDCODE_GOAT.root_url,
+    ),
+    user_agent: nuo_protocol::model_providers::PROVIDER_COMMANDCODE_GOAT.user_agent_cow(),
+    default_headers: std::borrow::Cow::Borrowed(&[]),
+    protocol: nuo_protocol::model_providers::PROVIDER_COMMANDCODE_GOAT.protocol,
+    model_protocols: &[("claude-sonnet-5-5", WireProtocol::AnthropicMessages)],
+    catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
+    quota: Some(nuo_provider::QuotaPort::CommandCodeCredits),
+    display_policy: nuo_provider::DisplayPolicy::Structural,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
+    models: nuo_protocol::model_providers::PROVIDER_COMMANDCODE_GOAT.models,
+};
+
+#[cfg(test)]
+mod tests {
+    use super::{COMMANDCODE_BUILTIN_MODELS, MODEL_PROVIDER_SPEC, MODELS};
+    use nuo_inference_wire::WireProtocol;
+    use nuo_provider::DisplayPolicy;
+
+    #[test]
+    fn labels_are_lifted_structurally_not_echoed_from_the_wire_id() {
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.display_policy,
+            DisplayPolicy::Structural
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4-flash"),
+            Some("DeepSeek V4 Flash".to_string())
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4-flash-fast"),
+            Some("DeepSeek V4 Flash Fast".to_string())
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4.1-flash"),
+            Some("DeepSeek V4.1 Flash".to_string())
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4.1-flash-fast"),
+            Some("DeepSeek V4.1 Flash Fast".to_string())
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4-pro"),
+            Some("DeepSeek V4 Pro".to_string())
+        );
+    }
+
+    #[test]
+    fn deepseek_and_gpt_models_route_via_responses_api() {
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-fast",
+            "deepseek/deepseek-v4-pro",
+            "gpt-5.6-sol",
+        ] {
+            assert_eq!(
+                MODEL_PROVIDER_SPEC.model_protocol(id),
+                WireProtocol::OpenAiResponses,
+                "{id} must route through the Responses API"
+            );
+        }
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.model_protocol("claude-sonnet-5-5"),
+            WireProtocol::AnthropicMessages,
+            "Claude must route through Messages API"
+        );
+    }
+
+    #[test]
+    fn every_seeded_namespaced_id_gets_a_label() {
+        for id in COMMANDCODE_BUILTIN_MODELS {
+            let label = MODEL_PROVIDER_SPEC.resolve_display_label(None, id);
+            assert!(label.is_some(), "{id} must resolve a display label");
+            let label = label.unwrap_or_default();
+            assert!(
+                !label.contains('/'),
+                "{id} resolved to {label:?}: a namespace separator is not a name"
+            );
+        }
+    }
+
+    #[test]
+    fn deepseek_flash_models_support_vision() {
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-fast",
+        ] {
+            let model = MODELS.iter().find(|m| m.id == id).expect("seeded model");
+            assert!(model.vision, "{id} must support vision");
+        }
+        let pro = MODELS
+            .iter()
+            .find(|m| m.id == "deepseek/deepseek-v4-pro")
+            .expect("seeded model");
+        assert!(!pro.vision, "deepseek-v4-pro must remain text-only");
+    }
+
+    #[test]
+    fn deepseek_baselines_resolve_an_effort_ladder() {
+        // The compiled baseline must carry an effort ladder for every DeepSeek
+        // lane so the per-model effort editor (the "reasoning degree" control)
+        // is available offline, before any catalog sync.
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-fast",
+            "deepseek/deepseek-v4-pro",
+        ] {
+            let resolved = nuo_protocol::model::resolve(id);
+            assert!(
+                !resolved.effort_levels.is_empty(),
+                "{id} must resolve a reasoning-effort ladder, got empty"
+            );
+        }
+    }
+
+    #[test]
+    fn every_deepseek_baseline_is_seeded_for_offline_depth_control() {
+        // Every registered DeepSeek lane must be in the CommandCode seed list:
+        // the seed list is what exposes the picker's reasoning-effort ("深度")
+        // control offline, before a live catalog sync. `flash-fast` was once
+        // omitted — present as a baseline, absent from the seed — so it had no
+        // depth knob until a sync happened to advertise it.
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-fast",
+            "deepseek/deepseek-v4-pro",
+        ] {
+            assert!(
+                COMMANDCODE_BUILTIN_MODELS.contains(&id),
+                "{id} is a registered deepseek baseline but is missing from the \
+                 CommandCode seed list, so its offline depth control is unreachable"
+            );
+        }
+    }
+}

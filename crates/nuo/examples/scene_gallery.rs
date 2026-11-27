@@ -57,23 +57,25 @@ use nuo::shell::render::{
     TasksBarProps, TranscriptProps, draw_model_bar, draw_transcript, recess_backdrop,
 };
 use nuo::shell::ui::ComponentTree;
-use protocol::{
+use nuo_protocol::{
     MonitoredThread, NoticeSeverity, ThreadActivity, ThreadHosting, ThreadOrigin, ThreadOverview,
 };
-use tool::{
+use nuo_tool::{
     PermissionRequest, Role, ToolOutput, UserQuestion, UserQuestionOption, UserQuestionRequest,
 };
-use ui_primitives::color_scheme::ColorSchemeConfig;
-use ui_primitives::primitives::Recess;
-use ui_primitives::theme::{COLOR_SCHEMES, Theme};
-use view::chrome::BackgroundTaskItem;
-use view::layout;
-use view::model::document::{MessageKind, ToolStepStatus, TranscriptMessage};
-use view::model::layout::{InteractiveTarget, InteractiveTargetKind, LayoutMap};
-use view::model::selection::SelectionState;
-use view::tui_config::TuiConfig;
-use view::view_header::{SceneKind, TabBarItem, TabBarProps, TabStatus, ThreadContext, ViewHints};
-use view::views::settings::{ConfigFocus, SettingsProps, draw_settings_view};
+use nuo_ui_primitives::color_scheme::ColorSchemeConfig;
+use nuo_ui_primitives::primitives::Recess;
+use nuo_ui_primitives::theme::{COLOR_SCHEMES, Theme};
+use nuo_view::chrome::BackgroundTaskItem;
+use nuo_view::layout;
+use nuo_view::model::document::{MessageKind, ToolStepStatus, TranscriptMessage};
+use nuo_view::model::layout::{InteractiveTarget, InteractiveTargetKind, LayoutMap};
+use nuo_view::model::selection::SelectionState;
+use nuo_view::tui_config::TuiConfig;
+use nuo_view::view_header::{
+    SceneKind, TabBarItem, TabBarProps, TabStatus, ThreadContext, ViewHints,
+};
+use nuo_view::views::settings::{ConfigFocus, SettingsProps, draw_settings_view};
 
 const SCENES: [&str; 8] = [
     "Transcript · Running",
@@ -242,7 +244,7 @@ fn make_running_transcript() -> Vec<TranscriptMessage> {
     let mut edit_ok = TranscriptMessage::tool_step(
         "call-edit-2",
         "edit_text",
-        r#"{"path":"crates/ui-primitives/src/theme/mod.rs"}"#,
+        r#"{"path":"crates/nuo-ui-primitives/src/theme/mod.rs"}"#,
     )
     .with_round(1)
     .with_turn(1)
@@ -300,7 +302,7 @@ fn make_running_transcript() -> Vec<TranscriptMessage> {
     let executing = TranscriptMessage::tool_step(
         "call-run-6",
         "execute_command",
-        r#"{"command":"cargo nextest run -p ui-primitives"}"#,
+        r#"{"command":"cargo nextest run -p nuo-ui-primitives"}"#,
     )
     .with_round(1)
     .with_turn(2)
@@ -334,7 +336,7 @@ pub const COLOR_SCHEMES: [ColorSchemePreset; 7] = [
     DiffViewerState {
         files: vec![
             DiffFileEntry {
-                path: "crates/ui-primitives/src/theme/presets.rs".to_string(),
+                path: "crates/nuo-ui-primitives/src/theme/presets.rs".to_string(),
                 op_label: "Modified",
                 additions,
                 deletions,
@@ -342,7 +344,7 @@ pub const COLOR_SCHEMES: [ColorSchemePreset; 7] = [
                 lines,
             },
             DiffFileEntry {
-                path: "crates/ui-primitives/src/theme/mod.rs".to_string(),
+                path: "crates/nuo-ui-primitives/src/theme/mod.rs".to_string(),
                 op_label: "Modified",
                 additions: 42,
                 deletions: 12,
@@ -795,7 +797,8 @@ fn draw_scene(
                 tool: "execute_command".to_string(),
                 label: "Run workspace tests".to_string(),
                 description: "Execute cargo nextest across ui-primitives and nuo".to_string(),
-                arguments: r#"{"command":"cargo nextest run -p ui-primitives -p nuo"}"#.to_string(),
+                arguments: r#"{"command":"cargo nextest run -p nuo-ui-primitives -p nuo"}"#
+                    .to_string(),
                 scope: "cargo nextest *".to_string(),
                 suggested_scope: Some("cargo nextest *".to_string()),
                 elevation: false,

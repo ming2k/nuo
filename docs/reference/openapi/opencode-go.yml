@@ -3,7 +3,7 @@
 # (anomalyco/opencode PR #16513, merged 2026-08-11) and probed live on 2026-10-30.
 #
 # Consumers: the implementer maintaining the quota port in
-# `crates/provider-opencode-go`. This file never encodes code decisions —
+# `crates/nuo-provider-opencode-go`. This file never encodes code decisions —
 # it states the contract exactly as the endpoint enforces it, and marks every
 # fact by how it was established.
 #

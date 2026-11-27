@@ -4,8 +4,8 @@ use graticule::TestTerminal;
 #[test]
 fn sessions_modal_shows_loading_spinner_while_fetching() {
     let theme = Theme::default();
-    let selection = view::model::selection::SelectionState::None;
-    let mut layout_map = view::model::layout::LayoutMap::default();
+    let selection = nuo_view::model::selection::SelectionState::None;
+    let mut layout_map = nuo_view::model::layout::LayoutMap::default();
     let mut scroll = 0;
     let mut info_scroll = 0;
 
@@ -47,8 +47,8 @@ fn sessions_modal_shows_loading_spinner_while_fetching() {
 #[test]
 fn sessions_modal_shows_empty_message_only_after_loading_finishes() {
     let theme = Theme::default();
-    let selection = view::model::selection::SelectionState::None;
-    let mut layout_map = view::model::layout::LayoutMap::default();
+    let selection = nuo_view::model::selection::SelectionState::None;
+    let mut layout_map = nuo_view::model::layout::LayoutMap::default();
     let mut scroll = 0;
     let mut info_scroll = 0;
 
@@ -83,8 +83,8 @@ fn sessions_modal_shows_empty_message_only_after_loading_finishes() {
 
 /// A session row with the fields these tests care about spelled out, so a
 /// new wire field does not turn every assertion into a fixture edit.
-fn overview(id: &str, parent: Option<&str>, created_at: u64) -> protocol::ThreadOverview {
-    protocol::ThreadOverview {
+fn overview(id: &str, parent: Option<&str>, created_at: u64) -> nuo_protocol::ThreadOverview {
+    nuo_protocol::ThreadOverview {
         id: id.into(),
         title: Some(id.into()),
         overview: id.into(),
@@ -93,7 +93,7 @@ fn overview(id: &str, parent: Option<&str>, created_at: u64) -> protocol::Thread
         message_count: 1,
         active: false,
         parent_id: parent.map(str::to_string),
-        origin: protocol::ThreadOrigin::Trunk,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }
 }
@@ -198,8 +198,8 @@ fn projection_emits_every_row_exactly_once() {
 #[test]
 fn sessions_modal_paints_a_two_level_fork_chain() {
     let theme = Theme::default();
-    let selection = view::model::selection::SelectionState::None;
-    let mut layout_map = view::model::layout::LayoutMap::default();
+    let selection = nuo_view::model::selection::SelectionState::None;
+    let mut layout_map = nuo_view::model::layout::LayoutMap::default();
     let mut scroll = 0;
     let mut info_scroll = 0;
 
@@ -339,10 +339,10 @@ fn siblings_are_ordered_newest_creation_first() {
 
 #[test]
 fn sessions_modal_renders_trunk_badges_and_expanded_branches() {
-    use protocol::{ThreadOrigin, ThreadOverview};
+    use nuo_protocol::{ThreadOrigin, ThreadOverview};
     let theme = Theme::default();
-    let selection = view::model::selection::SelectionState::None;
-    let mut layout_map = view::model::layout::LayoutMap::default();
+    let selection = nuo_view::model::selection::SelectionState::None;
+    let mut layout_map = nuo_view::model::layout::LayoutMap::default();
     let mut scroll = 0;
     let mut info_scroll = 0;
 
@@ -445,12 +445,12 @@ fn sessions_modal_renders_trunk_badges_and_expanded_branches() {
 #[test]
 fn sessions_modal_renders_running_indicator_for_active_threads() {
     let theme = Theme::default();
-    let selection = view::model::selection::SelectionState::None;
-    let mut layout_map = view::model::layout::LayoutMap::default();
+    let selection = nuo_view::model::selection::SelectionState::None;
+    let mut layout_map = nuo_view::model::layout::LayoutMap::default();
     let mut scroll = 0;
     let mut info_scroll = 0;
 
-    let s1 = protocol::ThreadOverview {
+    let s1 = nuo_protocol::ThreadOverview {
         id: "s1".into(),
         title: Some("Running Task".into()),
         overview: "Running Task".into(),
@@ -459,7 +459,7 @@ fn sessions_modal_renders_running_indicator_for_active_threads() {
         message_count: 5,
         active: true,
         parent_id: None,
-        origin: protocol::ThreadOrigin::Trunk,
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     };
     let sessions = vec![s1];

@@ -9,24 +9,34 @@ fn test_delete_selected_history_entry_and_cascade() {
 
     // 1. Setup 3 history entries
     app.composer.input_history = vec![
-        protocol::HistoryEntry::new("first entry".into(), Some("session-test".into()), None, 100),
-        protocol::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
+            "first entry".into(),
+            Some("session-test".into()),
+            None,
+            100,
+        ),
+        nuo_protocol::HistoryEntry::new(
             "target entry".into(),
             Some("session-test".into()),
             None,
             200,
         ),
-        protocol::HistoryEntry::new("third entry".into(), Some("session-test".into()), None, 300),
+        nuo_protocol::HistoryEntry::new(
+            "third entry".into(),
+            Some("session-test".into()),
+            None,
+            300,
+        ),
     ];
     // Backfill has target entry
     app.composer.session_history_backfill = vec![
-        protocol::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "target entry".into(),
             Some("session-test".into()),
             None,
             200,
         ),
-        protocol::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "other backfill".into(),
             Some("session-test".into()),
             None,
@@ -209,12 +219,14 @@ fn test_shift_delete_and_bare_delete_dispatch() {
 #[tokio::test]
 async fn test_history_delete_selected_action_dispatch() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.composer.input_history.push(protocol::HistoryEntry::new(
-        "entry 1".to_string(),
-        Some("s1".to_string()),
-        None,
-        100,
-    ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "entry 1".to_string(),
+            Some("s1".to_string()),
+            None,
+            100,
+        ));
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let flow = crate::shell::event_loop::actions::dispatch_action_for_test(

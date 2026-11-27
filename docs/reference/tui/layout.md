@@ -1,8 +1,8 @@
 # TUI Layout Reference
 
-Factual reference for how the Nuo shell (`nuo::shell`) divides the terminal viewport vertically, the identity of each chrome band, and the design tokens (`crates/ui-primitives/src/design.rs`) that size them.
+Factual reference for how the Nuo shell (`nuo::shell`) divides the terminal viewport vertically, the identity of each chrome band, and the design tokens (`crates/nuo-ui-primitives/src/design.rs`) that size them.
 
-This page is the review anchor cited by `crates/view/src/footer_stack.rs` (the "flush-ness" of footer rows) — when a token changes, this page must be re-reviewed.
+This page is the review anchor cited by `crates/nuo-view/src/footer_stack.rs` (the "flush-ness" of footer rows) — when a token changes, this page must be re-reviewed.
 
 ---
 
@@ -98,7 +98,7 @@ close a tab the user never pointed at.
 
 On `SceneKind::Thread`, the single-row SceneBar reads **who → how → what → where** left to right (ADR-0261 `[INV-HEAD-09]`, `[INV-HEAD-10]`; revised by ADR-0268 `[INV-HEAD-11]`, `[INV-HEAD-12]`). On chromatic surfaces, the staffed role renders as a bare uppercase bold brand token (`DEVELOPER`); on non-chromatic framed surfaces, it falls back to intact brackets (`[DEVELOPER]`). Pinning the role and safety posture at the left edge keeps their screen coordinates constant across the title lifecycle: while untitled, the title slot stays completely silent (giving full horizontal slack to the workspace path) and when an authentic title arrives, it appears in place without shifting any sibling element. Anchoring the workspace to the right edge keeps it stationary when toggling `/auto-approve` in relaxed widths.
 
-Posture is a **closed vocabulary of lowercase tokens**, not sentences, and only deviations from the safe default are drawn (interactive confirmation + workspace-confined file tools). `auto` means tool calls are approved without asking (`--auto-approve` / `/auto-approve on`); `open` means file tools may leave the workspace (`/confinement off`). Lowercase keeps the token from competing with the uppercase role token (`DEVELOPER`), and the bare (unbracketed) form keeps it from reading as a `[2 queued]`-style count. Each token is deliberately self-describing (`auto`, `open` name the state they assert), so the bar needs no tooltip layer; the authoritative long-form wording lives in the slash-command catalog (`BuiltinCmd::SPECS` in `server`), projected by `/auto-approve on|off` and `/confinement on|off`. Permanent chrome carries tokens only (`[INV-TUI-12]`: no decorative emoji, terse professional tokens), and peer elements separate by `JOIN_ENUMERATE_COLS` pure whitespace without punctuation glyphs.
+Posture is a **closed vocabulary of lowercase tokens**, not sentences, and only deviations from the safe default are drawn (interactive confirmation + workspace-confined file tools). `auto` means tool calls are approved without asking (`--auto-approve` / `/auto-approve on`); `open` means file tools may leave the workspace (`/confinement off`). Lowercase keeps the token from competing with the uppercase role token (`DEVELOPER`), and the bare (unbracketed) form keeps it from reading as a `[2 queued]`-style count. Each token is deliberately self-describing (`auto`, `open` name the state they assert), so the bar needs no tooltip layer; the authoritative long-form wording lives in the slash-command catalog (`BuiltinCmd::SPECS` in `nuo-server`), projected by `/auto-approve on|off` and `/confinement on|off`. Permanent chrome carries tokens only (`[INV-TUI-12]`: no decorative emoji, terse professional tokens), and peer elements separate by `JOIN_ENUMERATE_COLS` pure whitespace without punctuation glyphs.
 
 Path shortening uses the shared `PathView` ladder (`Full` → `.../parent/leaf` → fish → basename → middle-truncate), so the **leaf** survives and ancestors are elided — the opposite of tail truncation. `SCENE_BAR_WORKSPACE_MIN_COLS` (4) is the ladder's own last stop — the bare leaf, which still names the project — so the floor is set where honest information actually runs out rather than above it. Below that the path is dropped: the bar either names the workspace or stays silent about it.
 
@@ -110,7 +110,7 @@ Every truncation marker comes from `theme.glyphs.ellipsis` (`…` under Unicode,
 
 ## 3. Footer Stack
 
-The footer is a **declarative** stack: the caller lists rows `(id, height)` in draw order and a single `place` pass computes each rect and the total height (`crates/view/src/footer_stack.rs`). The row identity enum is exhaustive:
+The footer is a **declarative** stack: the caller lists rows `(id, height)` in draw order and a single `place` pass computes each rect and the total height (`crates/nuo-view/src/footer_stack.rs`). The row identity enum is exhaustive:
 
 | `FooterRowId` | Height | Purpose |
 | :--- | :--- | :--- |
@@ -119,13 +119,13 @@ The footer is a **declarative** stack: the caller lists rows `(id, height)` in d
 | `Composer` | adaptive, `COMPOSER_MIN_HEIGHT = 4` | The input box |
 | `ModelBar` | `MODEL_BAR_ROWS = 1` (or 0) | Context usage meter + model identity (the route's catalog-resolved label, name-first / id-fallback per ADR-0081 — never the raw `vendor/model` wire id) |
 
-The rows place flush by construction: the zero-gap tokens (`FOOTER_TOP_GAP_ROWS`, `ACTIVITY_COMPOSER_GAP_ROWS`, `COMPOSER_HINT_GAP_ROWS`, all `0`) mean no gap row is ever inserted between adjacent chrome rows. This flush-ness is the contract asserted by `crates/view/src/footer_stack.rs`.
+The rows place flush by construction: the zero-gap tokens (`FOOTER_TOP_GAP_ROWS`, `ACTIVITY_COMPOSER_GAP_ROWS`, `COMPOSER_HINT_GAP_ROWS`, all `0`) mean no gap row is ever inserted between adjacent chrome rows. This flush-ness is the contract asserted by `crates/nuo-view/src/footer_stack.rs`.
 
 ---
 
 ## 4. Design Tokens
 
-Sizes come from `crates/ui-primitives/src/design.rs` (non-color tokens). Values below are the source of truth.
+Sizes come from `crates/nuo-ui-primitives/src/design.rs` (non-color tokens). Values below are the source of truth.
 
 ### Row counts and heights
 
@@ -182,7 +182,7 @@ Below either minimum, `design::below_minimum(width, height)` is the single autho
 
 ## 5. Viewport Margins
 
-The content body's margins are defined in `crates/ui-primitives/src/primitives.rs`, not `design.rs`:
+The content body's margins are defined in `crates/nuo-ui-primitives/src/primitives.rs`, not `design.rs`:
 
 | Token | Value | Meaning |
 | :--- | :--- | :--- |

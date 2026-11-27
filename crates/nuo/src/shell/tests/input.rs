@@ -208,7 +208,7 @@ fn caret_owner_question_owns_caret_only_on_other() {
     // ownership, so the IME anchor appears exactly when there is a field to
     // type into and never when there is not.
     use crate::shell::question_model::{QuestionAction, QuestionModel};
-    use tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+    use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let req = UserQuestionRequest {
@@ -282,8 +282,8 @@ fn caret_hidden_while_selection_active_even_for_composer() {
     // unaffected; only visibility folds in the selection.
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
     app.threads.selection = SelectionState::Range {
-        anchor: view::model::layout::SemanticCursor::new(0, 0, 0),
-        head: view::model::layout::SemanticCursor::new(0, 0, 3),
+        anchor: nuo_view::model::layout::SemanticCursor::new(0, 0, 0),
+        head: nuo_view::model::layout::SemanticCursor::new(0, 0, 3),
     };
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
     assert!(
@@ -309,15 +309,31 @@ fn has_input_selection_detects_both_block_and_range() {
 
     // An active Range on INPUT_MSG_IDX is an input selection.
     app.threads.selection = SelectionState::Range {
-        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 0),
-        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 2),
+        anchor: nuo_view::model::layout::SemanticCursor::new(
+            crate::shell::render::INPUT_MSG_IDX,
+            0,
+            0,
+        ),
+        head: nuo_view::model::layout::SemanticCursor::new(
+            crate::shell::render::INPUT_MSG_IDX,
+            0,
+            2,
+        ),
     };
     assert!(app.has_input_selection());
 
     // A collapsed Range (anchor == head) is not active and does not count.
     app.threads.selection = SelectionState::Range {
-        anchor: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 0),
-        head: view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 0),
+        anchor: nuo_view::model::layout::SemanticCursor::new(
+            crate::shell::render::INPUT_MSG_IDX,
+            0,
+            0,
+        ),
+        head: nuo_view::model::layout::SemanticCursor::new(
+            crate::shell::render::INPUT_MSG_IDX,
+            0,
+            0,
+        ),
     };
     assert!(!app.has_input_selection());
 }
@@ -334,7 +350,7 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
     app.threads
         .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
-            view::model::layout::InteractiveTarget::tool_step(0),
+            nuo_view::model::layout::InteractiveTarget::tool_step(0),
         ));
     assert!(
         !app.input_selection_relays_arrows(),
@@ -350,7 +366,7 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
 /// text map to `n` wrapped rows.
 fn app_with_input_viewport(rows: usize, visible: usize) -> (App, tempfile::TempDir) {
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
-    let height = visible as u16 + ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS;
+    let height = visible as u16 + nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS;
     app.viewport.ui.begin(graticule::Rect::new(0, 0, 80, 60));
     app.viewport.ui.mount(
         crate::shell::ui::UiKey::Composer,
@@ -421,7 +437,7 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     // A selection drag anchored in the composer's second row.
     app.viewport.drag.begin_range(
         &mut app.threads.selection,
-        view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 2),
+        nuo_view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 2),
     );
 
     // Pointer above the text rows (the panel's own breathing row counts as
@@ -488,7 +504,7 @@ fn input_edge_autoscroll_ignores_transcript_anchored_drags() {
     // however far above the input the pointer climbs.
     app.viewport.drag.begin_range(
         &mut app.threads.selection,
-        view::model::layout::SemanticCursor::new(0, 0, 5),
+        nuo_view::model::layout::SemanticCursor::new(0, 0, 5),
     );
     assert_eq!(app.input_drag_scroll_edge(0), None);
     assert!(!app.step_input_drag_scroll());
@@ -1164,7 +1180,7 @@ async fn shift_tab_crosses_planes_and_the_same_press_returns() {
 
 #[tokio::test]
 async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
-    use view::model::layout::InteractiveTarget;
+    use nuo_view::model::layout::InteractiveTarget;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let sid = app.session.current_session_id.clone();
@@ -1203,7 +1219,7 @@ async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
 
 #[tokio::test]
 async fn escape_never_moves_the_keyboard_off_the_transcript() {
-    use view::model::layout::InteractiveTarget;
+    use nuo_view::model::layout::InteractiveTarget;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let sid = app.session.current_session_id.clone();

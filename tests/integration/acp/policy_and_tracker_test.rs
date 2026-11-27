@@ -2,7 +2,7 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use acp::{
+use nuo_acp::{
     AgentAddress, AgentEnvelope, Fabric, FnRoutingPolicy, MessageIntent, ProtocolError,
     QueryPayload, RoutingDecision,
 };

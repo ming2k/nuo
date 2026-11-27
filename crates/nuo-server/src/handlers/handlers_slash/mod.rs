@@ -1,0 +1,56 @@
+//! The `AgentRequest::SlashCommand` dispatcher and domain sub-handlers.
+
+pub mod commands;
+pub mod dispatch;
+pub mod record;
+pub mod security_ops;
+pub mod session_ops;
+pub mod session_route;
+
+#[cfg(test)]
+mod tests;
+
+use std::sync::{Arc, RwLock};
+use tokio::sync::mpsc;
+
+use crate::composition::startup::ThreadStart;
+use crate::handlers::slash_handler::SlashCommandRegistry;
+use crate::runtime::mcp::McpRuntime;
+use nuo_engine::cognition::skills::SkillRegistry;
+use nuo_engine::{Agent, RoundLifecycle};
+use nuo_persistence::{
+    config::Config, connection_usage::ConnectionUsage, thread::ThreadSession,
+    workspace_security::WorkspaceSecurityStore,
+};
+use nuo_protocol::{AgentRequest, AgentResponse, Provider};
+
+pub use dispatch::dispatch;
+
+/// Bundled slash-dispatch environment: the server plumbing a slash command
+/// needs beyond the command text itself.
+pub struct SlashEnv<'a> {
+    /// The authoritative runtime configuration, **mutable** because a slash
+    /// command is the one place a user changes a setting the rest of the process
+    /// reads back (ADR-0222, `/language`). A read-only borrow here meant the write
+    /// reached disk while the in-memory copy — which `/models` re-seeds the agent
+    /// from — kept the old value, so the very next model switch silently undid the
+    /// change.
+    pub config: &'a mut Config,
+    pub agent: &'a Arc<Agent>,
+    pub mcp_runtime: &'a Arc<McpRuntime>,
+    pub workspace_security: &'a Arc<WorkspaceSecurityStore>,
+    pub shared_additional_roots: &'a nuo_protocol::SharedAdditionalRoots,
+    pub shared_confinement: &'a nuo_protocol::SharedConfinement,
+    pub resp_tx: &'a mpsc::UnboundedSender<AgentResponse>,
+    pub session: &'a Arc<ThreadSession>,
+    pub lifecycle: &'a Arc<RoundLifecycle>,
+    pub provider_for_task: &'a Arc<RwLock<Arc<dyn Provider>>>,
+    pub provider_usage: &'a mut ConnectionUsage,
+    pub skills_registry: &'a Arc<SkillRegistry>,
+    pub req_tx_for_commands: &'a mpsc::Sender<AgentRequest>,
+    pub startup: &'a ThreadStart,
+    pub ui: &'a dyn crate::UiBridge,
+    pub extra_commands: &'a SlashCommandRegistry,
+    pub websearch_shared: &'a nuo_protocol::SharedWebConfig,
+    pub background_jobs: &'a crate::runtime::background_jobs::BackgroundJobManager,
+}

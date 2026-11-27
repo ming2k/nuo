@@ -2,7 +2,7 @@
 
 use std::sync::atomic::Ordering;
 
-use protocol::AgentResponse;
+use nuo_protocol::AgentResponse;
 
 use super::{M, TranslatorState};
 
@@ -60,7 +60,7 @@ impl TranslatorState {
             }
             AgentResponse::ConnectStatus(status) => {
                 match status {
-                    protocol::ConnectStatus::Pending {
+                    nuo_protocol::ConnectStatus::Pending {
                         url,
                         user_code,
                         message,
@@ -99,7 +99,7 @@ impl TranslatorState {
                                 .await;
                         }
                     }
-                    protocol::ConnectStatus::Done { provider } => {
+                    nuo_protocol::ConnectStatus::Done { provider } => {
                         self.mutations
                             .send(M::Oauth(crate::shell::app::OauthAddSignal::Done))
                             .await;
@@ -112,7 +112,7 @@ impl TranslatorState {
                             ))
                             .await;
                     }
-                    protocol::ConnectStatus::CatalogSyncWarning {
+                    nuo_protocol::ConnectStatus::CatalogSyncWarning {
                         provider,
                         message,
                         kind,
@@ -120,7 +120,7 @@ impl TranslatorState {
                         // A refusal is actionable and permanent (the
                         // account may not use this provider); a
                         // transient failure is not. Say which.
-                        let refused = matches!(kind, protocol::CatalogSyncFailure::Refused);
+                        let refused = matches!(kind, nuo_protocol::CatalogSyncFailure::Refused);
                         self.mutations
                             .send(M::NoticeDisclosure(
                                 crate::shell::app::notice_catalog::ClientNotice::CatalogSyncWarning {
@@ -132,7 +132,7 @@ impl TranslatorState {
                             ))
                             .await;
                     }
-                    protocol::ConnectStatus::Failed { provider, message } => {
+                    nuo_protocol::ConnectStatus::Failed { provider, message } => {
                         self.mutations
                             .send(M::Oauth(crate::shell::app::OauthAddSignal::Failed {
                                 message: message.clone(),

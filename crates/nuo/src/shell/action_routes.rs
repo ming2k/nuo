@@ -32,7 +32,7 @@
 //!    exist without a way to reach it.
 
 use crate::shell::input::InputAction;
-use protocol::action::ActionId;
+use nuo_protocol::action::ActionId;
 
 /// Where a route's meaning comes from.
 #[derive(Debug, Clone, Copy)]

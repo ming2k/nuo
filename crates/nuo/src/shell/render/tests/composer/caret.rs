@@ -86,7 +86,7 @@ fn draw_composer_wraps_and_positions_caret() {
     // caret must rest on the second one (text row 0 + one wrap).
     assert_eq!(
         cursor.1,
-        ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1,
+        nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1,
         "caret must sit on the second wrapped line, got {cursor:?}"
     );
 }
@@ -139,7 +139,7 @@ fn draw_composer_caret_flush_against_final_grapheme() {
             cursor,
             (
                 (COMPOSER_PROMPT_PREFIX_COLS + expected_cols) as u16,
-                ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET,
+                nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET,
             ),
             "{label}: caret not flush with end of {input:?}"
         );
@@ -182,7 +182,7 @@ fn draw_composer_highlighted_accents_only_the_command_token() {
         );
     });
     let buf = terminal.buffer();
-    let text_y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let text_y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let text_x = COMPOSER_PROMPT_PREFIX_COLS as u16;
     // Every glyph of `/repeat` is bold + brand-colored on the panel bg.
     for (i, ch) in "/repeat".chars().enumerate() {
@@ -247,11 +247,11 @@ fn draw_composer_highlight_clamps_at_wrap_boundary() {
         );
     });
     let buf = terminal.buffer();
-    let row1_y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1;
+    let row1_y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1;
     // The continuation row keeps the prefix indent before the wrapped text.
     // Find its first non-blank glyph and require the plain text color — the
     // accent must stop at the wrap boundary.
-    let row1 = (ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16..16u16)
+    let row1 = (nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS as u16..16u16)
         .map(|col| buf.get(col, row1_y).expect("continuation cell"))
         .find(|cell| cell.symbol.as_str() != " ")
         .expect("continuation row has visible text");
@@ -351,10 +351,10 @@ fn cursor_screen_pos_clamps_scroll_like_draw() {
     // The resolved caret must sit on a visible row (within the box's text
     // rows), proving scroll advanced to track it.
     let visible_rows = (rect.height as usize)
-        .saturating_sub(ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
+        .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
         .max(1);
     let caret_row =
-        (resolved.1 - rect.y - ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET) as usize;
+        (resolved.1 - rect.y - nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET) as usize;
     assert!(
         caret_row < visible_rows,
         "resolved caret row {caret_row} outside the {visible_rows} visible rows"
@@ -408,7 +408,7 @@ fn composer_render_preserves_scroll_excursion_until_caret_follow_rearms() {
         "a caret outside the preserved viewport must not leak into another surface"
     );
     let text_x = rect.x + COMPOSER_PROMPT_PREFIX_COLS as u16;
-    let text_y = rect.y + ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let text_y = rect.y + nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     assert_eq!(
         layout_map
             .cursor_at(text_x, text_y)
@@ -501,7 +501,7 @@ fn caret_paints_on_the_empty_line_a_newline_creates() {
     };
     assert_eq!(
         y,
-        ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1,
+        nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1,
         "the caret must sit on the empty middle row"
     );
     assert_eq!(

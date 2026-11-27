@@ -15,16 +15,18 @@ use unicode_width::UnicodeWidthStr;
 
 use super::common::{placeholder, truncate_ellipsis};
 use crate::shell::render::Theme;
-use ui_primitives::components::list::{SelectableListPage, draw_selectable_list_page, row_style};
-use ui_primitives::components::modal::{ModalHeader, modal_body_width};
-use ui_primitives::primitives::{ContentModalSpec, FooterHint, breadcrumb_parts, keyvocab};
+use nuo_ui_primitives::components::list::{
+    SelectableListPage, draw_selectable_list_page, row_style,
+};
+use nuo_ui_primitives::components::modal::{ModalHeader, modal_body_width};
+use nuo_ui_primitives::primitives::{ContentModalSpec, FooterHint, breadcrumb_parts, keyvocab};
 
 /// Draw the tools manager modal: a centered, dismissable, selectable list of
 /// the session's tools (Level 1), or the tool detail sub-view (Level 2).
 #[allow(clippy::too_many_arguments)]
 pub fn draw_tools_modal(
     frame: &mut Frame,
-    session_context: Option<&protocol::ThreadContextSnapshot>,
+    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     follow_selection: bool,
@@ -169,7 +171,7 @@ pub fn draw_tools_modal(
 }
 
 fn render_tool_detail(
-    tool: &protocol::ToolInfo,
+    tool: &nuo_protocol::ToolInfo,
     body_width: usize,
     theme: &Theme,
 ) -> Vec<Line<'static>> {
@@ -247,7 +249,7 @@ fn render_tool_detail(
     )));
 
     let desc_wrap_w = body_width.saturating_sub(2).max(1);
-    for wl in view::text_layout::wrap_text(&tool.description, desc_wrap_w) {
+    for wl in nuo_view::text_layout::wrap_text(&tool.description, desc_wrap_w) {
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(wl.text, Style::default().fg(theme.fg())),
@@ -344,7 +346,7 @@ fn render_tool_detail(
 
                         if let Some(desc) = spec.get("description").and_then(|d| d.as_str()) {
                             let param_desc_wrap = body_width.saturating_sub(6).max(1);
-                            for wl in view::text_layout::wrap_text(desc, param_desc_wrap) {
+                            for wl in nuo_view::text_layout::wrap_text(desc, param_desc_wrap) {
                                 lines.push(Line::from(vec![
                                     Span::raw("      "),
                                     Span::styled(wl.text, Style::default().fg(theme.dim())),
@@ -382,11 +384,11 @@ mod tests {
     use super::*;
     use graticule::TestTerminal;
 
-    fn sample_snapshot() -> protocol::ThreadContextSnapshot {
-        protocol::ThreadContextSnapshot {
-            model: protocol::ModelInfo::default(),
+    fn sample_snapshot() -> nuo_protocol::ThreadContextSnapshot {
+        nuo_protocol::ThreadContextSnapshot {
+            model: nuo_protocol::ModelInfo::default(),
             tools: vec![
-                protocol::ToolInfo {
+                nuo_protocol::ToolInfo {
                     name: "read".to_string(),
                     description: "Reads a text file with line numbers.".to_string(),
                     enabled: true,
@@ -413,7 +415,7 @@ mod tests {
                     requires_user: false,
                     requires_vision: false,
                 },
-                protocol::ToolInfo {
+                nuo_protocol::ToolInfo {
                     name: "execute_command".to_string(),
                     description: "Executes a shell command.".to_string(),
                     enabled: false,
@@ -423,7 +425,7 @@ mod tests {
                     requires_user: true,
                     requires_vision: false,
                 },
-                protocol::ToolInfo {
+                nuo_protocol::ToolInfo {
                     name: "github_issues".to_string(),
                     description: "List issues".to_string(),
                     enabled: true,

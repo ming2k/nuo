@@ -41,7 +41,7 @@ fn format_reconnecting_label(
 /// 2. Non-`Ready` server lifecycle phase (`Initializing` after 120ms
 ///    hysteresis; `Reloading`, `Draining`, `Failed` immediately).
 /// 3. Explicit user-initiated thread switch/resume — composed with the live
-///    [`protocol::ThreadPhase`].
+///    [`nuo_protocol::ThreadPhase`].
 /// 4. Non-`Ready` foreground thread phase (`Preparing` after 120ms hysteresis;
 ///    `Failed` immediately).
 #[allow(clippy::too_many_arguments)]
@@ -49,10 +49,10 @@ pub(crate) fn select_lifecycle_status(
     link_down: bool,
     link_phase: &ClientLinkPhase,
     link_phase_elapsed: std::time::Duration,
-    server_phase: &protocol::ServerPhase,
+    server_phase: &nuo_protocol::ServerPhase,
     server_phase_elapsed: std::time::Duration,
     switching_session: Option<&str>,
-    session_phase: &protocol::ThreadPhase,
+    session_phase: &nuo_protocol::ThreadPhase,
     thread_phase_elapsed: std::time::Duration,
 ) -> Option<String> {
     match link_phase {
@@ -78,7 +78,7 @@ pub(crate) fn select_lifecycle_status(
         return Some("server link lost".to_string());
     }
     if let Some(server_status) = render::server_phase_status(server_phase) {
-        let is_transient = matches!(server_phase, protocol::ServerPhase::Initializing { .. });
+        let is_transient = matches!(server_phase, nuo_protocol::ServerPhase::Initializing { .. });
         if !is_transient || server_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
             return Some(server_status.to_string());
         }
@@ -88,7 +88,7 @@ pub(crate) fn select_lifecycle_status(
         return Some(render::resuming_thread_status(target, session_phase));
     }
     if let Some(thread_status) = render::thread_phase_status(session_phase) {
-        let is_transient = matches!(session_phase, protocol::ThreadPhase::Preparing { .. });
+        let is_transient = matches!(session_phase, nuo_protocol::ThreadPhase::Preparing { .. });
         if !is_transient || thread_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
             return Some(thread_status.to_string());
         }
@@ -112,10 +112,10 @@ pub(crate) fn select_lifecycle_status(
 pub(crate) fn select_empty_state_guidance(
     link_phase: &ClientLinkPhase,
     link_phase_elapsed: std::time::Duration,
-    server_phase: &protocol::ServerPhase,
+    server_phase: &nuo_protocol::ServerPhase,
     server_phase_elapsed: std::time::Duration,
     switching_session: Option<&str>,
-    session_phase: &protocol::ThreadPhase,
+    session_phase: &nuo_protocol::ThreadPhase,
     thread_phase_elapsed: std::time::Duration,
     has_keyed_provider: bool,
 ) -> render::EmptyStateGuidance {
@@ -140,7 +140,7 @@ pub(crate) fn select_empty_state_guidance(
             };
         }
         ClientLinkPhase::Failed { message } => {
-            return render::EmptyStateGuidance::ServerPhase(protocol::ServerPhase::Failed {
+            return render::EmptyStateGuidance::ServerPhase(nuo_protocol::ServerPhase::Failed {
                 code: None,
                 message: message.clone(),
             });
@@ -149,7 +149,7 @@ pub(crate) fn select_empty_state_guidance(
     }
 
     if !server_phase.admits_work() {
-        let is_transient = matches!(server_phase, protocol::ServerPhase::Initializing { .. });
+        let is_transient = matches!(server_phase, nuo_protocol::ServerPhase::Initializing { .. });
         return if !is_transient || server_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
             render::EmptyStateGuidance::ServerPhase(server_phase.clone())
         } else {
@@ -162,8 +162,8 @@ pub(crate) fn select_empty_state_guidance(
             short_id: target.to_string(),
             phase: session_phase.clone(),
         }
-    } else if *session_phase != protocol::ThreadPhase::Ready {
-        let is_transient = matches!(session_phase, protocol::ThreadPhase::Preparing { .. });
+    } else if *session_phase != nuo_protocol::ThreadPhase::Ready {
+        let is_transient = matches!(session_phase, nuo_protocol::ThreadPhase::Preparing { .. });
         if !is_transient || thread_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
             render::EmptyStateGuidance::ThreadPhase(session_phase.clone())
         } else {
@@ -206,9 +206,12 @@ fn project_thread_tab_status(app: &App, thread_id: &str, viewed_session_id: &str
     if viewed_awaiting_human
         || matches!(
             host_status,
-            Some(protocol::ThreadActivity::NeedsApproval | protocol::ThreadActivity::NeedsInput)
+            Some(
+                nuo_protocol::ThreadActivity::NeedsApproval
+                    | nuo_protocol::ThreadActivity::NeedsInput
+            )
         )
-        || inst.is_some_and(|t| t.phase == Some(view::phase::Phase::AwaitingUser))
+        || inst.is_some_and(|t| t.phase == Some(nuo_view::phase::Phase::AwaitingUser))
     {
         return TabStatus::Attention;
     }
@@ -220,7 +223,7 @@ fn project_thread_tab_status(app: &App, thread_id: &str, viewed_session_id: &str
 
     // Cold/unsubscribed thread tabs fall back to the server monitor stream.
     let subscribed = inst.is_some() && app.session.subscribed_threads.contains(thread_id);
-    if !subscribed && host_status == Some(protocol::ThreadActivity::Running) {
+    if !subscribed && host_status == Some(nuo_protocol::ThreadActivity::Running) {
         return TabStatus::Running;
     }
 
@@ -234,7 +237,7 @@ fn project_thread_tab_status(app: &App, thread_id: &str, viewed_session_id: &str
     }
 
     // Cold/unsubscribed thread tabs that were already failed on the server.
-    if !subscribed && host_status == Some(protocol::ThreadActivity::Failed) {
+    if !subscribed && host_status == Some(nuo_protocol::ThreadActivity::Failed) {
         return TabStatus::Failed;
     }
 

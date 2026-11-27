@@ -25,7 +25,7 @@ pub(crate) struct SupervisorConfig {
     pub project_override: Option<PathBuf>,
     pub explicit_port: Option<u16>,
     pub runtime: UiRuntime,
-    pub tui_config: Arc<view::tui_config::TuiConfig>,
+    pub tui_config: Arc<nuo_view::tui_config::TuiConfig>,
     pub should_quit: Arc<AtomicBool>,
     pub cancel: CancellationToken,
     pub reconnect_notify: Arc<Notify>,
@@ -52,7 +52,7 @@ async fn resolve_target(
     let raw_root = project_override
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let project_root = host::paths::find_project_root(&raw_root);
+    let project_root = nuo_host::paths::find_project_root(&raw_root);
     let info = tokio::select! {
         res = client::ensure_server_explicit(&project_root, explicit_port) => res?,
         _ = cancel.cancelled() => return Err("cancelled while starting Nuo server".to_string()),
@@ -135,7 +135,7 @@ pub(crate) fn spawn_connection_supervisor(config: SupervisorConfig) -> tokio::ta
                 .await;
             }
 
-            let monitor = protocol::MonitorAction {
+            let monitor = nuo_protocol::MonitorAction {
                 watch: true,
                 include_idle: true,
             };

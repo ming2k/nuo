@@ -1,0 +1,19 @@
+[package]
+name = "nuo-provider-commandcode-goat"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "CommandCode GOAT provider channel for Nuo"
+
+[dependencies]
+nuo-provider = { workspace = true }
+nuo-inference-wire = { workspace = true }
+nuo-protocol = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+inventory = { workspace = true }
+
+[lints]
+workspace = true

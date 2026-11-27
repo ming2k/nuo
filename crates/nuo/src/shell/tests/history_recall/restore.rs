@@ -11,7 +11,7 @@ fn restored_history_hides_harness_messages() {
 #[test]
 fn a_restored_checkpoint_becomes_a_compacted_card_not_raw_user_markup() {
     let restored =
-        transcript_message_from_core(protocol::checkpoint_message("earlier summary")).unwrap();
+        transcript_message_from_core(nuo_protocol::checkpoint_message("earlier summary")).unwrap();
     let card = restored
         .compacted_card_data()
         .expect("a checkpoint restores as a compacted card");
@@ -24,7 +24,7 @@ fn a_restored_checkpoint_becomes_a_compacted_card_not_raw_user_markup() {
 /// nor open a round or advance a turn (ADR-0246 `[INV-CMP-10]`).
 #[test]
 fn a_restored_checkpoint_opens_no_round_and_advances_no_turn() {
-    let checkpoint = protocol::checkpoint_message("round one folded");
+    let checkpoint = nuo_protocol::checkpoint_message("round one folded");
     let messages = vec![
         Message::new(Role::User, "round one prompt"),
         Message::new(Role::Assistant, "round one answer"),
@@ -33,7 +33,8 @@ fn a_restored_checkpoint_opens_no_round_and_advances_no_turn() {
         Message::new(Role::Assistant, "round two answer"),
     ];
 
-    let restored = transcript_messages_from_core(messages, &view::tui_config::TuiConfig::default());
+    let restored =
+        transcript_messages_from_core(messages, &nuo_view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 5, "no row is dropped by the fold");
     assert!(
         restored[2].is_compacted_card(),
@@ -78,7 +79,7 @@ fn restored_assistant_tool_step_uses_message_timestamp_for_turn_header() {
     }]);
 
     let restored =
-        transcript_messages_from_core(vec![assistant], &view::tui_config::TuiConfig::default());
+        transcript_messages_from_core(vec![assistant], &nuo_view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 1);
     assert_eq!(restored[0].sent_at_ms, Some(1_700_000_002_000));
     assert_eq!(restored[0].round, Some(1));
@@ -96,7 +97,7 @@ fn restored_reasoning_component_carries_the_turn_send_time() {
     assistant.reasoning_content = Some("inspect first".to_string());
 
     let restored =
-        transcript_messages_from_core(vec![assistant], &view::tui_config::TuiConfig::default());
+        transcript_messages_from_core(vec![assistant], &nuo_view::tui_config::TuiConfig::default());
     assert!(restored[0].is_reasoning());
     assert_eq!(
         restored[0].sent_at_ms,
@@ -116,7 +117,7 @@ fn restored_assistant_components_share_their_round_and_turn() {
     }]);
 
     let restored =
-        transcript_messages_from_core(vec![assistant], &view::tui_config::TuiConfig::default());
+        transcript_messages_from_core(vec![assistant], &nuo_view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 3);
     assert!(restored[0].is_reasoning());
     assert!(restored[1].is_tool_step());
@@ -131,7 +132,7 @@ fn restored_assistant_components_share_their_round_and_turn() {
 /// prompt (ADR-0233).
 #[test]
 fn restored_user_message_origin_is_never_inferred_from_text() {
-    use view::model::document::UserMessageOrigin;
+    use nuo_view::model::document::UserMessageOrigin;
 
     for text in [
         "fix the bug",
@@ -156,15 +157,16 @@ fn restored_user_message_origin_is_never_inferred_from_text() {
 
 #[test]
 fn restored_user_insert_keeps_mid_round_origin_without_opening_a_turn() {
-    use view::model::document::UserMessageOrigin;
+    use nuo_view::model::document::UserMessageOrigin;
     let first = Message::new(Role::Assistant, "first answer");
-    let inserted = Message::new(Role::User, "one more constraint")
-        .with_origin(tool::InjectionOrigin::new(tool::InjectionKind::UserSteer));
+    let inserted = Message::new(Role::User, "one more constraint").with_origin(
+        nuo_tool::InjectionOrigin::new(nuo_tool::InjectionKind::UserSteer),
+    );
     let second = Message::new(Role::Assistant, "revised answer");
 
     let restored = transcript_messages_from_core(
         vec![first, inserted, second],
-        &view::tui_config::TuiConfig::default(),
+        &nuo_view::tui_config::TuiConfig::default(),
     );
     assert_eq!(restored[1].origin, UserMessageOrigin::Steer);
     assert_eq!(restored[1].round, Some(1));
@@ -234,7 +236,7 @@ fn restored_reasoning_is_not_shown_as_running() {
     };
 
     let restored =
-        transcript_messages_from_core(vec![message], &view::tui_config::TuiConfig::default());
+        transcript_messages_from_core(vec![message], &nuo_view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 1);
     let thinking = &restored[0];
     assert!(thinking.is_reasoning());
@@ -331,7 +333,7 @@ fn restored_tool_results_merge_into_steps_in_fifo_order() {
     ];
 
     let mut restored =
-        transcript_messages_from_core(messages, &view::tui_config::TuiConfig::default());
+        transcript_messages_from_core(messages, &nuo_view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 2);
     restored[0].set_tool_step_expanded(true);
     restored[1].set_tool_step_expanded(true);
@@ -397,7 +399,7 @@ fn restored_tool_steps_carry_the_call_id_and_pair_by_identity() {
     ];
 
     let mut restored =
-        transcript_messages_from_core(messages, &view::tui_config::TuiConfig::default());
+        transcript_messages_from_core(messages, &nuo_view::tui_config::TuiConfig::default());
     assert_eq!(restored.len(), 2);
     assert_eq!(restored[0].tool_step_call_id(), Some("call_a"));
     assert_eq!(restored[1].tool_step_call_id(), Some("call_b"));

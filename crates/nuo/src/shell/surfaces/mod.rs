@@ -34,7 +34,7 @@ pub use dialogs::{
     TraceAttemptKey, TraceView, UsageStatsDialog,
 };
 
-pub use view::view_header::{ClientTab, SceneKind, TabKind};
+pub use nuo_view::view_header::{ClientTab, SceneKind, TabKind};
 
 /// Centered, reference and management dialogs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

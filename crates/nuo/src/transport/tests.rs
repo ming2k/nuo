@@ -69,7 +69,7 @@ async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
         started_at: 0,
         phase: ServerPhase::Ready,
         persistence_health: None,
-        monitor: Some(protocol::monitor::MonitorSnapshot {
+        monitor: Some(nuo_protocol::monitor::MonitorSnapshot {
             server_id: "srv-monitor-test".to_string(),
             server_phase: ServerPhase::Ready,
             project_root: "/tmp/nuo-monitor-test".to_string(),
@@ -234,10 +234,10 @@ async fn discover_never_parks_the_worker() {
 #[test]
 fn attach_refusal_preserves_code() {
     let gone = AttachError::server_refusal(
-        Some(protocol::ERR_SESSION_GONE.to_string()),
+        Some(nuo_protocol::ERR_SESSION_GONE.to_string()),
         "server rejected the attach: session 'x' no longer exists",
     );
-    assert_eq!(gone.code(), Some(protocol::ERR_SESSION_GONE));
+    assert_eq!(gone.code(), Some(nuo_protocol::ERR_SESSION_GONE));
     assert!(gone.is_session_gone());
     assert!(
         !gone.is_session_unresumable(),
@@ -245,7 +245,7 @@ fn attach_refusal_preserves_code() {
     );
 
     let unresumable = AttachError::server_refusal(
-        Some(protocol::ERR_SESSION_UNRESUMABLE.to_string()),
+        Some(nuo_protocol::ERR_SESSION_UNRESUMABLE.to_string()),
         "server rejected the attach: could not resume session x: boom",
     );
     assert!(unresumable.is_session_unresumable());
@@ -264,7 +264,7 @@ fn attach_refusal_preserves_code() {
     // `Display` stays human prose — a caller must never parse the code back
     // out of the rendered message.
     assert_eq!(gone.to_string(), gone.message);
-    assert!(!gone.to_string().contains(protocol::ERR_SESSION_GONE));
+    assert!(!gone.to_string().contains(nuo_protocol::ERR_SESSION_GONE));
 }
 
 /// An attach refusal's wire code round-trips through the frame the client
@@ -274,13 +274,13 @@ fn wire_error_frame_carries_the_refusal_code() {
     let frame = Wire::Error {
         request_id: None,
         message: "session 'abc' no longer exists".to_string(),
-        code: Some(protocol::ERR_SESSION_GONE.to_string()),
+        code: Some(nuo_protocol::ERR_SESSION_GONE.to_string()),
     };
     let json = serde_json::to_string(&frame).unwrap();
     let back: Wire = serde_json::from_str(&json).unwrap();
     match back {
         Wire::Error { code, .. } => {
-            assert_eq!(code.as_deref(), Some(protocol::ERR_SESSION_GONE));
+            assert_eq!(code.as_deref(), Some(nuo_protocol::ERR_SESSION_GONE));
         }
         other => panic!("expected an Error frame, got {other:?}"),
     }
@@ -485,7 +485,7 @@ async fn stop_handles_already_dead_process_and_cleans_up() {
 
 #[tokio::test]
 async fn stop_refuses_a_recycled_pid_identity() {
-    let identity = host::process::process_identity(std::process::id()).unwrap();
+    let identity = nuo_host::process::process_identity(std::process::id()).unwrap();
     let info = ServerInfo {
         pid: identity.pid,
         process_birth_token: Some(identity.birth_token.wrapping_add(1)),
@@ -569,8 +569,8 @@ async fn an_unmodelled_frame_after_welcome_does_not_end_the_attachment() {
             request_id: 1,
             thread_id: "thread-drifted".to_string(),
             generation: 1,
-            phase: protocol::ThreadPhase::Preparing {
-                stage: protocol::PrepareStage::Thread,
+            phase: nuo_protocol::ThreadPhase::Preparing {
+                stage: nuo_protocol::PrepareStage::Thread,
             },
         })
         .unwrap();
@@ -843,7 +843,7 @@ async fn netune_ws_session_wire_roundtrip_and_liveness() {
                                 request_id,
                                 thread_id: "ws-live".to_string(),
                                 generation: 1,
-                                phase: protocol::ThreadPhase::Ready,
+                                phase: nuo_protocol::ThreadPhase::Ready,
                             })
                             .unwrap();
                             write_server_ws_frame(&mut socket, 0x1, &sub).await.unwrap();
@@ -922,19 +922,19 @@ async fn netune_ws_session_wire_roundtrip_and_liveness() {
 
 /// `[INV-RESILIENCE-03]` (ADR-0224): end-to-end interoperability between
 /// `nuo::transport::connect_ws_wire` (`netune::WsSession`) and the real
-/// `server::transport::serve` WebSocket server (`run_monitor`).
+/// `nuo_server::transport::serve` WebSocket server (`run_monitor`).
 ///
 /// Proves that `run_monitor` keeps polling `wire_source` so `tokio-tungstenite`
 /// flushes Pong replies immediately on an idle monitor stream — before that fix,
 /// an idle WebSocket monitor client timed out at its first `pong_timeout`.
 #[tokio::test]
 async fn connect_ws_wire_survives_idle_monitor_heartbeats_against_real_server() {
-    let registry = Arc::new(server::runtime::registry::ThreadRegistry::prehost_only());
-    let mut handle = server::transport::serve::start_server(
-        server::transport::serve::ServeOptions {
+    let registry = Arc::new(nuo_server::runtime::registry::ThreadRegistry::prehost_only());
+    let mut handle = nuo_server::transport::serve::start_server(
+        nuo_server::transport::serve::ServeOptions {
             port: 0,
             token: Some("live-tok".to_string()),
-            ..server::transport::serve::ServeOptions::default()
+            ..nuo_server::transport::serve::ServeOptions::default()
         },
         registry,
     );
@@ -981,7 +981,7 @@ async fn connect_ws_wire_survives_idle_monitor_heartbeats_against_real_server() 
     tokio::time::sleep(Duration::from_millis(320)).await;
 
     handle.gate.request(
-        server::runtime::shutdown::ShutdownReason::ControlVerb,
+        nuo_server::runtime::shutdown::ShutdownReason::ControlVerb,
         false,
     );
     let draining = tokio::time::timeout(Duration::from_secs(2), rx.recv())
@@ -1060,7 +1060,7 @@ async fn wait_for_spawned_server_terminates_lingering_old_server_and_waits_for_n
         image_digest: None,
         image_len: None,
     };
-    let image_identity = host::process::image_digest_len(&server_program());
+    let image_identity = nuo_host::process::image_digest_len(&server_program());
     let new_record = ServerInfo {
         pid: new_pid,
         process_birth_token: None,

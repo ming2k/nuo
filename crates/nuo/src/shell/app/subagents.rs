@@ -103,7 +103,7 @@ impl App {
 
         let toggled =
             resolve_focused_mut(messages, &self.threads.focus_stack, mi).and_then(|message| {
-                use view::model::interactive::InteractiveEntry;
+                use nuo_view::model::interactive::InteractiveEntry;
                 if message.toggle_expanded() {
                     message.is_expanded()
                 } else {
@@ -183,8 +183,8 @@ impl App {
     pub(crate) fn dispatch_focused_target_key(
         &mut self,
         key: crate::shell::keymap::Key,
-    ) -> view::model::interactive::EntryKeyOutcome {
-        use view::model::interactive::EntryKeyOutcome;
+    ) -> nuo_view::model::interactive::EntryKeyOutcome {
+        use nuo_view::model::interactive::EntryKeyOutcome;
         let Some(target) = self.threads.focus.entry() else {
             return EntryKeyOutcome::Unhandled;
         };
@@ -221,8 +221,8 @@ impl App {
     }
 
     pub(crate) fn visible_interactive_targets(&self) -> Vec<InteractiveTarget> {
-        use view::model::interactive::InteractiveEntry;
-        use view::model::layout::InteractiveTargetKind;
+        use nuo_view::model::interactive::InteractiveEntry;
+        use nuo_view::model::layout::InteractiveTargetKind;
         let mut targets = self.viewport.ui.document.interactive_targets();
         if let Some(message_idx) = self.threads.sticky_step
             && let Some(message) = self.focused_messages().get(message_idx)
@@ -452,8 +452,8 @@ impl App {
             .map(|block| block.raw_text().len())
             .unwrap_or(0);
         self.threads.selection = SelectionState::Range {
-            anchor: view::model::layout::SemanticCursor::new(start, 0, 0),
-            head: view::model::layout::SemanticCursor::new(end, last_block, end_len),
+            anchor: nuo_view::model::layout::SemanticCursor::new(start, 0, 0),
+            head: nuo_view::model::layout::SemanticCursor::new(end, last_block, end_len),
         };
         self.viewport.drag.cancel();
     }
@@ -543,8 +543,8 @@ impl App {
             approx_offset = approx_offset.saturating_add(lines + 2);
         }
         self.threads.selection = SelectionState::Range {
-            anchor: view::model::layout::SemanticCursor::new(msg_idx, 0, 0),
-            head: view::model::layout::SemanticCursor::new(msg_idx, last_block, end_len),
+            anchor: nuo_view::model::layout::SemanticCursor::new(msg_idx, 0, 0),
+            head: nuo_view::model::layout::SemanticCursor::new(msg_idx, last_block, end_len),
         };
         self.viewport.drag.cancel();
         self.threads.scroll = approx_offset.min(self.threads.max_scroll);

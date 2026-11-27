@@ -1,0 +1,1623 @@
+//! Context-pressure accounting and relief.
+//!
+//! Cheap character/token estimates over message lists (used when a provider
+//! does not report real usage) plus the policy that clears old `Tool`-role
+//! results to relieve pressure while keeping the OpenAI `tool_call_id` chain
+//! intact. Compaction thresholds are derived from the active model's context
+//! window via [`CompactionPolicy`] / [`ContextBudget`].
+use nuo_tool::tokenizer;
+use nuo_tool::{Message, Role};
+
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+
+/// Prefix of the placeholder a *fully cleared* tool result is replaced with.
+/// The full form carries a breadcrumb — `[cleared tool result: read foo.rs (42
+/// lines, 1500 chars)]` — so the model can decide whether to re-fetch instead of
+/// guessing, and so later passes recognise an already-cleared result.
+pub const CLEARED_TOOL_PREFIX: &str = "[cleared tool result:";
+
+/// Marker embedded in a *truncated* tool result (head + tail kept, middle
+/// elided). Distinguishes the intermediate "truncated" tier from a full clear so
+/// a later, higher-pressure pass can escalate truncation to a clear.
+/// Reports **tokens**.
+const ELIDED_MARKER: &str = " tokens elided to relieve context ...]";
+
+/// Minimum quantum tokens required for budget-driven pruning to execute.
+/// Pruning for less than this floor causes cache thrashing without meaningful context relief.
+pub const PRUNE_QUANTUM_FLOOR_TOKENS: usize = 4_000;
+
+/// Default high watermark entry point for budget-driven pruning.
+pub const CRUISE_HIGH_WATERMARK: f64 = 0.70;
+
+/// Target recovery low watermark for dual-band hysteresis loop.
+pub const CRUISE_LOW_WATERMARK: f64 = 0.50;
+
+/// Hot-tail quarantine budget in tokens protected from budget pruning.
+pub const TAIL_QUARANTINE_TOKENS: usize = 16_000;
+
+/// Fraction of the model window reserved for the whole instruction region
+/// See [`instructions_ceiling`].
+pub const INSTRUCTIONS_CEILING_UTILIZATION: f64 = 0.08;
+
+/// Token size of a tool result above which a prune candidate is first
+/// *truncated* (a gentler tier that keeps the shape of the output) rather
+/// than cleared outright. Below it, truncation would not save enough to be
+/// worth the lost signal, so the candidate is cleared directly.
+/// ≈ the old 2 000-byte gate for ASCII, 3× tighter for CJK-heavy output —
+/// which is the point: CJK results were wrongly entering the gentle tier.
+const TRUNCATE_MIN_TOKENS: usize = 512;
+
+/// Tokens of head and of tail preserved when truncating a candidate.
+const TRUNCATE_KEEP_EACH_SIDE_TOKENS: usize = 128;
+
+/// Internal context-compaction policy: fractions of the active model's declared
+/// context window, plus a fallback window for models whose size is unknown.
+/// Not user-configurable — thresholds always follow the live model's window,
+/// so a 1M-token model compacts near 850k, not at an arbitrary fixed cap.
+/// Pure data; resolved into absolute token thresholds for one concrete model by
+/// [`CompactionPolicy::resolve`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CompactionPolicy {
+    /// Trigger a full summarizing compaction once pressure reaches this fraction
+    /// of the window. The remaining headroom absorbs finishing the current round
+    /// and the summarization call itself, so a value near `1.0` risks overflow.
+    pub utilization: f64,
+    /// After a full compaction, compress the model window down to this fraction
+    /// of the window. Lower values compact less often but deeper — the right
+    /// tradeoff for an agentic loop that may run hundreds of rounds.
+    pub target_utilization: f64,
+    /// Trigger cheap tool-result pruning once pressure reaches this fraction,
+    /// below `utilization`. Pruning keeps the tool-call id chain intact, so it
+    /// is safe to run earlier and more often than a full compaction.
+    pub prune_utilization: f64,
+    /// Assumed window (tokens) when the active model's context window is unknown
+    /// (the registry resolves to `0`). Conservative, so unknown / local models
+    /// still relieve pressure instead of overflowing.
+    pub fallback_window_tokens: usize,
+    /// Number of recent complete user rounds preserved verbatim by full compaction.
+    pub preserve_rounds: usize,
+    /// Use the active model to produce an anchored, structured summary when
+    /// compacting. When `false` (or when summarization fails) compaction falls
+    /// back to deterministic message excerpts.
+    pub summarize: bool,
+    /// Enable cheap tool-result pruning (pre-turn and mid-turn) that clears old
+    /// tool outputs in place to relieve context pressure before a full compaction.
+    pub prune: bool,
+    /// Token budget of the most recent tool results protected from pruning.
+    pub prune_protect_tokens: usize,
+}
+
+impl Default for CompactionPolicy {
+    fn default() -> Self {
+        Self {
+            utilization: 0.85,
+            target_utilization: 0.25,
+            prune_utilization: 0.65,
+            fallback_window_tokens: 32_000,
+            preserve_rounds: 6,
+            summarize: true,
+            prune: true,
+            prune_protect_tokens: 6_000,
+        }
+    }
+}
+
+impl CompactionPolicy {
+    /// Resolve into absolute token thresholds for a concrete model window.
+    /// `window_tokens == 0` (unknown model) substitutes the fallback window so
+    /// compaction still engages.
+    pub fn resolve(&self, window_tokens: usize) -> ContextBudget {
+        let window = if window_tokens == 0 {
+            self.fallback_window_tokens
+        } else {
+            window_tokens
+        }
+        .max(1);
+        let threshold = |fraction: f64| (window as f64 * fraction) as usize;
+        let quantum_floor = PRUNE_QUANTUM_FLOOR_TOKENS.max(threshold(0.05));
+        ContextBudget {
+            window_tokens: window,
+            prune_threshold_tokens: threshold(self.prune_utilization),
+            compaction_threshold_tokens: threshold(self.utilization),
+            target_tokens: threshold(self.target_utilization),
+            quantum_floor_tokens: quantum_floor,
+            cruise_low_tokens: threshold(CRUISE_LOW_WATERMARK),
+            instructions_ceiling_tokens: instructions_ceiling(window),
+            max_request_body_bytes: DEFAULT_REQUEST_BODY_LIMIT_BYTES,
+        }
+    }
+}
+
+/// The instruction-region ceiling for one window.
+///
+/// Eight percent of the window with a 24k cap and a 2k floor: the cap keeps a
+/// 1M-token model from reserving 80k tokens of prompt, and the floor keeps a
+/// small local model from paying for a prompt it cannot fit beside a
+/// conversation. This is a tuning constant of the assembler, not a preference
+/// (ADR-0214), so it lives here and nowhere else (`[INV-CTXSRC-07]`).
+pub fn instructions_ceiling(window_tokens: usize) -> usize {
+    ((window_tokens as f64 * INSTRUCTIONS_CEILING_UTILIZATION) as usize).clamp(2_000, 24_000)
+}
+
+/// Resolved, model-specific token thresholds — the runtime form of a
+/// [`CompactionPolicy`] against one active model. Projected request pressure is
+/// compared against these; content-level sizing (summary budgets, pruning
+/// protect budgets) is derived from them in characters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContextBudget {
+    /// Full provider context window used to derive the thresholds (or the
+    /// fallback value when the model's window is unknown).
+    pub window_tokens: usize,
+    /// Cheap tool-result pruning fires above this many tokens.
+    pub prune_threshold_tokens: usize,
+    /// A full summarizing compaction fires above this many tokens.
+    pub compaction_threshold_tokens: usize,
+    /// Post-compaction active-window target, in tokens.
+    pub target_tokens: usize,
+    /// Quantum floor: minimum tokens that a prune pass must recover to execute.
+    pub quantum_floor_tokens: usize,
+    /// Target low-watermark landing zone for hysteresis loop.
+    pub cruise_low_tokens: usize,
+    /// Ceiling for the whole instruction region in
+    /// tokens. Derived from the model window like every other threshold
+    /// (`[INV-CONTEXT-01]`): a fixed prompt must not be able to consume the
+    /// window before the conversation starts, and every downstream budget
+    /// inherits the error if it does.
+    pub instructions_ceiling_tokens: usize,
+    /// Ceiling for one **serialized request body**, in bytes.
+    ///
+    /// A request has two independent physical limits: the model's context
+    /// window (tokens) and the edge's body cap (bytes). Only the first was ever
+    /// budgeted, so a session inside a million-token window could still be
+    /// refused for sending a 55 MB body ([`DEFAULT_REQUEST_BODY_LIMIT_BYTES`]).
+    /// This is the second limit, and it is compared against
+    /// [`request_wire_size`], not against a token estimate.
+    pub max_request_body_bytes: usize,
+}
+
+/// Wire-size (bytes) of a message list: byte length of `content` +
+/// tool-call `name`+`arguments` + inline attachment payload.
+///
+/// This is **session weight**, not the request body: it counts persisted
+/// subagent `children`, which no provider sees. Use [`request_wire_size`] for
+/// the guard that a transport edge enforces.
+pub fn estimate_bytes(messages: &[Message]) -> usize {
+    messages.iter().map(message_bytes).sum()
+}
+
+/// Token estimate of a message list using the native BPE tokenizer
+/// with per-message chat framing overhead. This is the pressure
+/// predictor: exact for `cl100k_base`-family models, a close approximation
+/// for sibling encodings.
+///
+/// `reasoning_content` is excluded (never sent to providers), mirroring
+/// `message_bytes`.
+pub fn estimate_tokens(messages: &[Message]) -> usize {
+    let mut tokens: i64 = 0;
+    for m in messages {
+        tokens += estimate_message_tokens(m);
+        // Nested subagent transcripts are real session weight (persisted, replayed
+        // on resume) so they count, just like `message_bytes` does.
+        if let Some(children) = m.children.as_ref() {
+            tokens += estimate_tokens(children) as i64;
+        }
+    }
+    tokens.max(1) as usize
+}
+
+/// Session-weight estimate with **identical semantics** to
+/// [`estimate_tokens`] (per-message framing included, nested subagent children
+/// counted), routed through the shared [`MessageTokenWeights`] cache: every
+/// message's BPE cost is paid once per session lifetime, and repeated passes
+/// cost O(new bytes) instead of O(total bytes).
+///
+/// This is the variant the pressure/prune gates must use: re-tokenizing the
+/// whole window per pass (`estimate_tokens` directly) is real CPU-bound work,
+/// and running it on the async executor stalls stream forwarding and TUI
+/// rendering for the duration.
+pub fn estimate_tokens_weighted(messages: &[Message], weights: &MessageTokenWeights) -> usize {
+    let mut tokens: i64 = 0;
+    for m in messages {
+        tokens += *weights.weight(m);
+        if let Some(children) = m.children.as_ref() {
+            tokens += estimate_tokens_weighted(children, weights) as i64;
+        }
+    }
+    tokens.max(1) as usize
+}
+
+// NOTE: the provider-reported-usage path (ADR-0019 "layered token accounting",
+// `effective_pressure_tokens` / `USAGE_TRUST_FLOOR`) was removed as dead code:
+// the `Provider` trait never surfaces usage, so the function had no production
+// caller and only advertised a capability that does not exist. Pressure is
+// computed purely from `estimate_tokens`. Revive a usage-preferring policy here
+// once a provider actually reports `prompt_tokens`. See the deferral note in
+// docs/adr/0019-token-pressure-measurement-and-budget-accounting.md.
+
+/// Conservative ceiling for one serialized provider request body.
+///
+/// Context pressure is measured in **tokens** because that is what the model's
+/// window charges. That is not the only physical limit on a request: every edge
+/// in front of a provider also caps the **bytes** it will accept, and the two
+/// are independent. An attachment is the worst case — roughly 1 600 tokens but
+/// hundreds of kilobytes of base64 — so a session can sit comfortably inside a
+/// million-token window and still be refused as a 55 MB body.
+///
+/// No vendor publishes a portable number, so this is a deliberately
+/// conservative default rather than a claimed vendor fact. A refusal is better
+/// evidence than any published figure: when a provider answers with a
+/// payload-size error, the route's ceiling is lowered to the size that failed
+/// and the next request is projected against it ([`ContextBudget::max_request_body_bytes`]).
+pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+
+/// Fraction of the request-body limit a relief pass aims for.
+///
+/// Relieving exactly to the limit leaves no room for the current turn to grow
+/// (one more tool result, one more image), so the very next turn would trip the
+/// same gate. Ten percent of headroom is cheap: it is one old attachment.
+pub const PAYLOAD_RELIEF_UTILIZATION: f64 = 0.90;
+
+/// The body size to aim for after a payload refusal.
+///
+/// `observed` is the size of the request that was just refused; it is the only
+/// number the provider supplied. `configured` is what we believed the ceiling
+/// was. The target never exceeds either, and it steps a quarter below the
+/// smaller of them: the transport said "too large" without saying by how much,
+/// so a decisive step is the only one that does not risk re-sending the same
+/// failure.
+pub fn payload_relief_target(observed_body_bytes: usize, configured_ceiling: usize) -> usize {
+    let ceiling = if configured_ceiling == 0 {
+        observed_body_bytes
+    } else {
+        configured_ceiling.min(observed_body_bytes)
+    };
+    ceiling.saturating_sub(ceiling / 4).max(1)
+}
+
+/// The most recent attachments a payload relief pass protects.
+///
+/// The newest images are the ones the conversation is *about*; evicting them
+/// would make the current turn incomprehensible to the model while freeing
+/// bytes it needed. This is a **cap**, not a guarantee: protection is also
+/// limited by the byte target, so four 4 MB screenshots are not kept in front
+/// of a 1 MB ceiling. The single newest attachment is always kept (the request
+/// would otherwise answer a different question), and everything older is
+/// evicted oldest-first. The transcript still holds every image, and each
+/// eviction leaves an invoice the model can act on.
+pub const PAYLOAD_KEEP_NEWEST_IMAGES: usize = 4;
+
+pub(crate) fn message_bytes(message: &Message) -> usize {
+    let own = message.content.len()
+        + message
+            .tool_calls
+            .as_ref()
+            .map(|calls| {
+                calls
+                    .iter()
+                    .map(|c| c.name.len() + c.arguments.len())
+                    .sum::<usize>()
+            })
+            .unwrap_or(0);
+    // Recursively count nested subagent transcripts. A `task` tool result
+    // carries the subagent's full conversation as `children`, and that
+    // conversation is real context weight the parent model is effectively
+    // paying for (it sees the summary, but the children live in the same
+    // session.json and survive resume — both the context-pressure meter and
+    // the compaction budget must see them).
+    let nested = message
+        .children
+        .as_ref()
+        .map(|children| children.iter().map(message_bytes).sum::<usize>())
+        .unwrap_or(0);
+    own + nested
+}
+
+/// Bytes one message contributes to the **serialized provider body**.
+///
+/// This is a different physical quantity from [`estimate_message_tokens`]:
+/// tokens bound what the model can attend to, bytes bound what the transport
+/// can deliver. Attachments dominate the second and are nearly free in the
+/// first, so a budget that only knows tokens cannot see a 55 MB request.
+///
+/// The count is the sum of the fields a provider serializes, with the image
+/// payload measured exactly (base64 is ASCII and contains no JSON-escapable
+/// characters, so its serialized length *is* its length). Text is counted at
+/// its UTF-8 length; JSON escaping can expand control characters, so callers
+/// treat the result as a lower bound and the gate reserves
+/// [`PAYLOAD_RELIEF_UTILIZATION`] headroom rather than spending the exact limit.
+///
+/// Nested `children` are deliberately excluded: they are a persisted subagent
+/// transcript for the parent's *session weight*, not bytes on this request.
+pub fn message_wire_bytes(message: &Message) -> usize {
+    let mut bytes = message.content.len();
+    if let Some(reasoning) = message.reasoning_content.as_deref() {
+        bytes += reasoning.len();
+    }
+    if let Some(calls) = message.tool_calls.as_ref() {
+        bytes += calls
+            .iter()
+            .map(|call| call.name.len() + call.arguments.len())
+            .sum::<usize>();
+    }
+    if let Some(images) = message.images.as_ref() {
+        bytes += images.iter().map(|image| image.data.len()).sum::<usize>();
+    }
+    bytes
+}
+
+/// The wire-size accounting of one assembled provider request.
+///
+/// `body_bytes` is the guard: it is what an edge measures before it answers
+/// `413`. The split exists so a relief decision can name what it is shrinking
+/// (`media_bytes` is the only term that can be evicted without losing
+/// conversation) instead of blindly folding history.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RequestWireSize {
+    /// Bytes the serialized body will occupy, all parts included.
+    pub body_bytes: usize,
+    /// Of which: inline attachment payload.
+    pub media_bytes: usize,
+    /// Of which: instructions, message text, and tool-call arguments.
+    pub text_bytes: usize,
+    /// Of which: serialized tool specs.
+    pub tool_schema_bytes: usize,
+}
+
+/// Measure the bytes an assembled request will put on the wire.
+pub fn request_wire_size(request: &crate::ModelRequest) -> RequestWireSize {
+    let instructions = request.instructions.text().len();
+    let tool_schema_bytes = request
+        .tool_specs
+        .iter()
+        .map(|spec| {
+            spec.name.len()
+                + spec.description.len()
+                + serde_json::to_string(&spec.parameters).map_or(0, |schema| schema.len())
+        })
+        .sum::<usize>();
+    let mut media_bytes = 0usize;
+    let mut message_text = 0usize;
+    for message in &request.messages {
+        if let Some(images) = message.images.as_ref() {
+            media_bytes += images.iter().map(|image| image.data.len()).sum::<usize>();
+        }
+        message_text += message_wire_bytes(message).saturating_sub(
+            message
+                .images
+                .as_ref()
+                .map(|images| images.iter().map(|image| image.data.len()).sum())
+                .unwrap_or(0),
+        );
+    }
+    let text_bytes = instructions + message_text + tool_schema_bytes;
+    RequestWireSize {
+        body_bytes: text_bytes + media_bytes,
+        media_bytes,
+        text_bytes,
+        tool_schema_bytes,
+    }
+}
+
+/// The attachment bytes a request may still carry.
+///
+/// Everything media eviction cannot touch — instructions, tool schemas, message
+/// text — is subtracted first, so a request whose **text alone** already
+/// exceeds the ceiling reports `0` and the caller knows media relief cannot
+/// help it.
+pub const fn media_allowance(limit_bytes: usize, non_media_bytes: usize) -> usize {
+    limit_bytes.saturating_sub(non_media_bytes)
+}
+
+/// Bytes the inline attachments in `messages` occupy.
+pub fn media_bytes(messages: &[Message]) -> usize {
+    messages
+        .iter()
+        .filter_map(|message| message.images.as_ref())
+        .flat_map(|images| images.iter())
+        .map(|image| image.data.len())
+        .sum()
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PruneOutcome {
+    /// Number of tool-result messages whose content was cleared.
+    pub cleared_count: usize,
+    /// **Tokens** reclaimed by clearing (old content minus new content,
+    /// measured with the exact BPE tokenizer).
+    pub reclaimed_tokens: usize,
+    /// Original (pre-clear) tool messages, oldest-first, for durable archival.
+    pub originals: Vec<Message>,
+}
+
+/// Relieve context pressure by degrading older `Tool`-role results in place,
+/// keeping the OpenAI `tool_call_id` chain intact. Mutates `messages`; returns
+/// `Some(PruneOutcome)` only when at least `min_reclaim_tokens` would be
+/// reclaimed, else `None` with `messages` untouched (atomic: nothing is mutated
+/// unless the gate passes).
+///
+/// All budgets are **tokens**: the recency-protection window and
+/// the reclaim gate compare against exactly what the provider's context
+/// window charges.
+///
+/// This is more than FIFO-by-age. For each candidate the policy chooses *what*
+/// to prune and *how hard*:
+///
+/// - **Recency protection** keeps the most recent `protect_recent_tokens` of
+///   tool output verbatim — that is what is usually still relevant.
+/// - **Keep-alive** spares a fresh result whose file target is mentioned in the
+///   last few non-tool messages (likely still in play).
+/// - **Staleness / dedup** clears a result outright when a *later* tool
+///   supersedes it on the same file: a mutation (`write`/`edit`), or a `read`
+///   that fully re-covers its line range. Reads of *different* pages of one file
+///   are complementary, not superseding, so paging never self-evicts — keeping
+///   genuinely stale content is worse than clearing it, but evicting a live page
+///   just makes the model re-read it.
+/// - **Tiered degradation** truncates a large, fresh result to head + tail first
+///   (a gentler tier that keeps its shape) and only fully clears it on a later,
+///   higher-pressure pass — or immediately when it is already small.
+/// - **Informative clears** replace content with `[cleared tool result: <label>
+///   (<n> lines, <m> tokens)]` so the model can decide whether to re-fetch.
+///
+/// Idempotent: already-cleared results are skipped; a truncated result escalates
+/// to a clear on a subsequent pass, so repeated calls converge.
+pub fn prune_tool_results(
+    messages: &mut [Message],
+    protect_recent_tokens: usize,
+    min_reclaim_tokens: usize,
+) -> Option<PruneOutcome> {
+    let plan = plan_prune(messages, protect_recent_tokens);
+    let reclaimable: usize = plan.iter().map(|c| c.reclaim).sum();
+    if plan.is_empty() || reclaimable < min_reclaim_tokens {
+        return None;
+    }
+    Some(apply_prune(messages, plan, protect_recent_tokens))
+}
+
+/// One planned degradation: replace `messages[index].content` with
+/// `new_content`, reclaiming `reclaim` chars of own content.
+struct PrunePlan {
+    index: usize,
+    new_content: String,
+    reclaim: usize,
+}
+
+/// Owned (mutation-safe) summary of the tool call that produced a result: a
+/// short human label and the file path it targeted, correlated via
+/// `tool_call_id`.
+#[derive(Clone, Default)]
+struct ToolMeta {
+    label: String,
+    file_key: Option<String>,
+    /// For a *read*, the 1-based line range `[start, end)` it covered. `end` is
+    /// `usize::MAX` for an open-ended read (no `limit`, i.e. to EOF). `None` for
+    /// non-read file touches (write/edit). This is what makes staleness
+    /// range-aware: two reads of *different pages* of one file no longer evict
+    /// each other — only a later read that fully re-covers an earlier one (or a
+    /// mutation) supersedes it.
+    read_range: Option<(usize, usize)>,
+    /// True when the call mutated the file (write/edit). A mutation invalidates
+    /// every prior read of the same path regardless of range.
+    mutates: bool,
+    /// Salient command string for shell/command tools.
+    command_str: Option<String>,
+    /// Tool call ID correlating this result with its invocation.
+    call_id: Option<String>,
+}
+
+impl ToolMeta {
+    /// Whether this tool represents a build, test, or check command.
+    fn is_build_or_test_command(&self) -> bool {
+        let Some(cmd) = &self.command_str else {
+            return false;
+        };
+        let c = cmd.trim().to_ascii_lowercase();
+        c.starts_with("ninja")
+            || c.starts_with("meson")
+            || c.starts_with("cargo test")
+            || c.starts_with("cargo nextest")
+            || c.starts_with("cargo check")
+            || c.starts_with("cargo build")
+            || c.starts_with("pytest")
+            || c.starts_with("ctest")
+            || c.starts_with("make test")
+            || c.starts_with("npm test")
+            || c.starts_with("yarn test")
+            || c.starts_with("pnpm test")
+            || c.contains(" test")
+            || c.contains(" check")
+            || c.contains(" build")
+    }
+    /// Does this (later) same-file result supersede an `earlier` one, making the
+    /// earlier one stale? The caller guarantees both touched the same file.
+    ///
+    /// - A mutation supersedes any prior read (its content is now outdated).
+    /// - A read supersedes an earlier read only when it fully **covers** the
+    ///   earlier read's line range (a strict re-read / superset), so paging
+    ///   through complementary regions of one file never self-evicts.
+    /// - A non-read earlier result (`read_range == None`, e.g. a write
+    ///   confirmation) keeps the legacy "any later same-file touch supersedes
+    ///   it" behaviour — such results are tiny and outdated once re-touched.
+    fn supersedes(&self, earlier: &ToolMeta) -> bool {
+        match earlier.read_range {
+            None => true,
+            Some(earlier_range) => {
+                self.mutates
+                    || self
+                        .read_range
+                        .is_some_and(|later| range_covers(later, earlier_range))
+            }
+        }
+    }
+}
+
+/// Whether `outer` fully contains `inner` (`outer.start <= inner.start` and
+/// `inner.end <= outer.end`). Used to decide when a later read makes an earlier
+/// read redundant.
+fn range_covers(outer: (usize, usize), inner: (usize, usize)) -> bool {
+    outer.0 <= inner.0 && inner.1 <= outer.1
+}
+
+fn artifact_hash_for_base64(data: &str) -> String {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use sha2::{Digest, Sha256};
+    if let Ok(bytes) = STANDARD.decode(data) {
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        hex::encode(hasher.finalize())
+    } else {
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+}
+
+/// Plan (without mutating) which tool results to degrade and how. Returns an
+/// empty vec when there is nothing to do.
+fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePlan> {
+    let meta = collect_tool_meta(messages);
+    let tools: Vec<usize> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.role == Role::Tool && !is_cleared(&m.content))
+        .map(|(i, _)| i)
+        .collect();
+
+    // User-uploaded visual media candidates for eviction
+    let user_images: Vec<usize> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| {
+            m.role == Role::User
+                && m.images.as_ref().is_some_and(|imgs| !imgs.is_empty())
+                && !m
+                    .origin
+                    .as_ref()
+                    .is_some_and(|o| o.kind == nuo_tool::InjectionKind::ToolImage)
+        })
+        .map(|(i, _)| i)
+        .collect();
+
+    if tools.is_empty() && user_images.is_empty() {
+        return Vec::new();
+    }
+
+    let mut all_candidates: Vec<usize> = tools.iter().chain(user_images.iter()).copied().collect();
+    all_candidates.sort_unstable();
+
+    // Recency protection: protect newest results until the token budget is
+    // met. Token-denominated — the byte accumulator this replaced
+    // under-protected CJK-heavy sessions by 3–4×.
+    let mut protected: HashSet<usize> = HashSet::new();
+    let mut protected_tokens = 0usize;
+    for &i in all_candidates.iter().rev() {
+        if protected_tokens >= protect_recent_tokens {
+            break;
+        }
+        protected_tokens += estimate_message_tokens(&messages[i]).max(0) as usize;
+        protected.insert(i);
+    }
+
+    // Staleness: a read is stale only when a *later* same-file result supersedes
+    // it — a mutation of the file, or a read that fully re-covers its line range
+    // (see `ToolMeta::supersedes`). Reads of different pages are complementary,
+    // not superseding, so paging through one large file never self-evicts —
+    // closing the read/re-read oscillation that file-level (path-only) staleness
+    // caused once the prune gate engaged.
+    let mut plan = Vec::new();
+    for (pos, &i) in tools.iter().enumerate() {
+        if protected.contains(&i) {
+            continue;
+        }
+        let meta_i = meta.get(&i).cloned().unwrap_or_default();
+        let file_stale = meta_i.file_key.as_deref().is_some_and(|fk| {
+            tools[pos + 1..].iter().any(|j| {
+                meta.get(j).is_some_and(|meta_j| {
+                    meta_j.file_key.as_deref() == Some(fk) && meta_j.supersedes(&meta_i)
+                })
+            })
+        });
+
+        // Command staleness:
+        // 1. A build/test command is superseded if a LATER tool call is also a build/test command.
+        // 2. A build/test command is invalidated if a LATER tool call mutated files (`mutates == true`).
+        let command_stale = meta_i.is_build_or_test_command() && {
+            tools[pos + 1..].iter().any(|j| {
+                meta.get(j)
+                    .is_some_and(|meta_j| meta_j.is_build_or_test_command() || meta_j.mutates)
+            })
+        };
+
+        let stale = file_stale || command_stale;
+        // Keep-alive spares a *fresh* result whose file target is still in play.
+        // A stale result is cleared even if mentioned, because its content is
+        // outdated. "In play" means referenced *after* this result was produced
+        // — by later natural language or a later tool call on the same file.
+        // Looking forward from `i` (not at a global recent window) is what stops
+        // a result's own originating call from self-referencing and sparing it.
+        if !stale && mentioned_after(messages, i, meta_i.file_key.as_deref()) {
+            continue;
+        }
+        let content = &messages[i].content;
+        let new_content = degrade(content, &meta_i, stale);
+        let mut content_tokens = tokenizer::count_tokens(content);
+        let has_companion_image = messages.get(i + 1).is_some_and(|m| {
+            m.origin
+                .as_ref()
+                .is_some_and(|o| o.kind == nuo_tool::InjectionKind::ToolImage)
+                && m.images.is_some()
+        });
+        if has_companion_image {
+            content_tokens += 1600;
+        }
+        let new_tokens = tokenizer::count_tokens(&new_content);
+        if new_tokens >= content_tokens {
+            continue; // no real gain
+        }
+        let reclaim = content_tokens.saturating_sub(new_tokens);
+        plan.push(PrunePlan {
+            index: i,
+            new_content,
+            reclaim,
+        });
+    }
+
+    // Evict user visual media that has exited the recency quarantine window
+    for &i in &user_images {
+        if protected.contains(&i) {
+            continue;
+        }
+        let msg = &messages[i];
+        let Some(images) = &msg.images else {
+            continue;
+        };
+        if images.is_empty() {
+            continue;
+        }
+
+        let new_content = with_invoice(&msg.content, images);
+
+        let reclaim = 1600 * images.len();
+        plan.push(PrunePlan {
+            index: i,
+            new_content,
+            reclaim,
+        });
+    }
+    plan
+}
+
+/// One message's attachments that a payload-relief pass would offload.
+///
+/// The pixels travel with the plan so the caller can persist them **before**
+/// the projection drops them: the invoice prints an artifact path, and a path
+/// that names a file nobody wrote would be a claim the producer never makes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaOffload {
+    /// Index of the message the attachments belong to.
+    pub index: usize,
+    /// The attachments removed from this message, exactly as they will be
+    /// persisted. A message keeps the rest.
+    pub removed: Vec<nuo_tool::ImagePart>,
+    /// The content-addressed path each removed attachment must be persisted to
+    /// before the projection drops it. Parallel to `removed`; this is the path
+    /// the invoice prints, so the producer and the claim cannot drift.
+    pub artifact_paths: Vec<String>,
+    /// The attachments that stay on the message.
+    pub kept: Vec<nuo_tool::ImagePart>,
+    /// The message's original text, kept verbatim so the projection appends
+    /// the invoice instead of replacing the conversation.
+    pub content: String,
+    /// The full replacement content: original text plus one invoice per
+    /// removed attachment.
+    pub invoice: String,
+    /// Net wire bytes the eviction frees (attachments minus invoice lines).
+    pub bytes: usize,
+}
+
+/// Plan the oldest attachments to offload so the body fits its byte ceiling.
+///
+/// This is the relief for a constraint tokens cannot see. Selection is by
+/// **recency and budget**, at *attachment* granularity — a single message can
+/// carry six screenshots, and protecting the whole message would protect all
+/// six:
+///
+/// - the newest attachment always survives: the conversation is about it, and
+///   sending a request without it answers a different question;
+/// - older attachments survive while they still fit inside
+///   [`PAYLOAD_RELIEF_UTILIZATION`] of `max_body_bytes`, up to
+///   `keep_newest_images`;
+/// - everything older is evicted oldest-first until the projected body lands
+///   under that target.
+///
+/// Returns an empty plan when the request already fits or when every remaining
+/// attachment is inside the protected window; the caller then surfaces the
+/// refusal instead of pretending it relieved something.
+pub fn plan_media_offload(
+    messages: &[Message],
+    request_body_bytes: usize,
+    max_body_bytes: usize,
+    keep_newest_images: usize,
+) -> Vec<MediaOffload> {
+    let target = (max_body_bytes as f64 * PAYLOAD_RELIEF_UTILIZATION) as usize;
+    if request_body_bytes <= target {
+        return Vec::new();
+    }
+    /// One attachment's position, for the recency walk.
+    struct Slot {
+        message: usize,
+        image: usize,
+        bytes: usize,
+    }
+    let mut slots: Vec<Slot> = Vec::new();
+    for (message_index, message) in messages.iter().enumerate() {
+        let Some(images) = message.images.as_ref() else {
+            continue;
+        };
+        for (image_index, image) in images.iter().enumerate() {
+            slots.push(Slot {
+                message: message_index,
+                image: image_index,
+                bytes: image.data.len(),
+            });
+        }
+    }
+    if slots.is_empty() {
+        return Vec::new();
+    }
+
+    let mut protected: HashSet<(usize, usize)> = HashSet::new();
+    let mut protected_bytes = 0usize;
+    for (protected_count, slot) in slots.iter().rev().enumerate() {
+        if protected_count >= keep_newest_images {
+            break;
+        }
+        let first = protected_count == 0;
+        if !first && protected_bytes.saturating_add(slot.bytes) > target {
+            break;
+        }
+        protected_bytes = protected_bytes.saturating_add(slot.bytes);
+        protected.insert((slot.message, slot.image));
+    }
+
+    // Evict oldest-first until the projection fits. Removal is accounted
+    // exactly: the attachment leaves, and its invoice line arrives.
+    let mut projected = request_body_bytes;
+    let mut evicted: Vec<(usize, usize)> = Vec::new();
+    for slot in slots.iter() {
+        if projected <= target {
+            break;
+        }
+        if protected.contains(&(slot.message, slot.image)) {
+            continue;
+        }
+        let image = messages[slot.message]
+            .images
+            .as_ref()
+            .and_then(|images| images.get(slot.image));
+        let Some(image) = image else {
+            continue;
+        };
+        let freed = image
+            .data
+            .len()
+            .saturating_sub(image_invoice_line(image).len());
+        if freed == 0 {
+            continue;
+        }
+        projected = projected.saturating_sub(freed);
+        evicted.push((slot.message, slot.image));
+    }
+    if evicted.is_empty() {
+        return Vec::new();
+    }
+
+    // Group by message: one projection per message, so the invoice replaces
+    // exactly the pixels that left and the rest stay attached.
+    let mut plan: Vec<MediaOffload> = Vec::new();
+    for (message_index, message) in messages.iter().enumerate() {
+        let Some(images) = message.images.as_ref() else {
+            continue;
+        };
+        let mut removed = Vec::new();
+        let mut kept = Vec::new();
+        for (image_index, image) in images.iter().enumerate() {
+            if evicted
+                .iter()
+                .any(|(m, i)| *m == message_index && *i == image_index)
+            {
+                removed.push(image.clone());
+            } else {
+                kept.push(image.clone());
+            }
+        }
+        if removed.is_empty() {
+            continue;
+        }
+        let invoice = with_invoice(&message.content, &removed);
+        let media: usize = removed.iter().map(|image| image.data.len()).sum();
+        let bytes = media.saturating_sub(invoice.len().saturating_sub(message.content.len()));
+        plan.push(MediaOffload {
+            index: message_index,
+            artifact_paths: removed.iter().map(image_artifact_path).collect(),
+            removed,
+            kept,
+            content: message.content.clone(),
+            invoice,
+            bytes,
+        });
+    }
+    plan
+}
+
+/// What a payload-relief pass did, for the durable checkpoint and the notice.
+#[derive(Debug, Clone, Default)]
+pub struct MediaOffloadOutcome {
+    /// Attachments removed from the request projection.
+    pub offloaded_images: usize,
+    /// Net wire bytes reclaimed.
+    pub reclaimed_bytes: usize,
+    /// The original messages, oldest-first, for durable archival.
+    pub originals: Vec<Message>,
+}
+
+/// Apply a [`plan_media_offload`], removing the planned attachments and
+/// appending their invoices. Text is preserved verbatim; only the pixels leave
+/// the request, and a message that keeps attachments keeps them attached.
+pub fn apply_media_offload(
+    messages: &mut [Message],
+    plan: Vec<MediaOffload>,
+) -> MediaOffloadOutcome {
+    let mut outcome = MediaOffloadOutcome::default();
+    for item in plan {
+        let Some(message) = messages.get_mut(item.index) else {
+            continue;
+        };
+        outcome.originals.push(message.clone());
+        outcome.offloaded_images += item.removed.len();
+        outcome.reclaimed_bytes += item.bytes;
+        message.images = if item.kept.is_empty() {
+            None
+        } else {
+            Some(item.kept)
+        };
+        message.content = item.invoice;
+    }
+    outcome
+}
+
+/// The invoice that replaces attachments removed from a request.
+///
+/// It names the artifact this projection persisted, so the model can read the
+/// pixels back instead of guessing what it lost. The wording is shared by every
+/// producer, so a reader can recognise an offloaded attachment wherever it
+/// appears.
+fn with_invoice(content: &str, images: &[nuo_tool::ImagePart]) -> String {
+    let lines = images
+        .iter()
+        .map(image_invoice_line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if content.is_empty() {
+        lines
+    } else {
+        format!("{content}\n{lines}")
+    }
+}
+
+/// The one invoice line an offloaded attachment leaves behind.
+fn image_invoice_line(image: &nuo_tool::ImagePart) -> String {
+    let artifact_path = image_artifact_path(image);
+    format!(
+        "[Image Offloaded: {} elided to relieve request size]\n- Artifact Path: \"{artifact_path}\"",
+        image.mime
+    )
+}
+
+/// The content-addressed spool path one attachment is persisted to.
+///
+/// The same function produces the invoice text and the write target, so an
+/// invoice can never name a path no producer wrote (`[INV-SPOOL-01]`).
+fn image_artifact_path(image: &nuo_tool::ImagePart) -> String {
+    let hash = artifact_hash_for_base64(&image.data);
+    let short_hash = if hash.len() >= 12 { &hash[..12] } else { &hash };
+    let ext = match image.mime.as_str() {
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "png",
+    };
+    nuo_tool::spool_canonical_path(short_hash, ext)
+}
+
+/// Apply a plan, recording originals for archival and recursing into any nested
+/// subagent transcript on the messages it touches.
+fn apply_prune(
+    messages: &mut [Message],
+    plan: Vec<PrunePlan>,
+    protect_recent_tokens: usize,
+) -> PruneOutcome {
+    let mut outcome = PruneOutcome::default();
+    for item in plan {
+        outcome.originals.push(messages[item.index].clone());
+        outcome.reclaimed_tokens += item.reclaim;
+        outcome.cleared_count += 1;
+        messages[item.index].content = item.new_content;
+        messages[item.index].reasoning_content = None;
+        // Strip image attachments from pruned messages
+        messages[item.index].images = None;
+        let call_id = messages[item.index].tool_call_id.clone();
+        // Also prune companion ToolImage user message if immediately following
+        if let Some(next_msg) = messages.get_mut(item.index + 1)
+            && next_msg
+                .origin
+                .as_ref()
+                .is_some_and(|o| o.kind == nuo_tool::InjectionKind::ToolImage)
+            && next_msg.images.is_some()
+        {
+            outcome.originals.push(next_msg.clone());
+            let mime = next_msg
+                .images
+                .as_ref()
+                .and_then(|imgs| imgs.first())
+                .map(|img| img.mime.clone())
+                .unwrap_or_else(|| "image".to_string());
+            next_msg.images = None;
+            let _id_str = call_id.as_deref().unwrap_or("unknown");
+            next_msg.content =
+                format!("[cleared image payload ({mime}) to protect context budget]");
+            outcome.reclaimed_tokens += 1600;
+        }
+        // A `task` result carries the subagent's whole transcript as
+        // `children`; its old `Tool` results are the same kind of bulky weight,
+        // so prune them too (ungated — durability already happened when the
+        // subagent finished; here we relieve in-memory pressure).
+        if let Some(children) = messages[item.index].children.as_mut() {
+            let child_plan = plan_prune(children, protect_recent_tokens);
+            if !child_plan.is_empty() {
+                let nested = apply_prune(children, child_plan, protect_recent_tokens);
+                outcome.reclaimed_tokens += nested.reclaimed_tokens;
+            }
+        }
+    }
+    outcome
+}
+
+/// Choose the degraded form of a tool result's content.
+fn degrade(content: &str, meta: &ToolMeta, stale: bool) -> String {
+    // Stale (superseded on the same file) or already truncated -> clear fully.
+    if stale || is_truncated(content) {
+        let reason = if stale {
+            Some("superseded")
+        } else {
+            Some("budget relief")
+        };
+        return cleared_placeholder_with_reason(meta, content, reason);
+    }
+    // Large and fresh -> truncate (gentler). Small -> clear directly.
+    if tokenizer::count_tokens(content) >= TRUNCATE_MIN_TOKENS {
+        truncate_middle(content, meta.call_id.as_deref())
+    } else {
+        cleared_placeholder_with_reason(meta, content, Some("budget relief"))
+    }
+}
+
+/// Correlate each `Tool` result with the assistant `tool_call` that produced it,
+/// returning owned per-message-index metadata so later mutation is borrow-safe.
+fn collect_tool_meta(messages: &[Message]) -> HashMap<usize, ToolMeta> {
+    let mut by_id: HashMap<&str, (&str, &str)> = HashMap::new();
+    for m in messages {
+        if let Some(calls) = &m.tool_calls {
+            for c in calls {
+                by_id.insert(c.id.as_str(), (c.name.as_str(), c.arguments.as_str()));
+            }
+        }
+    }
+    let mut out = HashMap::new();
+    for (i, m) in messages.iter().enumerate() {
+        if m.role != Role::Tool {
+            continue;
+        }
+        let call_id = m.tool_call_id.clone();
+        let meta = m
+            .tool_call_id
+            .as_deref()
+            .and_then(|id| by_id.get(id))
+            .map(|(name, args)| {
+                let file_key = file_key(name, args);
+                // Range/mutation classification only matters for file-addressed
+                // calls (staleness is keyed on a shared file). Non-file tools
+                // (bash, grep without a path) never enter the same-file scan.
+                let (read_range, mutates) = if file_key.is_some() {
+                    classify_file_touch(args)
+                } else {
+                    (None, false)
+                };
+                let is_cmd = *name == "execute_command";
+                let command_str = if is_cmd {
+                    let parsed = parsed_args(args);
+                    arg_str(&parsed, &["command", "cmd"]).map(|s| s.to_string())
+                } else {
+                    None
+                };
+                ToolMeta {
+                    label: tool_label(name, args),
+                    file_key,
+                    read_range,
+                    mutates,
+                    command_str,
+                    call_id: call_id.clone(),
+                }
+            })
+            .unwrap_or_else(|| ToolMeta {
+                call_id,
+                ..Default::default()
+            });
+        out.insert(i, meta);
+    }
+    out
+}
+
+/// Whether a tool result's file target is referenced in any message *after*
+/// `index` — by full path or by its bare file name, in natural-language content
+/// or in the arguments of a later tool call. This is the keep-alive signal: a
+/// result whose target is still being talked about or re-touched is left intact.
+/// Looking forward from `index` (rather than at a global recent window) is what
+/// prevents a result's own originating call from self-referencing and sparing it.
+fn mentioned_after(messages: &[Message], index: usize, file_key: Option<&str>) -> bool {
+    let Some(fk) = file_key else {
+        return false;
+    };
+    if fk.is_empty() {
+        return false;
+    }
+    let base = fk.rsplit(['/', '\\']).next().unwrap_or(fk);
+    let base_match = base != fk && !base.is_empty();
+    for m in messages.iter().skip(index + 1) {
+        if m.content.contains(fk) || (base_match && m.content.contains(base)) {
+            return true;
+        }
+        if let Some(calls) = &m.tool_calls {
+            for c in calls {
+                if c.arguments.contains(fk) || (base_match && c.arguments.contains(base)) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_cleared(content: &str) -> bool {
+    content.starts_with(CLEARED_TOOL_PREFIX)
+}
+
+fn is_truncated(content: &str) -> bool {
+    content.contains(ELIDED_MARKER)
+}
+
+fn parsed_args(arguments: &str) -> serde_json::Value {
+    serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null)
+}
+
+fn arg_str<'a>(args: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|k| args.get(*k).and_then(|v| v.as_str()))
+}
+
+/// Short label for a tool call, e.g. `read src/main.rs`, `search_text "TODO"`, or just
+/// `bash` when no salient argument is found.
+fn tool_label(name: &str, arguments: &str) -> String {
+    let args = parsed_args(arguments);
+    match arg_str(
+        &args,
+        &[
+            "path",
+            "file_path",
+            "file",
+            "filename",
+            "pattern",
+            "query",
+            "command",
+            "cmd",
+            "url",
+        ],
+    ) {
+        Some(detail) => {
+            let detail = detail.trim();
+            let short: String = detail.chars().take(60).collect();
+            if detail.chars().count() > 60 {
+                format!("{name} {short}…")
+            } else {
+                format!("{name} {short}")
+            }
+        }
+        None => name.to_string(),
+    }
+}
+
+/// The file path a tool touched, used for staleness/dedup. `None` for tools that
+/// are not file-addressed (e.g. `bash`, `search_text` without a file).
+fn file_key(_name: &str, arguments: &str) -> Option<String> {
+    let args = parsed_args(arguments);
+    arg_str(&args, &["path", "file_path", "file", "filename"]).map(|s| s.to_string())
+}
+
+/// Classify a file-addressed tool call for staleness: `(read_range, mutates)`.
+///
+/// A call is a *mutation* when it carries write-shaped arguments (`content` for
+/// `write`, `old_string`/`new_string` for `edit`) — keyed on arg shape, not tool
+/// name, so it survives tool renames the same way [`file_key`] does. Otherwise it
+/// is treated as a *read* covering the 1-based line range `[offset, offset+limit)`
+/// — a missing/`0` `limit` means open-ended (to EOF), encoded as `usize::MAX`. A
+/// read with neither field (`offset` defaults to 1) covers the whole file
+/// `[1, MAX)`, which still supersedes/dedups other full reads exactly as before.
+fn classify_file_touch(arguments: &str) -> (Option<(usize, usize)>, bool) {
+    let args = parsed_args(arguments);
+    let mutates = args.get("content").is_some()
+        || args.get("new_string").is_some()
+        || args.get("old_string").is_some();
+    if mutates {
+        return (None, true);
+    }
+    let offset = args
+        .get("offset")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .max(1) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as usize;
+    let end = if limit == 0 {
+        usize::MAX
+    } else {
+        offset.saturating_add(limit)
+    };
+    (Some((offset, end)), false)
+}
+
+/// Informative cleared-placeholder carrying the tool label and the size that was
+/// dropped, so the model can decide whether to re-fetch. The size is in
+/// **tokens** — the model's own unit of context.
+#[allow(dead_code)]
+fn cleared_placeholder(meta: &ToolMeta, content: &str) -> String {
+    cleared_placeholder_with_reason(meta, content, None)
+}
+
+fn cleared_placeholder_with_reason(meta: &ToolMeta, content: &str, reason: Option<&str>) -> String {
+    let label = if meta.label.is_empty() {
+        "tool"
+    } else {
+        meta.label.as_str()
+    };
+    let lines = content.lines().count().max(1);
+    let tokens = tokenizer::count_tokens(content);
+    let reason_clause = match reason {
+        Some(r) => format!(" — reason: {r}"),
+        None => String::new(),
+    };
+    let _ = &meta.call_id;
+    format!("{CLEARED_TOOL_PREFIX} {label} ({lines} lines, {tokens} tokens){reason_clause}]")
+}
+
+/// Keep head + tail, eliding the middle with a recognisable marker. Returns the
+/// content unchanged when it is too short for truncation to help. Head and tail
+/// are bounded in **tokens**: the cut lands on exact token
+/// boundaries, so what survives costs precisely what the budget says.
+fn truncate_middle(content: &str, call_id: Option<&str>) -> String {
+    let keep = TRUNCATE_KEEP_EACH_SIDE_TOKENS;
+    let total = tokenizer::count_tokens(content);
+    if total <= keep * 2 + 16 {
+        return content.to_string();
+    }
+    let (head, head_tokens) = tokenizer::truncate_to_tokens(content, keep);
+    let reversed: String = content.chars().rev().collect();
+    let (tail_rev, _tail_tokens) = tokenizer::truncate_to_tokens(&reversed, keep);
+    let tail: String = tail_rev.chars().rev().collect();
+    let dropped = total - head_tokens - tokenizer::count_tokens(&tail);
+    let _ = call_id;
+    format!("{head}\n[... {dropped}{ELIDED_MARKER}\n{tail}")
+}
+
+pub fn estimate_message_tokens(message: &Message) -> i64 {
+    let mut tokens = if message.content.is_empty() {
+        0
+    } else {
+        tokenizer::count_tokens(&message.content) as i64
+    };
+    // Chat framing overhead per message (chatml-style `<|im_start|>role …
+    // <|im_end|>` measured ≈ 4 tokens on cl100k_base); the first system
+    // message carries an extra priming block in most templates.
+    if !message.content.is_empty() || message.tool_calls.is_some() {
+        tokens += 4;
+    }
+    if let Some(calls) = message.tool_calls.as_ref() {
+        for c in calls {
+            // Tool-call name is a known function identifier — a short ASCII
+            // name is 1-3 tokens under BPE, same as before but exact now.
+            if !c.name.is_empty() {
+                tokens += tokenizer::count_tokens(&c.name) as i64;
+            }
+            // Count the semantic JSON values/keys while omitting punctuation
+            // and transport envelopes. Malformed/incremental arguments fall
+            // back to text tokenization rather than disappearing.
+            if let Ok(arguments) = serde_json::from_str(&c.arguments) {
+                tokens += estimate_semantic_json_tokens(&arguments);
+            } else if !c.arguments.is_empty() {
+                tokens += tokenizer::count_tokens(&c.arguments) as i64;
+            }
+            // Framing per tool call (open/close tags of the call structure).
+            tokens += 2;
+        }
+    }
+    // Account for multimodal vision tokens (~1600 tokens per image on standard vision models).
+    if let Some(images) = message.images.as_ref() {
+        tokens += (images.len() * 1600) as i64;
+    }
+    tokens
+}
+
+pub fn estimate_string_tokens(s: &str) -> i64 {
+    tokenizer::count_tokens(s) as i64
+}
+
+// Incremental token accounting
+//
+// Messages are immutable once written: a user prompt, an assistant turn, and
+// a tool result each carry content that no later turn rewrites (the one
+// mutation a tool result takes — the one-pass cache freeze — changes it
+// exactly once, and the content hash below keys off the *new* bytes). Token
+// weights are therefore a pure function of message bytes and can be cached
+// content-addressed: the same message never pays for BPE tokenization twice,
+// no matter how many estimate passes, retries, or projections re-walk it.
+
+/// A 128-bit fingerprint of every byte that feeds [`estimate_message_tokens`]
+/// for one message. Collisions across a session's lifetime are negligible
+/// (two different messages hashing identically would merely reuse a stale
+/// token count — an estimate, never a correctness boundary).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MessageContentFingerprint(pub u64, pub u64);
+
+/// Fingerprint the weight-relevant bytes of a message: content, per-tool-call
+/// names and arguments. Must stay in lockstep with
+/// [`estimate_message_tokens`] — any field it counts must appear here.
+fn message_fingerprint(message: &Message) -> MessageContentFingerprint {
+    let mut h1 = std::collections::hash_map::DefaultHasher::new();
+    let mut h2 = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+    message.content.hash(&mut h1);
+    message.content.hash(&mut h2);
+    if let Some(calls) = message.tool_calls.as_ref() {
+        for call in calls {
+            call.name.hash(&mut h1);
+            call.arguments.hash(&mut h2);
+        }
+    }
+    // Track image content fingerprint
+    if let Some(images) = message.images.as_ref() {
+        for img in images {
+            img.mime.hash(&mut h1);
+            img.data.len().hash(&mut h2);
+        }
+    }
+    MessageContentFingerprint(h1.finish(), h2.finish())
+}
+
+/// Thread-safe, content-addressed cache of per-message token weights. One
+/// instance lives on the [`crate`] agent for the session's lifetime; every
+/// estimate consults it, so the dominant BPE cost of an estimate collapses
+/// from O(total session bytes) to O(new bytes since the last pass).
+#[derive(Debug, Default)]
+pub struct MessageTokenWeights {
+    entries:
+        std::sync::Mutex<std::collections::HashMap<MessageContentFingerprint, std::sync::Arc<i64>>>,
+}
+
+impl MessageTokenWeights {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Weight for one message: cached when its exact bytes were weighted
+    /// before, freshly tokenized otherwise (then cached). Returns the shared
+    /// `Arc` so hot messages cost one pointer deref per estimate pass.
+    pub fn weight(&self, message: &Message) -> std::sync::Arc<i64> {
+        let fingerprint = message_fingerprint(message);
+        if let Ok(entries) = self.entries.lock()
+            && let Some(hit) = entries.get(&fingerprint)
+        {
+            return std::sync::Arc::clone(hit);
+        }
+        let fresh = std::sync::Arc::new(estimate_message_tokens(message));
+        if let Ok(mut entries) = self.entries.lock() {
+            // A concurrent writer may have inserted the same fingerprint while
+            // we tokenized; either copy serves — keep theirs to avoid churn.
+            match entries.get(&fingerprint) {
+                Some(existing) => return std::sync::Arc::clone(existing),
+                None => {
+                    entries.insert(fingerprint, std::sync::Arc::clone(&fresh));
+                }
+            }
+            // Session-lifetime bound: compaction keeps live windows bounded,
+            // and each entry is 24 bytes of key + 8 of payload; 256k entries
+            // (~8 MB) covers any real session many times over. This guard
+            // exists so a pathological stream-loop flood cannot grow the map
+            // without limit.
+            if entries.len() > 262_144 {
+                entries.clear();
+            }
+        }
+        fresh
+    }
+}
+
+/// Thread-safe, content-addressed cache of per-tool-spec token weights
+/// (companion to [`MessageTokenWeights`]). A toolset is stable across
+/// turns; without the cache every estimate pass re-serialized every visible
+/// spec to JSON and re-tokenized it. The fingerprint is over the spec's
+/// semantic content, so a changed description or schema re-weights exactly
+/// once.
+#[derive(Debug, Default)]
+pub struct ToolSchemaWeights {
+    entries: std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<usize>>>,
+}
+
+impl ToolSchemaWeights {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// BPE weight of one tool spec's serialized shape, cached by content.
+    pub fn weight(&self, spec: &crate::ToolSpec) -> usize {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        // Hash the semantic fields without a full JSON round trip: name and
+        // description are strings; the schema is a `Value` (which hashes
+        // structurally).
+        spec.name.hash(&mut hasher);
+        spec.description.hash(&mut hasher);
+        spec.parameters.hash(&mut hasher);
+        let fingerprint = hasher.finish();
+        if let Ok(entries) = self.entries.lock()
+            && let Some(hit) = entries.get(&fingerprint)
+        {
+            return **hit;
+        }
+        let val = serde_json::to_value(spec).unwrap_or(serde_json::Value::Null);
+        let fresh = std::sync::Arc::new(estimate_semantic_json_tokens(&val).max(0) as usize);
+        if let Ok(mut entries) = self.entries.lock() {
+            match entries.get(&fingerprint) {
+                Some(existing) => return **existing,
+                None => {
+                    entries.insert(fingerprint, std::sync::Arc::clone(&fresh));
+                }
+            }
+            if entries.len() > 65_536 {
+                entries.clear();
+            }
+        }
+        *fresh
+    }
+}
+
+/// Layered weights for one assembled request: per-message token counts in
+/// input order, plus the schema cost of every visible tool spec. Both are
+/// cheap to recombine into a [`RequestTokenEstimate`] without re-tokenizing
+/// anything.
+pub struct LayeredRequestWeights {
+    pub instructions_tokens: usize,
+    pub per_message: Vec<std::sync::Arc<i64>>,
+    pub tool_schema_tokens: usize,
+}
+
+impl LayeredRequestWeights {
+    /// Non-system history weight (the `history_tokens` denominator).
+    pub fn history_tokens(&self, messages: &[Message]) -> usize {
+        self.per_message
+            .iter()
+            .zip(messages)
+            .filter(|(_, message)| message.role != Role::System)
+            .map(|(tokens, _)| **tokens)
+            .sum::<i64>()
+            .max(0) as usize
+    }
+
+    /// Total prepared-request weight: instructions plus every message.
+    pub fn prepared_tokens(&self) -> usize {
+        self.instructions_tokens
+            .saturating_add(self.per_message.iter().map(|t| **t).sum::<i64>().max(0) as usize)
+    }
+
+    pub fn total_tokens(&self) -> usize {
+        self.prepared_tokens()
+            .saturating_add(self.tool_schema_tokens)
+    }
+}
+
+/// Weight an assembled request through the shared cache. Semantics match
+/// [`estimate_message_tokens`] per message exactly — only the cost model
+/// changed (bytes tokenized once, ever), never the numbers.
+pub fn layered_request_weights(
+    request: &crate::ModelRequest,
+    weights: &MessageTokenWeights,
+    tool_schema_weights: &ToolSchemaWeights,
+) -> LayeredRequestWeights {
+    let instructions_tokens = estimate_string_tokens(&request.instructions.0).max(0) as usize;
+    let per_message = request
+        .messages
+        .iter()
+        .map(|message| weights.weight(message))
+        .collect();
+    let tool_schema_tokens = request
+        .tool_specs
+        .iter()
+        .map(|spec| tool_schema_weights.weight(spec))
+        .sum::<usize>();
+    LayeredRequestWeights {
+        instructions_tokens,
+        per_message,
+        tool_schema_tokens,
+    }
+}
+
+/// Estimated token shape of a provider request.
+///
+/// `history_tokens` is the prepared, non-system conversation, including any
+/// skill messages injected for this request. `instructions_tokens` is the
+/// rendered instruction region, and `tool_schema_tokens` is
+/// the visible tool surface.
+///
+/// `overhead_tokens` is **derived** as `total - history`, never summed from the
+/// parts: that keeps `history + overhead == total` exact even if a future change
+/// lets a system row into `messages`, where it would be both history and
+/// instruction text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestTokenEstimate {
+    pub history_tokens: usize,
+    pub overhead_tokens: usize,
+    pub total_tokens: usize,
+    /// Rendered instruction-region cost.
+    pub instructions_tokens: usize,
+    /// Cost of every visible tool spec's schema.
+    pub tool_schema_tokens: usize,
+}
+
+impl RequestTokenEstimate {
+    pub fn new(history_tokens: usize, overhead_tokens: usize) -> Self {
+        Self {
+            history_tokens,
+            overhead_tokens,
+            total_tokens: history_tokens.saturating_add(overhead_tokens),
+            instructions_tokens: 0,
+            tool_schema_tokens: 0,
+        }
+    }
+
+    /// An estimate whose overhead is the sum of its named layers.
+    ///
+    /// `overhead_tokens` is recomputed from `instructions + tool schemas` rather
+    /// than trusted from a caller, so the layered fields and the coarse field
+    /// cannot disagree.
+    pub fn layered(
+        history_tokens: usize,
+        instructions_tokens: usize,
+        tool_schema_tokens: usize,
+    ) -> Self {
+        let overhead_tokens = instructions_tokens.saturating_add(tool_schema_tokens);
+        Self::measured(
+            history_tokens,
+            instructions_tokens,
+            tool_schema_tokens,
+            history_tokens.saturating_add(overhead_tokens),
+        )
+    }
+
+    /// An estimate measured against an explicit total.
+    ///
+    /// The layers name what the overhead is *made of*, but they are not its
+    /// definition: the total is whatever the request weighed, and `overhead` is
+    /// derived from it. That is what keeps `history + overhead == total` exact
+    /// even if a system-role row ever reaches `messages`, where it would be
+    /// counted as neither history nor any of the three layers.
+    pub fn measured(
+        history_tokens: usize,
+        instructions_tokens: usize,
+        tool_schema_tokens: usize,
+        total_tokens: usize,
+    ) -> Self {
+        Self {
+            history_tokens,
+            overhead_tokens: total_tokens.saturating_sub(history_tokens),
+            total_tokens,
+            instructions_tokens,
+            tool_schema_tokens,
+        }
+    }
+}
+
+/// Estimate the tokens of a draft user prompt in the composer before sending.
+pub fn estimate_draft_tokens(s: &str) -> usize {
+    if s.is_empty() {
+        0
+    } else {
+        // Message framing overhead ≈ 4 tokens
+        tokenizer::count_tokens(s).saturating_add(4)
+    }
+}
+
+/// Estimate the model-visible semantic content of structured JSON without
+/// charging for transport-only JSON syntax or generic envelope keys.
+///
+/// Object property names and scalar values remain significant: tool argument
+/// keys and JSON-Schema property names carry meaning for the model. Only the
+/// braces, brackets, quotes, commas and repeated protocol/container labels are
+/// omitted. Empty structures therefore contribute zero tokens.
+pub fn estimate_semantic_json_tokens(value: &serde_json::Value) -> i64 {
+    const ENVELOPE_KEYS: &[&str] = &[
+        "$schema",
+        "additionalProperties",
+        "description",
+        "enum",
+        "function",
+        "items",
+        "name",
+        "parameters",
+        "properties",
+        "required",
+        "type",
+    ];
+
+    fn estimate(value: &serde_json::Value) -> i64 {
+        let count = |s: &str| tokenizer::count_tokens(s) as i64;
+        match value {
+            serde_json::Value::Null => 0,
+            serde_json::Value::Bool(value) => count(if *value { "true" } else { "false" }),
+            serde_json::Value::Number(value) => count(&value.to_string()),
+            serde_json::Value::String(value) => {
+                if value.is_empty() {
+                    0
+                } else {
+                    count(value)
+                }
+            }
+            serde_json::Value::Array(values) => values.iter().map(estimate).sum(),
+            serde_json::Value::Object(values) => values
+                .iter()
+                .map(|(key, value)| {
+                    let key_tokens = if ENVELOPE_KEYS.contains(&key.as_str()) {
+                        0
+                    } else {
+                        count(key)
+                    };
+                    key_tokens + estimate(value)
+                })
+                .sum(),
+        }
+    }
+
+    estimate(value)
+}
+
+#[cfg(test)]
+mod tests;

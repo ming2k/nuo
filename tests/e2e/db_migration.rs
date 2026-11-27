@@ -8,12 +8,12 @@
 use std::path::Path;
 use std::time::Duration;
 
-use persistence::db::CURRENT_DB_VERSION;
-use persistence::db::migrations::test_fixtures::{
+use nuo_persistence::db::CURRENT_DB_VERSION;
+use nuo_persistence::db::migrations::test_fixtures::{
     create_nuo_db_at_version, create_pre_baseline_nuo_db, find_pre_migration_backups, inspect_db,
     query_scalar_i64, query_thread_list_rows, verify_db_integrity,
 };
-use test_support::{Cli, MockProvider, Sandbox};
+use nuo_test_support::{Cli, MockProvider, Sandbox};
 
 fn sql_escape(path: &Path) -> String {
     path.display().to_string().replace('\'', "''")
@@ -21,11 +21,11 @@ fn sql_escape(path: &Path) -> String {
 
 #[test]
 fn live_binary_upgrades_v1_database_preserves_history_and_persists_new_turn()
--> test_support::Result<()> {
+-> nuo_test_support::Result<()> {
     let mock = MockProvider::with_response("migrated-pong")?;
     let sandbox = Sandbox::new()?;
     sandbox.configure_openai_mock("mock-provider", "mock", "mock-1", &mock.base_url())?;
-    let bin = test_support::binary_path()?;
+    let bin = nuo_test_support::binary_path()?;
     let _cleanup = sandbox.server_cleanup(&bin);
 
     let db_path = sandbox.data_dir().join("nuo.db");
@@ -187,11 +187,12 @@ fn live_binary_upgrades_v1_database_preserves_history_and_persists_new_turn()
 }
 
 #[test]
-fn live_binary_upgrades_v5_database_and_backfills_catalog_summary() -> test_support::Result<()> {
+fn live_binary_upgrades_v5_database_and_backfills_catalog_summary() -> nuo_test_support::Result<()>
+{
     let mock = MockProvider::with_response("v6-ready")?;
     let sandbox = Sandbox::new()?;
     sandbox.configure_openai_mock("mock-provider", "mock", "mock-1", &mock.base_url())?;
-    let bin = test_support::binary_path()?;
+    let bin = nuo_test_support::binary_path()?;
     let _cleanup = sandbox.server_cleanup(&bin);
 
     let db_path = sandbox.data_dir().join("nuo.db");
@@ -282,11 +283,12 @@ fn live_binary_upgrades_v5_database_and_backfills_catalog_summary() -> test_supp
 }
 
 #[test]
-fn live_binary_refuses_pre_baseline_database_without_corrupting_it() -> test_support::Result<()> {
+fn live_binary_refuses_pre_baseline_database_without_corrupting_it() -> nuo_test_support::Result<()>
+{
     let mock = MockProvider::with_response("unreachable")?;
     let sandbox = Sandbox::new()?;
     sandbox.configure_openai_mock("mock-provider", "mock", "mock-1", &mock.base_url())?;
-    let bin = test_support::binary_path()?;
+    let bin = nuo_test_support::binary_path()?;
     let _cleanup = sandbox.server_cleanup(&bin);
 
     let db_path = sandbox.data_dir().join("nuo.db");

@@ -24,9 +24,11 @@ use graticule::{
 
 use super::common::{placeholder, truncate_ellipsis};
 use crate::shell::render::{QueueItemProps, Theme};
-use ui_primitives::components::list::{SelectableListPage, draw_selectable_list_page, row_style};
-use ui_primitives::components::modal::ModalHeader;
-use ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
+use nuo_ui_primitives::components::list::{
+    SelectableListPage, draw_selectable_list_page, row_style,
+};
+use nuo_ui_primitives::components::modal::ModalHeader;
+use nuo_ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
 use unicode_width::UnicodeWidthStr;
 
 /// Inputs for [`draw_queue_modal`]. The items slice is the viewed session's
@@ -52,7 +54,7 @@ pub fn draw_queue_modal(
     theme: &Theme,
 ) -> graticule::Rect {
     let body_width =
-        ui_primitives::components::modal::modal_body_width(frame, ContentModalSpec::QUEUE);
+        nuo_ui_primitives::components::modal::modal_body_width(frame, ContentModalSpec::QUEUE);
 
     let QueueModalProps { items, blocked } = props;
 
@@ -88,7 +90,7 @@ pub fn draw_queue_modal(
             // No stamp, no time column content: the gutter still reserves its
             // width so the label and text stay aligned across rows.
             let time =
-                ui_primitives::time::optional_time_label(item.queued_at_ms).unwrap_or_default();
+                nuo_ui_primitives::time::optional_time_label(item.queued_at_ms).unwrap_or_default();
             let one_line = super::common::one_line(item.text.trim());
             let text = if one_line.width() > text_budget {
                 truncate_ellipsis(&one_line, text_budget)

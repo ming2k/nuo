@@ -3,15 +3,15 @@
 
 use std::path::Path;
 
-use persistence::blobs::BlobStore;
-use persistence::db::migrations::test_fixtures::{
+use nuo_persistence::blobs::BlobStore;
+use nuo_persistence::db::migrations::test_fixtures::{
     create_nuo_db_at_version, create_pre_baseline_nuo_db, create_pre_baseline_role_memory_db,
     execute_raw_sql, find_pre_migration_backups, inspect_db, query_scalar_i64, set_user_version,
     tamper_migration_checksum, verify_db_integrity,
 };
-use persistence::db::permissions::{PermissionRuleEffect, PermissionScopeTarget};
-use persistence::db::{CURRENT_DB_VERSION, PersistenceHandle, WriterHealth};
-use persistence::role_memory::RoleMemoryStore;
+use nuo_persistence::db::permissions::{PermissionRuleEffect, PermissionScopeTarget};
+use nuo_persistence::db::{CURRENT_DB_VERSION, PersistenceHandle, WriterHealth};
+use nuo_persistence::role_memory::RoleMemoryStore;
 
 fn seed_sql_for_version(version: u32, workspace: &Path) -> String {
     let ws = workspace.display().to_string().replace('\'', "''");

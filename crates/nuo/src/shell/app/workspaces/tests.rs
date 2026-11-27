@@ -2,8 +2,8 @@ use crate::shell::client::ClientOutbound;
 use crate::shell::event_loop::apply::apply;
 use crate::shell::event_loop::{AppMutation, TranscriptEdit, UiRuntime};
 use crate::shell::tests::new_app_for_relay_tests;
-use tool::Role;
-use view::model::document::TranscriptMessage;
+use nuo_tool::Role;
+use nuo_view::model::document::TranscriptMessage;
 
 /// ADR-0251 / ADR-0253: switching between two resident thread tabs moves whole
 /// `ThreadInstance`s in O(1) — preserving messages, scroll, follow_bottom,
@@ -50,7 +50,7 @@ fn switching_between_resident_tabs_preserves_state_without_rebuild() {
     assert!(matches!(
         rx.try_recv(),
         Ok(ClientOutbound::Subscribe {
-            target: protocol::ThreadTarget::Attach { id: Some(ref tid) },
+            target: nuo_protocol::ThreadTarget::Attach { id: Some(ref tid) },
             ..
         }) if tid == "thread-b"
     ));
@@ -121,7 +121,7 @@ fn background_thread_mutations_update_resident_workspace_live() {
         AppMutation::Transcript {
             thread_id: Some("thread-a".to_string()),
             edit: TranscriptEdit::Append {
-                class: protocol::EventClass::Dialogue,
+                class: nuo_protocol::EventClass::Dialogue,
                 message: TranscriptMessage::new(Role::Assistant, "Live reply for A"),
             },
         },
@@ -175,7 +175,7 @@ fn closing_thread_workspace_unsubscribes_and_frees_memory() {
 /// do not make a thread non-empty, whereas dialogue or a started round does.
 #[test]
 fn emptiness_predicate_excludes_command_rows_and_includes_dialogue_and_rounds() {
-    let mut inst = super::ThreadInstance::new("t1", 1, protocol::ThreadPhase::Ready);
+    let mut inst = super::ThreadInstance::new("t1", 1, nuo_protocol::ThreadPhase::Ready);
     assert!(inst.is_dialogue_empty(), "fresh thread is empty");
 
     // Command rows are not dialogue (ADR-0252 §2, ADR-0253 §5).
@@ -220,7 +220,7 @@ fn background_thread_activity_never_leaks_onto_finished_foreground_tab() {
         .insert("thread-react".to_string());
 
     // Thread A finished its task and is idle.
-    app.threads.loop_status = protocol::LoopStatus::Idle;
+    app.threads.loop_status = nuo_protocol::LoopStatus::Idle;
     app.threads.phase = None;
     app.threads.round_started_at = None;
     app.threads.current_turn = 0;
@@ -323,8 +323,8 @@ fn background_thread_activity_never_leaks_onto_finished_foreground_tab() {
         &runtime,
         AppMutation::ChromeEdit {
             thread_id: Some("thread-react".to_string()),
-            edit: ChromeEdit::PhaseOnly(Some(view::phase::Phase::Tool(
-                view::phase::ToolVerb::Running,
+            edit: ChromeEdit::PhaseOnly(Some(nuo_view::phase::Phase::Tool(
+                nuo_view::phase::ToolVerb::Running,
             ))),
         },
     );
@@ -336,7 +336,9 @@ fn background_thread_activity_never_leaks_onto_finished_foreground_tab() {
     let react_chrome = app.viewed_chrome();
     assert_eq!(
         react_chrome.phase,
-        Some(view::phase::Phase::Tool(view::phase::ToolVerb::Running))
+        Some(nuo_view::phase::Phase::Tool(
+            nuo_view::phase::ToolVerb::Running
+        ))
     );
     assert!(react_chrome.responding);
     assert!(react_chrome.round_started_at.is_some());
@@ -353,13 +355,15 @@ fn background_thread_activity_never_leaks_onto_finished_foreground_tab() {
         &runtime,
         AppMutation::ChromeEdit {
             thread_id: Some("thread-done".to_string()),
-            edit: ChromeEdit::ActivityFolded(view::phase::Phase::AwaitingUser),
+            edit: ChromeEdit::ActivityFolded(nuo_view::phase::Phase::AwaitingUser),
         },
     );
     apply(&mut app, &runtime, AppMutation::ClearPermissions);
     assert_eq!(
         app.viewed_chrome().phase,
-        Some(view::phase::Phase::Tool(view::phase::ToolVerb::Running)),
+        Some(nuo_view::phase::Phase::Tool(
+            nuo_view::phase::ToolVerb::Running
+        )),
         "ClearPermissions must not clear non-AwaitingUser phases"
     );
     assert_eq!(

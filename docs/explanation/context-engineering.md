@@ -38,8 +38,8 @@ rewriting the prompt every request.
 | **M5 Resume** | hydrate, replay, branch switch | rebuilds projections | none — never re-runs M2 |
 
 M1 is the moment the compile-checked policy governs. M3/M4 are the compaction
-ladder (`crates/engine/src/orchestration/context_gate.rs`) and derive their
-thresholds from `protocol::CompactionPolicy` only.
+ladder (`crates/nuo-engine/src/orchestration/context_gate.rs`) and derive their
+thresholds from `nuo_protocol::CompactionPolicy` only.
 
 ---
 
@@ -79,7 +79,7 @@ user-editable configuration.
    no clock, no filesystem, no network, no interior mutability
    (`[INV-CTXSRC-08]`). The render memo is keyed on the inputs hash, so an impure
    read serves a stale body silently.
-5. **Update the golden.** `nuo-tests --test integration engine::it::context_prefix`
+5. **Update the golden.** `nuo-tests --test integration nuo_engine::it::context_prefix`
    pins the rendered prefix and its per-block cost. A prompt change is a reviewed
    diff, never an invisible one.
 
@@ -91,7 +91,7 @@ impl ContextSource for MyRule {
     fn topic(&self) -> Topic { Topic::ToolDiscipline }   // 1
     fn inputs(&self) -> &'static [InputKey] { &[InputKey::ToolSurface] } // 2
     fn is_active(&self, inputs: &ContextInputs) -> bool {                // 4
-        inputs.tool_surface.has_native(tool::BuiltinTool::Todo)
+        inputs.tool_surface.has_native(nuo_tool::BuiltinTool::Todo)
     }
     fn block(&self, _inputs: &ContextInputs) -> Option<Block> {          // 4
         Some(Block::new("agent.my_rule", "…").with_title("…"))
@@ -262,7 +262,7 @@ Both limits are now budgeted:
 | Dimension | Measured by | Relief |
 | :--- | :--- | :--- |
 | Tokens | `estimate_model_request` | prune stale tool bodies → compact |
-| Bytes | `protocol::request_wire_size` | offload the oldest attachments → prune → compact |
+| Bytes | `nuo_protocol::request_wire_size` | offload the oldest attachments → prune → compact |
 
 Byte relief keeps the newest attachments (the conversation is about them),
 preserves all text, and persists each dropped pixel to its content-addressed
@@ -293,14 +293,14 @@ for it.
 ## 9. Where the code lives
 
 ```
-crates/protocol/src/context/
+crates/nuo-protocol/src/context/
   mod.rs        Stability, Topic, Rank, Position — the declaration vocabulary
   plan.rs       Budget, Overflow, Resume, ContextPlan, PrefixDrift
 
-crates/protocol/src/language.rs
+crates/nuo-protocol/src/language.rs
   ResponseLanguage — the validated answer-language tag (ADR-0222)
 
-crates/engine/src/cognition/context/
+crates/nuo-engine/src/cognition/context/
   source.rs     ContextSource, SourceOrder, SourceMeta (derived facts)
   inputs.rs     ContextInputs, InputKey, ToolSurface
   registry.rs   Policy::compile / plan, ordering, ownership, budgets, ceiling
@@ -308,7 +308,7 @@ crates/engine/src/cognition/context/
   inspect.rs    the operator table and the JSON form
   tests.rs      the compiler and plan suite
 
-crates/engine/src/cognition/model_request/
+crates/nuo-engine/src/cognition/model_request/
   mod.rs        ModelRequestAssembler::plan → build (the only request path)
 ```
 

@@ -16,16 +16,16 @@
 
 > **Implementation note (2026-11-13):** The RFC core is implemented.
 > The protocol-level `Thread` / `ThreadFact` / `BranchState` / `BlobRef` model
-> is in `crates/protocol/src/thread.rs` with fork, branch-scoped
+> is in `crates/nuo-protocol/src/thread.rs` with fork, branch-scoped
 > compaction, live paths, GC roots, command envelopes, writer leases, clients,
 > transcript pages, and schema envelopes.
 > `ThreadWindow` / `RequestView` are protocol projections in
-> `crates/protocol/src/thread_view.rs`; `RequestBuilder` is the single
+> `crates/nuo-protocol/src/thread_view.rs`; `RequestBuilder` is the single
 > builder in `request_builder.rs`.
 > `ThreadDelta`, `ThreadStore`, `CommandAck`, `BlobStore`, and the in-memory
-> conformance store are in `crates/protocol/src/thread_store.rs`;
-> `ThreadRuntime` is in `crates/engine/src/cognition/thread_runtime.rs`.
-> The SQLite adapter in `crates/persistence/src/db/thread_store.rs`
+> conformance store are in `crates/nuo-protocol/src/thread_store.rs`;
+> `ThreadRuntime` is in `crates/nuo-engine/src/cognition/thread_runtime.rs`.
+> The SQLite adapter in `crates/nuo-persistence/src/db/thread_store.rs`
 > round-trips create/hydrate/append/fork/compaction, command receipts,
 > fencing leases, blob CAS, and mark-and-sweep GC. Migrations 34–37 add
 > branch cursors, command receipts, leases, blob liveness, thread facts as the

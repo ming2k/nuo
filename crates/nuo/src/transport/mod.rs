@@ -12,7 +12,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use protocol::{
+use nuo_protocol::{
     AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitoredTask, MonitoredThread,
     ThreadOverview, WireFrame,
 };
@@ -20,18 +20,18 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
-pub use protocol::discovery::{Discovery, ServerInfo};
-pub use protocol::version::{
+pub use nuo_protocol::discovery::{Discovery, ServerInfo};
+pub use nuo_protocol::version::{
     ERR_PROTOCOL_MISMATCH, ERR_SERVER_DRAINING, ERR_SERVER_FAILED, ERR_SERVER_NOT_READY,
     ERR_VERSION_MISMATCH, protocol_accepts, protocol_mismatch, version_mismatch,
 };
-pub use protocol::{
+pub use nuo_protocol::{
     ControlRequest, NativeWireCodec, PROTOCOL_VERSION, ServerEndpointsReport, ServerInitStage,
     ServerPhase, StorageInitDetail, ThreadInitOptions, ThreadTarget, Wire,
 };
 #[cfg(unix)]
-pub use server::api::serve_discovery::default_uds_path;
-pub use server::api::serve_discovery::{
+pub use nuo_server::api::serve_discovery::default_uds_path;
+pub use nuo_server::api::serve_discovery::{
     self as discovery, default_local_endpoint, global_discovery_path, global_lock_path,
     global_spawn_lock_path, instance_dir,
 };
@@ -54,7 +54,7 @@ fn init_tracing_for(
     if level.eq_ignore_ascii_case("off") {
         return None;
     }
-    let dir = host::paths::get().log_dir();
+    let dir = nuo_host::paths::get().log_dir();
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
@@ -249,7 +249,7 @@ where
                     // socket or heartbeat liveness deadline itself.
                     Ok(Some(netune::WsMessage::Text(text))) => {
                         if in_tx
-                            .send(Ok(protocol::decode_wire_payload(text.as_bytes())))
+                            .send(Ok(nuo_protocol::decode_wire_payload(text.as_bytes())))
                             .is_err()
                         {
                             break;
@@ -257,7 +257,7 @@ where
                     }
                     Ok(Some(netune::WsMessage::Binary(bin))) => {
                         if in_tx
-                            .send(Ok(protocol::decode_wire_payload(&bin)))
+                            .send(Ok(nuo_protocol::decode_wire_payload(&bin)))
                             .is_err()
                         {
                             break;

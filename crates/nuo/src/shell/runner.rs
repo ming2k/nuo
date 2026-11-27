@@ -37,13 +37,13 @@ pub(crate) fn relink_delay_ms(
         if attempt == 0 || attempt > REMOTE_RELINK_MAX_ATTEMPTS {
             return None;
         }
-        let base = engine::runtime::retry::retry_delay_ms(
+        let base = nuo_engine::runtime::retry::retry_delay_ms(
             attempt as usize,
             None,
             REMOTE_RELINK_BASE_MS,
             REMOTE_RELINK_MAX_MS,
         );
-        Some(engine::runtime::retry::apply_jitter_ms(base, roll))
+        Some(nuo_engine::runtime::retry::apply_jitter_ms(base, roll))
     } else {
         if attempt == 0 || attempt > LOCAL_RELINK_MAX_ATTEMPTS {
             return None;
@@ -98,7 +98,7 @@ pub fn ensure_dev_environment() {
         unsafe {
             std::env::set_var("NUO_HOME", &dev_home);
         }
-        let _ = host::paths::set_default(host::paths::Dirs::system());
+        let _ = nuo_host::paths::set_default(nuo_host::paths::Dirs::system());
     }
 
     // 2. Point NUO_BIN at the local source-built nuo, building it if not yet present.
@@ -223,7 +223,7 @@ pub async fn run_with_options(mut parsed: TuiCliArgs) -> Result<(), Box<dyn std:
             let cat = cat_str
                 .as_deref()
                 .filter(|s| !s.is_empty())
-                .and_then(view::views::ConfigCategory::from_name)
+                .and_then(nuo_view::views::ConfigCategory::from_name)
                 .map(|c| c as usize);
             run_attached(
                 None,
@@ -428,11 +428,11 @@ pub async fn run_attached(
         None
     } else {
         let target = match session_id {
-            Some(id) => protocol::ThreadTarget::Attach { id: Some(id) },
-            None if fresh => protocol::ThreadTarget::New {
+            Some(id) => nuo_protocol::ThreadTarget::Attach { id: Some(id) },
+            None if fresh => nuo_protocol::ThreadTarget::New {
                 options: (!init_options.is_default()).then_some(init_options.clone()),
             },
-            None => protocol::ThreadTarget::Picker {
+            None => nuo_protocol::ThreadTarget::Picker {
                 options: Some(init_options.clone()),
             },
         };
@@ -473,7 +473,7 @@ pub async fn run_attached(
         && let Some(exit_tx) = outcome.exit_tx
         && let Err(error) = exit_tx.send(client::ClientOutbound::Request {
             thread_id: Some(outcome.active_session_id),
-            request: protocol::AgentRequest::RecordInputHistory {
+            request: nuo_protocol::AgentRequest::RecordInputHistory {
                 entries: outcome.history,
                 dedup: history_dedup,
             },

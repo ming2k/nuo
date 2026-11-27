@@ -1,0 +1,633 @@
+//! Conversation message types shared across the harness, providers, and UI.
+
+use crate::todos::unix_now;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HookEventKind {
+    SessionStart,
+    SessionEnd,
+    UserPromptSubmit,
+    PreToolUse,
+    PostToolUse,
+    PostToolUseFailure,
+    Stop,
+    PreCompact,
+    PostCompact,
+    Turn,
+    #[serde(alias = "RoundStart")]
+    TurnStart,
+    PermissionRequest,
+    UserQuestion,
+}
+
+impl HookEventKind {
+    /// Whether this event filters on a tool name and so honours a matcher.
+    pub fn is_tool_event(self) -> bool {
+        matches!(
+            self,
+            Self::PreToolUse
+                | Self::PostToolUse
+                | Self::PostToolUseFailure
+                | Self::PermissionRequest
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Role {
+    User,
+    Assistant,
+    System,
+    Tool,
+}
+
+pub const CLEARED_TOOL_PREFIX: &str = "[cleared tool result:";
+
+pub fn estimate_tokens(messages: &[Message]) -> usize {
+    let mut tokens: usize = 0;
+    for m in messages {
+        tokens += crate::tokenizer::count_tokens(&m.content) + 4;
+        if let Some(children) = m.children.as_ref() {
+            tokens += estimate_tokens(children);
+        }
+    }
+    tokens.max(1)
+}
+
+/// Provenance of a message that was inserted by the harness rather than
+/// produced by the model or typed by the user. Stamped at every injection
+/// site so a persisted transcript can answer "what was injected, where did
+/// it come from, and why" — exactly reconstructing the live turn without
+/// fragile string-sniffing.
+///
+/// `origin: None` is the default for every genuine message: real user input,
+/// assistant replies, and tool results. Only harness-injected messages carry
+/// an origin.
+///
+/// Kept as `Option<InjectionOrigin>` on [`Message`] with
+/// `#[serde(default, skip_serializing_if = "Option::is_none")]` so the wire
+/// shape of a default message is unchanged and legacy snapshots / event-log
+/// lines load as `origin: None` with no migration (per ADR-0017 → ADR-0058 / ADR-0022
+/// backward-compat contract).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InjectionOrigin {
+    /// Structured source classifier.
+    pub kind: InjectionKind,
+    /// Free-form reason — e.g. the hook name, the steering cause, the skill
+    /// that fired. `None` when the kind alone is self-describing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl InjectionOrigin {
+    pub fn new(kind: InjectionKind) -> Self {
+        Self { kind, reason: None }
+    }
+
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+}
+
+/// Closed classifier for every harness injection path.
+///
+/// Each variant maps 1:1 to a concrete injection site; the `Site:` note in each
+/// arm is the single source of truth for "where does this come from", and a
+/// governance scan (`[INV-INJECT-01]`) fails the build if a variant has no
+/// production constructor. That scan, not this comment, is the enforcement: a
+/// declaration surface whose only guarantee is a doc comment accumulates dead
+/// members.
+///
+/// There is deliberately no `#[serde(other)]` fallback. A persisted row written
+/// by a newer build names a kind this build cannot classify, and guessing (as
+/// `Unknown`) would lose the one fact the classifier exists to carry. The
+/// durable schema version is the compatibility lever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InjectionKind {
+    /// A user-configured hook returned `HookOutcome::Inject`. Carries the
+    /// lifecycle event so "which hook axis injected this" is recoverable.
+    /// Sites: `HookRegistry::{session_start, run_post_tool_use,
+    /// run_post_tool_use_failure, check_stop, run_turn, run_turn_start}`.
+    Hook(HookEventKind),
+    /// Inter-agent steering note (`AgentOp::InterAgentMessage`, codex
+    /// `InterAgentCommunication` analogue). Site: `Agent::drain_inbox`.
+    ///
+    /// The body is authored by **another agent**, not by this session's user, so
+    /// it travels inside an `<untrusted origin="foreign">` region (ADR-0228).
+    /// The provenance names the sender; the framing names the trust.
+    InterAgent,
+    /// Visible parent→child steering payload (`AgentOp::InjectUserMessage`,
+    /// codex `inject_if_running` analogue). Site: `Agent::drain_inbox`.
+    /// Lands as a *visible* user message, hence distinct from `InterAgent`.
+    SubagentSteer,
+    /// Visible human-authored steering input admitted into the principal (or a
+    /// side conversation) at a safe turn boundary. Unlike `SubagentSteer`, the
+    /// author is the user; the origin records its mid-round placement so a
+    /// restored transcript can render it as an insert rather than a new round.
+    UserSteer,
+    /// The initial visible task handed to a newly spawned subagent. Unlike
+    /// `SubagentSteer`, this opens the child transcript rather than steering an
+    /// already-running child. Site: `SubagentTool::run`.
+    SubagentTask,
+    /// Implicit skill auto-load: the latest user round mentioned a skill name,
+    /// so the skill body was injected in-context. Site:
+    /// `nuo-engine`'s conversation-context skill-injection policy.
+    ImplicitSkill,
+    /// Implicit file auto-load: the latest user round referenced a path via
+    /// `@file:` / `@files:`, so the file's contents were injected in-context
+    /// (sandboxed to the workspace root and capped in size). The companion to
+    /// `ImplicitSkill` for source files. Site: `nuo-engine`'s
+    /// conversation-context file-injection policy.
+    ImplicitFile,
+    /// Built-in anti-anchoring nudge fired by the deterministic read-loop guard
+    /// when the model repeats the same read (a single page or a two-page thrash)
+    /// without progress. Detection is pure signature bookkeeping — no model call
+    /// — and the nudge is non-terminating: it steers off the loop, the hard
+    /// backstops (`hard_stop_turns`, `abort`, `Esc`) still cap. This is a
+    /// harness-internal steering injection, distinct from the user-configurable
+    /// `Hook(Turn)` axis. Site: `Agent::maybe_inject_loop_nudge`
+    /// (`nuo-guardrails`'s trajectory guard).
+    LoopReviewNudge,
+    /// Context-compaction checkpoint: an LLM summary of archived rounds wrapped
+    /// under the stable checkpoint header. Site: `checkpoint_message`.
+    CompactionCheckpoint,
+    /// A nested `AGENTS.md` discovered by reading a file below it. Injected
+    /// once per path so a subtree's conventions reach the model only when the
+    /// model actually enters that subtree. Site:
+    /// `Agent::inject_nested_project_rules`.
+    ProjectRulesDelta,
+    /// A harness-internal prompt admitted through the orchestration layer as a
+    /// hidden user round (for example resume/replay input). Site:
+    /// `execute_round`'s `input.hidden` branch.
+    #[serde(alias = "hidden_turn_input")]
+    HiddenRoundInput,
+    /// A user-role image companion projected from a tool result for providers
+    /// that accept image inputs. Site: `conversation_context::tool_image`.
+    ToolImage,
+}
+
+impl InjectionKind {
+    /// Every variant, for exhaustive tests and the governance scan.
+    ///
+    /// `Hook` carries a `HookEventKind`, so one representative is listed: the
+    /// scan asks "is this variant constructed anywhere", not "is every payload
+    /// exercised". Exhaustiveness is compile-enforced by the match below — a new
+    /// variant without a line here does not build.
+    pub const ALL: &'static [InjectionKind] = &[
+        InjectionKind::Hook(HookEventKind::SessionStart),
+        InjectionKind::InterAgent,
+        InjectionKind::SubagentSteer,
+        InjectionKind::UserSteer,
+        InjectionKind::SubagentTask,
+        InjectionKind::ImplicitSkill,
+        InjectionKind::ImplicitFile,
+        InjectionKind::LoopReviewNudge,
+        InjectionKind::CompactionCheckpoint,
+        InjectionKind::ProjectRulesDelta,
+        InjectionKind::HiddenRoundInput,
+        InjectionKind::ToolImage,
+    ];
+
+    /// The wire/storage tag a variant serialises under.
+    ///
+    /// Used by the governance scan to find the variant's `Site:` constructor and
+    /// by diagnostics that need a stable word per kind. One owner for the
+    /// spelling, so a rename is one edit.
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Hook(_) => "hook",
+            Self::InterAgent => "inter_agent",
+            Self::SubagentSteer => "subagent_steer",
+            Self::UserSteer => "user_steer",
+            Self::SubagentTask => "subagent_task",
+            Self::ImplicitSkill => "implicit_skill",
+            Self::ImplicitFile => "implicit_file",
+            Self::LoopReviewNudge => "loop_review_nudge",
+            Self::CompactionCheckpoint => "compaction_checkpoint",
+            Self::ProjectRulesDelta => "project_rules_delta",
+            Self::HiddenRoundInput => "hidden_round_input",
+            Self::ToolImage => "tool_image",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Message {
+    pub role: Role,
+    pub content: String,
+    /// Content-addressed storage hash for large payloads. When present the
+    /// inline `content` may be empty on disk and is rehydrated from the blob
+    /// store on load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_blob: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    /// Provider-opaque sidecar for **wire-protocol detail that does not map to
+    /// a cross-provider semantic concept** and therefore has no business as a
+    /// named field on this struct. The canonical example is Anthropic's
+    /// extended-thinking `signature` — a cryptographic credential the server
+    /// requires to reconstruct a prior `thinking` block on multi-turn replay.
+    /// It is meaningless to OpenAI/Google, so instead of a named
+    /// `thinking_signature` field (which would pollute this provider-agnostic
+    /// type with one protocol's transport detail), Anthropic-specific values
+    /// live under a `"thinking_signature"` key inside this map. Each concrete
+    /// provider owns the contract for the keys it reads/writes here; `core`
+    /// treats the whole map as an opaque blob that round-trips through
+    /// `session.json` (so a resumed session replays thinking correctly) but is
+    /// never inspected outside the provider that produced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_meta: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Optional tool calls attached to an assistant message. Marked
+    /// `#[serde(default)]` so hand-written or stripped JSON messages (e.g. test
+    /// fixtures, externally generated snapshots) can omit the key entirely
+    /// instead of having to spell out `"tool_calls": null`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// Inline image attachments (typically pasted into the prompt). Each part
+    /// carries a MIME type and already-base64-encoded bytes so it can be
+    /// emitted directly as an OpenAI `image_url` data URL or a Google
+    /// `inline_data` part. Only user messages normally carry images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<ImagePart>>,
+    /// Identifier of the provider/solution that produced this assistant
+    /// message (e.g. `"kimi-code"`, `"google"`). Stamped by the harness so a
+    /// session that mixes multiple models stays traceable after resume. Other
+    /// roles leave this `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Model identifier that produced this assistant message (e.g.
+    /// `"kimi-code"`). Companion to [`Message::provider`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The reasoning effort (depth) this message's model request ran with
+    /// (`"high"`, `"max"`, …), when the active channel exposes one. Stamped
+    /// next to [`Message::provider`]/[`Message::model`] so the transcript can
+    /// show the depth each turn actually ran at after resume. Storage/UI
+    /// metadata only — stripped by [`Message::to_wire`] and never sent to the
+    /// provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub hidden: bool,
+    /// Nested subagent transcript. Populated only on the `Tool`-role result
+    /// message of a `task` tool call (see `SubagentTool`). Each entry is a
+    /// `Message` from the subagent's own conversation (System, User,
+    /// Assistant with tool_calls, Tool results, …), in chronological order.
+    /// Recursive: a subagent's own `task` results carry their own `children`,
+    /// so arbitrarily deep subagent trees round-trip through session.json.
+    ///
+    /// `None` for every message that is not a subagent's tool result; this
+    /// keeps the legacy flat shape unchanged for non-task messages and lets
+    /// old session.json files (which predate the field) deserialize as-is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Message>>,
+    /// Metadata about the subagent run that produced [`Message::children`].
+    /// Populated only on the same message that has `children = Some(_)`. The
+    /// two fields are convention-paired (presence of one implies presence of
+    /// the other); they are kept separate rather than bundled into a single
+    /// `subagent: Option<Payload>` field so the schema stays backward-
+    /// compatible without a custom deserializer — old session.json files
+    /// simply have `subagent_meta = None` and `children = Some(...)`, and the
+    /// harness fills in best-effort defaults on read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_meta: Option<SubagentMeta>,
+    /// Provenance of a harness-injected message (`None` for genuine user input,
+    /// assistant replies, and tool results). See [`InjectionOrigin`] / the
+    /// closed [`InjectionKind`] classifier. `#[serde(default,
+    /// skip_serializing_if = "Option::is_none")]` keeps the wire shape of a
+    /// default message unchanged so legacy snapshots and event-log lines load
+    /// as `origin: None` without migration (ADR-0017 → ADR-0058 / ADR-0022).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<InjectionOrigin>,
+    /// Wall-clock time this message was produced, in Unix-epoch seconds.
+    /// Stamped at construction so it survives event-log compaction — which
+    /// rewrites the `.jsonl` to a single seed event and thereby drops every
+    /// `EventEnvelope::timestamp` — giving each message a durable timestamp
+    /// that travels with it through the snapshot, the archive, and
+    /// context-projection. Kept off the provider wire (`to_wire` zeroes it).
+    /// `#[serde(default, skip_serializing_if = "Option::is_none")]` lets legacy
+    /// snapshots load unchanged as `timestamp: None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
+    /// Exact wall-clock send time for user-authored transcript messages, in
+    /// Unix-epoch milliseconds. This is storage/UI metadata only: it preserves
+    /// the TUI's displayed send time across resume without changing provider
+    /// requests, which continue to use [`Message::to_wire`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at_ms: Option<u64>,
+}
+
+/// Sidecar metadata for a subagent run. Lives next to
+/// [`Message::children`] on the same `Tool`-role result message. Captures
+/// information that the live event stream knows but the bare transcript
+/// cannot reconstruct on resume.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SubagentMeta {
+    /// The task description supplied by the parent agent (from the `task`
+    /// tool_call's `arguments.description` field). Cached here so the TUI
+    /// does not have to re-parse the JSON arguments to label the subagent
+    /// view's navigation bar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Wall-clock duration of the subagent run in milliseconds. Filled from
+    /// the parent `record_tool_result`'s `duration_ms` parameter (which
+    /// already measures the full subagent run because the `task` tool blocks
+    /// until the subagent finishes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Number of read-only tools the subagent had access to. Useful as a
+    /// debugging signal when reviewing archived runs.
+    #[serde(default)]
+    pub toolset_count: u32,
+    /// Provider / model that served the subagent. Currently always equal to
+    /// the parent's provider/model (SubagentTool clones the parent's provider),
+    /// but persisted separately so a future "cheaper model for subagents"
+    /// feature does not require a schema change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Whether the subagent finished by hitting an error path (32-turn
+    /// limit, repeated-call guard, provider error). Mirrors
+    /// `ToolOutput::Subagent { summary.starts_with("Error") }` but stored
+    /// explicitly so consumers do not have to string-sniff.
+    #[serde(default)]
+    pub failed: bool,
+    /// Whether the subagent was stopped by the parent (the turn was interrupted)
+    /// before completing. The partial transcript in [`Message::children`] is
+    /// preserved either way; this flag lets the TUI classify the restored
+    /// step as `Interrupted` rather than `Failed` or `Ok`.
+    #[serde(default)]
+    pub interrupted: bool,
+}
+
+/// An inline image attached to a message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImagePart {
+    /// MIME type, e.g. `"image/png"`.
+    pub mime: String,
+    /// Base64-encoded image bytes.
+    pub data: String,
+}
+
+impl Message {
+    pub fn new(role: Role, content: impl Into<String>) -> Self {
+        Self {
+            role,
+            content: content.into(),
+            content_blob: None,
+            display_content: None,
+            reasoning_content: None,
+            provider_meta: None,
+            tool_calls: None,
+            tool_call_id: None,
+            images: None,
+            provider: None,
+            model: None,
+            effort: None,
+            hidden: false,
+            children: None,
+            subagent_meta: None,
+            origin: None,
+            timestamp: Some(unix_now()),
+            sent_at_ms: None,
+        }
+    }
+
+    pub fn hidden(role: Role, content: impl Into<String>) -> Self {
+        let mut message = Self::new(role, content);
+        message.hidden = true;
+        message
+    }
+
+    /// Construct a hidden user/system message with an explicit injection
+    /// origin. This is the canonical constructor for every harness injection
+    /// site — it stamps provenance at construction so it can never drift from
+    /// the content. Use [`Message::with_origin`] to stamp an existing message.
+    pub fn injected(role: Role, content: impl Into<String>, origin: InjectionOrigin) -> Self {
+        let mut message = Self::hidden(role, content);
+        message.origin = Some(origin);
+        message
+    }
+
+    /// Whether this message opens a user round (as opposed to a mid-round
+    /// mid-round harness injection such as `ToolImage`, `LoopReviewNudge`,
+    /// `ProjectRulesDelta`, `ImplicitFile`, `ImplicitSkill`, etc.).
+    pub fn opens_user_round(&self) -> bool {
+        if self.role != Role::User {
+            return false;
+        }
+        match self.origin.as_ref().map(|o| o.kind) {
+            None => !self.hidden,
+            Some(InjectionKind::SubagentTask | InjectionKind::HiddenRoundInput) => true,
+            _ => false,
+        }
+    }
+
+    /// Stamp / overwrite the injection origin on this message. Builder-style
+    /// companion to [`Message::injected`] for sites that build a message via
+    /// another constructor first (e.g. `Message::hidden(...).with_origin(...)`).
+    pub fn with_origin(mut self, origin: InjectionOrigin) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+
+    pub fn with_display_content(mut self, content: impl Into<String>) -> Self {
+        self.display_content = Some(content.into());
+        self
+    }
+
+    pub fn with_images(mut self, images: Vec<ImagePart>) -> Self {
+        self.images = if images.is_empty() {
+            None
+        } else {
+            Some(images)
+        };
+        self
+    }
+
+    pub fn with_sent_at_ms(mut self, sent_at_ms: u64) -> Self {
+        self.sent_at_ms = Some(sent_at_ms);
+        self
+    }
+
+    /// Stamp the provider/solution id and model that produced this message,
+    /// so the transcript stays traceable when a session spans multiple models.
+    pub fn with_attribution(
+        mut self,
+        provider: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        self.provider = Some(provider.into());
+        self.model = Some(model.into());
+        self
+    }
+
+    pub fn tool_result(call: &ToolCall, content: impl Into<String>) -> Self {
+        Self {
+            role: Role::Tool,
+            content: content.into(),
+            content_blob: None,
+            display_content: None,
+            reasoning_content: None,
+            provider_meta: None,
+            tool_calls: None,
+            tool_call_id: Some(call.id.clone()),
+            images: None,
+            provider: None,
+            model: None,
+            effort: None,
+            hidden: false,
+            children: None,
+            subagent_meta: None,
+            origin: None,
+            timestamp: Some(unix_now()),
+            sent_at_ms: None,
+        }
+    }
+
+    /// Attach a subagent's full internal transcript to a `Tool`-role result
+    /// message. Builder-style companion to [`Message::tool_result`]. Storing
+    /// the nested transcript on the result message (rather than on the
+    /// assistant `tool_calls` message) keeps the data close to where it was
+    /// produced and lets resume reconstruct the subagent view by reading a
+    /// single message.
+    pub fn with_children(mut self, children: Vec<Message>) -> Self {
+        self.children = if children.is_empty() {
+            None
+        } else {
+            Some(children)
+        };
+        self
+    }
+
+    /// Attach subagent sidecar metadata to a `Tool`-role result message.
+    /// Pair with [`Message::with_children`]; the two fields travel together
+    /// but are kept separate for schema-backward-compat (see
+    /// [`Message::subagent_meta`] docs).
+    pub fn with_subagent_meta(mut self, meta: SubagentMeta) -> Self {
+        self.subagent_meta = Some(meta);
+        self
+    }
+
+    /// Project this message to its provider-**wire** form: the minimal shape a
+    /// provider request body serializes. Strips every out-of-band field —
+    /// nested subagent [`children`](Self::children),
+    /// [`subagent_meta`](Self::subagent_meta), injection [`origin`](Self::origin),
+    /// [`hidden`](Self::hidden), [`provider`](Self::provider)/[`model`](Self::model)
+    /// attribution, [`provider_meta`](Self::provider_meta), and the storage/UI
+    /// sidecars [`content_blob`](Self::content_blob)/[`display_content`](Self::display_content) — keeping only
+    /// `role`, `content`, `tool_calls`, `tool_call_id`, `images`, and
+    /// `reasoning_content` (which Anthropic replays as a `thinking` block).
+    ///
+    /// Each concrete provider's request builder ignores the out-of-band fields
+    /// by construction (it simply never reads them); `to_wire` makes that
+    /// projection explicit and reusable. It is the single source of truth for
+    /// "what the model actually sees", independent of any one SDK's
+    /// `message_obj` — used by `/debug preview`, which must dump the wire
+    /// request body, not the internal [`Message`] struct that also carries
+    /// durable-session sidecars.
+    pub fn to_wire(&self) -> Message {
+        Message {
+            role: self.role,
+            content: self.content.clone(),
+            content_blob: None,
+            display_content: None,
+            reasoning_content: self.reasoning_content.clone(),
+            provider_meta: None,
+            tool_calls: self.tool_calls.clone(),
+            tool_call_id: self.tool_call_id.clone(),
+            images: self.images.clone(),
+            provider: None,
+            model: None,
+            effort: None,
+            hidden: false,
+            children: None,
+            subagent_meta: None,
+            origin: None,
+            timestamp: None,
+            sent_at_ms: None,
+        }
+    }
+
+    /// Clone this message for a provider request without copying its nested
+    /// subagent transcript.
+    ///
+    /// A `task` result carries the subagent's whole conversation under
+    /// [`children`](Self::children) for the durable record and resume, but no
+    /// provider ever sees it. Cloning that subtree on every request projection
+    /// copied the entire subagent history per turn for nothing.
+    pub fn clone_without_children(&self) -> Self {
+        Self {
+            role: self.role,
+            content: self.content.clone(),
+            content_blob: self.content_blob.clone(),
+            display_content: self.display_content.clone(),
+            reasoning_content: self.reasoning_content.clone(),
+            provider_meta: self.provider_meta.clone(),
+            tool_calls: self.tool_calls.clone(),
+            tool_call_id: self.tool_call_id.clone(),
+            images: self.images.clone(),
+            provider: self.provider.clone(),
+            model: self.model.clone(),
+            effort: self.effort.clone(),
+            hidden: self.hidden,
+            children: None,
+            subagent_meta: None,
+            origin: self.origin.clone(),
+            timestamp: self.timestamp,
+            sent_at_ms: self.sent_at_ms,
+        }
+    }
+
+    /// Compare two messages for wire-level semantic equivalence without allocating.
+    ///
+    /// Semantics are identical to `self.to_wire() == other.to_wire()`, but performs
+    /// zero heap allocations and avoids copying contents or sidecars.
+    #[inline]
+    pub fn semantic_wire_eq(&self, other: &Self) -> bool {
+        self.role == other.role
+            && self.content == other.content
+            && self.reasoning_content == other.reasoning_content
+            && self.tool_calls == other.tool_calls
+            && self.tool_call_id == other.tool_call_id
+            && self.images == other.images
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+impl ToolCall {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        arguments: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            arguments: arguments.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolResult {
+    pub call_id: String,
+    pub content: String,
+}

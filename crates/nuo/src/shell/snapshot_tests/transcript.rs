@@ -4,8 +4,8 @@
 use super::helpers::{
     first_content_row, render_transcript_frame, render_transcript_grid, tool_step_structured,
 };
-use tool::Role;
-use view::model::document::{NoticeSeverity, TranscriptMessage};
+use nuo_tool::Role;
+use nuo_view::model::document::{NoticeSeverity, TranscriptMessage};
 
 /// Scroll anchoring (resize stability). A manual reading position is stored as
 /// a raw content-line offset, and a content line's meaning depends entirely on
@@ -47,7 +47,7 @@ fn resize_reanchors_the_manual_viewport_top() {
         .lines()
         .position(|row| row.contains("MARK03"))
         .expect("MARK03 is visible at 80 columns")
-        - ui_primitives::primitives::VIEWPORT_TOP_MARGIN as usize;
+        - nuo_ui_primitives::primitives::VIEWPORT_TOP_MARGIN as usize;
 
     // Park the viewport exactly on MARK03 and let the pass capture the anchor.
     let parked = render_transcript_frame(&messages, 80, 30, wide_line, Some(&mut cache));
@@ -144,7 +144,7 @@ fn resize_resolves_an_anchor_far_outside_the_stale_window() {
         .lines()
         .position(|row| row.contains("MARK20"))
         .expect("MARK20 is visible at 120 columns")
-        - ui_primitives::primitives::VIEWPORT_TOP_MARGIN as usize;
+        - nuo_ui_primitives::primitives::VIEWPORT_TOP_MARGIN as usize;
     let parked = render_transcript_frame(&messages, 120, 24, wide_line, Some(&mut cache));
     assert!(
         first_content_row(&parked.grid).contains("MARK20"),
@@ -270,7 +270,7 @@ fn collapsed_tool_steps_stack_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"a.rs"}"#,
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: "x".into(),
                 start_line: 1,
@@ -284,7 +284,7 @@ fn collapsed_tool_steps_stack_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"b.rs"}"#,
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: "y".into(),
                 start_line: 1,
@@ -298,7 +298,7 @@ fn collapsed_tool_steps_stack_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"c.rs"}"#,
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: "z".into(),
                 start_line: 1,
@@ -342,7 +342,7 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"a.rs"}"#,
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: "x".into(),
                 start_line: 1,
@@ -356,7 +356,7 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "search_text",
             r#"{"query":"foo","path":"src"}"#,
-            ::tool::ToolOutput::Matches {
+            nuo_tool::ToolOutput::Matches {
                 pattern: "foo".into(),
                 lines: vec!["src/a.rs:10:1:foo".into(), "src/b.rs:5:1:foo".into()],
             },
@@ -365,7 +365,7 @@ fn expanded_body_flush_to_header_neighbours_stay_flush() {
         tool_step_structured(
             "read",
             r#"{"path":"c.rs"}"#,
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: "z".into(),
                 start_line: 1,
@@ -390,7 +390,7 @@ fn user_message_before_tool_step_has_single_separator_row() {
         tool_step_structured(
             "read",
             r#"{"path":"src/lib.rs"}"#,
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: "pub fn main() {}".into(),
                 start_line: 1,
@@ -462,7 +462,7 @@ fn command_entries_render_header_and_direct_body_without_folding() {
         TranscriptMessage::command_result(
             "permissions",
             "",
-            Some(protocol::CommandResult::PermissionList {
+            Some(nuo_protocol::CommandResult::PermissionList {
                 allowed: vec!["execute_command".to_string()],
             }),
         ),
@@ -537,7 +537,7 @@ fn command_ack_height_is_viewport_independent_and_last_row_is_reachable() {
     let messages = vec![TranscriptMessage::command_result(
         "delegate",
         "on",
-        Some(protocol::CommandResult::Ack {
+        Some(nuo_protocol::CommandResult::Ack {
             title: "Delegated mode ON".to_string(),
             detail: Some(detail),
         }),
@@ -589,7 +589,7 @@ fn command_entry_invocation_aligns_with_result_body() {
     let messages = vec![TranscriptMessage::command_result(
         "new",
         "",
-        Some(protocol::CommandResult::Text(
+        Some(nuo_protocol::CommandResult::Text(
             "Started new session: a1b2c3".to_string(),
         )),
     )];
@@ -627,9 +627,9 @@ fn command_entry_invocation_aligns_with_result_body() {
 #[test]
 fn concurrent_turn_and_command_entries_render_and_expand_dynamically() {
     // Stage 1: User prompt + assistant turn with 2 list items + pending command entry.
-    let user_msg = TranscriptMessage::new(tool::Role::User, "Calculate the plan");
+    let user_msg = TranscriptMessage::new(nuo_tool::Role::User, "Calculate the plan");
     let assistant_v1 = TranscriptMessage::new(
-        tool::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "- Step 1: Inspecting files.\n- Step 2: Checking configs.",
     );
     let cmd_msg = TranscriptMessage::pending_command("status", "");
@@ -645,7 +645,7 @@ fn concurrent_turn_and_command_entries_render_and_expand_dynamically() {
 
     // Stage 2: Assistant turn receives more streaming tokens (4 extra list items).
     let assistant_v2 = TranscriptMessage::new(
-        tool::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "- Step 1: Inspecting files.\n- Step 2: Checking configs.\n- Step 3: Running benchmarks.\n- Step 4: Compiling binary.\n- Step 5: Verifying checksums.\n- Step 6: Ready.",
     );
     let msgs_v2 = vec![user_msg, assistant_v2, cmd_msg];
@@ -692,7 +692,7 @@ fn command_component_pending_then_completed() {
     // The reply settles the same component in place. The ack carries the
     // headline + dimmed detail split (two-tone ack).
     assert!(
-        message.settle_command_result(protocol::CommandResult::Ack {
+        message.settle_command_result(nuo_protocol::CommandResult::Ack {
             title: "Delegated mode ON".to_string(),
             detail: Some(vec![
                 "File edits & creations are auto-approved".to_string(),
@@ -732,7 +732,7 @@ fn command_component_pending_then_completed() {
 
     // Settling is one-shot: a second reply must not mutate the component.
     assert!(
-        !message.settle_command_result(protocol::CommandResult::Text("ignored".to_string(),)),
+        !message.settle_command_result(nuo_protocol::CommandResult::Text("ignored".to_string(),)),
         "a completed command cannot settle again"
     );
 }
@@ -743,7 +743,7 @@ fn command_component_pending_then_completed() {
 /// row.
 #[test]
 fn identical_commands_each_settle_their_own_row() {
-    use view::model::document::{CommandPhase, TranscriptMessage};
+    use nuo_view::model::document::{CommandPhase, TranscriptMessage};
 
     let mut messages = [
         TranscriptMessage::pending_command("search", "foo"),
@@ -759,7 +759,7 @@ fn identical_commands_each_settle_their_own_row() {
     assert!(
         target
             .expect("a pending row exists")
-            .settle_command_result(protocol::CommandResult::Text("hit 1".to_string())),
+            .settle_command_result(nuo_protocol::CommandResult::Text("hit 1".to_string())),
         "the reply settles the newest pending row"
     );
     assert_eq!(
@@ -782,7 +782,7 @@ fn command_component_cancel_marks_pending_row_settled() {
     assert!(pending.cancel_pending_command());
     assert_eq!(
         pending.command_result_phase(),
-        Some(view::model::document::CommandPhase::Cancelled)
+        Some(nuo_view::model::document::CommandPhase::Cancelled)
     );
     assert!(
         !pending.cancel_pending_command(),
@@ -792,7 +792,7 @@ fn command_component_cancel_marks_pending_row_settled() {
     let mut completed = TranscriptMessage::command_result(
         "new",
         "",
-        Some(protocol::CommandResult::Text(
+        Some(nuo_protocol::CommandResult::Text(
             "Started new session: a1b2c3".to_string(),
         )),
     );
@@ -802,7 +802,7 @@ fn command_component_cancel_marks_pending_row_settled() {
     );
     assert_eq!(
         completed.command_result_phase(),
-        Some(view::model::document::CommandPhase::Completed)
+        Some(nuo_view::model::document::CommandPhase::Completed)
     );
 }
 
@@ -814,7 +814,7 @@ fn command_component_pending_classifies_plain() {
     let pending = TranscriptMessage::pending_command("new", "");
     assert_eq!(
         pending.command_row_layout(200),
-        Some(view::model::document::CommandRowLayout::Plain),
+        Some(nuo_view::model::document::CommandRowLayout::Plain),
         "a pending row has no result to classify by"
     );
 }
@@ -882,7 +882,7 @@ fn default_turn_header_has_one_gap_before_first_tool() {
     let step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
@@ -926,7 +926,7 @@ fn turn_header_omits_effort_when_absent() {
     let step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
@@ -959,7 +959,7 @@ fn turn_header_with_model_effort_and_timestamp() {
     let mut step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: None,
             text: "x".into(),
             start_line: 1,
@@ -975,7 +975,7 @@ fn turn_header_with_model_effort_and_timestamp() {
     .with_effort(Some("xhigh"));
     // Set a known timestamp
     step.sent_at_ms = Some(1_700_000_000_000);
-    let time_label = ui_primitives::time::sent_time_label(1_700_000_000_000);
+    let time_label = nuo_ui_primitives::time::sent_time_label(1_700_000_000_000);
 
     let grid = render_transcript_grid(&[step], 72, 14);
     let rows: Vec<&str> = grid.lines().collect();
@@ -998,7 +998,7 @@ fn turn_header_with_model_effort_and_timestamp() {
 #[test]
 fn pure_prose_assistant_turn_renders_turn_header() {
     let assistant = TranscriptMessage::new(
-        tool::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "Hello! How can I help you today with your project?",
     )
     .with_turn(1)
@@ -1021,7 +1021,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let first = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: None,
             text: "a".into(),
             start_line: 1,
@@ -1036,7 +1036,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let second = tool_step_structured(
         "read",
         r#"{"path":"b.rs"}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: None,
             text: "b".into(),
             start_line: 1,
@@ -1086,7 +1086,7 @@ fn different_tool_turns_have_one_vertical_gap() {
         tool_step_structured(
             "read",
             format!(r#"{{"path":"{turn}.rs"}}"#).as_str(),
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: turn.to_string(),
                 start_line: 1,
@@ -1140,7 +1140,7 @@ fn different_tool_turns_have_one_vertical_gap() {
 /// swallowed into a turn it does not belong to.
 #[test]
 fn seam_steer_terminates_the_turn_band() {
-    use view::model::document::{SteerOriginTag, UserMessageOrigin};
+    use nuo_view::model::document::{SteerOriginTag, UserMessageOrigin};
 
     let mut thinking = TranscriptMessage::reasoning("re-read the ADR").with_turn(60);
     thinking.set_reasoning_duration(10);
@@ -1148,7 +1148,7 @@ fn seam_steer_terminates_the_turn_band() {
         tool_step_structured(
             "read",
             format!(r#"{{"path":"{path}"}}"#).as_str(),
-            ::tool::ToolOutput::Code {
+            nuo_tool::ToolOutput::Code {
                 lang: None,
                 text: "a".into(),
                 start_line: 1,
@@ -1163,7 +1163,7 @@ fn seam_steer_terminates_the_turn_band() {
     };
     // The admitted form: it landed at the seam after turn 60's output, and it
     // is consumed by turn 61 — which is why it carries `turn 61`.
-    let steer = TranscriptMessage::new(tool::Role::User, "stop and re-read the ADR")
+    let steer = TranscriptMessage::new(nuo_tool::Role::User, "stop and re-read the ADR")
         .with_origin(UserMessageOrigin::Steer)
         .with_round(1)
         .with_turn(61)
@@ -1177,7 +1177,7 @@ fn seam_steer_terminates_the_turn_band() {
         step("a.rs"),
         steer,
         resumed,
-        TranscriptMessage::new(tool::Role::Assistant, "done reading").with_turn(61),
+        TranscriptMessage::new(nuo_tool::Role::Assistant, "done reading").with_turn(61),
     ];
 
     let grid = render_transcript_grid(&messages, 72, 40);
@@ -1226,9 +1226,9 @@ fn seam_steer_terminates_the_turn_band() {
 /// visible — the tag, not the origin, chooses the weight (ADR-0137).
 #[test]
 fn round_opening_steer_keeps_round_panel_weight() {
-    use view::model::document::{SteerOriginTag, UserMessageOrigin};
+    use nuo_view::model::document::{SteerOriginTag, UserMessageOrigin};
 
-    let steer = TranscriptMessage::new(tool::Role::User, "adjust the heading")
+    let steer = TranscriptMessage::new(nuo_tool::Role::User, "adjust the heading")
         .with_origin(UserMessageOrigin::Steer)
         .with_round(3)
         .with_sent_at_ms(1_700_000_000_000)
@@ -1253,7 +1253,7 @@ fn notice_still_splits_a_turn_band() {
     let step = tool_step_structured(
         "read",
         r#"{"path":"a.rs"}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: None,
             text: "a".into(),
             start_line: 1,
@@ -1266,13 +1266,13 @@ fn notice_still_splits_a_turn_band() {
     )
     .with_turn(60);
     let notice = TranscriptMessage::notice(
-        view::model::document::NoticeSeverity::Warning,
+        nuo_view::model::document::NoticeSeverity::Warning,
         "stopped by the user",
     );
     let after = tool_step_structured(
         "read",
         r#"{"path":"b.rs"}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: None,
             text: "b".into(),
             start_line: 1,
@@ -1302,7 +1302,7 @@ fn command_component_renders_lead_symbols_and_timestamps() {
         TranscriptMessage::command_result(
             "delegate",
             "on",
-            Some(protocol::CommandResult::Ack {
+            Some(nuo_protocol::CommandResult::Ack {
                 title: "Delegated mode ON".to_string(),
                 detail: Some(vec!["All tool permissions are auto-approved".to_string()]),
             }),
@@ -1338,11 +1338,11 @@ fn command_component_renders_lead_symbols_and_timestamps() {
 #[test]
 fn user_messages_render_timestamps_and_never_sent_marker() {
     let epoch_ms = 1_700_000_000_000;
-    let round_msg = TranscriptMessage::new(tool::Role::User, "Hello with round")
+    let round_msg = TranscriptMessage::new(nuo_tool::Role::User, "Hello with round")
         .with_round(1)
         .with_sent_at_ms(epoch_ms);
-    let prompt_msg =
-        TranscriptMessage::new(tool::Role::User, "Hello unpositioned").with_sent_at_ms(epoch_ms);
+    let prompt_msg = TranscriptMessage::new(nuo_tool::Role::User, "Hello unpositioned")
+        .with_sent_at_ms(epoch_ms);
 
     let grid_round = render_transcript_grid(&[round_msg], 72, 18);
     assert!(
@@ -1378,11 +1378,11 @@ fn user_messages_render_timestamps_and_never_sent_marker() {
 
 #[test]
 fn user_steer_and_followup_render_clean_unified_headers() {
-    use view::model::document::UserMessageOrigin;
+    use nuo_view::model::document::UserMessageOrigin;
     let epoch_ms = 1_700_000_000_000;
 
     // Delivered steer with round & turn provenance
-    let mut steer_msg = TranscriptMessage::new(tool::Role::User, "Adjust heading")
+    let mut steer_msg = TranscriptMessage::new(nuo_tool::Role::User, "Adjust heading")
         .with_round(1)
         .with_sent_at_ms(epoch_ms);
     steer_msg.origin = UserMessageOrigin::Steer;
@@ -1399,7 +1399,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
     );
 
     // Delivered follow-up with round provenance
-    let mut followup_msg = TranscriptMessage::new(tool::Role::User, "Next step")
+    let mut followup_msg = TranscriptMessage::new(nuo_tool::Role::User, "Next step")
         .with_round(2)
         .with_sent_at_ms(epoch_ms);
     followup_msg.origin = UserMessageOrigin::FollowUp;
@@ -1420,7 +1420,7 @@ fn user_prompt_sending_and_cancelled_render_clean_headers() {
     let epoch_ms = 1_700_000_000_000;
 
     // Sending prompt
-    let sending_msg = TranscriptMessage::new(tool::Role::User, "Hello world")
+    let sending_msg = TranscriptMessage::new(nuo_tool::Role::User, "Hello world")
         .with_sent_at_ms(epoch_ms)
         .sending();
 
@@ -1431,10 +1431,11 @@ fn user_prompt_sending_and_cancelled_render_clean_headers() {
     );
 
     // Cancelled prompt with round provenance
-    let cancelled_round_msg = TranscriptMessage::new(tool::Role::User, "Cancelled round prompt")
-        .with_sent_at_ms(epoch_ms)
-        .with_round(1)
-        .cancelled();
+    let cancelled_round_msg =
+        TranscriptMessage::new(nuo_tool::Role::User, "Cancelled round prompt")
+            .with_sent_at_ms(epoch_ms)
+            .with_round(1)
+            .cancelled();
 
     let grid_cancelled_round = render_transcript_grid(&[cancelled_round_msg], 72, 18);
     assert!(

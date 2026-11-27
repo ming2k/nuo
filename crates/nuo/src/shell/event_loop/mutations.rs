@@ -21,14 +21,14 @@
 //!   stream), and the loop drains eagerly each iteration.
 use std::collections::HashMap;
 
-use protocol::{InputRequest, ProviderPickerSnapshot, ThreadOverview};
+use nuo_protocol::{InputRequest, ProviderPickerSnapshot, ThreadOverview};
 
-use tool::{PermissionRequest, SubagentEvent, ToolStream, UserQuestionRequest};
+use nuo_tool::{PermissionRequest, SubagentEvent, ToolStream, UserQuestionRequest};
 
 use crate::shell::app::{OauthAddSignal, ProviderRetryState};
 use crate::shell::pre_attach::PreAttachSignal;
-use view::model::document::TranscriptMessage;
-use view::phase::Phase;
+use nuo_view::model::document::TranscriptMessage;
+use nuo_view::phase::Phase;
 
 /// A backend completion round-trip awaiting consumption by the loop
 /// (formerly a shared cell drained per frame; now a mutation payload).
@@ -37,7 +37,7 @@ pub(crate) struct CompletionSignal {
     pub request_id: u64,
     pub input: String,
     pub cursor: usize,
-    pub items: Vec<tool::InputCompletion>,
+    pub items: Vec<nuo_tool::InputCompletion>,
 }
 
 /// One semantic edit of the primary transcript document. The applier executes
@@ -120,7 +120,7 @@ pub(crate) enum TranscriptEdit {
     /// carries the preview where a decision is at stake.
     ToolPreview {
         id: String,
-        preview: tool::PreviewResult,
+        preview: nuo_tool::PreviewResult,
     },
     /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call, addressed by call id (ADR-0166).
     ToolInputProgress {
@@ -135,7 +135,7 @@ pub(crate) enum TranscriptEdit {
         id: String,
         name: String,
         output: String,
-        structured: ::tool::ToolOutput,
+        structured: nuo_tool::ToolOutput,
         duration_ms: u64,
         fallback: Option<TranscriptMessage>,
     },
@@ -169,14 +169,16 @@ pub(crate) enum TranscriptEdit {
     /// this invocation, or append the fallback component.
     SettleCommandResult {
         invocation: String,
-        result: protocol::CommandResult,
+        result: nuo_protocol::CommandResult,
         fallback: Option<TranscriptMessage>,
     },
     /// The newest user prompt matching the interruption semantics is marked
     /// cancelled, any in-flight provider retry is settled into a static failure
     /// notice preserving diagnostics, and a round-interrupt projection row is
     /// appended.
-    Interrupted { record: protocol::RoundInterrupt },
+    Interrupted {
+        record: nuo_protocol::RoundInterrupt,
+    },
     /// The newest user prompt is marked cancelled (transport-level retraction).
     CancelLastUserPrompt,
     /// Append a fully-built message (assistant text, notices, projections).
@@ -185,8 +187,8 @@ pub(crate) enum TranscriptEdit {
         /// (`[INV-TRANSCRIPT-01]`): only `Dialogue` becomes a fact and only
         /// `TurnOutcome` becomes an anchor; every other class is refused, so an
         /// operation, a telemetry sample or a receipt can never enter the thread
-        /// transcript (`view::model::thread`).
-        class: protocol::EventClass,
+        /// transcript (`nuo_view::model::thread`).
+        class: nuo_protocol::EventClass,
         message: TranscriptMessage,
     },
     /// Freeze any orphaned still-streaming reasoning trace (its round ended
@@ -252,7 +254,7 @@ pub(crate) enum ChromeEdit {
     /// The round completed cleanly (records an unseen `Succeeded` outcome when
     /// the thread is not the currently viewed tab, and retains the authoritative
     /// round summary for `/trace`'s Round Inspector, ADR-0263).
-    RoundCompleted(protocol::RoundSummary),
+    RoundCompleted(nuo_protocol::RoundSummary),
     /// The round terminated with an error or crash (retires the live surface
     /// and records an unseen `Failed` outcome when the thread is not viewed).
     RoundFailed,
@@ -260,7 +262,7 @@ pub(crate) enum ChromeEdit {
     /// interrupt, supersede, or unsent input): retire the live surface.
     RoundEnded,
     /// The turn finished; performance snapshot for the Activity modal & ModelBar cost.
-    TurnPerformance(Box<protocol::TurnPerformanceSnapshot>),
+    TurnPerformance(Box<nuo_protocol::TurnPerformanceSnapshot>),
 }
 
 /// Everything the response translator (and monitor client) can ask the event
@@ -285,22 +287,22 @@ pub(crate) enum AppMutation {
     // Session lifecycle / harness.
     Harness {
         thread_id: Option<String>,
-        snapshot: protocol::HarnessSnapshot,
+        snapshot: nuo_protocol::HarnessSnapshot,
     },
     /// Server-attested readiness transition (ADR-0133 `[INV-ATTACH-04]`).
     SessionPhase {
         thread_id: Option<String>,
-        phase: protocol::ThreadPhase,
+        phase: nuo_protocol::ThreadPhase,
     },
     /// Server accepted a multiplexed `Wire::Subscribe` on the live connection
     /// (ADR-0251 `[INV-MUX-01]`).
     ThreadSubscribed {
         thread_id: String,
-        phase: protocol::ThreadPhase,
+        phase: nuo_protocol::ThreadPhase,
     },
     /// Replace the server-owned slash-command vocabulary from an authoritative
     /// hydration snapshot.
-    CommandCatalog(tool::CommandCatalog),
+    CommandCatalog(nuo_tool::CommandCatalog),
     HarnessUnattended {
         thread_id: Option<String>,
         enabled: bool,
@@ -398,19 +400,19 @@ pub(crate) enum AppMutation {
     /// snapshot cannot know about yet, and mirror the server's paused flag.
     QueueSnapshot {
         session_id: String,
-        items: Vec<protocol::QueuedMessage>,
+        items: Vec<nuo_protocol::QueuedMessage>,
         paused: bool,
     },
     // Views / panels / modal data.
     /// The server's persisted prompt input history (the server is the SSOT;
     /// the TUI never opens the database itself).
-    InputHistory(Vec<protocol::HistoryEntry>),
+    InputHistory(Vec<nuo_protocol::HistoryEntry>),
     /// Stored capability overrides for one provider/model route — the model
     /// editor's prefill, delivered after the editor opened.
     RouteSettings {
         provider_id: String,
         model: String,
-        overrides: Option<protocol::model::CapabilityOverrides>,
+        overrides: Option<nuo_protocol::model::CapabilityOverrides>,
     },
     KeyStatus(HashMap<String, bool>),
     ProviderPicker(ProviderPickerSnapshot),
@@ -421,20 +423,20 @@ pub(crate) enum AppMutation {
     ForgetDeletedThreadDraft(String),
     OpenSessionsPanel,
     OpenTreePanel,
-    SessionDetail(protocol::ThreadDetail),
-    ConnectionDetail(protocol::ConnectionDetail),
-    TokenReport(Option<protocol::TokenSourceReport>),
+    SessionDetail(nuo_protocol::ThreadDetail),
+    ConnectionDetail(nuo_protocol::ConnectionDetail),
+    TokenReport(Option<nuo_protocol::TokenSourceReport>),
     /// The measured context plan for the viewed session. `None` is a real
     /// answer — no request has been assembled yet — and clears the loading flag
     /// so the dialog can say so instead of spinning (ADR-0220).
-    ContextPlan(Option<protocol::ContextPlanView>),
-    UsageStats(protocol::usage_stats::UsageStatsReport),
+    ContextPlan(Option<nuo_protocol::ContextPlanView>),
+    UsageStats(nuo_protocol::usage_stats::UsageStatsReport),
     /// A usage fetch failed. The report already on screen is kept (a refresh
     /// must never blank a populated view); only the loading flag clears.
     UsageFailed(String),
-    ProviderQuotas(protocol::ProviderQuotaSnapshot),
-    SessionTree(protocol::ThreadTree),
-    SessionContext(protocol::ThreadContextSnapshot),
+    ProviderQuotas(nuo_protocol::ProviderQuotaSnapshot),
+    SessionTree(nuo_protocol::ThreadTree),
+    SessionContext(nuo_protocol::ThreadContextSnapshot),
     CompletionSignal(CompletionSignal),
     /// One disclosure the client surfaced: a routed notice, or a local fault
     /// (a clipboard write that failed, a link that could not be opened).
@@ -451,8 +453,8 @@ pub(crate) enum AppMutation {
     /// an ad-hoc topic string or a faked timestamp either.
     NoticeDisclosure(crate::shell::app::notice_catalog::RenderedNotice),
     Oauth(OauthAddSignal),
-    WebSearchConfig(Option<protocol::WebSearchConfigView>),
-    ServerEndpoints(protocol::ServerEndpointsReport),
+    WebSearchConfig(Option<nuo_protocol::WebSearchConfigView>),
+    ServerEndpoints(nuo_protocol::ServerEndpointsReport),
     PreAttach(PreAttachSignal),
     /// A failed trust-grant round-trip for the mounted PreAttach surface
     /// the server could not persist the trust decision. The
@@ -466,7 +468,7 @@ pub(crate) enum AppMutation {
     },
     ContextTokens {
         session_id: String,
-        snapshot: protocol::ContextTokenSnapshot,
+        snapshot: nuo_protocol::ContextTokenSnapshot,
     },
     ClearContextTokens {
         thread_id: Option<String>,
@@ -490,25 +492,25 @@ pub(crate) enum AppMutation {
         /// The transport error, verbatim, for the notice log.
         reason: String,
     },
-    HostSessions(Vec<protocol::MonitoredThread>),
-    PersistenceHealth(Option<protocol::monitor::PersistenceHealth>),
+    HostSessions(Vec<nuo_protocol::MonitoredThread>),
+    PersistenceHealth(Option<nuo_protocol::monitor::PersistenceHealth>),
     /// Server-attested global lifecycle phase transition (ADR-0260 `[INV-SRVPHASE-01]`).
-    ServerPhase(protocol::ServerPhase),
+    ServerPhase(nuo_protocol::ServerPhase),
     /// Client transport connection phase update from `ConnectionSupervisor` (ADR-0260).
     LinkPhase(crate::shell::app::state::ClientLinkPhase),
     /// A fresh unified `ServerLink` was established in-place by `ConnectionSupervisor`
     /// without destroying `App` (ADR-0260 `[INV-SRVPHASE-02]`, `[INV-SRVPHASE-04]`).
     LinkEstablished {
         server_id: String,
-        server_phase: protocol::ServerPhase,
-        persistence_health: Option<protocol::monitor::PersistenceHealth>,
+        server_phase: nuo_protocol::ServerPhase,
+        persistence_health: Option<nuo_protocol::monitor::PersistenceHealth>,
         req_tx: tokio::sync::mpsc::UnboundedSender<crate::shell::client::ClientOutbound>,
     },
     /// Server explicitly refused a `Wire::Subscribe` with structured error taxonomy
     /// (`[INV-ATTACH-01]`, `[INV-ATTACH-02]`).
     SubscribeRefused(crate::shell::client::AttachError),
     /// Server answered an ambiguous auto-attach `Wire::Subscribe` with candidate threads.
-    PickRequired(Vec<protocol::ThreadOverview>),
+    PickRequired(Vec<nuo_protocol::ThreadOverview>),
     /// A dashboard console receipt: appended to
     /// `App::host_console_log` by the applier.
     HostConsole(crate::shell::overlays::ConsoleLine),

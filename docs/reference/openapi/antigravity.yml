@@ -97,7 +97,7 @@
 # surface is the entity suffix itself.
 #
 # Consumers: the implementer maintaining the `antigravity` channel in
-# Nuo (crates/provider-google-antigravity crate). This file never encodes code
+# Nuo (crates/nuo-provider-google-antigravity crate). This file never encodes code
 # decisions — it states the contract exactly as the endpoint enforces it.
 #
 # Method note: `agy` was run under an intercepting HTTPS proxy with a locally
@@ -234,7 +234,7 @@ info:
       clientMetadataUrl: https://antigravity.google/oauth/client-metadata.json
       # OAuth credentials are recorded as redacted placeholders, never literals:
       # the live pair is embedded in the public CLI binary and mirrored by
-      # `crates/provider-google-antigravity/src/oauth.rs`. A repository
+      # `crates/nuo-provider-google-antigravity/src/oauth.rs`. A repository
       # does not need a second copy of a live credential, and copying one here
       # trips secret-scanning push protection. What this file owns is provenance
       # and shape, not the secret.
@@ -2172,7 +2172,7 @@ x-network-fingerprint:
     tlsProfileStream: netune::Preset::AntigravityCliStream ("antigravity-cli-stream")
     http2Fingerprint: netune_http2::H2Fingerprint::go() ("go-nethttp", paired via H2Registry::default_for_tls)
     selection: >-
-      crates/provider-google-antigravity stamps the unary profile
+      crates/nuo-provider-google-antigravity stamps the unary profile
       (`antigravity_tls_profile(is_stream)` resolves to it for both lanes
       since the decrypted 1.5.12 capture) on every Cloud Code inference,
       retry, loadCodeAssist, onboardUser, retrieveUserQuotaSummary and

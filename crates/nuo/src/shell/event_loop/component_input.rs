@@ -14,8 +14,8 @@ use crate::shell::input::readline::{
 use crate::shell::input::{self};
 use crate::shell::ui;
 use crate::shell::{App, ProviderDeleteChoice, SelectionEdge};
-use ui_primitives::components::dropdown::DropdownEventOutcome;
-use view::model::selection::{SelectionState, floor_grapheme_boundary, inclusive_grapheme_end};
+use nuo_ui_primitives::components::dropdown::DropdownEventOutcome;
+use nuo_view::model::selection::{SelectionState, floor_grapheme_boundary, inclusive_grapheme_end};
 
 /// Offer an event to the handlers on the scene-resolved keyboard path.
 ///
@@ -301,24 +301,24 @@ fn handle_config_dropdown(app: &mut App, event: &Event) -> Option<input::InputAc
             match ctx {
                 "websearch_provider" => {
                     if let (Some(revision), Ok(provider)) = (revision, payload.parse()) {
-                        app.send_intent(protocol::AgentRequest::UpdateWebSearchConfig(Box::new(
-                            protocol::WebSearchConfigUpdate {
+                        app.send_intent(nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                            Box::new(nuo_protocol::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 provider: Some(provider),
                                 ..Default::default()
-                            },
-                        )));
+                            }),
+                        ));
                     }
                 }
                 "websearch_reader" => {
                     if let (Some(revision), Ok(reader)) = (revision, payload.parse()) {
-                        app.send_intent(protocol::AgentRequest::UpdateWebSearchConfig(Box::new(
-                            protocol::WebSearchConfigUpdate {
+                        app.send_intent(nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                            Box::new(nuo_protocol::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 reader: Some(reader),
                                 ..Default::default()
-                            },
-                        )));
+                            }),
+                        ));
                     }
                 }
                 _ => {}

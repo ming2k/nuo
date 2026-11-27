@@ -7,17 +7,17 @@
 
 use std::sync::Arc;
 
+use nuo_tool::{Tool, ToolContext, ToolOutput};
+use nuo_tool_fs::{ReadTool, SystemToolContext};
 use serde_json::json;
-use tool::{Tool, ToolContext, ToolOutput};
-use tool_fs::{ReadTool, SystemToolContext};
 
-const TWO_PAGE: &[u8] = include_bytes!("../../../crates/host/testdata/two_page.pdf");
-const NO_TEXT: &[u8] = include_bytes!("../../../crates/host/testdata/no_text.pdf");
+const TWO_PAGE: &[u8] = include_bytes!("../../../crates/nuo-host/testdata/two_page.pdf");
+const NO_TEXT: &[u8] = include_bytes!("../../../crates/nuo-host/testdata/no_text.pdf");
 
 fn tool(dir: &std::path::Path) -> ReadTool {
     let ctx = Arc::new(
         SystemToolContext::new(dir)
-            .with_document_extractor(Arc::new(host::document::HostDocumentExtractor)),
+            .with_document_extractor(Arc::new(nuo_host::document::HostDocumentExtractor)),
     );
     ReadTool::new(ctx)
 }

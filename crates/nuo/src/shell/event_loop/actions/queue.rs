@@ -2,7 +2,7 @@
 use crate::shell::App;
 use crate::shell::input::InputAction;
 use crate::shell::surfaces::DialogKind;
-use protocol::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 pub(super) fn handle_queue_action(app: &mut App, viewed_session_id: &str, action: InputAction) {
     match action {

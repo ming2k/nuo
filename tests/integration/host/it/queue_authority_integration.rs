@@ -16,27 +16,27 @@
 use std::sync::Arc;
 
 use super::sandbox_once;
-use protocol::{AgentRequest, AgentResponse, RoundEvent};
-use server::UiBridge;
-use server::composition::bootstrap::{self, BootstrapParams};
-use server::composition::startup::ThreadStart;
+use nuo_protocol::{AgentRequest, AgentResponse, RoundEvent};
+use nuo_server::UiBridge;
+use nuo_server::composition::bootstrap::{self, BootstrapParams};
+use nuo_server::composition::startup::ThreadStart;
 use tokio::sync::mpsc;
 
 struct HeadlessProbe;
 
 #[async_trait::async_trait]
 impl UiBridge for HeadlessProbe {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::CopyOutcome, String> {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo_server::CopyOutcome, String> {
         Err("probe: headless".to_string())
     }
 }
 
 fn params(project_root: std::path::PathBuf) -> BootstrapParams {
-    let identity = protocol::AgentIdentity::new("probe", "queue probe");
+    let identity = nuo_protocol::AgentIdentity::new("probe", "queue probe");
     BootstrapParams {
         human_channel: None,
         identity: identity.clone(),
-        preset: protocol::AgentRoleProfile::with_identity("probe", identity),
+        preset: nuo_protocol::AgentRoleProfile::with_identity("probe", identity),
         ui: Arc::new(HeadlessProbe),
         startup: ThreadStart::Fresh,
         project_root: Some(project_root),
@@ -76,7 +76,7 @@ impl Harness {
     }
 
     /// Wait for the next authoritative queue snapshot.
-    async fn next_snapshot(&mut self) -> (Vec<protocol::QueuedMessage>, bool) {
+    async fn next_snapshot(&mut self) -> (Vec<nuo_protocol::QueuedMessage>, bool) {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
         while tokio::time::Instant::now() < deadline {
             match tokio::time::timeout_at(deadline, self.resp_rx.recv()).await {

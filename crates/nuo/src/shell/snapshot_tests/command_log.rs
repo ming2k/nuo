@@ -7,17 +7,17 @@
 
 use super::helpers::painted_rows;
 use crate::shell::render::Theme;
-use view::model::layout::LayoutMap;
+use nuo_view::model::layout::LayoutMap;
 
 #[test]
 fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
-    use view::model::command_log::CommandLog;
+    use nuo_view::model::command_log::CommandLog;
 
     let stdout = (1..=20)
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let structured = ::tool::ToolOutput::Shell {
+    let structured = nuo_tool::ToolOutput::Shell {
         command: "cargo build".into(),
         stdout,
         stderr: String::new(),
@@ -25,11 +25,11 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
         exit: Some(1),
         truncated: false,
         truncated_note: None,
-        termination: tool::ShellTermination::Exited,
+        termination: nuo_tool::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
-    let fold = view::tools::shell_output::ShellOutput::derive(&text, Some(&structured)).fold();
+    let fold = nuo_view::tools::shell_output::ShellOutput::derive(&text, Some(&structured)).fold();
     let log = CommandLog::derive(
         0,
         r#"{"command":"cargo build"}"#,
@@ -69,13 +69,13 @@ fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
 /// class of lie as a keycap that does not serve the key it prints.
 #[test]
 fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
-    use view::model::command_log::{CommandLog, LogScope};
+    use nuo_view::model::command_log::{CommandLog, LogScope};
 
     let stdout = (1..=20)
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let structured = ::tool::ToolOutput::Shell {
+    let structured = nuo_tool::ToolOutput::Shell {
         command: "cargo build".into(),
         stdout,
         stderr: String::new(),
@@ -83,11 +83,11 @@ fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
         exit: Some(0),
         truncated: false,
         truncated_note: None,
-        termination: tool::ShellTermination::Exited,
+        termination: nuo_tool::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
-    let fold = view::tools::shell_output::ShellOutput::derive(&text, Some(&structured)).fold();
+    let fold = nuo_view::tools::shell_output::ShellOutput::derive(&text, Some(&structured)).fold();
     let mut log = CommandLog::derive(
         0,
         r#"{"command":"cargo build"}"#,

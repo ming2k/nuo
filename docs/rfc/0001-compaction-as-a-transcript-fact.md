@@ -151,7 +151,7 @@ only admits `message|state`; a third kind would force a full rebuild of a 3.2 GB
 `entries` table for no semantic gain). The **payload** is the typed contract:
 
 ```rust
-// crates/protocol/src/transcript.rs
+// crates/nuo-protocol/src/transcript.rs
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EntryPayload {

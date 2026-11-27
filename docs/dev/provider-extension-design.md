@@ -12,8 +12,8 @@ matrices, and account/tenant dimensions. Written to be executed **after**
 > **Dated snapshot (2026-10-08).** The audit below records the tree as it stood
 > before the provider consolidation. Crate names from that era
 > (`nuo-provider-adapters`, `nuo-provider-transport`) are retired; the live homes
-> are `provider` (specification, transport, OAuth), `protocol` (error and model
-> DTOs), and `model-routing` (the catalog pipeline). Paths in the audit are
+> are `nuo-provider` (specification, transport, OAuth), `nuo-protocol` (error and model
+> DTOs), and `nuo-model-routing` (the catalog pipeline). Paths in the audit are
 > updated to their current locations so a reader can follow them. The original
 > draft used `ModelDecl` / `ProviderManifest`; both are gone, and this revision
 > names the live types (`Model`, `ModelProviderSpec`). §3 records the pricing
@@ -60,7 +60,7 @@ work: it stops the next reader from rebuilding what is present.
 | **Quota / balance / credit %** | **Data model done; dispatch is not** | `ProviderQuotaData::{Periodic, Balance, Composite}`, `QuotaWindowBucket.used_fraction`, `BalanceQuota.{credit_limit, consumed_amount, display_primary}` (`protocol/src/connection_detail.rs`). The gap is *dispatch*, not shape — fixed by ADR-0027 step 4 (`[INV-PROV-08]` typed port). **Do not add a new quota schema.** |
 | **Account / tenant selection** | **Deferred, with a condition** | Values already ride `ResolvedAuth`'s typed extensions (`OpencodeAuthMetadata.org_id`, `GoogleAuthMetadata.project_id`, `ChatGptAuthMetadata.account_id`). See §5. |
 | **`ecosystem` label** | **Rejected** | ADR-0027 §Rejected Alternatives. |
-| **`trust` level** | **Rejected** | ADR-0027 §Rejected Alternatives (the gate is the baseline-precedence rule, `model-routing/src/sync.rs`). |
+| **`trust` level** | **Rejected** | ADR-0027 §Rejected Alternatives (the gate is the baseline-precedence rule, `nuo-model-routing/src/sync.rs`). |
 | **`local_only_safe`** | **Rejected** | ADR-0027 §Rejected Alternatives (feature unimplemented; wrong shape). |
 
 **Net: of the dimensions raised, two are real additions (§3, §4), one is a dispatch fix that ADR-0027
@@ -120,7 +120,7 @@ The proposal's constraints that survived unchanged:
 | :--- | :--- |
 | `streaming: bool` | Gate the streaming path; today it is assumed for every routed channel. |
 | `structured_output: bool` | Gate JSON-schema / response-format stamping rather than sending it blind. |
-| `parallel_tool_calls: bool` | The Responses builder currently gates the field on the dialect (`emits_parallel_tool_calls_field()` in `provider-openai/src/responses/request.rs`) and then always stamps `true`. Per-model control is still open: a model that rejects the field must not receive it. |
+| `parallel_tool_calls: bool` | The Responses builder currently gates the field on the dialect (`emits_parallel_tool_calls_field()` in `nuo-provider-openai/src/responses/request.rs`) and then always stamps `true`. Per-model control is still open: a model that rejects the field must not receive it. |
 | `max_images: Option<u8>` | Boundary-check attachments before send, instead of relying on an upstream 400. |
 
 **Do not add yet (no consumer):** audio/PDF input modalities, output modalities, per-model TPM/RPM
@@ -151,7 +151,7 @@ pub enum AccountDimension { OrgId, ProjectId, AccountId, Region }
 ```
 
 An enum (not `Vec<String>`) keeps the dimension vocabulary closed and the picker's rendering
-exhaustive. Region is listed because the current Qoder region handling (`provider-qoder/src/region.rs`)
+exhaustive. Region is listed because the current Qoder region handling (`nuo-provider-qoder/src/region.rs`)
 has **no** `ModelProviderSpec` counterpart and is a genuine open question about whether it is a
 provider-level or endpoint-level axis — settle it against a real use case, not by guessing.
 

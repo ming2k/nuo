@@ -10,9 +10,9 @@ Nuo is a high-performance, modular AI session server and semantic terminal syste
 
 ## Features
 
-- **Semantic Terminal UI**: Rich, flicker-free terminal interface powered by `view` and `ui-primitives` over the retained-mode `graticule` engine (`graticule-canvas` + `graticule-tty`) with sub-millisecond differential updates, timeout-disambiguated VT input parsing, and flawless CJK alignment.
+- **Semantic Terminal UI**: Rich, flicker-free terminal interface powered by `nuo-view` and `nuo-ui-primitives` over the retained-mode `graticule` engine (`graticule-canvas` + `graticule-tty`) with sub-millisecond differential updates, timeout-disambiguated VT input parsing, and flawless CJK alignment.
 - **Session Server (`nuo`)**: Detached background server hosting multi-client sessions across workspaces, serving local IPC (Unix Domain Sockets) and WebSocket control planes.
-- **Cognitive Engine (`engine`)**: Runs the streaming ReAct loop, assembles model requests, and coordinates subagents. The separate `guardrails` policy layer enforces hazard controls (`RiskProfile`), human confirmation checkpoints, and loop detection.
+- **Cognitive Engine (`nuo-engine`)**: Runs the streaming ReAct loop, assembles model requests, and coordinates subagents. The separate `nuo-guardrails` policy layer enforces hazard controls (`RiskProfile`), human confirmation checkpoints, and loop detection.
 - **Multi-Agent Coordination (ACP)**: Native Agent Coordination Protocol supporting peer-to-peer task delegation (`agent://`) and collaborative multi-subscriber channels (`acp://`).
 - **Typed Tool Contract**: one `execute` entry point with compiled JSON Schema validation/coercion, immutable per-request tool snapshots, typed structured/media results, deferred `tool_search` discovery, and native Model Context Protocol (MCP) **client** integration (tools plus resources; Nuo consumes MCP servers and does not export itself as one — ADR-0230, ADR-0234).
 

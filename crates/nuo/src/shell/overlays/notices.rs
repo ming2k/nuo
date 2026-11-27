@@ -28,15 +28,15 @@ use super::common::one_line;
 use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
 use crate::shell::surfaces::NoticesDialog;
-use ui_primitives::elevation::modal_frame;
-use ui_primitives::primitives::{
+use nuo_ui_primitives::elevation::modal_frame;
+use nuo_ui_primitives::primitives::{
     ContentModalSpec, FooterHint, HeaderPart, content_modal_area_in, keyvocab, modal_header_parts,
     render_modal_footer,
 };
-use view::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
-use view::model::layout::LayoutMap;
-use view::model::log::{LineStatus, SurfaceLine};
-use view::model::selection::SelectionState;
+use nuo_view::components::selectable_body::{RowSegment, SelectableRow, render_selectable_body};
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::log::{LineStatus, SurfaceLine};
+use nuo_view::model::selection::SelectionState;
 
 /// Draw the sovereign notice center modal dialog with an authentic card-stack layout.
 pub fn draw_notices_modal(
@@ -140,7 +140,7 @@ pub fn draw_notices_modal(
             };
             let band = theme.severity_band(accent, marker);
 
-            let time = ui_primitives::time::sent_time_label(notice.at_ms);
+            let time = nuo_ui_primitives::time::sent_time_label(notice.at_ms);
             let topic = notice.label.as_deref().unwrap_or("system");
 
             let select_indicator = if is_sel { "▌ " } else { "  " };

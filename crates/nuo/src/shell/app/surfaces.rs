@@ -116,14 +116,14 @@ impl App {
     /// Build the mutation request implied by toggling the selected tool in the
     /// Tools modal, or `None` when there is no snapshot or the selection
     /// is out of range.
-    pub fn session_activate_request(&self) -> Option<protocol::AgentRequest> {
+    pub fn session_activate_request(&self) -> Option<nuo_protocol::AgentRequest> {
         let tool = self
             .threads
             .session_context
             .as_ref()?
             .tools
             .get(self.active_index())?;
-        Some(protocol::AgentRequest::ToggleTool {
+        Some(nuo_protocol::AgentRequest::ToggleTool {
             name: tool.name.clone(),
             enabled: !tool.enabled,
         })
@@ -619,14 +619,14 @@ impl App {
             // theirs to keep (`[INV-OUTBOX-04]`).
             if origin == QueuePauseOrigin::ModalAutoPause {
                 self.resume_queue(&sid);
-                self.send_intent(protocol::AgentRequest::QueuePaused {
+                self.send_intent(nuo_protocol::AgentRequest::QueuePaused {
                     thread_id: sid,
                     paused: false,
                 });
             }
         }
         if self.composer.input_history_persist {
-            self.send_intent(protocol::AgentRequest::QueryInputHistory);
+            self.send_intent(nuo_protocol::AgentRequest::QueryInputHistory);
         }
         // Session transitions isolate their effects to session-scoped dialogs
         // (`[INV-SURFACE-05]`): archive the outgoing session's modal state,
@@ -744,7 +744,7 @@ impl App {
                 self.stash_draft();
             }
             if self.composer.input_history_persist {
-                self.send_intent(protocol::AgentRequest::QueryInputHistory);
+                self.send_intent(nuo_protocol::AgentRequest::QueryInputHistory);
             }
         }
         let first = !self.surfaces.surface_store.is_open(id);
@@ -766,9 +766,9 @@ impl App {
     /// who pressed `v` deserves to know the step is not there rather than
     /// be dropped into an empty page.
     pub(crate) fn open_command_log_scene(&mut self, mi: usize) {
-        use view::model::command_log::{CommandLog, LogScope};
-        use view::model::document::MessageKind;
-        use view::tools::shell_output::{ShellOutput, command_invocation, is_command_body};
+        use nuo_view::model::command_log::{CommandLog, LogScope};
+        use nuo_view::model::document::MessageKind;
+        use nuo_view::tools::shell_output::{ShellOutput, command_invocation, is_command_body};
 
         let derived = {
             let Some(message) = self.focused_messages().get(mi) else {
@@ -860,8 +860,8 @@ impl App {
     /// recorded in the focused transcript.
     pub(crate) fn open_diff_scene(&mut self) {
         use crate::shell::overlays::{DiffFileEntry, DiffViewerState, build_diff_lines};
-        use tool::{PatchOp, ToolOutput};
-        use view::model::document::MessageKind;
+        use nuo_tool::{PatchOp, ToolOutput};
+        use nuo_view::model::document::MessageKind;
 
         let mut files = Vec::new();
         for message in self.focused_messages() {
@@ -1389,7 +1389,7 @@ impl App {
     /// Write the foreground thread's activity phase, retiring its
     /// transport-setback clause by the same rule as
     /// [`workspaces::ThreadInstance::set_phase`].
-    pub fn set_phase(&mut self, phase: Option<view::phase::Phase>) {
+    pub fn set_phase(&mut self, phase: Option<nuo_view::phase::Phase>) {
         self.threads.set_phase(phase);
     }
 
@@ -1401,7 +1401,7 @@ impl App {
     pub fn clear_responding(&mut self) {
         self.threads.set_phase(None);
         self.threads.round_started_at = None;
-        self.threads.loop_status = protocol::LoopStatus::Idle;
+        self.threads.loop_status = nuo_protocol::LoopStatus::Idle;
         if !self.session.current_session_id.is_empty() {
             self.session
                 .running_sessions

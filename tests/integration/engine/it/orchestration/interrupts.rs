@@ -10,21 +10,21 @@ struct HangingProvider;
 impl Provider for HangingProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Err(protocol::ProviderError::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            protocol::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "chat is not used by the streaming path",
         ))
     }
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         Ok(Box::pin(futures::stream::pending()))
     }
@@ -37,20 +37,20 @@ pub(super) struct InstantProvider;
 impl Provider for InstantProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Ok(protocol::ProviderCompletion::message(Message::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
     }
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         Ok(Box::pin(stream::iter([Ok("done".to_string())])))
     }
@@ -72,21 +72,21 @@ struct SettlingProvider {
 impl Provider for SettlingProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Err(protocol::ProviderError::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            protocol::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "chat is not used by the streaming path",
         ))
     }
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let settle_ms = self.settle_ms;
         Ok(Box::pin(stream::unfold(0u8, move |state| async move {
@@ -112,21 +112,21 @@ struct TrickleThenSilentProvider;
 impl Provider for TrickleThenSilentProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Err(protocol::ProviderError::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            protocol::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "chat is not used by the streaming path",
         ))
     }
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         Ok(Box::pin(
             stream::once(async { Ok("partial answer".to_string()) }).chain(stream::pending()),
@@ -149,21 +149,21 @@ struct GatedProvider {
 impl Provider for GatedProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Err(protocol::ProviderError::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            protocol::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "chat is not used by the streaming path",
         ))
     }
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let started = self.started.clone();
         let release = Arc::clone(&self.release);
@@ -194,7 +194,7 @@ async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRo
     let agent = Arc::new(Agent::new(
         provider,
         Vec::new(),
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let lifecycle = Arc::new(RoundLifecycle::new());
     let (tx, rx) = mpsc::unbounded_channel();
@@ -208,7 +208,7 @@ async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRo
             session_id,
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: protocol::CompactionPolicy::default().resolve(100_000),
+                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -226,7 +226,7 @@ async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRo
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: engine::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await;
@@ -274,7 +274,7 @@ async fn idle_parked_interrupt_reason_does_not_label_the_next_round() {
 
     // Park as the interrupt handler does while idle, then wait for the
     // round's natural completion.
-    lifecycle.record_interrupt(protocol::RoundInterruptReason::User);
+    lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
     let completed = next_event_where(&mut rx, |event| {
         matches!(event, RoundEvent::RoundCompleted(_))
     })
@@ -336,7 +336,7 @@ async fn late_interrupt_while_live_then_completes_is_not_recorded() {
         .expect("round must reach the model request");
 
     // Esc Esc lands now — the reason is parked while the round is live...
-    lifecycle.record_interrupt(protocol::RoundInterruptReason::User);
+    lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
     // ...but this Esc Esc is modeled as arriving too late: no token
     // cancellation is observed before convergence (we simply release the
     // stream). This is the "server-side LLM converged and the round
@@ -373,7 +373,7 @@ async fn real_interrupt_of_a_live_round_still_records() {
     // then cancel exactly like the interrupt handler.
     let started = next_event_where(&mut rx, |event| matches!(event, RoundEvent::TurnStarted)).await;
     assert!(started.is_some(), "round must start");
-    lifecycle.record_interrupt(protocol::RoundInterruptReason::User);
+    lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
     lifecycle.cancel_current().await;
 
     let interrupted = next_event_where(&mut rx, |event| {
@@ -386,14 +386,14 @@ async fn real_interrupt_of_a_live_round_still_records() {
     );
     let records = session.round_interrupts().await;
     assert_eq!(records.len(), 1, "exactly one durable record: {records:?}");
-    assert_eq!(records[0].reason, protocol::RoundInterruptReason::User);
+    assert_eq!(records[0].reason, nuo_protocol::RoundInterruptReason::User);
     // The HangingProvider round was interrupted before model output.
     // The prompt is preserved in session history (never retracted) and records
     // its admitted round number (round 1 for the first round).
     assert_eq!(records[0].round, Some(1));
     let messages = session.model_window().await;
     assert!(
-        messages.iter().any(|m| m.role == tool::Role::User),
+        messages.iter().any(|m| m.role == nuo_tool::Role::User),
         "sent prompt is preserved in transcript"
     );
     let _ = std::fs::remove_dir_all(directory);
@@ -415,7 +415,7 @@ async fn superseded_live_round_still_records() {
     assert!(started.is_some(), "round must start");
 
     // Mirror the replacement path: park, bump the generation, cancel.
-    lifecycle.record_interrupt(protocol::RoundInterruptReason::Superseded);
+    lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::Superseded);
     lifecycle.supersede();
     lifecycle.cancel_current().await;
 
@@ -431,7 +431,7 @@ async fn superseded_live_round_still_records() {
     assert_eq!(records.len(), 1, "exactly one durable record: {records:?}");
     assert_eq!(
         records[0].reason,
-        protocol::RoundInterruptReason::Superseded
+        nuo_protocol::RoundInterruptReason::Superseded
     );
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -460,7 +460,7 @@ async fn late_supersede_on_a_settling_stream_completes_the_round() {
 
     // The user sends the next message: park + cancel exactly as
     // `start_interactive_round`'s replacement arm does.
-    lifecycle.record_interrupt(protocol::RoundInterruptReason::Superseded);
+    lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::Superseded);
     lifecycle.cancel_current().await;
 
     let outcome = next_event_where(&mut rx, |event| {
@@ -501,7 +501,7 @@ async fn supersede_on_a_silent_stream_still_interrupts() {
         next_event_where(&mut rx, |event| matches!(event, RoundEvent::StreamDelta(_))).await;
     assert!(delta.is_some(), "round must stream its first delta");
 
-    lifecycle.record_interrupt(protocol::RoundInterruptReason::Superseded);
+    lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::Superseded);
     lifecycle.cancel_current().await;
 
     let interrupted = next_event_where(&mut rx, |event| {
@@ -516,7 +516,7 @@ async fn supersede_on_a_silent_stream_still_interrupts() {
     assert_eq!(records.len(), 1, "exactly one durable record: {records:?}");
     assert_eq!(
         records[0].reason,
-        protocol::RoundInterruptReason::Superseded
+        nuo_protocol::RoundInterruptReason::Superseded
     );
     assert_eq!(
         records[0].detail.as_deref(),
@@ -536,7 +536,7 @@ async fn supersede_record_is_stamped_at_the_message_send_time() {
     // explicit send time wins over the park-moment clock.
     let lifecycle = RoundLifecycle::new();
     lifecycle.begin().await;
-    lifecycle.record_interrupt_at(protocol::RoundInterruptReason::Superseded, Some(42_000));
+    lifecycle.record_interrupt_at(nuo_protocol::RoundInterruptReason::Superseded, Some(42_000));
     let parked = lifecycle
         .take_interrupt()
         .expect("park survives until taken");

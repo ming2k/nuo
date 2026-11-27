@@ -50,7 +50,7 @@ fn tab_after_esc_reopens_through_the_event_loop_context_shape() {
     let has_trigger_text = app.completion_trigger_text_present();
     let mut input = app.composer.input.clone();
     let mut cursor = app.composer.cursor_position;
-    let mut drag = view::model::selection::SelectionDrag::default();
+    let mut drag = nuo_view::model::selection::SelectionDrag::default();
     let action = crate::shell::input::route_event_motion(
         graticule::event::Event::Key(graticule::event::KeyEvent::new(
             graticule::event::KeyCode::Tab,
@@ -311,15 +311,15 @@ async fn console_kill_arm_cancels_on_selection_move() {
 
 #[test]
 fn websearch_provider_dropdown_builds_and_selects() {
-    let ws = protocol::WebSearchConfigView {
+    let ws = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: protocol::WebSearchProvider::Exa,
-        reader: protocol::WebReaderProvider::Disabled,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Disabled,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: protocol::WebCredentialStatus::Stored,
-        reader_credential: protocol::WebCredentialStatus::NotRequired,
-        capabilities: protocol::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::NotRequired,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
     let dropdown = crate::shell::overlays::build_websearch_provider_dropdown("tavily", Some(&ws));
     assert_eq!(dropdown.context.as_deref(), Some("websearch_provider"));
@@ -335,7 +335,7 @@ fn websearch_provider_dropdown_builds_and_selects() {
             .iter()
             .find(|item| item.id == "exa")
             .and_then(|item| item.indicator),
-        Some(ui_primitives::components::dropdown::DropdownIndicator::Ready)
+        Some(nuo_ui_primitives::components::dropdown::DropdownIndicator::Ready)
     );
     assert_eq!(
         dropdown
@@ -350,15 +350,15 @@ fn websearch_provider_dropdown_builds_and_selects() {
 
 #[test]
 fn websearch_reader_dropdown_builds_and_selects() {
-    let mut ws = protocol::WebSearchConfigView {
+    let mut ws = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: protocol::WebSearchProvider::Exa,
-        reader: protocol::WebReaderProvider::Jina,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Jina,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: protocol::WebCredentialStatus::Stored,
-        reader_credential: protocol::WebCredentialStatus::Stored,
-        capabilities: protocol::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::Stored,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
     let dropdown = crate::shell::overlays::build_websearch_reader_dropdown("jina", Some(&ws));
     assert_eq!(dropdown.context.as_deref(), Some("websearch_reader"));
@@ -371,7 +371,7 @@ fn websearch_reader_dropdown_builds_and_selects() {
 
     // A snapshot that advertises no reader capability offers only `disabled`.
     ws.capabilities
-        .retain(|capability| capability.axis == protocol::WebProviderAxis::Search);
+        .retain(|capability| capability.axis == nuo_protocol::WebProviderAxis::Search);
     let empty_dropdown =
         crate::shell::overlays::build_websearch_reader_dropdown("disabled", Some(&ws));
     assert_eq!(empty_dropdown.items.len(), 1);
@@ -387,7 +387,7 @@ fn websearch_reader_dropdown_builds_and_selects() {
 /// palette against the stale `transcript_focused`.
 #[tokio::test]
 async fn sheet_mount_parks_browse_focus_not_just_step_target() {
-    use tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+    use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
@@ -448,7 +448,7 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
 /// per-frame sync — the park happens at mount only.
 #[tokio::test]
 async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
-    use tool::PermissionRequest;
+    use nuo_tool::PermissionRequest;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();

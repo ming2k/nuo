@@ -163,7 +163,7 @@ fn key_with_focus(code: KeyCode) -> InputAction {
         &SheetKeys::default(),
         &SceneKeys {
             focus: crate::shell::focus::FocusPlane::Transcript,
-            entry_focus: Some(view::model::layout::InteractiveTarget::tool_step(0)),
+            entry_focus: Some(nuo_view::model::layout::InteractiveTarget::tool_step(0)),
             ..Default::default()
         },
         &mut drag,

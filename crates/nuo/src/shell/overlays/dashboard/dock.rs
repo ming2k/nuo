@@ -195,7 +195,7 @@ pub(crate) fn draw_compact_cards(
             frame.render_widget(&mut Paragraph::new(line), cell);
         }
     }
-    ui_primitives::primitives::draw_scrollbar(
+    nuo_ui_primitives::primitives::draw_scrollbar(
         frame,
         body,
         start_row,
@@ -377,10 +377,10 @@ pub(crate) fn now_unix_secs() -> u64 {
 /// implementation (ADR-0152 `[INV-TEXT-OVERFLOW-01]`); a local copy here is
 /// precisely how the dock and the token report would drift apart.
 pub(crate) fn truncate_display(text: &str, max_width: usize) -> String {
-    ui_primitives::components::overflow::fit(
+    nuo_ui_primitives::components::overflow::fit(
         text,
         max_width,
-        ui_primitives::components::overflow::Overflow::End,
+        nuo_ui_primitives::components::overflow::Overflow::End,
     )
     .text
 }

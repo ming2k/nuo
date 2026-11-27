@@ -1,6 +1,6 @@
 //! This CLI's identity + role profile.
 //!
-//! Lives in the application layer (`nuo`), NOT in `server`.
+//! Lives in the application layer (`nuo`), NOT in `nuo-server`.
 //! The server layer stays application-neutral — a future sibling binary
 //! brings its own identity/role. Forked sessions reuse the parent agent's
 //! identity via `Agent::identity()`, so it never asks the server to name a product.
@@ -8,7 +8,7 @@
 //! ## Why the shipped agent has no self-description
 //!
 //! The engine composes an identity preamble only when the embedding supplies
-//! one ([`protocol::AgentIdentity`]); this CLI supplies none. Nothing in the harness
+//! one ([`nuo_protocol::AgentIdentity`]); this CLI supplies none. Nothing in the harness
 //! reads the model's self-name: no feature parses "I am nuo", addressing is
 //! user-side (`@role:` / `/role`), and the product name already travels
 //! with the binary, the UI chrome, and the config paths. Capabilities are
@@ -23,7 +23,7 @@
 //! A `/role` switch is the one place a framing line earns its
 //! tokens: the focused roles install an imperative role directive
 //! (see [`AgentRoleProfile::from_role`]).
-use protocol::AgentRoleProfile;
+use nuo_protocol::AgentRoleProfile;
 
 /// The built-in **coding agent** profile: the declarative policy for the
 /// standard developer role. It intentionally carries no identity preamble; the
@@ -38,8 +38,8 @@ pub fn agent_code() -> AgentRoleProfile {
 pub struct ServerUiBridge;
 
 #[async_trait::async_trait]
-impl server::api::UiBridge for ServerUiBridge {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::api::CopyOutcome, String> {
+impl nuo_server::api::UiBridge for ServerUiBridge {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo_server::api::CopyOutcome, String> {
         Err(
             "clipboard export is a client capability; use the client's local copy action"
                 .to_string(),
@@ -48,6 +48,6 @@ impl server::api::UiBridge for ServerUiBridge {
 }
 
 // Built-in roles (`developer`, `philosophist`, `ops`) and the `/role` switching mechanism
-// are declared in `protocol` as shared vocabulary (`MainAgentRole`,
+// are declared in `nuo-protocol` as shared vocabulary (`MainAgentRole`,
 // `AgentRoleProfile::from_role`) and applied via `Agent::apply_role`,
 // so this binary does not need its own role registry — both frontends share one.

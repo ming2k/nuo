@@ -24,8 +24,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use view::disclosure::Interaction;
-use view::model::document::{MessageKind, TranscriptMessage};
+use nuo_view::disclosure::Interaction;
+use nuo_view::model::document::{MessageKind, TranscriptMessage};
 
 /// A finished tool step, expanded or not.
 fn step(name: &str, expanded: bool) -> TranscriptMessage {
@@ -39,7 +39,7 @@ fn step(name: &str, expanded: bool) -> TranscriptMessage {
     {
         *output = Some("ok".to_string());
         *exp = expanded;
-        *status = view::model::document::ToolStepStatus::Ok;
+        *status = nuo_view::model::document::ToolStepStatus::Ok;
     }
     m
 }
@@ -53,7 +53,7 @@ struct Painted {
 fn paint(
     messages: &[TranscriptMessage],
     plane: FocusPlane,
-    focused_entry: Option<view::model::layout::InteractiveTarget>,
+    focused_entry: Option<nuo_view::model::layout::InteractiveTarget>,
 ) -> Painted {
     paint_with_theme(
         &Theme::default(),
@@ -72,8 +72,8 @@ fn paint(
 /// "does the document survive the lift" has a different answer on each. Covering one
 /// palette would leave the derivation untested exactly where it does the most work.
 fn shipped_schemes() -> Vec<Theme> {
-    let custom = ui_primitives::color_scheme::ColorSchemeConfig::default();
-    ui_primitives::theme::COLOR_SCHEMES
+    let custom = nuo_ui_primitives::color_scheme::ColorSchemeConfig::default();
+    nuo_ui_primitives::theme::COLOR_SCHEMES
         .iter()
         .map(|scheme| Theme::from_color_scheme(&scheme.id, &custom))
         .collect()
@@ -84,7 +84,7 @@ fn paint_with_theme(
     theme: &Theme,
     messages: &[TranscriptMessage],
     plane: FocusPlane,
-    focused_entry: Option<view::model::layout::InteractiveTarget>,
+    focused_entry: Option<nuo_view::model::layout::InteractiveTarget>,
     selection: &SelectionState,
 ) -> Painted {
     let theme = *theme;
@@ -123,7 +123,7 @@ fn paint_with_theme(
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -138,7 +138,7 @@ fn paint_with_theme(
 /// is also the faithful statement of the design: the pane's page *is* that tone while
 /// the pane owns the keyboard.
 fn page_tone(theme: &Theme, plane: FocusPlane) -> graticule::Color {
-    view::focus_plane::transcript_theme(theme, plane).surface()
+    nuo_view::focus_plane::transcript_theme(theme, plane).surface()
 }
 
 /// Every background colour present in one row, left to right.
@@ -281,7 +281,7 @@ fn wash_preserves_the_relative_step_of_a_content_band() {
 fn wash_keeps_the_sent_message_panel_raised_above_the_page() {
     let theme = Theme::default();
     let messages = vec![
-        TranscriptMessage::new(tool::Role::User, "please refactor this")
+        TranscriptMessage::new(nuo_tool::Role::User, "please refactor this")
             .with_round(1)
             .with_sent_at_ms(1_700_000_000_000),
         step("read", false),
@@ -355,7 +355,7 @@ fn browse_focus_paints_no_entry_marker() {
 fn focused_entry_is_marked_with_one_gutter_cell() {
     let theme = Theme::default();
     let messages = vec![step("read", false)];
-    let target = view::model::layout::InteractiveTarget::tool_step(0);
+    let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let composer_plane = paint(&messages, FocusPlane::Composer, Some(target));
     let transcript_plane = paint(&messages, FocusPlane::Transcript, Some(target));
@@ -405,7 +405,7 @@ fn focused_entry_is_marked_with_one_gutter_cell() {
 fn marking_an_entry_does_not_recolour_its_summary() {
     let theme = Theme::default();
     let messages = vec![step("read", true)];
-    let target = view::model::layout::InteractiveTarget::tool_step(0);
+    let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let composer_plane = paint(&messages, FocusPlane::Composer, Some(target));
     let transcript_plane = paint(&messages, FocusPlane::Transcript, Some(target));
@@ -465,7 +465,7 @@ fn marking_an_entry_does_not_recolour_its_summary() {
 fn expanded_entry_keeps_its_marker() {
     let theme = Theme::default();
     let messages = vec![step("read", true)];
-    let target = view::model::layout::InteractiveTarget::tool_step(0);
+    let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let transcript_plane = paint(&messages, FocusPlane::Transcript, Some(target));
     let marker = theme.pane_marker_style();
@@ -553,7 +553,7 @@ fn both_planes_announce_ownership_in_the_background_channel() {
 fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
     let theme = Theme::default();
     let messages = vec![step("read", false)];
-    let target = view::model::layout::InteractiveTarget::tool_step(0);
+    let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
 
     let summary_fg = |painted: &Painted| -> graticule::Color {
         let b = painted.terminal.buffer();
@@ -604,7 +604,7 @@ fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme: &theme,
-                    layout: view::layout::Strategy::default(),
+                    layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,
                 },
             );
@@ -629,13 +629,13 @@ fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
 #[test]
 fn every_shipped_scheme_announces_the_transcript_plane() {
     let messages = vec![
-        TranscriptMessage::new(tool::Role::User, "selectable prose for the pane").with_round(1),
+        TranscriptMessage::new(nuo_tool::Role::User, "selectable prose for the pane").with_round(1),
         step("read", true),
     ];
-    let target = view::model::layout::InteractiveTarget::tool_step(1);
+    let target = nuo_view::model::layout::InteractiveTarget::tool_step(1);
     let selection = SelectionState::Range {
-        anchor: view::model::layout::SemanticCursor::new(0, 0, 0),
-        head: view::model::layout::SemanticCursor::new(0, 0, 26),
+        anchor: nuo_view::model::layout::SemanticCursor::new(0, 0, 0),
+        head: nuo_view::model::layout::SemanticCursor::new(0, 0, 26),
     };
     let lum = |c: graticule::Color| -> f32 {
         match c {
@@ -754,12 +754,12 @@ fn a_selection_keeps_its_separation_under_the_pane_wash() {
     // and a step's chrome carries no selectable text to select.
     let messages = vec![
         TranscriptMessage::new(
-            tool::Role::User,
+            nuo_tool::Role::User,
             "please refactor the selection rendering path",
         )
         .with_round(1),
     ];
-    let target = view::model::layout::InteractiveTarget::tool_step(0);
+    let target = nuo_view::model::layout::InteractiveTarget::tool_step(0);
     let lum = |c: graticule::Color| -> f32 {
         match c {
             graticule::Color::Rgb(r, g, b) => {
@@ -770,8 +770,8 @@ fn a_selection_keeps_its_separation_under_the_pane_wash() {
     };
 
     let selection = SelectionState::Range {
-        anchor: view::model::layout::SemanticCursor::new(0, 0, 0),
-        head: view::model::layout::SemanticCursor::new(0, 0, 44),
+        anchor: nuo_view::model::layout::SemanticCursor::new(0, 0, 0),
+        head: nuo_view::model::layout::SemanticCursor::new(0, 0, 44),
     };
     let render = |plane: FocusPlane| -> graticule::TestTerminal {
         let mut terminal = graticule::TestTerminal::new(80, 28);
@@ -809,7 +809,7 @@ fn a_selection_keeps_its_separation_under_the_pane_wash() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme: &theme,
-                    layout: view::layout::Strategy::default(),
+                    layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,
                 },
             );

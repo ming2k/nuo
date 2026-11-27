@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use engine::{
+use futures::stream::{self, BoxStream};
+use nuo_engine::{
     Agent, AgentIdentity, Block, Budget, ContextInputs, ContextPolicyError, ContextSource,
     InputKey, Message, Provider, Role, SourceOrder, ToolSurface, Topic,
 };
-use futures::stream::{self, BoxStream};
-use tool::BuiltinTool;
+use nuo_tool::BuiltinTool;
 
 struct IdleProvider;
 
@@ -17,9 +17,9 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Ok(protocol::ProviderCompletion::message(Message::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
@@ -27,10 +27,12 @@ impl Provider for IdleProvider {
 
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
-    ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
-    {
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::once(async { Ok("done".to_owned()) })))
     }
 }
@@ -75,7 +77,7 @@ impl ContextSource for ProductPolicy {
     }
 }
 
-fn builder() -> engine::AgentBuilder {
+fn builder() -> nuo_engine::AgentBuilder {
     Agent::builder(Arc::new(IdleProvider), Vec::new(), AgentIdentity::default())
 }
 
@@ -236,9 +238,9 @@ fn a_before_anchor_is_honored_across_declaration_order() {
 
 #[test]
 fn user_instructions_are_rendered_dynamically() {
-    let instruction = |text: &str| protocol::ScopedInstruction {
+    let instruction = |text: &str| nuo_protocol::ScopedInstruction {
         id: "user:0".to_string(),
-        source: protocol::InstructionSource::User,
+        source: nuo_protocol::InstructionSource::User,
         ordinal: 0,
         selector: Default::default(),
         text: text.to_string(),
@@ -269,19 +271,19 @@ fn user_instructions_are_rendered_dynamically() {
 
 #[test]
 fn subagent_inherits_parent_user_instructions() {
-    let instruction = protocol::ScopedInstruction {
+    let instruction = nuo_protocol::ScopedInstruction {
         id: "user:0".to_string(),
-        source: protocol::InstructionSource::User,
+        source: nuo_protocol::InstructionSource::User,
         ordinal: 0,
         selector: Default::default(),
         text: "Inherited user instruction from parent.".to_string(),
     };
     let parent = builder().with_user_instructions(vec![instruction]).build();
 
-    let tool = engine::SubagentTool::new(
+    let tool = nuo_engine::SubagentTool::new(
         Arc::new(IdleProvider),
-        protocol::ToolSet::from_tools(Vec::new()),
-        &protocol::SubAgentProfile::EXPLORE,
+        nuo_protocol::ToolSet::from_tools(Vec::new()),
+        &nuo_protocol::SubAgentProfile::EXPLORE,
     );
     tool.bind_user_instructions(parent.user_instructions_handle());
 
@@ -300,38 +302,38 @@ fn subagent_inherits_parent_user_instructions() {
 fn subagent_inherits_parent_project_instructions_and_provider_kind() {
     let parent = builder().build();
     parent.set_project_instructions(vec![
-        protocol::ScopedInstruction {
+        nuo_protocol::ScopedInstruction {
             id: ".nuo/instructions/global.md".to_string(),
-            source: protocol::InstructionSource::Project,
+            source: nuo_protocol::InstructionSource::Project,
             ordinal: 0,
             selector: Default::default(),
             text: "Global project rule.".to_string(),
         },
-        protocol::ScopedInstruction {
+        nuo_protocol::ScopedInstruction {
             id: ".nuo/instructions/explore.md".to_string(),
-            source: protocol::InstructionSource::Project,
+            source: nuo_protocol::InstructionSource::Project,
             ordinal: 1,
-            selector: protocol::InstructionSelector {
+            selector: nuo_protocol::InstructionSelector {
                 role: Some("explore".to_string()),
                 ..Default::default()
             },
             text: "Explore role rule.".to_string(),
         },
-        protocol::ScopedInstruction {
+        nuo_protocol::ScopedInstruction {
             id: ".nuo/instructions/provider.md".to_string(),
-            source: protocol::InstructionSource::Project,
+            source: nuo_protocol::InstructionSource::Project,
             ordinal: 2,
-            selector: protocol::InstructionSelector {
+            selector: nuo_protocol::InstructionSelector {
                 provider: Some("commandcode-goat".to_string()),
                 ..Default::default()
             },
             text: "Provider rule.".to_string(),
         },
-        protocol::ScopedInstruction {
+        nuo_protocol::ScopedInstruction {
             id: ".nuo/instructions/reviewer.md".to_string(),
-            source: protocol::InstructionSource::Project,
+            source: nuo_protocol::InstructionSource::Project,
             ordinal: 3,
-            selector: protocol::InstructionSelector {
+            selector: nuo_protocol::InstructionSelector {
                 role: Some("reviewer".to_string()),
                 ..Default::default()
             },
@@ -359,13 +361,13 @@ fn subagent_inherits_parent_project_instructions_and_provider_kind() {
 fn exploration_guidance_follows_the_declared_tool_surface() {
     // The registry is read directly: this is the vocabulary an embedder or a
     // provider asks about, and it must not depend on tool *names*.
-    let policy = engine::default_policy();
+    let policy = nuo_engine::default_policy();
 
     let command_only = policy.plan(&ContextInputs {
         workspace_topology: Some("- crates/*".to_string()),
         ..Default::default()
     });
-    let bare = protocol::render_blocks(&command_only.fixed);
+    let bare = nuo_protocol::render_blocks(&command_only.fixed);
     assert!(bare.contains("crates/*"));
     assert!(
         !bare.contains("Batch independent inspection"),
@@ -376,14 +378,14 @@ fn exploration_guidance_follows_the_declared_tool_surface() {
         workspace_topology: Some("- crates/*".to_string()),
         tool_surface: ToolSurface::new(
             [
-                &FakeTool(BuiltinTool::Read) as &dyn tool::Tool,
+                &FakeTool(BuiltinTool::Read) as &dyn nuo_tool::Tool,
                 &FakeTool(BuiltinTool::CodeQuery),
             ],
             true,
         ),
         ..Default::default()
     });
-    let rich = protocol::render_blocks(&native.fixed);
+    let rich = nuo_protocol::render_blocks(&native.fixed);
     assert!(
         rich.contains("Batch independent inspection"),
         "parallel channel batches independent reads: {rich}"
@@ -394,7 +396,7 @@ fn exploration_guidance_follows_the_declared_tool_surface() {
 struct FakeTool(BuiltinTool);
 
 #[async_trait]
-impl tool::Tool for FakeTool {
+impl nuo_tool::Tool for FakeTool {
     fn name(&self) -> &str {
         self.0.as_str()
     }
@@ -409,10 +411,10 @@ impl tool::Tool for FakeTool {
     }
     async fn execute(
         &self,
-        _ctx: &tool::ToolContext,
+        _ctx: &nuo_tool::ToolContext,
         _args: serde_json::Value,
-    ) -> tool::Result<tool::ToolOutput> {
-        Ok(tool::ToolOutput::text("ok"))
+    ) -> nuo_tool::Result<nuo_tool::ToolOutput> {
+        Ok(nuo_tool::ToolOutput::text("ok"))
     }
 }
 
@@ -425,7 +427,7 @@ impl tool::Tool for FakeTool {
 fn subagent_inherits_the_parent_answer_language() {
     let parent = builder()
         .with_response_language(Some(
-            protocol::ResponseLanguage::parse("zh-CN").expect("valid tag"),
+            nuo_protocol::ResponseLanguage::parse("zh-CN").expect("valid tag"),
         ))
         .build();
     assert_eq!(
@@ -434,10 +436,10 @@ fn subagent_inherits_the_parent_answer_language() {
         "the builder-declared language must reach the agent"
     );
 
-    let tool = engine::SubagentTool::new(
+    let tool = nuo_engine::SubagentTool::new(
         Arc::new(IdleProvider),
-        protocol::ToolSet::from_tools(Vec::new()),
-        &protocol::SubAgentProfile::EXPLORE,
+        nuo_protocol::ToolSet::from_tools(Vec::new()),
+        &nuo_protocol::SubAgentProfile::EXPLORE,
     );
     tool.bind_response_language(parent.response_language_handle());
 

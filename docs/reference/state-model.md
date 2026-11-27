@@ -1,6 +1,6 @@
 # Parked Request State Model Reference
 
-Reference for the lifecycle of a request that parks an agent mid-round on a human decision. Cited by the shared vocabulary module (`crates/protocol/src/human_request.rs`) and the broker that enforces it (`crates/engine/src/cognition/interop/human_broker.rs`).
+Reference for the lifecycle of a request that parks an agent mid-round on a human decision. Cited by the shared vocabulary module (`crates/nuo-protocol/src/human_request.rs`) and the broker that enforces it (`crates/nuo-engine/src/cognition/interop/human_broker.rs`).
 
 ---
 
@@ -28,7 +28,7 @@ requested/parked ──► replied | cancelled
 - **reply** — settle exactly once from a wire-originated (human) reply.
 - **cancel** — settle everything still parked (turn aborted, session end, interrupt), recording the kind so metrics can tell a user cancel from a teardown cancel.
 
-A single broker (`engine::cognition::interop::human_broker`) owns all three so the rule is enforced once.
+A single broker (`nuo_engine::cognition::interop::human_broker`) owns all three so the rule is enforced once.
 
 ---
 

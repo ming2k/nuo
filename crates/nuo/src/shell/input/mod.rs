@@ -18,9 +18,9 @@ pub use router::{Dispatch, event_family, resolve_block, route_event, route_event
 #[cfg(test)]
 use graticule::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 #[cfg(test)]
-use view::model::layout::{LayoutMap, SemanticCursor};
+use nuo_view::model::layout::{LayoutMap, SemanticCursor};
 #[cfg(test)]
-use view::model::selection::SelectionDrag;
+use nuo_view::model::selection::SelectionDrag;
 #[cfg(test)]
 mod tests;
 

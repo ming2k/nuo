@@ -12,7 +12,7 @@ use super::{ActionContext, ActionFlow, commands, modals};
 use crate::shell::App;
 use crate::shell::clipboard_ops;
 use crate::shell::event_loop::sync::show_local_toast;
-use protocol::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 /// Run the palette's highlighted entry.
 ///
@@ -248,7 +248,7 @@ pub(crate) async fn execute_command_by_id(
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>()
                     .loading = true;
                 app.open_dialog(crate::shell::surfaces::DialogKind::PortShare);
-                app.send_intent(protocol::AgentRequest::QueryServerEndpoints);
+                app.send_intent(nuo_protocol::AgentRequest::QueryServerEndpoints);
             }
         }
         CommandId::OpenTools => {
@@ -308,7 +308,9 @@ pub(crate) async fn execute_command_by_id(
             );
         }
         CommandId::ForkThread => {
-            app.send_intent(protocol::AgentRequest::SlashCommand("/fork".to_string()));
+            app.send_intent(nuo_protocol::AgentRequest::SlashCommand(
+                "/fork".to_string(),
+            ));
         }
         CommandId::OpenSessions => {
             enter_panel(

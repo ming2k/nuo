@@ -20,7 +20,7 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use provider_qoder::surface::{FUNCTION_SWITCH_KEYS, is_function_switch};
+use nuo_provider_qoder::surface::{FUNCTION_SWITCH_KEYS, is_function_switch};
 use serde_json::Value;
 
 /// The captured catalog, as the server returned it.
@@ -196,7 +196,7 @@ fn scene_prefixed_switches_match_only_in_their_own_scene() {
 #[test]
 fn parser_yields_only_models_for_the_captured_assistant_scene() {
     let catalog = captured_catalog();
-    let models = provider_qoder::parse_scene_catalog(&catalog, "assistant");
+    let models = nuo_provider_qoder::parse_scene_catalog(&catalog, "assistant");
     let expected: Vec<String> = all_entries(&catalog)
         .iter()
         .filter(|(scene, _)| scene == "assistant")
@@ -226,7 +226,7 @@ fn parser_yields_only_models_for_the_captured_assistant_scene() {
 #[test]
 fn availability_on_the_capture_is_declared_never_invented() {
     let catalog = captured_catalog();
-    let models = provider_qoder::parse_scene_catalog(&catalog, "assistant");
+    let models = nuo_provider_qoder::parse_scene_catalog(&catalog, "assistant");
     assert!(models.len() > 1, "capture should yield a real catalog");
 
     let mut locked_with_reason = 0;
@@ -335,7 +335,7 @@ fn reason_is_taken_verbatim_only_when_the_payload_states_one() {
         ]
     });
 
-    let models = provider_qoder::parse_scene_catalog(&catalog, "assistant");
+    let models = nuo_provider_qoder::parse_scene_catalog(&catalog, "assistant");
     let reason_for = |id: &str| {
         models
             .iter()

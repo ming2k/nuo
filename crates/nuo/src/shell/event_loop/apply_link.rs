@@ -11,7 +11,7 @@ use crate::shell::app::state::ClientLinkPhase;
 pub(super) fn apply_thread_subscribed(
     app: &mut App,
     thread_id: String,
-    phase: protocol::ThreadPhase,
+    phase: nuo_protocol::ThreadPhase,
 ) -> bool {
     let first_thread = app.session.live_session_id.is_empty();
     // Server confirmed subscription: initial startup target is fulfilled.
@@ -48,7 +48,7 @@ pub(super) fn apply_thread_subscribed(
             .filter(|id| id != &thread_id)
             .collect();
         if !draft_ids.is_empty() {
-            app.send_intent(protocol::AgentRequest::CheckThreadsExist {
+            app.send_intent(nuo_protocol::AgentRequest::CheckThreadsExist {
                 thread_ids: draft_ids,
             });
         }
@@ -74,8 +74,8 @@ pub(super) fn reconcile_subscriptions(app: &mut App) {
         }
         if app.subscribe_thread(target, project) {
             app.session.initial_subscribe_in_flight = true;
-            app.threads.session_phase = protocol::ThreadPhase::Preparing {
-                stage: protocol::PrepareStage::Thread,
+            app.threads.session_phase = nuo_protocol::ThreadPhase::Preparing {
+                stage: nuo_protocol::PrepareStage::Thread,
             };
             app.session.thread_phase_since = std::time::Instant::now();
         }
@@ -103,7 +103,7 @@ pub(super) fn reconcile_subscriptions(app: &mut App) {
         let mut sent_any = false;
         for tid in to_subscribe {
             if app.subscribe_thread(
-                protocol::ThreadTarget::Attach {
+                nuo_protocol::ThreadTarget::Attach {
                     id: Some(tid.clone()),
                 },
                 None,
@@ -113,16 +113,16 @@ pub(super) fn reconcile_subscriptions(app: &mut App) {
             }
         }
         if sent_any && active_tid.is_some() {
-            app.threads.session_phase = protocol::ThreadPhase::Preparing {
-                stage: protocol::PrepareStage::Thread,
+            app.threads.session_phase = nuo_protocol::ThreadPhase::Preparing {
+                stage: nuo_protocol::PrepareStage::Thread,
             };
             app.session.thread_phase_since = std::time::Instant::now();
         }
     }
 }
 
-pub(super) fn apply_server_phase(app: &mut App, phase: protocol::ServerPhase) -> bool {
-    let draining = matches!(phase, protocol::ServerPhase::Draining { .. });
+pub(super) fn apply_server_phase(app: &mut App, phase: nuo_protocol::ServerPhase) -> bool {
+    let draining = matches!(phase, nuo_protocol::ServerPhase::Draining { .. });
     // ADR-0266 `[INV-SRVPHASE-07]`: preserve `server_phase_since` while
     // progressing across sub-steps inside `ServerPhase::Initializing` so
     // rapid stage/migration transitions never reset the 120ms hysteresis clock.
@@ -143,8 +143,8 @@ pub(super) fn apply_server_phase(app: &mut App, phase: protocol::ServerPhase) ->
 pub(super) fn apply_link_established(
     app: &mut App,
     server_id: String,
-    server_phase: protocol::ServerPhase,
-    persistence_health: Option<protocol::monitor::PersistenceHealth>,
+    server_phase: nuo_protocol::ServerPhase,
+    persistence_health: Option<nuo_protocol::monitor::PersistenceHealth>,
     req_tx: mpsc::UnboundedSender<crate::shell::client::ClientOutbound>,
 ) -> bool {
     let restarted = app
@@ -163,7 +163,7 @@ pub(super) fn apply_link_established(
     // server's `started_at_ms` so late-joining clients immediately see ongoing
     // migrations without a redundant 120ms QuietWait delay.
     let phase_since = match server_phase {
-        protocol::ServerPhase::Initializing {
+        nuo_protocol::ServerPhase::Initializing {
             started_at_ms: Some(started),
             ..
         } => {
@@ -234,7 +234,7 @@ pub(super) fn apply_subscribe_refused(
             let options = app.session.initial_init_options.clone();
             let project = app.session.project_scope.clone();
             app.subscribe_thread(
-                protocol::ThreadTarget::Picker {
+                nuo_protocol::ThreadTarget::Picker {
                     options: Some(options),
                 },
                 project,
@@ -252,7 +252,7 @@ pub(super) fn apply_subscribe_refused(
             let options = app.session.initial_init_options.clone();
             let project = app.session.project_scope.clone();
             app.subscribe_thread(
-                protocol::ThreadTarget::Picker {
+                nuo_protocol::ThreadTarget::Picker {
                     options: Some(options),
                 },
                 project,
@@ -268,14 +268,17 @@ pub(super) fn apply_subscribe_refused(
     true
 }
 
-pub(super) fn apply_pick_required(app: &mut App, threads: Vec<protocol::ThreadOverview>) -> bool {
+pub(super) fn apply_pick_required(
+    app: &mut App,
+    threads: Vec<nuo_protocol::ThreadOverview>,
+) -> bool {
     app.session.pending_initial_subscribe = None;
     app.session.initial_subscribe_in_flight = false;
     app.session.sessions_overview = threads;
     let options = app.session.initial_init_options.clone();
     let project = app.session.project_scope.clone();
     app.subscribe_thread(
-        protocol::ThreadTarget::Picker {
+        nuo_protocol::ThreadTarget::Picker {
             options: Some(options),
         },
         project,

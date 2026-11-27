@@ -5,7 +5,7 @@ use super::round::build_round_inspector_body;
 use super::tables::{build_rounds_table, build_turns_table};
 use crate::shell::render::Theme;
 use crate::shell::surfaces::TraceAttemptKey;
-use protocol::{
+use nuo_protocol::{
     RequestPerformance, RequestUsageKey, RequestUsageRecord, RequestUsageSource,
     RequestUsageStatus, TokenSourceReport, TokenSourceRow, TransportObservation,
 };
@@ -461,7 +461,7 @@ fn test_build_overview_and_sticky_table_headers() {
 
     let report = TokenSourceReport {
         rows: Vec::new(),
-        grand_total: protocol::TokenSourceTotals {
+        grand_total: nuo_protocol::TokenSourceTotals {
             prompt_tokens: 4000,
             completion_tokens: 300,
             cache_read_tokens: 3000,
@@ -477,9 +477,9 @@ fn test_build_overview_and_sticky_table_headers() {
         &report,
         &rounds,
         ContextUsageProps {
-            snapshot: Some(protocol::ContextTokenSnapshot {
+            snapshot: Some(nuo_protocol::ContextTokenSnapshot {
                 tokens: 24_500,
-                source: protocol::ContextTokenSource::Api,
+                source: nuo_protocol::ContextTokenSource::Api,
                 overhead_tokens: None,
                 history_tokens: None,
                 instructions_tokens: None,
@@ -773,7 +773,7 @@ fn test_round_turns_sorted_descending_and_turn_labels() {
 
 #[test]
 fn test_round_inspector_timing_breakdown_and_activity_recap() {
-    use view::model::document::TranscriptMessage;
+    use nuo_view::model::document::TranscriptMessage;
 
     let theme = Theme::from_color_scheme("dark", &Default::default());
     let mut report = TokenSourceReport::default();
@@ -844,17 +844,18 @@ fn test_round_inspector_timing_breakdown_and_activity_recap() {
     // Observed span: 10_000 -> 14_000 + 1_800 = 15_800 => 5_800ms
     assert_eq!(round.wall_span_ms(), Some(5_800));
 
-    let mut user = TranscriptMessage::new(tool::Role::User, "Refactor the session titler\nplease");
+    let mut user =
+        TranscriptMessage::new(nuo_tool::Role::User, "Refactor the session titler\nplease");
     user.round = Some(2);
     let mut read_step = TranscriptMessage::tool_step("c1", "read", "{}");
     read_step.round = Some(2);
-    read_step.finish_tool_step("c1", "ok", tool::ToolOutput::text("ok"), 45);
+    read_step.finish_tool_step("c1", "ok", nuo_tool::ToolOutput::text("ok"), 45);
     let mut edit_step = TranscriptMessage::tool_step("c2", "edit_text", "{}");
     edit_step.round = Some(2);
-    edit_step.finish_tool_step("c2", "failed", tool::ToolOutput::error("failed"), 120);
+    edit_step.finish_tool_step("c2", "failed", nuo_tool::ToolOutput::error("failed"), 120);
     let mut other_round = TranscriptMessage::tool_step("c3", "read", "{}");
     other_round.round = Some(1);
-    other_round.finish_tool_step("c3", "ok", tool::ToolOutput::text("ok"), 999);
+    other_round.finish_tool_step("c3", "ok", nuo_tool::ToolOutput::text("ok"), 999);
 
     let messages = vec![user, read_step, edit_step, other_round];
     let recap = extract_round_transcript_recap(&messages, 2);
@@ -867,7 +868,7 @@ fn test_round_inspector_timing_breakdown_and_activity_recap() {
     assert_eq!(recap.tool_failed, 1);
     assert_eq!(recap.tool_duration_ms, 165);
 
-    let summary = protocol::RoundSummary {
+    let summary = nuo_protocol::RoundSummary {
         round: 2,
         output_tokens: 400,
         duration_ms: 8_400,

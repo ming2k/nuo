@@ -151,7 +151,7 @@ pub fn draw_session_preview(
     scroll: &mut usize,
     theme: &Theme,
 ) {
-    let area = ui_primitives::primitives::centered_rect(70, 75, frame.area());
+    let area = nuo_ui_primitives::primitives::centered_rect(70, 75, frame.area());
     // Occlude the dashboard beneath and paint the panel.
     frame.render_widget(&mut graticule::Clear::default(), area);
     let inner = ElevationContainer::overlay().render(frame, area, theme);

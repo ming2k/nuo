@@ -15,7 +15,7 @@
 
 use super::*;
 use crate::shell::event_loop::UiRuntime;
-use protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 
 fn quarantined_snapshot() -> WorkspaceSecuritySnapshot {
     WorkspaceSecuritySnapshot {
@@ -171,8 +171,8 @@ fn the_trusted_snapshot_still_resolves_the_gate() {
         &runtime,
         crate::shell::event_loop::AppMutation::Harness {
             thread_id: None,
-            snapshot: protocol::HarnessSnapshot {
-                loop_status: protocol::LoopStatus::Idle,
+            snapshot: nuo_protocol::HarnessSnapshot {
+                loop_status: nuo_protocol::LoopStatus::Idle,
                 round_counter: 0,
                 retry_pending: false,
                 unattended: false,
@@ -216,8 +216,8 @@ fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
     let snapshot =
         |security: WorkspaceSecuritySnapshot| crate::shell::event_loop::AppMutation::Harness {
             thread_id: None,
-            snapshot: protocol::HarnessSnapshot {
-                loop_status: protocol::LoopStatus::Idle,
+            snapshot: nuo_protocol::HarnessSnapshot {
+                loop_status: nuo_protocol::LoopStatus::Idle,
                 round_counter: 0,
                 retry_pending: false,
                 unattended: false,
@@ -294,7 +294,7 @@ fn changed_content_after_a_refusal_is_asked_again() {
     );
     assert_eq!(
         gate.rows().first().map(|row| row.status),
-        Some(view::trust_gate::TrustStatus::Changed),
+        Some(nuo_view::trust_gate::TrustStatus::Changed),
         "the row carries the reason it is being asked about"
     );
 }

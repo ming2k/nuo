@@ -13,9 +13,9 @@
 // integration tests).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use protocol::{WebConfig, WebReaderProvider, WebRuntimeConfig};
-use tool::Tool;
-use tool_web::{WebReaderTool, WebSearchTool};
+use nuo_protocol::{WebConfig, WebReaderProvider, WebRuntimeConfig};
+use nuo_tool::Tool;
+use nuo_tool_web::{WebReaderTool, WebSearchTool};
 
 /// Shape a config mirroring the developer workstation: direct access, Exa
 /// one selected search provider plus the independently selected Jina reader.
@@ -38,7 +38,7 @@ async fn jina_reader_works() {
     let jina = WebReaderTool::with_config(cfg);
     let out = jina
         .execute_text(
-            &tool::ToolContext::default(),
+            &nuo_tool::ToolContext::default(),
             r#"{"url":"https://example.com"}"#,
         )
         .await
@@ -56,7 +56,7 @@ async fn search_then_reader_pipeline_works() {
     let search = WebSearchTool::with_config(cfg.clone());
     let results = search
         .execute_text(
-            &tool::ToolContext::default(),
+            &nuo_tool::ToolContext::default(),
             r#"{"query":"rust async traits"}"#,
         )
         .await
@@ -88,7 +88,7 @@ async fn search_then_reader_pipeline_works() {
     let reader = WebReaderTool::with_config(cfg);
     let page = reader
         .execute_text(
-            &tool::ToolContext::default(),
+            &nuo_tool::ToolContext::default(),
             &format!(r#"{{"url":"{url}"}}"#),
         )
         .await

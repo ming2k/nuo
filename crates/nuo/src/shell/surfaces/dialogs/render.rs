@@ -120,8 +120,8 @@ fn render_inspection_dialog(
                 crate::shell::render::ContextUsageProps {
                     snapshot: app.telemetry.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: tool::count_tokens(&app.composer.input),
-                    draft_tokens: protocol::estimate_draft_tokens(&app.composer.input),
+                    draft_content_tokens: nuo_tool::count_tokens(&app.composer.input),
+                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.composer.input),
                 },
                 loading,
                 &mut d.scroll,
@@ -146,8 +146,8 @@ fn render_inspection_dialog(
                 crate::shell::render::ContextUsageProps {
                     snapshot: app.telemetry.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: tool::count_tokens(&app.composer.input),
-                    draft_tokens: protocol::estimate_draft_tokens(&app.composer.input),
+                    draft_content_tokens: nuo_tool::count_tokens(&app.composer.input),
+                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.composer.input),
                 },
                 d.index
                     .min(crate::shell::render::telemetry_round_count(&report).saturating_sub(1)),

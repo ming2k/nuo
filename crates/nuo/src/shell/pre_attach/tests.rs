@@ -1,5 +1,5 @@
 use super::*;
-use protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 
 fn quarantined_snapshot() -> WorkspaceSecuritySnapshot {
     WorkspaceSecuritySnapshot {
@@ -75,7 +75,7 @@ fn from_snapshot_mounts_for_changed_content() {
     assert_eq!(state.rows().len(), 1);
     assert_eq!(
         state.rows().first().expect("one row").status,
-        view::trust_gate::TrustStatus::Changed
+        nuo_view::trust_gate::TrustStatus::Changed
     );
     assert!(
         question.question.contains("changed on disk"),

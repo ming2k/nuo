@@ -7,9 +7,9 @@ use crate::shell::render;
 use crate::shell::surfaces::{DialogKind, OverlaySurface, SceneKind, SheetKind};
 use crate::shell::ui::UiKey;
 use crate::shell::{App, ProviderDeleteChoice};
-use ui_primitives::primitives::Recess;
-use view::model::document::TranscriptMessage;
-use view::model::layout::LayoutMap;
+use nuo_ui_primitives::primitives::Recess;
+use nuo_view::model::document::TranscriptMessage;
+use nuo_view::model::layout::LayoutMap;
 
 use super::actions::effective_reasoning_effort;
 use super::transcript::display_status;
@@ -180,16 +180,15 @@ fn draw_startup_surface(
         );
 
         ui.stage_document(std::mem::take(layout_map));
-        app.viewport.modal_body_height =
-            drawn_modal_rect
-                .height
-                .saturating_sub(ui_primitives::primitives::modal_chrome_rows(
-                    ui_primitives::primitives::ModalSpec {
-                        width_percent: 0,
-                        header: true,
-                        footer: true,
-                    },
-                ));
+        app.viewport.modal_body_height = drawn_modal_rect.height.saturating_sub(
+            nuo_ui_primitives::primitives::modal_chrome_rows(
+                nuo_ui_primitives::primitives::ModalSpec {
+                    width_percent: 0,
+                    header: true,
+                    footer: true,
+                },
+            ),
+        );
         if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
             ui.mount(UiKey::Overlay(overlay), drawn_modal_rect);
         }
@@ -225,7 +224,7 @@ fn draw_transcript_surface(
         .human
         .pending_permission
         .is_some()
-        .then_some(view::phase::Phase::AwaitingUser);
+        .then_some(nuo_view::phase::Phase::AwaitingUser);
     let status = if let Some(lifecycle) = select_lifecycle_status(
         app.link.link_down,
         &app.link.phase,
@@ -485,7 +484,7 @@ fn draw_transcript_surface(
                 },
                 logo: app.surfaces.logo.as_deref(),
                 guidance,
-                carousel_index: view::empty_state::carousel_page_for(
+                carousel_index: nuo_view::empty_state::carousel_page_for(
                     app.viewport.carousel_epoch.elapsed().as_millis(),
                 ),
                 theme: &app.surfaces.theme,
@@ -764,7 +763,7 @@ fn draw_composer_surface(
                     input_rect.y,
                     input_rect.width,
                     input_rect.height
-                        + ui_primitives::design::COMPOSER_HINT_GAP_ROWS
+                        + nuo_ui_primitives::design::COMPOSER_HINT_GAP_ROWS
                         + hint_rect.height,
                 );
                 let max_scroll = render::draw_permission_sheet(
@@ -1022,7 +1021,7 @@ fn draw_interaction_sheets(
                         input_rect.y,
                         input_rect.width,
                         input_rect.height
-                            + ui_primitives::design::COMPOSER_HINT_GAP_ROWS
+                            + nuo_ui_primitives::design::COMPOSER_HINT_GAP_ROWS
                             + hint_rect.height,
                     );
                     let props = crate::shell::overlays::ask_user::AskUserProps {
@@ -1321,15 +1320,17 @@ fn draw_active_overlay(
             )),
             SheetKind::OAuthPending => {
                 let title: &'static str = match &app.provider_editor.custom_auth {
-                    protocol::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
-                        "chatgpt" => "ChatGPT Subscription",
-                        "copilot" => "Copilot",
-                        "xai" => "xAI",
-                        "google-antigravity" => "Google Antigravity",
-                        "qoder" => "Qoder",
-                        _ => "Subscription",
-                    },
-                    protocol::ConnectionAuth::Static => "OAuth",
+                    nuo_protocol::ConnectionAuth::Negotiated { provider } => {
+                        match provider.as_ref() {
+                            "chatgpt" => "ChatGPT Subscription",
+                            "copilot" => "Copilot",
+                            "xai" => "xAI",
+                            "google-antigravity" => "Google Antigravity",
+                            "qoder" => "Qoder",
+                            _ => "Subscription",
+                        }
+                    }
+                    nuo_protocol::ConnectionAuth::Static => "OAuth",
                 };
                 Some(render::draw_oauth_pending(
                     title,
@@ -1356,12 +1357,12 @@ fn draw_active_overlay(
                 let protocol_display = app
                     .provider_editor
                     .custom_protocol_wire
-                    .parse::<protocol::WireProtocol>()
+                    .parse::<nuo_protocol::WireProtocol>()
                     .map(|p| p.display_name())
                     .unwrap_or(&app.provider_editor.custom_protocol_wire);
                 let budget_display = match &app.provider_editor.custom_budget {
-                    protocol::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
-                    protocol::ConnectionBudget::Local { limit, period, .. } => {
+                    nuo_protocol::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
+                    nuo_protocol::ConnectionBudget::Local { limit, period, .. } => {
                         format!("Local ({}, {})", limit.format_usd(), period.label())
                     }
                 };
@@ -1371,7 +1372,7 @@ fn draw_active_overlay(
                         field: app.provider_editor.custom_field,
                         editing,
                         custom: app.provider_editor.custom_provider_id.as_deref()
-                            == Some(view::providers::CUSTOM_TEMPLATE.id),
+                            == Some(nuo_view::providers::CUSTOM_TEMPLATE.id),
                         title: &title,
                         name_buf: &app.provider_editor.custom_name,
                         base_url_buf: &app.provider_editor.custom_base_url,
@@ -1568,11 +1569,11 @@ fn draw_scene(
             if let Some((ref mut state, ref mut anchor)) = app.surfaces.config_dropdown {
                 if let Some(target_rect) = app.surfaces.config_selected_rect
                     && anchor.placement
-                        != ui_primitives::components::dropdown::DropdownPlacement::CenterScreen
+                        != nuo_ui_primitives::components::dropdown::DropdownPlacement::CenterScreen
                 {
                     anchor.target_rect = target_rect;
                 }
-                let popup_area = ui_primitives::components::dropdown::draw_dropdown(
+                let popup_area = nuo_ui_primitives::components::dropdown::draw_dropdown(
                     f,
                     state,
                     anchor,
@@ -1769,8 +1770,8 @@ fn finish_frame(
             .modal_rect
             .map(|r| {
                 r.height
-                    .saturating_sub(ui_primitives::primitives::modal_chrome_rows(
-                        ui_primitives::primitives::ModalSpec {
+                    .saturating_sub(nuo_ui_primitives::primitives::modal_chrome_rows(
+                        nuo_ui_primitives::primitives::ModalSpec {
                             width_percent: 0,
                             header: true,
                             footer: true,

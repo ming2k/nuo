@@ -1,11 +1,11 @@
 //! Binary-contract smoke tests: no server, no provider, no shared state.
 
-use test_support::{Cli, Sandbox};
+use nuo_test_support::{Cli, Sandbox};
 
 #[test]
 fn cli_reports_version_and_diagnoses_an_empty_sandbox_without_spawning() {
     let sandbox = Sandbox::new().unwrap();
-    let bin = test_support::binary_path().unwrap();
+    let bin = nuo_test_support::binary_path().unwrap();
 
     let version = Cli::new(&bin, &sandbox).arg("--version").output().unwrap();
     assert!(

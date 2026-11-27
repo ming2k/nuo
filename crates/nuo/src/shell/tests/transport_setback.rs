@@ -43,7 +43,7 @@ fn publish_setback(app: &mut App, runtime: &UiRuntime, thread_id: Option<&str>, 
     );
 }
 
-fn set_phase(app: &mut App, runtime: &UiRuntime, phase: Option<view::phase::Phase>) {
+fn set_phase(app: &mut App, runtime: &UiRuntime, phase: Option<nuo_view::phase::Phase>) {
     chrome_edit(
         app,
         runtime,
@@ -97,7 +97,7 @@ fn a_second_retry_replaces_the_clause_and_keeps_it_alive() {
     let viewed = app.viewed_chrome();
     let clause = viewed.transport_setback.expect("still backing off");
     assert_eq!(clause.attempt(), 3, "the newest setback wins");
-    assert_eq!(viewed.phase, Some(view::phase::Phase::AwaitingModel));
+    assert_eq!(viewed.phase, Some(nuo_view::phase::Phase::AwaitingModel));
 }
 
 /// The reported bug, at its narrowest: the stream started (the retried request
@@ -120,7 +120,7 @@ fn a_started_stream_retires_the_clause() {
     );
 
     let viewed = app.viewed_chrome();
-    assert_eq!(viewed.phase, Some(view::phase::Phase::Answering));
+    assert_eq!(viewed.phase, Some(nuo_view::phase::Phase::Answering));
     assert!(
         viewed.transport_setback.is_none(),
         "a successful stream is evidence the retried request landed"
@@ -135,15 +135,20 @@ fn a_started_stream_retires_the_clause() {
 /// tool work, a one-shot `Text` payload, and the round's end.
 #[test]
 fn every_progress_fact_retires_the_clause() {
-    let cases: Vec<(&str, Option<view::phase::Phase>)> = vec![
-        ("answering (delta)", Some(view::phase::Phase::Answering)),
-        ("thinking", Some(view::phase::Phase::Reasoning)),
+    let cases: Vec<(&str, Option<nuo_view::phase::Phase>)> = vec![
+        ("answering (delta)", Some(nuo_view::phase::Phase::Answering)),
+        ("thinking", Some(nuo_view::phase::Phase::Reasoning)),
         (
             "tool work",
-            Some(view::phase::Phase::Tool(view::phase::ToolVerb::Running)),
+            Some(nuo_view::phase::Phase::Tool(
+                nuo_view::phase::ToolVerb::Running,
+            )),
         ),
-        ("finalizing", Some(view::phase::Phase::Finalizing)),
-        ("awaiting the user", Some(view::phase::Phase::AwaitingUser)),
+        ("finalizing", Some(nuo_view::phase::Phase::Finalizing)),
+        (
+            "awaiting the user",
+            Some(nuo_view::phase::Phase::AwaitingUser),
+        ),
         ("idle", None),
     ];
 
@@ -176,14 +181,14 @@ fn a_one_shot_text_payload_retires_the_clause() {
         &runtime,
         None,
         crate::shell::event_loop::mutations::ChromeEdit::PhaseOnly(Some(
-            view::phase::Phase::Answering,
+            nuo_view::phase::Phase::Answering,
         )),
     );
 
     assert!(!app.has_live_transport_setback());
     assert_eq!(
         app.viewed_chrome().phase,
-        Some(view::phase::Phase::Answering)
+        Some(nuo_view::phase::Phase::Answering)
     );
 }
 
@@ -224,7 +229,7 @@ fn a_background_thread_setback_never_reaches_the_viewed_thread_bar() {
     app.session.current_session_id = "primary".to_string();
     app.threads.sync_foreground_id("primary");
     app.threads
-        .register("thread-2", 1, protocol::ThreadPhase::Ready);
+        .register("thread-2", 1, nuo_protocol::ThreadPhase::Ready);
 
     publish_setback(&mut app, &runtime, Some("thread-2"), 2);
 
@@ -246,7 +251,7 @@ fn a_background_thread_phase_progress_retires_its_own_clause() {
     app.session.current_session_id = "primary".to_string();
     app.threads.sync_foreground_id("primary");
     app.threads
-        .register("thread-2", 1, protocol::ThreadPhase::Ready);
+        .register("thread-2", 1, nuo_protocol::ThreadPhase::Ready);
 
     publish_setback(&mut app, &runtime, Some("thread-2"), 2);
     assert!(app.has_live_transport_setback());

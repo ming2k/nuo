@@ -17,7 +17,7 @@ The overlay vocabulary is declared in `crates/nuo/src/shell/surfaces/mod.rs`:
 - **`SheetKind`** — lightweight interaction sheets (permission, question, input injection, model editor, provider preset, OAuth pending, custom provider, provider delete confirm).
 - **`OverlaySurface`** / **`Surface`** — the dispatch enum the render loop matches on.
 
-All modals are drawn through one frame: `modal_frame` in `crates/ui-primitives/src/elevation.rs` splits a single header row, a flexible body, and a single footer row, honoring an elevation archetype (structured vs hybrid). Geometry comes from `crates/ui-primitives/src/primitives.rs`.
+All modals are drawn through one frame: `modal_frame` in `crates/nuo-ui-primitives/src/elevation.rs` splits a single header row, a flexible body, and a single footer row, honoring an elevation archetype (structured vs hybrid). Geometry comes from `crates/nuo-ui-primitives/src/primitives.rs`.
 
 ---
 
@@ -74,7 +74,7 @@ name is presentation only, never the wire value.
 
 Per **ADR-0152** (`[INV-ROW-GRID-01]`, `[INV-TEXT-OVERFLOW-01]`,
 `[INV-TUI-MARQUEE-01]`), every multi-column modal row resolves its columns
-through `ui_primitives::components::columns` **before** a single cell is
+through `nuo_ui_primitives::components::columns` **before** a single cell is
 fitted.
 
 ### 4.1 The column spec
@@ -129,7 +129,7 @@ precisely so a verbose model name can never take that answer away.
 
 ### 4.4 Overflow vocabulary
 
-`ui_primitives::components::overflow::fit` is the one implementation of
+`nuo_ui_primitives::components::overflow::fit` is the one implementation of
 "this string does not fit". The strategy is chosen by the field's **semantics**:
 
 | Field | Strategy | Why |
@@ -183,7 +183,7 @@ Per **ADR-0076** (`[INV-TUI-INERT-01]`, `[INV-TUI-INERT-02]`), all selectable li
 
 ## 6. Footer Hints
 
-Modal footers render keycap hints through `render_modal_footer` (`crates/ui-primitives/src/components/footer.rs`). Each hint carries a priority; when the width cannot fit every hint, lower-priority hints drop before higher-priority ones, so the essential dismiss/confirm affordances always survive truncation.
+Modal footers render keycap hints through `render_modal_footer` (`crates/nuo-ui-primitives/src/components/footer.rs`). Each hint carries a priority; when the width cannot fit every hint, lower-priority hints drop before higher-priority ones, so the essential dismiss/confirm affordances always survive truncation.
 
 ---
 

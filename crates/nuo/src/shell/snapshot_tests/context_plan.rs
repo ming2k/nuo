@@ -12,12 +12,12 @@
 
 use super::helpers::painted_rows;
 use crate::shell::render::Theme;
-use protocol::{
+use nuo_protocol::{
     ContextNotice, ContextPlanView, Elision, NoticeKind, PlannedBlockView, Position, PrefixDrift,
     RequestTokenEstimate, Resume, Stability, Topic,
 };
-use view::model::layout::LayoutMap;
-use view::model::selection::SelectionState;
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::selection::SelectionState;
 
 fn block(
     id: &str,

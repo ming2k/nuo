@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicUsize;
 use graticule::Terminal;
 use tokio::sync::mpsc;
 
-use protocol::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::clipboard;
@@ -17,7 +17,7 @@ use crate::shell::clipboard_ops;
 use crate::shell::input;
 use crate::shell::render;
 use crate::shell::surfaces::{DialogKind, SceneKind};
-use view::model::selection::SelectionState;
+use nuo_view::model::selection::SelectionState;
 
 use super::runtime::UiRuntime;
 use super::sync::show_local_toast;
@@ -709,7 +709,7 @@ fn handle_provider_config_action(
                     });
                 if let Some(id) = id {
                     if let Some(detail) = app.surfaces.connection_detail.as_mut() {
-                        detail.usage = protocol::ConnectionUsageState::Fetching;
+                        detail.usage = nuo_protocol::ConnectionUsageState::Fetching;
                     }
                     show_local_toast(
                         app,
@@ -1257,7 +1257,7 @@ fn handle_telemetry_usage_action(
                 let idx = app.active_index();
                 if let Some(entry) = snap.entries.get(idx) {
                     let conn_name = entry.name.clone();
-                    app.send_intent(protocol::AgentRequest::SwitchConnection {
+                    app.send_intent(nuo_protocol::AgentRequest::SwitchConnection {
                         provider: conn_name.clone(),
                         model: String::new(),
                         api_key: None,
@@ -1284,7 +1284,7 @@ fn handle_telemetry_usage_action(
                 .provider_quotas
                 .as_ref()
                 .and_then(|q| q.provider_filter.clone());
-            app.send_intent(protocol::AgentRequest::QueryProviderQuotas {
+            app.send_intent(nuo_protocol::AgentRequest::QueryProviderQuotas {
                 provider: filter,
                 force_refresh: true,
             });

@@ -1,6 +1,6 @@
 use super::App;
 use super::workspaces::ThreadInstance;
-use view::chrome::tasks_bar::BackgroundTaskItem;
+use nuo_view::chrome::tasks_bar::BackgroundTaskItem;
 
 impl ThreadInstance {
     pub fn upsert_background_task(&mut self, id: String, label: String, started_at_ms: u64) {

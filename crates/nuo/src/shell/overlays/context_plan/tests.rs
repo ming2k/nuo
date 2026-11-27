@@ -6,7 +6,7 @@
 //! rather than rounded away.
 
 use super::*;
-use protocol::{
+use nuo_protocol::{
     Elision, NoticeKind, PlannedBlockView, Position, PrefixDrift, Rank, RequestTokenEstimate,
     Resume, Topic,
 };
@@ -214,7 +214,7 @@ fn a_head_drift_is_rendered_as_the_defect_it_is() {
 #[test]
 fn every_disclosed_loss_lands_in_the_notice_section() {
     let mut plan = plan(vec![block("project.rules", Stability::Workspace, 440)]);
-    plan.notices = vec![protocol::ContextNotice {
+    plan.notices = vec![nuo_protocol::ContextNotice {
         source_id: "project.rules".to_string(),
         kind: NoticeKind::Elided,
         message: "[project.rules: 1204 tokens elided; read `AGENTS.md` from line 0]".to_string(),

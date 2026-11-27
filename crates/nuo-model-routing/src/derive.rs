@@ -1,0 +1,603 @@
+//! Runtime derivation of connection entries — channels are derived, never
+//! persisted.
+//!
+//! A connection declares *who* it connects to (model provider + credential +
+//! client identity + optional overrides). This module derives the concrete
+//! routes — one per model, each with its transport/endpoint/credential/
+//! reasoning — from that declaration plus the model provider registry and the
+//! catalog cache. Nothing here is written back; the stores stay the single
+//! source of truth and two connections to the same provider never duplicate or
+//! drift a route set.
+//!
+//! Resolution precedence is the single source of truth shared by startup and
+//! runtime switching (ADR-0002): env var (`api_key_env`) →
+//! `credentials.toml` → empty. OAuth connections resolve their bearer from the
+//! host's credential store through a dynamic, per-connection credential source.
+//!
+//! Derivation is **pure**: every store it reads — connections, cache, routes,
+//! credentials, and the host's provider declarations — arrives as a borrowed
+//! argument. Nothing here resolves a path or opens a file, so a derivation can
+//! be exercised with hand-built inputs and cannot observe a change between two
+//! reads of the same input.
+
+use nuo_persistence::config::{Credentials, RemoteCatalogCache};
+use nuo_persistence::connections::Connection;
+use nuo_persistence::connections::Connections;
+use nuo_persistence::model_providers::ModelProviders;
+use nuo_persistence::route_settings::RouteSettingsStore;
+use nuo_protocol::RemoteCatalogSource;
+use nuo_protocol::model::CapabilityOverrides;
+use nuo_protocol::{
+    ConnectionFilterPolicy, NamedFilterPolicy, ProviderDialect, SecretString, WireProtocol,
+};
+use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
+use nuo_provider::{CredentialHost, model_provider_spec};
+
+/// Everything a derivation reads. Borrowed, never lifted from disk here.
+pub struct DerivationInputs<'a> {
+    pub cache: &'a RemoteCatalogCache,
+    pub routes: &'a RouteSettingsStore,
+    pub creds: &'a Credentials,
+    /// The host's provider declarations, as a value (ADR-0081 §1).
+    pub providers: &'a ModelProviders,
+    /// Where OAuth credentials live for dynamic sources (host-provided).
+    pub credentials: &'a CredentialHost,
+}
+
+/// Derive every entry from the connections store, in declaration order.
+pub fn derive_entries(
+    connections: &Connections,
+    inputs: &DerivationInputs<'_>,
+) -> Vec<ProviderEntry> {
+    connections
+        .connections
+        .iter()
+        .map(|conn| derive_entry(conn, inputs))
+        .collect()
+}
+
+/// Derive one entry from one connection.
+pub fn derive_entry(connection: &Connection, inputs: &DerivationInputs<'_>) -> ProviderEntry {
+    let models = route_models(connection, inputs.cache, inputs.providers);
+    let channels = models
+        .iter()
+        .filter_map(|model| {
+            derive_channel(connection, model, inputs).map_err(|error| {
+                tracing::warn!(connection = %connection.name, model, %error, "invalid model route");
+            }).ok()
+        })
+        .collect();
+    ProviderEntry {
+        id: connection.name.clone(),
+        name: connection.name.clone(),
+        description: String::new(),
+        channels,
+        default_channel: 0,
+        builtin: false,
+    }
+}
+
+/// The model ids a connection serves, in picker order (ADR-0068, ADR-0081).
+/// Evaluates the 3-step Set Delta Algebra:
+/// 1. S_base = (Baseline ∩ RemoteCatalog) or snapshot for the provider.
+/// 2. S_provider = (S_base ∪ Provider.include) \ Provider.exclude
+/// 3. S_effective = (S_provider ∪ Connection.include) \ Connection.exclude
+pub fn route_models(
+    connection: &Connection,
+    cache: &RemoteCatalogCache,
+    providers: &ModelProviders,
+) -> Vec<String> {
+    let Some(spec) = model_provider_spec(&connection.provider) else {
+        // The loader rejects an unknown provider before this runs ([INV-PROV-06]); deriving nothing is the safe floor if one slips through.
+        return Vec::new();
+    };
+    let mut models = if spec.catalog_source != RemoteCatalogSource::None {
+        match cache.connection_models.get(&connection.name) {
+            Some(discovered)
+                if !discovered.is_empty() || cache.model_lists.contains_key(&connection.name) =>
+            {
+                discovered.clone()
+            }
+            None if cache.model_lists.contains_key(&connection.name) => Vec::new(),
+            _ => spec.models.iter().map(|m| (*m).to_string()).collect(),
+        }
+    } else {
+        spec.models.iter().map(|m| (*m).to_string()).collect()
+    };
+
+    // Connection pipe admission gate (ADR-0081 [INV-CATALOGPIPE-03]):
+    // 1. Filter candidates through the connection pipe valve. The default is a
+    //    declared property of the surface, never a hardcoded id list: a relay
+    //    that publishes bare ids is exactly the surface whose catalog is a
+    //    noisy dumping ground, so it defaults to `Curated`.
+    let filter_policy = connection.models.filter.as_ref().cloned().unwrap_or(
+        if spec.display_policy == nuo_provider::DisplayPolicy::Structural {
+            ConnectionFilterPolicy::Named(NamedFilterPolicy::Curated)
+        } else if spec.baselines.is_empty() || spec.catalog_source != RemoteCatalogSource::None {
+            ConnectionFilterPolicy::Named(NamedFilterPolicy::All)
+        } else {
+            ConnectionFilterPolicy::Named(NamedFilterPolicy::Baseline)
+        },
+    );
+    let baseline_ids: std::collections::HashSet<&str> =
+        spec.baselines.iter().map(|m| m.id).collect();
+    // The hygiene valve governs *discovered* ids, never ids the surface itself
+    // curates. A `Curated` relay whose own seed list contains a `-free` id has
+    // already made that call with evidence; filtering it out would make the
+    // compiled baseline disagree with the surface it describes.
+    let seeded: std::collections::HashSet<&str> = spec.models.iter().copied().collect();
+    models.retain(|id| {
+        seeded.contains(id.as_str()) || filter_policy.admits(id, baseline_ids.contains(id.as_str()))
+    });
+
+    // 2. Provider delta application (from model_providers.toml)
+    if let Some(provider_scope) = providers.get(&connection.provider) {
+        for id in provider_scope.included_ids() {
+            if !models.contains(&id) {
+                models.push(id);
+            }
+        }
+        models.retain(|m| !provider_scope.is_excluded(m));
+    }
+
+    // 3. Connection sovereign injection (inject bypasses filter unconditionally!)
+    for id in connection.models.included_ids() {
+        if !models.contains(&id) {
+            models.push(id);
+        }
+    }
+
+    // 4. Connection absolute block (block prunes unconditionally!)
+    models.retain(|m| !connection.models.is_excluded(m));
+
+    models
+}
+
+/// Resolve one model's route: transport/endpoint/user-agent plus the resolved
+/// credential, reasoning knobs, and remote capability metadata.
+pub fn derive_channel(
+    connection: &Connection,
+    model: &str,
+    inputs: &DerivationInputs<'_>,
+) -> Result<Channel, nuo_protocol::ProviderError> {
+    let DerivationInputs {
+        cache,
+        routes,
+        creds,
+        providers,
+        credentials: credential_host,
+    } = inputs;
+    // 4-layer descending capability cascade (ADR-0068 / ADR-0081):
+    // Connection Overrides > Provider Overrides > Remote-Catalog Advertised Metadata > Baseline Registry Spec
+    let provider_scope = providers.get(&connection.provider);
+
+    let mut remote = cache.remote_metadata_for(&connection.name, model).cloned();
+    if let Some(provider_declared) = provider_scope.and_then(|p| p.find_included(model)) {
+        let r = remote.get_or_insert_with(Default::default);
+        r.protocol = provider_declared.protocol.or(r.protocol);
+        r.context_window = provider_declared.context_window.or(r.context_window);
+        r.max_output_tokens = provider_declared.max_output_tokens.or(r.max_output_tokens);
+        r.thinking = provider_declared.thinking.or(r.thinking);
+        r.vision = provider_declared.vision.or(r.vision);
+        r.tool_call = provider_declared.tool_call.or(r.tool_call);
+    }
+    if let Some(declared) = connection.models.find_included(model) {
+        let r = remote.get_or_insert_with(Default::default);
+        r.protocol = declared.protocol.or(r.protocol);
+        r.context_window = declared.context_window.or(r.context_window);
+        r.max_output_tokens = declared.max_output_tokens.or(r.max_output_tokens);
+        r.thinking = declared.thinking.or(r.thinking);
+        r.vision = declared.vision.or(r.vision);
+        r.tool_call = declared.tool_call.or(r.tool_call);
+    }
+
+    let route_settings = routes.settings_for(&connection.name, model);
+
+    let mut effective_overrides = CapabilityOverrides::default();
+    if let Some(po) = provider_scope.and_then(|p| p.overrides.get(model)) {
+        effective_overrides = effective_overrides.merge_with(po);
+    }
+    if let Some(io) = connection.models.overrides.get(model) {
+        effective_overrides = effective_overrides.merge_with(io);
+    }
+    if let Some(ro) = route_settings.and_then(|r| r.capability_overrides.as_ref()) {
+        effective_overrides = effective_overrides.merge_with(ro);
+    }
+    if let Some(protocol) = effective_overrides.protocol {
+        remote.get_or_insert_with(Default::default).protocol = Some(protocol);
+    }
+    let user_overrides = (!effective_overrides.is_empty()).then_some(effective_overrides);
+
+    // ── Mapping stage (ADR-0081 [INV-CATALOGPIPE-02]) ────────────────────────────
+    // The label a route shows is resolved ONCE, here, inside the catalog
+    // boundary — never re-derived by the server projections or the client. The
+    // provider spec's display policy decides whether a published name is
+    // trusted verbatim (`Native`) or a bare relay id is lifted structurally
+    // (`Structural`: `deepseek-v4.1-flash` -> `DeepSeek V4.1 Flash`).
+    //
+    // This must NOT be gated on `remote` already being `Some`: an ids-only relay
+    // advertises no metadata at all, so gating on an existing record is exactly
+    // how the mapping silently never runs for the surfaces that need it. A
+    // label identical to the wire id is dropped, leaving the surfaces on the id.
+    let advertised = remote.as_ref().and_then(|r| r.name.as_deref());
+    let label = model_provider_spec(&connection.provider)
+        .map(|spec| spec.resolve_display_label(advertised, model))
+        .unwrap_or_else(|| {
+            advertised
+                .map(nuo_protocol::clean_model_display_name)
+                .filter(|label| !label.is_empty() && label != model)
+        });
+    if label.is_some() {
+        remote.get_or_insert_with(Default::default).name = label;
+    }
+    let prompt_cache = model_provider_spec(&connection.provider)
+        .map(|provider| provider.prompt_cache.resolve(model))
+        .unwrap_or_else(nuo_protocol::PromptCacheCapabilities::unsupported);
+    let prompt_cache_preference = route_settings
+        .and_then(|settings| settings.prompt_cache)
+        .unwrap_or_default();
+
+    // The user's tuning choices, keyed by the provider's own knob ids
+    // (ADR-0126). They travel on the `Channel`, never on the `Transport`: a
+    // tuning choice is a setting on a route, not a property of the pipe that
+    // carries it. Whether a knob reaches the wire at all is a provider
+    // declaration (`Model::effort_levels` / `Model::thinking`), decided
+    // at the request boundary.
+    // One carrier, one copy: the route's tuning map IS the user's choice set.
+    let tunings = route_settings
+        .map(|settings| settings.tunings.clone())
+        .unwrap_or_default();
+
+    let route = base_route(connection, model, remote.as_ref())?;
+
+    let api_key = resolve_credential(connection, creds);
+    let credentialed = nuo_provider::build_credential_source(
+        credential_host,
+        &connection.provider,
+        &connection.name,
+        &connection.auth,
+        api_key,
+        route.dialect,
+    )
+    .ok_or_else(|| {
+        nuo_protocol::ProviderError::invalid_request(
+            &connection.provider,
+            "no credential source builder registered (composition root not initialized)",
+        )
+    })?;
+
+    let transport = match route.protocol {
+        WireProtocol::GoogleGenerateContent => Transport::GoogleGenerateContent {
+            base_url: route.base_url,
+            dialect: route.dialect.google(),
+            user_agent: route.user_agent,
+            headers: route.headers,
+        },
+        WireProtocol::GoogleInteractions => Transport::GoogleInteractions {
+            base_url: route.base_url,
+            dialect: route.dialect.google_interactions(),
+            user_agent: route.user_agent,
+            headers: route.headers,
+        },
+        WireProtocol::AnthropicMessages => Transport::AnthropicMessages {
+            base_url: route.base_url,
+            dialect: route.dialect.anthropic(),
+            user_agent: route.user_agent,
+            headers: route.headers,
+        },
+        WireProtocol::OpenAiResponses => {
+            // The Responses dialect is a property of the *endpoint*, declared by
+            // the provider spec (`ProviderDialect`), and never inferred from the
+            // model id. A DeepSeek model served by an OpenAI-compatible relay
+            // (e.g. CommandCode's `/provider/v1`) speaks that relay's
+            // OpenAI-shaped surface, not DeepSeek's native one: deriving the
+            // dialect from the id emitted DeepSeek's nested tool definitions to
+            // a gateway whose schema expects the flattened OpenAI shape, which
+            // the server rejected with HTTP 400 (ADR-0113).
+            //
+            // Statefulness is likewise declared by the surface, not assumed
+            // from `store` support: CommandCode accepts `store: true` and
+            // returns a response id, but keeps no state, so a turn anchored on
+            // `previous_response_id` reached DeepSeek as a lone `tool` message
+            // and was rejected (ADR-0114).
+            Transport::OpenAiResponses {
+                base_url: route.base_url,
+                dialect: route.dialect.openai_responses(),
+                state: route.responses_state,
+                user_agent: route.user_agent,
+                headers: route.headers,
+            }
+        }
+        WireProtocol::OpenAiChatCompletions => Transport::OpenAiChatCompletions {
+            base_url: route.base_url,
+            dialect: route.dialect.openai_chat(),
+            user_agent: route.user_agent,
+            headers: route.headers,
+        },
+    };
+
+    Ok(Channel {
+        id: model.to_string(),
+        transport,
+        credentials: credentialed,
+        model: model.to_string(),
+        remote,
+        user_overrides,
+        tunings,
+        prompt_cache,
+        prompt_cache_preference,
+    })
+}
+
+struct BaseRoute {
+    protocol: WireProtocol,
+    base_url: String,
+    user_agent: String,
+    headers: Vec<(String, String)>,
+    dialect: ProviderDialect,
+    responses_state: nuo_protocol::ResponsesState,
+}
+
+/// Model protocol metadata overrides the provider-scoped baseline and default,
+/// and a catalog-advertised root override replaces the spec's route for that
+/// protocol (ADR-0015). Dialect and credentials remain provider-owned.
+fn base_route(
+    connection: &Connection,
+    model: &str,
+    remote: Option<&nuo_protocol::RemoteModelMetadata>,
+) -> Result<BaseRoute, nuo_protocol::ProviderError> {
+    let spec = model_provider_spec(&connection.provider).ok_or_else(|| {
+        nuo_protocol::ProviderError::invalid_request(&connection.provider, "unknown model provider")
+    })?;
+    let protocol = remote
+        .and_then(|r| r.protocol)
+        .unwrap_or_else(|| spec.model_protocol(model));
+
+    if !spec.dialect.supports(protocol) {
+        return Err(nuo_protocol::ProviderError::invalid_request(
+            &connection.provider,
+            format!(
+                "model `{model}` selects {protocol}, which is incompatible with provider dialect {:?}",
+                spec.dialect
+            ),
+        ));
+    }
+    let user_agent = connection
+        .headers
+        .get("User-Agent")
+        .or_else(|| connection.headers.get("user-agent"))
+        .cloned()
+        .or_else(|| spec.user_agent.as_ref().map(|s| s.to_string()))
+        .unwrap_or_else(|| nuo_provider::NUO_USER_AGENT.to_string());
+
+    let mut headers: Vec<(String, String)> = spec
+        .default_headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+    for (k, v) in &connection.headers {
+        if k.eq_ignore_ascii_case("user-agent") {
+            continue;
+        }
+        headers.retain(|(name, _)| !name.eq_ignore_ascii_case(k));
+        headers.push((k.clone(), v.clone()));
+    }
+
+    // The advertised root is an **API root**, not a full endpoint: the suffix
+    // is appended by the same ADR-0015 algebra the compiled spec uses.
+    let base_url = match remote.and_then(|r| r.endpoint.as_deref()) {
+        Some(root) => {
+            let root = nuo_protocol::ApiRoot::parse(root).map_err(|error| {
+                nuo_protocol::ProviderError::invalid_request(
+                    &connection.provider,
+                    format!("catalog-advertised root for model `{model}`: {error}"),
+                )
+            })?;
+            nuo_provider::endpoint_for(spec.dialect, &root, protocol)
+        }
+        None => spec.endpoint(protocol).map_err(|error| {
+            nuo_protocol::ProviderError::invalid_request(&connection.provider, error)
+        })?,
+    };
+
+    Ok(BaseRoute {
+        protocol,
+        base_url,
+        user_agent,
+        headers,
+        dialect: spec.dialect,
+        responses_state: spec.responses_state,
+    })
+}
+
+/// The **statically configured** credential for a connection: env var
+/// (`api_key_env`) → `credentials.toml` → empty.
+///
+/// An OAuth connection has no configured key: its bearer is dynamic, resolved
+/// per request by the [`nuo_protocol::CredentialSource`] that
+/// [`nuo_provider::build_credential_source`] builds. Snapshotting a stored
+/// access token here would hand callers the exact value that source exists to
+/// refresh, so this function returns nothing for one and the caller says so.
+pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> SecretString {
+    if connection.auth.is_negotiated() {
+        return SecretString::from("");
+    }
+    if let Some(env) = connection.api_key_env.as_deref()
+        && let Ok(value) = std::env::var(env)
+        && !value.trim().is_empty()
+    {
+        return SecretString::from(value);
+    }
+    if let Some(key) = creds.api_key(&connection.name).filter(|k| !k.is_empty()) {
+        return key.clone();
+    }
+    // The OpenCode relay surfaces share one key env var (`OPENCODE_API_KEY`):
+    // Zen (`/zen/v1`) and Go (`/zen/go/v1`) both authenticate with it.
+    if matches!(connection.provider.as_str(), "opencode-go" | "opencode-zen")
+        && let Ok(value) = std::env::var("OPENCODE_API_KEY")
+        && !value.trim().is_empty()
+    {
+        return SecretString::from(value);
+    }
+    if connection.provider == "commandcode-goat"
+        && let Ok(value) = std::env::var("COMMANDCODE_API_KEY")
+        && !value.trim().is_empty()
+    {
+        return SecretString::from(value);
+    }
+    SecretString::default()
+}
+
+/// The **effective** availability verdict for `(connection, model)`, plus
+/// whether a user override is what made it usable (ADR-0068).
+///
+/// The provider's declaration lives in the model's
+/// [`nuo_protocol::RemoteModelMetadata`]; this resolves it against the
+/// connection's own scope. A model the connection (or the provider scope)
+/// explicitly injected stays usable even when the provider declared otherwise:
+/// [INV-CATALOGPIPE-01] gives sovereign injection unconditional
+/// precedence, and [INV-CATALOGPIPE-01] requires the override to be
+/// *disclosed* rather than silently erasing the upstream declaration.
+///
+/// This is the single source of truth for "may this be run"; the server gate
+/// and the picker projection both derive from it, so a client can never be the
+/// only place availability is enforced.
+pub fn effective_availability(
+    connection: &Connection,
+    model: &str,
+    remote: Option<&nuo_protocol::RemoteModelMetadata>,
+    providers: &ModelProviders,
+) -> (nuo_protocol::Availability, bool) {
+    effective_availability_with_rules(connection, model, remote, providers, &[])
+}
+
+/// The provider's declaration lives in the model's
+/// [`nuo_protocol::RemoteModelMetadata`], layered with live dynamic
+/// [`nuo_protocol::ModelAvailabilityRule`] declarations from quota or limit evaluators.
+/// This resolves them against the connection's own scope.
+pub fn effective_availability_with_rules(
+    connection: &Connection,
+    model: &str,
+    remote: Option<&nuo_protocol::RemoteModelMetadata>,
+    providers: &ModelProviders,
+    rules: &[nuo_protocol::ModelAvailabilityRule],
+) -> (nuo_protocol::Availability, bool) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    // 1. Static entitlement declaration (e.g. tier requirements) takes precedence
+    let declared = remote.map(nuo_protocol::RemoteModelMetadata::availability_or_usable);
+    let declared = declared.unwrap_or_default();
+    if !declared.usable
+        && declared
+            .status_label
+            .as_deref()
+            .is_some_and(|s| s.contains("tier"))
+    {
+        let sovereign = connection
+            .models
+            .included_ids()
+            .iter()
+            .any(|id| id == model)
+            || providers
+                .get(&connection.provider)
+                .is_some_and(|scope| scope.included_ids().iter().any(|id| id == model));
+        if sovereign {
+            return (nuo_protocol::Availability::usable(), true);
+        } else {
+            return (declared, false);
+        }
+    }
+
+    // 2. Dynamic live rules from provider quota/rate limits
+    for rule in rules {
+        if nuo_protocol::simple_glob_matches(&rule.pattern, model) {
+            if let Some(reset_ms) = rule.availability.resets_at_ms
+                && now_ms >= reset_ms
+            {
+                continue;
+            }
+            if !rule.availability.usable {
+                let sovereign = connection
+                    .models
+                    .included_ids()
+                    .iter()
+                    .any(|id| id == model)
+                    || providers
+                        .get(&connection.provider)
+                        .is_some_and(|scope| scope.included_ids().iter().any(|id| id == model));
+                if sovereign {
+                    tracing::info!(
+                        connection = %connection.name,
+                        model,
+                        "user scope overrides a provider-declared dynamic unavailable model"
+                    );
+                    return (nuo_protocol::Availability::usable(), true);
+                } else {
+                    return (rule.availability.clone(), false);
+                }
+            }
+        }
+    }
+
+    if declared.usable {
+        return (declared, false);
+    }
+    let sovereign = connection
+        .models
+        .included_ids()
+        .iter()
+        .any(|id| id == model)
+        || providers
+            .get(&connection.provider)
+            .is_some_and(|scope| scope.included_ids().iter().any(|id| id == model));
+    if sovereign {
+        tracing::info!(
+            connection = %connection.name,
+            model,
+            "user scope overrides a provider-declared unavailable model"
+        );
+        (nuo_protocol::Availability::usable(), true)
+    } else {
+        (declared, false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_availability_with_rules_enforces_dynamic_provider_rule() {
+        let conn = Connection {
+            name: "antigravity".to_string(),
+            provider: "google-antigravity".to_string(),
+            ..Default::default()
+        };
+        let providers = ModelProviders::default();
+        let rules = vec![nuo_protocol::ModelAvailabilityRule {
+            pattern: "claude-*".to_string(),
+            availability: nuo_protocol::Availability::disabled(
+                "disabled: 5h limit",
+                Some("5h limit reached".to_string()),
+                Some(1999999999000),
+            ),
+        }];
+
+        // claude-3-7-sonnet matches dynamic rule
+        let (avail, overridden) =
+            effective_availability_with_rules(&conn, "claude-3-7-sonnet", None, &providers, &rules);
+        assert!(!avail.usable);
+        assert_eq!(avail.display_status(), Some("disabled: 5h limit"));
+        assert!(!overridden);
+
+        // gemini-2.5-flash does not match rule and has no static lock
+        let (avail, overridden) =
+            effective_availability_with_rules(&conn, "gemini-2.5-flash", None, &providers, &rules);
+        assert!(avail.usable);
+        assert!(!overridden);
+    }
+}

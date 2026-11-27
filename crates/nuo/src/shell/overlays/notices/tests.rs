@@ -192,7 +192,7 @@ fn monochrome_still_names_severity_after_the_glyph_removal() {
         glyphs: graticule::ASCII_GLYPHS,
         ..Theme::from_color_scheme(
             "monochrome",
-            &ui_primitives::color_scheme::ColorSchemeConfig::default(),
+            &nuo_ui_primitives::color_scheme::ColorSchemeConfig::default(),
         )
     };
     assert!(!theme.severity_is_color_distinguishable());
@@ -227,7 +227,7 @@ fn monochrome_still_names_severity_after_the_glyph_removal() {
 
 #[test]
 fn notice_content_registers_selectable_regions_and_paints_selection() {
-    use view::model::layout::{MODAL_DOC_MSG_IDX, SemanticCursor};
+    use nuo_view::model::layout::{MODAL_DOC_MSG_IDX, SemanticCursor};
 
     let theme = Theme::default();
     let lines = vec![notice(
@@ -285,9 +285,9 @@ fn notice_content_registers_selectable_regions_and_paints_selection() {
 
 #[test]
 fn wrapping_respects_the_column_budget_including_cjk() {
-    let rows = ui_primitives::text_layout::wrap_text("aaa bbb ccc ddd", 7);
+    let rows = nuo_ui_primitives::text_layout::wrap_text("aaa bbb ccc ddd", 7);
     assert!(rows.iter().all(|r| r.text.trim_end().width() <= 7));
-    let cjk = ui_primitives::text_layout::wrap_text("后端连接失败，请检查网络配置", 8);
+    let cjk = nuo_ui_primitives::text_layout::wrap_text("后端连接失败，请检查网络配置", 8);
     assert!(cjk.len() > 1, "CJK prose must wrap across lines: {cjk:?}");
     assert!(cjk.iter().all(|r| r.text.width() <= 8), "{cjk:?}");
 }

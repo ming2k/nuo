@@ -3,7 +3,7 @@
 #
 # Live-verified against the official DeepSeek API platform (2026-10 revision,
 # ADR-0080; model ids and the reasoning surface corrected in ADR-0083).
-# Consumers: the implementer maintaining `crates/provider-deepseek` in Nuo,
+# Consumers: the implementer maintaining `crates/nuo-provider-deepseek` in Nuo,
 # prompt caching, time-varying rate schedule rating, and multi-protocol channels.
 #
 # Model wire ids: `deepseek-flash` (DeepSeek-V4.1-Flash-1017) and

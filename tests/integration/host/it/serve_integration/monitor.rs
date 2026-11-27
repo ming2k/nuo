@@ -4,12 +4,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use persistence::thread::ThreadSession;
-use protocol::{
+use nuo_persistence::thread::ThreadSession;
+use nuo_protocol::{
     AgentResponse, MonitorAction, MonitorEvent, RoundEvent, ServerInitStage, ServerPhase,
     ThreadTarget,
 };
-use server::transport::serve::{self, Wire};
+use nuo_server::transport::serve::{self, Wire};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -33,9 +33,9 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
         .await
         .unwrap();
     let hello = serde_json::to_string(&Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         monitor: Some(MonitorAction {
             watch: true,
             include_idle: true,
@@ -68,8 +68,8 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
     // TurnStarted flips the row to Running, which the watch stream reports.
     let _ = bc_tx.send(AgentResponse::Round {
         thread_id: session_id.clone(),
-        scope: protocol::RoundScope::Turn {
-            context: protocol::TurnContext::new(1, 0, 1_700_000_000_000),
+        scope: nuo_protocol::RoundScope::Turn {
+            context: nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000),
             event: RoundEvent::TurnStarted,
         },
     });
@@ -84,7 +84,7 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
             event: MonitorEvent::ThreadUpdated(row),
         } => {
             assert_eq!(row.id, session_id);
-            assert_eq!(row.status, protocol::ThreadActivity::Running);
+            assert_eq!(row.status, nuo_protocol::ThreadActivity::Running);
             assert_eq!(row.round, 1);
             assert_eq!(row.turn, Some(0));
         }
@@ -101,7 +101,10 @@ async fn rename_live_session_republishes_monitor_row() {
     // real content so it persists and appears in `list()`.
     let session = Arc::new(ThreadSession::for_path(tmp.path().join("session.json")));
     session
-        .replace_messages(vec![tool::Message::new(tool::Role::User, "first prompt")])
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
+            "first prompt",
+        )])
         .await
         .unwrap();
     let session_id = session.id().await;
@@ -119,7 +122,7 @@ async fn rename_live_session_republishes_monitor_row() {
             let _ = forward.send(response);
         }
     });
-    server::handlers::handlers_thread::rename(
+    nuo_server::handlers::handlers_thread::rename(
         &session,
         &resp_tx,
         session_id.clone(),
@@ -171,9 +174,9 @@ async fn monitor_one_shot_closes_after_snapshot() {
         .await
         .unwrap();
     let hello = serde_json::to_string(&Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         monitor: Some(MonitorAction {
             watch: false,
             include_idle: false,
@@ -218,9 +221,9 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: Some(MonitorAction {
                 watch: true,
                 include_idle: true,
@@ -288,7 +291,7 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
                 request_id: Some(1),
                 code: Some(ref c),
                 ..
-            } if c == protocol::ERR_SERVER_NOT_READY
+            } if c == nuo_protocol::ERR_SERVER_NOT_READY
         ),
         "expected ERR_SERVER_NOT_READY, got {refused:?}"
     );
@@ -297,7 +300,7 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
     // observes every transition cleanly over the watch-only phase stream.
     registry.set_server_phase(ServerPhase::initializing_with(
         ServerInitStage::Storage,
-        Some(protocol::StorageInitDetail::Migrating {
+        Some(nuo_protocol::StorageInitDetail::Migrating {
             step: 1,
             total: 2,
             name: "0009_pure_catalog".into(),
@@ -319,7 +322,7 @@ async fn server_phase_lifecycle_gates_subscribe_and_streams_transitions() {
         Wire::Monitor {
             event: MonitorEvent::ServerPhaseChanged(ServerPhase::Initializing {
                 stage: ServerInitStage::Storage,
-                detail: Some(protocol::StorageInitDetail::Migrating {
+                detail: Some(nuo_protocol::StorageInitDetail::Migrating {
                     step: 1,
                     total: 2,
                     ..
@@ -426,7 +429,7 @@ async fn same_connection_control_reload_streams_reloading_to_ready() {
         local_endpoint: None,
         version: None,
         grace_secs: None,
-        protocol: Some(protocol::PROTOCOL_VERSION),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         image_digest: None,
         image_len: None,
     };
@@ -496,7 +499,7 @@ async fn failed_phase_refuses_subscribe_and_control_waits_for_initializing_serve
         local_endpoint: None,
         version: None,
         grace_secs: None,
-        protocol: Some(protocol::PROTOCOL_VERSION),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         image_digest: None,
         image_len: None,
     };
@@ -524,9 +527,9 @@ async fn failed_phase_refuses_subscribe_and_control_waits_for_initializing_serve
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: None,
         })
         .unwrap()
@@ -580,7 +583,7 @@ async fn failed_phase_refuses_subscribe_and_control_waits_for_initializing_serve
                 request_id: Some(9),
                 code: Some(ref c),
                 ..
-            } if c == protocol::ERR_SERVER_FAILED
+            } if c == nuo_protocol::ERR_SERVER_FAILED
         ),
         "expected ERR_SERVER_FAILED, got {refused:?}"
     );
@@ -598,7 +601,7 @@ async fn server_phase_failed_flushes_connected_peers_and_drains_cleanly() {
     let (registry, _req_rx, _bc) = prehosted(session).await;
     registry.set_server_phase(ServerPhase::initializing_with(
         ServerInitStage::Storage,
-        Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+        Some(nuo_protocol::StorageInitDetail::BackingUp { target_version: 9 }),
         Some(1_700_000_000_000),
     ));
 
@@ -610,9 +613,9 @@ async fn server_phase_failed_flushes_connected_peers_and_drains_cleanly() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: Some(MonitorAction {
                 watch: true,
                 include_idle: true,
@@ -639,7 +642,7 @@ async fn server_phase_failed_flushes_connected_peers_and_drains_cleanly() {
         Wire::ServerHello {
             phase: ServerPhase::Initializing {
                 stage: ServerInitStage::Storage,
-                detail: Some(protocol::StorageInitDetail::BackingUp { target_version: 9 }),
+                detail: Some(nuo_protocol::StorageInitDetail::BackingUp { target_version: 9 }),
                 ..
             },
             ..
@@ -707,9 +710,9 @@ async fn attach_end_session_tears_down_and_notifies() {
         .await
         .unwrap();
     let hello_monitor = serde_json::to_string(&Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         monitor: Some(MonitorAction {
             watch: true,
             include_idle: true,
@@ -742,9 +745,9 @@ async fn attach_end_session_tears_down_and_notifies() {
         .await
         .unwrap();
     let hello = serde_json::to_string(&Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         monitor: None,
     })
     .unwrap();

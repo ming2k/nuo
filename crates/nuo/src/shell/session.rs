@@ -87,7 +87,7 @@ pub struct SceneKeys {
     pub focus: crate::shell::focus::FocusPlane,
     /// The highlighted entry, when the transcript plane holds an entry
     /// highlight. `None` on the composer plane and while browsing.
-    pub entry_focus: Option<view::model::layout::InteractiveTarget>,
+    pub entry_focus: Option<nuo_view::model::layout::InteractiveTarget>,
     /// The width the composer lays its text out at, i.e. the grid the caret's
     /// ↑/↓ walk (see [`crate::shell::composer_grid::TextGrid`]). `0` before the
     /// first frame has published a composer rect, in which case the grid falls

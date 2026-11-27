@@ -37,7 +37,7 @@
 //! and a severity, so the *vocabulary* is closed even where the *sentence* is
 //! supplied by the caller.
 
-use view::model::document::{NoticeSeverity, notice_topic_label};
+use nuo_view::model::document::{NoticeSeverity, notice_topic_label};
 
 /// A topic the client speaks — the closed local counterpart of the wire's
 /// [`notice_topic_label`] vocabulary.
@@ -59,7 +59,7 @@ pub enum ClientTopic {
     /// An image attachment that was withheld from a request.
     Images,
     /// A provider retry setback (a retained receipt; the live countdown is
-    /// chrome, `view::retry`, never a notice).
+    /// chrome, `nuo_view::retry`, never a notice).
     Retry,
     /// An OAuth/authorization flow step (pending, authorized, failed).
     Oauth,
@@ -434,7 +434,7 @@ impl RenderedNotice {
     /// The topic comes from the closed wire vocabulary
     /// ([`notice_topic_label`]), so a routed notice never falls back to the
     /// generic topic either.
-    pub fn from_core(notice: &tool::AgentNotice) -> Self {
+    pub fn from_core(notice: &nuo_tool::AgentNotice) -> Self {
         let title = notice.render_text();
         let (title, detail) = split_title_detail(title, notice.body.as_deref());
         Self {
@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn a_routed_notice_takes_its_topic_from_the_wire_vocabulary() {
-        let notice = tool::AgentNotice::trust_changed("Workspace configurations changed")
+        let notice = nuo_tool::AgentNotice::trust_changed("Workspace configurations changed")
             .with_body("Changed on disk.");
         let rendered = RenderedNotice::from_core(&notice);
         assert_eq!(rendered.topic, "trust");

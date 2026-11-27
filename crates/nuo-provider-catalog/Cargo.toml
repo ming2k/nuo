@@ -1,0 +1,23 @@
+[package]
+name = "nuo-provider-catalog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Live remote model-catalog discovery (CatalogDiscovery / CatalogParser) for Nuo provider channels"
+
+# Dependency set derived from the imports of `nuo-provider-adapters/src/list_models.rs`
+# (see the `crate::...` sites called out below). `cargo check` is authoritative.
+[dependencies]
+nuo-protocol = { workspace = true }
+# The CatalogDiscovery port, RemoteCatalog* envelopes, CatalogShape, DiscoveredModel.
+nuo-provider = { workspace = true }
+# Http transport, NUO_USER_AGENT, Request builder, netune Method.
+nuo-inference-wire = { workspace = true }
+
+serde_json = { workspace = true }
+netune = { workspace = true }
+
+[lints]
+workspace = true

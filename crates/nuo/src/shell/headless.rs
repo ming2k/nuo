@@ -1,6 +1,6 @@
 use crate::shell::client::{self, Handshake, ThreadTarget};
-use protocol::{AgentRequest, AgentResponse, PermissionDecision, RoundEvent};
-use tool::{PermissionRequest, UserQuestionRequest};
+use nuo_protocol::{AgentRequest, AgentResponse, PermissionDecision, RoundEvent};
+use nuo_tool::{PermissionRequest, UserQuestionRequest};
 
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
@@ -64,9 +64,9 @@ pub async fn run_headless(
     // this client fabricate answers below (the old `options.first()` bug).
     {
         client::set_posture(if io::stderr().is_terminal() {
-            protocol::human_request::HumanChannelPosture::Interactive
+            nuo_protocol::human_request::HumanChannelPosture::Interactive
         } else {
-            protocol::human_request::HumanChannelPosture::Autonomous
+            nuo_protocol::human_request::HumanChannelPosture::Autonomous
         });
     }
     let init_options = client::ThreadInitOptions::new(unattended, confined)
@@ -109,7 +109,7 @@ pub async fn run_headless(
             }
             AgentResponse::ThreadPhase(update) => {
                 match &update.phase {
-                    protocol::ThreadPhase::Ready if !prompt_sent => {
+                    nuo_protocol::ThreadPhase::Ready if !prompt_sent => {
                         if json {
                             let init_event = serde_json::json!({
                                 "type": "session_init",
@@ -130,7 +130,7 @@ pub async fn run_headless(
                         )?;
                         prompt_sent = true;
                     }
-                    protocol::ThreadPhase::Failed { message, .. } => {
+                    nuo_protocol::ThreadPhase::Failed { message, .. } => {
                         return Err(message.clone().into());
                     }
                     _ => {}
@@ -182,15 +182,15 @@ pub async fn run_headless(
                 RoundEvent::ToolStream { id, stream } => {
                     if !json {
                         match stream {
-                            tool::ToolStream::Stdout(text) => {
+                            nuo_tool::ToolStream::Stdout(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
-                            tool::ToolStream::Stderr(text) => {
+                            nuo_tool::ToolStream::Stderr(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
-                            tool::ToolStream::Progress(progress) => {
+                            nuo_tool::ToolStream::Progress(progress) => {
                                 let _ = writeln!(io::stderr(), "[progress] {}", progress.render());
                                 let _ = io::stderr().flush();
                             }
@@ -223,10 +223,10 @@ pub async fn run_headless(
                     } else {
                         let is_error = matches!(
                             structured,
-                            ::tool::ToolOutput::Error { .. }
-                                | ::tool::ToolOutput::PermissionDenied { .. }
+                            nuo_tool::ToolOutput::Error { .. }
+                                | nuo_tool::ToolOutput::PermissionDenied { .. }
                         ) || match &structured {
-                            ::tool::ToolOutput::Shell { exit, .. } => {
+                            nuo_tool::ToolOutput::Shell { exit, .. } => {
                                 exit.is_some_and(|code| code != 0)
                             }
                             _ => false,
@@ -345,7 +345,7 @@ pub async fn run_headless(
                         // `attempt - 1` here would be a second attempt-ordinal
                         // paint site — the exact split (`retry 5/29` beside
                         // `retry 6/30`) this type exists to close.
-                        let progress = view::retry::RetryProgress::scheduled(
+                        let progress = nuo_view::retry::RetryProgress::scheduled(
                             attempt,
                             max_attempts,
                             std::time::Instant::now(),
@@ -358,7 +358,7 @@ pub async fn run_headless(
                         eprintln!(
                             "\n[{} — {}]",
                             progress.receipt_label(),
-                            engine::runtime::retry::public_retry_reason(&message),
+                            nuo_engine::runtime::retry::public_retry_reason(&message),
                         );
                         io::stderr().flush()?;
                     }

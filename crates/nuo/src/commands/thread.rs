@@ -10,7 +10,7 @@
 
 use crate::cli::ThreadAction;
 use nuo::transport as client;
-use protocol::{MonitoredThread, ThreadFilter, ThreadRemovalReport};
+use nuo_protocol::{MonitoredThread, ThreadFilter, ThreadRemovalReport};
 use std::path::PathBuf;
 
 #[cfg(feature = "interactive")]
@@ -45,7 +45,7 @@ pub async fn run(
     let raw_root = project_override
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let project_root = host::paths::find_project_root(&raw_root);
+    let project_root = nuo_host::paths::find_project_root(&raw_root);
     // Stored bindings are created from the session store's canonical project
     // root; resolve the query side the same way so a symlinked cwd does not
     // silently produce an empty scope.
@@ -201,7 +201,7 @@ fn resolve_thread_filter(
     explicit_project: bool,
 ) -> Result<ThreadFilter, Box<dyn std::error::Error>> {
     let role = match role {
-        Some(role) => Some(persistence::roles::canonical_role_id(role)?),
+        Some(role) => Some(nuo_persistence::roles::canonical_role_id(role)?),
         None => None,
     };
     let workspace = match workspace {
@@ -219,7 +219,7 @@ fn single_id_role_guard(
     let Some(role) = role else {
         return Ok(None);
     };
-    let role = persistence::roles::canonical_role_id(role)?;
+    let role = nuo_persistence::roles::canonical_role_id(role)?;
     Ok(Some(ThreadFilter::for_role(role)))
 }
 
@@ -434,7 +434,7 @@ pub fn format_threads_table(sessions: &[MonitoredThread], filter: &ThreadFilter)
         if !lane.is_empty() {
             title.push_str(&lane);
         }
-        if row.origin == protocol::ThreadOrigin::Subagent {
+        if row.origin == nuo_protocol::ThreadOrigin::Subagent {
             title.push_str("⑂ ");
         }
         if let Some(parent) = row.parent_id.as_deref()
@@ -508,7 +508,7 @@ fn fmt_relative(updated_epoch_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::{ThreadActivity, ThreadHosting, ThreadOrigin};
+    use nuo_protocol::{ThreadActivity, ThreadHosting, ThreadOrigin};
 
     fn test_filter() -> ThreadFilter {
         ThreadFilter {

@@ -14,7 +14,7 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
     let agent = Arc::new(Agent::new(
         Arc::new(PartialToolRetryProvider(AtomicUsize::new(0))),
         vec![Arc::new(RetryReadTool(tool_calls.clone()))],
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -27,7 +27,7 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
             session: session.clone(),
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: protocol::CompactionPolicy::default().resolve(100_000),
+                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -46,7 +46,7 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: engine::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await
@@ -86,7 +86,7 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
             requests: requests.clone(),
         }),
         vec![Arc::new(RetryReadTool(tool_calls.clone()))],
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     let (tx, mut rx) = mpsc::unbounded_channel();
 
@@ -99,7 +99,7 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
             session: session.clone(),
             projection: ContextProjectionSettings {
                 request_overhead_tokens: 0,
-                budget: protocol::CompactionPolicy::default().resolve(100_000),
+                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,
@@ -118,7 +118,7 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
             display_prompt: None,
             sent_at_ms: None,
             images: Vec::new(),
-            driver: engine::orchestration::RoundDriver::Fresh,
+            driver: nuo_engine::orchestration::RoundDriver::Fresh,
         },
     )
     .await

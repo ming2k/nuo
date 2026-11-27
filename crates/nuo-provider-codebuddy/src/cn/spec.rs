@@ -1,0 +1,208 @@
+//! The `codebuddy-cn` spec: the domestic ingress at `copilot.tencent.com/v2`.
+//!
+//! Model baseline = the CLI's **internal-line** catalog (`product.internal.json`
+//! for the npm `@tencent-ai/codebuddy-code` v2.172.1 CLI): Hunyuan 4/3,
+//! DeepSeek V4 Flash/Pro, Kimi K3.1, GLM 5.3 Flash, MiniMax M2.5, plus the
+//! `default` auto-router. The international line's catalog is a *different
+//! universe* and lives in the `intl` module of this crate — the two baselines
+//! never share a const ([ADR-0097]).
+
+use nuo_protocol::Model;
+use nuo_protocol::reasoning::ReasoningSupport;
+use nuo_protocol::surface::RemoteCatalogSource;
+use nuo_provider::*;
+
+/// Seed model ids for the domestic line, in activation order.
+pub const CODEBUDDY_CN_BUILTIN_MODELS: &[&str] = &[
+    "hy4-preview",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "kimi-k3-1",
+    "glm-5.3-flash",
+    "minimax-m2.5",
+    "default",
+];
+
+/// Baseline capability metadata for the domestic line's models.
+pub const MODELS: &[Model] = &[
+    Model {
+        id: "hy4-preview",
+        family: "hunyuan",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+    Model {
+        id: "hy3",
+        family: "hunyuan",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+    Model {
+        id: "deepseek-v4-flash",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_protocol::Effort::Low),
+        wire_entities: None,
+    },
+    Model {
+        id: "deepseek-v4-pro",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: false,
+        effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+    Model {
+        id: "kimi-k3-1",
+        family: "kimi",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+    Model {
+        id: "glm-5.3-flash",
+        family: "glm",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+    Model {
+        id: "minimax-m2.5",
+        family: "minimax",
+        context_window: 204_800,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: false,
+        effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+    Model {
+        id: "default",
+        family: "auto",
+        context_window: 200_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: false,
+        effort_levels: &[],
+        default_effort: Some(nuo_protocol::Effort::High),
+        wire_entities: None,
+    },
+];
+
+inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
+
+fn prompt_cache_for_model(_: &str) -> nuo_protocol::PromptCacheSpec {
+    nuo_protocol::PromptCacheSpec {
+        modes: &[nuo_protocol::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_protocol::PromptCacheMode::Implicit),
+        supported_retentions: &[],
+        default_retention: None,
+        disable_supported: false,
+        routing_key_supported: false,
+        max_breakpoints: None,
+        min_cacheable_tokens: None,
+        reports_reads: true,
+        reports_writes: false,
+        reports_misses: false,
+    }
+}
+
+pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
+    dialect: nuo_protocol::ProviderDialect::CodeBuddy,
+    protocol_roots: std::borrow::Cow::Borrowed(&[]),
+    catalog_root_url: None,
+    prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
+    id: std::borrow::Cow::Borrowed(nuo_protocol::model_providers::PROVIDER_CODEBUDDY_CN.id),
+    baselines: MODELS,
+    root_url: std::borrow::Cow::Borrowed(
+        nuo_protocol::model_providers::PROVIDER_CODEBUDDY_CN.root_url,
+    ),
+    user_agent: nuo_protocol::model_providers::PROVIDER_CODEBUDDY_CN.user_agent_cow(),
+    default_headers: std::borrow::Cow::Borrowed(crate::CODEBUDDY_CLIENT_HEADERS),
+    protocol: nuo_protocol::model_providers::PROVIDER_CODEBUDDY_CN.protocol,
+    model_protocols: &[],
+    catalog_source: RemoteCatalogSource::None,
+    quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Native,
+    responses_state: nuo_protocol::ResponsesState::Stateless,
+    models: nuo_protocol::model_providers::PROVIDER_CODEBUDDY_CN.models,
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nuo_inference_wire::WireProtocol;
+
+    #[test]
+    fn spec_is_bound_to_the_domestic_realm() {
+        assert_eq!(MODEL_PROVIDER_SPEC.id, "codebuddy-cn");
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.root_url,
+            "https://copilot.tencent.com/v2"
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.protocol,
+            WireProtocol::OpenAiChatCompletions
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.dialect,
+            nuo_protocol::ProviderDialect::CodeBuddy
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.user_agent.as_deref(),
+            Some(crate::CODEBUDDY_USER_AGENT)
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.default_headers.as_ref(),
+            crate::CODEBUDDY_CLIENT_HEADERS
+        );
+    }
+
+    #[test]
+    fn seeded_models_exist() {
+        for id in CODEBUDDY_CN_BUILTIN_MODELS {
+            assert!(
+                MODELS.iter().any(|m| m.id == *id),
+                "model {id} must exist in MODELS"
+            );
+        }
+    }
+
+    #[test]
+    fn hy4_preview_supports_reasoning_and_vision() {
+        let hy4 = MODELS
+            .iter()
+            .find(|m| m.id == "hy4-preview")
+            .expect("hy4-preview");
+        assert!(hy4.vision);
+        assert!(hy4.tool_call);
+        assert_eq!(hy4.thinking, ReasoningSupport::ReasoningContent);
+        assert_eq!(hy4.context_window, 1_000_000);
+    }
+}

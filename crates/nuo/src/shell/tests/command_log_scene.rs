@@ -12,14 +12,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use ::tool::ToolOutput;
-use tool::ShellTermination;
-use view::model::command_log::LogScope;
-use view::model::document::MessageKind;
+use nuo_tool::ShellTermination;
+use nuo_tool::ToolOutput;
+use nuo_view::model::command_log::LogScope;
+use nuo_view::model::document::MessageKind;
 
 /// Build a finished `execute_command` step whose body folds (well past
 /// HEAD + TAIL + 1) with the given exit code.
-fn folded_command_step(rows: usize, exit: i32) -> view::model::document::TranscriptMessage {
+fn folded_command_step(rows: usize, exit: i32) -> nuo_view::model::document::TranscriptMessage {
     let stdout = (1..=rows)
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
@@ -36,7 +36,7 @@ fn folded_command_step(rows: usize, exit: i32) -> view::model::document::Transcr
         detached_job_id: None,
     };
     let text = structured.to_text();
-    let mut message = view::model::document::TranscriptMessage::tool_step(
+    let mut message = nuo_view::model::document::TranscriptMessage::tool_step(
         "call_build",
         "execute_command",
         r#"{"command":"cargo build"}"#,
@@ -186,7 +186,7 @@ async fn the_scope_toggle_refuses_an_unfolded_step() {
 #[test]
 fn a_non_command_step_opens_in_universal_pager_scene() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    let mut message = view::model::document::TranscriptMessage::tool_step(
+    let mut message = nuo_view::model::document::TranscriptMessage::tool_step(
         "call_read",
         "read",
         r#"{"path":"Cargo.toml"}"#,
@@ -214,7 +214,7 @@ fn the_hidden_rows_copy_carries_the_invocation_and_only_the_hidden_rows() {
     let (text, feedback) = crate::shell::copy::fold_hidden_rows_copy(&app, 0)
         .expect("a folded step has hidden rows to copy");
 
-    let log = view::tools::shell_output::ShellOutput::derive(
+    let log = nuo_view::tools::shell_output::ShellOutput::derive(
         match &app.threads.messages[0].kind {
             MessageKind::ToolStep { output, .. } => output.as_deref().unwrap_or(""),
             _ => unreachable!(),

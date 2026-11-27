@@ -7,8 +7,8 @@
 
 use std::time::Instant;
 
-use persistence::thread::{CommitTurn, ThreadSession};
-use tool::{Message, Role};
+use nuo_persistence::thread::{CommitTurn, ThreadSession};
+use nuo_tool::{Message, Role};
 
 #[tokio::test]
 async fn long_session_commit_turn_scales_with_delta_not_session_length() {

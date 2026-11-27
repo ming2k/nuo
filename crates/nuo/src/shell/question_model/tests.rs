@@ -1,7 +1,7 @@
 //! Pure state-machine tests: feed a script of actions, assert the model
 //! and the emitted effects. No terminal, no async, no agent.
 use super::*;
-use tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
 /// A single-select question with two labeled options.
 fn single_select_req() -> UserQuestionRequest {

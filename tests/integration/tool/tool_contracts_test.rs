@@ -3,11 +3,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use async_trait::async_trait;
-use serde_json::json;
-use tool::{
+use nuo_tool::{
     BuiltinTool, RiskProfile, Tool, ToolContext, ToolError, ToolExposure, ToolOutput,
     prepare_tool_arguments,
 };
+use serde_json::json;
 
 struct EchoArgs;
 

@@ -2,7 +2,7 @@
 
 use std::sync::atomic::Ordering;
 
-use protocol::{AgentResponse, RoundEvent};
+use nuo_protocol::{AgentResponse, RoundEvent};
 
 use crate::shell::event_loop;
 use crate::shell::transcript::{
@@ -374,7 +374,8 @@ impl TranslatorState {
                 // interstitial is absent).
                 {
                     let gate_needed = !self.trust_gate_dismissed.load(Ordering::SeqCst)
-                        && view::trust_gate::gate_request(&snapshot.workspace_security).is_some();
+                        && nuo_view::trust_gate::gate_request(&snapshot.workspace_security)
+                            .is_some();
                     if gate_needed {
                         self.mutations
                             .send(M::PreAttach(crate::shell::PreAttachSignal {

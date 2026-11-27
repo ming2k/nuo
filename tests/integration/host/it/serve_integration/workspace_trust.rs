@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use persistence::thread::ThreadSession;
-use protocol::{AgentRequest, AgentResponse, RoundEvent};
-use server::runtime::monitor::MonitorTracker;
-use server::runtime::registry::{HostedThread, ThreadRegistry};
-use server::transport::serve::{self, ThreadTarget, Wire};
+use nuo_persistence::thread::ThreadSession;
+use nuo_protocol::{AgentRequest, AgentResponse, RoundEvent};
+use nuo_server::runtime::monitor::MonitorTracker;
+use nuo_server::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_server::transport::serve::{self, ThreadTarget, Wire};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -30,7 +30,7 @@ async fn attach_trust_workspace(
     attach_trust_workspace_with_posture(
         tmp,
         security_file,
-        protocol::human_request::HumanChannelPosture::Interactive,
+        nuo_protocol::human_request::HumanChannelPosture::Interactive,
     )
     .await
 }
@@ -43,34 +43,36 @@ async fn attach_trust_workspace(
 async fn attach_trust_workspace_with_posture(
     tmp: &tempfile::TempDir,
     security_file: &std::path::Path,
-    posture: protocol::human_request::HumanChannelPosture,
+    posture: nuo_protocol::human_request::HumanChannelPosture,
 ) -> (
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     serve::ServeHandle,
 ) {
     let session = Arc::new(ThreadSession::for_path(tmp.path().join("session.json")));
     let security = Arc::new(
-        persistence::workspace_security::WorkspaceSecurityStore::load_from(
+        nuo_persistence::workspace_security::WorkspaceSecurityStore::load_from(
             security_file.to_path_buf(),
         ),
     );
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let (req_tx, _req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
-    let sync_buffer = Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new()));
+    let sync_buffer = Arc::new(Mutex::new(
+        nuo_server::transport::serve::AttachSyncBuffer::new(),
+    ));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
-        protocol::ThreadActivity::Idle,
+        nuo_protocol::ThreadActivity::Idle,
     )));
     registry
         .host(HostedThread {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                protocol::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -96,7 +98,7 @@ async fn attach_trust_workspace_with_posture(
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
             posture,
             monitor: None,
@@ -138,26 +140,30 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions").unwrap();
 
     let security = Arc::new(
-        persistence::workspace_security::WorkspaceSecurityStore::load_from(security_file.clone()),
+        nuo_persistence::workspace_security::WorkspaceSecurityStore::load_from(
+            security_file.clone(),
+        ),
     );
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let (req_tx, _req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
-    let sync_buffer = Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new()));
+    let sync_buffer = Arc::new(Mutex::new(
+        nuo_server::transport::serve::AttachSyncBuffer::new(),
+    ));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
-        protocol::ThreadActivity::Idle,
+        nuo_protocol::ThreadActivity::Idle,
     )));
     registry
         .host(HostedThread {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                protocol::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -183,9 +189,9 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
         .unwrap();
     ws.send(WsMessage::Text(
         serde_json::to_string(&Wire::Hello {
-            protocol: protocol::PROTOCOL_VERSION,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
             version: None,
-            posture: protocol::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             monitor: None,
         })
         .unwrap()
@@ -229,14 +235,14 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
             AgentResponse::ThreadSnapshot(snapshot) => {
                 if let Some(harness) = &snapshot.harness_state
                     && harness.workspace_security.instructions
-                        == protocol::WorkspaceTrustState::Quarantined
+                        == nuo_protocol::WorkspaceTrustState::Quarantined
                 {
                     saw_quarantined_snapshot = true;
                 }
             }
             AgentResponse::Round {
                 scope:
-                    protocol::RoundScope::Session {
+                    nuo_protocol::RoundScope::Session {
                         event: RoundEvent::Notice(n),
                     },
                 ..
@@ -282,10 +288,11 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
     // AGENTS.md written twice: once to hash for the trusted record, once
     // (different content) so the digest no longer matches → `Changed`.
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions").unwrap();
-    let security =
-        persistence::workspace_security::WorkspaceSecurityStore::load_from(security_file.clone());
+    let security = nuo_persistence::workspace_security::WorkspaceSecurityStore::load_from(
+        security_file.clone(),
+    );
     security
-        .trust_domains(tmp.path(), &[protocol::TrustDomain::Instructions])
+        .trust_domains(tmp.path(), &[nuo_protocol::TrustDomain::Instructions])
         .unwrap();
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions v2").unwrap();
     let (mut ws, _server) = attach_trust_workspace(&tmp, &security_file).await;
@@ -306,7 +313,7 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
             AgentResponse::ThreadSnapshot(snapshot) => {
                 if let Some(harness) = &snapshot.harness_state
                     && harness.workspace_security.instructions
-                        == protocol::WorkspaceTrustState::Changed
+                        == nuo_protocol::WorkspaceTrustState::Changed
                 {
                     saw_changed_snapshot = true;
                     // The snapshot is the gate; the passive banner must not
@@ -316,11 +323,11 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
             }
             AgentResponse::Round {
                 scope:
-                    protocol::RoundScope::Session {
+                    nuo_protocol::RoundScope::Session {
                         event: RoundEvent::Notice(n),
                     },
                 ..
-            } if n.kind == tool::NoticeKind::TrustChanged => {
+            } if n.kind == nuo_tool::NoticeKind::TrustChanged => {
                 saw_banner = true;
             }
             _ => {}
@@ -346,16 +353,17 @@ async fn autonomous_attach_falls_back_to_the_banner() {
     let tmp = tempfile::tempdir().unwrap();
     let security_file = tmp.path().join("workspace_security.json");
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions").unwrap();
-    let security =
-        persistence::workspace_security::WorkspaceSecurityStore::load_from(security_file.clone());
+    let security = nuo_persistence::workspace_security::WorkspaceSecurityStore::load_from(
+        security_file.clone(),
+    );
     security
-        .trust_domains(tmp.path(), &[protocol::TrustDomain::Instructions])
+        .trust_domains(tmp.path(), &[nuo_protocol::TrustDomain::Instructions])
         .unwrap();
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions v2").unwrap();
     let (mut ws, _server) = attach_trust_workspace_with_posture(
         &tmp,
         &security_file,
-        protocol::human_request::HumanChannelPosture::Autonomous,
+        nuo_protocol::human_request::HumanChannelPosture::Autonomous,
     )
     .await;
 
@@ -374,7 +382,7 @@ async fn autonomous_attach_falls_back_to_the_banner() {
             continue;
         };
         if let RoundEvent::Notice(n) = scope.into_event()
-            && n.kind == tool::NoticeKind::TrustChanged
+            && n.kind == nuo_tool::NoticeKind::TrustChanged
         {
             saw_banner = true;
             break;

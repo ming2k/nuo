@@ -14,12 +14,12 @@
 //! 6. that the plan and the assembled request agree byte for byte.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use engine::{
+use futures::stream::{self, BoxStream};
+use nuo_engine::{
     Agent, AgentIdentity, ContextInputs, Message, Provider, Role, Stability, ToolSurface,
 };
-use futures::stream::{self, BoxStream};
+use nuo_tool::BuiltinTool;
 use std::sync::Arc;
-use tool::BuiltinTool;
 
 struct IdleProvider;
 
@@ -27,9 +27,9 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Ok(protocol::ProviderCompletion::message(Message::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
@@ -37,10 +37,12 @@ impl Provider for IdleProvider {
 
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
-    ) -> Result<BoxStream<'static, Result<String, protocol::ProviderError>>, protocol::ProviderError>
-    {
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::once(async { Ok("done".to_owned()) })))
     }
 }
@@ -48,7 +50,7 @@ impl Provider for IdleProvider {
 struct FakeTool(BuiltinTool);
 
 #[async_trait::async_trait]
-impl tool::Tool for FakeTool {
+impl nuo_tool::Tool for FakeTool {
     fn name(&self) -> &str {
         self.0.as_str()
     }
@@ -63,10 +65,10 @@ impl tool::Tool for FakeTool {
     }
     async fn execute(
         &self,
-        _ctx: &tool::ToolContext,
+        _ctx: &nuo_tool::ToolContext,
         _args: serde_json::Value,
-    ) -> tool::Result<tool::ToolOutput> {
-        Ok(tool::ToolOutput::text("ok"))
+    ) -> nuo_tool::Result<nuo_tool::ToolOutput> {
+        Ok(nuo_tool::ToolOutput::text("ok"))
     }
 }
 
@@ -77,7 +79,7 @@ fn rich_inputs() -> ContextInputs {
         identity_preamble: "You are Nuo, a modular session server.".to_string(),
         tool_surface: ToolSurface::new(
             [
-                &FakeTool(BuiltinTool::Read) as &dyn tool::Tool,
+                &FakeTool(BuiltinTool::Read) as &dyn nuo_tool::Tool,
                 &FakeTool(BuiltinTool::FindFiles),
                 &FakeTool(BuiltinTool::SearchText),
                 &FakeTool(BuiltinTool::CodeQuery),
@@ -90,16 +92,16 @@ fn rich_inputs() -> ContextInputs {
         additional_workspace_roots: vec!["/data/projects/sibling".to_string()],
         workspace_root: Some("/data/projects/example".to_string()),
         workspace_topology: Some("- crates/core\n- crates/app".to_string()),
-        user_instructions: vec![protocol::ScopedInstruction {
+        user_instructions: vec![nuo_protocol::ScopedInstruction {
             id: "user:0".to_string(),
-            source: protocol::InstructionSource::User,
+            source: nuo_protocol::InstructionSource::User,
             ordinal: 0,
             selector: Default::default(),
             text: "Answer in Chinese.".to_string(),
         }],
-        project_instructions: vec![protocol::ScopedInstruction {
+        project_instructions: vec![nuo_protocol::ScopedInstruction {
             id: ".nuo/instructions/global.md".to_string(),
-            source: protocol::InstructionSource::Project,
+            source: nuo_protocol::InstructionSource::Project,
             ordinal: 0,
             selector: Default::default(),
             text: "Reject a second request compiler.".to_string(),
@@ -107,13 +109,13 @@ fn rich_inputs() -> ContextInputs {
         skill_catalog: vec![("rust-expert".to_string(), "Rust help".to_string())],
         // Every realistic session has a declared language; the golden pins what a
         // declared one renders (ADR-0222).
-        response_language: Some(protocol::ResponseLanguage::parse("Chinese").unwrap()),
+        response_language: Some(nuo_protocol::ResponseLanguage::parse("Chinese").unwrap()),
     }
 }
 
 #[test]
 fn the_default_emission_order_is_pinned() {
-    let policy = engine::default_policy();
+    let policy = nuo_engine::default_policy();
     assert_eq!(
         policy.source_ids(),
         vec![
@@ -139,7 +141,7 @@ fn the_default_emission_order_is_pinned() {
 
 #[test]
 fn the_stability_band_of_every_default_block_is_pinned() {
-    let policy = engine::default_policy();
+    let policy = nuo_engine::default_policy();
     let band = |id: &str| policy.stability_of(id).expect(id);
     assert_eq!(band("agent.identity"), Stability::Route);
     assert_eq!(band("agent.precedence"), Stability::Frozen);
@@ -168,12 +170,12 @@ fn the_bodies_join_back_into_the_rendered_prefix() {
     // second time. The invariant it existed for survives here, as an assertion
     // rather than as a second artifact — the bodies a reader sees, joined in
     // emission order, ARE the cacheable prefix the provider receives.
-    let plan = engine::default_policy().plan(&rich_inputs());
-    let measurement = protocol::ContextMeasurement {
+    let plan = nuo_engine::default_policy().plan(&rich_inputs());
+    let measurement = nuo_protocol::ContextMeasurement {
         plan,
         estimate: None,
     };
-    let view = engine::project_plan(&measurement, 200_000, 16_000);
+    let view = nuo_engine::project_plan(&measurement, 200_000, 16_000);
     let joined: Vec<&str> = view
         .blocks
         .iter()
@@ -182,7 +184,7 @@ fn the_bodies_join_back_into_the_rendered_prefix() {
         .collect();
     assert_eq!(
         joined.join("\n\n"),
-        protocol::render_blocks(&measurement.plan.fixed),
+        nuo_protocol::render_blocks(&measurement.plan.fixed),
         "the JSON golden's bodies must be the cacheable prefix, byte for byte"
     );
 }
@@ -191,14 +193,14 @@ fn the_bodies_join_back_into_the_rendered_prefix() {
 fn the_frame_is_byte_stable_across_a_workspace_edit() {
     // The whole point of stability ordering: an `AGENTS.md` edit must not
     // invalidate the head of the cacheable prefix.
-    let policy = engine::default_policy();
+    let policy = nuo_engine::default_policy();
     let before = policy.plan(&rich_inputs());
     let mut after_inputs = rich_inputs();
     after_inputs.project_rules = "A completely different rule set.".to_string();
     after_inputs.workspace_topology = Some("- crates/other".to_string());
     let after = policy.plan(&after_inputs);
 
-    let head = |plan: &protocol::ContextPlan| -> String {
+    let head = |plan: &nuo_protocol::ContextPlan| -> String {
         plan.fixed
             .iter()
             .zip(after.fixed.iter())
@@ -206,7 +208,7 @@ fn the_frame_is_byte_stable_across_a_workspace_edit() {
                 plan.block(&block.id)
                     .is_some_and(|row| row.stability != Stability::Workspace)
             })
-            .map(|(block, _)| protocol::render_blocks(std::slice::from_ref(block)))
+            .map(|(block, _)| nuo_protocol::render_blocks(std::slice::from_ref(block)))
             .collect::<Vec<_>>()
             .join("\n\n")
     };
@@ -216,8 +218,8 @@ fn the_frame_is_byte_stable_across_a_workspace_edit() {
         "a workspace edit moved the stable head of the prefix"
     );
     assert_ne!(
-        protocol::render_blocks(&before.fixed),
-        protocol::render_blocks(&after.fixed),
+        nuo_protocol::render_blocks(&before.fixed),
+        nuo_protocol::render_blocks(&after.fixed),
         "the workspace band must actually change"
     );
 }
@@ -226,7 +228,7 @@ fn the_frame_is_byte_stable_across_a_workspace_edit() {
 fn no_two_blocks_state_the_same_rule() {
     // The defect this design exists to prevent shipped twice: the native-tool
     // preference and the parallelization rule each appeared in two sections.
-    let plan = engine::default_policy().plan(&rich_inputs());
+    let plan = nuo_engine::default_policy().plan(&rich_inputs());
     let mut sentences: Vec<(String, String)> = Vec::new();
     for block in &plan.fixed {
         for line in block.body.lines() {
@@ -270,7 +272,7 @@ fn the_plan_and_the_request_are_the_same_bytes() {
 
     assert_eq!(
         system.content,
-        protocol::render_blocks(&plan.fixed),
+        nuo_protocol::render_blocks(&plan.fixed),
         "the recorded plan is not the prompt that was sent"
     );
 }
@@ -282,7 +284,7 @@ fn the_context_table_renders_every_declared_source() {
     let mut messages = vec![Message::new(Role::User, "hello")];
     agent.prepare_request_messages_debug(&mut messages);
     let table = agent.render_context_table().expect("table");
-    for id in engine::default_policy().source_ids() {
+    for id in nuo_engine::default_policy().source_ids() {
         assert!(table.contains(id), "the table omits `{id}`:\n{table}");
     }
     assert!(table.contains("stability"));
@@ -291,9 +293,9 @@ fn the_context_table_renders_every_declared_source() {
 
 #[test]
 fn an_elided_block_names_its_recovery_route_in_the_table() {
-    let policy = engine::default_policy();
+    let policy = nuo_engine::default_policy();
     // A project rules document far past its 8k budget.
-    let measurement = protocol::ContextMeasurement {
+    let measurement = nuo_protocol::ContextMeasurement {
         plan: policy.plan(&ContextInputs {
             identity_preamble: "You are Nuo.".to_string(),
             project_rules: "line of a very long rule document\n".repeat(4_000),
@@ -301,8 +303,8 @@ fn an_elided_block_names_its_recovery_route_in_the_table() {
         }),
         estimate: None,
     };
-    let view = engine::project_plan(&measurement, 200_000, 16_000);
-    let table = engine::render_context_table(&view);
+    let view = nuo_engine::project_plan(&measurement, 200_000, 16_000);
+    let table = nuo_engine::render_context_table(&view);
     assert!(table.contains("project.rules"));
     assert!(
         table.contains("AGENTS.md"),
@@ -313,11 +315,11 @@ fn an_elided_block_names_its_recovery_route_in_the_table() {
 
 #[test]
 fn the_json_form_is_the_golden_the_test_suite_pins() {
-    let measurement = protocol::ContextMeasurement {
-        plan: engine::default_policy().plan(&rich_inputs()),
+    let measurement = nuo_protocol::ContextMeasurement {
+        plan: nuo_engine::default_policy().plan(&rich_inputs()),
         estimate: None,
     };
-    let view = engine::project_plan(&measurement, 200_000, 16_000);
-    let json = engine::render_context_json(&view).expect("json");
+    let view = nuo_engine::project_plan(&measurement, 200_000, 16_000);
+    let json = nuo_engine::render_context_json(&view).expect("json");
     insta::assert_snapshot!("default_prefix_json", json);
 }

@@ -3,24 +3,24 @@
 
 #[test]
 fn test_inv_arch_firewall_and_topology() {
-    let root = test_support::dev::find_workspace_root();
-    if let Err(e) = test_support::dev::firewall::check_presentation_firewall(&root) {
+    let root = nuo_test_support::dev::find_workspace_root();
+    if let Err(e) = nuo_test_support::dev::firewall::check_presentation_firewall(&root) {
         panic!("Presentation firewall violations:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_arch_cli_lean_link() {
-    let root = test_support::dev::find_workspace_root();
-    if let Err(e) = test_support::dev::firewall::check_lean_cli_link(&root) {
+    let root = nuo_test_support::dev::find_workspace_root();
+    if let Err(e) = nuo_test_support::dev::firewall::check_lean_cli_link(&root) {
         panic!("Lean CLI link violation:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_wire_census_matches_protocol_version() {
-    let root = test_support::dev::find_workspace_root();
-    if let Err(e) = test_support::dev::wire_census::check_wire_census(&root) {
+    let root = nuo_test_support::dev::find_workspace_root();
+    if let Err(e) = nuo_test_support::dev::wire_census::check_wire_census(&root) {
         panic!("Wire surface census violation:\n{e}");
     }
 }
@@ -30,7 +30,7 @@ fn test_inv_wire_census_matches_protocol_version() {
 /// missing `TurnStarted` would silently make every later row unaddressable.
 #[test]
 fn test_inv_event_01_turn_context_is_the_only_position_source() {
-    let root = test_support::dev::find_workspace_root();
+    let root = nuo_test_support::dev::find_workspace_root();
     let path = root.join("crates/nuo/src/shell/mod.rs");
     let source = std::fs::read_to_string(&path).expect("read the shell translator");
 
@@ -47,8 +47,8 @@ fn test_inv_compaction_is_transcript_owned() {
     // [INV-CMP-04] A compaction is one durable `ThreadFact::Compaction`; the
     // branch horizon moves in the same commit. The path must not grow a second
     // durable write through the retired `SessionIR` APIs.
-    let root = test_support::dev::find_workspace_root();
-    let path = root.join("crates/engine/src/orchestration/compaction.rs");
+    let root = nuo_test_support::dev::find_workspace_root();
+    let path = root.join("crates/nuo-engine/src/orchestration/compaction.rs");
     let source = std::fs::read_to_string(&path).expect("read orchestration source");
     let start = source
         .find("pub async fn compact_round_history_with_mode")
@@ -68,38 +68,38 @@ fn test_inv_compaction_is_transcript_owned() {
     );
 }
 
-/// Rewrites `crates/test-support/src/dev/wire-census.txt` from the tree.
+/// Rewrites `crates/nuo-test-support/src/dev/wire-census.txt` from the tree.
 ///
 /// Ignored by default because it mutates the repository: run it deliberately, in the same
 /// commit as a `PROTOCOL_VERSION` bump, after the wire surface has settled.
 #[test]
 #[ignore = "writes wire-census.txt; run deliberately after a protocol bump"]
 fn bless_wire_census() {
-    let root = test_support::dev::find_workspace_root();
-    let path = test_support::dev::wire_census::bless_census(&root).expect("bless wire census");
+    let root = nuo_test_support::dev::find_workspace_root();
+    let path = nuo_test_support::dev::wire_census::bless_census(&root).expect("bless wire census");
     eprintln!("blessed {}", path.display());
 }
 
 #[test]
 fn test_inv_arch_source_residency() {
-    let root = test_support::dev::find_workspace_root();
-    if let Err(e) = test_support::dev::residency::check_source_residency(&root) {
+    let root = nuo_test_support::dev::find_workspace_root();
+    if let Err(e) = nuo_test_support::dev::residency::check_source_residency(&root) {
         panic!("Source residency violations:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_text_overflow_and_column_budget_firewall() {
-    let root = test_support::dev::find_workspace_root();
-    if let Err(e) = test_support::dev::text_overflow::check_text_overflow(&root) {
+    let root = nuo_test_support::dev::find_workspace_root();
+    if let Err(e) = nuo_test_support::dev::text_overflow::check_text_overflow(&root) {
         panic!("Text overflow / column budget firewall violation:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_color_purity_firewall() {
-    let root = test_support::dev::find_workspace_root();
-    if let Err(e) = test_support::dev::color_purity::check_color_purity(&root) {
+    let root = nuo_test_support::dev::find_workspace_root();
+    if let Err(e) = nuo_test_support::dev::color_purity::check_color_purity(&root) {
         panic!("Color purity firewall violation:\n{e}");
     }
 }
@@ -110,7 +110,7 @@ fn test_inv_color_purity_firewall() {
 /// CI runner without sibling directories.
 #[test]
 fn test_inv_ws_01_lockfile_has_no_unpinned_external_path_overrides() {
-    let root = test_support::dev::find_workspace_root();
+    let root = nuo_test_support::dev::find_workspace_root();
     let lock = std::fs::read_to_string(root.join("Cargo.lock")).expect("read Cargo.lock");
     let parsed: toml::Table = toml::from_str(&lock).expect("parse Cargo.lock");
     let packages = parsed

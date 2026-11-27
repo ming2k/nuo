@@ -69,7 +69,7 @@ fn backspace_in_compose_returns_backspace_action() {
 
 #[test]
 fn backspace_atomically_deletes_an_image_chip() {
-    let chip = view::composer_attachments::image_chip(1, 0);
+    let chip = nuo_view::composer_attachments::image_chip(1, 0);
     let mut input = format!("look {chip} ");
     let mut cursor = input.chars().count();
     let mut drag = SelectionDrag::default();
@@ -90,7 +90,7 @@ fn backspace_atomically_deletes_an_image_chip() {
 
 #[test]
 fn backspace_atomically_deletes_a_paste_chip_without_trailing_space() {
-    let chip = view::composer_attachments::paste_chip(1, 5, 0);
+    let chip = nuo_view::composer_attachments::paste_chip(1, 5, 0);
     let mut input = format!("see {chip}!");
     let prefix_chars = "see ".chars().count() + chip.chars().count();
     let mut cursor = prefix_chars;
@@ -251,8 +251,8 @@ fn b_and_d_in_preset_chooser_pick_the_login_method() {
     // actually supports the method is validated by the dispatcher (which can
     // see the OAuth registration); the input layer only maps the keys.
     for (key, method) in [
-        ('b', protocol::LoginMethod::Browser),
-        ('d', protocol::LoginMethod::Device),
+        ('b', nuo_protocol::LoginMethod::Browser),
+        ('d', nuo_protocol::LoginMethod::Device),
     ] {
         let mut input = String::new();
         let mut cursor = 0;
@@ -1474,7 +1474,7 @@ fn delete_key_eats_whole_attachment_chip() {
     // Forward-deleting the `[` of an attachment chip removes the whole chip
     // (plus the trailing space a paste inserts) in one keystroke, mirroring
     // the chip-aware Backspace.
-    let chip = view::composer_attachments::image_chip(1, 42);
+    let chip = nuo_view::composer_attachments::image_chip(1, 42);
     let mut input = format!("hello {chip} world");
     let mut cursor = "hello ".len();
     assert_eq!(
@@ -1777,11 +1777,11 @@ fn resolve_block_resolves_composer_chrome_to_input_sentinel() {
     // Middle-click on chrome row (e.g. y = 10 or 13) resolves to composer block
     assert_eq!(
         resolve_block(&map, 5, 10),
-        Some((view::model::layout::INPUT_MSG_IDX, 0))
+        Some((nuo_view::model::layout::INPUT_MSG_IDX, 0))
     );
     assert_eq!(
         resolve_block(&map, 5, 13),
-        Some((view::model::layout::INPUT_MSG_IDX, 0))
+        Some((nuo_view::model::layout::INPUT_MSG_IDX, 0))
     );
     // Outside composer
     assert_eq!(resolve_block(&map, 5, 15), None);

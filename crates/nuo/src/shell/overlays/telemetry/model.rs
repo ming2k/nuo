@@ -1,15 +1,15 @@
 //! Telemetry data extraction, aggregation models, and rate calculations.
 
 use crate::shell::surfaces::TraceAttemptKey;
-use protocol::{RequestPerformance, RequestUsageStatus, TokenSourceReport};
+use nuo_protocol::{RequestPerformance, RequestUsageStatus, TokenSourceReport};
+use nuo_view::model::document::{MessageKind, ToolStepStatus, TranscriptMessage};
 use std::collections::BTreeMap;
-use view::model::document::{MessageKind, ToolStepStatus, TranscriptMessage};
 
 /// View properties for contextual tokens when displaying context limits.
 #[derive(Debug, Clone, Copy, Default)]
 #[allow(dead_code)]
 pub struct ContextUsageProps {
-    pub snapshot: Option<protocol::ContextTokenSnapshot>,
+    pub snapshot: Option<nuo_protocol::ContextTokenSnapshot>,
     pub window_tokens: Option<usize>,
     pub draft_content_tokens: usize,
     pub draft_tokens: usize,
@@ -41,9 +41,9 @@ pub struct TelemetryAttempt {
 }
 
 impl TelemetryAttempt {
-    pub fn snapshot(&self) -> Option<protocol::TurnPerformanceSnapshot> {
+    pub fn snapshot(&self) -> Option<nuo_protocol::TurnPerformanceSnapshot> {
         let perf = self.performance?;
-        Some(protocol::TurnPerformanceSnapshot {
+        Some(nuo_protocol::TurnPerformanceSnapshot {
             round: self.round,
             turn: self.turn,
             attempt: self.attempt,
@@ -52,7 +52,7 @@ impl TelemetryAttempt {
             cache_read_tokens: 0,
             cache_write_tokens: 0,
             cost_nano_usd: None,
-            usage_source: protocol::RequestUsageSource::Reported,
+            usage_source: nuo_protocol::RequestUsageSource::Reported,
             performance: perf,
         })
     }
@@ -163,7 +163,8 @@ impl TelemetryRound {
             return None;
         }
         let tps = tokens as f64 * 1_000_000.0 / span_us as f64;
-        (tps.is_finite() && tps > 0.0 && tps <= protocol::MAX_PLAUSIBLE_STREAM_TPS).then_some(tps)
+        (tps.is_finite() && tps > 0.0 && tps <= nuo_protocol::MAX_PLAUSIBLE_STREAM_TPS)
+            .then_some(tps)
     }
 }
 
@@ -205,7 +206,9 @@ pub fn extract_round_transcript_recap(
             continue;
         }
         match &msg.kind {
-            MessageKind::Text if msg.role == tool::Role::User && recap.prompt_preview.is_none() => {
+            MessageKind::Text
+                if msg.role == nuo_tool::Role::User && recap.prompt_preview.is_none() =>
+            {
                 let collapsed: String = msg.raw.split_whitespace().collect::<Vec<_>>().join(" ");
                 if !collapsed.is_empty() {
                     recap.prompt_preview = Some(collapsed);
@@ -323,12 +326,12 @@ pub fn extract_telemetry_rounds(report: &TokenSourceReport) -> Vec<TelemetryRoun
         attempts.sort_by(|a, b| {
             std::cmp::Reverse((
                 a.turn,
-                protocol::token_ledger::is_root_actor(&a.actor_id),
+                nuo_protocol::token_ledger::is_root_actor(&a.actor_id),
                 a.attempt,
             ))
             .cmp(&std::cmp::Reverse((
                 b.turn,
-                protocol::token_ledger::is_root_actor(&b.actor_id),
+                nuo_protocol::token_ledger::is_root_actor(&b.actor_id),
                 b.attempt,
             )))
             .then_with(|| a.actor_id.cmp(&b.actor_id))
@@ -357,7 +360,7 @@ pub fn extract_telemetry_rounds(report: &TokenSourceReport) -> Vec<TelemetryRoun
             cache_write_tokens += att.cache_write_tokens;
             reasoning_tokens += att.reasoning_tokens;
             distinct_all_turns.insert(att.turn);
-            if protocol::token_ledger::is_root_actor(&att.actor_id) {
+            if nuo_protocol::token_ledger::is_root_actor(&att.actor_id) {
                 distinct_root_turns.insert(att.turn);
             } else {
                 subagent_attempts_count += 1;
@@ -505,7 +508,7 @@ pub(crate) fn fmt_duration_us(us: u64) -> String {
 pub(crate) fn fmt_tps(tps: Option<f64>) -> String {
     match tps {
         Some(rate)
-            if rate > 0.0 && rate.is_finite() && rate <= protocol::MAX_PLAUSIBLE_STREAM_TPS =>
+            if rate > 0.0 && rate.is_finite() && rate <= nuo_protocol::MAX_PLAUSIBLE_STREAM_TPS =>
         {
             format!("{rate:.1} tok/s")
         }

@@ -10,10 +10,10 @@ use graticule::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::{Theme, draw_scene_bar, draw_tab_bar};
-use ui_primitives::primitives::viewport_rect;
-use view::disclosure::renderers::base::truncate_to_width;
-use view::text_layout::padded_tail;
-use view::view_header::{TabBarNavRects, TabBarProps, ViewHints};
+use nuo_ui_primitives::primitives::viewport_rect;
+use nuo_view::disclosure::renderers::base::truncate_to_width;
+use nuo_view::text_layout::padded_tail;
+use nuo_view::view_header::{TabBarNavRects, TabBarProps, ViewHints};
 
 /// Kind of a single line in a unified diff view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

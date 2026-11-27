@@ -68,9 +68,9 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
     app.reset_to_thread();
     app.threads.current_provider = "mock".to_string();
     app.threads.current_model = "glm-5.2".to_string();
-    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "mock".to_string(),
-        rows: vec![protocol::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "mock".to_string(),
             name: "Mock".to_string(),
             model: "glm-5.2".to_string(),
@@ -83,7 +83,7 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
             headers: Default::default(),
             last_used_ms: None,
             auth: Default::default(),
-            model_info: vec![protocol::ProviderModelInfo {
+            model_info: vec![nuo_protocol::ProviderModelInfo {
                 model: "glm-5.2".to_string(),
                 protocol: "openai-chat-completions".to_string(),
                 // The server declared this route text-only.
@@ -251,12 +251,12 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
     app.surfaces
         .provider_picker
         .rows
-        .push(protocol::ProviderPickerRow {
+        .push(nuo_protocol::ProviderPickerRow {
             id: "gogo".to_string(),
             name: "OpenCode Go".to_string(),
             model: "omen-alpha".to_string(),
             models: vec!["omen-alpha".to_string()],
-            model_info: vec![protocol::ProviderModelInfo {
+            model_info: vec![nuo_protocol::ProviderModelInfo {
                 model: "omen-alpha".to_string(),
                 name: None,
                 protocol: "openai".to_string(),
@@ -282,7 +282,7 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
             provider: "opencode-go".to_string(),
             headers: Default::default(),
             last_used_ms: None,
-            auth: protocol::ConnectionAuth::Static,
+            auth: nuo_protocol::ConnectionAuth::Static,
         });
     app.composer.input = String::new();
     app.composer.cursor_position = 0;
@@ -316,12 +316,12 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
     app.surfaces
         .provider_picker
         .rows
-        .push(protocol::ProviderPickerRow {
+        .push(nuo_protocol::ProviderPickerRow {
             id: "opencode-go".to_string(),
             name: "OpenCode Go".to_string(),
             model: "glm-5.3".to_string(),
             models: vec!["glm-5.3".to_string()],
-            model_info: vec![protocol::ProviderModelInfo {
+            model_info: vec![nuo_protocol::ProviderModelInfo {
                 model: "glm-5.3".to_string(),
                 name: None,
                 protocol: "openai".to_string(),
@@ -347,7 +347,7 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
             provider: "opencode-go".to_string(),
             headers: Default::default(),
             last_used_ms: None,
-            auth: protocol::ConnectionAuth::Static,
+            auth: nuo_protocol::ConnectionAuth::Static,
         });
 
     assert_eq!(
@@ -369,12 +369,12 @@ fn composer_image_paste_snapshot_override_forces_off() {
     app.surfaces
         .provider_picker
         .rows
-        .push(protocol::ProviderPickerRow {
+        .push(nuo_protocol::ProviderPickerRow {
             id: "mock".to_string(),
             name: "Mock".to_string(),
             model: "gpt-4o".to_string(),
             models: vec!["gpt-4o".to_string()],
-            model_info: vec![protocol::ProviderModelInfo {
+            model_info: vec![nuo_protocol::ProviderModelInfo {
                 model: "gpt-4o".to_string(),
                 name: None,
                 protocol: "openai".to_string(),
@@ -400,7 +400,7 @@ fn composer_image_paste_snapshot_override_forces_off() {
             provider: String::new(),
             headers: Default::default(),
             last_used_ms: None,
-            auth: protocol::ConnectionAuth::Static,
+            auth: nuo_protocol::ConnectionAuth::Static,
         });
     app.composer.input = String::new();
     app.composer.cursor_position = 0;

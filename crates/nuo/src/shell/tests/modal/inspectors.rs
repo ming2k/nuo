@@ -98,7 +98,7 @@ async fn thread_stats_modal_lifecycle_and_gestalt_layout() {
     // 3. Thread Stats overview body utilizes standardized DetailLayout components
     let theme = app.surfaces.theme;
     let rows = crate::shell::overlays::telemetry::overview::build_overview_body(
-        &protocol::TokenSourceReport::default(),
+        &nuo_protocol::TokenSourceReport::default(),
         &[],
         crate::shell::render::ContextUsageProps {
             snapshot: None,
@@ -234,7 +234,7 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
 #[tokio::test]
 async fn session_trace_enter_and_inspect_actions_follow_orthogonal_contract() {
     use crate::shell::surfaces::{SessionTraceDialog, TraceAttemptKey, TraceView};
-    use protocol::{
+    use nuo_protocol::{
         RequestUsageKey, RequestUsageRecord, RequestUsageSource, RequestUsageStatus,
         TokenSourceReport, TokenSourceRow,
     };
@@ -386,10 +386,10 @@ async fn session_trace_enter_and_inspect_actions_follow_orthogonal_contract() {
 async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.session.current_session_id = "test-session".to_string();
-    app.threads.session_context = Some(protocol::ThreadContextSnapshot {
-        model: protocol::ModelInfo::default(),
+    app.threads.session_context = Some(nuo_protocol::ThreadContextSnapshot {
+        model: nuo_protocol::ModelInfo::default(),
         tools: vec![
-            protocol::ToolInfo {
+            nuo_protocol::ToolInfo {
                 name: "read".to_string(),
                 description: "Read file".to_string(),
                 enabled: true,
@@ -399,7 +399,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
                 requires_user: false,
                 requires_vision: false,
             },
-            protocol::ToolInfo {
+            nuo_protocol::ToolInfo {
                 name: "execute_command".to_string(),
                 description: "Run command".to_string(),
                 enabled: false,
@@ -505,7 +505,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     // Space toggles the tool in Level 2
     let req = app.session_activate_request();
     assert!(req.is_some(), "Space toggles tool being viewed");
-    if let Some(protocol::AgentRequest::ToggleTool { name, enabled }) = req {
+    if let Some(nuo_protocol::AgentRequest::ToggleTool { name, enabled }) = req {
         assert_eq!(name, "execute_command");
         assert!(enabled, "execute_command was false, toggle enables it");
     }

@@ -1,6 +1,6 @@
 # Built-in Command Reference
 
-Reference for the built-in slash commands available inside the Nuo terminal interface. The vocabulary is a single declared table in `crates/server/src/composition/startup.rs` (`BuiltinCmd::ALL`); input completion, `/help`, and dispatch are all generated from it, so a command appears in all three places or the build breaks.
+Reference for the built-in slash commands available inside the Nuo terminal interface. The vocabulary is a single declared table in `crates/nuo-server/src/composition/startup.rs` (`BuiltinCmd::ALL`); input completion, `/help`, and dispatch are all generated from it, so a command appears in all three places or the build breaks.
 
 ---
 
@@ -93,7 +93,7 @@ the canonical command, so the transcript only ever records the canonical form.
 | `/unconfine`, `/unconfined`, `/jail`, `/escape` | `/confinement` |
 | `/setup` | `/init` |
 
-The table is declared once, in `crates/server/src/composition/startup.rs` (`BuiltinCmd::from_alias`),
+The table is declared once, in `crates/nuo-server/src/composition/startup.rs` (`BuiltinCmd::from_alias`),
 and the completion catalog is generated from that same declaration — so an alias cannot be
 documented, or offered in the popup, without being dispatchable.
 

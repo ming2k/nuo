@@ -16,8 +16,87 @@ const MAX_FUNCTION_LINES: usize = 400;
 const MAX_STRUCT_FIELDS: usize = 80;
 const MAX_FILE_LINES: usize = 2_000;
 
+/// The directory each library crate had before the `nuo-` prefix (ADR-0269).
+/// Living docs and rustdoc must not point at them: none of them exists.
+const UNPREFIXED_CRATE_DIRS: &[&str] = &[
+    "crates/acp",
+    "crates/engine",
+    "crates/guardrails",
+    "crates/host",
+    "crates/inference-wire",
+    "crates/model-routing",
+    "crates/persistence",
+    "crates/protocol",
+    "crates/provider",
+    "crates/provider-anthropic",
+    "crates/provider-catalog",
+    "crates/provider-chatgpt-plan",
+    "crates/provider-codebuddy",
+    "crates/provider-commandcode-goat",
+    "crates/provider-copilot",
+    "crates/provider-deepseek",
+    "crates/provider-glm-cn",
+    "crates/provider-google-antigravity",
+    "crates/provider-kimi",
+    "crates/provider-openai",
+    "crates/provider-opencode-go",
+    "crates/provider-opencode-zen",
+    "crates/provider-opendesign-go",
+    "crates/provider-openrouter",
+    "crates/provider-qianwen",
+    "crates/provider-qoder",
+    "crates/provider-xai",
+    "crates/server",
+    "crates/test-support",
+    "crates/tool",
+    "crates/tool-ast",
+    "crates/tool-derive",
+    "crates/tool-exec",
+    "crates/tool-fs",
+    "crates/tool-web",
+    "crates/ui-primitives",
+    "crates/view",
+];
+
+/// Whether `text` names `name` as a whole crate token.
+///
+/// Crate and path names are built from `[A-Za-z0-9_-]`, so a hit only counts
+/// when neither neighbour extends the token: `nuo-ui` is not found inside
+/// `nuo-ui-primitives`, and `crates/tool` is not found inside `crates/tool-web`.
+/// A `/` after the name is a boundary, so `crates/engine/src` still matches.
+fn names_crate_token(text: &str, name: &str) -> bool {
+    let is_token_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    text.match_indices(name).any(|(start, _)| {
+        let before = text[..start].chars().next_back();
+        let after = text[start + name.len()..].chars().next();
+        !before.is_some_and(is_token_char) && !after.is_some_and(is_token_char)
+    })
+}
+
+#[test]
+fn crate_token_matching_is_exact() {
+    assert!(names_crate_token("see `nuo-ui` here", "nuo-ui"));
+    assert!(!names_crate_token("see `nuo-ui-primitives`", "nuo-ui"));
+    assert!(names_crate_token(
+        "read crates/engine/src/lib.rs",
+        "crates/engine"
+    ));
+    assert!(!names_crate_token(
+        "read crates/nuo-engine/src/lib.rs",
+        "crates/engine"
+    ));
+    assert!(!names_crate_token(
+        "read crates/tool-web/src",
+        "crates/tool"
+    ));
+    assert!(!names_crate_token(
+        "nuo-provider-opencode-go",
+        "nuo-provider-opencode"
+    ));
+}
+
 fn workspace_root() -> PathBuf {
-    test_support::dev::find_workspace_root()
+    nuo_test_support::dev::find_workspace_root()
 }
 
 fn tier_crates(root: &Path) -> Vec<PathBuf> {
@@ -212,11 +291,13 @@ fn no_retired_engine_alias() {
 
 #[test]
 fn filesystem_tools_have_no_document_parser_edge() {
-    let root = workspace_root();
-    for manifest in ["crates/tool-fs/Cargo.toml", "crates/tool/Cargo.toml"] {
-        let source = fs::read_to_string(root.join(manifest)).expect("read manifest");
+    for manifest in [
+        "crates/nuo-tool-fs/Cargo.toml",
+        "crates/nuo-tool/Cargo.toml",
+    ] {
+        let dependencies = crate::common::manifest_dependencies(manifest);
         assert!(
-            !source.contains("pdf-extract") && !source.contains("lopdf"),
+            !dependencies.contains("pdf-extract") && !dependencies.contains("lopdf"),
             "{manifest} must not link a document parser; the host owns extraction \
              ([INV-PDF-05], ADR-0193)"
         );
@@ -225,24 +306,33 @@ fn filesystem_tools_have_no_document_parser_edge() {
 
 #[test]
 fn guardrails_has_no_persistence_edge() {
-    let manifest = fs::read_to_string(workspace_root().join("crates/guardrails/Cargo.toml"))
-        .expect("read guardrails manifest");
+    let dependencies = crate::common::manifest_dependencies("crates/nuo-guardrails/Cargo.toml");
     assert!(
-        !manifest.contains("persistence"),
+        dependencies.contains("nuo-protocol"),
+        "the guardrails scan read no `nuo-protocol` edge; a scan that sees nothing certifies \
+         nothing: {dependencies:?}"
+    );
+    assert!(
+        !dependencies.contains("nuo-persistence"),
         "guardrails must not depend on persistence ([INV-GUARD-01], ADR-0188)"
     );
 }
 
 #[test]
 fn engine_has_no_capability_leaf_edge() {
-    let manifest = fs::read_to_string(workspace_root().join("crates/engine/Cargo.toml"))
+    let manifest = fs::read_to_string(workspace_root().join("crates/nuo-engine/Cargo.toml"))
         .expect("read engine manifest");
     let manifest: toml::Table = toml::from_str(&manifest).expect("parse engine manifest");
     let deps = manifest
         .get("dependencies")
         .and_then(|value| value.as_table())
         .expect("engine [dependencies]");
-    for forbidden in ["tool-fs", "tool-exec", "tool-web", "tool-ast"] {
+    for forbidden in [
+        "nuo-tool-fs",
+        "nuo-tool-exec",
+        "nuo-tool-web",
+        "nuo-tool-ast",
+    ] {
         assert!(
             !deps.contains_key(forbidden),
             "engine must not link {forbidden}; the composition root owns capability linkage \
@@ -265,7 +355,7 @@ fn storybook_is_retired() {
     );
     let mut extra_status = Vec::new();
     for path in rust_files(&root.join("crates")) {
-        if path.ends_with("view/src/tools/mod.rs") {
+        if path.ends_with("nuo-view/src/tools/mod.rs") {
             continue;
         }
         let source = fs::read_to_string(&path).unwrap_or_default();
@@ -275,14 +365,14 @@ fn storybook_is_retired() {
     }
     assert!(
         extra_status.is_empty(),
-        "one `ToolStatus` lives in view::tools ([INV-TUI-SINGLE-RENDER-01], ADR-0185): \
+        "one `ToolStatus` lives in nuo_view::tools ([INV-TUI-SINGLE-RENDER-01], ADR-0185): \
          {extra_status:?}"
     );
 }
 
 #[test]
 fn server_root_is_grouped() {
-    let root = workspace_root().join("crates/server/src");
+    let root = workspace_root().join("crates/nuo-server/src");
     let mut root_files = Vec::new();
     for entry in fs::read_dir(&root).expect("read server src") {
         let entry = entry.expect("dir entry");
@@ -458,10 +548,15 @@ fn adr_registry_has_unique_identity_and_valid_frontmatter() {
 ///
 /// Two things are always current and are removed before the scan:
 ///
-/// - `nuo-tests`, the root dev-only test host (the one package that keeps the
-///   `nuo-` prefix);
+/// - `nuo-tests`, the root dev-only test host;
 /// - `target/nuo-dev`, the debug sandbox directory, which is a path and not a
 ///   crate.
+///
+/// Every library package carries the `nuo-` prefix (ADR-0269), so the
+/// unprefixed directory of each one (`crates/engine`, …) is retired: a document
+/// that points there points at a directory that does not exist. A name matches
+/// only as a whole token ([`names_crate_token`]), so the retired `nuo-ui` never
+/// fires on the current `nuo-ui-primitives`.
 ///
 /// A retired name is allowed on a line that explicitly marks it as history
 /// (`former`, `retired`, `renamed`, `consolidated from`, `predecessor`,
@@ -529,22 +624,13 @@ fn living_docs_use_current_crate_names() {
         "codebuddy-auth",
         "provider-siliconflow",
         "providers/nuo-provider",
-        // The workspace removed the `nuo-` prefix from every library crate
-        // (ADR-0181); naming the old form is naming a crate that is not there.
-        "nuo-acp",
-        "nuo-engine",
-        "nuo-guardrails",
-        "nuo-host",
-        "nuo-inference-wire",
-        "nuo-model-routing",
-        "nuo-persistence",
-        "nuo-protocol",
-        "nuo-provider",
-        "nuo-server",
-        "nuo-tool",
-        "nuo-ui-primitives",
-        "nuo-view",
-    ];
+        "nuo-ui",
+        "nuo-present",
+        "nuo-shell",
+    ]
+    .into_iter()
+    .chain(UNPREFIXED_CRATE_DIRS.iter().copied())
+    .collect::<Vec<&str>>();
     // Historical references inside ADR link targets are legitimate; the rule is
     // about prose that names a retired crate as current.
     static LINK_RE: std::sync::LazyLock<regex::Regex> =
@@ -569,8 +655,8 @@ fn living_docs_use_current_crate_names() {
             if HISTORY_MARKERS.iter().any(|marker| lower.contains(marker)) {
                 continue;
             }
-            for name in retired {
-                if line.contains(name) {
+            for &name in &retired {
+                if names_crate_token(&line, name) {
                     violations.push(format!(
                         "{file}:{}: names retired crate `{name}` as current",
                         index + 1
@@ -622,12 +708,13 @@ fn rust_doc_comments_use_current_crate_names() {
         "nuo-oauth",
         "nuo-contracts",
         "nuo-agent",
-        "nuo-tool-",
-        "nuo-view",
         "nuo-ui",
         "nuo-present",
         "nuo-shell",
-    ];
+    ]
+    .into_iter()
+    .chain(UNPREFIXED_CRATE_DIRS.iter().copied())
+    .collect::<Vec<&str>>();
     let mut violations = Vec::new();
     let mut checked = 0;
     for crate_dir in tier_crates(&root) {
@@ -651,8 +738,8 @@ fn rust_doc_comments_use_current_crate_names() {
                 if HISTORY_MARKERS.iter().any(|marker| lower.contains(marker)) {
                     continue;
                 }
-                for name in retired {
-                    if trimmed.contains(name) {
+                for &name in &retired {
+                    if names_crate_token(trimmed, name) {
                         violations.push(format!(
                             "{file}:{}: rustdoc names retired crate `{name}` as current",
                             index + 1
@@ -1226,20 +1313,20 @@ fn inv_instance_02_no_retired_reconciliation_or_teardown_symbols() {
     );
 }
 
-/// Every curated preset in `view::providers::PROVIDER_PRESETS` must agree 1:1
-/// with its authoritative `ModelProviderSpec` in `server::composition::provider_registry`
+/// Every curated preset in `nuo_view::providers::PROVIDER_PRESETS` must agree 1:1
+/// with its authoritative `ModelProviderSpec` in `nuo_server::composition::provider_registry`
 /// on provider id, default protocol, resolved endpoint URL, user-agent, and seed models.
 /// Prevents silent drift between the UI template catalog and the runtime spec table.
 #[test]
 fn provider_presets_match_authoritative_model_provider_specs() {
-    use server::composition::provider_registry::MODEL_PROVIDER_SPECS;
+    use nuo_server::composition::provider_registry::MODEL_PROVIDER_SPECS;
     use std::collections::{BTreeMap, BTreeSet};
 
-    let specs: BTreeMap<&str, &provider::ModelProviderSpec> = MODEL_PROVIDER_SPECS
+    let specs: BTreeMap<&str, &nuo_provider::ModelProviderSpec> = MODEL_PROVIDER_SPECS
         .iter()
         .map(|spec| (spec.id.as_ref(), spec))
         .collect();
-    let preset_ids: BTreeSet<&str> = view::providers::PROVIDER_PRESETS
+    let preset_ids: BTreeSet<&str> = nuo_view::providers::PROVIDER_PRESETS
         .iter()
         .map(|preset| preset.id)
         .collect();
@@ -1249,13 +1336,13 @@ fn provider_presets_match_authoritative_model_provider_specs() {
     for spec in MODEL_PROVIDER_SPECS {
         if !preset_ids.contains(spec.id.as_ref()) {
             violations.push(format!(
-                "spec `{}` in MODEL_PROVIDER_SPECS has no entry in view::providers::PROVIDER_PRESETS",
+                "spec `{}` in MODEL_PROVIDER_SPECS has no entry in nuo_view::providers::PROVIDER_PRESETS",
                 spec.id
             ));
         }
     }
 
-    for preset in view::providers::PROVIDER_PRESETS {
+    for preset in nuo_view::providers::PROVIDER_PRESETS {
         let Some(spec) = specs.get(preset.id) else {
             violations.push(format!(
                 "preset `{}` in PROVIDER_PRESETS does not exist in MODEL_PROVIDER_SPECS",
@@ -1305,7 +1392,7 @@ fn provider_presets_match_authoritative_model_provider_specs() {
 
     assert!(
         violations.is_empty(),
-        "view::providers::PROVIDER_PRESETS drifted from MODEL_PROVIDER_SPECS:\n{}",
+        "nuo_view::providers::PROVIDER_PRESETS drifted from MODEL_PROVIDER_SPECS:\n{}",
         violations.join("\n")
     );
 }
@@ -1316,12 +1403,12 @@ fn provider_presets_match_authoritative_model_provider_specs() {
 #[test]
 fn content_shards_have_no_inline_ddl() {
     let root = workspace_root();
-    let shards_rs = root.join("crates/persistence/src/db/shards.rs");
+    let shards_rs = root.join("crates/nuo-persistence/src/db/shards.rs");
     let source = fs::read_to_string(&shards_rs).expect("shards.rs exists");
     for forbidden in ["CREATE TABLE", "CREATE VIRTUAL TABLE", "CREATE TRIGGER"] {
         assert!(
             !source.contains(forbidden),
-            "crates/persistence/src/db/shards.rs must not embed inline DDL `{forbidden}` ([INV-SHARD-01], ADR-0255); put schema in migrations/content_shard/"
+            "crates/nuo-persistence/src/db/shards.rs must not embed inline DDL `{forbidden}` ([INV-SHARD-01], ADR-0255); put schema in migrations/content_shard/"
         );
     }
 }

@@ -1,0 +1,1231 @@
+//! Construction, load/persist, snapshot persistence, the list/detail/active views, and the offline corruption scan tools of [`ThreadSession`].
+use super::*;
+use std::sync::Arc;
+
+/// Retry a `save_session` across the supervisor's respawn window
+/// (D3). Only [`crate::db::PersistenceError::WriterDown`] is
+/// retried — it is the one transient variant (the actor is being
+/// respawned); engine rejections and encode failures are deterministic and
+/// surface immediately.
+/// Five attempts over ~3.1 s covers the supervisor's `Recovering` budget.
+async fn save_retrying(
+    writer: &crate::db::PersistenceHandle,
+    data: crate::thread::ThreadData,
+    mode: crate::db::SaveMode,
+    usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
+    mut guard: crate::db::CommitGuard,
+    journal_seq: Option<u64>,
+) -> Result<u64, crate::db::PersistenceError> {
+    const MAX_ATTEMPTS: u32 = 5;
+    const BASE_DELAY: Duration = Duration::from_millis(100);
+
+    // D3: every logical save carries an idempotency identity, so a
+    // retry after a commit whose acknowledgement was lost resolves to the
+    // original receipt instead of re-applying. A caller-supplied identity is
+    // preserved across the attempts; otherwise one is minted once here.
+    if guard.operation_id.is_none() {
+        guard.operation_id = Some(uuid::Uuid::new_v4().to_string());
+    }
+
+    let mut delay = BASE_DELAY;
+    for attempt in 1..=MAX_ATTEMPTS {
+        // The save is idempotent by watermark and now by operation
+        // receipt (D3), so re-sending a possibly-delivered delta is
+        // safe — that license is what makes the retry honest.
+        match writer
+            .save_session(
+                data.clone(),
+                mode,
+                usage_upserts.clone(),
+                guard.clone(),
+                journal_seq,
+            )
+            .await
+        {
+            Ok(revision) => return Ok(revision),
+            Err(crate::db::PersistenceError::WriterDown) if attempt < MAX_ATTEMPTS => {
+                tokio::time::sleep(delay).await;
+                delay *= 2;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("retry loop returns on the last attempt")
+}
+
+impl ThreadSession {
+    /// Open a store pinned to the **workspace**.
+    ///
+    /// all session state is stored authoritatively in SQLite (`nuo.db`).
+    pub fn load_for_project(project_root: PathBuf) -> Self {
+        let project_root = project_root.canonicalize().unwrap_or(project_root);
+        let workspace = Some(nuo_protocol::WorkspaceBinding::new(project_root));
+        Self::for_workspace(workspace, None)
+    }
+
+    /// Open a `ThreadSession` pinned to an optional workspace binding.
+    /// `None` is the workspace-free (unbound) set. `persona` is the staffing
+    /// persona recorded on a fresh session, if any.
+    pub fn for_workspace(
+        workspace: Option<nuo_protocol::WorkspaceBinding>,
+        role: Option<String>,
+    ) -> Self {
+        let dirs = paths::get();
+        let sessions_dir = match &workspace {
+            Some(binding) => dirs.project_sessions_dir(&binding.root),
+            None => dirs.bucket_sessions_dir("workspace-free"),
+        };
+        if let Err(e) = std::fs::create_dir_all(&sessions_dir) {
+            tracing::warn!(error = %e, "could not create sessions dir");
+        }
+        let db_path = dirs.db_file();
+        if let Some(parent) = db_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let blob_store = BlobStore::new(dirs.blobs_dir());
+        Self::pin_fresh(workspace, role, sessions_dir, db_path, blob_store)
+    }
+
+    /// Open a `ThreadSession` pinned to an explicit snapshot `path`.
+    /// In the unified SQLite architecture, `sessions_dir` hosts `nuo.db`.
+    pub fn for_path(path: PathBuf) -> Self {
+        let sessions_dir = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let workspace = Some(nuo_protocol::WorkspaceBinding::new(sessions_dir.clone()));
+        let db_path = sessions_dir.join("nuo.db");
+        let blob_store = BlobStore::new(sessions_dir.join("blobs"));
+        let writer = if db_path == paths::get().db_file() {
+            crate::db::get_persistence_handle()
+        } else {
+            crate::db::PersistenceHandle::spawn(db_path.clone(), Some(blob_store.clone()))
+        };
+        let id_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("default");
+        let data = load_or_seed(
+            writer.reader().ok().as_ref(),
+            Some(&writer),
+            id_stem,
+            &blob_store,
+            workspace.as_ref(),
+            None,
+            Some(&path),
+        );
+        let defer_persist = !path.exists() && data.is_user_facing_empty();
+        let role = data.role.clone();
+        let journal = open_journal(&db_path, &data.id);
+        let projection = ProjectionState::new();
+        Self {
+            workspace: std::sync::RwLock::new(workspace),
+            role: std::sync::RwLock::new(role),
+            sessions_dir,
+            db_path,
+            blob_store,
+            writer,
+            state: Mutex::new(ThreadSessionState::new(
+                path,
+                data,
+                defer_persist,
+                journal,
+                projection,
+            )),
+            persist_gate: Mutex::new(()),
+        }
+    }
+
+    /// Open a store for a **subagent session** on the same database as `parent`.
+    ///
+    /// A subagent is a real session: it has its own row, its own transcript, and
+    /// its own parent pointer (`ThreadOrigin::Subagent`). Nothing could open one
+    /// *during* the run, though — the store was only ever created after the fact by
+    /// `admit_subagent_children` rebuilding the child from the parent message's
+    /// embedded `children`. That made the child's transcript live in two places (an
+    /// embedded copy and a session row) and, worse, left the running child with no
+    /// session at all: no durable transcript mid-run, no projection target, and
+    /// therefore no way for context relief to reach it.
+    ///
+    /// This is the missing constructor. It shares `parent`'s database handle and
+    /// blob store — a subagent is not a separate store, it is another session in the
+    /// same one — and records the parent pointer at creation so the lineage is a
+    /// fact from the child's first turn instead of something reconstructed
+    /// afterwards.
+    ///
+    /// # It refuses rather than guessing
+    ///
+    /// The parent's identity is read under its state lock. If that lock is held, an
+    /// earlier version fell back to an empty id, which wrote a child with
+    /// `parent_thread_id = NULL`: invisible to `list_subagent_sessions`, invisible to
+    /// `offstream`'s `sub:` handles, and permanently orphaned with no error
+    /// anywhere. A missing parent pointer is not a degraded success — it is a lost
+    /// lineage — so this returns an error and the caller decides (the dispatch layer
+    /// runs the child session-free and logs, which is honest and recoverable).
+    ///
+    /// The parent row must also already be durable: `threads.parent_thread_id`
+    /// references `threads(id)`, so a parent that has not committed is not
+    /// referenceable yet.
+    pub fn for_subagent(
+        parent: &Self,
+        session_id: impl Into<String>,
+    ) -> Result<(Self, String), String> {
+        let id = session_id.into();
+        let parent_data = parent
+            .state
+            .try_lock()
+            .map(|state| state.data.clone())
+            .map_err(|_| {
+                "cannot open a subagent session while the parent session holds its state \
+                 lock; the child would lose its parent pointer"
+                    .to_string()
+            })?;
+        let parent_id = parent_data.id;
+        if parent_id.is_empty() {
+            return Err(
+                "cannot open a subagent session under a parent with no identity".to_string(),
+            );
+        }
+        let parent_workspace = parent_data.workspace;
+        let parent_role = parent_data.role;
+        let mut data = ThreadData {
+            id: id.clone(),
+            parent_id: Some(parent_id.clone()),
+            origin: nuo_protocol::ThreadOrigin::Subagent,
+            workspace: parent_workspace.clone(),
+            role: parent_role.clone(),
+            role_manifest: Some(crate::roles::resolve_role_manifest(parent_role.as_deref())),
+            ..Default::default()
+        };
+        data.generation = uuid::Uuid::new_v4().to_string();
+        let path = parent.sessions_dir.join(format!("{id}.json"));
+        let journal = open_journal(&parent.db_path, &data.id);
+        let projection = ProjectionState::new();
+        let store = Self {
+            workspace: std::sync::RwLock::new(parent_workspace),
+            role: std::sync::RwLock::new(parent_role),
+            sessions_dir: parent.sessions_dir.clone(),
+            db_path: parent.db_path.clone(),
+            blob_store: parent.blob_store.clone(),
+            writer: parent.writer.clone(),
+            // Not deferred: a subagent exists because a tool call is running, so
+            // its admission is already real content.
+            state: Mutex::new(ThreadSessionState::new(
+                path, data, false, journal, projection,
+            )),
+            persist_gate: Mutex::new(()),
+        };
+        Ok((store, parent_id))
+    }
+
+    /// Construct a store pinned to a brand-new, empty session file in
+    /// `sessions_dir`. The session is **not** written until the session gains
+    /// real content, so a `nuo` that starts and exits without a round
+    /// leaves no empty-file litter behind.
+    fn pin_fresh(
+        workspace: Option<nuo_protocol::WorkspaceBinding>,
+        role: Option<String>,
+        sessions_dir: PathBuf,
+        db_path: PathBuf,
+        blob_store: BlobStore,
+    ) -> Self {
+        let id = uuid::Uuid::new_v4().to_string();
+        let path = sessions_dir.join(format!("{id}.json"));
+        let role = role.or_else(|| Some("developer".to_string()));
+        let role_manifest = Some(crate::roles::resolve_role_manifest(role.as_deref()));
+        let data = ThreadData {
+            id,
+            workspace: workspace.clone(),
+            role: role.clone(),
+            role_manifest,
+            ..Default::default()
+        };
+        let writer = if db_path == paths::get().db_file() {
+            crate::db::get_persistence_handle()
+        } else {
+            crate::db::PersistenceHandle::spawn(db_path.clone(), Some(blob_store.clone()))
+        };
+        let journal = open_journal(&db_path, &data.id);
+        let projection = ProjectionState::new();
+        Self {
+            workspace: std::sync::RwLock::new(workspace),
+            role: std::sync::RwLock::new(role),
+            sessions_dir,
+            db_path,
+            blob_store,
+            writer,
+            state: Mutex::new(ThreadSessionState::new(
+                path, data, true, journal, projection,
+            )),
+            persist_gate: Mutex::new(()),
+        }
+    }
+
+    /// The optional workspace binding this store carries.
+    pub fn workspace(&self) -> Option<nuo_protocol::WorkspaceBinding> {
+        self.workspace
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Orthogonal query filter for listing/switching threads in this store's
+    /// workspace context (all roles in the attached workspace, or all threads
+    /// when unbound — ADR-0254).
+    pub fn thread_filter(&self) -> nuo_protocol::ThreadFilter {
+        nuo_protocol::ThreadFilter {
+            role: None,
+            workspace: self.workspace_root(),
+        }
+    }
+
+    /// Update the active role on the current thread in place (ADR-0254).
+    pub async fn set_role(&self, role_id: &str) -> Result<(), String> {
+        let canonical = crate::roles::canonical_role_id(role_id)?;
+        let manifest = crate::roles::resolve_role_manifest(Some(&canonical));
+        let mut state = self.state.lock().await;
+        state.data.role = Some(canonical.clone());
+        state.data.role_manifest = Some(manifest);
+        state.data.updated_at = unix_timestamp();
+        *self.role.write().unwrap_or_else(|e| e.into_inner()) = Some(canonical);
+        if !Self::should_skip_persist(&state) {
+            let data = state.data.clone();
+            let guard = crate::db::CommitGuard::default();
+            drop(state);
+            save_retrying(
+                &self.writer,
+                data,
+                crate::db::SaveMode::MetadataOnly,
+                Vec::new(),
+                guard,
+                None,
+            )
+            .await
+            .map_err(|e| format!("failed to persist role switch: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// The staffing role recorded on fresh sessions, if any.
+    pub fn role(&self) -> Option<String> {
+        self.role.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The workspace root, when one is bound. `None` for the unbound set.
+    pub fn workspace_root(&self) -> Option<PathBuf> {
+        self.workspace
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|w| w.root.clone())
+    }
+
+    pub async fn id(&self) -> String {
+        self.state.lock().await.data.id.clone()
+    }
+
+    /// The content-addressed blob store for this session.
+    pub fn blob_store(&self) -> &crate::blobs::BlobStore {
+        &self.blob_store
+    }
+
+    /// The persistence handle this session writes through.
+    ///
+    /// Exposed so the server can install an `nuo-engine`-facing journal port
+    /// (ADR-0125) that writes through the *same* single-writer door rather than
+    /// opening a second connection. Narrow on purpose: callers get the handle,
+    /// not a way to reach into session state.
+    pub fn persistence(&self) -> &crate::db::PersistenceHandle {
+        &self.writer
+    }
+
+    /// Test-only: arm the next journal append to fail, exercising every
+    /// accessor's rollback branch.
+    #[cfg(test)]
+    pub(crate) async fn fail_next_journal_append(&self) {
+        self.state.lock().await.journal.fail_next_append();
+    }
+
+    /// Test-only: lock the session state (same crate sibling module access).
+    #[cfg(test)]
+    pub(crate) async fn state_lock_for_test(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, ThreadSessionState> {
+        self.state.lock().await
+    }
+
+    /// `true` while this session has never been persisted **and** still holds
+    /// no user-facing content in memory (see
+    /// `ThreadData::is_user_facing_empty`). Such a session is "deferred":
+    /// it exists only in memory so that opening one and exiting without any
+    /// real interaction leaves no record behind (ADR-0018). The transport
+    /// layer's idle reaper uses this probe to reclaim never-persisted hosted
+    /// sessions; a persisted session (even one whose messages were later
+    /// replaced with an empty window) is never reported empty here.
+    pub async fn is_empty_unpersisted(&self) -> bool {
+        let state = self.state.lock().await;
+        Self::should_skip_persist(&state)
+    }
+
+    /// Lock-held core of [`Self::is_empty_unpersisted`] and of every guarded
+    /// setter: the post-mutation state is checked against the on-disk marker
+    /// (`path.exists()`) plus the user-facing-emptiness rule. Callers must hold
+    /// the session lock and pass the just-mutated state, so the decision and
+    /// the event-log append it gates are atomic. The check applies only to a
+    /// deferred (fresh primary) session — an explicitly pinned store
+    /// (`defer_persist == false`) always persists.
+    pub(crate) fn should_skip_persist(state: &ThreadSessionState) -> bool {
+        state.defer_persist && state.data.is_user_facing_empty()
+    }
+
+    /// Start a brand-new session and repoint this store at it, inheriting
+    /// the current session's workspace and role.
+    pub async fn reset(&self) -> Result<String, String> {
+        let mut state = self.state.lock().await;
+        let workspace = state.data.workspace.clone();
+        let role = state
+            .data
+            .role
+            .clone()
+            .or_else(|| Some("developer".to_string()));
+        let role_manifest = Some(crate::roles::resolve_role_manifest(role.as_deref()));
+        let sessions_dir = self.sessions_dir.clone();
+        let id = uuid::Uuid::new_v4().to_string();
+        let path = sessions_dir.join(format!("{id}.json"));
+        let data = ThreadData {
+            id: id.clone(),
+            workspace: workspace.clone(),
+            role: role.clone(),
+            role_manifest,
+            ..Default::default()
+        };
+        *self.workspace.write().unwrap_or_else(|e| e.into_inner()) = workspace;
+        *self.role.write().unwrap_or_else(|e| e.into_inner()) = role;
+        state.path = path;
+        state.data = data;
+        state.journal = open_journal(&self.db_path, &state.data.id);
+        state.projection = ProjectionState::new();
+        // Same staleness hazard as `open`: a fresh session must not inherit
+        // the previous session's projected window cache.
+        state.invalidate_projection_cache();
+        state.defer_persist = true;
+        Ok(id)
+    }
+
+    /// Start a brand-new session with explicit workspace and role.
+    pub async fn reset_with(
+        &self,
+        workspace: Option<nuo_protocol::WorkspaceBinding>,
+        role: Option<String>,
+    ) -> Result<String, String> {
+        let role = role.or_else(|| Some("developer".to_string()));
+        let role_manifest = Some(crate::roles::resolve_role_manifest(role.as_deref()));
+        let mut state = self.state.lock().await;
+        let sessions_dir = self.sessions_dir.clone();
+        let id = uuid::Uuid::new_v4().to_string();
+        let path = sessions_dir.join(format!("{id}.json"));
+        let data = ThreadData {
+            id: id.clone(),
+            workspace: workspace.clone(),
+            role: role.clone(),
+            role_manifest,
+            ..Default::default()
+        };
+        *self.workspace.write().unwrap_or_else(|e| e.into_inner()) = workspace;
+        *self.role.write().unwrap_or_else(|e| e.into_inner()) = role;
+        state.path = path;
+        state.data = data;
+        state.journal = open_journal(&self.db_path, &state.data.id);
+        state.projection = ProjectionState::new();
+        state.invalidate_projection_cache();
+        state.defer_persist = true;
+        Ok(id)
+    }
+
+    /// The immutable role manifest snapshot captured for this session, if any.
+    pub async fn role_manifest(&self) -> Option<nuo_protocol::ThreadRoleManifest> {
+        self.state.lock().await.data.role_manifest.clone()
+    }
+
+    pub async fn resume(&self, id: Option<&str>) -> Result<String, String> {
+        let target = match id {
+            Some(id) => id.to_string(),
+            None => self
+                .list()
+                .await?
+                .into_iter()
+                .find(|session| !session.active && session.message_count > 0)
+                .map(|session| session.id)
+                .ok_or_else(|| "No previous session is available to resume.".to_string())?,
+        };
+        self.open(&target).await?;
+        Ok(self.state.lock().await.data.id.clone())
+    }
+
+    /// Switch this store to an existing session by id (or 4+-char hex prefix).
+    pub async fn open(&self, id: &str) -> Result<(), String> {
+        let mut state = self.state.lock().await;
+        let (resolved, path) = self.resolve_session(id, &state)?;
+        // No-op when the caller asks for the session we already hold.
+        if state.data.id == resolved {
+            return Ok(());
+        }
+        let workspace = self
+            .workspace
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let role = self.role.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let blob_store = self.blob_store.clone();
+        let writer = self.writer.clone();
+        let load_path = path.clone();
+        let resolved_id = resolved.clone();
+        let data = tokio::task::spawn_blocking(move || {
+            load_or_seed(
+                writer.reader().ok().as_ref(),
+                Some(&writer),
+                &resolved_id,
+                &blob_store,
+                workspace.as_ref(),
+                role.as_deref(),
+                Some(&load_path),
+            )
+        })
+        .await
+        .map_err(|e| format!("session open task failed: {e}"))?;
+        *self.workspace.write().unwrap_or_else(|e| e.into_inner()) = data.workspace.clone();
+        *self.role.write().unwrap_or_else(|e| e.into_inner()) = data.role.clone();
+        state.path = path;
+        state.data = data;
+        state.journal = open_journal(&self.db_path, &state.data.id);
+        state.projection = ProjectionState::new();
+        // The projection cache belongs to the session being left.
+        // A stale cache made `model_window` return the *previous* session's
+        // window after a switch, and the resume path (`restore_session_runtime`)
+        // then `replace_messages`-ed it over the newly opened session — wiping
+        // the resumed transcript (the `/sessions <id>` restore rendered an
+        // empty view).
+        state.invalidate_projection_cache();
+        state.defer_persist = false;
+        Ok(())
+    }
+
+    /// Delete a session by id or short id prefix.
+    pub async fn delete(&self, id: &str) -> Result<String, String> {
+        let (resolved, snapshot, is_active) = {
+            let state = self.state.lock().await;
+            let (resolved, path) = self.resolve_session(id, &state)?;
+            (resolved.clone(), path, state.data.id == resolved)
+        };
+
+        // Drain the derived view first, then tombstone the id for the rest of
+        // this process: a projection already queued in another worker must not
+        // recreate the row being deleted.
+        self.flush_projection().await?;
+        super::projection::mark_deleted(&resolved);
+        let _db_deleted = self
+            .writer
+            .delete_session(resolved.clone())
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let log = snapshot.with_extension("jsonl");
+        let _ = fs::remove_file(&snapshot);
+        let _ = fs::remove_file(&log);
+        if let Err(error) = open_journal(&self.db_path, &resolved).mark_deleted().await {
+            tracing::warn!(session = %resolved, %error, "could not tombstone the session journal");
+        }
+
+        // Repoint at a fresh session so the store stays usable after the
+        // active session is removed (even if the active session was deferred/empty
+        // and never written to disk or SQLite).
+        if is_active {
+            self.reset().await?;
+        }
+        Ok(resolved)
+    }
+
+    /// Set (or clear) a session's manual title by id or short id prefix.
+    pub async fn rename(&self, id: &str, title: Option<String>) -> Result<(), String> {
+        let manual = title.is_some();
+        let (resolved, is_active) = {
+            let state = self.state.lock().await;
+            let (resolved, _) = self.resolve_session(id, &state)?;
+            (resolved.clone(), state.data.id == resolved)
+        };
+        if is_active {
+            return self.set_title(title, manual).await;
+        }
+        self.rename_inactive(&resolved, title).await
+    }
+
+    /// Rename a session this store is not currently holding.
+    ///
+    /// The rename becomes a journal `MetadataOnly` frame, so it is durable
+    /// with the same guarantee as any other mutation and cannot be undone by
+    /// a projection that was already queued with the old title.
+    async fn rename_inactive(&self, id: &str, title: Option<String>) -> Result<(), String> {
+        if self.writer.is_lock_contention() {
+            return Err(
+                "another process owns the durable store; this session is read-only".to_string(),
+            );
+        }
+        let journal = open_journal(&self.db_path, id);
+        let mut data = {
+            let journal = Arc::clone(&journal);
+            tokio::task::spawn_blocking(move || journal.load())
+                .await
+                .map_err(|error| format!("session load task failed: {error}"))??
+                .ok_or_else(|| format!("Session '{id}' not found."))?
+        };
+        data.title = title;
+        data.updated_at = unix_timestamp();
+        let metadata = data.clone_metadata_without_history();
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        let seq = journal
+            .append(
+                &operation_id,
+                crate::db::SaveMode::MetadataOnly,
+                &metadata,
+                &[],
+            )
+            .await?;
+        let projection = ProjectionState::new();
+        projection.submitted(seq);
+        projection.enqueue(ProjectionJob {
+            seq,
+            data: metadata,
+            mode: crate::db::SaveMode::MetadataOnly,
+            usage: Vec::new(),
+            guard: crate::db::CommitGuard {
+                operation_id: Some(operation_id),
+                expected_revision: None,
+            },
+            writer: self.writer.clone(),
+            journal: Arc::clone(&journal),
+        });
+        projection.wait(seq).await;
+        Ok(())
+    }
+
+    /// The picker-style summary of the pinned session, synthesized from
+    /// in-memory state.
+    pub async fn active_summary(&self) -> ThreadSummary {
+        let state = self.state.lock().await;
+        let data = &state.data;
+        let real_title = data
+            .title
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .map(|s| s.to_string());
+        let overview = match &real_title {
+            Some(title) => truncate_preview(title, 64),
+            None => data
+                .transcript
+                .project()
+                .into_iter()
+                .rev()
+                .find(|(_, m)| m.role == nuo_tool::Role::User && !m.hidden)
+                .map(|(_, m)| truncate_preview(&m.content, 64))
+                .unwrap_or_else(|| "(empty session)".to_string()),
+        };
+        ThreadSummary {
+            id: data.id.clone(),
+            title: real_title,
+            parent_id: data.parent_id.clone(),
+            origin: data.origin,
+            message_count: data.transcript.message_count(),
+            updated_at: data.updated_at,
+            created_at: data.created_at,
+            overview,
+            active: true,
+            digest: data.digest.clone(),
+        }
+    }
+
+    pub async fn list(&self) -> Result<Vec<ThreadSummary>, String> {
+        let active_id = self.state.lock().await.data.id.clone();
+        let writer = self.writer.clone();
+        let filter = self.thread_filter();
+        tokio::task::spawn_blocking(move || {
+            let reader = writer.reader().map_err(|e| e.to_string())?;
+            reader
+                .list_session_summaries(&filter, &active_id)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| format!("session list task failed: {e}"))?
+    }
+
+    /// Full detail for one thread, requested on demand by the thread-info sub-view.
+    pub async fn detail(&self, id: &str) -> Result<ThreadDetail, String> {
+        let active_id = self.state.lock().await.data.id.clone();
+        let (resolved, _) = {
+            let state = self.state.lock().await;
+            self.resolve_session(id, &state)?
+        };
+        let writer = self.writer.clone();
+        tokio::task::spawn_blocking(move || {
+            let reader = writer.reader().map_err(|e| e.to_string())?;
+            reader
+                .get_session_detail(&resolved, &active_id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("Session '{resolved}' not found."))
+        })
+        .await
+        .map_err(|e| format!("session detail task failed: {e}"))?
+    }
+
+    /// Persist a metadata-only mutation (`SaveMode::MetadataOnly`) under the
+    /// session commit gate. Callers pass [`ThreadData::clone_metadata_without_history`]
+    /// so cost stays O(1) in transcript length.
+    pub(crate) async fn persist_metadata_off_runtime(
+        &self,
+        data: ThreadData,
+        undo: SessionUndo,
+    ) -> Result<(), String> {
+        self.persist_with_mode_guarded(
+            data,
+            crate::db::SaveMode::MetadataOnly,
+            Vec::new(),
+            crate::db::CommitGuard::default(),
+            undo,
+        )
+        .await?;
+        // Metadata setters are control paths (title, posture, digest), and
+        // their callers immediately render a list/overview. Make the derived
+        // view current before returning; the ReAct turn path never calls this.
+        self.flush_projection().await
+    }
+
+    /// Mutate session metadata in place under `self.state`, check the deferred-
+    /// persistence gate, and persist O(1) metadata without cloning transcript
+    /// history when the mutation reports `true`.
+    pub(crate) async fn mutate_metadata_and_persist<F>(&self, mutate: F) -> Result<(), String>
+    where
+        F: FnOnce(&mut ThreadData) -> bool,
+    {
+        let (data, undo) = {
+            let mut state = self.state.lock().await;
+            let undo = SessionUndo::appending(&state);
+            if !mutate(&mut state.data) {
+                return Ok(());
+            }
+            state.data.updated_at = unix_timestamp();
+            if Self::should_skip_persist(&state) {
+                (None, undo)
+            } else {
+                state.defer_persist = false;
+                (Some(state.data.clone_metadata_without_history()), undo)
+            }
+        };
+        if let Some(data) = data {
+            self.persist_metadata_off_runtime(data, undo).await?;
+        }
+        Ok(())
+    }
+
+    /// Commit one session mutation to the journal, then hand the derived
+    /// SQLite projection to its own worker (ADR-0236).
+    ///
+    /// The async loop waits for the journal's per-file `fdatasync` only. The
+    /// projection is enqueued and never awaited here, so a slow SQLite writer
+    /// or a checkpoint burst cannot delay the next ReAct turn.
+    ///
+    /// `undo` is the pre-commit in-memory shape. If the append fails, the
+    /// caller's mutation is rolled back before the error is returned: a session
+    /// that continued with state the journal does not contain would later
+    /// persist a delta that silently omits those entries.
+    pub(crate) async fn persist_with_mode_guarded(
+        &self,
+        mut data: ThreadData,
+        mode: crate::db::SaveMode,
+        usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
+        mut guard: crate::db::CommitGuard,
+        undo: SessionUndo,
+    ) -> Result<u64, String> {
+        let started = std::time::Instant::now();
+        let session_id = data.id.clone();
+        if self.writer.is_lock_contention() {
+            self.roll_back(undo).await;
+            return Err(
+                "another process owns the durable store; this session is read-only".to_string(),
+            );
+        }
+        let _persist_gate = self.persist_gate.lock().await;
+        data.checksum = Some(match compute_checksum(&data) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(error);
+            }
+        });
+        let operation_id = guard
+            .operation_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        guard.operation_id = Some(operation_id.clone());
+
+        // Offload oversized text & inline base64 images to CAS off the tokio
+        // runtime before writing the journal frame so neither the append log
+        // nor `snap-*.json` bloats with multi-megabyte payloads (ADR-0255).
+        // The projection copy keeps hydrated text for FTS while carrying the
+        // same blob hashes (and stripping offloaded base64 pixels).
+        let journal_data = match self.prepare_offloaded_journal_data(&mut data).await {
+            Ok(offloaded) => offloaded,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(format!("session blob offload failed: {error}"));
+            }
+        };
+
+        let (journal, projection) = {
+            let state = self.state.lock().await;
+            (state.journal.clone(), state.projection.clone())
+        };
+        let append = match guard.expected_revision {
+            Some(expected) => {
+                let actual = journal.durable_seq();
+                if expected != actual {
+                    self.roll_back(undo).await;
+                    return Err(format!(
+                        "stale session revision: expected {expected}, durable revision is {actual}"
+                    ));
+                }
+                journal
+                    .append(&operation_id, mode, &journal_data, &usage_upserts)
+                    .await
+            }
+            None => {
+                journal
+                    .append(&operation_id, mode, &journal_data, &usage_upserts)
+                    .await
+            }
+        };
+        let seq = match append {
+            Ok(seq) => seq,
+            Err(error) => {
+                // The mutation already happened in memory; the journal never
+                // saw it. Restore before returning so the session can never
+                // continue with entries that have no durable frame.
+                self.roll_back(undo).await;
+                return Err(format!("session journal append failed: {error}"));
+            }
+        };
+        projection.submitted(seq);
+        projection.enqueue(ProjectionJob {
+            seq,
+            data,
+            mode,
+            usage: usage_upserts,
+            guard,
+            writer: self.writer.clone(),
+            journal: Arc::clone(&journal),
+        });
+
+        let elapsed = started.elapsed();
+        if elapsed >= Duration::from_millis(250) {
+            tracing::warn!(session = %session_id, duration_ms = elapsed.as_millis() as u64,
+                "slow local session journal append");
+        }
+        self.maybe_compact_journal(&journal).await;
+        Ok(seq)
+    }
+
+    /// Undo an in-memory mutation whose commit never became durable.
+    async fn roll_back(&self, undo: SessionUndo) {
+        let mut state = self.state.lock().await;
+        undo.restore(&mut state);
+    }
+
+    /// Persist a full rewrite (rare: wholesale working-state replacement).
+    ///
+    /// The journal gets a `Full` frame; the projection receives the same
+    /// snapshot asynchronously. `undo` restores the in-memory session when the
+    /// frame never became durable.
+    pub(crate) async fn persist_full_rewrite(
+        &self,
+        data: ThreadData,
+        undo: SessionUndo,
+    ) -> Result<(), String> {
+        if self.writer.is_lock_contention() {
+            self.roll_back(undo).await;
+            return Err(
+                "another process owns the durable store; this session is read-only".to_string(),
+            );
+        }
+        let _persist_gate = self.persist_gate.lock().await;
+        let mut data = data;
+        data.checksum = Some(match compute_checksum(&data) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(error);
+            }
+        });
+        let journal_data = match self.prepare_offloaded_journal_data(&mut data).await {
+            Ok(offloaded) => offloaded,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(format!("session blob offload failed: {error}"));
+            }
+        };
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        let (journal, projection) = {
+            let state = self.state.lock().await;
+            (state.journal.clone(), state.projection.clone())
+        };
+        let seq = match journal
+            .append(
+                &operation_id,
+                crate::db::SaveMode::FullRewrite,
+                &journal_data,
+                &[],
+            )
+            .await
+        {
+            Ok(seq) => seq,
+            Err(error) => {
+                self.roll_back(undo).await;
+                return Err(format!("session journal append failed: {error}"));
+            }
+        };
+        projection.submitted(seq);
+        projection.enqueue(ProjectionJob {
+            seq,
+            data,
+            mode: crate::db::SaveMode::FullRewrite,
+            usage: Vec::new(),
+            guard: crate::db::CommitGuard {
+                operation_id: Some(operation_id),
+                expected_revision: None,
+            },
+            writer: self.writer.clone(),
+            journal: Arc::clone(&journal),
+        });
+        self.maybe_compact_journal(&journal).await;
+        // A full rewrite is a cold control-path operation (restore, branch
+        // commit, usage reseed). Its callers immediately read the projected
+        // row, so make the view current before returning.
+        self.flush_projection().await?;
+        Ok(())
+    }
+
+    /// Wait until the derived view has absorbed every submitted commit, and
+    /// repair it from the journal if a projection failed while it was behind.
+    /// Cold control paths call this before reading SQLite directly.
+    pub(crate) async fn flush_projection(&self) -> Result<(), String> {
+        let (projection, journal) = {
+            let state = self.state.lock().await;
+            (state.projection.clone(), state.journal.clone())
+        };
+        let target = projection.submitted_seq();
+        if target == 0 {
+            return Ok(());
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(10), projection.wait(target)).await;
+        if projection.projected_seq() >= target && !projection.is_desynced() {
+            return Ok(());
+        }
+        let full = tokio::task::spawn_blocking({
+            let journal = Arc::clone(&journal);
+            move || journal.load()
+        })
+        .await
+        .map_err(|error| format!("journal load task failed: {error}"))??;
+        let Some(full) = full else {
+            return Ok(());
+        };
+        let seq = journal.durable_seq();
+        save_retrying(
+            &self.writer,
+            full,
+            crate::db::SaveMode::FullRewrite,
+            Vec::new(),
+            crate::db::CommitGuard {
+                operation_id: Some(uuid::Uuid::new_v4().to_string()),
+                expected_revision: None,
+            },
+            Some(seq),
+        )
+        .await
+        .map_err(|error| format!("session projection repair failed: {error}"))?;
+        projection.clear_desynced();
+        Ok(())
+    }
+
+    /// Snapshot the journal occasionally so replay stays bounded. This runs
+    /// once every 512 commits, off the hot path (a blocking task), and never
+    /// changes what a commit means.
+    async fn maybe_compact_journal(&self, journal: &Arc<crate::journal::SessionJournal>) {
+        if !journal.should_compact() {
+            return;
+        }
+        let seq = journal.durable_seq();
+        let full = {
+            let state = self.state.lock().await;
+            state.data.clone()
+        };
+        if journal.durable_seq() != seq {
+            // A concurrent commit advanced the journal while the state was
+            // cloned; a snapshot labelled `seq` would contain newer state and
+            // replay would duplicate it. Compact on the next boundary instead.
+            return;
+        }
+        let journal = Arc::clone(journal);
+        let blob_store = self.blob_store.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut full = full;
+            if let Err(error) = offload_session_blobs(&mut full, &blob_store) {
+                tracing::warn!(%error, "could not offload blobs before journal compaction");
+            }
+            if let Err(error) = journal.compact_at(seq, &full) {
+                tracing::warn!(%error, "could not compact the session journal");
+            }
+        });
+    }
+
+    /// Produce an offloaded clone of `data` for the journal while copying the
+    /// resulting CAS blob hashes onto `data` (preserving `entry.content` on
+    /// `data` for FTS indexing, while stripping offloaded base64 image pixels).
+    async fn prepare_offloaded_journal_data(
+        &self,
+        data: &mut ThreadData,
+    ) -> Result<ThreadData, String> {
+        if !needs_blob_offload(data) {
+            return Ok(data.clone());
+        }
+        let mut offloaded = data.clone();
+        let blob_store = self.blob_store.clone();
+        let offloaded = tokio::task::spawn_blocking(move || {
+            offload_session_blobs(&mut offloaded, &blob_store)?;
+            Ok::<ThreadData, String>(offloaded)
+        })
+        .await
+        .map_err(|error| format!("blob offload task failed: {error}"))??;
+
+        for (proj_entry, off_entry) in data
+            .transcript
+            .entries
+            .iter_mut()
+            .zip(offloaded.transcript.entries.iter())
+        {
+            let (EntryPayload::Message(proj_payload), EntryPayload::Message(off_payload)) =
+                (&mut proj_entry.payload, &off_entry.payload)
+            else {
+                continue;
+            };
+            if proj_payload.content_blob.is_none() {
+                proj_payload.content_blob = off_payload.content_blob.clone();
+            }
+            if !off_payload.image_blobs.is_empty() {
+                proj_payload.image_blobs = off_payload.image_blobs.clone();
+                if let Some(images) = proj_payload.images.as_mut() {
+                    for blob_ref in &off_payload.image_blobs {
+                        if let Some(image) = images.get_mut(blob_ref.index) {
+                            image.data.clear();
+                        }
+                    }
+                }
+            }
+        }
+        if !offloaded.graph_image_blobs.is_empty() {
+            data.graph_image_blobs = offloaded.graph_image_blobs.clone();
+        }
+        if let (Some(proj_graph), Some(off_graph)) = (data.graph.as_mut(), offloaded.graph.as_ref())
+        {
+            let graph_img_blobs = &offloaded.graph_image_blobs;
+            let _ = proj_graph.graph.visit_messages_mut(|fact_id, proj_msg| {
+                if let Some(off_fact) = off_graph.graph.get(fact_id)
+                    && let nuo_protocol::FactPayload::Message { message: off_msg } =
+                        &off_fact.payload
+                    && proj_msg.content_blob.is_none()
+                {
+                    proj_msg.content_blob = off_msg.content_blob.clone();
+                }
+                if let Some(images) = proj_msg.images.as_mut() {
+                    for blob_ref in graph_img_blobs.iter().filter(|b| b.fact_id == fact_id.0) {
+                        if let Some(image) = images.get_mut(blob_ref.index) {
+                            image.data.clear();
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
+        Ok(offloaded)
+    }
+
+    /// Resolve `input` (a 4+ char hex id or prefix) to the full session id
+    /// and the path that identifies it.
+    pub(crate) fn resolve_session(
+        &self,
+        input: &str,
+        active: &ThreadSessionState,
+    ) -> Result<(String, PathBuf), String> {
+        if input.len() < 4
+            || !input
+                .chars()
+                .all(|character| character.is_ascii_hexdigit() || character == '-')
+        {
+            return Err(format!(
+                "Invalid session id prefix '{}'. Use at least 4 hexadecimal characters.",
+                input
+            ));
+        }
+        let mut matches: Vec<(String, PathBuf)> = Vec::new();
+        if active.data.id.starts_with(input) {
+            matches.push((active.data.id.clone(), active.path.clone()));
+        }
+
+        // Query the durable store through this store's reader. Resolution is
+        // role-scoped: a prefix that names a thread in another role or
+        // workspace is not a candidate, even when it is a full UUID.
+        if let Ok(reader) = self.writer.reader() {
+            let filter = self.thread_filter();
+            if let Ok(found) = reader.resolve_session_prefix(input, &filter) {
+                for id in found {
+                    if !matches.iter().any(|(m_id, _)| m_id == &id) {
+                        let path = self.sessions_dir.join(format!("{id}.json"));
+                        matches.push((id, path));
+                    }
+                }
+            }
+        }
+
+        match matches.as_slice() {
+            [(id, path)] => Ok((id.clone(), path.clone())),
+            [] => {
+                // If the input is a full 36-char canonical UUID format that doesn't match
+                // anything, still resolve to its expected path so delete/cleanup operations
+                // can treat already-deleted/absent sessions idempotently.
+                if input.len() == 36 && input.chars().filter(|c| *c == '-').count() == 4 {
+                    Ok((
+                        input.to_string(),
+                        self.sessions_dir.join(format!("{input}.json")),
+                    ))
+                } else {
+                    Err(format!("No session matches '{}'.", input))
+                }
+            }
+            _ => Err(format!(
+                "Session prefix '{}' is ambiguous ({} matches).",
+                input,
+                matches.len()
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod subagent_store_tests {
+    use super::*;
+    use nuo_tool::{Message, Role};
+
+    impl ThreadSession {
+        /// Test-only: does this store's own engine see a subagent row?
+        pub(crate) async fn subagent_row_for_test(&self, parent_id: &str) -> bool {
+            let session_id = self.state.lock().await.data.id.clone();
+            let Ok(reader) = self.writer.reader() else {
+                return false;
+            };
+            reader
+                .list_subagent_sessions(parent_id)
+                .map(|rows| rows.iter().any(|row| row.id == session_id))
+                .unwrap_or(false)
+        }
+    }
+
+    /// A subagent session is a real, durable session of its own.
+    ///
+    /// It used to exist only *after* the fact: `admit_subagent_children` rebuilt
+    /// the child from the parent message's embedded `children` once the round
+    /// finished. A running child therefore had no session, no durable transcript,
+    /// and no projection target — so context relief could not reach it at all.
+    #[tokio::test]
+    async fn a_subagent_store_is_its_own_session_under_the_parent() {
+        let dir = std::env::temp_dir().join(format!("nuo-substore-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let parent = ThreadSession::for_path(dir.join("session.json"));
+        // The parent row must be durable before a child can reference it.
+        parent
+            .commit_turn(CommitTurn {
+                appended: &[Message::new(Role::User, "parent question")],
+                round_counter: Some(1),
+                usage_records: &[],
+                retry_point: None,
+                round_interrupt: None,
+                round_summary: None,
+                operation_id: None,
+                expected_revision: None,
+            })
+            .await
+            .unwrap();
+        let parent_id = parent.id().await;
+        // Flush the parent's async catalog projection so its `threads` row
+        // exists before the child projects `parent_thread_id`.
+        parent.flush_projection().await.unwrap();
+
+        let (child, reported_parent) = ThreadSession::for_subagent(&parent, "child-1")
+            .expect("the parent is idle, so the child must open");
+        assert_eq!(reported_parent, parent_id);
+        assert_eq!(child.id().await, "child-1");
+
+        child
+            .commit_turn(CommitTurn {
+                appended: &[Message::new(Role::User, "subagent task")],
+                round_counter: Some(1),
+                usage_records: &[],
+                retry_point: None,
+                round_interrupt: None,
+                round_summary: None,
+                operation_id: None,
+                expected_revision: None,
+            })
+            .await
+            .unwrap();
+
+        // Its own facts hydrate through the canonical thread aggregate.
+        let thread = child.thread().await;
+        assert_eq!(thread.id.0, "child-1");
+        assert_eq!(thread.graph.len(), 1);
+
+        // And it is listed beneath its parent as a subagent.
+        child.flush_projection().await.unwrap();
+        assert!(
+            child.subagent_row_for_test(&parent_id).await,
+            "the child row must carry parent_thread_id and origin = subagent"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A child must never be admitted without its parent pointer.
+    ///
+    /// The parent's identity is read under its state lock. An earlier version fell
+    /// back to an empty id when that lock was held, which wrote a child with
+    /// `parent_thread_id = NULL`: invisible to `list_subagent_sessions`, invisible
+    /// to `offstream`'s `sub:` handles, and orphaned with no error anywhere. A lost
+    /// lineage is not a degraded success, so the constructor now refuses.
+    #[tokio::test]
+    async fn a_subagent_store_refuses_when_the_parent_identity_is_unavailable() {
+        let dir = std::env::temp_dir().join(format!("nuo-substore-busy-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let parent = ThreadSession::for_path(dir.join("session.json"));
+
+        // Hold the parent's state lock, as an in-flight commit would.
+        let held = parent.state.lock().await;
+        let refused = ThreadSession::for_subagent(&parent, "child-busy");
+        assert!(
+            refused.is_err(),
+            "a child with no resolvable parent must be refused, not silently orphaned"
+        );
+        drop(held);
+
+        // Idle again: the same call succeeds, so the refusal is about the lock and
+        // not a permanent condition.
+        assert!(ThreadSession::for_subagent(&parent, "child-ok").is_ok());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

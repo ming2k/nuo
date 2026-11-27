@@ -42,15 +42,15 @@ use graticule::{
     Constraint, Direction, Frame, Layout, Line, Modifier, Rect, Span, Style,
     {Block as RtBlock, Paragraph},
 };
-use protocol::{MonitoredThread, ThreadActivity, ThreadHosting};
+use nuo_protocol::{MonitoredThread, ThreadActivity, ThreadHosting};
 use unicode_width::UnicodeWidthStr;
 
 use crate::shell::render::Theme;
-use ui_primitives::design::INPUT_PROMPT_PREFIX;
-use ui_primitives::primitives::{
+use nuo_ui_primitives::design::INPUT_PROMPT_PREFIX;
+use nuo_ui_primitives::primitives::{
     ElevationContainer, LayoutTier, SCROLL_EDGE_MARGIN, resolve_scroll, viewport_rect,
 };
-use view::view_header::TabBarProps;
+use nuo_view::view_header::TabBarProps;
 
 /// Which zone of the dashboard currently owns the keyboard.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -125,7 +125,7 @@ pub struct DashboardProps<'a> {
     /// Whether the dashboard is displaying the Model Usage view (ADR-0129).
     pub view_usage: bool,
     /// Cross-session model usage statistics report, if loaded.
-    pub usage_report: Option<&'a protocol::usage_stats::UsageStatsReport>,
+    pub usage_report: Option<&'a nuo_protocol::usage_stats::UsageStatsReport>,
     /// Whether a model usage report fetch is in flight over the control plane.
     pub usage_loading: bool,
     /// Scroll offset for the model usage analytics report view.
@@ -346,7 +346,7 @@ pub fn draw_dashboard(
     let tab_rects = if let Some(bar) = tab_bar.as_ref() {
         crate::shell::render::draw_tab_bar(frame, header_rect, bar, theme)
     } else {
-        view::view_header::TabBarNavRects::default()
+        nuo_view::view_header::TabBarNavRects::default()
     };
     let (summary, needs_attention) = header_content(rows);
     crate::shell::render::draw_scene_bar(

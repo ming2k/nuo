@@ -1,8 +1,8 @@
 #![cfg(test)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use persistence::config::{Config, Credentials, resolve_web_config};
-use protocol::{SecretString, WebCredentialStatus, WebProviderAxis, WebSearchProvider};
+use nuo_persistence::config::{Config, Credentials, resolve_web_config};
+use nuo_protocol::{SecretString, WebCredentialStatus, WebProviderAxis, WebSearchProvider};
 
 #[test]
 fn config_is_behavior_only_and_uses_web_table() {

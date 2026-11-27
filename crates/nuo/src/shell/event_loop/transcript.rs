@@ -1,7 +1,7 @@
 //! Transcript stream mutations, patch application, and selection extraction.
 
-use view::model::document::TranscriptMessage;
-use view::model::selection::{CellDragInfo, SelectionState, get_selected_text};
+use nuo_view::model::document::TranscriptMessage;
+use nuo_view::model::selection::{CellDragInfo, SelectionState, get_selected_text};
 
 /// Resolve a mutable reference to a message by semantic index.
 pub(crate) fn resolve_focused_mut<'a>(
@@ -45,9 +45,9 @@ pub(crate) fn focused_messages_mut<'a>(
 /// Extract selected text from either transcript messages or the live input box.
 pub(crate) fn extract_selection_text(
     sel: &SelectionState,
-    messages: &[view::model::document::TranscriptMessage],
+    messages: &[nuo_view::model::document::TranscriptMessage],
     input: &str,
-    layout_map: &view::model::layout::LayoutMap,
+    layout_map: &nuo_view::model::layout::LayoutMap,
     cell_info: Option<&CellDragInfo>,
 ) -> Option<String> {
     if let SelectionState::InputRange {
@@ -82,7 +82,7 @@ pub(crate) fn extract_selection_text(
             }
             return None;
         }
-        if start.message_idx == view::model::layout::MODAL_DOC_MSG_IDX {
+        if start.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX {
             return layout_map.extract_text_for_range(sel);
         }
     } else if let SelectionState::Block { message_idx, .. } = sel
@@ -90,7 +90,7 @@ pub(crate) fn extract_selection_text(
     {
         return Some(input.to_string());
     } else if let SelectionState::Block { message_idx, .. } = sel
-        && *message_idx == view::model::layout::MODAL_DOC_MSG_IDX
+        && *message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
     {
         return layout_map.extract_text_for_range(sel);
     }
@@ -101,13 +101,13 @@ pub(crate) fn extract_selection_text(
 
 /// Format the current loop status into human-readable text.
 pub(crate) fn display_status(
-    loop_status: protocol::LoopStatus,
-    phase: Option<&view::phase::Phase>,
+    loop_status: nuo_protocol::LoopStatus,
+    phase: Option<&nuo_view::phase::Phase>,
 ) -> String {
     match (loop_status, phase) {
-        (protocol::LoopStatus::Idle, None) => "idle".to_string(),
-        (protocol::LoopStatus::Running, None) => "preparing".to_string(),
-        (protocol::LoopStatus::Idle, Some(phase))
-        | (protocol::LoopStatus::Running, Some(phase)) => phase.label().into_owned(),
+        (nuo_protocol::LoopStatus::Idle, None) => "idle".to_string(),
+        (nuo_protocol::LoopStatus::Running, None) => "preparing".to_string(),
+        (nuo_protocol::LoopStatus::Idle, Some(phase))
+        | (nuo_protocol::LoopStatus::Running, Some(phase)) => phase.label().into_owned(),
     }
 }

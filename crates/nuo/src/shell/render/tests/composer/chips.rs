@@ -5,8 +5,8 @@ use super::*;
 #[test]
 fn draw_composer_paints_paste_and_image_chips_distinctly() {
     let theme = Theme::default();
-    let paste_chip = view::composer_attachments::paste_chip(1, 3, 2048);
-    let image_chip = view::composer_attachments::image_chip(1, 1536);
+    let paste_chip = nuo_view::composer_attachments::paste_chip(1, 3, 2048);
+    let image_chip = nuo_view::composer_attachments::image_chip(1, 1536);
     let input = format!("see {paste_chip} plus {image_chip} end");
     let mut terminal = graticule::TestTerminal::new(120, 5);
     terminal.draw(|f| {
@@ -32,7 +32,7 @@ fn draw_composer_paints_paste_and_image_chips_distinctly() {
         );
     });
     let buf = terminal.buffer();
-    let text_y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let text_y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let text_x = COMPOSER_PROMPT_PREFIX_COLS as u16;
     let interior_bg = theme.input_surface();
     // Chip labels use ASCII metadata; display columns
@@ -133,7 +133,7 @@ fn draw_composer_leaves_orphan_chip_labels_as_plain_text() {
         );
     });
     let buf = terminal.buffer();
-    let text_y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let text_y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let text_x = COMPOSER_PROMPT_PREFIX_COLS as u16;
     let interior_bg = theme.input_surface();
 
@@ -170,7 +170,7 @@ fn draw_composer_leaves_orphan_chip_labels_as_plain_text() {
 #[test]
 fn draw_composer_colors_only_backed_chips_when_mixed() {
     let theme = Theme::default();
-    let real_paste = view::composer_attachments::paste_chip(1, 3, 2048);
+    let real_paste = nuo_view::composer_attachments::paste_chip(1, 3, 2048);
     let orphan_image = "[Image #1]".to_string();
     // One paste payload staged; the image chip is a typed orphan.
     let input = format!("{real_paste} then {orphan_image} end");
@@ -198,7 +198,7 @@ fn draw_composer_colors_only_backed_chips_when_mixed() {
         );
     });
     let buf = terminal.buffer();
-    let text_y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let text_y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let text_x = COMPOSER_PROMPT_PREFIX_COLS as u16;
     let interior_bg = theme.input_surface();
 
@@ -242,13 +242,13 @@ fn draw_composer_colors_only_backed_chips_when_mixed() {
 #[test]
 fn draw_composer_chip_keeps_identity_color_under_selection() {
     let theme = Theme::default();
-    let paste_chip = view::composer_attachments::paste_chip(1, 3, 2048);
+    let paste_chip = nuo_view::composer_attachments::paste_chip(1, 3, 2048);
     let input = format!("see {paste_chip} end");
     let mut terminal = graticule::TestTerminal::new(80, 5);
     // Select exactly the chip bytes (absolute offsets into `input`).
     let sel_lo = "see ".len();
     let sel_hi = sel_lo + paste_chip.len();
-    use view::model::layout::SemanticCursor;
+    use nuo_view::model::layout::SemanticCursor;
     let selection = SelectionState::Range {
         anchor: SemanticCursor::new(crate::shell::composer::INPUT_MSG_IDX, 0, sel_lo),
         head: SemanticCursor::new(crate::shell::composer::INPUT_MSG_IDX, 0, sel_hi),
@@ -276,7 +276,7 @@ fn draw_composer_chip_keeps_identity_color_under_selection() {
         );
     });
     let buf = terminal.buffer();
-    let text_y = ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+    let text_y = nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
     let text_x = COMPOSER_PROMPT_PREFIX_COLS as u16;
     let chip_start = text_x + sel_lo as u16;
     let chip_end = chip_start + graticule::str_len(&paste_chip) as u16;
@@ -301,7 +301,7 @@ fn draw_composer_chip_keeps_identity_color_under_selection() {
 #[test]
 fn draw_composer_chip_pill_continues_across_wrap() {
     let theme = Theme::default();
-    let image_chip = view::composer_attachments::image_chip(1, 1536);
+    let image_chip = nuo_view::composer_attachments::image_chip(1, 1536);
     // Narrow text area (16 - 2 prefix - 2 pad = 12 cols) forces the
     // `[Image #1 (1.5 KB)]` label onto its own wrapped fragment.
     let input = format!("xx {image_chip} yy");

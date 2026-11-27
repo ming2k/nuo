@@ -3,7 +3,7 @@
 use super::helpers::{
     render_grid, render_grid_with_map, tool_step, tool_step_streaming, tool_step_structured,
 };
-use view::model::selection::SelectionState;
+use nuo_view::model::selection::SelectionState;
 
 #[test]
 fn read_expanded_renders_code_block() {
@@ -25,7 +25,7 @@ fn read_with_offset_numbers_from_start_line() {
     let m = tool_step_structured(
         "read",
         r#"{"path":"src/lib.rs","offset":100}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: Some("rs".into()),
             text: "fn a() {}\nfn b() {}\nfn c() {}\n".into(),
             start_line: 100,
@@ -47,7 +47,7 @@ fn read_structured_code_hides_model_framing_and_numbers_from_offset() {
     let m = tool_step_structured(
         "read",
         r#"{"path":"src/lib.rs","offset":100,"limit":2}"#,
-        ::tool::ToolOutput::Code {
+        nuo_tool::ToolOutput::Code {
             lang: Some("rs".into()),
             text: "fn a() {}\nfn b() {}".into(),
             start_line: 100,
@@ -161,7 +161,7 @@ fn execute_command_expanded_renders_structured_shell() {
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo test"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo test".into(),
             stdout: "running 3 tests\n...\ntest result: ok. 3 passed".into(),
             stderr: "warning: unused import".into(),
@@ -169,7 +169,7 @@ fn execute_command_expanded_renders_structured_shell() {
             exit: Some(1),
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -184,11 +184,11 @@ fn execute_command_expanded_preserves_stdout_stderr_interleaving() {
     // bucketed by stream. Here a stderr line sits *between* two stdout lines,
     // so a correct render shows `warning: b` between `Compiling a` and
     // `Compiling c` — not pinned to the bottom.
-    use tool::{ShellLine, ShellStream};
+    use nuo_tool::{ShellLine, ShellStream};
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout: "Compiling a\nCompiling c".into(),
             stderr: "warning: b".into(),
@@ -209,7 +209,7 @@ fn execute_command_expanded_preserves_stdout_stderr_interleaving() {
             exit: Some(0),
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -230,7 +230,7 @@ fn execute_command_expanded_folds_long_output_keeping_tail_events() {
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout,
             stderr: String::new(),
@@ -238,7 +238,7 @@ fn execute_command_expanded_folds_long_output_keeping_tail_events() {
             exit: Some(1),
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -255,12 +255,12 @@ fn execute_command_expanded_folds_long_output_keeping_tail_events() {
 /// the `$` left out of the payload, while the painted row still *shows* them.
 #[test]
 fn dragging_from_the_dollar_prompt_copies_the_command_and_its_output() {
-    use view::model::layout::SemanticCursor;
+    use nuo_view::model::layout::SemanticCursor;
 
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout: "Compiling a\nCompiling b".into(),
             stderr: String::new(),
@@ -268,7 +268,7 @@ fn dragging_from_the_dollar_prompt_copies_the_command_and_its_output() {
             exit: Some(0),
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -336,7 +336,7 @@ fn dragging_from_the_dollar_prompt_copies_the_command_and_its_output() {
 /// than key-wide — a user who clicks the words `view full log` means that verb.
 #[test]
 fn the_fold_block_registers_one_hit_target_per_verb() {
-    use view::model::layout::{TOOL_FOLD_BLOCK_IDX, TOOL_FOLD_COPY_BLOCK_IDX};
+    use nuo_view::model::layout::{TOOL_FOLD_BLOCK_IDX, TOOL_FOLD_COPY_BLOCK_IDX};
 
     let stdout = (1..=20)
         .map(|i| format!("line {i}"))
@@ -345,7 +345,7 @@ fn the_fold_block_registers_one_hit_target_per_verb() {
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout,
             stderr: String::new(),
@@ -353,7 +353,7 @@ fn the_fold_block_registers_one_hit_target_per_verb() {
             exit: Some(0),
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -411,7 +411,7 @@ fn the_fold_block_registers_one_hit_target_per_verb() {
 /// mark out of columns any output row occupies.
 #[test]
 fn the_fold_is_an_inset_block_with_its_own_bounded_gutter() {
-    use ui_primitives::design::{
+    use nuo_ui_primitives::design::{
         BASH_FOLD_CHROME_ROWS, BASH_FOLD_INSET_COLS, bash_fold_gutter_glyph,
     };
 
@@ -422,7 +422,7 @@ fn the_fold_is_an_inset_block_with_its_own_bounded_gutter() {
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout,
             stderr: String::new(),
@@ -430,7 +430,7 @@ fn the_fold_is_an_inset_block_with_its_own_bounded_gutter() {
             exit: Some(1),
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -497,8 +497,8 @@ fn the_fold_is_an_inset_block_with_its_own_bounded_gutter() {
 
     // And the verbs register on the sentence row, not the fact row.
     for sentinel in [
-        view::model::layout::TOOL_FOLD_BLOCK_IDX,
-        view::model::layout::TOOL_FOLD_COPY_BLOCK_IDX,
+        nuo_view::model::layout::TOOL_FOLD_BLOCK_IDX,
+        nuo_view::model::layout::TOOL_FOLD_COPY_BLOCK_IDX,
     ] {
         let region = map
             .regions()
@@ -521,7 +521,7 @@ fn the_fold_keeps_its_count_and_drops_whole_verb_clauses() {
     let m = tool_step_structured(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout,
             stderr: String::new(),
@@ -529,7 +529,7 @@ fn the_fold_keeps_its_count_and_drops_whole_verb_clauses() {
             exit: Some(0),
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         true,
@@ -539,7 +539,7 @@ fn the_fold_keeps_its_count_and_drops_whole_verb_clauses() {
     // stopped at 44 columns and this test would then have missed the real defect
     // it now pins (a count cut to `12 lines hidde` and a clause cut to
     // `press v view f` below 36 columns).
-    for width in ui_primitives::design::MIN_TERMINAL_COLS..=100 {
+    for width in nuo_ui_primitives::design::MIN_TERMINAL_COLS..=100 {
         let grid = render_grid(&m, width, 24);
         let rows: Vec<&str> = grid.lines().collect();
         let fact = rows
@@ -590,17 +590,17 @@ fn search_text_expanded_renders_grouped_matches() {
 
 #[test]
 fn search_web_expanded_renders_semantic_cards() {
-    let structured = ::tool::ToolOutput::WebSearch {
+    let structured = nuo_tool::ToolOutput::WebSearch {
         query: "rust 1.85 release notes".into(),
         provider: "DuckDuckGo".into(),
         results: vec![
-            tool::WebSearchHit {
+            nuo_tool::WebSearchHit {
                 title: "Rust 1.85.0 released | Rust Blog".into(),
                 url: "https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html".into(),
                 domain: "blog.rust-lang.org".into(),
                 snippet: "The Rust team is happy to announce a new version of Rust, 1.85.0. Rust 2024 edition is now stable!".into(),
             },
-            tool::WebSearchHit {
+            nuo_tool::WebSearchHit {
                 title: "What is new in Rust 1.85? - GitHub Discussions".into(),
                 url: "https://github.com/rust-lang/rust/discussions/134900".into(),
                 domain: "github.com".into(),
@@ -620,7 +620,7 @@ fn search_web_expanded_renders_semantic_cards() {
 
 #[test]
 fn read_url_expanded_renders_article_reader() {
-    let structured = ::tool::ToolOutput::WebArticle {
+    let structured = nuo_tool::ToolOutput::WebArticle {
         url: "https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html".into(),
         title: Some("Announcing Rust 1.85.0 and Rust 2024".into()),
         domain: "blog.rust-lang.org".into(),
@@ -742,7 +742,7 @@ fn execute_command_running_streams_live_preview() {
     let m = tool_step_streaming(
         "execute_command",
         r#"{"command":"cargo build"}"#,
-        ::tool::ToolOutput::Shell {
+        nuo_tool::ToolOutput::Shell {
             command: "cargo build".into(),
             stdout: "Compiling graticule v0.1.0\nCompiling nuo v0.1.0".into(),
             stderr: String::new(),
@@ -750,7 +750,7 @@ fn execute_command_running_streams_live_preview() {
             exit: None,
             truncated: false,
             truncated_note: None,
-            termination: tool::ShellTermination::Exited,
+            termination: nuo_tool::ShellTermination::Exited,
             detached_job_id: None,
         },
         false,
@@ -765,9 +765,9 @@ fn edit_text_diff_renders_from_structured_patch() {
     let m = tool_step_structured(
         "edit_text",
         r#"{"path":"a.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#,
-        ::tool::ToolOutput::Patch {
+        nuo_tool::ToolOutput::Patch {
             path: "a.rs".into(),
-            op: tool::PatchOp::Edit,
+            op: nuo_tool::PatchOp::Edit,
             old: "let x = 1;".into(),
             new: "let x = 2;".into(),
             start_line: 0,
@@ -783,9 +783,9 @@ fn edit_text_diff_renders_with_explicit_start_line() {
     let m = tool_step_structured(
         "edit_text",
         r#"{"path":"a.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#,
-        ::tool::ToolOutput::Patch {
+        nuo_tool::ToolOutput::Patch {
             path: "a.rs".into(),
-            op: tool::PatchOp::Edit,
+            op: nuo_tool::PatchOp::Edit,
             old: "let x = 1;".into(),
             new: "let x = 2;".into(),
             start_line: 42,
@@ -817,7 +817,7 @@ fn failed_edit_renders_error_instead_of_intended_diff() {
     let m = tool_step_structured(
         "edit_text",
         r#"{"path":"a.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#,
-        ::tool::ToolOutput::Error {
+        nuo_tool::ToolOutput::Error {
             message: "old_string was not found".into(),
             detail: Some("The file changed before the edit ran.".into()),
         },
@@ -836,9 +836,9 @@ fn write_file_expanded_renders_diff_with_additions() {
     let m = tool_step_structured(
         "write_file",
         r#"{"path":"src/lib.rs","content":"pub fn hello() -> &'static str {\n    \"world\"\n}"}"#,
-        ::tool::ToolOutput::Patch {
+        nuo_tool::ToolOutput::Patch {
             path: "src/lib.rs".into(),
-            op: tool::PatchOp::Create,
+            op: nuo_tool::PatchOp::Create,
             old: String::new(),
             new: "pub fn hello() -> &'static str {\n    \"world\"\n}".into(),
             start_line: 0,
@@ -919,7 +919,7 @@ fn ask_user_expanded_renders_question_answer_pairs() {
     let m = tool_step_structured(
         "ask_user",
         &arguments,
-        ::tool::ToolOutput::Text(format!(
+        nuo_tool::ToolOutput::Text(format!(
             "User answered the question(s). Selected option labels:\n{answer}"
         )),
         true,
@@ -941,7 +941,7 @@ fn ask_user_expanded_cancelled_renders_no_answer() {
     let m = tool_step_structured(
         "ask_user",
         &arguments,
-        ::tool::ToolOutput::Text(
+        nuo_tool::ToolOutput::Text(
             "User cancelled the question; no answer was provided.".to_string(),
         ),
         true,

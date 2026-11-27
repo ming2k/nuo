@@ -2,8 +2,8 @@
 // no-panic lints are meaningless here (the exemption ends at the test boundary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use acp::signature::HmacSigner;
-use acp::{AgentAddress, AgentEnvelope, MessageIntent};
+use nuo_acp::signature::HmacSigner;
+use nuo_acp::{AgentAddress, AgentEnvelope, MessageIntent};
 use std::time::Duration;
 
 #[tokio::test]
@@ -61,7 +61,7 @@ async fn test_envelope_cryptographic_signing_and_verification() {
 /// truth ported from the former `nuo-agent` runtime (ADR-0009).
 #[tokio::test]
 async fn strict_policy_rejects_unsigned_and_forged_envelopes() {
-    use acp::{AdmissionRejection, SignatureEnforcement};
+    use nuo_acp::{AdmissionRejection, SignatureEnforcement};
 
     let dev = HmacSigner::new("agent-dev-key", b"correct-shared-secret");
     let evil = HmacSigner::new("agent-evil-key", b"wrong-attacker-secret");
@@ -116,7 +116,7 @@ async fn strict_policy_rejects_unsigned_and_forged_envelopes() {
 /// rejected (a signer that gets it wrong is never silently trusted).
 #[tokio::test]
 async fn permissive_policy_admits_unsigned_but_rejects_forged() {
-    use acp::SignatureEnforcement;
+    use nuo_acp::SignatureEnforcement;
 
     let dev = HmacSigner::new("agent-dev-key", b"correct-shared-secret");
     let evil = HmacSigner::new("agent-evil-key", b"wrong-attacker-secret");

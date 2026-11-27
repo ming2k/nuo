@@ -1,8 +1,8 @@
 //! Tool call lifecycle event handling.
 
-use protocol::RoundEvent;
-use view::model::document::TranscriptMessage;
-use view::phase::Phase;
+use nuo_protocol::RoundEvent;
+use nuo_view::model::document::TranscriptMessage;
+use nuo_view::phase::Phase;
 
 use crate::shell::{event_loop, transcript_turn};
 

@@ -5,13 +5,13 @@ use super::*;
 /// A snapshot with one favorite, two used models, and two plain models,
 /// so all three sections render and RECENT has a meaningful internal
 /// order (gpt-5.5 newer than claude-opus-4-8).
-fn sectioned_snapshot() -> protocol::ProviderPickerSnapshot {
+fn sectioned_snapshot() -> nuo_protocol::ProviderPickerSnapshot {
     // `enabled` is the provider's picker declaration: `true` = an ordinary
     // selectable row, `false` = a subscription-locked one. The lock case has
     // its own test (`models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag`)
     // and builds its own rows; everything here is the normal path.
     let info = |model: &str, favorite: bool, used: Option<u64>, enabled: bool| {
-        protocol::ProviderModelInfo {
+        nuo_protocol::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -24,17 +24,17 @@ fn sectioned_snapshot() -> protocol::ProviderPickerSnapshot {
             context_window: 128_000,
             max_output_tokens: None,
             availability: Some(if enabled {
-                protocol::Availability::usable()
+                nuo_protocol::Availability::usable()
             } else {
-                protocol::Availability::locked(None)
+                nuo_protocol::Availability::locked(None)
             }),
             availability_overridden: false,
             advertised: None,
             availability_stale: false,
         }
     };
-    let row = |id: &str, name: &str, models: Vec<protocol::ProviderModelInfo>| {
-        protocol::ProviderPickerRow {
+    let row = |id: &str, name: &str, models: Vec<nuo_protocol::ProviderModelInfo>| {
+        nuo_protocol::ProviderPickerRow {
             id: id.to_string(),
             name: name.to_string(),
             model: models.first().map(|m| m.model.clone()).unwrap_or_default(),
@@ -50,7 +50,7 @@ fn sectioned_snapshot() -> protocol::ProviderPickerSnapshot {
             auth: Default::default(),
         }
     };
-    protocol::ProviderPickerSnapshot {
+    nuo_protocol::ProviderPickerSnapshot {
         default_id: "openai".into(),
         rows: vec![
             row(
@@ -83,12 +83,13 @@ fn sectioned_snapshot() -> protocol::ProviderPickerSnapshot {
 fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String {
     let theme = Theme::default();
     let picker = sectioned_snapshot();
-    let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", query);
+    let ranked =
+        nuo_view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", query);
     let mut terminal = graticule::TestTerminal::new(72, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -149,8 +150,8 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     // upgrade unlocks) with a leading `locked` tag instead of being dropped.
     let theme = Theme::default();
     let mut picker = sectioned_snapshot();
-    let info =
-        |model: &str, availability: Option<protocol::Availability>| protocol::ProviderModelInfo {
+    let info = |model: &str, availability: Option<nuo_protocol::Availability>| {
+        nuo_protocol::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -166,15 +167,16 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
             availability_overridden: false,
             advertised: None,
             availability_stale: false,
-        };
-    picker.rows.push(protocol::ProviderPickerRow {
+        }
+    };
+    picker.rows.push(nuo_protocol::ProviderPickerRow {
         id: "qoder".into(),
         name: "Qoder".into(),
         model: "gmodel".into(),
         models: vec!["qfmodel".into(), "gmodel".into()],
         model_info: vec![
-            info("qfmodel", Some(protocol::Availability::usable())),
-            info("gmodel", Some(protocol::Availability::locked(None))),
+            info("qfmodel", Some(nuo_protocol::Availability::usable())),
+            info("gmodel", Some(nuo_protocol::Availability::locked(None))),
         ],
         builtin: true,
         protocol: String::new(),
@@ -185,14 +187,14 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
         last_used_ms: None,
         auth: Default::default(),
     });
-    let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
+    let ranked = nuo_view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
     assert!(ranked.iter().any(|r| r.model == "gmodel" && !r.usable));
     assert!(ranked.iter().any(|r| r.model == "qfmodel" && r.usable));
     let mut terminal = graticule::TestTerminal::new(72, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -258,8 +260,8 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
 fn models_modal_shows_the_providers_own_reason_verbatim() {
     let theme = Theme::default();
     let mut picker = sectioned_snapshot();
-    let info =
-        |model: &str, availability: Option<protocol::Availability>| protocol::ProviderModelInfo {
+    let info = |model: &str, availability: Option<nuo_protocol::Availability>| {
+        nuo_protocol::ProviderModelInfo {
             model: model.to_string(),
             name: None,
             protocol: String::new(),
@@ -275,8 +277,9 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
             availability_overridden: false,
             advertised: None,
             availability_stale: false,
-        };
-    picker.rows.push(protocol::ProviderPickerRow {
+        }
+    };
+    picker.rows.push(nuo_protocol::ProviderPickerRow {
         id: "qoder".into(),
         name: "Qoder".into(),
         model: "degraded".into(),
@@ -284,12 +287,12 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
         model_info: vec![
             info(
                 "degraded",
-                Some(protocol::Availability::locked(Some(
+                Some(nuo_protocol::Availability::locked(Some(
                     "Billing daily count exceeded".to_string(),
                 ))),
             ),
-            protocol::ProviderModelInfo {
-                availability: Some(protocol::Availability::usable()),
+            nuo_protocol::ProviderModelInfo {
+                availability: Some(nuo_protocol::Availability::usable()),
                 availability_overridden: true,
                 ..info("overridden", None)
             },
@@ -303,12 +306,12 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
         last_used_ms: None,
         auth: Default::default(),
     });
-    let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
+    let ranked = nuo_view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
     let mut terminal = graticule::TestTerminal::new(96, 28);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -349,8 +352,8 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
     terminal.draw(|f| {
         let mut scroll = 0;
         let mut info_scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -471,8 +474,8 @@ fn models_modal_static_rows_truncate_by_semantics_while_the_focus_reveals() {
     //    discloses itself: a leading marker once it has scrolled past the head.
     let theme = Theme::default();
     let model = "claude-3-7-sonnet-20250219";
-    let row = |name: &str| view::providers::RankedModel {
-        section: view::providers::ModelSection::All,
+    let row = |name: &str| nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
         provider_id: "anthropic".to_string(),
         model: model.to_string(),
         name: Some(name.to_string()),
@@ -555,8 +558,8 @@ fn models_modal_static_rows_truncate_by_semantics_while_the_focus_reveals() {
 #[test]
 fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
     let theme = Theme::default();
-    let row1 = view::providers::RankedModel {
-        section: view::providers::ModelSection::Recent,
+    let row1 = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::Recent,
         provider_id: "cc-main".to_string(),
         model: "deepseek-flash".to_string(),
         name: Some("DeepSeek V4.1 Flash Fast (latest)".to_string()),
@@ -579,8 +582,8 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         match_connection: None,
         relevance_score: 0,
     };
-    let row2 = view::providers::RankedModel {
-        section: view::providers::ModelSection::Recent,
+    let row2 = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::Recent,
         provider_id: "ga-main".to_string(),
         model: "gemini-3.8-flash".to_string(),
         name: Some("Gemini 3.8 Flash".to_string()),
@@ -651,7 +654,7 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         unicode_width::UnicodeWidthStr::width(&text1[..text1.find("DeepSeek V4.1").unwrap()])
             + "DeepSeek V4.1".len();
     assert!(
-        cc_main_idx >= label1_end + ui_primitives::components::row::GROUP_GAP,
+        cc_main_idx >= label1_end + nuo_ui_primitives::components::row::GROUP_GAP,
         "label and connection column must keep GROUP_GAP separation: \
          gap = {}, text1={text1:?}",
         cc_main_idx - label1_end
@@ -669,8 +672,8 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
 #[test]
 fn models_modal_omits_context_size_from_list_rows_but_keeps_specs_tags() {
     let theme = Theme::default();
-    let row = view::providers::RankedModel {
-        section: view::providers::ModelSection::All,
+    let row = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
         provider_id: "anthropic".to_string(),
         model: "claude-3-7-sonnet".to_string(),
         name: Some("Claude 3.7 Sonnet".to_string()),
@@ -732,8 +735,8 @@ fn models_modal_omits_context_size_from_list_rows_but_keeps_specs_tags() {
 #[test]
 fn models_modal_column_widths_respect_percentage_caps_and_demand() {
     let theme = Theme::default();
-    let row1 = view::providers::RankedModel {
-        section: view::providers::ModelSection::All,
+    let row1 = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
         provider_id: "openai".to_string(),
         model: "gpt-4o-2024-11-20".to_string(),
         name: Some("GPT-4o Omnimodel High Throughput Production Version".to_string()),
@@ -756,8 +759,8 @@ fn models_modal_column_widths_respect_percentage_caps_and_demand() {
         match_connection: None,
         relevance_score: 0,
     };
-    let row2 = view::providers::RankedModel {
-        section: view::providers::ModelSection::All,
+    let row2 = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
         provider_id: "openai".to_string(),
         model: "o3-mini".to_string(),
         name: Some("o3 Mini".to_string()),
@@ -824,12 +827,12 @@ fn render_labelled_models_modal(width: u16) -> String {
             info.name = Some("DeepSeek V4.1 Flash".to_string());
         }
     }
-    let ranked = view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
+    let ranked = nuo_view::providers::models_flat_filtered_from(&picker, "openai", "gpt-5.5", "");
     let mut terminal = graticule::TestTerminal::new(width, 40);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -860,9 +863,9 @@ fn render_labelled_models_modal(width: u16) -> String {
 fn qoder_model_info(
     model: &str,
     name: &str,
-    availability: Option<protocol::Availability>,
-) -> protocol::ProviderModelInfo {
-    protocol::ProviderModelInfo {
+    availability: Option<nuo_protocol::Availability>,
+) -> nuo_protocol::ProviderModelInfo {
+    nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: Some(name.to_string()),
         protocol: String::new(),
@@ -885,9 +888,9 @@ fn qoder_model_info(
 /// (`qfmodel`) carrying the provider's real model names (`Qwen3.8-Flash`).
 fn render_qoder_models_modal(width: u16, query: &str) -> String {
     let theme = Theme::default();
-    let picker = protocol::ProviderPickerSnapshot {
+    let picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "qoder".into(),
-        rows: vec![protocol::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "qoder".into(),
             name: "Qoder".into(),
             model: "qfmodel".into(),
@@ -897,12 +900,12 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
                 qoder_model_info(
                     "qfmodel",
                     "Qwen3.8-Flash",
-                    Some(protocol::Availability::usable()),
+                    Some(nuo_protocol::Availability::usable()),
                 ),
                 qoder_model_info(
                     "gmodel",
                     "GLM-5.3",
-                    Some(protocol::Availability::locked(None)),
+                    Some(nuo_protocol::Availability::locked(None)),
                 ),
             ],
             builtin: true,
@@ -915,12 +918,12 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
             auth: Default::default(),
         }],
     };
-    let ranked = view::providers::models_flat_filtered_from(&picker, "qoder", "qfmodel", query);
+    let ranked = nuo_view::providers::models_flat_filtered_from(&picker, "qoder", "qfmodel", query);
     let mut terminal = graticule::TestTerminal::new(width, 20);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -1095,7 +1098,7 @@ fn models_modal_search_matches_id_name_and_connection() {
     }
 
     // 1. Match by model ID
-    let by_id = view::providers::models_flat_filtered_from(&picker, "", "", "gpt-5.5");
+    let by_id = nuo_view::providers::models_flat_filtered_from(&picker, "", "", "gpt-5.5");
     assert!(
         by_id
             .iter()
@@ -1103,7 +1106,7 @@ fn models_modal_search_matches_id_name_and_connection() {
     );
 
     // 2. Match by model display name
-    let by_name = view::providers::models_flat_filtered_from(&picker, "", "", "Turbo");
+    let by_name = nuo_view::providers::models_flat_filtered_from(&picker, "", "", "Turbo");
     assert!(
         by_name
             .iter()
@@ -1111,7 +1114,7 @@ fn models_modal_search_matches_id_name_and_connection() {
     );
 
     // 3. Match by connection/provider name
-    let by_conn = view::providers::models_flat_filtered_from(&picker, "", "", "Official");
+    let by_conn = nuo_view::providers::models_flat_filtered_from(&picker, "", "", "Official");
     assert!(
         by_conn
             .iter()
@@ -1120,7 +1123,7 @@ fn models_modal_search_matches_id_name_and_connection() {
 
     // 4. [INV-MODEL-SEARCH-01, INV-MODEL-SEARCH-03] Cross-field hybrid match: connection + model ID
     let by_conn_and_id =
-        view::providers::models_flat_filtered_from(&picker, "", "", "Official gpt-5.5");
+        nuo_view::providers::models_flat_filtered_from(&picker, "", "", "Official gpt-5.5");
     assert_eq!(by_conn_and_id.len(), 2); // In Recent and All sections
     assert!(
         by_conn_and_id
@@ -1129,7 +1132,8 @@ fn models_modal_search_matches_id_name_and_connection() {
     );
 
     // 5. [INV-MODEL-SEARCH-02] Path-style and reversed-order hybrid match
-    let by_slash = view::providers::models_flat_filtered_from(&picker, "", "", "Official/Turbo");
+    let by_slash =
+        nuo_view::providers::models_flat_filtered_from(&picker, "", "", "Official/Turbo");
     assert_eq!(by_slash.len(), 2);
     assert!(
         by_slash.iter().all(|m| m.model == "gpt-5.5"
@@ -1137,7 +1141,7 @@ fn models_modal_search_matches_id_name_and_connection() {
             && m.match_name.is_some())
     );
 
-    let by_rev = view::providers::models_flat_filtered_from(&picker, "", "", "Turbo Official");
+    let by_rev = nuo_view::providers::models_flat_filtered_from(&picker, "", "", "Turbo Official");
     assert_eq!(by_rev.len(), 2);
     assert!(
         by_rev.iter().all(|m| m.model == "gpt-5.5"
@@ -1152,8 +1156,8 @@ fn models_modal_empty_state_centered_copy_and_footer() {
     let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -1190,8 +1194,8 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
     let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -1226,8 +1230,8 @@ fn models_modal_search_empty_state() {
     let mut terminal = graticule::TestTerminal::new(72, 24);
     terminal.draw(|f| {
         let mut scroll = 0;
-        let mut lm = view::model::layout::LayoutMap::new();
-        let selection = view::model::selection::SelectionState::None;
+        let mut lm = nuo_view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
         draw_models_modal(
             f,
             &mut lm,
@@ -1290,30 +1294,31 @@ fn models_modal_never_paints_a_one_column_stub_in_place_of_a_field() {
     // a connection column be rendered as a single-column fragment, and the row's
     // identity must always survive.
     let theme = Theme::default();
-    let row = |name: &str, model: &str, conn: &str, usable: bool| view::providers::RankedModel {
-        section: view::providers::ModelSection::All,
-        provider_id: "p".to_string(),
-        model: model.to_string(),
-        name: Some(name.to_string()),
-        provider_label: conn.to_string(),
-        effort: None,
-        thinking: None,
-        effort_levels: vec![],
-        favorite: false,
-        usable,
-        status_label: (!usable).then(|| "disabled".to_string()),
-        resets_at_ms: None,
-        vision: None,
-        context_window: 1,
-        reason: None,
-        availability_overridden: false,
-        availability_stale: false,
-        last_used_ms: None,
-        match_id: None,
-        match_name: None,
-        match_connection: None,
-        relevance_score: 0,
-    };
+    let row =
+        |name: &str, model: &str, conn: &str, usable: bool| nuo_view::providers::RankedModel {
+            section: nuo_view::providers::ModelSection::All,
+            provider_id: "p".to_string(),
+            model: model.to_string(),
+            name: Some(name.to_string()),
+            provider_label: conn.to_string(),
+            effort: None,
+            thinking: None,
+            effort_levels: vec![],
+            favorite: false,
+            usable,
+            status_label: (!usable).then(|| "disabled".to_string()),
+            resets_at_ms: None,
+            vision: None,
+            context_window: 1,
+            reason: None,
+            availability_overridden: false,
+            availability_stale: false,
+            last_used_ms: None,
+            match_id: None,
+            match_name: None,
+            match_connection: None,
+            relevance_score: 0,
+        };
     let ranked = vec![
         row("Model Name", "model-id", "connection", false),
         row("Ok", "ok", "c", true),

@@ -30,8 +30,8 @@
 //! (`super::clipboard_ops::spawn_clipboard_copy`). Keeping them separate is
 //! what lets every rule above be unit-tested without a clipboard or a terminal.
 
-use view::model::diagnostic::{DiagnosticContext, DiagnosticRecord};
-use view::model::document::TranscriptMessage;
+use nuo_view::model::diagnostic::{DiagnosticContext, DiagnosticRecord};
+use nuo_view::model::document::TranscriptMessage;
 
 use crate::shell::App;
 use crate::shell::event_loop::transcript::extract_selection_text;
@@ -124,7 +124,7 @@ impl CopyRequest {
                     .focused_messages()
                     .get(message_idx)
                     .ok_or(CopyError::MissingEntry)?;
-                let text = view::model::interactive::copy_text(message)
+                let text = nuo_view::model::interactive::copy_text(message)
                     .filter(|text| !text.trim().is_empty())
                     .ok_or(CopyError::EmptyEntry)?;
                 Ok(CopyPayload {
@@ -171,8 +171,8 @@ impl CopyRequest {
         }
         if matches!(
             app.threads.selection,
-            view::model::selection::SelectionState::Block { .. }
-                | view::model::selection::SelectionState::TableCell { .. }
+            nuo_view::model::selection::SelectionState::Block { .. }
+                | nuo_view::model::selection::SelectionState::TableCell { .. }
         ) {
             return Some(CopyRequest::Selection);
         }
@@ -203,9 +203,9 @@ pub(crate) fn diagnostic_for_current_focus(app: &App) -> Option<CopyRequest> {
 /// label reports that, rather than putting the entire log on the clipboard under
 /// a receipt that claims it copied the hidden part.
 pub(crate) fn fold_hidden_rows_copy(app: &App, mi: usize) -> Option<(String, String)> {
-    use view::model::command_log::{CommandLog, LogScope};
-    use view::model::document::MessageKind;
-    use view::tools::shell_output::{ShellOutput, is_command_body};
+    use nuo_view::model::command_log::{CommandLog, LogScope};
+    use nuo_view::model::document::MessageKind;
+    use nuo_view::tools::shell_output::{ShellOutput, is_command_body};
 
     let message = app.focused_messages().get(mi)?;
     let MessageKind::ToolStep {
@@ -248,19 +248,19 @@ pub(crate) fn client_log_path_for_report() -> Option<String> {
     if std::env::var("NUO_LOG").is_ok_and(|level| level.eq_ignore_ascii_case("off")) {
         return None;
     }
-    let dir = host::paths::get().log_dir();
+    let dir = nuo_host::paths::get().log_dir();
     Some(format!("{}/client.log*", dir.display()))
 }
 
 /// One noun per entry kind, for the confirmation sentence.
 fn entry_noun(message: &TranscriptMessage) -> &'static str {
     match message.diagnostic().map(|record| record.kind) {
-        Some(view::model::diagnostic::EntryKind::Notice) => "notice",
-        Some(view::model::diagnostic::EntryKind::ToolStep) => "step output",
-        Some(view::model::diagnostic::EntryKind::Reasoning) => "thinking",
-        Some(view::model::diagnostic::EntryKind::CommandResult) => "command result",
-        Some(view::model::diagnostic::EntryKind::CompactedCard) => "summary",
-        Some(view::model::diagnostic::EntryKind::Text) | None => "entry",
+        Some(nuo_view::model::diagnostic::EntryKind::Notice) => "notice",
+        Some(nuo_view::model::diagnostic::EntryKind::ToolStep) => "step output",
+        Some(nuo_view::model::diagnostic::EntryKind::Reasoning) => "thinking",
+        Some(nuo_view::model::diagnostic::EntryKind::CommandResult) => "command result",
+        Some(nuo_view::model::diagnostic::EntryKind::CompactedCard) => "summary",
+        Some(nuo_view::model::diagnostic::EntryKind::Text) | None => "entry",
     }
 }
 
@@ -268,9 +268,9 @@ fn entry_noun(message: &TranscriptMessage) -> &'static str {
 mod tests {
     use super::*;
     use crate::shell::app::App;
-    use view::model::document::{NoticeSeverity, TranscriptMessage};
-    use view::model::layout::InteractiveTarget;
-    use view::model::selection::SelectionState;
+    use nuo_view::model::document::{NoticeSeverity, TranscriptMessage};
+    use nuo_view::model::layout::InteractiveTarget;
+    use nuo_view::model::selection::SelectionState;
 
     fn app_with(messages: Vec<TranscriptMessage>) -> App {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn an_entry_that_cannot_produce_text_is_never_reported_as_copied() {
-        let mut message = TranscriptMessage::new(tool::Role::Assistant, "text");
+        let mut message = TranscriptMessage::new(nuo_tool::Role::Assistant, "text");
         message.raw = String::new();
         message.blocks = Vec::new();
         let app = app_with(vec![message]);
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn an_active_selection_wins_over_a_focused_entry() {
-        let app = app_with(vec![TranscriptMessage::new(tool::Role::User, "hi")]);
+        let app = app_with(vec![TranscriptMessage::new(nuo_tool::Role::User, "hi")]);
         let mut app = app;
         app.threads.selection = SelectionState::Block {
             message_idx: 0,

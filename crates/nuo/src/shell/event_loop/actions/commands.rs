@@ -8,15 +8,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
-use protocol::AgentRequest;
+use nuo_protocol::AgentRequest;
 
-use tool::Role;
+use nuo_tool::Role;
 
 use crate::shell::surfaces::{DialogKind, SceneKind, SheetKind};
 use crate::shell::{App, clipboard, clipboard_ops};
-use view::composer_attachments;
-use view::model::document::{DeliveryStatus, TranscriptMessage};
-use view::model::selection::SelectionState;
+use nuo_view::composer_attachments;
+use nuo_view::model::document::{DeliveryStatus, TranscriptMessage};
+use nuo_view::model::selection::SelectionState;
 
 use super::super::runtime::{UiRuntime, now_epoch_ms};
 use super::super::sync::show_local_toast;
@@ -75,7 +75,7 @@ pub(crate) async fn handle_send_chat(
         // draft and disclose the failure instead of queuing into a dead inbox;
         // otherwise queue locally (the server also buffers defensively) and
         // flush on `Ready`.
-        if let protocol::ThreadPhase::Failed { ref message, .. } = app.threads.session_phase {
+        if let nuo_protocol::ThreadPhase::Failed { ref message, .. } = app.threads.session_phase {
             let detail = message.clone();
             app.composer.input = text;
             app.composer.cursor_position = app.composer.input.len();
@@ -86,7 +86,7 @@ pub(crate) async fn handle_send_chat(
             );
             return;
         }
-        if app.threads.session_phase != protocol::ThreadPhase::Ready {
+        if app.threads.session_phase != nuo_protocol::ThreadPhase::Ready {
             let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
             let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());
             app.record_input_history(text.clone(), images.clone(), text_pastes);
@@ -131,7 +131,7 @@ pub(crate) async fn handle_send_chat(
                         });
                     app.send_intent(AgentRequest::Steer {
                         thread_id: viewed_session_id.to_string(),
-                        message: protocol::QueuedMessage {
+                        message: nuo_protocol::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),
@@ -168,7 +168,7 @@ pub(crate) async fn handle_send_chat(
                     app.threads.pin_summary_line = None;
                     app.send_intent(AgentRequest::FollowUp {
                         thread_id: viewed_session_id.to_string(),
-                        message: protocol::QueuedMessage {
+                        message: nuo_protocol::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),
@@ -196,7 +196,7 @@ pub(crate) async fn handle_send_chat(
             // A new dispatch opens a new attempt window: `Queued` is not
             // the transport-wait phase, so this also retires any setback
             // clause left over from an earlier round.
-            app.set_phase(Some(view::phase::Phase::Queued));
+            app.set_phase(Some(nuo_view::phase::Phase::Queued));
             app.session
                 .running_sessions
                 .insert(viewed_session_id.to_string());

@@ -42,7 +42,7 @@ fn rel(root: &Path, path: &Path) -> String {
 ///   fractions in the *universal* depth vocabulary, contradicting
 ///   `docs/reference/effort.md`'s statement that this translation is
 ///   per-provider wire knowledge. It now lives in the provider that owns it
-///   (`provider-google-antigravity::request::thinking_budget_wire`).
+///   (`nuo-provider-google-antigravity::request::thinking_budget_wire`).
 /// - `Effort::channel_default` picked a default by matching a family-name
 ///   string (`family == "gpt" || family.starts_with("gpt")`), so the framework
 ///   core had to be edited whenever a provider wanted a different default. The
@@ -53,15 +53,15 @@ fn rel(root: &Path, path: &Path) -> String {
 /// legitimately names its own families.
 #[test]
 fn test_inv_tune_01_no_vendor_wire_encoding_or_family_branch_in_core_vocabulary() {
-    let root = test_support::dev::find_workspace_root();
+    let root = nuo_test_support::dev::find_workspace_root();
 
     // The files that constitute the *framework's* depth vocabulary and its
     // resolution points. A wire encoding or a family branch here is the defect.
     let guarded = [
-        "crates/protocol/src/effort.rs",
-        "crates/protocol/src/tuning.rs",
-        "crates/protocol/src/model.rs",
-        "crates/protocol/src/dialects.rs",
+        "crates/nuo-protocol/src/effort.rs",
+        "crates/nuo-protocol/src/tuning.rs",
+        "crates/nuo-protocol/src/model.rs",
+        "crates/nuo-protocol/src/dialects.rs",
     ];
 
     let mut problems = Vec::new();
@@ -106,7 +106,7 @@ fn test_inv_tune_01_no_vendor_wire_encoding_or_family_branch_in_core_vocabulary(
 }
 
 /// `[INV-TUNE-04]` (ADR-0126): knob resolution happens **once**, in
-/// `provider`. A presentation surface must render the server's answer, not
+/// `nuo-provider`. A presentation surface must render the server's answer, not
 /// re-derive it.
 ///
 /// Two real defects motivated this: the composer footer decided whether to show
@@ -116,7 +116,7 @@ fn test_inv_tune_01_no_vendor_wire_encoding_or_family_branch_in_core_vocabulary(
 /// of a rule the server owns, and both drifted from the wire.
 #[test]
 fn test_inv_tune_04_no_client_side_knob_resolution() {
-    let root = test_support::dev::find_workspace_root();
+    let root = nuo_test_support::dev::find_workspace_root();
     let shell = root.join("crates/nuo/src/shell");
 
     // Resolution primitives that must not appear in the presentation layer.
@@ -177,14 +177,14 @@ fn test_inv_tune_04_no_client_side_knob_resolution() {
 /// reject the whole record and silently drop the user's overrides.
 #[test]
 fn test_inv_tune_03_no_typed_knob_mirrors_beside_the_open_map() {
-    let root = test_support::dev::find_workspace_root();
+    let root = nuo_test_support::dev::find_workspace_root();
     // Only the **persisted** carrier is guarded. `ProviderModelInfo::effort` /
     // `thinking` are not mirrors: they are the server's *computed projection*
     // of `Channel::effective_effort` / `thinking_state`, which are in turn read
     // from this one map. A projection has one source and cannot disagree with
     // itself; a stored mirror is a second source and can.
     let mut files: Vec<std::path::PathBuf> = Vec::new();
-    let config_dir = root.join("crates/persistence/src/config");
+    let config_dir = root.join("crates/nuo-persistence/src/config");
     let entries = std::fs::read_dir(&config_dir).unwrap_or_else(|e| {
         panic!(
             "{}: guarded directory is missing: {e}",
@@ -202,7 +202,7 @@ fn test_inv_tune_03_no_typed_knob_mirrors_beside_the_open_map() {
     // (`ReasoningSupport::has_thinking_switch`), so a parallel
     // `thinking_switch: bool` field would be a second source that can drift
     // (it did exist and was removed).
-    files.push(root.join("crates/protocol/src/model.rs"));
+    files.push(root.join("crates/nuo-protocol/src/model.rs"));
 
     let mut problems = Vec::new();
     for path in files {

@@ -20,17 +20,17 @@ path = "examples/scene_gallery.rs"
 required-features = ["interactive"]
 
 [dependencies]
-protocol = { workspace = true }
-persistence = { workspace = true }
-host = { workspace = true }
-engine = { workspace = true }
-server = { workspace = true }
-ui-primitives = { workspace = true, optional = true }
-view = { workspace = true, optional = true }
+nuo-protocol = { workspace = true }
+nuo-persistence = { workspace = true }
+nuo-host = { workspace = true }
+nuo-engine = { workspace = true }
+nuo-server = { workspace = true }
+nuo-ui-primitives = { workspace = true, optional = true }
+nuo-view = { workspace = true, optional = true }
 graticule = { workspace = true, optional = true }
 unicode-width = { workspace = true, optional = true }
 unicode-segmentation = { workspace = true, optional = true }
-tool = { workspace = true }
+nuo-tool = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { workspace = true }
@@ -52,7 +52,7 @@ jiff = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
-host = { workspace = true, features = ["test-path-override"] }
+nuo-host = { workspace = true, features = ["test-path-override"] }
 
 [features]
 # The interactive terminal shell + pure UI substrate. Non-interactive subcommands
@@ -61,9 +61,9 @@ host = { workspace = true, features = ["test-path-override"] }
 # ([INV-ARCH-CLI-LEAN-LINK], ADR-0105). On by default.
 default = ["interactive"]
 interactive = [
-    "host/clipboard",
-    "dep:ui-primitives",
-    "dep:view",
+    "nuo-host/clipboard",
+    "dep:nuo-ui-primitives",
+    "dep:nuo-view",
     "dep:graticule",
     "dep:unicode-width",
     "dep:unicode-segmentation",
@@ -74,7 +74,7 @@ interactive = [
 # fabric for its own mesh/Hypervisor/Archivist infrastructure; this feature
 # gates only the *model-facing tool surface*, so lean single-agent builds omit
 # the multi-agent tools without dropping the internal fabric.
-collaboration = ["server/collaboration"]
+collaboration = ["nuo-server/collaboration"]
 
 [lints]
 workspace = true

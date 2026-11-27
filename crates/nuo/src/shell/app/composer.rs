@@ -21,10 +21,10 @@ impl App {
     /// `Vec` would grow past it over a long-lived TUI (each entry is small,
     /// but a multi-day session with heavy prompt reuse is unbounded anyway).
     /// Evicts from the oldest end.
-    pub(super) fn push_history(&mut self, entry: protocol::HistoryEntry) {
+    pub(super) fn push_history(&mut self, entry: nuo_protocol::HistoryEntry) {
         self.composer.input_history.push(entry);
-        if self.composer.input_history.len() > protocol::history::HISTORY_CAP {
-            let overflow = self.composer.input_history.len() - protocol::history::HISTORY_CAP;
+        if self.composer.input_history.len() > nuo_protocol::history::HISTORY_CAP {
+            let overflow = self.composer.input_history.len() - nuo_protocol::history::HISTORY_CAP;
             self.composer.input_history.drain(..overflow);
         }
     }
@@ -33,7 +33,7 @@ impl App {
     /// frontend has: the shared in-process ledger (standalone path) or the
     /// on-demand harness snapshot (attach path). `None` in attach mode while
     /// the `QueryTokenUsage` round-trip is still in flight.
-    pub fn token_source_report(&self, session_id: &str) -> Option<protocol::TokenSourceReport> {
+    pub fn token_source_report(&self, session_id: &str) -> Option<nuo_protocol::TokenSourceReport> {
         if let Some(ledger) = &self.telemetry.token_ledger {
             Some(ledger.snapshot_for_session(session_id))
         } else {
@@ -129,9 +129,9 @@ impl App {
     /// (`crate::shell::input::readline`), the render grid
     /// ([`crate::shell::composer_grid`]), and the `@`-mention scanner all index
     /// by bytes. The control-plane contract is different:
-    /// [`protocol::AgentRequest::CompleteComposer`] and
-    /// [`tool::InputCompletion`]'s `replace_start`/`replace_end` are
-    /// **Unicode scalar indices** (`server`'s completion engine converts
+    /// [`nuo_protocol::AgentRequest::CompleteComposer`] and
+    /// [`nuo_tool::InputCompletion`]'s `replace_start`/`replace_end` are
+    /// **Unicode scalar indices** (`nuo-server`'s completion engine converts
     /// them with `char_to_byte`). Sending bytes where the backend reads chars
     /// silently dead-ends every completion whose prefix is not pure ASCII: the
     /// backend cannot resolve the offset, returns no items, and a mention typed
@@ -179,7 +179,7 @@ impl App {
         let text_width = crate::shell::composer::composer_text_width(rect.width as usize);
         let rows = TextGrid::new(&self.composer.input, text_width).row_count();
         let visible = (rect.height as usize)
-            .saturating_sub(ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
+            .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
             .max(1);
         Some(rows.saturating_sub(visible))
     }
@@ -231,11 +231,11 @@ impl App {
         if max == 0 {
             return None; // every wrapped row is visible; nothing to scroll to
         }
-        let text_top = rect.y + ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
+        let text_top = rect.y + nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET;
         let text_bottom_exclusive = rect.y
             + rect
                 .height
-                .saturating_sub(ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS);
+                .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS);
         if y < text_top && self.composer.input_scroll > 0 {
             Some(true)
         } else if y >= text_bottom_exclusive && self.composer.input_scroll < max {
@@ -282,7 +282,7 @@ impl App {
         };
         let text_width = crate::shell::composer::composer_text_width(rect.width as usize);
         let visible = (rect.height as usize)
-            .saturating_sub(ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
+            .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
             .max(1);
         let grid = TextGrid::new(&self.composer.input, text_width);
         let wrapped = grid.rows();
@@ -301,7 +301,11 @@ impl App {
         };
         self.viewport.drag.update_to_cursor(
             &mut self.threads.selection,
-            view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, byte),
+            nuo_view::model::layout::SemanticCursor::new(
+                crate::shell::render::INPUT_MSG_IDX,
+                0,
+                byte,
+            ),
         );
         if target == 0 || target == max {
             // The pointer is still held, but no hidden row remains in this
@@ -378,7 +382,7 @@ impl App {
                     SelectionEdge::Tail => *anchor_byte,
                     SelectionEdge::Head => *head_byte,
                 };
-                view::model::selection::floor_grapheme_boundary(&self.composer.input, byte)
+                nuo_view::model::selection::floor_grapheme_boundary(&self.composer.input, byte)
                     .min(self.composer.input.len())
             }
             SelectionState::Range { anchor, head } => {
@@ -386,7 +390,7 @@ impl App {
                     SelectionEdge::Tail => *anchor,
                     SelectionEdge::Head => *head,
                 };
-                view::model::selection::floor_grapheme_boundary(
+                nuo_view::model::selection::floor_grapheme_boundary(
                     &self.composer.input,
                     cursor.byte_offset,
                 )
@@ -452,12 +456,12 @@ impl App {
             }
             SelectionState::Range { .. } => {
                 if let Some((start, end)) = self.threads.selection.active_normalized_range() {
-                    let start_byte = view::model::selection::floor_grapheme_boundary(
+                    let start_byte = nuo_view::model::selection::floor_grapheme_boundary(
                         &self.composer.input,
                         start.byte_offset,
                     )
                     .min(self.composer.input.len());
-                    let end_byte = view::model::selection::inclusive_grapheme_end(
+                    let end_byte = nuo_view::model::selection::inclusive_grapheme_end(
                         &self.composer.input,
                         end.byte_offset,
                     )
@@ -743,7 +747,7 @@ impl App {
     /// This is the **park** half: the live buffers are cleared because the
     /// caller is about to lend the composer line to something else.
     pub fn stash_draft(&mut self) {
-        self.composer.stashed_draft = view::composer_draft::ComposerDraft::capture(
+        self.composer.stashed_draft = nuo_view::composer_draft::ComposerDraft::capture(
             std::mem::take(&mut self.composer.input),
             self.composer.cursor_position,
             std::mem::take(&mut self.composer.pending_images),
@@ -763,7 +767,7 @@ impl App {
     /// would restore a stale — or an empty — draft over text the user is looking
     /// at.
     fn sync_stash_to_live(&mut self) {
-        self.composer.stashed_draft = view::composer_draft::ComposerDraft::capture(
+        self.composer.stashed_draft = nuo_view::composer_draft::ComposerDraft::capture(
             self.composer.input.clone(),
             self.composer.cursor_position,
             self.composer.pending_images.clone(),
@@ -792,7 +796,7 @@ impl App {
     /// text is now the unsent draft" goes through [`Self::adopt_as_draft`].
     /// Mirroring here would make a rollback leave a stash behind, and the next
     /// `↓` would then resurrect text the user had just dismissed.
-    pub fn install_draft(&mut self, draft: view::composer_draft::ComposerDraft) {
+    pub fn install_draft(&mut self, draft: nuo_view::composer_draft::ComposerDraft) {
         let cursor = draft.clamped_cursor();
         self.composer.input = draft.text;
         self.composer.pending_images = draft.pending_images;
@@ -1075,8 +1079,8 @@ impl App {
     }
 
     /// Authoritative Canonical Quadrant Mode of the Composer (ADR-0051 [INV-COMP-01]).
-    pub fn composer_mode(&self) -> view::composer_mode::ComposerMode {
-        use view::composer_mode::{CompleteKind, ComposerMode};
+    pub fn composer_mode(&self) -> nuo_view::composer_mode::ComposerMode {
+        use nuo_view::composer_mode::{CompleteKind, ComposerMode};
         if self.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch) {
             let selected_index = self
                 .surfaces

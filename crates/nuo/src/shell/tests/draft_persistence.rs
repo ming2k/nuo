@@ -92,7 +92,7 @@ fn the_first_frame_session_sync_installs_the_arriving_draft_instead_of_blanking_
     let (mut booted, _tmp2) = app_in_tempdir(&[], &[]);
     booted.surfaces.drafts.park(
         "t1",
-        view::composer_draft::ComposerDraft::capture(
+        nuo_view::composer_draft::ComposerDraft::capture(
             "work in progress".to_string(),
             6,
             Vec::new(),

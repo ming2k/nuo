@@ -11,7 +11,7 @@ It translates the architectural mandates of **[ADR-0004](../adr/0004-federated-c
 In a multi-crate repository spanning different technical layers, two common extremes lead to architectural decay:
 
 1. **The Monolithic Lockstep Anti-Pattern**: Forcing domain-free terminal engines (`graticule-canvas`, `graticule-tty`, `graticule`) or universal open standards to bump their versions whenever an upper application bug in `nuo` is patched. This pollutes external consumers' dependency trees and misleads the open-source ecosystem regarding stability.
-2. **The Anarchic Independent Anti-Pattern**: Allowing every in-house crate (`host`, `persistence`, `engine`) to drift on completely independent SemVer numbers. This causes severe maintenance friction, manual changelog sprawl, and diamond dependency resolution failures during rapid host development.
+2. **The Anarchic Independent Anti-Pattern**: Allowing every in-house crate (`nuo-host`, `nuo-persistence`, `nuo-engine`) to drift on completely independent SemVer numbers. This causes severe maintenance friction, manual changelog sprawl, and diamond dependency resolution failures during rapid host development.
 
 To solve this, the Nuo repository operates under **Federated Cluster SemVer**: autonomous substrate engines maintain independent versioning and release cycles, while the core host application suite evolves in lockstep.
 
@@ -33,21 +33,21 @@ Every crate in the repository belongs strictly to one of two operational version
 ┌────────────────────────────────────────────────────────┐
 │  Cluster B: Application & Subsystem Host Suite         │
 │  • crates/nuo (unified public binary & coordinator)    │
-│  • crates/server (headless session container)          │
-│  • crates/protocol (canonical East-West IPC wire)      │
-│  • crates/ui-primitives (generic presentation UI)      │
-│  • crates/view (agent domain views)                    │
-│  • crates/host (host supervision & sandboxing)         │
-│  • crates/acp (Agent Coordination Protocol)            │
-│  • crates/tool, tool-derive (tool contracts)           │
-│  • crates/inference-wire (model wire substrate)        │
-│  • crates/persistence (SQLite store & migrations)      │
-│  • crates/engine (cognition & orchestration)           │
-│  • crates/guardrails (execution policy & approval)     │
-│  • crates/provider (provider specs & auth)             │
-│  • crates/model-routing (catalog pipeline)             │
-│  • crates/provider-* (model provider adapters)         │
-│  • crates/tool-* (decoupled capability tools)          │
+│  • crates/nuo-server (headless session container)          │
+│  • crates/nuo-protocol (canonical East-West IPC wire)      │
+│  • crates/nuo-ui-primitives (generic presentation UI)      │
+│  • crates/nuo-view (agent domain views)                    │
+│  • crates/nuo-host (host supervision & sandboxing)         │
+│  • crates/nuo-acp (Agent Coordination Protocol)            │
+│  • crates/nuo-tool, nuo-tool-derive (tool contracts)           │
+│  • crates/nuo-inference-wire (model wire substrate)        │
+│  • crates/nuo-persistence (SQLite store & migrations)      │
+│  • crates/nuo-engine (cognition & orchestration)           │
+│  • crates/nuo-guardrails (execution policy & approval)     │
+│  • crates/nuo-provider (provider specs & auth)             │
+│  • crates/nuo-model-routing (catalog pipeline)             │
+│  • crates/nuo-provider-* (model provider adapters)         │
+│  • crates/nuo-tool-* (decoupled capability tools)          │
 │  ➜ Versioning: Unified Workspace Lockstep              │
 │  ➜ Manifest: Declares `version.workspace = true`       │
 └────────────────────────────────────────────────────────┘
@@ -59,24 +59,24 @@ Every crate in the repository belongs strictly to one of two operational version
 | :--- | :--- | :--- | :--- | :--- |
 | **`graticule`** (`graticule-canvas`, `graticule-tty`) | **Cluster A** | Domain-free 2D terminal canvas, diffing engine, and TTY host transport | crates.io semver (or an untracked local `[patch.crates-io]` override) | crates.io |
 | **`nuo`** | **Cluster B** | Unified public executable (server, CLI, TUI runner) | `version.workspace = true` | Pre-compiled binary |
-| **`server`** | **Cluster B** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
-| **`protocol`** | **Cluster B** | Canonical IPC wire, session entities, discovery DTOs | `version.workspace = true` | crates.io package |
-| **`ui-primitives`**| **Cluster B** | Zero-IO generic presentation widgets & layout tokens | `version.workspace = true` | crates.io package |
-| **`view`** | **Cluster B** | Zero-IO agent domain views, turn headers & cards | `version.workspace = true` | crates.io package |
-| **`host`** | **Cluster B** | Host environment, process supervision & sandboxing | `version.workspace = true` | crates.io package |
-| **`acp`** | **Cluster B** | Canonical inter-agent communication & channels | `version.workspace = true` | crates.io package |
-| **`tool`** | **Cluster B** | Zero-agent-runtime tool specification & token estimator | `version.workspace = true` | crates.io package |
-| **`tool-derive`** | **Cluster B** | Compile-time JSON schema derive macro | Direct path companion to `tool` | crates.io package |
-| **`inference-wire`**| **Cluster B** | Model wire substrate, JSON framing & loop detection | `version.workspace = true` | crates.io package |
-| **`persistence`**| **Cluster B** | SQLite session store, migrations & memory ledger | `version.workspace = true` | crates.io package |
-| **`engine`** | **Cluster B** | Cognitive engine, ReAct orchestration & model requests | `version.workspace = true` | crates.io package |
-| **`guardrails`** | **Cluster B** | Execution policy, approvals & trajectory supervision | `version.workspace = true` | crates.io package |
-| **`provider`** | **Cluster B** | Model provider specification, OAuth & transport | `version.workspace = true` | crates.io package |
-| **`model-routing`** | **Cluster B** | Single model-catalog pipeline (derive, picker, sync) ([ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)) | `version.workspace = true` | crates.io package |
-| **`crates/provider-*`** | **Cluster B** | Provider channel adapters (Anthropic, OpenAI, etc.) | `version.workspace = true` | crates.io package |
-| **`crates/tool-*`** | **Cluster B** | Capability tools (`fs`, `exec`, `web`, `ast`) | `version.workspace = true` | crates.io package |
+| **`nuo-server`** | **Cluster B** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
+| **`nuo-protocol`** | **Cluster B** | Canonical IPC wire, session entities, discovery DTOs | `version.workspace = true` | crates.io package |
+| **`nuo-ui-primitives`**| **Cluster B** | Zero-IO generic presentation widgets & layout tokens | `version.workspace = true` | crates.io package |
+| **`nuo-view`** | **Cluster B** | Zero-IO agent domain views, turn headers & cards | `version.workspace = true` | crates.io package |
+| **`nuo-host`** | **Cluster B** | Host environment, process supervision & sandboxing | `version.workspace = true` | crates.io package |
+| **`nuo-acp`** | **Cluster B** | Canonical inter-agent communication & channels | `version.workspace = true` | crates.io package |
+| **`nuo-tool`** | **Cluster B** | Zero-agent-runtime tool specification & token estimator | `version.workspace = true` | crates.io package |
+| **`nuo-tool-derive`** | **Cluster B** | Compile-time JSON schema derive macro | Direct path companion to `nuo-tool` | crates.io package |
+| **`nuo-inference-wire`**| **Cluster B** | Model wire substrate, JSON framing & loop detection | `version.workspace = true` | crates.io package |
+| **`nuo-persistence`**| **Cluster B** | SQLite session store, migrations & memory ledger | `version.workspace = true` | crates.io package |
+| **`nuo-engine`** | **Cluster B** | Cognitive engine, ReAct orchestration & model requests | `version.workspace = true` | crates.io package |
+| **`nuo-guardrails`** | **Cluster B** | Execution policy, approvals & trajectory supervision | `version.workspace = true` | crates.io package |
+| **`nuo-provider`** | **Cluster B** | Model provider specification, OAuth & transport | `version.workspace = true` | crates.io package |
+| **`nuo-model-routing`** | **Cluster B** | Single model-catalog pipeline (derive, picker, sync) ([ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)) | `version.workspace = true` | crates.io package |
+| **`crates/nuo-provider-*`** | **Cluster B** | Provider channel adapters (Anthropic, OpenAI, etc.) | `version.workspace = true` | crates.io package |
+| **`crates/nuo-tool-*`** | **Cluster B** | Capability tools (`fs`, `exec`, `web`, `ast`) | `version.workspace = true` | crates.io package |
 
-MCP is not a crate: the client-facing DTOs live in `protocol`, the one client lives in `server::runtime::mcp`, and Nuo does not export itself as an MCP server (ADR-0230, ADR-0234).
+MCP is not a crate: the client-facing DTOs live in `nuo-protocol`, the one client lives in `nuo_server::runtime::mcp`, and Nuo does not export itself as an MCP server (ADR-0230, ADR-0234).
 
 ---
 
@@ -87,17 +87,17 @@ All internal inter-crate dependencies declared in the root `Cargo.toml` under `[
 ```toml
 [workspace.dependencies]
 # In-house Nuo crates (Cluster B lockstep suite)
-protocol = { version = "0.0.98", path = "crates/protocol" }
-host = { version = "0.0.98", path = "crates/host" }
-tool = { version = "0.0.98", path = "crates/tool" }
-inference-wire = { version = "0.0.98", path = "crates/inference-wire", default-features = false }
-persistence = { version = "0.0.98", path = "crates/persistence" }
-engine = { version = "0.0.98", path = "crates/engine" }
-guardrails = { version = "0.0.98", path = "crates/guardrails" }
-provider = { version = "0.0.98", path = "crates/provider" }
-model-routing = { version = "0.0.98", path = "crates/model-routing" }
-ui-primitives = { version = "0.0.98", path = "crates/ui-primitives" }
-view = { version = "0.0.98", path = "crates/view" }
+nuo-protocol = { version = "0.0.98", path = "crates/nuo-protocol" }
+nuo-host = { version = "0.0.98", path = "crates/nuo-host" }
+nuo-tool = { version = "0.0.98", path = "crates/nuo-tool" }
+nuo-inference-wire = { version = "0.0.98", path = "crates/nuo-inference-wire", default-features = false }
+nuo-persistence = { version = "0.0.98", path = "crates/nuo-persistence" }
+nuo-engine = { version = "0.0.98", path = "crates/nuo-engine" }
+nuo-guardrails = { version = "0.0.98", path = "crates/nuo-guardrails" }
+nuo-provider = { version = "0.0.98", path = "crates/nuo-provider" }
+nuo-model-routing = { version = "0.0.98", path = "crates/nuo-model-routing" }
+nuo-ui-primitives = { version = "0.0.98", path = "crates/nuo-ui-primitives" }
+nuo-view = { version = "0.0.98", path = "crates/nuo-view" }
 ```
 
 ### Why Both Fields Are Non-Negotiable:
@@ -137,7 +137,7 @@ When a new release of `graticule` is published upstream:
 2. Run full workspace compilation and UI snapshot tests:
    ```bash
    cargo check --workspace
-   cargo test -p view --lib
+   cargo test -p nuo-view --lib
    cargo test -p nuo-tests --test integration governance::focus_plane_invariants
    ```
 3. Commit the dependency update:
@@ -186,7 +186,7 @@ When releasing a new milestone of the Nuo product and workspace:
 - No production crate resides directly at the workspace root. The sole root package is the dev-only `nuo-tests` test host; all production crates reside in `crates/*`. Enforced mechanically by the nextest `governance::architecture_firewall` suite.
 
 ### 3. Unified Lockstep Invariant (`[INV-VER-01]`)
-- Host suite crates (`nuo`, `server`, `engine`, `guardrails`, `protocol`, `ui-primitives`, `view`, etc.) must **never** declare independent version numbers; they inherit `version.workspace = true` to prevent diamond dependency resolution failures and version drift.
+- Host suite crates (`nuo`, `nuo-server`, `nuo-engine`, `nuo-guardrails`, `nuo-protocol`, `nuo-ui-primitives`, `nuo-view`, etc.) must **never** declare independent version numbers; they inherit `version.workspace = true` to prevent diamond dependency resolution failures and version drift.
 
 ---
 

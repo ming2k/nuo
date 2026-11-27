@@ -52,8 +52,8 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use tool::ImagePart;
-use view::composer_draft::ComposerDraft;
+use nuo_tool::ImagePart;
+use nuo_view::composer_draft::ComposerDraft;
 
 /// Resident-draft memory budget. Every resident draft is also on disk, so
 /// eviction is free; the cap exists only so a session that visits twenty
@@ -453,7 +453,7 @@ impl DraftLedger {
                 draft: entry.draft.clone(),
             };
             let path = self.path_for(&thread_id);
-            match host::fsutil::atomic_write_json(&path, &stored) {
+            match nuo_host::fsutil::atomic_write_json(&path, &stored) {
                 Ok(()) => {}
                 Err(error) => {
                     tracing::warn!(%error, path = %path.display(), "could not park draft");

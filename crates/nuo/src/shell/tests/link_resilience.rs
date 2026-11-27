@@ -35,8 +35,8 @@ fn an_unknown_wire_variant_does_not_end_the_stream() {
     let skewed =
         br#"{"type":"Response","response":{"RetryResolved":{"attempt":1,"max_attempts":30}}}"#;
 
-    match protocol::decode_wire_payload(skewed) {
-        protocol::WireFrame::Undecodable { envelope, detail } => {
+    match nuo_protocol::decode_wire_payload(skewed) {
+        nuo_protocol::WireFrame::Undecodable { envelope, detail } => {
             assert_eq!(
                 envelope.as_deref(),
                 Some("Response"),
@@ -48,7 +48,7 @@ fn an_unknown_wire_variant_does_not_end_the_stream() {
                 "the disclosure must name the enum that failed, got: {detail}"
             );
         }
-        protocol::WireFrame::Wire(other) => {
+        nuo_protocol::WireFrame::Wire(other) => {
             panic!("an unknown variant must never decode as a known envelope: {other:?}")
         }
     }
@@ -104,7 +104,7 @@ fn a_lost_link_is_disclosed_and_never_quits_the_client() {
         "the reason must be retained, not printed to a screen that is going away"
     );
     let record = log.lines().back().expect("the notice was appended");
-    assert_eq!(record.status, view::model::log::LineStatus::Failed);
+    assert_eq!(record.status, nuo_view::model::log::LineStatus::Failed);
     assert!(
         record.text.contains("session server"),
         "the disclosure must name what was lost, got: {}",

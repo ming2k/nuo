@@ -22,7 +22,7 @@ use std::path::PathBuf;
 const WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    server::api::provider_registry::init();
+    nuo_server::api::provider_registry::init();
     #[cfg(feature = "interactive")]
     nuo::shell::runner::ensure_dev_environment();
     let is_server_mode = std::env::args().any(|arg| arg == "server");
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = runtime.block_on(run());
     // The usage flusher batches spend off the runtime; make the last window
     // durable before the process exits (ADR-0238).
-    if let Err(error) = persistence::connection_usage::ConnectionUsage::flush_if_dirty() {
+    if let Err(error) = nuo_persistence::connection_usage::ConnectionUsage::flush_if_dirty() {
         eprintln!("nuo: could not flush connection usage: {error}");
     }
     runtime.shutdown_background();

@@ -14,7 +14,7 @@
 use crate::shell::event_loop::apply::apply_transcript_for;
 use crate::shell::event_loop::mutations::TranscriptEdit;
 use crate::shell::tests::new_app_for_relay_tests;
-use view::model::document::TranscriptMessage;
+use nuo_view::model::document::TranscriptMessage;
 
 const ROUND: Option<u64> = Some(2);
 const TURN: Option<u64> = Some(1);
@@ -30,7 +30,7 @@ fn text(delta: &str) -> TranscriptEdit {
         turn: TURN,
         delta: delta.to_string(),
         created: Some(
-            TranscriptMessage::new(tool::Role::Assistant, delta)
+            TranscriptMessage::new(nuo_tool::Role::Assistant, delta)
                 .with_round(2)
                 .with_turn(1),
         ),

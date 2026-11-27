@@ -2,7 +2,7 @@
 //! verdicts, exact trailing-run reporting, and suffix trimming.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use inference_wire::loop_detector::{DegeneratePattern, StreamLoopDetector};
+use nuo_inference_wire::loop_detector::{DegeneratePattern, StreamLoopDetector};
 
 /// The canonical false-positive family: bounded decorative runs must stay
 /// completely silent (no candidate, no arbitration pause).

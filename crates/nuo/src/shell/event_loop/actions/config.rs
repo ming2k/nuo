@@ -4,11 +4,11 @@ use crate::shell::event_loop::actions::navigation::enter_panel;
 use crate::shell::event_loop::runtime::UiRuntime;
 use crate::shell::event_loop::sync::show_local_toast;
 use crate::shell::surfaces::{SceneKind, SheetKind};
-use protocol::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 pub(crate) fn select_connection_preset(
     app: &mut App,
-    forced_method: Option<protocol::LoginMethod>,
+    forced_method: Option<nuo_protocol::LoginMethod>,
 ) {
     if !app
         .surfaces
@@ -48,10 +48,10 @@ pub(crate) fn select_connection_preset(
         show_local_toast(
             app,
             match method {
-                protocol::LoginMethod::Browser => {
+                nuo_protocol::LoginMethod::Browser => {
                     "Browser PKCE login is not supported by this connection."
                 }
-                protocol::LoginMethod::Device => {
+                nuo_protocol::LoginMethod::Device => {
                     "Device login is not supported by this connection."
                 }
             },
@@ -160,31 +160,32 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                 }
             }
             crate::shell::overlays::ConfigCategory::Components => {
-                use view::views::settings::components::{ComponentRowId, row_for_index};
+                use nuo_view::views::settings::components::{ComponentRowId, row_for_index};
                 match row_for_index(app.surfaces.config_detail_index) {
                     Some(ComponentRowId::Reasoning) => {
-                        let next =
-                            !view::tui_config::reasoning_default_expanded(&app.session.tui_config);
+                        let next = !nuo_view::tui_config::reasoning_default_expanded(
+                            &app.session.tui_config,
+                        );
                         if next {
                             app.session
                                 .tui_config
                                 .default_expanded
-                                .insert(view::tui_config::THINKING_KEY.to_string(), true);
+                                .insert(nuo_view::tui_config::THINKING_KEY.to_string(), true);
                         } else {
                             app.session
                                 .tui_config
                                 .default_expanded
-                                .remove(view::tui_config::THINKING_KEY);
+                                .remove(nuo_view::tui_config::THINKING_KEY);
                         }
                         app.viewport.reasoning_default_expanded = next;
                         app.save_tui_config();
                     }
                     Some(ComponentRowId::Tool(component)) => {
-                        let next = !view::tui_config::tool_default_expanded(
+                        let next = !nuo_view::tui_config::tool_default_expanded(
                             &app.session.tui_config,
                             component.primary_name(),
                         );
-                        view::tui_config::set_component_default_expanded(
+                        nuo_view::tui_config::set_component_default_expanded(
                             &mut app.session.tui_config,
                             component,
                             next,
@@ -214,12 +215,12 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                 match app.surfaces.config_detail_index {
                     0 => {
                         let anchor = if let Some(target_rect) = app.surfaces.config_selected_rect {
-                            ui_primitives::components::dropdown::DropdownAnchor::anchored(
+                            nuo_ui_primitives::components::dropdown::DropdownAnchor::anchored(
                                 target_rect,
-                                ui_primitives::components::dropdown::DropdownPlacement::Auto,
+                                nuo_ui_primitives::components::dropdown::DropdownPlacement::Auto,
                             )
                         } else {
-                            ui_primitives::components::dropdown::DropdownAnchor::center_screen()
+                            nuo_ui_primitives::components::dropdown::DropdownAnchor::center_screen()
                         };
                         if is_search {
                             let current = app
@@ -228,10 +229,11 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 .as_ref()
                                 .map(|ws| ws.provider.as_str())
                                 .unwrap_or("exa");
-                            let dropdown = view::views::settings::build_websearch_provider_dropdown(
-                                current,
-                                app.surfaces.websearch_config.as_ref(),
-                            );
+                            let dropdown =
+                                nuo_view::views::settings::build_websearch_provider_dropdown(
+                                    current,
+                                    app.surfaces.websearch_config.as_ref(),
+                                );
                             app.surfaces.config_dropdown = Some((dropdown, anchor));
                         } else {
                             let current = app
@@ -240,10 +242,11 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 .as_ref()
                                 .map(|ws| ws.reader.as_str())
                                 .unwrap_or("disabled");
-                            let dropdown = view::views::settings::build_websearch_reader_dropdown(
-                                current,
-                                app.surfaces.websearch_config.as_ref(),
-                            );
+                            let dropdown =
+                                nuo_view::views::settings::build_websearch_reader_dropdown(
+                                    current,
+                                    app.surfaces.websearch_config.as_ref(),
+                                );
                             app.surfaces.config_dropdown = Some((dropdown, anchor));
                         }
                     }
@@ -260,7 +263,7 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                             (current + 5).max(5)
                         };
                         app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                            protocol::WebSearchConfigUpdate {
+                            nuo_protocol::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 timeout_secs: Some(next),
                                 ..Default::default()
@@ -278,13 +281,13 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 capability.id == id
                                     && capability.axis
                                         == if is_search {
-                                            protocol::WebProviderAxis::Search
+                                            nuo_protocol::WebProviderAxis::Search
                                         } else {
-                                            protocol::WebProviderAxis::Reader
+                                            nuo_protocol::WebProviderAxis::Reader
                                         }
                             })?;
                             let endpoint = capability.endpoint
-                                == protocol::WebEndpointRequirement::UserSupplied;
+                                == nuo_protocol::WebEndpointRequirement::UserSupplied;
                             let target = if endpoint {
                                 format!("web_endpoint:{id}")
                             } else {

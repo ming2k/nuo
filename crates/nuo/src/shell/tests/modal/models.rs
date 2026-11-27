@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn models_dialog_arrow_navigation_skips_unusable_models() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| protocol::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: None,
         protocol: String::new(),
@@ -16,9 +16,9 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(protocol::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(protocol::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "Requires subscription or account".to_string(),
             )))
         },
@@ -26,9 +26,9 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
         advertised: None,
         availability_stale: false,
     };
-    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![protocol::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -129,7 +129,7 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
 #[test]
 fn models_dialog_click_on_unusable_model_is_ignored() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| protocol::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: None,
         protocol: String::new(),
@@ -142,9 +142,9 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(protocol::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(protocol::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "Requires subscription".to_string(),
             )))
         },
@@ -152,9 +152,9 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
         advertised: None,
         availability_stale: false,
     };
-    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![protocol::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -216,7 +216,7 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
 #[test]
 fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| protocol::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: None,
         protocol: String::new(),
@@ -229,17 +229,17 @@ fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(protocol::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(protocol::Availability::locked(None))
+            Some(nuo_protocol::Availability::locked(None))
         },
         availability_overridden: false,
         advertised: None,
         availability_stale: false,
     };
-    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![protocol::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -273,7 +273,7 @@ fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
 #[test]
 fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| protocol::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: Some(format!("Model {model}")),
         protocol: String::new(),
@@ -286,9 +286,9 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(protocol::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(protocol::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "Requires subscription or account entitlement".to_string(),
             )))
         },
@@ -296,9 +296,9 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
         advertised: None,
         availability_stale: false,
     };
-    app.surfaces.provider_picker = protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![protocol::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -408,7 +408,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
 #[test]
 fn browse_connection_models_transitions_to_models_dialog() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.surfaces.connection_detail = Some(protocol::ConnectionDetail {
+    app.surfaces.connection_detail = Some(nuo_protocol::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google".to_string(),
         provider_label: "Google Antigravity".to_string(),

@@ -26,11 +26,11 @@ fn redesigned_components_render_without_panicking() {
                 thinking.set_reasoning_expanded(true);
                 let mut tool = TranscriptMessage::tool_step("call_1", "find_files", r#"{"path":"."}"#);
                 tool.set_tool_step_expanded(true);
-                tool.finish_tool_step("call_1", "file_a\nfile_b", ::tool::ToolOutput::text("file_a\nfile_b"), 12);
+                tool.finish_tool_step("call_1", "file_a\nfile_b", nuo_tool::ToolOutput::text("file_a\nfile_b"), 12);
                 let messages = vec![
-                    TranscriptMessage::new(tool::Role::User, "hi"),
+                    TranscriptMessage::new(nuo_tool::Role::User, "hi"),
                     TranscriptMessage::new(
-                        tool::Role::Assistant,
+                        nuo_tool::Role::Assistant,
                         "Here is a table:\n\n| Tool | Count |\n| --- | ---: |\n| read | 1 |\n| webfetch | 250 |",
                     ),
                     thinking,
@@ -69,7 +69,7 @@ fn redesigned_components_render_without_panicking() {
                         guidance: EmptyStateGuidance::Tour,
                         carousel_index: 0,
                         theme: &theme,
-                        layout: view::layout::Strategy::default(),
+                        layout: nuo_view::layout::Strategy::default(),
                         height_cache: None,
                     },
                 );
@@ -140,7 +140,7 @@ fn redesigned_components_render_without_panicking() {
                 connection_usages: None,
             },
             &theme,
-            &view::model::selection::SelectionState::None,
+            &nuo_view::model::selection::SelectionState::None,
         );
         draw_models_modal(
             f,
@@ -161,14 +161,18 @@ fn redesigned_components_render_without_panicking() {
                 reveal_active: &mut false,
             },
             &theme,
-            &view::model::selection::SelectionState::None,
+            &nuo_view::model::selection::SelectionState::None,
         );
-        let history_roster: Vec<protocol::HistoryEntry> =
-            [protocol::HistoryEntry::new("a".to_string(), None, None, 0)]
-                .into_iter()
-                .collect();
-        let ranked: Vec<(usize, ui_primitives::fuzzy::FuzzyMatch)> =
-            ui_primitives::fuzzy::rank(&["a"], "");
+        let history_roster: Vec<nuo_protocol::HistoryEntry> = [nuo_protocol::HistoryEntry::new(
+            "a".to_string(),
+            None,
+            None,
+            0,
+        )]
+        .into_iter()
+        .collect();
+        let ranked: Vec<(usize, nuo_ui_primitives::fuzzy::FuzzyMatch)> =
+            nuo_ui_primitives::fuzzy::rank(&["a"], "");
         let input_rect = graticule::Rect::new(0, 20, 80, 3);
         let _ = draw_history_panel(
             f,
@@ -201,7 +205,7 @@ fn redesigned_components_render_without_panicking() {
         let mut preset_scroll = 0;
         draw_preset_chooser(0, f, &theme, &mut preset_scroll);
         // Provider editor on the Model text field.
-        use view::providers::CustomField;
+        use nuo_view::providers::CustomField;
         let mut scroll = 0;
         draw_custom_provider_editor(
             CustomEditorProps {
@@ -231,10 +235,10 @@ fn redesigned_components_render_without_panicking() {
             &mut scroll,
             true,
         );
-        let selection = view::model::selection::SelectionState::None;
-        let mut layout_map = view::model::layout::LayoutMap::new();
+        let selection = nuo_view::model::selection::SelectionState::None;
+        let mut layout_map = nuo_view::model::layout::LayoutMap::new();
         let sessions_list = [
-            protocol::ThreadOverview {
+            nuo_protocol::ThreadOverview {
                 id: "abc123".to_string(),
                 title: Some("Refactor the renderer".to_string()),
                 overview: "Refactor the renderer".to_string(),
@@ -243,10 +247,10 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 12,
                 active: true,
                 parent_id: None,
-                origin: protocol::ThreadOrigin::Trunk,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
-            protocol::ThreadOverview {
+            nuo_protocol::ThreadOverview {
                 id: "def456".to_string(),
                 title: Some("Fix the tool_call_id bug".to_string()),
                 overview: "Fix the tool_call_id bug".to_string(),
@@ -255,7 +259,7 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 4,
                 active: false,
                 parent_id: None,
-                origin: protocol::ThreadOrigin::Trunk,
+                origin: nuo_protocol::ThreadOrigin::Trunk,
                 digest: None,
             },
         ];
@@ -293,15 +297,15 @@ fn redesigned_components_render_without_panicking() {
         );
         let question_request = UserQuestionRequest {
             id: "q1".to_string(),
-            questions: vec![tool::UserQuestion {
+            questions: vec![nuo_tool::UserQuestion {
                 header: Some("Style".to_string()),
                 question: "Which error handling crate?".to_string(),
                 options: vec![
-                    tool::UserQuestionOption {
+                    nuo_tool::UserQuestionOption {
                         label: "anyhow (Recommended)".to_string(),
                         description: Some("Simple".to_string()),
                     },
-                    tool::UserQuestionOption {
+                    nuo_tool::UserQuestionOption {
                         label: "thiserror".to_string(),
                         description: Some("Structured".to_string()),
                     },
@@ -356,8 +360,8 @@ fn redesigned_components_render_without_panicking() {
             0,
             rect,
             &theme,
-            &view::model::selection::SelectionState::None,
-            &mut view::model::layout::LayoutMap::new(),
+            &nuo_view::model::selection::SelectionState::None,
+            &mut nuo_view::model::layout::LayoutMap::new(),
         );
     });
 }
@@ -365,8 +369,8 @@ fn redesigned_components_render_without_panicking() {
 #[test]
 fn config_appearance_pages_render_at_minimum_terminal_size() {
     let theme = Theme::default();
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = view::tui_config::TuiConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -438,8 +442,8 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
 #[test]
 fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header() {
     let theme = Theme::default();
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = view::tui_config::TuiConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -526,20 +530,20 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
 #[test]
 fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() {
     let theme = Theme::default();
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let web = protocol::WebSearchConfigView {
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let web = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: protocol::WebSearchProvider::Exa,
-        reader: protocol::WebReaderProvider::Jina,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Jina,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: protocol::WebCredentialStatus::Stored,
-        reader_credential: protocol::WebCredentialStatus::Stored,
-        capabilities: protocol::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::Stored,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
 
     let mut terminal = graticule::TestTerminal::new(80, 24);
-    let tui_config = view::tui_config::TuiConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
 
     for cat_idx in 0..ConfigCategory::ALL.len() {
         for focus in [ConfigFocus::Categories, ConfigFocus::Detail] {
@@ -581,8 +585,8 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
 
 #[test]
 fn settings_view_adapts_to_terminal_profile_capabilities() {
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = view::tui_config::TuiConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
 
     // 1. DirectColor profile: Appearance shows chromatic presets
     let direct_profile = graticule::TerminalProfile::direct_color();
@@ -629,7 +633,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
 
     let theme_mono = Theme::monochrome();
     let mut term_mono = graticule::TestTerminal::new(80, 24);
-    let tui_config = view::tui_config::TuiConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
     term_mono.draw(|frame| {
         draw_settings_view(
             frame,
@@ -671,16 +675,16 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
 #[test]
 fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
     let theme = Theme::default();
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = view::tui_config::TuiConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     fn draw_appearance(
         terminal: &mut graticule::TestTerminal,
         hover: Option<usize>,
         theme: &Theme,
-        custom: &ui_primitives::ColorSchemeConfig,
-        tui_config: &view::tui_config::TuiConfig,
+        custom: &nuo_ui_primitives::ColorSchemeConfig,
+        tui_config: &nuo_view::tui_config::TuiConfig,
     ) {
         terminal.draw(|frame| {
             draw_settings_view(
@@ -775,8 +779,8 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
 #[test]
 fn components_rows_use_text_and_band_not_selection_dots_with_description_below() {
     let theme = Theme::default();
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = view::tui_config::TuiConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     terminal.draw(|frame| {
@@ -837,17 +841,17 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
 #[test]
 fn web_settings_split_search_and_reader_into_clear_panels() {
     let theme = Theme::default();
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = view::tui_config::TuiConfig::default();
-    let web = protocol::WebSearchConfigView {
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
+    let web = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: protocol::WebSearchProvider::Exa,
-        reader: protocol::WebReaderProvider::Jina,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Jina,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: protocol::WebCredentialStatus::Stored,
-        reader_credential: protocol::WebCredentialStatus::Stored,
-        capabilities: protocol::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::Stored,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
 
     let mut terminal = graticule::TestTerminal::new(80, 24);
@@ -892,8 +896,8 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
 #[test]
 fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
     let theme = Theme::default();
-    let custom = ui_primitives::ColorSchemeConfig::default();
-    let tui_config = view::tui_config::TuiConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
+    let tui_config = nuo_view::tui_config::TuiConfig::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
 
     let mut selected_rect = None;
@@ -931,10 +935,10 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
 #[test]
 fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
     fn assert_gap(activity: &str) {
-        let backoff: Option<&view::retry::RetryProgress> = None;
+        let backoff: Option<&nuo_view::retry::RetryProgress> = None;
         let theme = Theme::default();
         let messages = vec![TranscriptMessage::new(
-            tool::Role::Assistant,
+            nuo_tool::Role::Assistant,
             "A finished response above the footer.",
         )];
         let mut terminal = graticule::TestTerminal::new(60, 20);
@@ -976,7 +980,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme: &theme,
-                    layout: view::layout::Strategy::default(),
+                    layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,
                 },
             );
@@ -1006,7 +1010,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
 #[test]
 fn too_small_terminal_shows_notice_and_zeroed_render() {
     let theme = Theme::default();
-    let messages = vec![TranscriptMessage::new(tool::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
 
     let mut terminal = graticule::TestTerminal::new(20, 8);
     let mut render_opt: Option<TranscriptRender> = None;
@@ -1044,7 +1048,7 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         ));
@@ -1146,7 +1150,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         ));
@@ -1172,7 +1176,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
 fn nonempty_session_does_not_render_empty_state() {
     let theme = Theme::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
-    let messages = vec![TranscriptMessage::new(tool::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
 
     let mut render_opt: Option<TranscriptRender> = None;
     terminal.draw(|f| {
@@ -1210,7 +1214,7 @@ fn nonempty_session_does_not_render_empty_state() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         ));
@@ -1279,7 +1283,7 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         ));
@@ -1446,7 +1450,7 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 3,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -1483,7 +1487,7 @@ fn h1_underline_clamps_to_text_extent() {
     let theme = Theme::default();
     let mut terminal = graticule::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        tool::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "# QQ_H1_TEST\n\nbody text here\n",
     )];
     terminal.draw(|f| {
@@ -1520,7 +1524,7 @@ fn h1_underline_clamps_to_text_extent() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -1581,7 +1585,7 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
     let width = 60u16;
     let mut terminal = graticule::TestTerminal::new(width, 12);
     let messages = vec![TranscriptMessage::new(
-        tool::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "# Hello😀\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1618,7 +1622,7 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -1664,7 +1668,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
     // wraps this ~95-char heading to ≥2 rows.
     let mut terminal = graticule::TestTerminal::new(80, 24);
     let messages = vec![TranscriptMessage::new(
-        tool::Role::Assistant,
+        nuo_tool::Role::Assistant,
         "# This is a very long heading that intentionally wraps to multiple rows for the underline-prefix test\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1701,7 +1705,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -1743,7 +1747,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
         // + heading prefix (TRANSCRIPT_BODY_LEADING_INDENT). Text starts
         // at col `TRANSCRIPT_H_INSET + TRANSCRIPT_BODY_LEADING_INDENT`.
         let text_start =
-            super::TRANSCRIPT_H_INSET + ui_primitives::design::TRANSCRIPT_BODY_LEADING_INDENT;
+            super::TRANSCRIPT_H_INSET + nuo_ui_primitives::design::TRANSCRIPT_BODY_LEADING_INDENT;
         for x in 0..text_start {
             let cell = &buffer.get(x, y).unwrap();
             assert!(
@@ -1776,10 +1780,10 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
 /// places the row at all, so no code path draws a healthy banner.
 #[test]
 fn persistence_health_banner_renders_state_and_detail() {
-    use view::chrome::draw_persistence_health_bar;
+    use nuo_view::chrome::draw_persistence_health_bar;
     let theme = Theme::default();
 
-    let render = |health: &protocol::monitor::PersistenceHealth, width: u16| {
+    let render = |health: &nuo_protocol::monitor::PersistenceHealth, width: u16| {
         let mut terminal = graticule::TestTerminal::new(width, 1);
         terminal.draw(|f| {
             draw_persistence_health_bar(f, f.area(), health, &theme);
@@ -1790,7 +1794,7 @@ fn persistence_health_banner_renders_state_and_detail() {
             .collect::<String>()
     };
 
-    let recovering = protocol::monitor::PersistenceHealth::Recovering {
+    let recovering = nuo_protocol::monitor::PersistenceHealth::Recovering {
         attempt: 1,
         since_ms: 0,
         error: "engine open failed: database is locked".into(),
@@ -1805,7 +1809,7 @@ fn persistence_health_banner_renders_state_and_detail() {
         "banner carries the cause: {recovering_row:?}"
     );
 
-    let down = protocol::monitor::PersistenceHealth::Down {
+    let down = nuo_protocol::monitor::PersistenceHealth::Down {
         attempt: 7,
         since_ms: 0,
         error: "persistence writer stopped".into(),

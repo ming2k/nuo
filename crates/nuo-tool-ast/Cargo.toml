@@ -1,0 +1,38 @@
+[package]
+name = "nuo-tool-ast"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "AST structural query and code intelligence tool for Nuo cognitive agents"
+
+[dependencies]
+async-trait = { workspace = true }
+ignore = { workspace = true }
+inventory = { workspace = true }
+nuo-tool = { workspace = true }
+nuo-tool-fs = { workspace = true }
+nuo-protocol = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt", "fs"] }
+
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-c = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+tree-sitter-go = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["inventory"]

@@ -176,7 +176,7 @@ fn a_payload_naming_another_thread_is_never_adopted() {
         thread_id: "somebody-else".to_string(),
         draft: draft("not yours"),
     };
-    host::fsutil::atomic_write_json(&path, &stored).expect("write");
+    nuo_host::fsutil::atomic_write_json(&path, &stored).expect("write");
 
     let mut ledger = DraftLedger::load(dir.path().to_path_buf());
     assert_eq!(

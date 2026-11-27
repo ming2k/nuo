@@ -3,8 +3,8 @@ use super::{
     transcript_commands_from_ledger, transcript_interrupts_from_records,
     transcript_messages_from_core,
 };
-use tool::Role;
-use view::model::document::TranscriptMessage;
+use nuo_tool::Role;
+use nuo_view::model::document::TranscriptMessage;
 
 #[test]
 fn rebases_a_compacted_relative_tail_to_the_session_round_counter() {
@@ -25,9 +25,9 @@ fn rebases_a_compacted_relative_tail_to_the_session_round_counter() {
 /// say it), and the nested transcript rebuilds the drill-in view.
 #[test]
 fn restores_interrupted_subagent_with_children_and_status() {
-    use tool::SubagentMeta;
-    use tool::{Message, ToolCall};
-    use view::tui_config::TuiConfig;
+    use nuo_tool::SubagentMeta;
+    use nuo_tool::{Message, ToolCall};
+    use nuo_view::tui_config::TuiConfig;
 
     let call = ToolCall {
         id: "call_9".to_string(),
@@ -77,7 +77,7 @@ fn restores_interrupted_subagent_with_children_and_status() {
         .expect("the subagent step must be restored");
     assert_eq!(
         step.tool_step_status(),
-        Some(view::model::document::ToolStepStatus::Interrupted),
+        Some(nuo_view::model::document::ToolStepStatus::Interrupted),
         "restored interrupted subagent must classify as Interrupted, not Ok/Failed"
     );
     let kids = step.subagent_children().expect("children must be restored");
@@ -85,7 +85,7 @@ fn restores_interrupted_subagent_with_children_and_status() {
     assert!(kids[0].is_tool_step());
     assert_eq!(
         kids[0].tool_step_status(),
-        Some(view::model::document::ToolStepStatus::Ok),
+        Some(nuo_view::model::document::ToolStepStatus::Ok),
         "the child read step completed normally"
     );
 }
@@ -95,7 +95,7 @@ fn restores_interrupted_subagent_with_children_and_status() {
 /// every seam lands at the tail (the process died mid-round).
 #[test]
 fn round_interrupt_markers_land_at_their_seams() {
-    use protocol::{RoundInterrupt, RoundInterruptReason};
+    use nuo_protocol::{RoundInterrupt, RoundInterruptReason};
 
     let dialogue = vec![
         TranscriptMessage::new(Role::User, "first").with_sent_at_ms(1_000),
@@ -139,7 +139,7 @@ fn round_interrupt_markers_land_at_their_seams() {
 /// with the live path.
 #[test]
 fn round_interrupt_marker_text_uses_shared_vocabulary() {
-    use protocol::{RoundInterrupt, RoundInterruptReason};
+    use nuo_protocol::{RoundInterrupt, RoundInterruptReason};
 
     let marker = TranscriptMessage::round_interrupted(RoundInterrupt {
         reason: RoundInterruptReason::User,
@@ -176,7 +176,7 @@ fn round_interrupt_marker_text_uses_shared_vocabulary() {
 /// resumed turns — never at the tail after 16:59 and never inverted.
 #[test]
 fn commands_and_errors_interleave_chronologically_between_assistant_turns() {
-    use protocol::{CommandRecord, RoundInterrupt, RoundInterruptReason};
+    use nuo_protocol::{CommandRecord, RoundInterrupt, RoundInterruptReason};
 
     let dialogue = vec![
         TranscriptMessage::new(Role::User, "investigate transcript")
@@ -247,7 +247,7 @@ fn commands_and_errors_interleave_chronologically_between_assistant_turns() {
 /// a command or interrupt, even when their timestamps match.
 #[test]
 fn timeline_merge_never_splits_components_of_the_same_turn() {
-    use protocol::CommandRecord;
+    use nuo_protocol::CommandRecord;
 
     let dialogue = vec![
         TranscriptMessage::reasoning("thought")
@@ -291,7 +291,7 @@ fn timeline_merge_never_splits_components_of_the_same_turn() {
 /// commands on an exact tie.
 #[test]
 fn tail_commands_and_interrupts_sort_chronologically_together() {
-    use protocol::{CommandRecord, RoundInterrupt, RoundInterruptReason};
+    use nuo_protocol::{CommandRecord, RoundInterrupt, RoundInterruptReason};
 
     let dialogue = vec![
         TranscriptMessage::new(Role::User, "hello")

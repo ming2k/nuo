@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use graticule::{Frame, Rect};
-use protocol::TokenSourceReport;
+use nuo_protocol::TokenSourceReport;
 
 use super::super::common::placeholder;
 use super::attempt::build_attempt_inspector_body;
@@ -18,16 +18,16 @@ use super::round::build_round_inspector_body;
 use super::tables::{build_rounds_table, build_turns_table};
 use crate::shell::render::Theme;
 use crate::shell::surfaces::TraceView;
-use ui_primitives::design::MODAL_INNER_H_PADDING;
-use ui_primitives::primitives::{
+use nuo_ui_primitives::design::MODAL_INNER_H_PADDING;
+use nuo_ui_primitives::primitives::{
     BodyRenderOptions, ContentModalSpec, FooterHint, HeaderPart, breadcrumb_parts,
     content_modal_area, content_modal_probe, hierarchical_breadcrumb, keyvocab, modal_chrome_rows,
     modal_frame, modal_header_parts, render_body, render_modal_footer,
 };
-use view::components::selectable_body::{SelectableRow, render_selectable_body};
-use view::model::document::TranscriptMessage;
-use view::model::layout::LayoutMap;
-use view::model::selection::SelectionState;
+use nuo_view::components::selectable_body::{SelectableRow, render_selectable_body};
+use nuo_view::model::document::TranscriptMessage;
+use nuo_view::model::layout::LayoutMap;
+use nuo_view::model::selection::SelectionState;
 
 /// Draw the Thread Stats modal (context window utilization, token accounting).
 #[allow(clippy::too_many_arguments)]
@@ -113,7 +113,7 @@ pub fn draw_thread_stats_modal(
 pub fn draw_session_trace_modal(
     frame: &mut Frame,
     report: &TokenSourceReport,
-    round_summaries: &HashMap<u64, protocol::RoundSummary>,
+    round_summaries: &HashMap<u64, nuo_protocol::RoundSummary>,
     messages: &[TranscriptMessage],
     context: ContextUsageProps,
     selected: usize,
@@ -173,7 +173,7 @@ pub fn draw_session_trace_modal(
     // Durable summaries carried on `TokenSourceReport` are the authoritative
     // baseline (surviving restarts/reattaches); live `ThreadInstance` summaries
     // overlay any in-session completion before the next ledger snapshot lands.
-    let mut merged_summaries: HashMap<u64, protocol::RoundSummary> = report
+    let mut merged_summaries: HashMap<u64, nuo_protocol::RoundSummary> = report
         .round_summaries
         .iter()
         .copied()
@@ -188,7 +188,7 @@ pub fn draw_session_trace_modal(
     match view {
         TraceView::AttemptInfo(target) => {
             let round_label = format!("Round #{}", target.round);
-            let turn_prefix = if protocol::token_ledger::is_root_actor(&target.actor_id) {
+            let turn_prefix = if nuo_protocol::token_ledger::is_root_actor(&target.actor_id) {
                 "Turn"
             } else {
                 "sub Turn"

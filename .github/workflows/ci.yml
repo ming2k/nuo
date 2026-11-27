@@ -77,6 +77,11 @@ jobs:
       - name: architecture convergence
         run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_convergence::)'
 
+      # ADR-0269 / [INV-NAME-01]: every library crate is `nuo-*`, lives in the
+      # directory of the same name, and is never aliased in a dependency table.
+      - name: crate naming
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::crate_naming::)'
+
       # `Cargo.toml` denies broken/private intra-doc links and invalid HTML
       # (`[workspace.lints.rustdoc]`); rustdoc evaluates those lints, so this is
       # where the documentation contract is enforced. `--no-deps` scopes it to

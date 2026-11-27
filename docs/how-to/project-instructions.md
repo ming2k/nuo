@@ -18,7 +18,7 @@ connection: cc-fox
 model: "*deepseek*"
 ---
 When reviewing this repository:
-- Treat `crates/engine` as the behavior boundary.
+- Treat `crates/nuo-engine` as the behavior boundary.
 - Reject changes that add a second request compiler.
 ```
 

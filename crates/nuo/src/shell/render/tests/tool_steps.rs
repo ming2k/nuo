@@ -21,14 +21,14 @@ fn subagent_view_groups_children_into_turn_bands() {
         "spawn_agent",
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
-    let call = |id: &str, name: &str, round: u64, turn: usize| tool::SubagentEvent::ToolCall {
+    let call = |id: &str, name: &str, round: u64, turn: usize| nuo_tool::SubagentEvent::ToolCall {
         id: id.into(),
         name: name.into(),
         arguments: r#"{"p":"x"}"#.into(),
         round,
         turn,
     };
-    let result = |id: &str, name: &str| tool::SubagentEvent::ToolResult {
+    let result = |id: &str, name: &str| nuo_tool::SubagentEvent::ToolResult {
         id: id.into(),
         name: name.into(),
         output: "done".into(),
@@ -85,7 +85,7 @@ fn subagent_view_groups_children_into_turn_bands() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -137,7 +137,7 @@ fn subagent_step_and_view_render_without_panicking() {
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
     task.push_subagent_event(
-        &tool::SubagentEvent::ToolCall {
+        &nuo_tool::SubagentEvent::ToolCall {
             id: "inner".into(),
             name: "search_text".into(),
             arguments: r#"{"pattern":"foo"}"#.into(),
@@ -149,11 +149,11 @@ fn subagent_step_and_view_render_without_panicking() {
     task.finish_tool_step(
         "task_1",
         "found 3 matches",
-        ::tool::ToolOutput::text("found 3 matches"),
+        nuo_tool::ToolOutput::text("found 3 matches"),
         1200,
     );
     let root_messages = vec![
-        TranscriptMessage::new(tool::Role::User, "explore please"),
+        TranscriptMessage::new(nuo_tool::Role::User, "explore please"),
         task,
     ];
 
@@ -192,7 +192,7 @@ fn subagent_step_and_view_render_without_panicking() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -257,7 +257,7 @@ fn subagent_step_and_view_render_without_panicking() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         );
@@ -314,7 +314,7 @@ fn height_cache_skip_path_matches_full_layout() {
     // byte the same frame — and the same total `content_lines` — as a cold
     // render that lays every message out in full. If the skip arithmetic
     // (`skip_rows` / `current_y` / `content_lines`) drifted, this fails.
-    use view::model::layout::LayoutMap;
+    use nuo_view::model::layout::LayoutMap;
     let theme = Theme::default();
 
     // A tall transcript: enough wrapped plain-text messages to overflow an
@@ -324,7 +324,7 @@ fn height_cache_skip_path_matches_full_layout() {
     let messages: Vec<TranscriptMessage> = (0..40)
         .map(|i| {
             TranscriptMessage::new(
-                tool::Role::Assistant,
+                nuo_tool::Role::Assistant,
                 format!(
                     "Message number {i} with enough words to wrap across a \
                          couple of lines in an eighty column terminal so the \
@@ -373,7 +373,7 @@ fn height_cache_skip_path_matches_full_layout() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme: &theme,
-                    layout: view::layout::Strategy::default(),
+                    layout: nuo_view::layout::Strategy::default(),
                     height_cache: Some(cache),
                 },
             );
@@ -430,16 +430,16 @@ fn expanded_edit_diff_height_is_scroll_independent() {
         "edit_text",
         r#"{"path":"a.rs","old_string":"…","new_string":"…"}"#,
     );
-    let structured = ::tool::ToolOutput::Patch {
+    let structured = nuo_tool::ToolOutput::Patch {
         path: "a.rs".into(),
-        op: tool::PatchOp::Edit,
+        op: nuo_tool::PatchOp::Edit,
         old,
         new,
         start_line: 0,
         warnings: Vec::new(),
     };
     m.finish_tool_step("call_test", structured.to_text(), structured, 0);
-    if let view::model::document::MessageKind::ToolStep { expanded, .. } = &mut m.kind {
+    if let nuo_view::model::document::MessageKind::ToolStep { expanded, .. } = &mut m.kind {
         *expanded = true;
     }
     let messages = vec![m];
@@ -483,7 +483,7 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme: &theme,
-                    layout: view::layout::Strategy::default(),
+                    layout: nuo_view::layout::Strategy::default(),
                     height_cache: Some(cache),
                 },
             );
@@ -539,8 +539,8 @@ fn completed_diff_cache_survives_height_invalidation_and_resize() {
 #[test]
 fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     let theme = Theme::default();
-    let messages = vec![TranscriptMessage::new(tool::Role::User, "hello")];
-    let queue_items = [view::chrome::QueueItemProps {
+    let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
+    let queue_items = [nuo_view::chrome::QueueItemProps {
         queued_at_ms: Some(1_700_000_000_000),
         text: "next".into(),
         is_steer: false,
@@ -563,7 +563,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 spinner_phase: 0,
                 input: "",
                 chrome_hidden: false,
-                queue_bar: view::chrome::QueueBarProps {
+                queue_bar: nuo_view::chrome::QueueBarProps {
                     items: &queue_items,
                     blocked: false,
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
@@ -582,7 +582,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
                 theme: &theme,
-                layout: view::layout::Strategy::default(),
+                layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
             },
         ));
@@ -592,16 +592,16 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     // Legacy oracle, verbatim from the pre-stack code: footer_x/w from the
     // shared inset, status_y after the top gap, then each row's y is the
     // cumulative sum of the rows above it.
-    let footer_h = ui_primitives::design::FOOTER_TOP_GAP_ROWS
-            + ui_primitives::design::ACTIVITY_STRIP_ROWS
+    let footer_h = nuo_ui_primitives::design::FOOTER_TOP_GAP_ROWS
+            + nuo_ui_primitives::design::ACTIVITY_STRIP_ROWS
             + rendered.input_rect.height // composer
-            + ui_primitives::design::MODEL_BAR_ROWS;
+            + nuo_ui_primitives::design::MODEL_BAR_ROWS;
     // The terminal is 30 rows; the head is absent here, so the footer
     // band starts at 30 - footer_h.
     let band_y = 30 - footer_h;
-    let footer_x = ui_primitives::design::FOOTER_H_INSET;
-    let footer_w = 80 - 2 * ui_primitives::design::FOOTER_H_INSET;
-    let status_y = band_y + ui_primitives::design::FOOTER_TOP_GAP_ROWS;
+    let footer_x = nuo_ui_primitives::design::FOOTER_H_INSET;
+    let footer_w = 80 - 2 * nuo_ui_primitives::design::FOOTER_H_INSET;
+    let status_y = band_y + nuo_ui_primitives::design::FOOTER_TOP_GAP_ROWS;
 
     let expect = |y: u16, h: u16| graticule::Rect::new(footer_x, y, footer_w, h);
     assert_eq!(
@@ -692,7 +692,7 @@ fn search_text_block_layers_title_and_content_backgrounds() {
     );
     let output =
         "Found 3 match(es):\nsrc/a.rs:10:let foo = 1;\nsrc/a.rs:22:foo();\nsrc/b.rs:5:foo,";
-    if let view::model::document::MessageKind::ToolStep {
+    if let nuo_view::model::document::MessageKind::ToolStep {
         output: out,
         expanded,
         ..
@@ -757,7 +757,7 @@ fn search_text_single_file_omits_count_band_and_renders_file_title() {
     // Post-fix tool output: the path is present (workspace-relative).
     let output =
         "Found 1 match(es):\nnuo-tui/src/event_loop/actions.rs:2452: pub(super) fn enter_scene(";
-    if let view::model::document::MessageKind::ToolStep {
+    if let nuo_view::model::document::MessageKind::ToolStep {
         output: out,
         expanded,
         ..
@@ -806,10 +806,10 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
     m.finish_tool_step(
         "todo_call",
         output.to_string(),
-        ::tool::ToolOutput::Text(output.to_string()),
+        nuo_tool::ToolOutput::Text(output.to_string()),
         0,
     );
-    if let view::model::document::MessageKind::ToolStep { expanded, .. } = &mut m.kind {
+    if let nuo_view::model::document::MessageKind::ToolStep { expanded, .. } = &mut m.kind {
         *expanded = true;
     }
     let messages = vec![m];
@@ -852,7 +852,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
                     theme: &theme,
-                    layout: view::layout::Strategy::default(),
+                    layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,
                 },
             );
@@ -867,7 +867,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
 
     // Test with Range selection spanning across the block.
     render_with_sel(&SelectionState::Range {
-        anchor: view::model::layout::SemanticCursor::new(0, 1, 0),
-        head: view::model::layout::SemanticCursor::new(0, 1, 100),
+        anchor: nuo_view::model::layout::SemanticCursor::new(0, 1, 0),
+        head: nuo_view::model::layout::SemanticCursor::new(0, 1, 100),
     });
 }

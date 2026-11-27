@@ -32,8 +32,8 @@
 //! (`[INV-LAYER-03]`). It dies with the process, which is the correct lifetime
 //! for "what did this client tell me while I was not looking".
 
-use view::model::document::NoticeSeverity;
-use view::model::log::{LineStatus, SurfaceId, SurfaceLine, SurfaceLog};
+use nuo_view::model::document::NoticeSeverity;
+use nuo_view::model::log::{LineStatus, SurfaceId, SurfaceLine, SurfaceLog};
 
 use crate::shell::app::App;
 
@@ -110,7 +110,7 @@ pub(crate) fn render(
             LineStatus::Ok => "ok",
             LineStatus::Info => "info",
         };
-        let time = ui_primitives::time::sent_time_label(line.at_ms);
+        let time = nuo_ui_primitives::time::sent_time_label(line.at_ms);
         match line.label.as_deref() {
             Some(topic) => body.push_str(&format!("[{tag}] {time} {topic}: {}", line.text)),
             None => body.push_str(&format!("[{tag}] {time} {}", line.text)),

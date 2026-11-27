@@ -88,7 +88,7 @@ impl PaletteContext {
                 is_responding: responding,
                 has_selection: !matches!(
                     app.threads.selection,
-                    view::model::selection::SelectionState::None
+                    nuo_view::model::selection::SelectionState::None
                 ),
                 has_focused_entry: app.threads.focus.entry().is_some(),
                 has_notices: app.has_notices(),

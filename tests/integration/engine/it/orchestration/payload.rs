@@ -30,46 +30,49 @@ struct BodyCeilingProvider {
 impl Provider for BodyCeilingProvider {
     async fn chat(
         &self,
-        _request: &protocol::ModelRequest,
-    ) -> Result<protocol::ProviderCompletion, protocol::ProviderError> {
-        Err(protocol::ProviderError::new(
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            protocol::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<String, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        request: &protocol::ModelRequest,
-        _telemetry: protocol::TransportTelemetry,
+        request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
-        futures::stream::BoxStream<'static, Result<ProviderStreamEvent, protocol::ProviderError>>,
-        protocol::ProviderError,
+        futures::stream::BoxStream<
+            'static,
+            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
+        >,
+        nuo_protocol::ProviderError,
     > {
         let images = request
             .messages
             .iter()
             .filter_map(|message| message.images.as_ref().map(Vec::len))
             .sum::<usize>();
-        let size = protocol::request_wire_size(request);
+        let size = nuo_protocol::request_wire_size(request);
         self.images_per_request.lock().unwrap().push(images);
         self.bodies.lock().unwrap().push(size.body_bytes);
         if size.body_bytes > self.limit {
-            let error = protocol::ProviderError::new(
+            let error = nuo_protocol::ProviderError::new(
                 "mock",
-                protocol::ProviderErrorKind::PayloadTooLarge,
+                nuo_protocol::ProviderErrorKind::PayloadTooLarge,
                 "OpenAI HTTP 413 Payload Too Large: [code=request_too_large] request body exceeds configured limit",
             )
             .with_status(413);
@@ -78,15 +81,15 @@ impl Provider for BodyCeilingProvider {
         Ok(Box::pin(stream::iter(vec![
             Ok(ProviderStreamEvent::TextDelta("read it".to_string())),
             Ok(ProviderStreamEvent::Completed(
-                protocol::ProviderCompletionMeta::default(),
+                nuo_protocol::ProviderCompletionMeta::default(),
             )),
         ])))
     }
 }
 
-fn attachments(count: usize, bytes: usize) -> Vec<tool::ImagePart> {
+fn attachments(count: usize, bytes: usize) -> Vec<nuo_tool::ImagePart> {
     (0..count)
-        .map(|_| tool::ImagePart {
+        .map(|_| nuo_tool::ImagePart {
             // Valid base64 so the artifact writer persists the pixels; the
             // content is irrelevant, only its size is.
             mime: "image/png".to_string(),
@@ -109,7 +112,7 @@ fn payload_round_context(
         session: Arc::clone(session),
         projection: ContextProjectionSettings {
             request_overhead_tokens: 0,
-            budget: protocol::CompactionPolicy::default().resolve(1_000_000),
+            budget: nuo_protocol::CompactionPolicy::default().resolve(1_000_000),
             preserve_rounds: 6,
             summarize: false,
             prune: false,
@@ -123,21 +126,21 @@ fn payload_round_context(
     }
 }
 
-fn payload_round_input(prompt: &str, images: Vec<tool::ImagePart>) -> RoundInput {
+fn payload_round_input(prompt: &str, images: Vec<nuo_tool::ImagePart>) -> RoundInput {
     RoundInput {
         prompt: prompt.to_string(),
         hidden: false,
         display_prompt: None,
         sent_at_ms: None,
         images,
-        driver: engine::orchestration::RoundDriver::Fresh,
+        driver: nuo_engine::orchestration::RoundDriver::Fresh,
     }
 }
 
 /// Install the mid-turn projection gate the pre-turn payload relief needs.
 fn install_gate(agent: &Arc<Agent>, session: &Arc<ThreadSession>, provider: Arc<dyn Provider>) {
     let window = 1_000_000;
-    agent.set_context_projection_gate(Some(Arc::new(engine::PruningProjectionGate::new(
+    agent.set_context_projection_gate(Some(Arc::new(nuo_engine::PruningProjectionGate::new(
         Arc::clone(session),
         Arc::new(move || ContextProjectionSettings::for_window(window)),
         agent.token_weights_handle(),
@@ -158,7 +161,7 @@ async fn the_pre_turn_gate_offloads_the_oldest_attachments_before_the_bytes_leav
     let agent = Arc::new(Agent::new(
         provider.clone(),
         Vec::new(),
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     agent.set_request_body_limit(250_000);
     install_gate(&agent, &session, provider.clone());
@@ -226,7 +229,7 @@ async fn the_pre_turn_gate_offloads_the_oldest_attachments_before_the_bytes_leav
             },
             _ => None,
         })
-        .filter(|notice| notice.kind == tool::NoticeKind::PayloadRelief)
+        .filter(|notice| notice.kind == nuo_tool::NoticeKind::PayloadRelief)
         .collect::<Vec<_>>();
     assert_eq!(notices.len(), 1, "exactly one payload relief notice");
     assert!(
@@ -255,7 +258,7 @@ async fn a_body_too_large_refusal_is_relieved_and_retried_proportionally() {
     let agent = Arc::new(Agent::new(
         provider.clone(),
         Vec::new(),
-        engine::AgentIdentity::default(),
+        nuo_engine::AgentIdentity::default(),
     ));
     agent.set_request_body_limit(1_000_000);
     install_gate(&agent, &session, provider.clone());

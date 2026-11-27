@@ -15,9 +15,11 @@ use unicode_width::UnicodeWidthStr;
 
 use super::common::{placeholder, truncate_ellipsis};
 use crate::shell::render::Theme;
-use ui_primitives::components::list::{SelectableListPage, draw_selectable_list_page, row_style};
-use ui_primitives::components::modal::{ModalHeader, modal_body_width};
-use ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
+use nuo_ui_primitives::components::list::{
+    SelectableListPage, draw_selectable_list_page, row_style,
+};
+use nuo_ui_primitives::components::modal::{ModalHeader, modal_body_width};
+use nuo_ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
 
 /// Draw the MCP manager modal: a centered, dismissable, selectable list of the
 /// configured MCP servers. Each row shows a status glyph, the server name, a
@@ -26,7 +28,7 @@ use ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
 /// replies with a fresh snapshot that re-renders the list.
 pub fn draw_mcp_modal(
     frame: &mut Frame,
-    session_context: Option<&protocol::ThreadContextSnapshot>,
+    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     follow_selection: bool,
@@ -182,16 +184,16 @@ mod tests {
     #[test]
     fn mcp_modal_monochrome_renders_without_unicode_dots_and_has_reverse_video() {
         let theme_mono = Theme::monochrome();
-        let context = protocol::ThreadContextSnapshot {
+        let context = nuo_protocol::ThreadContextSnapshot {
             mcp: vec![
-                protocol::McpServerInfo {
+                nuo_protocol::McpServerInfo {
                     name: "github".to_string(),
                     connected: true,
                     disabled: false,
                     failure: None,
                     tool_names: vec!["create_issue".to_string()],
                 },
-                protocol::McpServerInfo {
+                nuo_protocol::McpServerInfo {
                     name: "slack".to_string(),
                     connected: false,
                     disabled: true,

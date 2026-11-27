@@ -11,7 +11,7 @@ use std::io::{IsTerminal, Write};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use protocol::{MonitorEvent, ServerPhase, StorageInitDetail, Wire, WireFrame};
+use nuo_protocol::{MonitorEvent, ServerPhase, StorageInitDetail, Wire, WireFrame};
 
 use super::{AttachError, BoxWireStream};
 
@@ -224,7 +224,7 @@ where
 mod tests {
     use super::*;
     use futures::stream;
-    use protocol::ServerInitStage;
+    use nuo_protocol::ServerInitStage;
 
     #[tokio::test]
     async fn progress_events_reset_stall_timer_and_reach_ready() {

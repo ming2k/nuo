@@ -1,5 +1,5 @@
 use super::*;
-use tool::{UserQuestion, UserQuestionOption};
+use nuo_tool::{UserQuestion, UserQuestionOption};
 
 #[test]
 fn question_modal_records_option_hit_boxes() {
@@ -80,8 +80,8 @@ fn permission_sheet_records_footer_action_hit_boxes() {
             0,
             rect,
             &Theme::default(),
-            &view::model::selection::SelectionState::None,
-            &mut view::model::layout::LayoutMap::new(),
+            &nuo_view::model::selection::SelectionState::None,
+            &mut nuo_view::model::layout::LayoutMap::new(),
         );
     });
 
@@ -127,8 +127,8 @@ fn permission_sheet_shows_queue_depth_badge() {
                 depth,
                 rect,
                 &Theme::default(),
-                &view::model::selection::SelectionState::None,
-                &mut view::model::layout::LayoutMap::new(),
+                &nuo_view::model::selection::SelectionState::None,
+                &mut nuo_view::model::layout::LayoutMap::new(),
             );
         });
         sheet_text(&terminal)
@@ -235,8 +235,8 @@ fn permission_sheet_wrapped_header_keeps_every_character() {
             0,
             rect,
             &Theme::default(),
-            &view::model::selection::SelectionState::None,
-            &mut view::model::layout::LayoutMap::new(),
+            &nuo_view::model::selection::SelectionState::None,
+            &mut nuo_view::model::layout::LayoutMap::new(),
         );
     });
 
@@ -281,8 +281,8 @@ fn permission_sheet_wrapped_header_survives_wrap() {
             0,
             rect,
             &Theme::default(),
-            &view::model::selection::SelectionState::None,
-            &mut view::model::layout::LayoutMap::new(),
+            &nuo_view::model::selection::SelectionState::None,
+            &mut nuo_view::model::layout::LayoutMap::new(),
         );
     });
 
@@ -347,8 +347,8 @@ fn confirm_always_splits_prefix_and_exact_when_suggested_scope_present() {
             0,
             rect,
             &Theme::default(),
-            &view::model::selection::SelectionState::None,
-            &mut view::model::layout::LayoutMap::new(),
+            &nuo_view::model::selection::SelectionState::None,
+            &mut nuo_view::model::layout::LayoutMap::new(),
         );
     });
     hit_map.commit();

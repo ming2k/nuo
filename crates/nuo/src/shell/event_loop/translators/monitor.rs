@@ -11,18 +11,18 @@ use tokio::sync::mpsc;
 /// `monitor_rx`. No second discovery or socket connection is opened.
 pub(crate) fn spawn_monitor_translator(
     runtime: &event_loop::UiRuntime,
-    mut rx: mpsc::UnboundedReceiver<protocol::MonitorEvent>,
+    mut rx: mpsc::UnboundedReceiver<nuo_protocol::MonitorEvent>,
 ) {
     let mutations = runtime.mutations.clone();
     let dirty = runtime.dirty.clone();
     let dirty_notify = runtime.dirty_notify.clone();
 
     tokio::spawn(async move {
-        let mut rows: Vec<protocol::MonitoredThread> = Vec::new();
+        let mut rows: Vec<nuo_protocol::MonitoredThread> = Vec::new();
         while let Some(event) = rx.recv().await {
             let mut rows_changed = false;
             match event {
-                protocol::MonitorEvent::Snapshot(snap) => {
+                nuo_protocol::MonitorEvent::Snapshot(snap) => {
                     rows = snap.threads;
                     rows_changed = true;
                     mutations
@@ -34,23 +34,23 @@ pub(crate) fn spawn_monitor_translator(
                         ))
                         .await;
                 }
-                protocol::MonitorEvent::ServerPhaseChanged(phase) => {
+                nuo_protocol::MonitorEvent::ServerPhaseChanged(phase) => {
                     mutations
                         .send(event_loop::AppMutation::ServerPhase(phase))
                         .await;
                 }
-                protocol::MonitorEvent::ThreadAdded(row)
-                | protocol::MonitorEvent::ThreadUpdated(row) => {
+                nuo_protocol::MonitorEvent::ThreadAdded(row)
+                | nuo_protocol::MonitorEvent::ThreadUpdated(row) => {
                     client::upsert_session_row(&mut rows, row);
                     rows_changed = true;
                 }
-                protocol::MonitorEvent::ThreadRemoved { thread_id } => {
+                nuo_protocol::MonitorEvent::ThreadRemoved { thread_id } => {
                     rows.retain(|r| r.id != thread_id);
                     rows_changed = true;
                 }
-                protocol::MonitorEvent::TaskUpdated(_)
-                | protocol::MonitorEvent::TaskRemoved { .. } => {}
-                protocol::MonitorEvent::PersistenceHealth(health) => {
+                nuo_protocol::MonitorEvent::TaskUpdated(_)
+                | nuo_protocol::MonitorEvent::TaskRemoved { .. } => {}
+                nuo_protocol::MonitorEvent::PersistenceHealth(health) => {
                     mutations
                         .send(event_loop::AppMutation::PersistenceHealth(
                             (!health.is_healthy()).then_some(health),

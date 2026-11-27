@@ -13,20 +13,20 @@ use std::sync::atomic::AtomicBool;
 
 use tokio::sync::mpsc;
 
-use protocol::{AgentRequest, ConnectionAuth, ProviderPickerSnapshot};
+use nuo_protocol::{AgentRequest, ConnectionAuth, ProviderPickerSnapshot};
 
-use tool::{ImagePart, PermissionRequest, UserQuestionRequest};
+use nuo_tool::{ImagePart, PermissionRequest, UserQuestionRequest};
 
 use crate::shell::completion::CompletionItemKind;
 use crate::shell::composer_grid::{CaretMotion, TextGrid};
 use crate::shell::event_loop::resolve_focused_mut;
 use crate::shell::render::Theme;
-use ui_primitives::fuzzy;
-use view::composer_attachments;
-use view::model::document::{NoticeSeverity, TranscriptMessage};
-use view::model::layout::InteractiveTarget;
-use view::model::selection::{SelectionDrag, SelectionState};
-use view::providers::{
+use nuo_ui_primitives::fuzzy;
+use nuo_view::composer_attachments;
+use nuo_view::model::document::{NoticeSeverity, TranscriptMessage};
+use nuo_view::model::layout::InteractiveTarget;
+use nuo_view::model::selection::{SelectionDrag, SelectionState};
+use nuo_view::providers::{
     ConnectionTemplate, CustomField, RankedModel, RankedProvider, edit_fields,
     models_flat_filtered_from_with_quotas, providers_filtered_from,
 };
@@ -104,7 +104,7 @@ pub struct QueuedDispatch {
 /// The attachments staged behind a recorded history entry, retained **in
 /// memory** so ↑/↓ and Ctrl+R recall can restore a just-sent / interrupted
 /// message's images and large pastes. Keyed by the same `(text, session_id)`
-/// identity [`protocol::merge_history`] uses, so a recall finds the
+/// identity [`nuo_protocol::merge_history`] uses, so a recall finds the
 /// payloads that shipped with the exact prompt text.
 ///
 /// Deliberately **not** persisted: input history in SQLite is rebuildable cosmetic
@@ -207,13 +207,13 @@ pub enum ProviderDeleteChoice {
 /// The typed provider-retry state of one session: the countdown, the attempt
 /// pair and the fault history.
 ///
-/// This is a re-export of [`view::retry::RetryProgress`] under the name the
+/// This is a re-export of [`nuo_view::retry::RetryProgress`] under the name the
 /// shell has always used, kept so the chrome code reads naturally. The type
 /// itself lives in the presentation crate because it owns the *label* as well as
 /// the state: the bar, the compact form and the receipt line are three
 /// renderings of one vocabulary, and splitting state from phrasing is exactly
 /// how the bar ended up counting `5/29` beside a transcript row counting `6/30`.
-pub use view::retry::RetryProgress as ProviderRetryState;
+pub use nuo_view::retry::RetryProgress as ProviderRetryState;
 
 /// Read-only view-scoped chrome projection of one [`workspaces::ThreadInstance`]:
 /// the typed activity phase, the responding flag, structural round/turn counters,
@@ -225,7 +225,7 @@ pub use view::retry::RetryProgress as ProviderRetryState;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionChrome {
     /// Typed activity phase (None when idle).
-    pub phase: Option<view::phase::Phase>,
+    pub phase: Option<nuo_view::phase::Phase>,
     /// Whether this thread currently has a live round (drives the
     /// breathing/spinner animation and Esc-to-interrupt arming).
     pub responding: bool,
@@ -238,15 +238,15 @@ pub struct SessionChrome {
     /// Whether this thread has a stopped round parked for `/retry`.
     pub can_retry: bool,
     /// Latest completed principal ReAct turn's performance sample.
-    pub last_turn_performance: Option<protocol::TurnPerformanceSnapshot>,
+    pub last_turn_performance: Option<nuo_protocol::TurnPerformanceSnapshot>,
     /// Accumulated cost of settled attempts in this thread, in nano-USD.
     pub session_cost_nano_usd: u64,
     /// The transport setback this thread's in-flight model request reported
     /// (`RetryScheduled`): a retry countdown rendered as a clause beside the
-    /// activity label, never as the label itself (see `view::phase` rule 2).
+    /// activity label, never as the label itself (see `nuo_view::phase` rule 2).
     ///
     /// **Lifetime:** retired — together with the phase it annotates — by the
-    /// first phase write that is not [`view::phase::Phase::AwaitingModel`],
+    /// first phase write that is not [`nuo_view::phase::Phase::AwaitingModel`],
     /// enforced by [`workspaces::ThreadInstance::set_phase`].
     pub transport_setback: Option<ProviderRetryState>,
 }

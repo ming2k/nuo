@@ -76,8 +76,8 @@ fn app_with_dialogue(session_id: &str) -> App {
     let mut app = app_with_tab(session_id);
     app.threads
         .messages
-        .push(view::model::document::TranscriptMessage::new(
-            tool::Role::User,
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
             "an admitted prompt",
         ));
     app
@@ -89,7 +89,7 @@ fn describe(frame: &ClientOutbound) -> String {
         ClientOutbound::Unsubscribe { thread_id } => format!("Unsubscribe({thread_id})"),
         ClientOutbound::Control { request, .. } => format!("Control({request:?})"),
         ClientOutbound::Request { request, .. } => match request {
-            protocol::AgentRequest::SlashCommand(cmd) => format!("SlashCommand({cmd})"),
+            nuo_protocol::AgentRequest::SlashCommand(cmd) => format!("SlashCommand({cmd})"),
             other => format!("{other:?}")
                 .split(['{', '(', ' '])
                 .next()
@@ -282,7 +282,7 @@ fn a_parked_draft_keeps_the_thread_out_of_the_recycle_path() {
 
     app.surfaces.drafts.park(
         sid,
-        view::composer_draft::ComposerDraft::capture(
+        nuo_view::composer_draft::ComposerDraft::capture(
             "unsent".to_string(),
             6,
             Vec::new(),

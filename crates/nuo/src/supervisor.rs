@@ -64,23 +64,24 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
     let info = match client::discover(Path::new(".")).await {
         Some(info) => info,
         None => {
-            let lock_path = server::api::serve_discovery::global_lock_path();
-            if let Some(pid) = host::lock::ProcessLock::probe_holder(&lock_path) {
+            let lock_path = nuo_server::api::serve_discovery::global_lock_path();
+            if let Some(pid) = nuo_host::lock::ProcessLock::probe_holder(&lock_path) {
                 if client::is_process_alive(pid) {
                     client::ServerInfo {
                         pid,
-                        process_birth_token: host::process::process_identity(pid)
+                        process_birth_token: nuo_host::process::process_identity(pid)
                             .ok()
                             .map(|identity| identity.birth_token),
-                        port: server::api::startup::env_default_port(),
+                        port: nuo_server::api::startup::env_default_port(),
                         token: None,
                         project_root: String::new(),
                         started_at: 0,
                         #[cfg(unix)]
-                        uds_path: Some(server::api::serve_discovery::default_uds_path()),
+                        uds_path: Some(nuo_server::api::serve_discovery::default_uds_path()),
                         #[cfg(not(unix))]
                         uds_path: None,
-                        local_endpoint: server::api::serve_discovery::default_local_endpoint().ok(),
+                        local_endpoint: nuo_server::api::serve_discovery::default_local_endpoint()
+                            .ok(),
                         version: None,
                         grace_secs: None,
                         protocol: None,
@@ -121,9 +122,11 @@ pub async fn restart_server(
     if let Some(info) = client::discover(Path::new(".")).await {
         eprintln!("nuo: stopping existing server (pid {})...", info.pid);
         if force {
-            let _ =
-                host::process::takeover_pid(info.pid, host::process::TakeoverOptions::default())
-                    .await;
+            let _ = nuo_host::process::takeover_pid(
+                info.pid,
+                nuo_host::process::TakeoverOptions::default(),
+            )
+            .await;
             client::discovery::remove(&client::discovery::global_discovery_path());
         } else {
             let _ = client::stop(&info).await;
@@ -134,7 +137,7 @@ pub async fn restart_server(
 
 /// Run server in foreground (the supervisor shape).
 pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std::error::Error>> {
-    let mut lifecycle = server::api::host::LifecycleOptions::from_config();
+    let mut lifecycle = nuo_server::api::host::LifecycleOptions::from_config();
     if let Some(minutes) = flags.idle_exit_minutes {
         lifecycle.idle_exit = match minutes {
             0 => None,
@@ -151,46 +154,46 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
         flags.zero_tcp || (flags.port.is_none() && std::env::var("NUO_PORT").is_err());
     let port = flags
         .port
-        .unwrap_or(server::api::startup::env_default_port());
+        .unwrap_or(nuo_server::api::startup::env_default_port());
     let preset = agent_code();
-    let outcome = server::api::host::run_with_gate(
-        server::api::host::HostIdentity {
+    let outcome = nuo_server::api::host::run_with_gate(
+        nuo_server::api::host::HostIdentity {
             identity: preset.identity.clone(),
             preset,
             ui: Arc::new(ServerUiBridge),
         },
-        server::api::host::HostOptions {
+        nuo_server::api::host::HostOptions {
             port,
             expose: if flags.public {
-                server::api::serve::ServeExpose::Public
+                nuo_server::api::serve::ServeExpose::Public
             } else {
-                server::api::serve::ServeExpose::Local
+                nuo_server::api::serve::ServeExpose::Local
             },
             token: None,
             local_auth: !flags.no_local_auth
-                && persistence::config::Config::load().server.local_auth,
+                && nuo_persistence::config::Config::load().server.local_auth,
             port_fallback: flags.port.is_none(),
             local_endpoint: Some(
-                server::api::serve_discovery::default_local_endpoint()
+                nuo_server::api::serve_discovery::default_local_endpoint()
                     .map_err(std::io::Error::other)?,
             ),
             disable_tcp,
         },
-        Arc::new(server::api::shutdown::ShutdownGate::new()),
+        Arc::new(nuo_server::api::shutdown::ShutdownGate::new()),
         lifecycle,
     )
     .await;
     match &outcome {
-        server::api::host::RunOutcome::Stopped { reason } => {
+        nuo_server::api::host::RunOutcome::Stopped { reason } => {
             eprintln!("nuo: server stopped ({reason}).");
         }
-        server::api::host::RunOutcome::ForcedExit { reason } => {
+        nuo_server::api::host::RunOutcome::ForcedExit { reason } => {
             eprintln!(
                 "nuo: server stopped ({reason}); grace budget expired, stragglers were \
                  aborted — see the log."
             );
         }
-        server::api::host::RunOutcome::StartupFailed(what) => {
+        nuo_server::api::host::RunOutcome::StartupFailed(what) => {
             eprintln!("nuo: {what}");
         }
     }

@@ -58,7 +58,7 @@ fn admitted_steer_lands_at_the_seam_after_existing_history() {
     let before = app.threads.messages.len();
 
     let admitted = TranscriptMessage::new(Role::User, "pivot please")
-        .with_origin(view::model::document::UserMessageOrigin::Steer)
+        .with_origin(nuo_view::model::document::UserMessageOrigin::Steer)
         .with_round(3);
     assert!(crate::shell::event_loop::apply::apply_transcript_for(
         &mut app,
@@ -274,7 +274,7 @@ fn queue_snapshot_preserves_client_owned_rows() {
         &runtime,
         crate::shell::event_loop::AppMutation::QueueSnapshot {
             session_id: "s".to_string(),
-            items: vec![protocol::QueuedMessage {
+            items: vec![nuo_protocol::QueuedMessage {
                 id: "srv-new".to_string(),
                 text: "authoritative".to_string(),
                 display_text: None,
@@ -317,7 +317,7 @@ fn steer_text_survives_a_snapshot_then_a_missed_round() {
     app.session.current_session_id = "s".to_string();
 
     let mut steer = steer_dispatch("st-1", "s", "use rg not find");
-    steer.images = vec![tool::ImagePart {
+    steer.images = vec![nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "base64".to_string(),
     }];

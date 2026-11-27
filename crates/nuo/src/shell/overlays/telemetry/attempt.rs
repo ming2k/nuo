@@ -83,7 +83,7 @@ pub(crate) fn build_attempt_inspector_body(
             Style::default().fg(theme.text),
         ),
     ]));
-    if !protocol::token_ledger::is_root_actor(&att.actor_id) {
+    if !nuo_protocol::token_ledger::is_root_actor(&att.actor_id) {
         lines.push(Line::from(vec![
             Span::styled(" Actor:   ", Style::default().fg(theme.text_muted)),
             Span::styled(att.actor_id.clone(), Style::default().fg(theme.text_muted)),

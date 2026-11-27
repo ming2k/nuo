@@ -14,7 +14,7 @@
 //!   subdirectories via a per-test UDS path — the shared record paths live
 //!   under the same sandbox root, so cross-test interference is limited to
 //!   the record file itself, which each test waits out via its own outcome.
-//! - `host::run_with_gate` is driven against a prehost-only registry (no
+//! - `nuo_server::runtime::host::run_with_gate` is driven against a prehost-only registry (no
 //!   session assembly); hosted sessions are inserted by hand, the same
 //!   fixture style as `serve_integration`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -22,12 +22,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use persistence::thread::ThreadSession;
-use protocol::MonitorEvent;
-use server::runtime::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
-use server::runtime::registry::{HostedThread, ThreadRegistry};
-use server::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
-use server::transport::serve::ServeExpose;
+use nuo_persistence::thread::ThreadSession;
+use nuo_protocol::MonitorEvent;
+use nuo_server::runtime::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
+use nuo_server::runtime::registry::{HostedThread, ThreadRegistry};
+use nuo_server::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
+use nuo_server::transport::serve::ServeExpose;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
 /// Sandbox the process-wide dirs once, before any `paths::get()` call can
@@ -47,7 +47,7 @@ use super::sandbox_once;
 #[test]
 fn nuo_home_redirects_the_server_footprint() {
     sandbox_once();
-    let dirs = host::paths::get();
+    let dirs = nuo_host::paths::get();
     let root = std::env::var("NUO_HOME").unwrap();
     let under_root = |p: &std::path::Path| p.starts_with(&root);
     for dir in [
@@ -69,10 +69,10 @@ fn nuo_home_redirects_the_server_footprint() {
     );
     // And the server-facing paths derive from the instance dir.
     for path in [
-        server::transport::serve_discovery::global_discovery_path(),
-        server::transport::serve_discovery::global_lock_path(),
+        nuo_server::transport::serve_discovery::global_discovery_path(),
+        nuo_server::transport::serve_discovery::global_lock_path(),
         #[cfg(unix)]
-        server::transport::serve_discovery::default_uds_path(),
+        nuo_server::transport::serve_discovery::default_uds_path(),
     ] {
         assert!(under_root(&path), "{path:?} must follow the instance dir");
     }
@@ -83,10 +83,10 @@ fn nuo_home_redirects_the_server_footprint() {
 /// exist.
 fn test_identity() -> HostIdentity {
     HostIdentity {
-        identity: protocol::AgentIdentity::new("probe", "lifecycle probe"),
-        preset: protocol::AgentRoleProfile::with_identity(
+        identity: nuo_protocol::AgentIdentity::new("probe", "lifecycle probe"),
+        preset: nuo_protocol::AgentRoleProfile::with_identity(
             "probe",
-            protocol::AgentIdentity::new("probe", "lifecycle probe"),
+            nuo_protocol::AgentIdentity::new("probe", "lifecycle probe"),
         ),
         ui: Arc::new(HeadlessProbe),
     }
@@ -96,8 +96,8 @@ fn test_identity() -> HostIdentity {
 struct HeadlessProbe;
 
 #[async_trait::async_trait]
-impl server::UiBridge for HeadlessProbe {
-    async fn copy_to_clipboard(&self, _text: &str) -> Result<server::CopyOutcome, String> {
+impl nuo_server::UiBridge for HeadlessProbe {
+    async fn copy_to_clipboard(&self, _text: &str) -> Result<nuo_server::CopyOutcome, String> {
         Err("probe: headless".to_string())
     }
 }
@@ -106,34 +106,36 @@ impl server::UiBridge for HeadlessProbe {
 /// registry (fixtures mirror `serve_integration::prehosted`, minus the tap).
 async fn host_one(registry: &Arc<ThreadRegistry>, project: &str) -> String {
     let session = Arc::new(ThreadSession::load_for_project(project.into()));
-    let (req_tx, _req_rx) = mpsc::channel::<protocol::AgentRequest>(512);
-    let (bc_tx, _) = broadcast::channel::<protocol::AgentResponse>(16);
+    let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(512);
+    let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
     let id = session.id().await;
     let id_ret = id.clone();
     let tracker = Arc::new(Mutex::new(
-        server::runtime::monitor::MonitorTracker::bootstrap(
-            protocol::MonitoredThread::empty(id),
-            protocol::ThreadActivity::Idle,
+        nuo_server::runtime::monitor::MonitorTracker::bootstrap(
+            nuo_protocol::MonitoredThread::empty(id),
+            nuo_protocol::ThreadActivity::Idle,
         ),
     ));
     registry
         .host(HostedThread {
             workspace_root: Some(std::path::PathBuf::from(project)),
             human_channel: std::sync::Arc::new(
-                protocol::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
-                persistence::workspace_security::WorkspaceSecurityStore::load(),
+                nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: protocol::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(server::transport::serve::AttachSyncBuffer::new())),
-            command_catalog: tool::CommandCatalog::default(),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
+            command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
@@ -156,7 +158,8 @@ fn options(uds: std::path::PathBuf, port: u16) -> HostOptions {
         // Tests drive the control plane without credentials.
         local_auth: false,
         port_fallback: false,
-        local_endpoint: host::ipc::endpoint_for_instance(uds, &format!("lifecycle-{port}")).ok(),
+        local_endpoint: nuo_host::ipc::endpoint_for_instance(uds, &format!("lifecycle-{port}"))
+            .ok(),
         disable_tcp: false,
     }
 }
@@ -179,7 +182,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
         trigger_gate.request(ShutdownReason::ControlVerb, false);
     });
 
-    let outcome = server::runtime::host::run_with_registry(
+    let outcome = nuo_server::runtime::host::run_with_registry(
         test_identity(),
         options(tmp.path().join("a.sock"), 0),
         gate,
@@ -200,13 +203,16 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     }
     // The discovery advertisement is gone (the lease released it).
     assert!(
-        !server::transport::serve_discovery::global_discovery_path().exists(),
+        !nuo_server::transport::serve_discovery::global_discovery_path().exists(),
         "discovery record must be removed on drain"
     );
     // The single lifecycle watch channel transitioned to Draining (ADR-0266
     // `[INV-SRVPHASE-07]`) and the monitor bus saw the session teardown.
     assert!(
-        matches!(&*phase_rx.borrow(), protocol::ServerPhase::Draining { .. }),
+        matches!(
+            &*phase_rx.borrow(),
+            nuo_protocol::ServerPhase::Draining { .. }
+        ),
         "watch channel must report ServerPhase::Draining, got {:?}",
         *phase_rx.borrow()
     );
@@ -230,7 +236,7 @@ async fn idle_exit_triggers_after_the_grace_period() {
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let gate = Arc::new(ShutdownGate::new());
     let _ = registry;
-    let outcome = server::runtime::host::run_with_gate(
+    let outcome = nuo_server::runtime::host::run_with_gate(
         test_identity(),
         options(tmp.path().join("b.sock"), 0),
         gate,
@@ -270,7 +276,7 @@ async fn escalation_skips_the_graceful_phases() {
     let run_gate = gate.clone();
     let run_probe = probe.clone();
     let run = tokio::spawn(async move {
-        server::runtime::host::run_with_registry(
+        nuo_server::runtime::host::run_with_registry(
             test_identity(),
             options(sock, 0),
             run_gate,
@@ -302,7 +308,10 @@ async fn escalation_skips_the_graceful_phases() {
     // before the force, but the graceful session teardown was skipped: no
     // ThreadRemoved may appear.
     assert!(
-        matches!(&*phase_rx.borrow(), protocol::ServerPhase::Draining { .. }),
+        matches!(
+            &*phase_rx.borrow(),
+            nuo_protocol::ServerPhase::Draining { .. }
+        ),
         "watch channel must report ServerPhase::Draining, got {:?}",
         *phase_rx.borrow()
     );
@@ -329,7 +338,7 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
     let _ = registry;
-    let outcome = server::runtime::host::run_with_gate(
+    let outcome = nuo_server::runtime::host::run_with_gate(
         test_identity(),
         options(tmp.path().join("d.sock"), taken),
         Arc::new(ShutdownGate::new()),
@@ -370,34 +379,34 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
         session: Arc<ThreadSession>,
         project_root: &std::path::Path,
     ) {
-        let (req_tx, _req_rx) = mpsc::channel::<protocol::AgentRequest>(512);
-        let (bc_tx, _) = broadcast::channel::<protocol::AgentResponse>(16);
+        let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(512);
+        let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
         let tracker = Arc::new(Mutex::new(
-            server::runtime::monitor::MonitorTracker::bootstrap(
-                protocol::MonitoredThread::empty(session.id().await),
-                protocol::ThreadActivity::Idle,
+            nuo_server::runtime::monitor::MonitorTracker::bootstrap(
+                nuo_protocol::MonitoredThread::empty(session.id().await),
+                nuo_protocol::ThreadActivity::Idle,
             ),
         ));
         registry
             .host(HostedThread {
                 workspace_root: Some(project_root.to_path_buf()),
                 human_channel: std::sync::Arc::new(
-                    protocol::human_request::HumanChannelAccountant::new(),
+                    nuo_protocol::human_request::HumanChannelAccountant::new(),
                 ),
                 security: std::sync::Arc::new(
-                    persistence::workspace_security::WorkspaceSecurityStore::load(),
+                    nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
                 ),
                 session,
-                shared_confinement: protocol::SharedConfinement::default(),
+                shared_confinement: nuo_protocol::SharedConfinement::default(),
                 req_tx,
                 events: bc_tx,
                 cancel: tokio_util::sync::CancellationToken::new(),
                 driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
                 tracker,
-                sync_buffer: Arc::new(
-                    Mutex::new(server::transport::serve::AttachSyncBuffer::new()),
-                ),
-                command_catalog: tool::CommandCatalog::default(),
+                sync_buffer: Arc::new(Mutex::new(
+                    nuo_server::transport::serve::AttachSyncBuffer::new(),
+                )),
+                command_catalog: nuo_tool::CommandCatalog::default(),
                 initial_provider: "test-provider".into(),
                 initial_model: "test-model".into(),
                 created_at: std::time::Instant::now(),
@@ -412,8 +421,8 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     let plain_project = tmp.path().join("plain-project");
     let plain_session = Arc::new(ThreadSession::load_for_project(plain_project.clone()));
     plain_session
-        .replace_messages(vec![tool::Message::new(
-            tool::Role::User,
+        .replace_messages(vec![nuo_tool::Message::new(
+            nuo_tool::Role::User,
             "no schedule here",
         )])
         .await
@@ -446,7 +455,7 @@ async fn server_persists_when_interactive_client_disconnects() {
     let gate_run = gate.clone();
     let sock_clone = sock.clone();
     let run = tokio::spawn(async move {
-        server::runtime::host::run_with_registry(
+        nuo_server::runtime::host::run_with_registry(
             test_identity(),
             options(sock_clone, 0),
             gate_run,
@@ -472,10 +481,10 @@ async fn server_persists_when_interactive_client_disconnects() {
     let (mut sink, mut source) = nuo::transport::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(protocol::Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+    sink.send(nuo_protocol::Wire::Hello {
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         monitor: None,
     })
     .await
@@ -483,12 +492,12 @@ async fn server_persists_when_interactive_client_disconnects() {
     let hello = source.next().await.unwrap().unwrap();
     assert!(matches!(
         hello,
-        protocol::WireFrame::Wire(protocol::Wire::ServerHello { .. })
+        nuo_protocol::WireFrame::Wire(nuo_protocol::Wire::ServerHello { .. })
     ));
 
-    sink.send(protocol::Wire::Subscribe {
+    sink.send(nuo_protocol::Wire::Subscribe {
         request_id: 1,
-        target: protocol::ThreadTarget::Attach { id: None },
+        target: nuo_protocol::ThreadTarget::Attach { id: None },
         project: Some(proj_dir),
     })
     .await
@@ -497,7 +506,7 @@ async fn server_persists_when_interactive_client_disconnects() {
     let sub = source.next().await.unwrap().unwrap();
     assert!(matches!(
         sub,
-        protocol::WireFrame::Wire(protocol::Wire::Subscribed { .. })
+        nuo_protocol::WireFrame::Wire(nuo_protocol::Wire::Subscribed { .. })
     ));
 
     // Disconnect (Detach) the interactive client
@@ -538,11 +547,11 @@ async fn client_detach_spares_active_autonomous_work() {
             .tracker
             .lock()
             .await
-            .observe(&protocol::AgentResponse::Round {
+            .observe(&nuo_protocol::AgentResponse::Round {
                 thread_id: session_id.clone(),
-                scope: protocol::RoundScope::Turn {
-                    context: protocol::TurnContext::new(1, 1, 1_700_000_000_000),
-                    event: protocol::RoundEvent::TurnStarted,
+                scope: nuo_protocol::RoundScope::Turn {
+                    context: nuo_protocol::TurnContext::new(1, 1, 1_700_000_000_000),
+                    event: nuo_protocol::RoundEvent::TurnStarted,
                 },
             });
     }
@@ -552,7 +561,7 @@ async fn client_detach_spares_active_autonomous_work() {
     let gate_clone = gate.clone();
     let sock_clone = sock.clone();
     let run = tokio::spawn(async move {
-        server::runtime::host::run_with_registry(
+        nuo_server::runtime::host::run_with_registry(
             test_identity(),
             options(sock_clone, 0),
             gate_clone,
@@ -578,10 +587,10 @@ async fn client_detach_spares_active_autonomous_work() {
     let (mut sink, mut source) = nuo::transport::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(protocol::Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+    sink.send(nuo_protocol::Wire::Hello {
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         monitor: None,
     })
     .await
@@ -589,12 +598,12 @@ async fn client_detach_spares_active_autonomous_work() {
     let hello = source.next().await.unwrap().unwrap();
     assert!(matches!(
         hello,
-        protocol::WireFrame::Wire(protocol::Wire::ServerHello { .. })
+        nuo_protocol::WireFrame::Wire(nuo_protocol::Wire::ServerHello { .. })
     ));
 
-    sink.send(protocol::Wire::Subscribe {
+    sink.send(nuo_protocol::Wire::Subscribe {
         request_id: 1,
-        target: protocol::ThreadTarget::Attach { id: None },
+        target: nuo_protocol::ThreadTarget::Attach { id: None },
         project: Some(proj_dir),
     })
     .await
@@ -603,7 +612,7 @@ async fn client_detach_spares_active_autonomous_work() {
     let sub = source.next().await.unwrap().unwrap();
     assert!(matches!(
         sub,
-        protocol::WireFrame::Wire(protocol::Wire::Subscribed { .. })
+        nuo_protocol::WireFrame::Wire(nuo_protocol::Wire::Subscribed { .. })
     ));
 
     // Disconnect (Detach) the interactive client
@@ -641,7 +650,7 @@ async fn conflicting_stale_socket_is_directly_replaced() {
         g1.request(ShutdownReason::ControlVerb, false);
     });
 
-    let outcome = server::runtime::host::run_with_registry(
+    let outcome = nuo_server::runtime::host::run_with_registry(
         test_identity(),
         options(sock.clone(), 0),
         gate,
@@ -662,7 +671,7 @@ async fn conflicting_stale_socket_is_directly_replaced() {
 }
 
 /// ADR-0260 `[INV-SRVPHASE-01]`, `[INV-SRVPHASE-02]`: verifies the real
-/// `host::run_with_registry` listen-first startup path advances
+/// `nuo_server::runtime::host::run_with_registry` listen-first startup path advances
 /// `Initializing(Storage) -> Initializing(Runtime) -> Ready` after binding
 /// listeners and publishing discovery, and serves live `ServerPhase` events.
 #[tokio::test]
@@ -673,8 +682,8 @@ async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_con
     let sock = tmp.path().join("init-seq.sock");
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
-    registry.set_server_phase(protocol::ServerPhase::initializing(
-        protocol::ServerInitStage::Storage,
+    registry.set_server_phase(nuo_protocol::ServerPhase::initializing(
+        nuo_protocol::ServerInitStage::Storage,
     ));
     let mut phase_rx = registry.subscribe_server_phase();
 
@@ -683,7 +692,7 @@ async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_con
     let run_reg = registry.clone();
     let run_sock = sock.clone();
     let run = tokio::spawn(async move {
-        server::runtime::host::run_with_registry(
+        nuo_server::runtime::host::run_with_registry(
             test_identity(),
             options(run_sock, 0),
             run_gate,
@@ -705,7 +714,7 @@ async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_con
         match tokio::time::timeout_at(deadline, phase_rx.changed()).await {
             Ok(Ok(())) => {
                 let phase = phase_rx.borrow_and_update().clone();
-                let is_ready = phase == protocol::ServerPhase::Ready;
+                let is_ready = phase == nuo_protocol::ServerPhase::Ready;
                 observed.push(phase);
                 if is_ready {
                     break;
@@ -718,30 +727,30 @@ async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_con
     assert!(
         observed.iter().any(|p| matches!(
             p,
-            protocol::ServerPhase::Initializing {
-                stage: protocol::ServerInitStage::Runtime,
+            nuo_protocol::ServerPhase::Initializing {
+                stage: nuo_protocol::ServerInitStage::Runtime,
                 ..
             }
-        )) || observed.last() == Some(&protocol::ServerPhase::Ready),
+        )) || observed.last() == Some(&nuo_protocol::ServerPhase::Ready),
         "host startup must progress cleanly to ServerPhase::Ready, got {observed:?}"
     );
     assert_eq!(
         observed.last(),
-        Some(&protocol::ServerPhase::Ready),
+        Some(&nuo_protocol::ServerPhase::Ready),
         "host startup must finish in ServerPhase::Ready, got {observed:?}"
     );
-    assert_eq!(registry.server_phase(), protocol::ServerPhase::Ready);
+    assert_eq!(registry.server_phase(), nuo_protocol::ServerPhase::Ready);
 
     // Connect over the bound local IPC socket and verify ServerHello reports Ready.
-    let endpoint = host::ipc::LocalEndpoint::UnixSocket(sock.clone());
-    let stream = host::ipc::connect(&endpoint).await.unwrap();
-    let (mut sink, mut source) = server::transport::wire_channel::native_framed_split(stream);
+    let endpoint = nuo_host::ipc::LocalEndpoint::UnixSocket(sock.clone());
+    let stream = nuo_host::ipc::connect(&endpoint).await.unwrap();
+    let (mut sink, mut source) = nuo_server::transport::wire_channel::native_framed_split(stream);
     use futures::{SinkExt, StreamExt};
-    sink.send(protocol::Wire::Hello {
-        protocol: protocol::PROTOCOL_VERSION,
+    sink.send(nuo_protocol::Wire::Hello {
+        protocol: nuo_protocol::PROTOCOL_VERSION,
         version: None,
-        posture: protocol::human_request::HumanChannelPosture::Interactive,
-        monitor: Some(protocol::MonitorAction {
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+        monitor: Some(nuo_protocol::MonitorAction {
             watch: false,
             include_idle: true,
         }),
@@ -751,8 +760,8 @@ async fn listen_first_host_startup_advances_storage_runtime_ready_and_serves_con
     let frame = source.next().await.unwrap().unwrap();
     assert!(matches!(
         frame,
-        protocol::WireFrame::Wire(protocol::Wire::ServerHello {
-            phase: protocol::ServerPhase::Ready,
+        nuo_protocol::WireFrame::Wire(nuo_protocol::Wire::ServerHello {
+            phase: nuo_protocol::ServerPhase::Ready,
             monitor: Some(_),
             ..
         })

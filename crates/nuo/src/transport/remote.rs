@@ -8,18 +8,18 @@ use super::*;
 
 static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-pub fn set_posture(posture: protocol::human_request::HumanChannelPosture) {
+pub fn set_posture(posture: nuo_protocol::human_request::HumanChannelPosture) {
     let code = match posture {
-        protocol::human_request::HumanChannelPosture::Interactive => 0,
-        protocol::human_request::HumanChannelPosture::Autonomous => 1,
+        nuo_protocol::human_request::HumanChannelPosture::Interactive => 0,
+        nuo_protocol::human_request::HumanChannelPosture::Autonomous => 1,
     };
     POSTURE_OVERRIDE.store(code, std::sync::atomic::Ordering::Relaxed);
 }
 
-pub(super) fn current_posture() -> protocol::human_request::HumanChannelPosture {
+pub(super) fn current_posture() -> nuo_protocol::human_request::HumanChannelPosture {
     match POSTURE_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => protocol::human_request::HumanChannelPosture::Autonomous,
-        _ => protocol::human_request::HumanChannelPosture::Interactive,
+        1 => nuo_protocol::human_request::HumanChannelPosture::Autonomous,
+        _ => nuo_protocol::human_request::HumanChannelPosture::Interactive,
     }
 }
 
