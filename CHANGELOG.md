@@ -6,6 +6,47 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.106] - 2026-11-27
+
+### Changed
+
+- **Project-level landing surface (`nuo_view::landing`).**
+  Replaced `nuo_view::empty_state` with the stage-level `nuo_view::landing`
+  hero (`draw_project_landing`, `ProjectLandingProps`, `StageRender`,
+  `LandingGuidance`), decoupled from transcript scroll/selection/focus wash,
+  with live keymap-projected capability carousel hints (`CarouselKeys`),
+  visibility-gated carousel redraws (`project_carousel_active`), and
+  `provider_picker_synced` gating to prevent false startup setup warnings.
+- **Wire frame ceiling raised to 64 MiB and lighter wire transcript projections.**
+  Raised `MAX_WIRE_FRAME_SIZE` from 16 MiB to 64 MiB to align with WebSocket's
+  default limit, and added `project_transcript_for_wire` to strip
+  `provider_meta` and raw base64 image pixels from `ThreadSnapshot` and
+  `ConversationReplaced` payloads while leaving durable storage untouched.
+
+### Fixed
+
+- **Persistence causal-chain continuity, blob rehydration, and stale shard detection.**
+  Preserved `thread_branches.head_fact_id` on fact-free incremental delta
+  writes, self-healed blanked branch heads from the newest `causal_nodes` row,
+  allocated non-colliding `seq` numbers for incremental forked-branch deltas,
+  updated active branch heads in `commit_turn` (with `SessionUndo` rollback),
+  made `load_session_blobs` best-effort across entries, rehydrated text blobs
+  during `projection::repair`, and detected stale cold-open projections via
+  `msg_count` and `projection_watermark`.
+- **Live post-promotion snapshots and subscription generation hygiene.**
+  Latched `PendingSession::promoted` (`Weak<HostedThread>`) before caching
+  `latest_snapshot` so `AttachHandle::Building` handles serve live snapshots
+  and session IDs on lag re-anchor or re-subscribe instead of frozen copies,
+  removed stale `last_snapshot` caches, propagated wire send errors, widened
+  `events_tx` (4096) and `mux_tx` (1024), and carried active subscription
+  `generation` on coalesced `PendingDelta` and `handle_end_thread` frames.
+- **Degraded lifecycle visibility in fullscreen scenes and tall message layout.**
+  Surfaced client/server `lifecycle_status` warnings in Tier 2 `SceneBar` across
+  Settings, Dashboard, Diff, and Command Log scenes, cleared and painted the
+  backdrop directly in `draw_diff_scene`, and widened `HeightCache` heights
+  from `u16` to `usize` so >65,535-row messages never overflow virtual layout
+  accounting.
+
 ## [0.0.105] - 2026-11-27
 
 ### Changed
