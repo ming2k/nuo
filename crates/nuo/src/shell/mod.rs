@@ -72,8 +72,8 @@ pub use nuo_ui_primitives::{
 pub use nuo_view::phase::Phase;
 pub use nuo_view::providers::{CustomField, PROVIDER_PRESETS, provider_label_for};
 pub use nuo_view::{
-    disclosure_config, empty_state, footer_stack, layout, markdown_table, message_body, model,
-    notice, phase, providers, text_layout, tools, trust_gate,
+    disclosure_config, footer_stack, landing, layout, markdown_table, message_body, model, notice,
+    phase, providers, text_layout, tools, trust_gate,
 };
 pub use pre_attach::{PreAttachDecision, PreAttachSignal, PreAttachState};
 
@@ -716,6 +716,7 @@ pub(crate) fn build_app(boot: AppBoot<'_>) -> App {
             provider_delete_focus: ProviderDeleteChoice::default(),
             key_status: HashMap::new(),
             provider_picker: ProviderPickerSnapshot::default(),
+            provider_picker_synced: false,
             theme: crate::shell::config::resolve_theme_with_profile(
                 &boot.tui_config.color_scheme,
                 &boot.tui_config.custom_color_scheme,

@@ -261,6 +261,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
             provider_delete_focus: crate::shell::ProviderDeleteChoice::default(),
             key_status: HashMap::new(),
             provider_picker: ProviderPickerSnapshot::default(),
+            provider_picker_synced: false,
             theme: Theme::default(),
             profile: graticule::TerminalProfile::direct_color(),
             logo: None,

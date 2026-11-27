@@ -102,8 +102,9 @@ fn upsert_branch(
     conn: &Connection,
     thread_id: &ThreadId,
     branch: &BranchState,
+    replace: bool,
 ) -> Result<(), String> {
-    conn.prepare_cached(
+    let sql = if replace {
         r#"
         INSERT INTO thread_branches (
             thread_id, branch_id, name, head_fact_id, forked_from_fact_id,
@@ -116,21 +117,36 @@ fn upsert_branch(
             compaction_horizon_fact_id = excluded.compaction_horizon_fact_id,
             policy_json = excluded.policy_json,
             updated_at_ms = excluded.updated_at_ms
-        "#,
-    )
-    .map_err(|error| error.to_string())?
-    .execute(params![
-        thread_id.0,
-        branch.id.0,
-        branch.name,
-        branch.head.as_ref().map(|id| id.0.as_str()),
-        branch.forked_from.as_ref().map(|id| id.0.as_str()),
-        branch.compaction_horizon.as_ref().map(|id| id.0.as_str()),
-        encode(&branch.policy)?,
-        branch.created_at_ms as i64,
-        branch.updated_at_ms as i64,
-    ])
-    .map_err(|error| error.to_string())?;
+        "#
+    } else {
+        r#"
+        INSERT INTO thread_branches (
+            thread_id, branch_id, name, head_fact_id, forked_from_fact_id,
+            compaction_horizon_fact_id, policy_json, created_at_ms, updated_at_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ON CONFLICT(thread_id, branch_id) DO UPDATE SET
+            name = excluded.name,
+            head_fact_id = COALESCE(excluded.head_fact_id, thread_branches.head_fact_id),
+            forked_from_fact_id = COALESCE(excluded.forked_from_fact_id, thread_branches.forked_from_fact_id),
+            compaction_horizon_fact_id = COALESCE(excluded.compaction_horizon_fact_id, thread_branches.compaction_horizon_fact_id),
+            policy_json = excluded.policy_json,
+            updated_at_ms = excluded.updated_at_ms
+        "#
+    };
+    conn.prepare_cached(sql)
+        .map_err(|error| error.to_string())?
+        .execute(params![
+            thread_id.0,
+            branch.id.0,
+            branch.name,
+            branch.head.as_ref().map(|id| id.0.as_str()),
+            branch.forked_from.as_ref().map(|id| id.0.as_str()),
+            branch.compaction_horizon.as_ref().map(|id| id.0.as_str()),
+            encode(&branch.policy)?,
+            branch.created_at_ms as i64,
+            branch.updated_at_ms as i64,
+        ])
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -447,26 +463,76 @@ pub(crate) fn persist_content_facts(
     let mut link_parent: Option<String> = if replace {
         None
     } else {
-        conn.prepare_cached(
-            "SELECT head_fact_id FROM thread_branches WHERE thread_id = ?1 AND branch_id = ?2",
-        )
-        .map_err(|error| error.to_string())?
-        .query_row(params![thread.id.0, thread.state.active_branch.0], |row| {
-            row.get::<_, Option<String>>(0)
-        })
-        .optional()
-        .map_err(|error| error.to_string())?
-        .flatten()
+        let branch_head = conn
+            .prepare_cached(
+                "SELECT head_fact_id FROM thread_branches WHERE thread_id = ?1 AND branch_id = ?2",
+            )
+            .map_err(|error| error.to_string())?
+            .query_row(params![thread.id.0, thread.state.active_branch.0], |row| {
+                row.get::<_, Option<String>>(0)
+            })
+            .optional()
+            .map_err(|error| error.to_string())?
+            .flatten();
+        // Self-heal pre-existing shards whose `head_fact_id` was blanked by
+        // prior fact-free delta writes: fall back to the newest fact already
+        // stored for this thread so subsequent deltas stay chained.
+        match branch_head {
+            Some(head) => Some(head),
+            None => conn
+                .prepare_cached(
+                    "SELECT id FROM causal_nodes WHERE thread_id = ?1 ORDER BY seq DESC LIMIT 1",
+                )
+                .map_err(|error| error.to_string())?
+                .query_row(params![thread.id.0], |row| row.get::<_, String>(0))
+                .optional()
+                .map_err(|error| error.to_string())?,
+        }
     };
 
-    for branch in thread.state.branches.values() {
-        upsert_branch(conn, &thread.id, branch)?;
+    // Track the highest existing `seq` in this shard so incremental deltas on
+    // forked branches (whose local transcript seq restarts at the branch length)
+    // never collide with sibling branch facts on `UNIQUE (thread_id, seq)`.
+    let mut max_existing_seq: u64 = if replace {
+        0
+    } else {
+        conn.prepare_cached("SELECT COALESCE(MAX(seq), 0) FROM causal_nodes WHERE thread_id = ?1")
+            .map_err(|error| error.to_string())?
+            .query_row(params![thread.id.0], |row| row.get::<_, i64>(0))
+            .map_err(|error| error.to_string())?
+            .max(0) as u64
+    };
+
+    // On incremental (`!replace`) saves, a fact-free delta (e.g. `set_todos`
+    // state entries or `commit_context_projection` prune directives) carries no
+    // new causal facts and must never overwrite `thread_branches.head_fact_id`
+    // (which would blank or rewind the cursor and sever the `causal_nodes`
+    // parent chain for subsequent turns).
+    if replace || !thread.graph.is_empty() {
+        for branch in thread.state.branches.values() {
+            upsert_branch(conn, &thread.id, branch, replace)?;
+        }
     }
 
     for fact in thread.all_facts() {
         let mut fact = fact.clone();
         if fact.parent_id.is_none() {
             fact.parent_id = link_parent.as_ref().map(|id| FactId::from_raw(id.clone()));
+        }
+        if !replace && fact.seq <= max_existing_seq {
+            let exists: bool = conn
+                .prepare_cached("SELECT 1 FROM causal_nodes WHERE thread_id = ?1 AND id = ?2")
+                .map_err(|error| error.to_string())?
+                .query_row(params![thread.id.0, fact.id.0], |_| Ok(()))
+                .optional()
+                .map_err(|error| error.to_string())?
+                .is_some();
+            if !exists {
+                max_existing_seq = max_existing_seq.saturating_add(1);
+                fact.seq = max_existing_seq;
+            }
+        } else {
+            max_existing_seq = max_existing_seq.max(fact.seq);
         }
         link_parent = Some(fact.id.0.clone());
         let newly_inserted = insert_fact(conn, &thread.id, &fact)?;

@@ -53,8 +53,8 @@ use nuo::shell::overlays::permission::draw_permission_sheet;
 use nuo::shell::overlays::session::{SessionsModalProps, draw_sessions_modal};
 use nuo::shell::overlays::toast::draw_notice_toast;
 use nuo::shell::render::{
-    EmptyStateGuidance, FocusPlane, ModelBarKeys, ModelBarProps, QueueBarProps, QueueItemProps,
-    TasksBarProps, TranscriptProps, draw_model_bar, draw_transcript, recess_backdrop,
+    FocusPlane, ModelBarKeys, ModelBarProps, QueueBarProps, QueueItemProps, TasksBarProps,
+    TranscriptProps, draw_model_bar, draw_transcript, recess_backdrop,
 };
 use nuo::shell::ui::ComponentTree;
 use nuo_protocol::{
@@ -482,9 +482,6 @@ fn draw_scene(
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme,
                     layout: layout::Strategy::TurnBand,
                     height_cache: None,
@@ -602,9 +599,6 @@ fn draw_scene(
                         kind: InteractiveTargetKind::ToolStep,
                     }),
                     focus_plane: FocusPlane::Transcript,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme,
                     layout: layout::Strategy::TurnBand,
                     height_cache: None,
@@ -659,6 +653,7 @@ fn draw_scene(
                 DiffSceneProps {
                     state: Some(&mut diff_state),
                     tab_bar: Some(tab_bar),
+                    lifecycle_status: None,
                 },
                 theme,
             );
@@ -699,6 +694,7 @@ fn draw_scene(
                     usage_report: None,
                     usage_loading: false,
                     usage_scroll: 0,
+                    lifecycle_status: None,
                 },
                 theme,
             );
@@ -732,6 +728,7 @@ fn draw_scene(
                 profile: &profile,
                 tui_config: &tui_config,
                 tab_bar: Some(tab_bar),
+                lifecycle_status: None,
             };
             draw_settings_view(frame, props);
         }
@@ -782,9 +779,6 @@ fn draw_scene(
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme,
                     layout: layout::Strategy::TurnBand,
                     height_cache: None,
@@ -879,9 +873,6 @@ fn draw_scene(
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme,
                     layout: layout::Strategy::TurnBand,
                     height_cache: None,

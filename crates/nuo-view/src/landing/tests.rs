@@ -1,62 +1,62 @@
 use super::*;
 
 #[test]
-fn empty_state_renders_builtin_without_panicking() {
+fn landing_renders_builtin_without_panicking() {
     let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
     let theme = Theme::default();
+    let keys = CarouselKeys::default();
     terminal.draw(|f| {
-        draw_empty_state(f, f.area(), None, EmptyStateGuidance::Tour, 0, &theme);
+        draw_landing_hero(f, f.area(), None, LandingGuidance::Tour, 0, &keys, &theme);
     });
 }
 
 #[test]
-fn empty_state_renders_user_logo_without_panicking() {
+fn landing_renders_user_logo_without_panicking() {
     let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
     let theme = Theme::default();
-    // A logo at or above the floor so this exercises the logo path, not
-    // the drop-to-guidance fallback.
+    let keys = CarouselKeys::default();
     let logo = vec![
         " X X X X ".to_string(),
         "  X   X  ".to_string(),
         " X X X X ".to_string(),
     ];
     terminal.draw(|f| {
-        draw_empty_state(
+        draw_landing_hero(
             f,
             f.area(),
             Some(&logo),
-            EmptyStateGuidance::Tour,
+            LandingGuidance::Tour,
             3,
+            &keys,
             &theme,
         );
     });
 }
 
 #[test]
-fn empty_state_renders_needs_provider_guidance_without_panicking() {
+fn landing_renders_needs_provider_guidance_without_panicking() {
     let mut terminal = graticule_canvas::TestTerminal::new(80, 24);
     let theme = Theme::default();
+    let keys = CarouselKeys::default();
     terminal.draw(|f| {
-        draw_empty_state(
+        draw_landing_hero(
             f,
             f.area(),
             None,
-            EmptyStateGuidance::NeedsProvider,
+            LandingGuidance::NeedsProvider,
             0,
+            &keys,
             &theme,
         );
     });
 }
 
-fn render_empty_state_to_string_sized(
-    guidance: EmptyStateGuidance,
-    width: u16,
-    height: u16,
-) -> String {
+fn render_landing_to_string_sized(guidance: LandingGuidance, width: u16, height: u16) -> String {
     let mut terminal = graticule_canvas::TestTerminal::new(width, height);
     let theme = Theme::default();
+    let keys = CarouselKeys::default();
     terminal.draw(|f| {
-        draw_empty_state(f, f.area(), None, guidance, 0, &theme);
+        draw_landing_hero(f, f.area(), None, guidance, 0, &keys, &theme);
     });
     let buffer = terminal.buffer();
     let (w, h) = buffer.size();
@@ -70,13 +70,14 @@ fn render_empty_state_to_string_sized(
     output
 }
 
-fn render_empty_state_to_string(guidance: EmptyStateGuidance) -> String {
-    render_empty_state_to_string_sized(guidance, 80, 24)
+fn render_landing_to_string(guidance: LandingGuidance) -> String {
+    render_landing_to_string_sized(guidance, 80, 24)
 }
 
 #[test]
-fn empty_state_renders_resuming_thread_composed_with_phase() {
+fn landing_renders_resuming_thread_composed_with_phase() {
     let theme = Theme::default();
+    let keys = CarouselKeys::default();
     let cases = [
         (
             nuo_protocol::ThreadPhase::Ready,
@@ -96,22 +97,22 @@ fn empty_state_renders_resuming_thread_composed_with_phase() {
         ),
     ];
     for (phase, expected) in cases {
-        let guidance = EmptyStateGuidance::ResumingThread {
+        let guidance = LandingGuidance::ResumingThread {
             short_id: "7c405d7e".into(),
             phase,
         };
         assert_eq!(
             guidance_line_count(&guidance),
-            guidance_section(guidance.clone(), 0, 78, &theme).len(),
+            guidance_section(guidance.clone(), 0, &keys, 78, &theme).len(),
         );
-        let output = render_empty_state_to_string(guidance);
+        let output = render_landing_to_string(guidance);
         assert!(
             output.contains(expected),
             "must render '{expected}':\n{output}"
         );
     }
 
-    let failed = EmptyStateGuidance::ResumingThread {
+    let failed = LandingGuidance::ResumingThread {
         short_id: "7c405d7e".into(),
         phase: nuo_protocol::ThreadPhase::Failed {
             code: None,
@@ -120,16 +121,17 @@ fn empty_state_renders_resuming_thread_composed_with_phase() {
     };
     assert_eq!(
         guidance_line_count(&failed),
-        guidance_section(failed.clone(), 0, 78, &theme).len(),
+        guidance_section(failed.clone(), 0, &keys, 78, &theme).len(),
     );
-    let output = render_empty_state_to_string(failed);
+    let output = render_landing_to_string(failed);
     assert!(output.contains("Thread setup failed."), "{output}");
     assert!(output.contains("snapshot missing"), "{output}");
 }
 
 #[test]
-fn empty_state_renders_honest_server_and_thread_phases_and_matches_line_count() {
+fn landing_renders_honest_server_and_thread_phases_and_matches_line_count() {
     let theme = Theme::default();
+    let keys = CarouselKeys::default();
 
     let server_cases = [
         (
@@ -180,39 +182,39 @@ fn empty_state_renders_honest_server_and_thread_phases_and_matches_line_count() 
         ),
     ];
     for (phase, expected) in server_cases {
-        let guidance = EmptyStateGuidance::ServerPhase(phase);
+        let guidance = LandingGuidance::ServerPhase(phase);
         assert_eq!(
             guidance_line_count(&guidance),
-            guidance_section(guidance.clone(), 0, 78, &theme).len(),
+            guidance_section(guidance.clone(), 0, &keys, 78, &theme).len(),
             "guidance_line_count must stay exact for {guidance:?}"
         );
-        let output = render_empty_state_to_string(guidance);
+        let output = render_landing_to_string(guidance);
         assert!(
             output.contains(expected),
-            "expected '{expected}' in empty state:\n{output}"
+            "expected '{expected}' in landing hero:\n{output}"
         );
     }
 
-    let server_failed = EmptyStateGuidance::ServerPhase(nuo_protocol::ServerPhase::Failed {
+    let server_failed = LandingGuidance::ServerPhase(nuo_protocol::ServerPhase::Failed {
         code: Some("storage_init_failed".into()),
         message: "database locked".into(),
     });
     assert_eq!(
         guidance_line_count(&server_failed),
-        guidance_section(server_failed.clone(), 0, 78, &theme).len(),
+        guidance_section(server_failed.clone(), 0, &keys, 78, &theme).len(),
     );
-    let output = render_empty_state_to_string(server_failed);
+    let output = render_landing_to_string(server_failed);
     assert!(output.contains("Nuo server startup failed."), "{output}");
     assert!(output.contains("database locked"), "{output}");
 
-    let connecting = EmptyStateGuidance::Connecting {
+    let connecting = LandingGuidance::Connecting {
         label: "Starting Nuo server…".into(),
     };
     assert_eq!(
         guidance_line_count(&connecting),
-        guidance_section(connecting.clone(), 0, 78, &theme).len(),
+        guidance_section(connecting.clone(), 0, &keys, 78, &theme).len(),
     );
-    assert!(render_empty_state_to_string(connecting).contains("Starting Nuo server…"));
+    assert!(render_landing_to_string(connecting).contains("Starting Nuo server…"));
 
     let cases = [
         (
@@ -242,54 +244,96 @@ fn empty_state_renders_honest_server_and_thread_phases_and_matches_line_count() 
     ];
 
     for (phase, expected) in cases {
-        let guidance = EmptyStateGuidance::ThreadPhase(phase);
+        let guidance = LandingGuidance::ThreadPhase(phase);
         assert_eq!(
             guidance_line_count(&guidance),
-            guidance_section(guidance.clone(), 0, 78, &theme).len(),
+            guidance_section(guidance.clone(), 0, &keys, 78, &theme).len(),
             "guidance_line_count must stay exact for {guidance:?}"
         );
-        let output = render_empty_state_to_string(guidance);
+        let output = render_landing_to_string(guidance);
         assert!(
             output.contains(expected),
-            "expected '{expected}' in empty state:\n{output}"
+            "expected '{expected}' in landing hero:\n{output}"
         );
     }
 
-    let failed = EmptyStateGuidance::ThreadPhase(nuo_protocol::ThreadPhase::Failed {
+    let failed = LandingGuidance::ThreadPhase(nuo_protocol::ThreadPhase::Failed {
         code: Some(nuo_protocol::ERR_SESSION_UNRESUMABLE.to_string()),
         message: "corrupt transcript\nsecond line".to_string(),
     });
     assert_eq!(
         guidance_line_count(&failed),
-        guidance_section(failed.clone(), 0, 78, &theme).len(),
+        guidance_section(failed.clone(), 0, &keys, 78, &theme).len(),
     );
-    let output = render_empty_state_to_string(failed);
+    let output = render_landing_to_string(failed);
     assert!(output.contains("Thread setup failed."), "{output}");
     assert!(output.contains("corrupt transcript"), "{output}");
 
-    let failed_empty = EmptyStateGuidance::ThreadPhase(nuo_protocol::ThreadPhase::Failed {
+    let failed_empty = LandingGuidance::ThreadPhase(nuo_protocol::ThreadPhase::Failed {
         code: None,
         message: "   ".to_string(),
     });
     assert_eq!(
         guidance_line_count(&failed_empty),
-        guidance_section(failed_empty, 0, 78, &theme).len(),
+        guidance_section(failed_empty, 0, &keys, 78, &theme).len(),
     );
 }
 
 #[test]
 fn failed_detail_truncates_with_ellipsis_in_narrow_viewport() {
     let long_msg = "failed to assemble local harness because thread store sqlite file is locked by another process";
-    let guidance = EmptyStateGuidance::ThreadPhase(nuo_protocol::ThreadPhase::Failed {
+    let guidance = LandingGuidance::ThreadPhase(nuo_protocol::ThreadPhase::Failed {
         code: None,
         message: long_msg.to_string(),
     });
-    let output = render_empty_state_to_string_sized(guidance, 40, 12);
+    let output = render_landing_to_string_sized(guidance, 40, 12);
     assert!(output.contains("Thread setup failed."), "{output}");
     assert!(
         output.contains('…'),
         "long failure detail must truncate with ellipsis rather than silently clipping:\n{output}"
     );
+}
+
+#[test]
+fn narrow_viewport_clamps_every_guidance_line_within_budget() {
+    let theme = Theme::default();
+    let keys = CarouselKeys {
+        help: vec!["Ctrl-Alt-Shift-F12".into(), "Ctrl-Alt-Shift-H".into()],
+        history_search: Some("Ctrl-Alt-Shift-R".into()),
+        command_palette: Some("Ctrl-Alt-Shift-P".into()),
+    };
+    let max_width = (nuo_ui_primitives::design::MIN_TERMINAL_COLS - 2) as usize;
+    let samples = [
+        LandingGuidance::ResumingThread {
+            short_id: "7c405d7e-long-session-id".into(),
+            phase: nuo_protocol::ThreadPhase::Preparing {
+                stage: nuo_protocol::PrepareStage::Thread,
+            },
+        },
+        LandingGuidance::ServerPhase(nuo_protocol::ServerPhase::initializing_with(
+            nuo_protocol::ServerInitStage::Storage,
+            None,
+            Some(1),
+        )),
+        LandingGuidance::Connecting {
+            label: "Reconnecting to 127.0.0.1:9800 (2/10, retrying in 5.0s · Esc to cancel)…"
+                .into(),
+        },
+        LandingGuidance::Tour,
+    ];
+    for guidance in samples {
+        for index in 0..carousel_pages_with_keys(&keys).len() {
+            let lines = guidance_section(guidance.clone(), index, &keys, max_width, &theme);
+            assert_eq!(lines.len(), guidance_line_count(&guidance));
+            for line in &lines {
+                let width: usize = line.spans.iter().map(|s| s.content.width()).sum();
+                assert!(
+                    width <= max_width,
+                    "guidance line exceeded max_width ({width} > {max_width}): {line:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -423,23 +467,25 @@ fn server_and_thread_phase_status_map_every_phase_honestly() {
 
 #[test]
 fn carousel_rotates_on_a_wall_clock_cadence() {
-    let pages = carousel_pages().len();
+    let keys = CarouselKeys::default();
+    let pages = carousel_pages_with_keys(&keys).len();
     assert!(pages >= 4, "the tour must teach several capabilities");
-    // Slide boundaries: within one slide the page holds, then advances.
-    assert_eq!(carousel_page_for(0), 0);
-    assert_eq!(carousel_page_for(CAROUSEL_SLIDE_SECS as u128 * 1000 - 1), 0);
-    assert_eq!(carousel_page_for(CAROUSEL_SLIDE_SECS as u128 * 1000), 1);
-    // Full-cycle wrap.
+    assert_eq!(carousel_page_for(0, &keys), 0);
+    assert_eq!(
+        carousel_page_for(CAROUSEL_SLIDE_SECS as u128 * 1000 - 1, &keys),
+        0
+    );
+    assert_eq!(
+        carousel_page_for(CAROUSEL_SLIDE_SECS as u128 * 1000, &keys),
+        1
+    );
     let cycle = CAROUSEL_SLIDE_SECS as u128 * 1000 * pages as u128;
-    assert_eq!(carousel_page_for(cycle), 0);
-    assert_eq!(carousel_page_for(cycle + 1), 0);
+    assert_eq!(carousel_page_for(cycle, &keys), 0);
+    assert_eq!(carousel_page_for(cycle + 1, &keys), 0);
 }
 
 #[test]
 fn carousel_pages_fit_the_minimum_terminal_width() {
-    // Every page must stay on one centered line even at the narrowest
-    // supported terminal, or the copy would wrap and break the
-    // wrap-independent height accounting (`guidance_line_count`).
     for page in carousel_pages() {
         assert!(
             page.width() <= nuo_ui_primitives::design::MIN_TERMINAL_COLS as usize,
@@ -453,8 +499,8 @@ fn carousel_pages_fit_the_minimum_terminal_width() {
 #[test]
 fn tour_carousel_renders_only_the_current_page_line() {
     let theme = Theme::default();
-    let lines = guidance_section(EmptyStateGuidance::Tour, 1, 78, &theme);
-    // Just the page line — no static tagline above it, no indicator row.
+    let keys = CarouselKeys::default();
+    let lines = guidance_section(LandingGuidance::Tour, 1, &keys, 78, &theme);
     assert_eq!(lines.len(), CAROUSEL_LINES);
     let page_line: String = lines[0]
         .spans
@@ -465,63 +511,112 @@ fn tour_carousel_renders_only_the_current_page_line() {
         page_line.contains(carousel_pages()[1].lead),
         "page 1 shows its lead: {page_line}"
     );
-    // No dot indicator anywhere: the rotation is
-    // self-explaining, so no chrome restates it.
-    let joined = lines
-        .iter()
-        .map(|l| {
-            l.spans
-                .iter()
-                .map(|s| s.content.clone().into_owned())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(!joined.contains('●'), "no dot indicator: {joined}");
+    assert!(!page_line.contains('●'), "no dot indicator: {page_line}");
 }
 
 #[test]
-fn tour_advertises_the_help_dialog_chords() {
-    // ADR-0219: the TabBar's standing `F1 help` keycap is retired, so the
-    // tour is the only surface that names the chords before a session has
-    // content. Assert both activation chords are advertised and the page
-    // stays within the minimum terminal width.
+fn tour_reflects_custom_and_unbound_keybindings() {
     let theme = Theme::default();
-    let pages = carousel_pages();
-    let help_page = (0..pages.len())
-        .map(|index| {
-            guidance_section(EmptyStateGuidance::Tour, index, 78, &theme)
+
+    // Default keymap advertises both F1 and Alt-h.
+    let defaults = CarouselKeys::default();
+    let default_lines: Vec<String> = (0..carousel_pages_with_keys(&defaults).len())
+        .map(|i| {
+            guidance_section(LandingGuidance::Tour, i, &defaults, 78, &theme)[0]
+                .spans
                 .iter()
-                .flat_map(|line| line.spans.iter())
-                .map(|span| span.content.clone().into_owned())
-                .collect::<String>()
+                .map(|s| s.content.as_ref())
+                .collect()
         })
-        .find(|line| line.contains(nuo_ui_primitives::chord::Key::F1.display()))
-        .expect("the tour must advertise the help dialog");
+        .collect();
+    let help_line = default_lines
+        .iter()
+        .find(|line| line.contains("See every shortcut"))
+        .expect("help slide present");
+    assert!(help_line.contains(nuo_ui_primitives::chord::Key::F1.display()));
+    assert!(help_line.contains(nuo_ui_primitives::chord::Key::ALT_H.display()));
+
+    // Remapped chords appear verbatim; unbound chords are omitted or fall back.
+    let custom = CarouselKeys {
+        help: vec!["Alt-?".into()],
+        history_search: Some("Ctrl-g".into()),
+        command_palette: None,
+    };
+    let custom_lines: Vec<String> = (0..carousel_pages_with_keys(&custom).len())
+        .map(|i| {
+            guidance_section(LandingGuidance::Tour, i, &custom, 78, &theme)[0]
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect()
+        })
+        .collect();
     assert!(
-        help_page.contains(nuo_ui_primitives::chord::Key::ALT_H.display()),
-        "the help page names both activation chords: {help_page}"
+        custom_lines
+            .iter()
+            .any(|l| l == "See every shortcut with Alt-?"),
+        "remapped help chord must replace defaults: {custom_lines:?}"
     );
     assert!(
-        help_page.width() <= nuo_ui_primitives::design::MIN_TERMINAL_COLS as usize,
-        "the help page fits the minimum terminal width: {help_page}"
+        custom_lines
+            .iter()
+            .any(|l| l == "Recall past prompts with Ctrl-g"),
+        "remapped history chord must be advertised: {custom_lines:?}"
     );
+    assert!(
+        !custom_lines
+            .iter()
+            .any(|l| l.contains("Open the command palette")),
+        "unbound command palette slide must be omitted: {custom_lines:?}"
+    );
+
+    // Unbound help falls back to `/help`.
+    let no_help_key = CarouselKeys {
+        help: Vec::new(),
+        ..CarouselKeys::default()
+    };
+    let line: String = guidance_section(LandingGuidance::Tour, 1, &no_help_key, 78, &theme)[0]
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert_eq!(line, "See every shortcut with /help");
 }
 
 #[test]
 fn needs_provider_does_not_rotate() {
-    assert!(!EmptyStateGuidance::NeedsProvider.is_carousel());
+    assert!(!LandingGuidance::NeedsProvider.is_carousel());
+    assert!(!LandingGuidance::QuietWait.is_carousel());
+    assert!(
+        !LandingGuidance::Connecting {
+            label: "Connecting…".into()
+        }
+        .is_carousel()
+    );
+    assert!(LandingGuidance::Tour.is_carousel());
     let theme = Theme::default();
-    let lines = guidance_section(EmptyStateGuidance::NeedsProvider, 5, 78, &theme);
+    let keys = CarouselKeys::default();
+    let lines = guidance_section(LandingGuidance::NeedsProvider, 5, &keys, 78, &theme);
     assert_eq!(lines.len(), 2, "blocker + action only: {lines:?}");
 }
 
 #[test]
-fn parse_logo_truncates_wide_lines() {
-    let wide = "a".repeat(200);
-    let out = parse_logo(&wide).unwrap();
+fn parse_logo_truncates_by_display_width_including_wide_chars() {
+    let wide_ascii = "a".repeat(200);
+    let out = parse_logo(&wide_ascii).unwrap();
     assert_eq!(out.len(), 1);
-    assert_eq!(out[0].chars().count(), MAX_LOGO_COLS);
+    assert_eq!(out[0].width(), MAX_LOGO_COLS);
+
+    // Each CJK glyph occupies 2 terminal columns: 40 chars = 80 cols > MAX_LOGO_COLS (60).
+    let wide_cjk = "诺".repeat(40);
+    let out_cjk = parse_logo(&wide_cjk).unwrap();
+    assert_eq!(out_cjk.len(), 1);
+    assert!(
+        out_cjk[0].width() <= MAX_LOGO_COLS,
+        "wide CJK logo must clamp to display columns, got {}",
+        out_cjk[0].width()
+    );
+    assert_eq!(out_cjk[0].chars().count(), MAX_LOGO_COLS / 2);
 }
 
 #[test]
@@ -549,10 +644,56 @@ fn parse_logo_returns_none_for_empty_input() {
 }
 
 #[test]
+fn plan_hero_uses_display_width_for_wide_logos() {
+    // 10 CJK glyphs = 20 terminal display columns (even though chars().count() == 10).
+    let cjk_logo: Vec<&str> = vec!["诺诺诺诺诺诺诺诺诺诺"; 3];
+    let too_narrow = Rect::new(0, 0, 19, 10);
+    assert!(
+        !plan_hero(&cjk_logo, too_narrow, &LandingGuidance::Tour).show_logo,
+        "19 cols cannot fit a 20-col CJK logo without wrapping"
+    );
+    let exact = Rect::new(0, 0, 20, 10);
+    assert!(
+        plan_hero(&cjk_logo, exact, &LandingGuidance::Tour).show_logo,
+        "20 cols fits a 20-col CJK logo"
+    );
+}
+
+#[test]
+fn plan_hero_quiet_wait_adds_no_phantom_gap_row() {
+    let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
+    let exact = Rect::new(0, 0, 80, BUILTIN_LOGO.len() as u16);
+    let plan = plan_hero(&logo, exact, &LandingGuidance::QuietWait);
+    assert!(
+        plan.show_logo,
+        "QuietWait needs only logo_rows height, no phantom gap row"
+    );
+    assert_eq!(plan.total_rows(), BUILTIN_LOGO.len());
+
+    // Actual rendered row count must match plan.total_rows() exactly.
+    let mut terminal = graticule_canvas::TestTerminal::new(80, BUILTIN_LOGO.len() as u16);
+    let theme = Theme::default();
+    let keys = CarouselKeys::default();
+    let mut painted = 0;
+    terminal.draw(|f| {
+        painted = draw_landing_hero(
+            f,
+            f.area(),
+            None,
+            LandingGuidance::QuietWait,
+            0,
+            &keys,
+            &theme,
+        );
+    });
+    assert_eq!(painted, BUILTIN_LOGO.len());
+}
+
+#[test]
 fn plan_hero_shows_builtin_when_the_viewport_is_tall_enough() {
     let area = Rect::new(0, 0, 80, 24);
     let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
-    let plan = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
+    let plan = plan_hero(&logo, area, &LandingGuidance::Tour);
     assert!(plan.show_logo, "80×24 fits the built-in wordmark");
     assert_eq!(plan.logo_rows, BUILTIN_LOGO.len());
     assert_eq!(
@@ -563,58 +704,50 @@ fn plan_hero_shows_builtin_when_the_viewport_is_tall_enough() {
 
 #[test]
 fn plan_hero_drops_the_logo_when_the_viewport_is_too_short() {
-    // The full hero needs logo + gap + carousel; one row short must drop
-    // the art rather than clip it, leaving only the guidance line.
     let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
     let needed = BUILTIN_LOGO.len() + HERO_LOGO_GAP_ROWS + CAROUSEL_LINES;
     let short = Rect::new(0, 0, 80, (needed - 1) as u16);
-    let plan = plan_hero(&logo, short, &EmptyStateGuidance::Tour);
+    let plan = plan_hero(&logo, short, &LandingGuidance::Tour);
     assert!(!plan.show_logo, "too few rows → guidance only");
     assert_eq!(plan.logo_rows, 0);
     assert_eq!(plan.total_rows(), CAROUSEL_LINES);
 
     let exact = Rect::new(0, 0, 80, needed as u16);
     assert!(
-        plan_hero(&logo, exact, &EmptyStateGuidance::Tour).show_logo,
+        plan_hero(&logo, exact, &LandingGuidance::Tour).show_logo,
         "exactly enough rows shows the logo"
     );
 }
 
 #[test]
 fn plan_hero_drops_the_logo_when_the_viewport_is_too_narrow() {
-    // One column narrower than the art would wrap (deform) the wordmark.
     let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
     let area = Rect::new(0, 0, (BUILTIN_LOGO[0].len() - 1) as u16, 40);
-    let plan = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
+    let plan = plan_hero(&logo, area, &LandingGuidance::Tour);
     assert!(!plan.show_logo, "narrower than the art → guidance only");
     assert_eq!(plan.total_rows(), CAROUSEL_LINES);
 }
 
 #[test]
 fn plan_hero_enforces_the_minimum_logo_floor() {
-    // A mark below the floor (too narrow or too short) is dropped even on
-    // a roomy viewport — a speck is worse than no logo.
     let area = Rect::new(0, 0, 80, 24);
     let too_narrow: Vec<&str> = vec!["x", "x", "x"];
-    assert!(!plan_hero(&too_narrow, area, &EmptyStateGuidance::Tour).show_logo);
+    assert!(!plan_hero(&too_narrow, area, &LandingGuidance::Tour).show_logo);
 
     let too_short: Vec<&str> = vec!["xxxxxxxx", "xxxxxxxx"];
-    assert!(!plan_hero(&too_short, area, &EmptyStateGuidance::Tour).show_logo);
+    assert!(!plan_hero(&too_short, area, &LandingGuidance::Tour).show_logo);
 
     let just_enough: Vec<&str> = vec!["xxxxxxxx", "xxxxxxxx", "xxxxxxxx"];
-    assert!(plan_hero(&just_enough, area, &EmptyStateGuidance::Tour).show_logo);
+    assert!(plan_hero(&just_enough, area, &LandingGuidance::Tour).show_logo);
 }
 
 #[test]
 fn plan_hero_counts_the_blocker_as_two_rows() {
     let area = Rect::new(0, 0, 80, 24);
     let logo: Vec<&str> = BUILTIN_LOGO.to_vec();
-    let tour = plan_hero(&logo, area, &EmptyStateGuidance::Tour);
-    let needs = plan_hero(&logo, area, &EmptyStateGuidance::NeedsProvider);
-    assert_eq!(
-        guidance_line_count(&EmptyStateGuidance::Tour),
-        CAROUSEL_LINES
-    );
-    assert_eq!(guidance_line_count(&EmptyStateGuidance::NeedsProvider), 2);
+    let tour = plan_hero(&logo, area, &LandingGuidance::Tour);
+    let needs = plan_hero(&logo, area, &LandingGuidance::NeedsProvider);
+    assert_eq!(guidance_line_count(&LandingGuidance::Tour), CAROUSEL_LINES);
+    assert_eq!(guidance_line_count(&LandingGuidance::NeedsProvider), 2);
     assert_eq!(needs.total_rows(), tour.total_rows() + 1);
 }

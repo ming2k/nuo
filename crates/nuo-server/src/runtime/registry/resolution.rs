@@ -315,7 +315,7 @@ impl ThreadRegistry {
         let human_channel = Arc::new(nuo_protocol::human_request::HumanChannelAccountant::new());
         // The client-facing bus exists before Welcome: a build-phase event is
         // buffered for every attacher that subscribes during the claim window.
-        let (events_tx, _) = broadcast::channel::<AgentResponse>(1024);
+        let (events_tx, _) = broadcast::channel::<AgentResponse>(4096);
         // Defensive request buffer: a rogue client may send before `Ready`;
         // the build task drains this into the agent's inbox once it exists.
         let (client_tx, client_rx) = mpsc::channel::<AgentRequest>(SESSION_REQUEST_BUFFER);
@@ -356,6 +356,7 @@ impl ThreadRegistry {
             human_channel: human_channel.clone(),
             sync_buffer,
             latest_snapshot: Arc::new(Mutex::new(None)),
+            promoted: Arc::new(std::sync::OnceLock::new()),
             started_at: std::time::Instant::now(),
         });
         let phase_sink: crate::composition::bootstrap::PhaseSink = {
@@ -645,6 +646,11 @@ impl ThreadRegistry {
         // the snapshot remains authoritative for durable data and the client
         // follows it with live events.
         tokio::task::yield_now().await;
+        // Latch the promoted `HostedThread` before caching `latest_snapshot` or
+        // broadcasting `Ready`, so any `AttachHandle::Building` held by a
+        // connection immediately switches to live snapshot reads on lag or
+        // re-subscribe instead of replaying a frozen attach-time copy.
+        let _ = pending.promoted.set(Arc::downgrade(&hosted));
         let snapshot = crate::transport::serve::build_full_session_snapshot(&hosted).await;
         *pending.latest_snapshot.lock().await = Some(snapshot.clone());
         self.publish(MonitorEvent::ThreadAdded(hosted.tracker.lock().await.row()))

@@ -33,27 +33,16 @@ fn format_reconnecting_label(
     }
 }
 
-/// Select the lifecycle status-bar override for the current frame, if any.
-///
-/// Priority (ADR-0260 `[INV-SRVPHASE-05]`):
-/// 1. Client transport phase (`Connecting` after 120ms hysteresis,
-///    `Reconnecting` / `Failed` immediately) or dead link latch.
-/// 2. Non-`Ready` server lifecycle phase (`Initializing` after 120ms
-///    hysteresis; `Reloading`, `Draining`, `Failed` immediately).
-/// 3. Explicit user-initiated thread switch/resume — composed with the live
-///    [`nuo_protocol::ThreadPhase`].
-/// 4. Non-`Ready` foreground thread phase (`Preparing` after 120ms hysteresis;
-///    `Failed` immediately).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn select_lifecycle_status(
+/// Select the client/server-level lifecycle status override, independent of
+/// any thread. Shared by both the thread activity strip and fullscreen scenes
+/// (`Dashboard`, `Settings`, `CommandLog`, `Diff`) so server degradation stays
+/// observable everywhere.
+pub(crate) fn select_server_lifecycle_status(
     link_down: bool,
     link_phase: &ClientLinkPhase,
     link_phase_elapsed: std::time::Duration,
     server_phase: &nuo_protocol::ServerPhase,
     server_phase_elapsed: std::time::Duration,
-    switching_session: Option<&str>,
-    session_phase: &nuo_protocol::ThreadPhase,
-    thread_phase_elapsed: std::time::Duration,
 ) -> Option<String> {
     match link_phase {
         ClientLinkPhase::Connecting { label } => {
@@ -80,8 +69,47 @@ pub(crate) fn select_lifecycle_status(
     if let Some(server_status) = render::server_phase_status(server_phase) {
         let is_transient = matches!(server_phase, nuo_protocol::ServerPhase::Initializing { .. });
         if !is_transient || server_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
-            return Some(server_status.to_string());
+            return Some(server_status);
         }
+        return None;
+    }
+    None
+}
+
+/// Select the lifecycle status-bar override for the current frame, if any.
+///
+/// Priority (ADR-0260 `[INV-SRVPHASE-05]`):
+/// 1. Client transport phase (`Connecting` after 120ms hysteresis,
+///    `Reconnecting` / `Failed` immediately) or dead link latch.
+/// 2. Non-`Ready` server lifecycle phase (`Initializing` after 120ms
+///    hysteresis; `Reloading`, `Draining`, `Failed` immediately).
+/// 3. Explicit user-initiated thread switch/resume — composed with the live
+///    [`nuo_protocol::ThreadPhase`].
+/// 4. Non-`Ready` foreground thread phase (`Preparing` after 120ms hysteresis;
+///    `Failed` immediately).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn select_lifecycle_status(
+    link_down: bool,
+    link_phase: &ClientLinkPhase,
+    link_phase_elapsed: std::time::Duration,
+    server_phase: &nuo_protocol::ServerPhase,
+    server_phase_elapsed: std::time::Duration,
+    switching_session: Option<&str>,
+    session_phase: &nuo_protocol::ThreadPhase,
+    thread_phase_elapsed: std::time::Duration,
+) -> Option<String> {
+    if let Some(status) = select_server_lifecycle_status(
+        link_down,
+        link_phase,
+        link_phase_elapsed,
+        server_phase,
+        server_phase_elapsed,
+    ) {
+        return Some(status);
+    }
+    if matches!(link_phase, ClientLinkPhase::Connecting { .. })
+        || matches!(server_phase, nuo_protocol::ServerPhase::Initializing { .. })
+    {
         return None;
     }
     if let Some(target) = switching_session {
@@ -96,7 +124,60 @@ pub(crate) fn select_lifecycle_status(
     None
 }
 
-/// Select the empty-state hero guidance for the foreground thread.
+/// Whether at least one usable LLM provider connection is ready (or the
+/// startup `ProviderPickerSnapshot` has not landed yet).
+///
+/// Distinguishes "not synced yet" (`picker_synced == false` → suppress false
+/// blocker flash) from "synced with zero connections" (`picker_synced == true`
+/// and `rows.is_empty()` → `false`, surfacing `LandingGuidance::NeedsProvider`).
+pub(crate) fn has_keyed_provider(
+    picker_synced: bool,
+    picker: &nuo_protocol::ProviderPickerSnapshot,
+    key_status: &std::collections::HashMap<String, bool>,
+) -> bool {
+    if !picker_synced {
+        return true;
+    }
+    picker
+        .rows
+        .iter()
+        .any(|row| key_status.get(&row.id).copied().unwrap_or(row.key_ready))
+}
+
+/// Project live keybinding strings for the project-level landing capability
+/// carousel from the shell's active overrides.
+pub(crate) fn project_carousel_keys(
+    key_overrides: &crate::shell::keymap::GlobalOverrides,
+    surface_overrides: &crate::shell::keymap::SurfaceOverrides,
+) -> render::CarouselKeys {
+    use crate::shell::keymap::{CommandId, Key, SurfaceVerb, resolve_global_key_with};
+
+    let mut help = Vec::new();
+    if let Some(primary) = key_overrides.effective_binding(CommandId::OpenHelp) {
+        help.push(primary.display().to_string());
+        if resolve_global_key_with(Key::ALT_H, key_overrides) == Some(CommandId::OpenHelp)
+            && primary != Key::ALT_H
+        {
+            help.push(Key::ALT_H.display().to_string());
+        }
+    }
+    let history_search = Some(
+        surface_overrides
+            .effective_binding(SurfaceVerb::OpenHistory)
+            .display()
+            .to_string(),
+    );
+    let command_palette = key_overrides
+        .effective_binding(CommandId::CommandPalette)
+        .map(|k| k.display().to_string());
+    render::CarouselKeys {
+        help,
+        history_search,
+        command_palette,
+    }
+}
+
+/// Select the project-level landing hero guidance.
 ///
 /// Priority (ADR-0260 `[INV-SRVPHASE-05]`):
 /// 1. Client transport non-connected phase (`Connecting` uses 120ms
@@ -107,9 +188,9 @@ pub(crate) fn select_lifecycle_status(
 /// 3. Explicit user-initiated thread switch/resume (`ResumingThread`).
 /// 4. Non-`Ready` foreground thread phase (`Preparing` uses 120ms `QuietWait`
 ///    hysteresis; `Failed` surfaces immediately).
-/// 5. Ready thread: rotating capability tour or `NeedsProvider` setup blocker.
+/// 5. Ready workspace: rotating capability tour or `NeedsProvider` setup blocker.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn select_empty_state_guidance(
+pub(crate) fn select_landing_guidance(
     link_phase: &ClientLinkPhase,
     link_phase_elapsed: std::time::Duration,
     server_phase: &nuo_protocol::ServerPhase,
@@ -118,15 +199,15 @@ pub(crate) fn select_empty_state_guidance(
     session_phase: &nuo_protocol::ThreadPhase,
     thread_phase_elapsed: std::time::Duration,
     has_keyed_provider: bool,
-) -> render::EmptyStateGuidance {
+) -> render::LandingGuidance {
     match link_phase {
         ClientLinkPhase::Connecting { label } => {
             return if link_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
-                render::EmptyStateGuidance::Connecting {
+                render::LandingGuidance::Connecting {
                     label: label.clone(),
                 }
             } else {
-                render::EmptyStateGuidance::QuietWait
+                render::LandingGuidance::QuietWait
             };
         }
         ClientLinkPhase::Reconnecting {
@@ -135,12 +216,12 @@ pub(crate) fn select_empty_state_guidance(
             max_attempts,
             delay_ms,
         } => {
-            return render::EmptyStateGuidance::Connecting {
+            return render::LandingGuidance::Connecting {
                 label: format_reconnecting_label(endpoint, *attempt, *max_attempts, *delay_ms),
             };
         }
         ClientLinkPhase::Failed { message } => {
-            return render::EmptyStateGuidance::ServerPhase(nuo_protocol::ServerPhase::Failed {
+            return render::LandingGuidance::ServerPhase(nuo_protocol::ServerPhase::Failed {
                 code: None,
                 message: message.clone(),
             });
@@ -151,29 +232,71 @@ pub(crate) fn select_empty_state_guidance(
     if !server_phase.admits_work() {
         let is_transient = matches!(server_phase, nuo_protocol::ServerPhase::Initializing { .. });
         return if !is_transient || server_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
-            render::EmptyStateGuidance::ServerPhase(server_phase.clone())
+            render::LandingGuidance::ServerPhase(server_phase.clone())
         } else {
-            render::EmptyStateGuidance::QuietWait
+            render::LandingGuidance::QuietWait
         };
     }
 
     if let Some(target) = switching_session {
-        render::EmptyStateGuidance::ResumingThread {
+        render::LandingGuidance::ResumingThread {
             short_id: target.to_string(),
             phase: session_phase.clone(),
         }
     } else if *session_phase != nuo_protocol::ThreadPhase::Ready {
         let is_transient = matches!(session_phase, nuo_protocol::ThreadPhase::Preparing { .. });
         if !is_transient || thread_phase_elapsed >= TRANSIENT_WAIT_HYSTERESIS {
-            render::EmptyStateGuidance::ThreadPhase(session_phase.clone())
+            render::LandingGuidance::ThreadPhase(session_phase.clone())
         } else {
-            render::EmptyStateGuidance::QuietWait
+            render::LandingGuidance::QuietWait
         }
     } else if has_keyed_provider {
-        render::EmptyStateGuidance::Tour
+        render::LandingGuidance::Tour
     } else {
-        render::EmptyStateGuidance::NeedsProvider
+        render::LandingGuidance::NeedsProvider
     }
+}
+
+/// Project [`render::LandingGuidance`] directly from live `App` state.
+/// Shared by both the render pass and the event-loop carousel wake gate so
+/// both always agree on whether the tour is actively rotating.
+pub(crate) fn project_landing_guidance(app: &App) -> render::LandingGuidance {
+    let provider_ready = has_keyed_provider(
+        app.surfaces.provider_picker_synced,
+        &app.surfaces.provider_picker,
+        &app.surfaces.key_status,
+    );
+    select_landing_guidance(
+        &app.link.phase,
+        app.link.phase_since.elapsed(),
+        &app.session.server_phase,
+        app.session.server_phase_since.elapsed(),
+        app.session.switching_session.as_deref(),
+        &app.threads.session_phase,
+        app.session.thread_phase_since.elapsed(),
+        provider_ready,
+    )
+}
+
+/// Whether the project-level landing capability carousel is visibly rotating
+/// on screen right now. Gates both the 8-second wake timer and slide-boundary
+/// redraws so fullscreen scenes, overlays, startup gates, and non-rotating
+/// guidance states never incur idle repaints.
+pub(crate) fn project_carousel_active(app: &App) -> bool {
+    if app.surfaces.pre_attach.is_some()
+        || (app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+            && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Threads))
+    {
+        return false;
+    }
+    if app.current_scene() != SceneKind::Thread || app.surfaces.surfaces.active_overlay().is_some()
+    {
+        return false;
+    }
+    if !app.focused_messages().is_empty() || !app.threads.focus_stack.is_empty() {
+        return false;
+    }
+    project_landing_guidance(app).is_carousel()
 }
 
 /// Project one thread scene container's transient live activity or unseen

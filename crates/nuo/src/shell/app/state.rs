@@ -473,6 +473,11 @@ pub struct SurfacesState {
     /// / last-used). Drives the `/models` and `/connections` pickers' rendering
     /// and sort order. Refreshed from the response listener each frame.
     pub provider_picker: ProviderPickerSnapshot,
+    /// Whether the server has delivered at least one authoritative
+    /// `ProviderPickerSnapshot`. Distinguishes "startup snapshot not received
+    /// yet" (suppress false setup warning) from "synced with zero connections"
+    /// (surface `LandingGuidance::NeedsProvider`).
+    pub provider_picker_synced: bool,
     /// Theme.
     pub theme: Theme,
     /// Terminal capability profile (ADR-0053).

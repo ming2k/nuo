@@ -423,7 +423,10 @@ fn repair(
     }
     let durable = journal.durable_seq();
     match journal.load() {
-        Ok(Some(full)) => {
+        Ok(Some(mut full)) => {
+            if let Some(blob_store) = writer.blob_store() {
+                crate::thread::rehydrate_text_blobs_for_projection(&mut full, blob_store);
+            }
             let guard = CommitGuard {
                 operation_id: Some(uuid::Uuid::new_v4().to_string()),
                 expected_revision: None,

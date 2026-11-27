@@ -2376,3 +2376,219 @@ async fn context_projection_directives_survive_reopen_without_mutating_facts() {
     assert_eq!(full[0].images.as_ref().map(Vec::len), Some(2));
     assert!(full[1].content.starts_with("huge tool body"));
 }
+
+/// Regression test: fact-free delta commits (`set_todos` and
+/// `commit_context_projection`) must NEVER blank out or rewind
+/// `thread_branches.head_fact_id` in the SQLite content shard, which would
+/// otherwise sever the `causal_nodes` parent chain for subsequent turns and
+/// truncate earlier transcript history on shard reads.
+#[tokio::test]
+async fn set_todos_and_context_projection_never_sever_content_shard_lineage() {
+    let dir = temp_dir("shard-lineage-todos-prune");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path);
+    let session_id = store.id().await;
+
+    // Round 1: initial turn + tool result.
+    let mut tool_msg = Message::new(Role::Tool, "large tool output ".repeat(50));
+    tool_msg.tool_call_id = Some("call-r1".to_string());
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("round-1-prompt"),
+            assistant("round-1-reply"),
+            tool_msg.clone(),
+        ]))
+        .await
+        .unwrap();
+
+    // Interleave `set_todos` (State-only delta).
+    let mut todos = nuo_tool::TodoList::default();
+    todos.reconcile(
+        &[("verify lineage".into(), nuo_tool::TodoStatus::InProgress)],
+        0,
+        0,
+    );
+    store.set_todos(todos).await.unwrap();
+
+    // Round 2: another turn after `set_todos`.
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("round-2-prompt"),
+            assistant("round-2-reply"),
+        ]))
+        .await
+        .unwrap();
+
+    // Interleave `commit_context_projection` (directive-only delta, zero entries).
+    let mut projected = store.model_window().await;
+    projected[2].content = "[tool output elided]".to_string();
+    store
+        .commit_context_projection(ContextProjectionResult {
+            model_window: projected,
+            archived_originals: vec![tool_msg],
+            checkpoint: ContextProjectionCheckpoint {
+                operation: ContextProjectionKind::Prune,
+                archived_messages: 1,
+                active_messages: 5,
+                window_tokens_before: 400,
+                window_tokens_after: 100,
+                summary: None,
+                tracked_files: Vec::new(),
+            },
+        })
+        .await
+        .unwrap();
+
+    // Round 3: another turn after `commit_context_projection`.
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("round-3-prompt"),
+            assistant("round-3-reply"),
+        ]))
+        .await
+        .unwrap();
+
+    // Wait for all async shard projections to land.
+    store.flush_projection().await.unwrap();
+
+    // Read directly from SQLite catalog + content shard (bypassing the journal)
+    // to prove `causal_nodes` has one unbroken parent chain back to round 1.
+    let reader = store.writer.reader().unwrap();
+    let shard_data = reader
+        .load_session_full(&session_id)
+        .unwrap()
+        .expect("session must exist in SQLite content shard");
+    let contents: Vec<String> = shard_data
+        .transcript
+        .conversation_messages()
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    for expected in [
+        "round-1-prompt",
+        "round-1-reply",
+        "round-2-prompt",
+        "round-2-reply",
+        "round-3-prompt",
+        "round-3-reply",
+    ] {
+        assert!(
+            contents.iter().any(|c| c == expected),
+            "content shard lineage lost `{expected}` after set_todos/prune; got: {contents:?}"
+        );
+    }
+
+    // Also verify after compaction -> turn -> set_todos -> turn: `head_fact_id`
+    // must never rewind to the compaction fact and orphan turns between them.
+    let mut thread = store.thread().await;
+    let branch = thread.state.active_branch.clone();
+    let live = thread.live_path(&branch).unwrap();
+    let kept = live[live.len() - 2].id.clone();
+    thread
+        .compact(&branch, "compact summary", kept, 1000, 9999)
+        .unwrap();
+    store.commit_thread(&thread).await.unwrap();
+
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("round-4-after-compact"),
+            assistant("reply-4-after-compact"),
+        ]))
+        .await
+        .unwrap();
+    store
+        .set_todos(nuo_tool::TodoList::default())
+        .await
+        .unwrap();
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("round-5-after-todos"),
+            assistant("reply-5-after-todos"),
+        ]))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+
+    let shard_after = reader
+        .load_session_full(&session_id)
+        .unwrap()
+        .expect("session must exist in SQLite content shard after compaction");
+    let contents_after: Vec<String> = shard_after
+        .transcript
+        .conversation_messages()
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    for expected in [
+        "round-1-prompt",
+        "round-2-prompt",
+        "round-3-prompt",
+        "round-4-after-compact",
+        "round-5-after-todos",
+    ] {
+        assert!(
+            contents_after.iter().any(|c| c == expected),
+            "content shard lineage lost `{expected}` after compact+turn+set_todos+turn; got: {contents_after:?}"
+        );
+    }
+}
+
+/// Regression test: incremental delta commits on a forked branch whose local
+/// transcript seq overlaps sibling branch facts in `causal_nodes` must
+/// renumber cleanly on the content shard instead of failing `UNIQUE(thread_id, seq)`.
+#[tokio::test]
+async fn forked_branch_delta_commits_preserve_full_lineage_in_content_shard() {
+    let dir = temp_dir("shard-fork-seq-renumber");
+    let path = dir.join("session.json");
+    let store = ThreadSession::for_path(path);
+    let session_id = store.id().await;
+
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("r1-common"),
+            assistant("a1-common"),
+        ]))
+        .await
+        .unwrap();
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("r2-main-only"),
+            assistant("a2-main-only"),
+        ]))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+
+    // Fork at round 1: branch starts with 2 facts while main has 4 facts in the shard.
+    store
+        .fork_at_branch(ForkTarget::Round(1), "alt")
+        .await
+        .unwrap();
+
+    // Commit a new turn on the forked branch (delta seq would collide with main's seq 3..4).
+    store
+        .commit_turn(CommitTurn::new(&[
+            user("r2-alt-branch"),
+            assistant("a2-alt-branch"),
+        ]))
+        .await
+        .unwrap();
+    store.flush_projection().await.unwrap();
+
+    let reader = store.writer.reader().unwrap();
+    let shard_data = reader
+        .load_session_full(&session_id)
+        .unwrap()
+        .expect("forked session must load from SQLite content shard");
+    let contents: Vec<String> = shard_data
+        .transcript
+        .conversation_messages()
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    assert_eq!(
+        contents,
+        vec!["r1-common", "a1-common", "r2-alt-branch", "a2-alt-branch"],
+        "forked branch delta must preserve full common prefix + branch tail without seq collision"
+    );
+}

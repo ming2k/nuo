@@ -36,6 +36,7 @@ fn dashboard_head_renders_the_shared_three_tier_band() {
                 usage_report: None,
                 usage_loading: false,
                 usage_scroll: 0,
+                lifecycle_status: None,
             },
             &theme,
         );

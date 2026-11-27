@@ -544,6 +544,7 @@ mod tests {
             profile: &profile,
             tui_config: &tui_config,
             tab_bar: None,
+            lifecycle_status: None,
         };
 
         term.draw(|f| {
@@ -598,6 +599,7 @@ mod tests {
             profile: &profile,
             tui_config: &tui_config,
             tab_bar: None,
+            lifecycle_status: None,
         };
 
         term.draw(|f| {
@@ -646,6 +648,7 @@ mod tests {
             profile: &profile,
             tui_config: &tui_config,
             tab_bar: None,
+            lifecycle_status: None,
         };
 
         term.draw(|f| {

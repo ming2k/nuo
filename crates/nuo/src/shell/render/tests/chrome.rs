@@ -65,9 +65,6 @@ fn redesigned_components_render_without_panicking() {
                         hovered_step: None,
                         focused_entry: None,
                         focus_plane: crate::shell::render::FocusPlane::Composer,
-                        logo: None,
-                        guidance: EmptyStateGuidance::Tour,
-                        carousel_index: 0,
                         theme: &theme,
                         layout: nuo_view::layout::Strategy::default(),
                         height_cache: None,
@@ -393,6 +390,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
+                lifecycle_status: None,
             },
         );
     });
@@ -428,6 +426,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
                 profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
+                lifecycle_status: None,
             },
         );
     });
@@ -466,6 +465,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
                 profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
+                lifecycle_status: None,
             },
         );
     });
@@ -567,6 +567,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
                         profile: &graticule::TerminalProfile::direct_color(),
                         tui_config: &tui_config,
                         tab_bar: Some(test_tab_bar()),
+                        lifecycle_status: None,
                     },
                 );
             });
@@ -616,6 +617,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 profile: &direct_profile,
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
+                lifecycle_status: None,
             },
         );
     });
@@ -654,6 +656,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
                 profile: &mono_profile,
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
+                lifecycle_status: None,
             },
         );
     });
@@ -706,6 +709,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
                     profile: &graticule::TerminalProfile::direct_color(),
                     tui_config,
                     tab_bar: Some(test_tab_bar()),
+                    lifecycle_status: None,
                 },
             );
         });
@@ -803,6 +807,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
                 profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
+                lifecycle_status: None,
             },
         );
     });
@@ -876,6 +881,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
                     profile: &graticule::TerminalProfile::direct_color(),
                     tui_config: &tui_config,
                     tab_bar: Some(test_tab_bar()),
+                    lifecycle_status: None,
                 },
             );
         });
@@ -921,6 +927,7 @@ fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
                 profile: &graticule::TerminalProfile::direct_color(),
                 tui_config: &tui_config,
                 tab_bar: Some(test_tab_bar()),
+                lifecycle_status: None,
             },
         );
         selected_rect = rects.selected_row_rect;
@@ -976,9 +983,6 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: crate::shell::render::FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme: &theme,
                     layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,
@@ -1005,7 +1009,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
 /// When the terminal is resized below the usable minimum,
 /// `draw_transcript` must not render the normal UI (which would underflow
 /// the footer layout math). Instead it hides everything, shows a centered
-/// "terminal too small" notice, and returns a zeroed `TranscriptRender` so
+/// "terminal too small" notice, and returns a zeroed `StageRender` so
 /// the app loop draws no chrome over it.
 #[test]
 fn too_small_terminal_shows_notice_and_zeroed_render() {
@@ -1013,7 +1017,7 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
     let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
 
     let mut terminal = graticule::TestTerminal::new(20, 8);
-    let mut render_opt: Option<TranscriptRender> = None;
+    let mut render_opt: Option<StageRender> = None;
     terminal.draw(|f| {
         render_opt = Some(draw_transcript(
             f,
@@ -1044,9 +1048,6 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -1109,28 +1110,21 @@ fn draw_too_small_paints_the_frozen_notice_only() {
 /// place of the stream: `content_lines` is non-zero (so the app loop does
 /// not treat it as a zero-height stream) and the call does not panic.
 #[test]
-fn empty_session_renders_empty_state_with_nonzero_height() {
+fn project_landing_renders_hero_with_nonzero_height_and_no_transcript_wash() {
     let theme = Theme::default();
+    let keys = CarouselKeys::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
-    let messages: Vec<TranscriptMessage> = Vec::new();
 
-    let mut render_opt: Option<TranscriptRender> = None;
+    let mut render_opt: Option<StageRender> = None;
     terminal.draw(|f| {
-        let mut layout_map = LayoutMap::new();
-        render_opt = Some(draw_transcript(
+        render_opt = Some(draw_project_landing(
             f,
-            &mut layout_map,
-            TranscriptProps {
-                messages: &messages,
-                scroll: 0,
-                selection: &SelectionState::None,
-                cell_selection: None,
-                backoff: None,
+            ProjectLandingProps {
                 activity: "idle",
+                backoff: None,
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
                     blocked: false,
@@ -1138,36 +1132,35 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                 },
                 tasks_bar: Default::default(),
                 interrupt_key: None,
-                subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
                 thread_context: None,
                 round_started_at: None,
-                hovered_step: None,
-                focused_entry: None,
-                focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: None,
-                guidance: EmptyStateGuidance::Tour,
+                guidance: LandingGuidance::Tour,
                 carousel_index: 0,
+                carousel_keys: &keys,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
-                height_cache: None,
             },
         ));
     });
-    let render = render_opt.expect("draw_transcript must return a render");
+    let render = render_opt.expect("draw_project_landing must return a render");
 
-    // The empty-state hero replaces the transcript; it occupies the logo
-    // rows plus a gap, never zero, so scroll-follow logic stays honest.
     assert!(
         render.content_lines > 0,
-        "empty state should report non-zero content_lines"
+        "project landing should report non-zero content_lines"
     );
-    assert!(render.sticky.is_none(), "no sticky header on empty state");
+    assert!(
+        render.sticky.is_none(),
+        "no sticky header on project landing"
+    );
     assert!(
         render.view_height > 0,
         "view_height should reflect the viewport, not be zero"
     );
+    // Project landing body paints on base theme surface, never lifted wash.
+    let cell = terminal.buffer().get(0, 0).expect("cell (0,0)");
+    assert_eq!(cell.bg(), theme.surface());
 }
 
 /// A non-empty session skips the empty-state branch entirely — the hero
@@ -1178,7 +1171,7 @@ fn nonempty_session_does_not_render_empty_state() {
     let mut terminal = graticule::TestTerminal::new(80, 24);
     let messages = vec![TranscriptMessage::new(nuo_tool::Role::User, "hello")];
 
-    let mut render_opt: Option<TranscriptRender> = None;
+    let mut render_opt: Option<StageRender> = None;
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
         render_opt = Some(draw_transcript(
@@ -1210,9 +1203,6 @@ fn nonempty_session_does_not_render_empty_state() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -1236,10 +1226,9 @@ fn nonempty_session_does_not_render_empty_state() {
 /// reported lines (3 + blank gap + carousel page), distinct from the
 /// built-in wordmark's height.
 #[test]
-fn empty_session_uses_user_logo_and_reports_its_height() {
+fn project_landing_uses_user_logo_and_reports_its_height() {
     let theme = Theme::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
-    let messages: Vec<TranscriptMessage> = Vec::new();
     // Three 9-column lines → reported content is 3 + 1 (gap) + 1 (carousel) = 5.
     let logo: Vec<String> = vec![
         "NN     NN".to_string(),
@@ -1247,23 +1236,17 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
         "NN     NN".to_string(),
     ];
 
-    let mut render_opt: Option<TranscriptRender> = None;
+    let mut render_opt: Option<StageRender> = None;
+    let keys = CarouselKeys::default();
     terminal.draw(|f| {
-        let mut layout_map = LayoutMap::new();
-        render_opt = Some(draw_transcript(
+        render_opt = Some(draw_project_landing(
             f,
-            &mut layout_map,
-            TranscriptProps {
-                messages: &messages,
-                scroll: 0,
-                selection: &SelectionState::None,
-                cell_selection: None,
+            ProjectLandingProps {
                 backoff: None,
                 activity: "idle",
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
                     blocked: false,
@@ -1271,24 +1254,19 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                 },
                 tasks_bar: Default::default(),
                 interrupt_key: None,
-                subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
                 thread_context: None,
                 round_started_at: None,
-                hovered_step: None,
-                focused_entry: None,
-                focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: Some(&logo),
-                guidance: EmptyStateGuidance::Tour,
+                guidance: LandingGuidance::Tour,
                 carousel_index: 0,
+                carousel_keys: &keys,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
-                height_cache: None,
             },
         ));
     });
-    let render = render_opt.expect("draw_transcript must return a render");
+    let render = render_opt.expect("draw_project_landing must return a render");
 
     // 3 logo lines + 1 blank gap + 1 carousel page = 5.
     assert_eq!(
@@ -1412,25 +1390,19 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
 /// The empty-state tour renders the current carousel page beneath the
 /// logo — no static tagline, no dot indicator.
 #[test]
-fn empty_state_tour_renders_the_current_carousel_page() {
+fn project_landing_tour_renders_the_current_carousel_page() {
     let theme = Theme::default();
+    let keys = CarouselKeys::default();
     let mut terminal = graticule::TestTerminal::new(80, 24);
-    let messages: Vec<TranscriptMessage> = Vec::new();
     terminal.draw(|f| {
-        let _ = draw_transcript(
+        let _ = draw_project_landing(
             f,
-            &mut LayoutMap::new(),
-            TranscriptProps {
-                messages: &messages,
-                scroll: 0,
-                selection: &SelectionState::None,
-                cell_selection: None,
-                backoff: None,
+            ProjectLandingProps {
                 activity: "",
+                backoff: None,
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
                     blocked: false,
@@ -1438,20 +1410,15 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 },
                 tasks_bar: Default::default(),
                 interrupt_key: None,
-                subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
                 thread_context: None,
                 round_started_at: None,
-                hovered_step: None,
-                focused_entry: None,
-                focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: None,
-                guidance: EmptyStateGuidance::Tour,
+                guidance: LandingGuidance::Tour,
                 carousel_index: 3,
+                carousel_keys: &keys,
                 theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
-                height_cache: None,
             },
         );
     });
@@ -1520,9 +1487,6 @@ fn h1_underline_clamps_to_text_extent() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -1618,9 +1582,6 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -1701,9 +1662,6 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,

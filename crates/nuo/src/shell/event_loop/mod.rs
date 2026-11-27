@@ -293,13 +293,14 @@ fn drain_background_channels(
 const SMOOTH_ANIMATION_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
 
 /// How long the loop may sleep before it must wake to service animation or a
-/// toast/notice/escape timeout. `empty_state_showing` adds the carousel slide
-/// boundary so the empty state advances on time even while otherwise idle.
+/// toast/notice/escape timeout. `carousel_active` adds the carousel slide
+/// boundary so the project landing tour advances on time only while visibly
+/// rotating.
 fn next_poll_interval(
     app: &App,
     animating: bool,
     smooth_animating: bool,
-    empty_state_showing: bool,
+    carousel_active: bool,
     frame_wait: Option<std::time::Duration>,
 ) -> std::time::Duration {
     // Ordinary animations (10Hz breathing dot) wake every 100ms; smooth TabBar
@@ -384,10 +385,10 @@ fn next_poll_interval(
         }
     }
 
-    // Empty-state carousel: sleep until the next slide boundary (up to
-    // CAROUSEL_SLIDE_SECS).
-    if empty_state_showing {
-        let slide_ms = (nuo_view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
+    // Project landing carousel: sleep until the next slide boundary only while
+    // the rotating tour is actually visible on screen.
+    if carousel_active {
+        let slide_ms = (nuo_view::landing::CAROUSEL_SLIDE_SECS as u128) * 1000;
         let elapsed_ms = app.viewport.carousel_epoch.elapsed().as_millis();
         let rem_ms = slide_ms.saturating_sub(elapsed_ms % slide_ms);
         next_timeout = next_timeout.min(std::time::Duration::from_millis((rem_ms as u64).max(50)));
@@ -617,11 +618,15 @@ pub(crate) async fn run_app_loop(
             app.threads.scroll = app.threads.max_scroll;
         }
 
-        let empty_state_showing =
-            app.focused_messages().is_empty() && app.threads.focus_stack.is_empty();
-        if empty_state_showing {
-            let current_carousel_index = nuo_view::empty_state::carousel_page_for(
+        let carousel_active = render::project_carousel_active(app);
+        if carousel_active {
+            let carousel_keys = render::project_carousel_keys(
+                &app.surfaces.key_overrides,
+                &app.surfaces.surface_overrides,
+            );
+            let current_carousel_index = nuo_view::landing::carousel_page_for(
                 app.viewport.carousel_epoch.elapsed().as_millis(),
+                &carousel_keys,
             );
             if current_carousel_index != last_carousel_index {
                 last_carousel_index = current_carousel_index;
@@ -785,7 +790,7 @@ pub(crate) async fn run_app_loop(
             None
         };
         let poll_interval =
-            next_poll_interval(app, animating, tab_live, empty_state_showing, frame_wait);
+            next_poll_interval(app, animating, tab_live, carousel_active, frame_wait);
 
         tokio::select! {
             biased;

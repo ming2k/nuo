@@ -317,15 +317,30 @@ impl ThreadSession {
             let old_entries_len = state.data.transcript.entries.len();
             let mut children = Vec::new();
             if !commit.appended.is_empty() {
+                let mut last_appended_id: Option<String> = None;
                 for message in commit.appended {
-                    state
-                        .data
-                        .transcript
-                        .push(nuo_protocol::TranscriptEntry::from_message(0, message));
+                    let entry = nuo_protocol::TranscriptEntry::from_message(0, message);
+                    let valid_fact = !(message.role == Role::Tool
+                        && message
+                            .tool_call_id
+                            .as_deref()
+                            .is_none_or(|id| id.trim().is_empty()));
+                    if valid_fact {
+                        last_appended_id = Some(entry.id.clone());
+                    }
+                    state.data.transcript.push(entry);
                 }
                 children = admit_subagent_children(&mut state.data, commit.appended);
                 state.append_to_projection_cache(commit.appended);
-                state.data.updated_at = unix_timestamp();
+                let now = unix_timestamp();
+                let data = &mut state.data;
+                data.updated_at = now;
+                if let Some(head_id) = last_appended_id
+                    && let Some(branch) = data.branches.get_mut(&data.active_branch)
+                {
+                    branch.head = Some(nuo_protocol::FactId::from_raw(head_id));
+                    branch.updated_at_ms = now.saturating_mul(1000);
+                }
             }
 
             // 2. Round counter.

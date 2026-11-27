@@ -81,9 +81,6 @@ fn subagent_view_groups_children_into_turn_bands() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -188,9 +185,6 @@ fn subagent_step_and_view_render_without_panicking() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -253,9 +247,6 @@ fn subagent_step_and_view_render_without_panicking() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -369,9 +360,6 @@ fn height_cache_skip_path_matches_full_layout() {
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: crate::shell::render::FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme: &theme,
                     layout: nuo_view::layout::Strategy::default(),
                     height_cache: Some(cache),
@@ -479,9 +467,6 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: crate::shell::render::FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme: &theme,
                     layout: nuo_view::layout::Strategy::default(),
                     height_cache: Some(cache),
@@ -547,7 +532,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     }];
 
     let mut terminal = graticule::TestTerminal::new(80, 30);
-    let mut render_opt: Option<TranscriptRender> = None;
+    let mut render_opt: Option<StageRender> = None;
     terminal.draw(|f| {
         render_opt = Some(draw_transcript(
             f,
@@ -578,9 +563,6 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,
@@ -848,9 +830,6 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: crate::shell::render::FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme: &theme,
                     layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,

@@ -696,8 +696,9 @@ fn is_zero_u64(v: &u64) -> bool {
     *v == 0
 }
 
-/// Maximum wire frame payload length: 16 MB.
-pub const MAX_WIRE_FRAME_SIZE: usize = 16 * 1024 * 1024;
+/// Maximum wire frame payload length: 64 MiB (aligned with WebSocket's 64 MiB
+/// default ceiling so long hydrated transcripts never fail native IPC framing).
+pub const MAX_WIRE_FRAME_SIZE: usize = 64 * 1024 * 1024;
 
 /// One successfully de-framed item read off a wire stream.
 ///

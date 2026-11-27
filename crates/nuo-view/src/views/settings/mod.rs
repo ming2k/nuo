@@ -219,6 +219,9 @@ pub struct SettingsProps<'a> {
     /// Client-global TabBar projection (ADR-0039, ADR-0060, ADR-0062).
     /// Tier 1 of the head band, carrying open tabs and active tab selection.
     pub tab_bar: Option<TabBarProps<'a>>,
+    /// Client/server lifecycle warning (reconnecting, draining, failed, link lost),
+    /// surfaced in Tier 2 `SceneBar` so server degradation stays visible in Settings.
+    pub lifecycle_status: Option<&'a str>,
 }
 
 /// Draw the full-screen Settings View.
@@ -256,11 +259,15 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     };
 
     // 2. Tier 2: Polymorphic SceneBar (ADR-0062)
+    let (scene_context, scene_warn) = match props.lifecycle_status {
+        Some(status) => (Some(status), true),
+        None => (props.breadcrumbs.map(str::trim), false),
+    };
     let view_hints = ViewHints {
         kind: ViewKind::Settings,
         role: None,
-        context: props.breadcrumbs.map(str::trim),
-        context_warn: false,
+        context: scene_context,
+        context_warn: scene_warn,
         breadcrumbs: None,
         can_back: false,
         can_forward: false,

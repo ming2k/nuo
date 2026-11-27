@@ -112,7 +112,6 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
         QueueBarProps, TabBarProps, ThreadContext, TranscriptProps, ViewHints, ViewKind,
         calculate_composer_height, draw_transcript,
     };
-    use nuo_view::empty_state::EmptyStateGuidance;
     use nuo_view::model::layout::LayoutMap;
     use nuo_view::model::selection::SelectionState;
 
@@ -174,9 +173,6 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                     hovered_step: None,
                     focused_entry: None,
                     focus_plane: crate::shell::render::FocusPlane::Composer,
-                    logo: None,
-                    guidance: EmptyStateGuidance::Tour,
-                    carousel_index: 0,
                     theme: &theme,
                     layout: nuo_view::layout::Strategy::default(),
                     height_cache: None,

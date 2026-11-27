@@ -37,14 +37,6 @@ use nuo_ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
 pub use nuo_ui_primitives::theme::Theme;
 pub use nuo_view::disclosure::StickyInfo;
 use nuo_view::disclosure::draw_sticky_anchor_if_needed;
-/// Parse a raw logo file into clamped display lines for the empty-state hero.
-/// Re-exported so the startup loader and the renderer share one clamp rule.
-pub use nuo_view::empty_state::parse_logo;
-/// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057 → ADR-0104).
-/// Re-exported so the app shell selects the variant and the renderer paints it.
-pub use nuo_view::empty_state::{
-    EmptyStateGuidance, resuming_thread_status, server_phase_status, thread_phase_status,
-};
 /// Which peer plane owns the keyboard (ADR-0145). Re-exported so the shell
 /// projects its own `Focus` onto the renderer's paint-time enum at the props
 /// boundary instead of the presentation crate depending on the shell's
@@ -53,6 +45,14 @@ pub use nuo_view::focus_plane::FocusPlane;
 use nuo_view::footer_stack;
 pub(crate) use nuo_view::footer_stack::{
     FooterRow, FooterRowId, PlacedFooter, rect_of as footer_rect,
+};
+/// Parse a raw logo file into clamped display lines for the project landing hero.
+/// Re-exported so the startup loader and the renderer share one clamp rule.
+pub use nuo_view::landing::parse_logo;
+/// Project-level landing guidance, live carousel keys, and lifecycle status
+/// projections.
+pub use nuo_view::landing::{
+    CarouselKeys, LandingGuidance, resuming_thread_status, server_phase_status, thread_phase_status,
 };
 /// Transcript arrangement strategy (`turn_band`).
 pub(crate) use nuo_view::layout;
@@ -72,7 +72,7 @@ pub use nuo_view::views::settings::{
 };
 // Modules referenced by their bare name within this file.
 use crate::shell::composer_grid::TextGrid;
-use nuo_view::empty_state;
+use nuo_view::landing;
 
 use graticule::{
     Alignment, Block as RtBlock, Constraint, Direction, Frame, Layout, Line, Paragraph, Rect, Span,
@@ -250,22 +250,6 @@ pub struct TranscriptProps<'a> {
     /// keyboard. Without it, one direction of the crossing had no cue at all and
     /// the other had only the composer dimming.
     pub focus_plane: FocusPlane,
-    /// User-supplied ASCII logo lines (from `$XDG_CONFIG_HOME/nuo/logo.txt`)
-    /// that replace the built-in wordmark on the empty-state hero. `None` when
-    /// no user logo is configured; the hero falls back to the built-in art.
-    /// Ignored entirely when the transcript is non-empty.
-    pub logo: Option<&'a [String]>,
-    /// Which guidance variant the empty-state hero renders beneath the logo
-    /// (ADR-0057 → ADR-0104). The app shell computes this from its onboarding + provider
-    /// state; the view layer only paints what it is handed. Ignored entirely
-    /// when the transcript is non-empty.
-    pub guidance: EmptyStateGuidance,
-    /// Carousel page index for the empty-state tour. The caller
-    /// derives it from wall-clock elapsed time (`carousel_page_for`), the
-    /// same pattern the breathing indicator uses, so the slide cadence is
-    /// independent of draw frequency. Ignored when the transcript is
-    /// non-empty or the guidance variant does not rotate.
-    pub carousel_index: usize,
     pub theme: &'a Theme,
     /// Which layout strategy to arrange messages with. Selectable via
     /// `[tui] transcript_layout`; defaults to [`layout::Strategy::TurnBand`].
@@ -283,6 +267,32 @@ pub struct TranscriptProps<'a> {
     /// and the pass writes its captured/resolved outputs back here for the app
     /// loop to consume.
     pub height_cache: Option<&'a mut HeightCache>,
+}
+
+/// Inputs for [`draw_project_landing`]: the project/workspace landing hero
+/// framed by the shared stage head band and footer stack.
+pub struct ProjectLandingProps<'a> {
+    pub activity: &'a str,
+    pub backoff: Option<&'a nuo_view::retry::RetryProgress>,
+    pub awaiting_permission: bool,
+    pub spinner_phase: usize,
+    pub input: &'a str,
+    pub queue_bar: QueueBarProps<'a>,
+    pub tasks_bar: TasksBarProps<'a>,
+    pub interrupt_key: Option<crate::shell::keymap::Key>,
+    pub page_hints: Option<view_header::ViewHints<'a>>,
+    pub tab_bar: Option<TabBarProps<'a>>,
+    pub thread_context: Option<ThreadContext<'a>>,
+    pub round_started_at: Option<std::time::Instant>,
+    /// User-supplied logo lines loaded from `$XDG_CONFIG_HOME/nuo/logo.txt`.
+    pub logo: Option<&'a [String]>,
+    /// Layered readiness / setup / tour guidance projected by the shell.
+    pub guidance: LandingGuidance,
+    /// Current capability carousel page index (derived from wall-clock elapsed time).
+    pub carousel_index: usize,
+    /// Live resolved keybindings for the capability carousel.
+    pub carousel_keys: &'a CarouselKeys,
+    pub theme: &'a Theme,
 }
 
 /// Caches each transcript message's fully-laid-out height (in rows), keyed by
@@ -337,7 +347,8 @@ pub(crate) fn calculate_composer_height(viewport_size: Rect, input: &str) -> u16
     desired_input_height.min(max_input_height)
 }
 
-pub struct TranscriptRender {
+/// Layout information returned by [`draw_project_landing`] and [`draw_transcript`].
+pub struct StageRender {
     /// The input box area.
     pub input_rect: Rect,
     /// The hint-bar area pinned directly below the input box (zero-sized when
@@ -349,14 +360,15 @@ pub struct TranscriptRender {
     /// `Option<Rect>` field per bar (todo/queue/activity click routing,
     /// history-panel height reservation).
     pub footer: PlacedFooter,
-    /// Total height (in lines) of the rendered message stream, ignoring the
-    /// viewport clip. Used by the app loop to pin the view to the bottom.
+    /// Total height (in lines) of the rendered body (landing hero or message
+    /// stream), ignoring the viewport clip.
     pub content_lines: usize,
-    /// Height of the transcript viewport.
+    /// Height of the body viewport.
     pub view_height: u16,
     /// The expanded step whose body is currently scrolled into view, so the app
     /// can render/click a sticky header pinned under the HUD bar. `None` when no
-    /// expanded step body covers the top of the viewport.
+    /// expanded step body covers the top of the viewport (always `None` on
+    /// project landing).
     pub sticky: Option<StickyInfo>,
     /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
     pub tab_rects: Vec<(usize, Rect)>,
@@ -384,6 +396,32 @@ pub struct TranscriptRender {
     pub scene_bar_rect: Option<Rect>,
     /// Interactive navigation bounding rects on Tier 2 SceneBar (ADR-0092 [INV-INTERACT-01]).
     pub scene_nav_rects: SceneNavRects,
+}
+
+impl StageRender {
+    fn empty() -> Self {
+        Self {
+            input_rect: Rect::default(),
+            hint_rect: Rect::default(),
+            footer: PlacedFooter::default(),
+            content_lines: 0,
+            view_height: 0,
+            sticky: None,
+            tab_rects: Vec::new(),
+            tab_close_rects: Vec::new(),
+            tab_add_rect: None,
+            tab_reveal_active: false,
+            tab_shimmer_active: false,
+            tab_bar_rect: None,
+            tab_prev_rect: None,
+            tab_next_rect: None,
+            tab_overflow_rect: None,
+            tab_notices_rect: None,
+            tab_help_rect: None,
+            scene_bar_rect: None,
+            scene_nav_rects: SceneNavRects::default(),
+        }
+    }
 }
 
 /// The vertical slice occupied by the uniform two-tier head band (ADR-0261)
@@ -859,12 +897,213 @@ fn draw_pane_focus_cues(
     }
 }
 
-/// Draw the main transcript area, recording layout info.
+struct StageFrameGeometry {
+    frame_surface: graticule::Color,
+    head_band: HeadBandRects,
+    head_nav: HeadBandNavRects,
+    body_area: Rect,
+    footer_area: Rect,
+    footer_plan: FooterPlan,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn begin_stage_frame(
+    frame: &mut Frame,
+    input: &str,
+    chrome_hidden: bool,
+    in_subagent: bool,
+    activity: &str,
+    awaiting_permission: bool,
+    queue_bar: &QueueBarProps<'_>,
+    tasks_bar: &TasksBarProps<'_>,
+    tab_bar: Option<&TabBarProps<'_>>,
+    page_hints: Option<&view_header::ViewHints<'_>>,
+    thread_context: Option<&ThreadContext<'_>>,
+    theme: &Theme,
+) -> Option<StageFrameGeometry> {
+    let full = frame.area();
+    let frame_surface = theme.surface();
+    frame.render_widget(
+        &mut RtBlock::default().style(Style::default().bg(frame_surface)),
+        full,
+    );
+
+    if full.width < MIN_TERMINAL_COLS || full.height < MIN_TERMINAL_ROWS {
+        draw_too_small_notice(frame, full, theme);
+        return None;
+    }
+
+    let head_band = compute_head_band(frame, tab_bar, page_hints);
+    let size = head_band.viewport;
+    let visibility = footer_visibility(
+        chrome_hidden,
+        in_subagent,
+        activity,
+        awaiting_permission,
+        queue_bar,
+        tasks_bar,
+    );
+    let footer_plan = plan_footer(size, input, chrome_hidden, in_subagent, visibility);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(footer_plan.height)])
+        .split(size);
+
+    let head_nav = draw_head_band(
+        frame,
+        &head_band,
+        tab_bar,
+        page_hints,
+        thread_context,
+        theme,
+    );
+
+    Some(StageFrameGeometry {
+        frame_surface,
+        head_band,
+        head_nav,
+        body_area: chunks[0],
+        footer_area: chunks[1],
+        footer_plan,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_stage_frame(
+    frame: &mut Frame,
+    stage: StageFrameGeometry,
+    activity: &str,
+    backoff: Option<&nuo_view::retry::RetryProgress>,
+    awaiting_permission: bool,
+    queue_bar: &QueueBarProps<'_>,
+    tasks_bar: &TasksBarProps<'_>,
+    interrupt_key: Option<crate::shell::keymap::Key>,
+    spinner_phase: usize,
+    round_started_at: Option<std::time::Instant>,
+    content_lines: usize,
+    sticky: Option<StickyInfo>,
+    theme: &Theme,
+) -> StageRender {
+    let placed_footer = footer_stack::place(stage.footer_area, &stage.footer_plan.rows);
+    draw_activity_row(
+        frame,
+        &placed_footer,
+        ActivityStripRow {
+            plan: &stage.footer_plan,
+            activity,
+            backoff,
+            awaiting_permission,
+            queue_bar,
+            tasks_bar,
+            interrupt_key,
+            spinner_phase,
+            round_started_at,
+        },
+        theme,
+    );
+    let (input_rect, hint_rect) = footer_content_rects(&placed_footer, &stage.footer_plan);
+    let HeadBandNavRects { tab, scene } = stage.head_nav;
+    StageRender {
+        input_rect,
+        hint_rect,
+        footer: placed_footer,
+        content_lines,
+        view_height: stage.body_area.height,
+        sticky,
+        tab_rects: tab.tab_rects,
+        tab_close_rects: tab.close_rects,
+        tab_add_rect: tab.add_rect,
+        tab_reveal_active: tab.reveal_active,
+        tab_shimmer_active: tab.shimmer_active,
+        tab_bar_rect: stage.head_band.tab,
+        tab_prev_rect: tab.prev_rect,
+        tab_next_rect: tab.next_rect,
+        tab_overflow_rect: tab.overview_rect,
+        tab_notices_rect: tab.notices_rect,
+        tab_help_rect: tab.help_rect,
+        scene_bar_rect: stage.head_band.scene,
+        scene_nav_rects: scene,
+    }
+}
+
+/// Draw the **project-level landing surface** (wordmark, capability carousel,
+/// and layered readiness / setup guidance) inside the shared stage chrome.
+///
+/// Elevated out of `draw_transcript` so the project banner and carousel never
+/// participate in transcript scroll, focus wash, selection, or attribution.
+pub fn draw_project_landing(frame: &mut Frame, props: ProjectLandingProps<'_>) -> StageRender {
+    let ProjectLandingProps {
+        activity,
+        backoff,
+        awaiting_permission,
+        spinner_phase,
+        input,
+        queue_bar,
+        tasks_bar,
+        interrupt_key,
+        page_hints,
+        tab_bar,
+        thread_context,
+        round_started_at,
+        logo,
+        guidance,
+        carousel_index,
+        carousel_keys,
+        theme,
+    } = props;
+
+    let Some(stage) = begin_stage_frame(
+        frame,
+        input,
+        false,
+        false,
+        activity,
+        awaiting_permission,
+        &queue_bar,
+        &tasks_bar,
+        tab_bar.as_ref(),
+        page_hints.as_ref(),
+        thread_context.as_ref(),
+        theme,
+    ) else {
+        return StageRender::empty();
+    };
+
+    // Always paint with the base `theme` (never the lifted transcript focus
+    // wash): project landing is not an interactive transcript plane.
+    let content_lines = landing::draw_landing_hero(
+        frame,
+        stage.body_area,
+        logo,
+        guidance,
+        carousel_index,
+        carousel_keys,
+        theme,
+    );
+
+    finish_stage_frame(
+        frame,
+        stage,
+        activity,
+        backoff,
+        awaiting_permission,
+        &queue_bar,
+        &tasks_bar,
+        interrupt_key,
+        spinner_phase,
+        round_started_at,
+        content_lines,
+        None,
+        theme,
+    )
+}
+
+/// Draw the main transcript stream area, recording layout info.
 pub fn draw_transcript(
     frame: &mut Frame,
     layout_map: &mut LayoutMap,
     props: TranscriptProps<'_>,
-) -> TranscriptRender {
+) -> StageRender {
     let TranscriptProps {
         messages,
         scroll,
@@ -887,102 +1126,33 @@ pub fn draw_transcript(
         hovered_step,
         focused_entry,
         focus_plane,
-        logo,
-        guidance,
-        carousel_index,
         theme,
         layout,
         height_cache,
     } = props;
-    // Outside the app loop (tests/showcase) no persistent cache is supplied;
-    // fall back to a throwaway so every lookup simply misses and the renderer
-    // behaves exactly as before the cache existed.
     let mut fallback_height_cache = HeightCache::default();
     let height_cache: &mut HeightCache = height_cache.unwrap_or(&mut fallback_height_cache);
-    let full = frame.area();
-
-    // Paint the entire frame with the app background so the TUI owns every
-    // pixel rather than leaving gaps at the terminal emulator's default color.
-    let frame_surface = theme.surface();
-    frame.render_widget(
-        &mut RtBlock::default().style(Style::default().bg(theme.surface())),
-        full,
-    );
-
-    // Too-small terminal guard
-    // When the terminal is resized below the usable minimum, the layout math
-    // (footer split, composer height, gutter columns) would underflow or
-    // produce an unusable UI — and a degenerate 0×0 / 1×1 geometry risks an
-    // integer-underflow panic deep in a subtraction chain. Instead of drawing
-    // garbage, hide the entire UI and show a single centered notice telling
-    // the user how large the terminal must be. The footer chrome is suppressed
-    // by returning zero-sized rects, so the app loop renders nothing else.
-    if full.width < MIN_TERMINAL_COLS || full.height < MIN_TERMINAL_ROWS {
-        draw_too_small_notice(frame, full, theme);
-        return TranscriptRender {
-            input_rect: Rect::default(),
-            hint_rect: Rect::default(),
-            footer: PlacedFooter::default(),
-            content_lines: 0,
-            view_height: 0,
-            sticky: None,
-            tab_rects: Vec::new(),
-            tab_close_rects: Vec::new(),
-            tab_add_rect: None,
-            tab_reveal_active: false,
-            tab_shimmer_active: false,
-            tab_bar_rect: None,
-            tab_prev_rect: None,
-            tab_next_rect: None,
-            tab_overflow_rect: None,
-            tab_notices_rect: None,
-            tab_help_rect: None,
-            scene_bar_rect: None,
-            scene_nav_rects: SceneNavRects::default(),
-        };
-    }
-
-    let head_band = compute_head_band(frame, tab_bar.as_ref(), page_hints.as_ref());
-    let size = head_band.viewport;
-
-    // When zoomed into a subagent task, the footer (status bar, plan panel,
-    // input box, hint bar) is hidden: the task detail page is a read-only view
-    // whose only chrome is its page header.
     let in_subagent = subagent_bar.is_some();
-    let visibility = footer_visibility(
+
+    let Some(stage) = begin_stage_frame(
+        frame,
+        input,
         chrome_hidden,
         in_subagent,
         activity,
         awaiting_permission,
         &queue_bar,
         &tasks_bar,
-    );
-    let footer_plan = plan_footer(size, input, chrome_hidden, in_subagent, visibility);
-    let footer_height = footer_plan.height;
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(0),                // Transcript page
-            Constraint::Length(footer_height), // Activity? + input box + hint bar + status bar
-        ])
-        .split(size);
-
-    // 1. Head band — drawn at the very top of the terminal, before the
-    // transcript (ADR-0261).
-    // Row 1 carries the Client TabBar; row 2 the polymorphic SceneBar.
-    let head_nav = draw_head_band(
-        frame,
-        &head_band,
         tab_bar.as_ref(),
         page_hints.as_ref(),
         thread_context.as_ref(),
         theme,
-    );
+    ) else {
+        return StageRender::empty();
+    };
 
-    // 2. Transcript History — the transcript area is the whole `chunks[0]`
-    // when a head is present (it was already accounted for above), or the
-    // entire viewport-minus-footer when there is no head.
-    let transcript_area = chunks[0];
+    let transcript_area = stage.body_area;
+    let frame_surface = stage.frame_surface;
     // One value, one truth (ADR-0145 `[INV-FOCUS-03]`): an entry can only be
     // highlighted while the transcript plane owns the keyboard. The two props
     // arrive separately (the shell projects them from one `Focus`), so this is
@@ -1031,184 +1201,70 @@ pub fn draw_transcript(
             transcript_area,
         );
     }
-    // Empty-state replacement (ADR-0033): when the session has no messages and
-    // no subagent/side view is open, the transcript is replaced by a centered
-    // logo hero rather than rendering an empty stream. This is a component
-    // substitution, not transcript content — the hero never participates in
-    // scroll, selection, or attribution, so the whole message-rendering
-    // pipeline (loop, badges, sticky pinning) is skipped. The footer below
-    // renders exactly as in a live session.
-    let show_empty_state = messages.is_empty() && subagent_bar.is_none();
-
-    // The transcript plane's own focus cue (ADR-0145, amended). The order is
-    // load-bearing: the **wash** is painted after the stream, because the
-    // transcript is composed of dozens of renderers that each pad their tails
-    // with the page tone — a wash painted first would be punched full of holes.
-    // The **marker** is painted last of all, so nothing can cover the one cell
-    // that says which row the keyboard is on. Both are zero-layout: they add no
-    // row and move no column, so crossing planes never reflows the pane.
-    // Skipped for the empty-state hero, which is not a transcript content
-    // surface.
-
-    let (content_lines, sticky_anchors) = if show_empty_state {
-        // Account for the hero so the app loop does not treat the session as a
-        // zero-height stream (which would mis-pin the scroll position). The
-        // renderer returns the rows it actually painted — the logo may have
-        // been dropped for lack of room — so the accounting cannot drift from
-        // the painted hero.
-        let content_lines = empty_state::draw_empty_state(
-            frame,
-            transcript_area,
-            logo,
-            guidance.clone(),
-            carousel_index,
-            theme,
-        );
-        (content_lines, Vec::new())
-    } else {
-        let workspace_root = thread_context
-            .as_ref()
-            .map(|c| c.workspace)
-            .filter(|w| !w.is_empty())
-            .map(std::path::Path::new);
-        let outcome = draw_transcript_stream(TranscriptStreamDraw {
-            frame,
-            layout_map,
-            band,
-            messages,
-            strategy: layout,
-            scroll,
-            height_cache,
-            selection,
-            cell_selection,
-            hovered_step,
-            focused_entry,
-            workspace_root,
-            theme,
-        });
-        (outcome.content_lines, outcome.sticky_anchors)
-    };
-
-    // Record the interactive transcript rect so clicks on any blank
-    // transcript space — gap rows between messages, the empty region below
-    // the last message, and the outer gutters — park keyboard attention on
-    // the transcript (browse focus). The rect spans the full
-    // transcript viewport: the user's mental model is "the whole transcript
-    // area is the browse surface", so no part of it is a dead click.
-    // Skipped for the empty-state hero, which owns its own rect and is not
-    // part of the interactive transcript surface.
-    if !show_empty_state {
-        layout_map.set_transcript_content_rect(Rect::new(
-            transcript_area.x,
-            transcript_area.y,
-            transcript_area.width,
-            transcript_area.height,
-        ));
-        draw_transcript_scrollbar(
-            frame,
-            transcript_area,
-            content_lines,
-            scroll,
-            focus_plane,
-            theme,
-        );
-    }
-
-    // The footer stacks, from top to bottom: a permanent blank separator, the
-    // consolidated single-row activity strip (ADR-0062 `[INV-FOOTER-02]`), the
-    // input box, and the hint bar. The strip is the *only* meta row above the
-    // composer: it aggregates the live round status, the staged-queue summary
-    // and the background-task count into one line, so the composer never
-    // shifts by more than that one row.
-    // One `place` pass walks the declared stack and yields every row's rect
-    // plus the hit-test registry; each draw call below just looks its own
-    // rect up. The height sum (which feeds the layout split) and the per-row
-    // offsets can no longer drift apart — they are the same traversal now.
-    // `place` applies the shared `FOOTER_H_INSET` extent itself, so no
-    // hand-derived `footer_x`/`footer_w` remains.
-    let placed_footer = footer_stack::place(chunks[1], &footer_plan.rows);
-
-    // The notice dock (ADR-0121) is *placed* here and painted by the event loop,
-    // which is where `UiKey` lives. The stack still owns its geometry: the row's
-    // height fed `measure` above (so the transcript gave up exactly these rows)
-    // and its rect comes back out of `placed_footer` for the caller to paint into
-    // and for click dispatch to hit-test against. One geometry authority, no
-    // second path.
-
-    // The consolidated activity strip (ADR-0062 [INV-FOOTER-02]) sits directly above
-    // the input box, strictly bounded to at most 1 row. It projects the active round
-    // status and/or queued/tasks indicators in a single unified strip.
-    draw_activity_row(
+    let workspace_root = thread_context
+        .as_ref()
+        .map(|c| c.workspace)
+        .filter(|w| !w.is_empty())
+        .map(std::path::Path::new);
+    let outcome = draw_transcript_stream(TranscriptStreamDraw {
         frame,
-        &placed_footer,
-        ActivityStripRow {
-            plan: &footer_plan,
-            activity,
-            backoff,
-            awaiting_permission,
-            queue_bar: &queue_bar,
-            tasks_bar: &tasks_bar,
-            interrupt_key,
-            spinner_phase,
-            round_started_at,
-        },
+        layout_map,
+        band,
+        messages,
+        strategy: layout,
+        scroll,
+        height_cache,
+        selection,
+        cell_selection,
+        hovered_step,
+        focused_entry,
+        workspace_root,
+        theme,
+    });
+    let content_lines = outcome.content_lines;
+    let sticky_anchors = outcome.sticky_anchors;
+
+    layout_map.set_transcript_content_rect(Rect::new(
+        transcript_area.x,
+        transcript_area.y,
+        transcript_area.width,
+        transcript_area.height,
+    ));
+    draw_transcript_scrollbar(
+        frame,
+        transcript_area,
+        content_lines,
+        scroll,
+        focus_plane,
         theme,
     );
 
-    // The input box sits flush directly below the activity bar — the
-    // composer's top panel-bg padding row already separates its text from
-    // the live status line, so no `surface` gap row is reserved between them.
-    // The model bar sits directly below it, carrying the ambient gauges
-    // (model/context/rate); its draw call is delegated to the app loop, which
-    // owns the context-token source.
-    let (input_rect, hint_rect) = footer_content_rects(&placed_footer, &footer_plan);
-
-    // Sticky pinned summary: if an expanded step's body covers the top of the
-    // viewport (its summary is scrolled out of view), pin its summary to the
-    // line directly under the HUD bar so the user can always collapse it.
-    // The sticky pin is painted *before* the focus cues: it repaints its own row
-    // on the page tone, so a wash applied earlier would leave one unwashed row at
-    // the top of the viewport — the exact "hole in the surface" the post-pass
-    // design exists to avoid.
     let sticky_info = draw_sticky_anchor_if_needed(frame, band, &sticky_anchors, scroll, theme);
+    draw_pane_focus_cues(
+        frame,
+        layout_map,
+        transcript_area,
+        band,
+        focus_plane,
+        focused_entry,
+        base_theme,
+    );
 
-    // The transcript plane's focus cue is painted last so nothing can punch a
-    // hole in it; skipped for the empty-state hero, which is not a transcript
-    // content surface.
-    if !show_empty_state {
-        draw_pane_focus_cues(
-            frame,
-            layout_map,
-            transcript_area,
-            band,
-            focus_plane,
-            focused_entry,
-            base_theme,
-        );
-    }
-
-    let HeadBandNavRects { tab, scene } = head_nav;
-    TranscriptRender {
-        input_rect,
-        hint_rect,
-        footer: placed_footer,
+    finish_stage_frame(
+        frame,
+        stage,
+        activity,
+        backoff,
+        awaiting_permission,
+        &queue_bar,
+        &tasks_bar,
+        interrupt_key,
+        spinner_phase,
+        round_started_at,
         content_lines,
-        view_height: transcript_area.height,
-        sticky: sticky_info,
-        tab_rects: tab.tab_rects,
-        tab_close_rects: tab.close_rects,
-        tab_add_rect: tab.add_rect,
-        tab_reveal_active: tab.reveal_active,
-        tab_shimmer_active: tab.shimmer_active,
-        tab_bar_rect: head_band.tab,
-        tab_prev_rect: tab.prev_rect,
-        tab_next_rect: tab.next_rect,
-        tab_overflow_rect: tab.overview_rect,
-        tab_notices_rect: tab.notices_rect,
-        tab_help_rect: tab.help_rect,
-        scene_bar_rect: head_band.scene,
-        scene_nav_rects: scene,
-    }
+        sticky_info,
+        base_theme,
+    )
 }
 
 fn draw_transcript_scrollbar(

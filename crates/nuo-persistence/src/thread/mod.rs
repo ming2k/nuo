@@ -736,6 +736,7 @@ pub(crate) fn load_session_blobs(
     data: &mut ThreadData,
     blob_store: &BlobStore,
 ) -> Result<(), String> {
+    let mut first_error: Option<String> = None;
     for entry in data.transcript.entries.iter_mut() {
         let EntryPayload::Message(payload) = &mut entry.payload else {
             continue;
@@ -743,10 +744,17 @@ pub(crate) fn load_session_blobs(
         if let Some(hash) = payload.content_blob.as_deref()
             && entry.content.as_deref().unwrap_or("").is_empty()
         {
-            let bytes = blob_store
-                .get(hash)
-                .ok_or_else(|| format!("missing content blob {hash}"))?;
-            entry.content = Some(String::from_utf8(bytes).map_err(|e| e.to_string())?);
+            match blob_store.get(hash) {
+                Some(bytes) => match String::from_utf8(bytes) {
+                    Ok(text) => entry.content = Some(text),
+                    Err(e) => {
+                        first_error.get_or_insert_with(|| e.to_string());
+                    }
+                },
+                None => {
+                    first_error.get_or_insert_with(|| format!("missing content blob {hash}"));
+                }
+            }
         }
         if !payload.image_blobs.is_empty()
             && let Some(images) = payload.images.as_mut()
@@ -755,46 +763,75 @@ pub(crate) fn load_session_blobs(
                 if let Some(image) = images.get_mut(blob_ref.index)
                     && image.data.is_empty()
                 {
-                    let bytes = blob_store
-                        .get(&blob_ref.hash)
-                        .ok_or_else(|| format!("missing image blob {}", blob_ref.hash))?;
-                    image.data = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+                    match blob_store.get(&blob_ref.hash) {
+                        Some(bytes) => match String::from_utf8(bytes) {
+                            Ok(text) => image.data = text,
+                            Err(e) => {
+                                first_error.get_or_insert_with(|| e.to_string());
+                            }
+                        },
+                        None => {
+                            first_error.get_or_insert_with(|| {
+                                format!("missing image blob {}", blob_ref.hash)
+                            });
+                        }
+                    }
                 }
             }
         }
     }
     if let Some(graph_thread) = data.graph.as_mut() {
         let graph_image_blobs = &data.graph_image_blobs;
-        graph_thread.graph.visit_messages_mut(|fact_id, message| {
+        let _ = graph_thread.graph.visit_messages_mut(|fact_id, message| {
             if let Some(hash) = message.content_blob.as_deref()
                 && message.content.is_empty()
             {
-                let bytes = blob_store
-                    .get(hash)
-                    .ok_or_else(|| format!("missing graph content blob {hash}"))?;
-                message.content = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+                match blob_store.get(hash) {
+                    Some(bytes) => match String::from_utf8(bytes) {
+                        Ok(text) => message.content = text,
+                        Err(e) => {
+                            first_error.get_or_insert_with(|| e.to_string());
+                        }
+                    },
+                    None => {
+                        first_error
+                            .get_or_insert_with(|| format!("missing graph content blob {hash}"));
+                    }
+                }
             }
             if let Some(images) = message.images.as_mut() {
                 for blob_ref in graph_image_blobs.iter().filter(|b| b.fact_id == fact_id.0) {
                     if let Some(image) = images.get_mut(blob_ref.index)
                         && image.data.is_empty()
                     {
-                        let bytes = blob_store
-                            .get(&blob_ref.hash)
-                            .ok_or_else(|| format!("missing graph image blob {}", blob_ref.hash))?;
-                        image.data = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+                        match blob_store.get(&blob_ref.hash) {
+                            Some(bytes) => match String::from_utf8(bytes) {
+                                Ok(text) => image.data = text,
+                                Err(e) => {
+                                    first_error.get_or_insert_with(|| e.to_string());
+                                }
+                            },
+                            None => {
+                                first_error.get_or_insert_with(|| {
+                                    format!("missing graph image blob {}", blob_ref.hash)
+                                });
+                            }
+                        }
                     }
                 }
             }
             Ok(())
-        })?;
+        });
     }
-    Ok(())
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
 }
 
 /// Rehydrate only `content_blob` text bodies (in both transcript and graph) for
 /// FTS indexing during cold shard rebuild, keeping base64 images offloaded.
-fn rehydrate_text_blobs_for_projection(data: &mut ThreadData, blob_store: &BlobStore) {
+pub(crate) fn rehydrate_text_blobs_for_projection(data: &mut ThreadData, blob_store: &BlobStore) {
     for entry in data.transcript.entries.iter_mut() {
         let EntryPayload::Message(payload) = &mut entry.payload else {
             continue;
@@ -937,6 +974,7 @@ pub(crate) struct SessionUndo {
     round_summaries: Vec<nuo_protocol::RoundSummary>,
     request_usage_records: Vec<nuo_protocol::RequestUsageRecord>,
     defer_persist: bool,
+    active_branch_head: Option<(Option<nuo_protocol::FactId>, u64)>,
     /// Present iff the commit may replace the transcript wholesale: the exact
     /// previous transcript, graph sidecar, and generation identity.
     replaced: Option<(
@@ -950,6 +988,11 @@ impl SessionUndo {
     /// Snapshot a commit that only appends entries/directives and mutates
     /// working fields. O(1).
     pub(crate) fn appending(state: &ThreadSessionState) -> Self {
+        let active_branch_head = state
+            .data
+            .branches
+            .get(&state.data.active_branch)
+            .map(|branch| (branch.head.clone(), branch.updated_at_ms));
         Self {
             entries_len: state.data.transcript.entries.len(),
             directives_len: state.data.transcript.directives.len(),
@@ -962,6 +1005,7 @@ impl SessionUndo {
             round_summaries: state.data.round_summaries.clone(),
             request_usage_records: state.data.request_usage_records.clone(),
             defer_persist: state.defer_persist,
+            active_branch_head,
             replaced: None,
         }
     }
@@ -998,6 +1042,13 @@ impl SessionUndo {
                     .truncate(self.directives_len);
                 state.data.transcript.min_next_seq = self.min_next_seq;
                 state.data.transcript.min_next_directive_seq = self.min_next_directive_seq;
+            }
+        }
+        if let Some((head, updated_at_ms)) = self.active_branch_head {
+            let data = &mut state.data;
+            if let Some(branch) = data.branches.get_mut(&data.active_branch) {
+                branch.head = head;
+                branch.updated_at_ms = updated_at_ms;
             }
         }
         state.data.updated_at = self.updated_at;
@@ -1171,15 +1222,33 @@ fn load_or_seed(
                 if let Err(error) = load_session_blobs(&mut data, blob_store) {
                     tracing::warn!(error = %error, "could not load session blobs for journal state");
                 }
-                // The journal is authoritative; the derived row may be missing
-                // or behind when the process died between the fsync and the
-                // projection. Rebuild it once, on this cold open, so the picker
-                // and recovery see the same session the journal does.
-                let stale =
-                    match reader.and_then(|reader| reader.get_session(target_id).ok().flatten()) {
-                        Some(record) => record.updated_at_s < data.updated_at as i64,
-                        None => true,
-                    };
+                // The journal is authoritative; the derived row or content shard
+                // may be missing, behind, or diverged when a process died
+                // between fsync and projection or after an earlier shard write.
+                // Rebuild it once on this cold open so catalog and shards agree
+                // with the journal.
+                let durable_seq = journal.durable_seq();
+                let expected_msg_count = data.transcript.message_count() as i64;
+                let stale = match reader {
+                    Some(reader) => {
+                        let record_stale = match reader.get_session(target_id).ok().flatten() {
+                            Some(record) => {
+                                record.updated_at_s < data.updated_at as i64
+                                    || record.msg_count != expected_msg_count
+                            }
+                            None => true,
+                        };
+                        let watermark_stale = durable_seq > 0
+                            && reader
+                                .projection_watermark(target_id)
+                                .ok()
+                                .flatten()
+                                .unwrap_or(0)
+                                < durable_seq;
+                        record_stale || watermark_stale
+                    }
+                    None => true,
+                };
                 if stale && !writer.is_lock_contention() {
                     let mut projection = data.clone();
                     match compute_checksum(&projection) {
@@ -1188,8 +1257,8 @@ fn load_or_seed(
                             tracing::warn!(%error, "could not checksum the journal state")
                         }
                     }
-                    let seq = journal.durable_seq();
-                    if let Err(error) = writer.save_session_blocking(projection, Some(seq)) {
+                    if let Err(error) = writer.save_session_blocking(projection, Some(durable_seq))
+                    {
                         tracing::warn!(%error, "could not rebuild the derived row from the journal");
                     }
                 }

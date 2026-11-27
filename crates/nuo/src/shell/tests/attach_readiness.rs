@@ -147,7 +147,7 @@ fn build_app_with_non_ready_boot_phase_never_spoofs_switching_session() {
         server_id: "srv-1".to_string(),
     };
     assert_eq!(
-        crate::shell::event_loop::render::select_empty_state_guidance(
+        crate::shell::event_loop::render::select_landing_guidance(
             &connected,
             past_hysteresis,
             &app.session.server_phase,
@@ -157,7 +157,7 @@ fn build_app_with_non_ready_boot_phase_never_spoofs_switching_session() {
             past_hysteresis,
             true,
         ),
-        crate::shell::render::EmptyStateGuidance::ThreadPhase(preparing),
+        crate::shell::render::LandingGuidance::ThreadPhase(preparing),
     );
     assert_eq!(
         crate::shell::event_loop::render::select_lifecycle_status(
@@ -178,9 +178,9 @@ fn build_app_with_non_ready_boot_phase_never_spoofs_switching_session() {
 fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hysteresis() {
     use crate::shell::app::state::ClientLinkPhase;
     use crate::shell::event_loop::render::{
-        TRANSIENT_WAIT_HYSTERESIS, select_empty_state_guidance, select_lifecycle_status,
+        TRANSIENT_WAIT_HYSTERESIS, select_landing_guidance, select_lifecycle_status,
     };
-    use crate::shell::render::EmptyStateGuidance;
+    use crate::shell::render::LandingGuidance;
     use std::time::Duration;
 
     let fast = Duration::from_millis(30);
@@ -210,7 +210,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
 
     // Sub-120ms transient waits suppress flashing labels via QuietWait (ADR-0260 [INV-SRVPHASE-05]).
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connecting,
             fast,
             &ready_server,
@@ -220,7 +220,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             fast,
             true
         ),
-        EmptyStateGuidance::QuietWait
+        LandingGuidance::QuietWait
     );
     assert_eq!(
         select_lifecycle_status(
@@ -236,7 +236,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
         None
     );
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &init_server,
@@ -246,10 +246,10 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             fast,
             true
         ),
-        EmptyStateGuidance::QuietWait
+        LandingGuidance::QuietWait
     );
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &ready_server,
@@ -259,12 +259,12 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             fast,
             true
         ),
-        EmptyStateGuidance::QuietWait
+        LandingGuidance::QuietWait
     );
 
     // Non-transient states (Reconnecting, Draining, Failed) appear immediately at 0ms.
     assert!(matches!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &reconnecting,
             Duration::ZERO,
             &ready_server,
@@ -274,10 +274,10 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             Duration::ZERO,
             true
         ),
-        EmptyStateGuidance::Connecting { ref label } if label.contains("Reconnecting to 127.0.0.1:9800")
+        LandingGuidance::Connecting { ref label } if label.contains("Reconnecting to 127.0.0.1:9800")
     ));
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &draining_server,
@@ -287,12 +287,12 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             Duration::ZERO,
             true
         ),
-        EmptyStateGuidance::ServerPhase(draining_server)
+        LandingGuidance::ServerPhase(draining_server)
     );
 
     // Once past 120ms, Server initializing outranks thread/resuming states.
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &init_server,
@@ -302,7 +302,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             slow,
             true
         ),
-        EmptyStateGuidance::ServerPhase(init_server.clone())
+        LandingGuidance::ServerPhase(init_server.clone())
     );
     assert_eq!(
         select_lifecycle_status(
@@ -347,7 +347,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
         Some("reloading server…".to_string())
     );
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &reloading_server,
@@ -357,11 +357,11 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             slow,
             true
         ),
-        EmptyStateGuidance::Tour
+        LandingGuidance::Tour
     );
 
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &ready_server,
@@ -371,7 +371,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             slow,
             true
         ),
-        EmptyStateGuidance::ResumingThread {
+        LandingGuidance::ResumingThread {
             short_id: "7c405d7e".to_string(),
             phase: skills_phase.clone(),
         }
@@ -390,7 +390,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
         Some("resuming 7c405d7e · preparing skills…".to_string())
     );
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &ready_server,
@@ -400,10 +400,10 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             slow,
             true
         ),
-        EmptyStateGuidance::Tour
+        LandingGuidance::Tour
     );
     assert_eq!(
-        select_empty_state_guidance(
+        select_landing_guidance(
             &connected,
             slow,
             &ready_server,
@@ -413,7 +413,7 @@ fn render_projection_enforces_link_server_resuming_thread_priority_ladder_and_hy
             slow,
             false
         ),
-        EmptyStateGuidance::NeedsProvider
+        LandingGuidance::NeedsProvider
     );
     assert_eq!(
         select_lifecycle_status(

@@ -451,7 +451,7 @@ impl Dirs {
 
     /// User-supplied ASCII logo for the empty-state hero.
     /// `$XDG_CONFIG_HOME/nuo/logo.txt`. When present, its lines replace the
-    /// built-in figlet wordmark on the welcome screen (see `empty_state`).
+    /// built-in figlet wordmark on the welcome screen (see `nuo_view::landing`).
     /// Optional and best-effort: missing/unreadable → built-in logo.
     pub fn logo_file(&self) -> PathBuf {
         self.config_dir.join("logo.txt")

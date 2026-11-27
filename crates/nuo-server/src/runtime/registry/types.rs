@@ -116,6 +116,11 @@ pub struct PendingSession {
     /// Set once, immediately before `Ready` is emitted, so a connection that
     /// joins in the promotion window still hydrates.
     pub latest_snapshot: Arc<Mutex<Option<nuo_protocol::ThreadSnapshot>>>,
+    /// Weak pointer to the promoted [`HostedThread`], latched when assembly
+    /// finishes so connections that subscribed while `Building` read live
+    /// snapshots and live session identities on lag re-anchor or re-subscribe
+    /// instead of replaying the frozen attach-time `latest_snapshot`.
+    pub promoted: Arc<std::sync::OnceLock<std::sync::Weak<HostedThread>>>,
     pub started_at: std::time::Instant,
 }
 
@@ -133,7 +138,13 @@ pub enum AttachHandle {
 impl AttachHandle {
     pub async fn session_id(&self) -> String {
         match self {
-            Self::Building(p) => p.id.clone(),
+            Self::Building(p) => {
+                if let Some(hosted) = p.promoted.get().and_then(std::sync::Weak::upgrade) {
+                    hosted.session.id().await
+                } else {
+                    p.id.clone()
+                }
+            }
             Self::Hosted(h) => h.session.id().await,
         }
     }
@@ -175,11 +186,22 @@ impl AttachHandle {
 
     /// The authoritative hydration frame, when it exists yet.
     ///
-    /// A hosted session builds it on demand (local reads only, after Welcome);
-    /// a building session returns the snapshot cached at promotion, if any.
+    /// A hosted session (or a `Building` handle that has already promoted to a
+    /// live `HostedThread`) builds the snapshot on demand from live durable
+    /// state so lag re-anchoring and re-subscriptions never replay a stale
+    /// attach-time snapshot. A `Building` handle whose promoted `HostedThread`
+    /// was already evicted returns `None` rather than a frozen historical copy.
     pub async fn snapshot(&self) -> Option<nuo_protocol::ThreadSnapshot> {
         match self {
-            Self::Building(p) => p.latest_snapshot.lock().await.clone(),
+            Self::Building(p) => match p.promoted.get() {
+                Some(weak) => match weak.upgrade() {
+                    Some(hosted) => {
+                        Some(crate::transport::serve::build_full_session_snapshot(&hosted).await)
+                    }
+                    None => None,
+                },
+                None => p.latest_snapshot.lock().await.clone(),
+            },
             Self::Hosted(h) => Some(crate::transport::serve::build_full_session_snapshot(h).await),
         }
     }

@@ -74,6 +74,7 @@ fn stream_deltas_coalesce_until_the_channel_changes() {
         queue_delta(
             &mut pending,
             "t".into(),
+            1,
             context,
             DeltaKind::Text,
             "he".into()
@@ -85,6 +86,7 @@ fn stream_deltas_coalesce_until_the_channel_changes() {
         queue_delta(
             &mut pending,
             "t".into(),
+            1,
             context,
             DeltaKind::Text,
             "llo".into()
@@ -93,17 +95,34 @@ fn stream_deltas_coalesce_until_the_channel_changes() {
         "a contiguous text delta joins the run"
     );
     assert_eq!(pending.as_ref().expect("run open").text, "hello");
+    assert_eq!(pending.as_ref().expect("run open").generation, 1);
 
     let displaced = queue_delta(
         &mut pending,
         "t".into(),
+        2,
+        context,
+        DeltaKind::Text,
+        "gen2".into(),
+    )
+    .expect("a generation advance must displace the prior run rather than coalesce");
+    assert_eq!(displaced.generation, 1);
+    assert_eq!(displaced.text, "hello");
+    assert_eq!(pending.as_ref().expect("run open").generation, 2);
+    assert_eq!(pending.as_ref().expect("run open").text, "gen2");
+
+    let displaced = queue_delta(
+        &mut pending,
+        "t".into(),
+        2,
         context,
         DeltaKind::Reasoning,
         "why".into(),
     )
     .expect("a channel change displaces the text run");
     assert_eq!(displaced.kind, DeltaKind::Text);
-    assert_eq!(displaced.text, "hello");
+    assert_eq!(displaced.generation, 2);
+    assert_eq!(displaced.text, "gen2");
     assert_eq!(
         pending.as_ref().expect("run open").kind,
         DeltaKind::Reasoning
@@ -112,6 +131,7 @@ fn stream_deltas_coalesce_until_the_channel_changes() {
     let displaced = queue_delta(
         &mut pending,
         "u".into(),
+        2,
         context,
         DeltaKind::Reasoning,
         "x".into(),
@@ -124,12 +144,41 @@ fn stream_deltas_coalesce_until_the_channel_changes() {
     let displaced = queue_delta(
         &mut pending,
         "u".into(),
+        2,
         next_turn,
         DeltaKind::Reasoning,
         "y".into(),
     )
     .expect("a turn change displaces the run: positions are not coalescible");
     assert_eq!(displaced.context, context);
+}
+
+#[test]
+fn project_transcript_for_wire_strips_heavy_provider_meta_and_image_pixels() {
+    let mut msg = nuo_tool::Message::new(nuo_tool::Role::User, "see screenshot").with_images(vec![
+        nuo_tool::ImagePart {
+            mime: "image/png".to_string(),
+            data: "A".repeat(4096),
+        },
+    ]);
+    let mut meta = serde_json::Map::new();
+    meta.insert(
+        "signature".to_string(),
+        serde_json::Value::String("S".repeat(4096)),
+    );
+    msg.provider_meta = Some(meta);
+
+    let projected = crate::transport::serve::sync_buffer::project_transcript_for_wire(vec![msg]);
+    assert_eq!(projected.len(), 1);
+    assert_eq!(projected[0].content, "see screenshot");
+    assert!(projected[0].provider_meta.is_none());
+    let images = projected[0]
+        .images
+        .as_ref()
+        .expect("image metadata preserved");
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].mime, "image/png");
+    assert!(images[0].data.is_empty());
 }
 
 /// Only the two streamed delta variants are coalescible; everything else

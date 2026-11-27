@@ -48,14 +48,17 @@ impl ThreadSession {
         let (data, undo) = {
             let mut state = self.state.lock().await;
             let undo = SessionUndo::appending(&state);
-            state.data.transcript.push(state_entry.clone());
+            state.data.transcript.push(state_entry);
+            let pushed_entry = state.data.transcript.entries.last().cloned();
             state.data.updated_at = unix_timestamp();
             if Self::should_skip_persist(&state) {
                 (None, undo)
             } else {
                 state.defer_persist = false;
                 let mut delta = state.data.clone_metadata_without_history();
-                delta.transcript.push(state_entry);
+                if let Some(entry) = pushed_entry {
+                    delta.transcript.entries.push(entry);
+                }
                 (Some(delta), undo)
             }
         };

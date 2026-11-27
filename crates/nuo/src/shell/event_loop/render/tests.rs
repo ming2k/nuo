@@ -462,3 +462,226 @@ fn subagent_scene_renders_role_token_in_brand_bold_end_to_end() {
         "Subagent role token must be bold"
     );
 }
+
+#[test]
+fn needs_provider_triggers_for_synced_zero_connection_installs() {
+    use super::{has_keyed_provider, project_landing_guidance};
+    use crate::shell::render::LandingGuidance;
+
+    let mut app = new_app_for_relay_tests();
+    app.link.phase = crate::shell::app::state::ClientLinkPhase::Connected {
+        server_id: "srv-1".to_string(),
+    };
+    app.session.server_phase = nuo_protocol::ServerPhase::Ready;
+    app.threads.session_phase = nuo_protocol::ThreadPhase::Ready;
+
+    // Before the first ProviderPicker snapshot lands: suppress false blocker.
+    assert!(!app.surfaces.provider_picker_synced);
+    assert!(has_keyed_provider(
+        app.surfaces.provider_picker_synced,
+        &app.surfaces.provider_picker,
+        &app.surfaces.key_status,
+    ));
+    assert_eq!(project_landing_guidance(&app), LandingGuidance::Tour);
+
+    // After server delivers an empty ProviderPicker snapshot (0 connections):
+    // NeedsProvider MUST surface rather than staying hidden behind rows.is_empty().
+    let runtime = UiRuntime::minimal_for_test();
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        AppMutation::ProviderPicker(nuo_protocol::ProviderPickerSnapshot::default()),
+    );
+    assert!(app.surfaces.provider_picker_synced);
+    assert!(!has_keyed_provider(
+        app.surfaces.provider_picker_synced,
+        &app.surfaces.provider_picker,
+        &app.surfaces.key_status,
+    ));
+    assert_eq!(
+        project_landing_guidance(&app),
+        LandingGuidance::NeedsProvider
+    );
+
+    // A configured connection without a ready key still blocks; once key_ready
+    // becomes true the tour resumes.
+    let mut row = nuo_protocol::ProviderPickerRow {
+        id: "openai".to_string(),
+        name: "OpenAI".to_string(),
+        provider: "openai".to_string(),
+        protocol: "openai-responses".to_string(),
+        base_url: String::new(),
+        headers: std::collections::BTreeMap::new(),
+        key_ready: false,
+        model: "gpt-5".to_string(),
+        models: vec!["gpt-5".to_string()],
+        model_info: Vec::new(),
+        last_used_ms: None,
+        builtin: false,
+        auth: nuo_protocol::ConnectionAuth::Static,
+    };
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        AppMutation::ProviderPicker(nuo_protocol::ProviderPickerSnapshot {
+            default_id: "openai".to_string(),
+            rows: vec![row.clone()],
+        }),
+    );
+    assert_eq!(
+        project_landing_guidance(&app),
+        LandingGuidance::NeedsProvider
+    );
+
+    row.key_ready = true;
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        AppMutation::ProviderPicker(nuo_protocol::ProviderPickerSnapshot {
+            default_id: "openai".to_string(),
+            rows: vec![row],
+        }),
+    );
+    assert_eq!(project_landing_guidance(&app), LandingGuidance::Tour);
+}
+
+#[test]
+fn project_carousel_active_gates_on_scene_overlay_and_guidance() {
+    use super::project_carousel_active;
+
+    let mut app = new_app_for_relay_tests();
+    app.link.phase = crate::shell::app::state::ClientLinkPhase::Connected {
+        server_id: "srv-1".to_string(),
+    };
+    app.session.server_phase = nuo_protocol::ServerPhase::Ready;
+    app.threads.session_phase = nuo_protocol::ThreadPhase::Ready;
+
+    // Empty Thread scene + Tour guidance → carousel rotates.
+    assert!(project_carousel_active(&app));
+
+    // Fullscreen Dashboard/Settings scene → carousel MUST NOT wake/rotate.
+    app.surfaces.surfaces.switch_scene(SceneKind::Dashboard);
+    assert!(!project_carousel_active(&app));
+    app.surfaces.surfaces.switch_scene(SceneKind::Settings);
+    assert!(!project_carousel_active(&app));
+    app.surfaces.surfaces.switch_scene(SceneKind::Thread);
+    assert!(project_carousel_active(&app));
+
+    // Open overlay → suppressed.
+    app.open_dialog(crate::shell::surfaces::DialogKind::Help);
+    assert!(!project_carousel_active(&app));
+    app.dismiss_active_dialog();
+    assert!(project_carousel_active(&app));
+
+    // NeedsProvider blocker (non-rotating) → suppressed.
+    app.surfaces.provider_picker_synced = true;
+    assert!(!project_carousel_active(&app));
+    app.surfaces.provider_picker_synced = false;
+    assert!(project_carousel_active(&app));
+
+    // Non-empty thread → suppressed.
+    app.threads
+        .messages
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
+            "hello",
+        ));
+    assert!(!project_carousel_active(&app));
+}
+
+#[test]
+fn carousel_keys_reflect_live_keymap_overrides() {
+    use super::project_carousel_keys;
+    use std::collections::HashMap;
+
+    let defaults = project_carousel_keys(
+        &crate::shell::keymap::GlobalOverrides::default(),
+        &crate::shell::keymap::SurfaceOverrides::default(),
+    );
+    assert_eq!(defaults.help, vec!["F1", "Alt-h"]);
+    assert_eq!(defaults.history_search.as_deref(), Some("Ctrl-r"));
+    assert_eq!(
+        defaults.command_palette.as_deref(),
+        Some(crate::shell::keymap::Key::CTRL_SHIFT_P.display())
+    );
+
+    // Remap command palette, steal Alt-h for NewTab, and remap OpenHistory.
+    let global = crate::shell::keymap::GlobalOverrides::from_config(&HashMap::from([
+        ("palette".to_string(), "ctrl-k".to_string()),
+        ("new_tab".to_string(), "alt-h".to_string()),
+    ]));
+    let surface = crate::shell::keymap::SurfaceOverrides::from_config(&HashMap::from([(
+        "open_history".to_string(),
+        "ctrl-g".to_string(),
+    )]));
+    let custom = project_carousel_keys(&global, &surface);
+    assert_eq!(custom.help, vec!["F1"]);
+    assert_eq!(custom.history_search.as_deref(), Some("Ctrl-g"));
+    assert_eq!(custom.command_palette.as_deref(), Some("Ctrl-k"));
+}
+
+#[tokio::test]
+async fn shift_tab_stays_on_composer_during_project_landing() {
+    let mut app = new_app_for_relay_tests();
+    let runtime = UiRuntime::minimal_for_test();
+    assert!(app.focused_messages().is_empty());
+    assert!(app.threads.focus.is_composer());
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::ToggleFocusPlane,
+        "",
+    )
+    .await;
+    assert!(
+        app.threads.focus.is_composer(),
+        "ToggleFocusPlane must not cross into a non-existent transcript on project landing"
+    );
+
+    // Once messages exist, Shift-Tab crosses cleanly to the transcript plane.
+    app.threads
+        .messages
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
+            "hi",
+        ));
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::ToggleFocusPlane,
+        "",
+    )
+    .await;
+    assert!(app.threads.focus.is_transcript());
+}
+
+#[test]
+fn fullscreen_dashboard_bypasses_landing_pass_and_surfaces_server_lifecycle() {
+    let mut app = new_app_for_relay_tests();
+    app.open_tab(ClientTab::thread("t-empty", None::<String>));
+    app.open_tab(ClientTab::dashboard());
+    app.surfaces.surfaces.switch_scene(SceneKind::Dashboard);
+    app.threads.content_lines = 42;
+    app.session.server_phase = nuo_protocol::ServerPhase::Draining {
+        reason: Some("upgrade".to_string()),
+    };
+
+    let mut terminal = graticule::TestTerminal::new(100, 24);
+    terminal.draw(|f| {
+        crate::shell::event_loop::render_frame(&mut app, f, "t-empty");
+    });
+
+    // Thread layout state must remain untouched by fullscreen Dashboard draws.
+    assert_eq!(app.threads.content_lines, 42);
+
+    // Tier 2 SceneBar surfaces the server draining lifecycle status directly.
+    let row1: String = terminal.buffer().cells()[100..200]
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+    assert!(
+        row1.contains("server shutting down"),
+        "Dashboard SceneBar must surface server degradation: {row1:?}"
+    );
+}

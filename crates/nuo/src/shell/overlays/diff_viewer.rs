@@ -182,6 +182,8 @@ pub struct DiffSceneRects {
 pub struct DiffSceneProps<'a> {
     pub state: Option<&'a mut DiffViewerState>,
     pub tab_bar: Option<TabBarProps<'a>>,
+    /// Client/server lifecycle warning, surfaced in Tier 2 `SceneBar` when degraded.
+    pub lifecycle_status: Option<&'a str>,
 }
 
 /// Render the fullscreen diff viewer scene.
@@ -190,6 +192,13 @@ pub fn draw_diff_scene(
     props: DiffSceneProps<'_>,
     theme: &Theme,
 ) -> DiffSceneRects {
+    // Fullscreen surface: clear and paint the app backdrop directly so Diff
+    // never relies on an underlying transcript pass.
+    frame.render_widget(&mut graticule::Clear::default(), frame.area());
+    frame.render_widget(
+        &mut graticule::Block::default().style(Style::default().bg(theme.app_bg)),
+        frame.area(),
+    );
     let area = viewport_rect(frame);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -232,6 +241,10 @@ pub fn draw_diff_scene(
         ),
     };
 
+    let (scene_context, scene_warn) = match props.lifecycle_status {
+        Some(status) => (status, true),
+        None => (context.as_str(), false),
+    };
     draw_scene_bar(
         frame,
         Rect {
@@ -242,8 +255,8 @@ pub fn draw_diff_scene(
         &ViewHints {
             kind: crate::shell::surfaces::SceneKind::Diff,
             role: None,
-            context: Some(context.as_str()),
-            context_warn: false,
+            context: Some(scene_context),
+            context_warn: scene_warn,
             breadcrumbs: None,
             can_back: false,
             can_forward: false,

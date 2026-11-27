@@ -211,9 +211,7 @@ async fn an_admitted_turn_band_paints_the_turn_time() {
 
 /// Render a transcript grid with the production transcript renderer.
 fn render_grid(messages: &[TranscriptMessage], width: u16, height: u16) -> String {
-    use crate::shell::render::{
-        EmptyStateGuidance, QueueBarProps, Theme, TranscriptProps, draw_transcript,
-    };
+    use crate::shell::render::{QueueBarProps, Theme, TranscriptProps, draw_transcript};
     use nuo_view::model::layout::LayoutMap;
 
     let theme = Theme::default();
@@ -250,9 +248,6 @@ fn render_grid(messages: &[TranscriptMessage], width: u16, height: u16) -> Strin
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache: None,

@@ -18,10 +18,14 @@ mod projection;
 #[cfg(test)]
 mod tests;
 
+#[cfg(not(test))]
+use projection::select_lifecycle_status;
 pub(crate) use projection::{
-    TRANSIENT_WAIT_HYSTERESIS, project_tab_items, select_empty_state_guidance,
-    select_lifecycle_status,
+    TRANSIENT_WAIT_HYSTERESIS, project_carousel_active, project_carousel_keys,
+    project_landing_guidance, project_tab_items, select_server_lifecycle_status,
 };
+#[cfg(test)]
+pub(crate) use projection::{has_keyed_provider, select_landing_guidance, select_lifecycle_status};
 use projection::{mcp_connecting_status, tab_hover_projection};
 
 /// Loop stage: the per-frame draw. Paints the chrome (startup picker,
@@ -69,20 +73,51 @@ fn compose_frame(
         return;
     }
 
-    let transcript = draw_transcript_surface(app, f, viewed_session_id, ui, &mut layout_map);
+    let is_fullscreen_scene = matches!(
+        app.current_scene(),
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
+    );
+    if is_fullscreen_scene {
+        // Fullscreen scenes own the entire terminal directly — never paint the
+        // project landing or thread transcript pass underneath them, and never
+        // mutate thread layout measurements (`content_lines` / `max_scroll`).
+        let mut surface = draw_scene(app, f, viewed_session_id, ui, &mut layout_map);
+        if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
+            ui.mount(UiKey::Backdrop, f.area());
+            render::recess_backdrop(f, Recess::Dim, &app.surfaces.theme);
+            surface = SurfaceDraw {
+                modal_rect: draw_active_overlay(
+                    app,
+                    f,
+                    viewed_session_id,
+                    ui,
+                    &mut layout_map,
+                    overlay,
+                    None,
+                    0,
+                ),
+                dashboard_list_body_height: None,
+            };
+        }
+        draw_provider_delete_confirm(app, f, ui);
+        draw_toasts(app, f);
+        finish_frame(app, ui, &mut layout_map, surface);
+        return;
+    }
+
+    let stage = draw_stage_surface(app, f, viewed_session_id, ui, &mut layout_map);
     let slot = ComposerSlot {
-        input_rect: transcript.input_rect,
-        hint_rect: transcript.hint_rect,
+        input_rect: stage.input_rect,
+        hint_rect: stage.hint_rect,
     };
 
     draw_model_bar_surface(app, f, viewed_session_id, ui, slot);
     draw_composer_surface(app, f, viewed_session_id, ui, &mut layout_map, slot);
-    persist_transcript_layout(app, ui, &transcript);
+    persist_transcript_layout(app, ui, &stage);
     draw_interaction_sheets(app, f, ui, slot);
     draw_completion_popup(app, f, ui, &mut layout_map, slot);
 
-    let surface =
-        draw_recessed_surface(app, f, viewed_session_id, ui, &mut layout_map, &transcript);
+    let surface = draw_recessed_surface(app, f, viewed_session_id, ui, &mut layout_map, &stage);
 
     draw_provider_delete_confirm(app, f, ui);
     draw_toasts(app, f);
@@ -198,17 +233,16 @@ fn draw_startup_surface(
     false
 }
 
-/// Transcript family: head band, message stream, footer placement, and every
-/// hit-test rect the transcript pass registered. Also derives the per-view
-/// chrome state (status, transport setback, queue preview, empty-state
-/// guidance) that only this surface consumes.
-fn draw_transcript_surface(
+/// Workspace stage family: paints either the **project-level landing hero**
+/// (when on `SceneKind::Thread` with no dialogue yet) or the **thread/subagent
+/// transcript stream**, sharing one head-band and footer geometry contract.
+fn draw_stage_surface(
     app: &mut App,
     f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
-) -> render::TranscriptRender {
+) -> render::StageRender {
     // Borrow the height cache out of `app` for the duration of the draw:
     // `view_messages` borrows `app` immutably below, so the cache cannot
     // also be reached through `app` at the same time. It is restored once
@@ -343,37 +377,12 @@ fn draw_transcript_surface(
         can_back,
         can_forward,
     };
-    // Empty-state guidance policy (ADR-0057/0104): the app shell picks the
-    // variant, the view paints it. A setup blocker beats the tour — nothing
-    // rotates until a keyed provider exists. The blocker reads from
-    // `provider_picker` rows (a row exists ⇒ the provider is configured;
-    // `key_status` refines key readiness), mirroring what `/connections`
-    // manages, so the nudge clears the moment the user fixes the real thing.
-    // An empty snapshot means "not synced yet" — the server's startup
-    // snapshot arrives within the first loop iterations — so the tour
-    // renders in that window rather than flashing a false no-provider
-    // warning at an already-configured user. A genuinely provider-less
-    // install is indistinguishable until its snapshot lands; the cost is a
-    // few tour frames before the blocker appears, never a false warning.
-    let has_keyed_provider = app.surfaces.provider_picker.rows.iter().any(|row| {
-        row.key_ready
-            || app
-                .surfaces
-                .key_status
-                .get(&row.id)
-                .copied()
-                .unwrap_or(true)
-    }) || app.surfaces.provider_picker.rows.is_empty();
-    let guidance = select_empty_state_guidance(
-        &app.link.phase,
-        app.link.phase_since.elapsed(),
-        &app.session.server_phase,
-        app.session.server_phase_since.elapsed(),
-        app.session.switching_session.as_deref(),
-        &app.threads.session_phase,
-        app.session.thread_phase_since.elapsed(),
-        has_keyed_provider,
-    );
+    let guidance = project_landing_guidance(app);
+    let carousel_keys =
+        project_carousel_keys(&app.surfaces.key_overrides, &app.surfaces.surface_overrides);
+    let show_project_landing = app.current_scene() == SceneKind::Thread
+        && view_messages.is_empty()
+        && subagent_bar.is_none();
     // Suppress the hover affordance whenever a full-overlay modal is
     // open so no stale highlight bleeds through. The foreground
     // permission sheet keeps the transcript interactive, so it is
@@ -407,91 +416,120 @@ fn draw_transcript_surface(
     // single frame-stable value rather than something to re-read per widget.
     let tab_hover = tab_hover_projection(app);
     let tab_items = project_tab_items(app, viewed_session_id);
+    let tab_bar_props = render::TabBarProps {
+        items: &tab_items,
+        active_tab: app.surfaces.surfaces.active_tab_index(),
+        unread_faults: if app.has_unread_notice_fault() {
+            app.unread_notices()
+        } else {
+            0
+        },
+        ..tab_hover
+    };
+    let thread_context_props = render::ThreadContext {
+        role: app.threads.current_role.as_deref(),
+        workspace: &app.threads.current_workspace,
+        unattended: app.threads.unattended,
+        confined: app.threads.confined,
+    };
+    let queue_bar_props = render::QueueBarProps {
+        items: &queue_items,
+        // A real condition, not a derived constant: the driver is
+        // holding this session's queue.
+        blocked: app.pending_count(viewed_session_id) > 0
+            && app.is_queue_blocked(viewed_session_id),
+        // The legend's keycap comes from the registry, never a
+        // literal: the bar can only advertise a chord that fires
+        expand_key: app
+            .surfaces
+            .key_overrides
+            .effective_binding(crate::shell::keymap::CommandId::OpenQueue),
+    };
+    let tasks_bar_props = render::TasksBarProps {
+        tasks: &app.threads.background_tasks,
+    };
+    let interrupt_key = app
+        .surfaces
+        .key_overrides
+        .effective_binding(crate::shell::keymap::CommandId::CancelOrBack);
+    let spinner_phase = (app.viewport.spinner_epoch.elapsed().as_millis() / 100) as usize;
     let transcript_render = ui.paint(f, UiKey::Root, |f| {
-        render::draw_transcript(
-            f,
-            layout_map,
-            render::TranscriptProps {
-                messages: view_messages,
-                scroll: app.threads.scroll,
-                selection: &app.threads.selection,
-                cell_selection: app.viewport.drag.cell_info.as_ref(),
-                activity: &status,
-                backoff,
-                // A pending permission request forces the activity bar on (and
-                // tints it warning) so it stays the visible anchor above the
-                // permission sheet even if the loop has gone idle.
-                awaiting_permission: app.human.pending_permission.is_some(),
-                // ~100ms per phase keeps one breathing cycle near 1.2s
-                // (SPINNER_PHASES steps); `breathing_color` wraps modulo.
-                spinner_phase: (app.viewport.spinner_epoch.elapsed().as_millis() / 100) as usize,
-                input: &masked_input,
-                chrome_hidden,
-                queue_bar: render::QueueBarProps {
-                    items: &queue_items,
-                    // A real condition, not a derived constant: the driver is
-                    // holding this session's queue.
-                    blocked: app.pending_count(viewed_session_id) > 0
-                        && app.is_queue_blocked(viewed_session_id),
-                    // The legend's keycap comes from the registry, never a
-                    // literal: the bar can only advertise a chord that fires
-                    expand_key: app
-                        .surfaces
-                        .key_overrides
-                        .effective_binding(crate::shell::keymap::CommandId::OpenQueue),
+        if show_project_landing {
+            render::draw_project_landing(
+                f,
+                render::ProjectLandingProps {
+                    activity: &status,
+                    backoff,
+                    awaiting_permission: app.human.pending_permission.is_some(),
+                    spinner_phase,
+                    input: &masked_input,
+                    queue_bar: queue_bar_props,
+                    tasks_bar: tasks_bar_props,
+                    interrupt_key,
+                    page_hints: Some(page_hints),
+                    tab_bar: Some(tab_bar_props),
+                    thread_context: Some(thread_context_props),
+                    round_started_at: viewed_chrome.round_started_at,
+                    logo: app.surfaces.logo.as_deref(),
+                    guidance,
+                    carousel_index: nuo_view::landing::carousel_page_for(
+                        app.viewport.carousel_epoch.elapsed().as_millis(),
+                        &carousel_keys,
+                    ),
+                    carousel_keys: &carousel_keys,
+                    theme: &app.surfaces.theme,
                 },
-                tasks_bar: render::TasksBarProps {
-                    tasks: &app.threads.background_tasks,
-                },
-                // The armed interrupt repeats the *resolved* chord, so remapping
-                // `CancelOrBack` moves the keycap rather than leaving a stale one.
-                interrupt_key: app
-                    .surfaces
-                    .key_overrides
-                    .effective_binding(crate::shell::keymap::CommandId::CancelOrBack),
-                subagent_bar,
-                page_hints: Some(page_hints),
-                tab_bar: Some(render::TabBarProps {
-                    items: &tab_items,
-                    active_tab: app.surfaces.surfaces.active_tab_index(),
-                    unread_faults: if app.has_unread_notice_fault() {
-                        app.unread_notices()
+            )
+        } else {
+            render::draw_transcript(
+                f,
+                layout_map,
+                render::TranscriptProps {
+                    messages: view_messages,
+                    scroll: app.threads.scroll,
+                    selection: &app.threads.selection,
+                    cell_selection: app.viewport.drag.cell_info.as_ref(),
+                    activity: &status,
+                    backoff,
+                    // A pending permission request forces the activity bar on (and
+                    // tints it warning) so it stays the visible anchor above the
+                    // permission sheet even if the loop has gone idle.
+                    awaiting_permission: app.human.pending_permission.is_some(),
+                    // ~100ms per phase keeps one breathing cycle near 1.2s
+                    // (SPINNER_PHASES steps); `breathing_color` wraps modulo.
+                    spinner_phase,
+                    input: &masked_input,
+                    chrome_hidden,
+                    queue_bar: queue_bar_props,
+                    tasks_bar: tasks_bar_props,
+                    // The armed interrupt repeats the *resolved* chord, so remapping
+                    // `CancelOrBack` moves the keycap rather than leaving a stale one.
+                    interrupt_key,
+                    subagent_bar,
+                    page_hints: Some(page_hints),
+                    tab_bar: Some(tab_bar_props),
+                    thread_context: Some(thread_context_props),
+                    // View-scoped: the elapsed-timer origin belongs to the viewed
+                    // session's round (a background view times its own round, not
+                    // the primary's).
+                    round_started_at: viewed_chrome.round_started_at,
+                    hovered_step: chrome_interactive
+                        .then_some(app.viewport.hovered_step)
+                        .flatten(),
+                    focused_entry: chrome_interactive
+                        .then_some(app.threads.focus.entry())
+                        .flatten(),
+                    focus_plane: if app.threads.focus.is_transcript() {
+                        render::FocusPlane::Transcript
                     } else {
-                        0
+                        render::FocusPlane::Composer
                     },
-                    ..tab_hover
-                }),
-                thread_context: Some(render::ThreadContext {
-                    role: app.threads.current_role.as_deref(),
-                    workspace: &app.threads.current_workspace,
-                    unattended: app.threads.unattended,
-                    confined: app.threads.confined,
-                }),
-                // View-scoped: the elapsed-timer origin belongs to the viewed
-                // session's round (a background view times its own round, not
-                // the primary's).
-                round_started_at: viewed_chrome.round_started_at,
-                hovered_step: chrome_interactive
-                    .then_some(app.viewport.hovered_step)
-                    .flatten(),
-                focused_entry: chrome_interactive
-                    .then_some(app.threads.focus.entry())
-                    .flatten(),
-                focus_plane: if app.threads.focus.is_transcript() {
-                    render::FocusPlane::Transcript
-                } else {
-                    render::FocusPlane::Composer
+                    theme: &app.surfaces.theme,
+                    layout: app.viewport.transcript_layout,
+                    height_cache: Some(&mut height_cache),
                 },
-                logo: app.surfaces.logo.as_deref(),
-                guidance,
-                carousel_index: nuo_view::empty_state::carousel_page_for(
-                    app.viewport.carousel_epoch.elapsed().as_millis(),
-                ),
-                theme: &app.surfaces.theme,
-                layout: app.viewport.transcript_layout,
-                height_cache: Some(&mut height_cache),
-            },
-        )
+            )
+        }
     });
     // The transcript draw is the only consumer of the height cache; restore
     // it immediately so the rest of the frame sees the refreshed entries.
@@ -832,9 +870,10 @@ fn draw_composer_surface(
             // (ADR-0145).
             let active_extension = app.active_composer_extension();
             // One question, one answer: does the transcript plane own the
-            // keyboard? Both its sub-states agree, so there is no separate
-            // "step selected" and "browsing" pair to keep in sync here.
-            let transcript_owns_keyboard = app.threads.focus.is_transcript();
+            // keyboard? Project landing has no transcript stream, so empty
+            // messages always keep composer focus lit and live.
+            let transcript_owns_keyboard =
+                !app.focused_messages().is_empty() && app.threads.focus.is_transcript();
             let show_caret = scene_owns_caret && !transcript_owns_keyboard;
             let composer_focused = !transcript_owns_keyboard
                 && (!has_overlay || scene_owns_caret || active_extension.is_some());
@@ -957,7 +996,7 @@ fn draw_composer_surface(
 fn persist_transcript_layout(
     app: &mut App,
     ui: &mut crate::shell::ui::ComponentTree,
-    transcript: &render::TranscriptRender,
+    transcript: &render::StageRender,
 ) {
     app.threads.content_lines = transcript.content_lines;
     app.viewport.view_height = transcript.view_height;
@@ -1126,25 +1165,17 @@ fn draw_completion_popup(
     }
 }
 
-/// Recess the live surface and dispatch to the active overlay or the
-/// full-screen scene. The recess is a read-modify-write of cells already on
-/// the grid, so it paints straight into the frame.
+/// Recess the live stage surface and dispatch to the active overlay.
 fn draw_recessed_surface(
     app: &mut App,
     f: &mut graticule::Frame<'_>,
     viewed_session_id: &str,
     ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
-    transcript: &render::TranscriptRender,
+    transcript: &render::StageRender,
 ) -> SurfaceDraw {
-    let is_fullscreen_scene = matches!(
-        app.current_scene(),
-        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog | SceneKind::Diff
-    );
     let has_overlay = app.surfaces.surfaces.active_overlay().is_some();
-    let recess = if is_fullscreen_scene {
-        Recess::Takeover
-    } else if app.surfaces.surfaces.active_overlay()
+    let recess = if app.surfaces.surfaces.active_overlay()
         == Some(OverlaySurface::Dialog(DialogKind::HistorySearch))
     {
         Recess::None
@@ -1157,6 +1188,9 @@ fn draw_recessed_surface(
     render::recess_backdrop(f, recess, &app.surfaces.theme);
 
     if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
+        let activity_height =
+            render::footer_rect(&transcript.footer, render::FooterRowId::ActivityStrip)
+                .map_or(0, |r| r.height);
         SurfaceDraw {
             modal_rect: draw_active_overlay(
                 app,
@@ -1165,18 +1199,23 @@ fn draw_recessed_surface(
                 ui,
                 layout_map,
                 overlay,
-                transcript,
+                Some(transcript.input_rect),
+                activity_height,
             ),
             dashboard_list_body_height: None,
         }
     } else {
-        draw_scene(app, f, viewed_session_id, ui, layout_map)
+        SurfaceDraw {
+            modal_rect: None,
+            dashboard_list_body_height: None,
+        }
     }
 }
 
 /// Overlay family: dialogs (the `?` keys view or the entity's own view) and
 /// provider sheets. Returns the panel rect the renderer painted, used for
 /// modal-body sizing and backdrop hit-testing.
+#[allow(clippy::too_many_arguments)]
 fn draw_active_overlay(
     app: &mut App,
     f: &mut graticule::Frame<'_>,
@@ -1184,15 +1223,12 @@ fn draw_active_overlay(
     mut ui: &mut crate::shell::ui::ComponentTree,
     layout_map: &mut LayoutMap,
     overlay: OverlaySurface,
-    transcript: &render::TranscriptRender,
+    input_rect: Option<graticule::Rect>,
+    activity_height: u16,
 ) -> Option<graticule::Rect> {
     let overlay_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Overlay;
     let spinner_phase = (app.viewport.spinner_epoch.elapsed().as_millis() / 100) as usize;
-    let input_rect = transcript.input_rect;
-    let activity_height =
-        render::footer_rect(&transcript.footer, render::FooterRowId::ActivityStrip)
-            .map_or(0, |r| r.height);
 
     match overlay {
         OverlaySurface::Dialog(d) if app.dialog_keys() => {
@@ -1223,7 +1259,7 @@ fn draw_active_overlay(
                         spinner_phase,
                         viewed_session_id,
                         startup_picker,
-                        input_rect: Some(input_rect),
+                        input_rect,
                         activity_height,
                         overlay_owns_caret,
                     };
@@ -1414,6 +1450,13 @@ fn draw_scene(
     // fact is one frame-stable value shared by every page renderer.
     let tab_hover = tab_hover_projection(app);
     let tab_items = project_tab_items(app, viewed_session_id);
+    let server_lifecycle = select_server_lifecycle_status(
+        app.link.link_down,
+        &app.link.phase,
+        app.link.phase_since.elapsed(),
+        &app.session.server_phase,
+        app.session.server_phase_since.elapsed(),
+    );
     let scene_prompt_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Scene;
     let mut dashboard_list_body_height: Option<u16> = None;
@@ -1450,6 +1493,7 @@ fn draw_scene(
                     usage_report: app.telemetry.usage_stats.as_ref(),
                     usage_loading: app.telemetry.usage_loading,
                     usage_scroll: app.telemetry.usage_scroll,
+                    lifecycle_status: server_lifecycle.as_deref(),
                 },
                 &app.surfaces.theme,
             );
@@ -1523,6 +1567,7 @@ fn draw_scene(
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
+                    lifecycle_status: server_lifecycle.as_deref(),
                 },
             );
             app.surfaces.config_selected_rect = rects.selected_row_rect;
@@ -1599,6 +1644,7 @@ fn draw_scene(
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
+                    lifecycle_status: server_lifecycle.as_deref(),
                 },
                 layout_map,
                 &app.surfaces.theme,
@@ -1643,6 +1689,7 @@ fn draw_scene(
                         unread_faults: scene_unread_faults,
                         ..tab_hover
                     }),
+                    lifecycle_status: server_lifecycle.as_deref(),
                 },
                 &app.surfaces.theme,
             );

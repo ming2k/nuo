@@ -87,6 +87,8 @@ pub struct LogSceneProps<'a> {
     /// the badge is fed by the same projection every other scene's TabBar uses
     /// instead of a second count that could disagree.
     pub tab_bar: Option<TabBarProps<'a>>,
+    /// Client/server lifecycle warning, surfaced in Tier 2 `SceneBar` when degraded.
+    pub lifecycle_status: Option<&'a str>,
 }
 
 /// Draw the full-screen command log.
@@ -100,6 +102,7 @@ pub fn draw_command_log_scene(
         log,
         scroll,
         tab_bar,
+        lifecycle_status,
     } = props;
 
     // A true full-screen surface: clear the whole frame and paint our own
@@ -143,6 +146,13 @@ pub fn draw_command_log_scene(
         None => TabBarNavRects::default(),
     };
     let context = log_context(log);
+    let (scene_context, scene_warn) = match lifecycle_status {
+        Some(status) => (status, true),
+        None => (
+            context.as_str(),
+            log.is_some_and(|log| log.outcome_line().is_some()),
+        ),
+    };
     draw_scene_bar(
         frame,
         Rect {
@@ -153,8 +163,8 @@ pub fn draw_command_log_scene(
         &ViewHints {
             kind: crate::shell::surfaces::SceneKind::CommandLog,
             role: None,
-            context: Some(context.as_str()),
-            context_warn: log.is_some_and(|log| log.outcome_line().is_some()),
+            context: Some(scene_context),
+            context_warn: scene_warn,
             breadcrumbs: None,
             can_back: false,
             can_forward: false,

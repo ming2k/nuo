@@ -1124,10 +1124,17 @@ fn handle_navigation_focus_action(
             app.focus_interactive_target(-1);
         }
         input::InputAction::ToggleFocusPlane => {
-            // `Shift-Tab`: cross to the other peer plane, remembering (and
-            // restoring) the transcript's entry highlight so the crossing is
-            // lossless (ADR-0145 `[INV-FOCUS-01]`).
-            app.threads.focus.toggle();
+            // Project landing has no transcript stream to focus: keep keyboard
+            // focus anchored on the composer rather than crossing into a
+            // non-existent transcript plane.
+            if app.focused_messages().is_empty() {
+                app.threads.focus = crate::shell::Focus::composer();
+            } else {
+                // `Shift-Tab`: cross to the other peer plane, remembering (and
+                // restoring) the transcript's entry highlight so the crossing is
+                // lossless (ADR-0145 `[INV-FOCUS-01]`).
+                app.threads.focus.toggle();
+            }
             // A crossing is a deliberate act on the surface, so any text
             // selection or in-flight drag on the plane being left is dropped —
             // a highlight that survives a plane change reads as "both planes

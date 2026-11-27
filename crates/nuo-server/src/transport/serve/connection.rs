@@ -581,6 +581,7 @@ pub(crate) enum DeltaKind {
 #[derive(Debug)]
 pub(crate) struct PendingDelta {
     pub(crate) thread_id: String,
+    pub(crate) generation: u64,
     pub(crate) context: nuo_protocol::TurnContext,
     pub(crate) kind: DeltaKind,
     pub(crate) text: String,
@@ -642,6 +643,7 @@ pub(crate) fn take_delta(
 pub(crate) fn queue_delta(
     pending: &mut Option<PendingDelta>,
     thread_id: String,
+    generation: u64,
     context: nuo_protocol::TurnContext,
     kind: DeltaKind,
     text: String,
@@ -649,6 +651,7 @@ pub(crate) fn queue_delta(
     if let Some(current) = pending.as_mut()
         && current.kind == kind
         && current.thread_id == thread_id
+        && current.generation == generation
         && current.context == context
     {
         current.text.push_str(&text);
@@ -656,6 +659,7 @@ pub(crate) fn queue_delta(
     }
     pending.replace(PendingDelta {
         thread_id,
+        generation,
         context,
         kind,
         text,
@@ -663,10 +667,11 @@ pub(crate) fn queue_delta(
 }
 
 async fn send_delta(wire_sink: &mut BoxWireSink, delta: PendingDelta) -> Result<(), String> {
+    let generation = delta.generation;
     wire_sink
         .send(Wire::Response {
             response: delta.into_response(),
-            generation: 1,
+            generation,
         })
         .await
         .map_err(|e| format!("wire send: {e}"))
@@ -786,7 +791,6 @@ async fn handle_wire_stream(
 /// One thread subscribed on a multiplexed client connection (ADR-0251, ADR-0253).
 struct SubscribedThread {
     handle: crate::runtime::registry::AttachHandle,
-    last_snapshot: Option<nuo_protocol::ThreadSnapshot>,
     forwarder: tokio::task::JoinHandle<()>,
     /// Monotonic epoch for this subscription: starts at `1`, incremented on
     /// in-place re-key (`/new`, `/resume`, `/fork`) and re-subscription (ADR-0253 §2).
@@ -858,14 +862,7 @@ async fn hydrate_subscribed_thread(
     handle: &crate::runtime::registry::AttachHandle,
     client_posture: nuo_protocol::human_request::HumanChannelPosture,
     request_id: u64,
-) -> Result<
-    (
-        String,
-        broadcast::Receiver<AgentResponse>,
-        Option<nuo_protocol::ThreadSnapshot>,
-    ),
-    String,
-> {
+) -> Result<(String, broadcast::Receiver<AgentResponse>), String> {
     // Subscribe before reading any cached state: anything the build task or the
     // live driver publishes from here on is buffered for this connection.
     // `[INV-ATTACH-04]` (ADR-0133): the authoritative snapshot precedes `Ready`.
@@ -896,22 +893,27 @@ async fn hydrate_subscribed_thread(
     // Hydrate, then announce readiness. A hosted session builds the snapshot
     // on demand (local reads only); a building session returns the snapshot
     // cached at promotion, or receives it on the phase stream below.
-    let last_snapshot = handle.snapshot().await;
-    if let Some(snapshot) = &last_snapshot {
+    if let Some(snapshot) = handle.snapshot().await {
+        let trust_notice = (after_attach
+            != nuo_protocol::human_request::HumanChannelPosture::Interactive)
+            .then(|| {
+                snapshot
+                    .harness_state
+                    .as_ref()
+                    .filter(|harness| harness.workspace_security.needs_review())
+                    .map(|harness| workspace_trust_notice(&session_id, &harness.workspace_security))
+            })
+            .flatten();
         wire_sink
             .send(Wire::Response {
-                response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
+                response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
                 generation: 1,
             })
             .await
             .map_err(|e| format!("send thread snapshot: {e}"))?;
         // A client cannot answer a gate from a pipe; surface the trust posture
         // passively for non-interactive attaches (ADR-0127).
-        if after_attach != nuo_protocol::human_request::HumanChannelPosture::Interactive
-            && let Some(harness) = &snapshot.harness_state
-            && harness.workspace_security.needs_review()
-        {
-            let response = workspace_trust_notice(&session_id, &harness.workspace_security);
+        if let Some(response) = trust_notice {
             wire_sink
                 .send(Wire::Response {
                     response,
@@ -935,7 +937,7 @@ async fn hydrate_subscribed_thread(
             .map_err(|e| format!("send ready phase: {e}"))?;
     }
 
-    Ok((session_id, rx, last_snapshot))
+    Ok((session_id, rx))
 }
 
 /// Tracks every thread subscribed on one multiplexed connection, with flat
@@ -1057,7 +1059,6 @@ async fn handle_mux_event(
     match event {
         Some(MuxEvent::Response { sub_key, response }) => {
             let response = *response;
-            let resolved_key = subs.resolve_key(&sub_key);
             // Track in-place session re-keying (`/new`, `/resume`, `/fork`).
             match &response {
                 AgentResponse::ConversationCleared {
@@ -1071,19 +1072,16 @@ async fn handle_mux_event(
                 } if previous_id != thread_id => {
                     subs.rekey(previous_id, thread_id.clone());
                 }
-                AgentResponse::ThreadSnapshot(snapshot) => {
-                    if let Some(key) = &resolved_key
-                        && let Some(sub) = subs.get_mut(key)
-                    {
-                        sub.last_snapshot = Some((**snapshot).clone());
-                    }
-                }
                 _ => {}
             }
+            let generation = subs
+                .resolve_key(&sub_key)
+                .and_then(|k| subs.get(&k))
+                .map_or(1, |s| s.generation);
             match take_delta(response) {
                 Ok((thread_id, context, kind, text)) => {
                     if let Some(displaced) =
-                        queue_delta(pending_delta, thread_id, context, kind, text)
+                        queue_delta(pending_delta, thread_id, generation, context, kind, text)
                         && let Err(e) = send_delta(wire_sink, displaced).await
                     {
                         return MuxControl::Stop(Err(e));
@@ -1098,10 +1096,6 @@ async fn handle_mux_event(
                         return MuxControl::Stop(Err(e));
                     }
                     *flush_deadline = None;
-                    let generation = subs
-                        .resolve_key(&sub_key)
-                        .and_then(|k| subs.get(&k))
-                        .map_or(1, |s| s.generation);
                     if let Err(e) = wire_sink
                         .send(Wire::Response {
                             response,
@@ -1131,14 +1125,16 @@ async fn handle_mux_event(
             if let Some(sub) = subs.get_mut(&key) {
                 let generation = sub.generation;
                 if let Some(snapshot) = sub.handle.snapshot().await {
-                    sub.last_snapshot = Some(snapshot.clone());
-                    let _ = wire_sink
+                    if let Err(e) = wire_sink
                         .send(Wire::Response {
                             response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
                             generation,
                         })
-                        .await;
-                    let _ = wire_sink
+                        .await
+                    {
+                        return MuxControl::Stop(Err(format!("wire send lag snapshot: {e}")));
+                    }
+                    if let Err(e) = wire_sink
                         .send(Wire::Response {
                             response: AgentResponse::ThreadPhase(nuo_protocol::ThreadPhaseUpdate {
                                 thread_id: key,
@@ -1146,14 +1142,10 @@ async fn handle_mux_event(
                             }),
                             generation,
                         })
-                        .await;
-                } else if let Some(snapshot) = &sub.last_snapshot {
-                    let _ = wire_sink
-                        .send(Wire::Response {
-                            response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
-                            generation,
-                        })
-                        .await;
+                        .await
+                    {
+                        return MuxControl::Stop(Err(format!("wire send lag ready: {e}")));
+                    }
                 }
             }
             MuxControl::Continue
@@ -1222,8 +1214,16 @@ async fn handle_subscribe_frame(
         crate::runtime::registry::ResolveOutcome::Welcome(new_handle) => {
             let tid = new_handle.session_id().await;
             if let Some(existing) = subs.get_mut(&tid) {
-                // Idempotent re-subscribe: advance generation and re-send
-                // acknowledgement + snapshot without double-attaching the human channel.
+                // Idempotent re-subscribe: upgrade any `Building` handle to the
+                // live `Hosted` handle once promoted, advance generation, and
+                // re-send acknowledgement + live snapshot without double-attaching
+                // the human channel.
+                if matches!(
+                    new_handle,
+                    crate::runtime::registry::AttachHandle::Hosted(_)
+                ) {
+                    existing.handle = new_handle;
+                }
                 existing.generation = existing.generation.saturating_add(1);
                 let generation = existing.generation;
                 let phase = existing.handle.phase();
@@ -1239,14 +1239,18 @@ async fn handle_subscribe_frame(
                     return MuxControl::Stop(Err(format!("wire send subscribed: {e}")));
                 }
                 if let Some(snapshot) = existing.handle.snapshot().await {
-                    existing.last_snapshot = Some(snapshot.clone());
-                    let _ = wire_sink
+                    if let Err(e) = wire_sink
                         .send(Wire::Response {
                             response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
                             generation,
                         })
-                        .await;
-                    let _ = wire_sink
+                        .await
+                    {
+                        return MuxControl::Stop(Err(format!(
+                            "wire send resubscribe snapshot: {e}"
+                        )));
+                    }
+                    if let Err(e) = wire_sink
                         .send(Wire::Response {
                             response: AgentResponse::ThreadPhase(nuo_protocol::ThreadPhaseUpdate {
                                 thread_id: tid,
@@ -1254,7 +1258,10 @@ async fn handle_subscribe_frame(
                             }),
                             generation,
                         })
-                        .await;
+                        .await
+                    {
+                        return MuxControl::Stop(Err(format!("wire send resubscribe ready: {e}")));
+                    }
                 }
             } else {
                 match hydrate_subscribed_thread(
@@ -1265,14 +1272,13 @@ async fn handle_subscribe_frame(
                 )
                 .await
                 {
-                    Ok((new_tid, new_rx, new_snapshot)) => {
+                    Ok((new_tid, new_rx)) => {
                         let forwarder =
                             spawn_thread_forwarder(new_tid.clone(), new_rx, env.mux_tx.clone());
                         subs.insert(
                             new_tid,
                             SubscribedThread {
                                 handle: new_handle,
-                                last_snapshot: new_snapshot,
                                 forwarder,
                                 generation: 1,
                             },
@@ -1341,12 +1347,12 @@ async fn handle_end_thread(
     // Detach and drop the handle first so this connection does not keep the
     // broadcast channel open, while keeping the forwarder alive long enough to
     // deliver the terminal `Exit` frame broadcast by `kill_session`.
-    let forwarder = if let Some(sub) = subs.remove(&target_id) {
+    let (forwarder, ended_generation) = if let Some(sub) = subs.remove(&target_id) {
         let _ = sub.handle.human_channel().detach();
         drop(sub.handle);
-        Some(sub.forwarder)
+        (Some(sub.forwarder), sub.generation)
     } else {
-        None
+        (None, 1)
     };
 
     if killed && forwarder.is_some() {
@@ -1358,7 +1364,7 @@ async fn handle_end_thread(
                     if wire_sink
                         .send(Wire::Response {
                             response: *response,
-                            generation: 1,
+                            generation: ended_generation,
                         })
                         .await
                         .is_err()
@@ -1452,7 +1458,7 @@ async fn run_session_loop(params: SessionLoopParams) -> Result<(), String> {
         mut monitor_rx,
     } = params;
 
-    let (mux_tx, mut mux_rx) = tokio::sync::mpsc::channel::<MuxEvent>(256);
+    let (mux_tx, mut mux_rx) = tokio::sync::mpsc::channel::<MuxEvent>(1024);
     let mut subs = SubscriptionTable::empty();
     let mut interactive_guard = None;
     let mut pending_delta: Option<PendingDelta> = None;

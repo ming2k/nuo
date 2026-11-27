@@ -130,6 +130,9 @@ pub struct DashboardProps<'a> {
     pub usage_loading: bool,
     /// Scroll offset for the model usage analytics report view.
     pub usage_scroll: usize,
+    /// Client/server lifecycle warning (reconnecting, draining, failed, link lost),
+    /// surfaced in Tier 2 `SceneBar` when degraded.
+    pub lifecycle_status: Option<&'a str>,
 }
 
 /// Resolve the authentic semantic display title for a thread (ADR-0050, ADR-0129).
@@ -225,6 +228,7 @@ pub fn draw_dashboard(
         usage_report,
         usage_loading,
         usage_scroll,
+        lifecycle_status,
     } = props;
     // A true full-screen surface: clear the whole frame and paint our own
     // backdrop.
@@ -349,14 +353,18 @@ pub fn draw_dashboard(
         nuo_view::view_header::TabBarNavRects::default()
     };
     let (summary, needs_attention) = header_content(rows);
+    let (scene_context, scene_warn) = match lifecycle_status {
+        Some(status) => (status, true),
+        None => (summary.trim_end(), needs_attention),
+    };
     crate::shell::render::draw_scene_bar(
         frame,
         scene_rect,
         &crate::shell::render::ViewHints {
             kind: crate::shell::surfaces::SceneKind::Dashboard,
             role: None,
-            context: Some(summary.trim_end()),
-            context_warn: needs_attention,
+            context: Some(scene_context),
+            context_warn: scene_warn,
             breadcrumbs: None,
             can_back: false,
             can_forward: false,

@@ -289,9 +289,7 @@ pub(crate) fn render_transcript_frame(
     scroll: usize,
     height_cache: Option<&mut crate::shell::render::HeightCache>,
 ) -> RenderedTranscript {
-    use crate::shell::render::{
-        EmptyStateGuidance, QueueBarProps, Theme, TranscriptProps, draw_transcript,
-    };
+    use crate::shell::render::{QueueBarProps, Theme, TranscriptProps, draw_transcript};
     use nuo_view::model::layout::LayoutMap;
 
     let theme = Theme::default();
@@ -329,9 +327,6 @@ pub(crate) fn render_transcript_frame(
                 hovered_step: None,
                 focused_entry: None,
                 focus_plane: crate::shell::render::FocusPlane::Composer,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
                 theme: &theme,
                 layout: nuo_view::layout::Strategy::default(),
                 height_cache,

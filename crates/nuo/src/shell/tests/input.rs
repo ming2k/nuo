@@ -1153,6 +1153,12 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
 #[tokio::test]
 async fn shift_tab_crosses_planes_and_the_same_press_returns() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.threads
+        .messages
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
+            "hello",
+        ));
     let sid = app.session.current_session_id.clone();
     let back_tab = graticule::event::Event::Key(graticule::event::KeyEvent::new(
         graticule::event::KeyCode::BackTab,
@@ -1183,6 +1189,12 @@ async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
     use nuo_view::model::layout::InteractiveTarget;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.threads
+        .messages
+        .push(nuo_view::model::document::TranscriptMessage::new(
+            nuo_tool::Role::User,
+            "hello",
+        ));
     let sid = app.session.current_session_id.clone();
     let back_tab = graticule::event::Event::Key(graticule::event::KeyEvent::new(
         graticule::event::KeyCode::BackTab,

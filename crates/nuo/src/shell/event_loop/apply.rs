@@ -896,6 +896,7 @@ fn apply_route_settings(
 
 fn apply_provider_picker(app: &mut App, snapshot: nuo_protocol::ProviderPickerSnapshot) -> bool {
     app.surfaces.provider_picker = snapshot;
+    app.surfaces.provider_picker_synced = true;
     app.surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>()

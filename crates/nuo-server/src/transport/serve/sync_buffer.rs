@@ -159,6 +159,29 @@ impl AttachSyncBuffer {
     }
 }
 
+/// Strip provider-only replay metadata and raw base64 image pixels from a
+/// human-facing transcript before shipping it over the wire (`ThreadSnapshot`
+/// / `ConversationReplaced`). Durable storage (`session.full_transcript()`) is
+/// untouched; the client never renders raw `provider_meta` signatures or
+/// multi-megabyte base64 image blobs, and omitting them keeps long,
+/// screenshot-heavy threads well within wire frame limits.
+pub(crate) fn project_transcript_for_wire(
+    mut messages: Vec<nuo_tool::Message>,
+) -> Vec<nuo_tool::Message> {
+    for message in &mut messages {
+        message.provider_meta = None;
+        if let Some(images) = message.images.as_mut() {
+            for image in images {
+                image.data.clear();
+            }
+        }
+        if let Some(children) = message.children.take() {
+            message.children = Some(project_transcript_for_wire(children));
+        }
+    }
+    messages
+}
+
 /// Build the authoritative hydration frame for one hosted session.
 ///
 /// `[INV-ATTACH-04]` (ADR-0133): this is the complete visible state — durable
@@ -174,7 +197,7 @@ pub(crate) async fn build_full_session_snapshot(
         let buffer = hosted.sync_buffer.lock().await;
         buffer.build_session_snapshot(&session_id)
     };
-    snapshot.messages = session.full_transcript().await;
+    snapshot.messages = project_transcript_for_wire(session.full_transcript().await);
     snapshot.round_counter = session.round_counter().await;
     snapshot.todos = session.todos().await.items;
     snapshot.commands = session.commands().await;

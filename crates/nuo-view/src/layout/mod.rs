@@ -28,7 +28,7 @@
 //! in [`Strategy::build`].
 pub mod turn_band;
 
-use graticule_canvas::{Color, Flex, FlexItem, Frame, Rect};
+use graticule_canvas::{Color, Frame, Rect};
 
 use crate::model::document::TranscriptMessage;
 use crate::model::layout::{InteractiveTarget, LayoutMap};
@@ -54,7 +54,7 @@ pub struct StickyAnchor {
 #[derive(Default)]
 pub struct HeightCache {
     width: u16,
-    heights: std::collections::HashMap<u64, (u64, u16)>,
+    heights: std::collections::HashMap<u64, (u64, usize)>,
     virtual_index: Option<VirtualLayoutIndex>,
     pub diff_cache: crate::tools::DiffCache,
     pub wrap: BlockWrapCache,
@@ -90,7 +90,7 @@ impl HeightCache {
         self.resolved.take()
     }
 
-    pub fn get_with_rev(&self, id: u64, rev: u64) -> Option<u16> {
+    pub fn get_with_rev(&self, id: u64, rev: u64) -> Option<usize> {
         self.heights.get(&id).and_then(
             |&(cached_rev, h)| {
                 if cached_rev == rev { Some(h) } else { None }
@@ -98,11 +98,11 @@ impl HeightCache {
         )
     }
 
-    pub fn get(&self, id: u64) -> Option<u16> {
+    pub fn get(&self, id: u64) -> Option<usize> {
         self.heights.get(&id).map(|&(_, h)| h)
     }
 
-    pub fn set_with_rev(&mut self, id: u64, rev: u64, height: u16) {
+    pub fn set_with_rev(&mut self, id: u64, rev: u64, height: usize) {
         let prev = self.heights.insert(id, (rev, height));
         // Only invalidate the settled virtual index when an existing cached
         // message's height actually changed (e.g., expand/collapse or edit).
@@ -115,7 +115,7 @@ impl HeightCache {
         }
     }
 
-    pub fn set(&mut self, id: u64, height: u16) {
+    pub fn set(&mut self, id: u64, height: usize) {
         self.set_with_rev(id, 0, height);
     }
 
@@ -309,29 +309,21 @@ pub fn build_virtual_index(
         return None;
     }
 
-    // Single flex solve for the prefix settled chunk geometry.
-    let items: Vec<FlexItem> = plans
-        .iter()
-        .map(|p| FlexItem::fixed(u16::try_from(p.height).unwrap_or(u16::MAX)))
-        .collect();
-    let solved = Flex::column().solve_with(Rect::new(0, 0, 0, u16::MAX), &items, &|_, _| 0);
-
-    let chunks: Vec<VirtualChunk> = plans
-        .iter()
-        .enumerate()
-        .map(|(i, p)| VirtualChunk {
+    // Exact `usize` prefix sums over settled chunks so neither individual huge
+    // turn bands nor very long transcripts ever saturate a `u16` axis ceiling.
+    let mut cursor = 0usize;
+    let mut chunks = Vec::with_capacity(plans.len());
+    for p in plans {
+        let start_line = cursor;
+        cursor = cursor.saturating_add(p.height);
+        chunks.push(VirtualChunk {
             message_start: p.message_start,
             message_end: p.message_end,
-            start_line: solved.main_offset(i),
-            end_line: solved.main_offset(i) + solved.main_exact(i),
-        })
-        .collect();
-    let total_lines = solved.used_main;
-    debug_assert_eq!(
-        total_lines,
-        chunks.last().map(|c| c.end_line).unwrap_or(0),
-        "flex solve must reproduce the exact chunk extents"
-    );
+            start_line,
+            end_line: cursor,
+        });
+    }
+    let total_lines = cursor;
 
     Some(VirtualLayoutIndex {
         strategy,
@@ -398,7 +390,7 @@ fn plan_turn_band(
 }
 
 fn cached_height(cache: &HeightCache, message: &TranscriptMessage) -> Option<usize> {
-    cache.get(message.id).map(usize::from)
+    cache.get_with_rev(message.id, message.rev)
 }
 
 /// Whether a message participates in an assistant model-request group. A group
@@ -601,15 +593,15 @@ impl<'a, 'f> Stream<'a, 'f> {
         } else {
             None
         };
-        let fully_above = cached_height.is_some_and(|h| (h as usize) <= self.skip_rows);
+        let fully_above = cached_height.is_some_and(|h| h <= self.skip_rows);
         let fully_below = self.current_y >= viewport_bottom;
 
         if let Some(h) = cached_height.filter(|_| fully_above || fully_below) {
             // Reproduce exactly the counter mutations a fully-clipped body draw
             // would make, minus the wrapping work.
-            self.content_lines += h as usize;
+            self.content_lines += h;
             if fully_above {
-                self.skip_rows -= h as usize;
+                self.skip_rows -= h;
             }
         } else if msg.is_notice() {
             crate::notice::draw_notice(
@@ -738,8 +730,7 @@ impl<'a, 'f> Stream<'a, 'f> {
 
         // Cache the freshly-measured height for skippable kinds only.
         if skippable && cached_height.is_none() {
-            self.height_cache
-                .set_with_rev(msg.id, msg.rev, body_height as u16);
+            self.height_cache.set_with_rev(msg.id, msg.rev, body_height);
         }
     }
 
@@ -791,10 +782,14 @@ impl<'a, 'f> Stream<'a, 'f> {
     /// viewport bottom. `content_lines` always counts the full height.
     pub fn gap(&mut self, n: usize) {
         self.content_lines += n;
-        if self.skip_rows > 0 {
-            self.skip_rows = self.skip_rows.saturating_sub(n);
-        } else if self.current_y < self.band.y + self.band.height {
-            self.current_y = self.current_y.saturating_add(n as u16);
+        let consumed = self.skip_rows.min(n);
+        self.skip_rows -= consumed;
+        let visible = n - consumed;
+        let viewport_bottom = self.band.y + self.band.height;
+        if visible > 0 && self.current_y < viewport_bottom {
+            let remaining = viewport_bottom.saturating_sub(self.current_y);
+            let step = u16::try_from(visible).unwrap_or(u16::MAX).min(remaining);
+            self.current_y = self.current_y.saturating_add(step);
         }
     }
 
@@ -883,5 +878,50 @@ mod tests {
             !default_group_start(&messages, 1),
             "a user message never anchors a turn band header"
         );
+    }
+
+    #[test]
+    fn cached_height_rejects_stale_message_revision() {
+        let mut msg = TranscriptMessage::new(Role::Assistant, "initial");
+        let mut cache = HeightCache::default();
+        cache.set_with_rev(msg.id, msg.rev, 5);
+        assert_eq!(cached_height(&cache, &msg), Some(5));
+
+        msg.rev += 1;
+        assert_eq!(
+            cached_height(&cache, &msg),
+            None,
+            "plan_turn_band must not reuse cached height for a mutated message rev"
+        );
+    }
+
+    #[test]
+    fn virtual_index_handles_heights_above_u16_max_without_clamping() {
+        let m1 = TranscriptMessage::new(Role::User, "first");
+        let m2 = TranscriptMessage::new(Role::Assistant, "second");
+        let messages = vec![m1.clone(), m2.clone()];
+
+        let mut cache = HeightCache::default();
+        cache.set_with_rev(m1.id, m1.rev, 70_000);
+        cache.set_with_rev(m2.id, m2.rev, 70_000);
+
+        let index =
+            build_virtual_index(&messages, &cache, Strategy::TurnBand).expect("virtual index");
+        let expected_total =
+            STREAM_TOP_GAP_ROWS + 70_000 + MESSAGE_GAP_ROWS + 70_000 + STREAM_BOTTOM_GAP_ROWS;
+        assert_eq!(
+            index.total_lines, expected_total,
+            "virtual index must sum exact usize heights without u16 clamping"
+        );
+        let top = index.window(0, 24).expect("top window");
+        assert_eq!(top.message_start, 0);
+        assert_eq!(top.prefix_lines, 0);
+        assert_eq!(top.skip_rows, 0);
+
+        let second = index
+            .window(STREAM_TOP_GAP_ROWS + 70_000 + 10, 24)
+            .expect("second window");
+        assert_eq!(second.message_start, 1);
+        assert_eq!(second.prefix_lines, STREAM_TOP_GAP_ROWS + 70_000);
     }
 }
